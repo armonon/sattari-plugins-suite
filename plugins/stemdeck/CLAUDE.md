@@ -4,6 +4,18 @@ You're working on **StemDeck in isolation**. It's a DJ-style 4-deck remix plugin
 (VST3 + Standalone, **no AU**), plugin code `Sd01`, ~6.5k LOC, **app-first** direction.
 The rest of the Sattari suite is not your concern here unless you touch `core/`.
 
+## You are inside a git worktree
+
+This directory (`~/Downloads/sattari-plugins-stemdeck/`) is a **git worktree** on the
+`stemdeck` branch. The sibling `~/Downloads/sattari-plugins-main/` is the same repo on
+`main`. The two branches edit independent working trees but share `.git` state, so:
+
+* You can `git commit` here without touching `main`.
+* `third_party/JUCE` and `third_party/rubberband` are **symlinks** back to the main
+  worktree — you do not need to re-clone them. Build dirs (`build/`) are per-worktree.
+* When you're done, `cd ../sattari-plugins-main && git merge stemdeck` to land the work
+  on `main` (or open a PR if you push the branch).
+
 ## Build & validate (per-plugin — fast, no need to build the whole suite)
 
 ```bash
