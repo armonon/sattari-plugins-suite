@@ -1,5 +1,6 @@
 #include "RoyalChainProcessor.h"
 #include "RoyalChainEditor.h"
+#include <sattari_audio_core/SattariPitchDetector.h>
 
 RoyalChainAudioProcessor::RoyalChainAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -21,6 +22,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::cr
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("clean", "Clean", macroRange, 0.55f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("tune", "Tune", macroRange, 0.00f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneKey", "Tune Key",
+        juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneScale", "Tune Scale",
+        juce::StringArray { "Chromatic", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("control", "Control", macroRange, 0.58f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("tone", "Tone", macroRange, 0.52f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("air", "Air", macroRange, 0.42f));
@@ -90,7 +95,9 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float outputDb = apvts.getRawParameterValue ("output")->load();
 
     cleanModule.process (buffer, inputDb, macros.clean, macros.royal);
-    tuneModule.process (buffer, macros.tune);
+    const int tuneKey = (int) apvts.getRawParameterValue ("tuneKey")->load();
+    const int tuneScaleIdx = (int) apvts.getRawParameterValue ("tuneScale")->load();
+    tuneModule.process (buffer, macros.tune, tuneKey, (sattari::dsp::ScaleId) tuneScaleIdx);
     controlModule.process (buffer, macros.control, macros.royal);
     toneModule.process (buffer, macros.tone, macros.air, macros.royal);
     deEsserModule.process (buffer, macros.smooth, macros.royal);

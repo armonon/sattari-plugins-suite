@@ -48,7 +48,9 @@ void TuneModule::reset()
     samplesSinceAnalysis = 0;
 }
 
-void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount)
+void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
+                          int keyRoot,
+                          sattari::dsp::ScaleId scale)
 {
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
@@ -90,9 +92,14 @@ void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount)
         double targetScale = 1.0;
         if (r.voiced && r.frequencyHz > 0.0f)
         {
-            // Snap to the nearest equal-tempered semitone (chromatic auto-tune).
-            const float snapped = sattari::dsp::snapHzToSemitone (r.frequencyHz);
-            targetScale = juce::jlimit (0.5, 2.0, (double) snapped / (double) r.frequencyHz);
+            // Key-aware snap: go via MIDI, choose the nearest in-key tone (or the
+            // nearest chromatic semitone when scale = ChromaticOff). Same shared
+            // helper as Auto Pitch, so the two engines now share snap behaviour.
+            const float midi = sattari::dsp::hzToMidi (r.frequencyHz);
+            const int nearestMidi = (int) std::lround (midi);
+            const int snappedMidi = sattari::dsp::snapMidiToScale (nearestMidi, keyRoot, scale);
+            const float targetHz = sattari::dsp::midiToHz ((float) snappedMidi);
+            targetScale = juce::jlimit (0.5, 2.0, (double) targetHz / (double) r.frequencyHz);
         }
         // Blend toward the target by the Tune amount (0 = none, 1 = full snap).
         const double blended = std::pow (targetScale, (double) juce::jlimit (0.0f, 1.0f, tuneAmount));

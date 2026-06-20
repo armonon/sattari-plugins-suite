@@ -214,6 +214,14 @@ void SattariAutoPitchAudioProcessor::pushPitchSample (float sample)
     pitchWriteIndex = (pitchWriteIndex + 1) % pitchFrameSize;
 }
 
+// Auto Pitch's pitch follower is deliberately NOT migrated to the shared
+// sattari::dsp::PitchDetector. The shared detector targets general suite use
+// (Sub Conjurer, VoxKey, Royal Chain) and: (1) does not Hann-window the analysis
+// frame, and (2) picks the SHORTEST qualifying lag to dodge sub-harmonic errors.
+// Auto Pitch instead Hann-windows the frame (cleaner spectral peak for retune)
+// and picks the highest-score lag. Both behaviours are baked into the
+// AutoPitchCoreContract test (precise -33.5 cents correction), so this is kept
+// bespoke. The shared module remains the right choice everywhere else.
 SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analyseCurrentPitchFrame() const
 {
     PitchFrame result;
@@ -299,21 +307,61 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
 
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
-    double bestScore = -1.0;
-    int bestRoot = detectedAutoRoot;
-    for (int root = 0; root < 12; ++root)
-    {
-        double score = 0.0;
-        for (int noteIndex = 0; noteIndex < 12; ++noteIndex)
-        {
-            const int degree = ((noteIndex - root) % 12 + 12) % 12;
-            score += autoKeyHistogram[(size_t) noteIndex] * (scaleAllowsDegree (degree, scaleName) ? 1.0 : -0.18);
-        }
 
-        if (score > bestScore)
+    // Krumhansl-Schmuckler key-profile correlation for major/minor (the textbook
+    // music-IR algorithm — pitch-classes are weighted by their perceptual key-
+    // definition strength, not just in/out of scale). Highest Pearson correlation
+    // between the rolling histogram and a candidate key's profile wins.
+    static constexpr double kProfileMajor[12] = {
+        6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88
+    };
+    static constexpr double kProfileMinor[12] = {
+        6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17
+    };
+
+    auto pearson = [this] (const double* profile, int root) -> double
+    {
+        double meanH = 0.0, meanP = 0.0;
+        for (int i = 0; i < 12; ++i) { meanH += autoKeyHistogram[(size_t) i]; meanP += profile[i]; }
+        meanH /= 12.0; meanP /= 12.0;
+        double num = 0.0, dH = 0.0, dP = 0.0;
+        for (int i = 0; i < 12; ++i)
         {
-            bestScore = score;
-            bestRoot = root;
+            const double h = autoKeyHistogram[(size_t) ((i + root) % 12)] - meanH;
+            const double p = profile[i] - meanP;
+            num += h * p; dH += h * h; dP += p * p;
+        }
+        const double denom = std::sqrt (dH * dP);
+        return denom > 1.0e-9 ? num / denom : -1.0;
+    };
+
+    double bestScore = -2.0;
+    int bestRoot = detectedAutoRoot;
+
+    if (scaleName == "major" || scaleName == "minor")
+    {
+        // Correlate against the user-selected mode's profile across all 12 roots.
+        const double* profile = (scaleName == "major") ? kProfileMajor : kProfileMinor;
+        for (int root = 0; root < 12; ++root)
+        {
+            const double s = pearson (profile, root);
+            if (s > bestScore) { bestScore = s; bestRoot = root; }
+        }
+    }
+    else
+    {
+        // Chromatic / non-modal: fall back to "which root maximises in-scale energy",
+        // same shape as before but using the shared scaleAllowsDegree() helper.
+        for (int root = 0; root < 12; ++root)
+        {
+            double score = 0.0;
+            for (int noteIndex = 0; noteIndex < 12; ++noteIndex)
+            {
+                const int degree = ((noteIndex - root) % 12 + 12) % 12;
+                score += autoKeyHistogram[(size_t) noteIndex]
+                       * (scaleAllowsDegree (degree, scaleName) ? 1.0 : -0.18);
+            }
+            if (score > bestScore) { bestScore = score; bestRoot = root; }
         }
     }
 
