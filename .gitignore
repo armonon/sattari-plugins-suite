@@ -1,0 +1,41 @@
+# Build products
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Local Python / smoke-test state
+.venv/
+tmp/
+__pycache__/
+*/__pycache__/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Generated plugin bundles / installers
+*.vst3/
+*.component/
+*.app/
+*.pkg
+*.dmg
+*.zip
+*.tar.gz
+
+# Swift build cache
+apps/sattari-hub/.build/
+
+# Third-party deps (intentionally not tracked here).
+#   JUCE is documented in BUILD.md as either a submodule or a manual 8.0.12 clone
+#   into third_party/JUCE. Rubber Band is documented as vendored / optional submodule.
+#   Both are re-fetchable; keeping them out of git keeps the repo small (~110 MB).
+third_party/JUCE/
+third_party/rubberband/
+third_party/.rubberband_broken/
+
+# Logs + FUSE filesystem leftovers.
+*.log
+**/.fuse_hidden*

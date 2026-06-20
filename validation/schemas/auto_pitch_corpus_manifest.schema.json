@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sattari.audio/schemas/auto-pitch-corpus-manifest.schema.json",
+  "title": "Sattari Auto Pitch Vocal Corpus Manifest",
+  "type": "object",
+  "required": ["version", "truth_label", "audio_policy", "clips"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "truth_label": { "type": "string" },
+    "audio_policy": { "type": "string" },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "styles": { "type": "array", "items": { "enum": ["natural", "modern", "hard"] } },
+        "render_engines": { "type": "array", "items": { "enum": ["psola-lite", "granular"] } }
+      },
+      "additionalProperties": true
+    },
+    "coverage_requirements": {
+      "type": "array",
+      "items": { "enum": ["rap", "rnb", "soft_singing", "belting", "vibrato", "male_vocal", "female_vocal", "noisy_vocal", "fast_note_transitions"] }
+    },
+    "minimum_real_clip_count": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 5,
+      "description": "Minimum owned/cleared/public-domain non-synthetic vocal clips required before flagship_validation_ready can pass. Synthetic fixtures never count toward this floor."
+    },
+    "clips": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["clip_id", "source_path", "permission_status", "cleared_for_internal_eval", "public_release_allowed", "vocal_tags", "known_challenges"],
+        "properties": {
+          "clip_id": { "type": "string", "minLength": 1 },
+          "source_path": { "type": "string", "minLength": 1 },
+          "permission_status": { "enum": ["owned", "cleared", "public-domain", "synthetic-fixture"] },
+          "cleared_for_internal_eval": { "const": true },
+          "public_release_allowed": { "type": "boolean" },
+          "singer_profile": { "type": "string" },
+          "voice_range": { "type": "string" },
+          "vocal_tags": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["rap", "rnb", "soft_singing", "belting", "vibrato", "male_vocal", "female_vocal", "noisy_vocal", "fast_note_transitions"] }
+          },
+          "expected_key": {
+            "type": "object",
+            "properties": {
+              "root": { "type": "string" },
+              "scale": { "type": "string" }
+            },
+            "additionalProperties": true
+          },
+          "style_target": { "type": "array", "items": { "enum": ["natural", "modern", "hard"] } },
+          "render_engines": { "type": "array", "items": { "enum": ["psola-lite", "granular"] } },
+          "known_challenges": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

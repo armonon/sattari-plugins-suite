@@ -1,0 +1,111 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include <sattari_audio_core/SattariAudioCore.h>
+#include <array>
+#include <memory>
+#include <vector>
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+ #include <rubberband/RubberBandStretcher.h>
+#endif
+
+class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor
+{
+public:
+    SattariAutoPitchAudioProcessor();
+    ~SattariAutoPitchAudioProcessor() override = default;
+
+    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void releaseResources() override;
+
+    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
+
+    const juce::String getName() const override { return "Sattari Auto Pitch"; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    bool isMidiEffect() const override { return false; }
+    double getTailLengthSeconds() const override;
+
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram (int) override {}
+    const juce::String getProgramName (int) override { return {}; }
+    void changeProgramName (int, const juce::String&) override {}
+
+    void getStateInformation (juce::MemoryBlock& destData) override;
+    void setStateInformation (const void* data, int sizeInBytes) override;
+
+    juce::AudioProcessorValueTreeState& parameters() { return apvts; }
+    bool applyTraceContractJson (const juce::String& traceJson);
+    juce::String getLastTraceSummary() const { return lastTraceSummary; }
+    juce::String getLiveStatusSummary() const;
+    juce::String getKeyDetectionTabSummary() const;
+
+private:
+    struct PitchFrame
+    {
+        double frequencyHz = 0.0;
+        double midi = 0.0;
+        double targetMidi = 0.0;
+        double correctionCents = 0.0;
+        double confidence = 0.0;
+        double rms = 0.0;
+        bool voiced = false;
+    };
+
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void setParameterValue (const juce::String& parameterID, float value);
+    static int rootToChoiceIndex (const juce::String& root);
+    static int scaleToChoiceIndex (const juce::String& scale);
+    static int styleToChoiceIndex (const juce::String& style);
+    static juce::String midiNoteName (double midi);
+    sattari::audio_core::KeySignature currentKeySignature() const;
+    juce::String currentSattariWheelCode() const;
+
+    void resetPitchState (int maxBlockSize);
+    void pushPitchSample (float sample);
+    PitchFrame analyseCurrentPitchFrame() const;
+    PitchFrame buildCorrectionFrame (PitchFrame detected) const;
+    int currentCorrectionRootIndex() const;
+    void updateAutoKeyHistogram (const PitchFrame& frame);
+    float styleCorrectionStrength() const;
+    float styleRetuneCoefficient() const;
+    juce::String currentStyleChoice() const;
+    double pitchScaleForFrame (const PitchFrame& frame) const;
+    void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
+
+    juce::AudioProcessorValueTreeState apvts;
+    double currentSampleRate = 44100.0;
+    int preparedBlockSize = 512;
+    juce::String lastTraceSummary { "No trace loaded" };
+
+    std::vector<float> pitchFrameBuffer;
+    int pitchWriteIndex = 0;
+    int pitchSamplesUntilAnalysis = 0;
+    PitchFrame lastPitchFrame;
+
+    // Preallocated scratch so the audio thread never calls makeCopyOf():
+    //  - formantScratch: dry copy for the no-RubberBand pitch-guide fallback
+    //  - harmonyScratch: base copy for the "Big Harmony" style layer
+    // Declared mutable because applyModeCharacter() is const.
+    mutable juce::AudioBuffer<float> formantScratch;
+    mutable juce::AudioBuffer<float> harmonyScratch;
+    double smoothedPitchScale = 1.0;
+    std::array<double, 12> autoKeyHistogram {};
+    int detectedAutoRoot = 9;
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;
+    juce::AudioBuffer<float> rubberBandOutput;
+    std::vector<float> rubberBandScratch;
+#endif
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessor)
+};

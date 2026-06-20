@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sattari.audio/schemas/render-manifest.schema.json",
+  "title": "Sattari Audio Render Manifest",
+  "type": "object",
+  "required": ["suite", "product_id", "product_version", "release_gate", "source_commit", "outputs"],
+  "properties": {
+    "suite": { "const": "sattari-audio" },
+    "product_id": { "type": "string", "minLength": 1 },
+    "product_version": { "type": "string", "minLength": 1 },
+    "release_gate": {
+      "enum": ["prototype", "internal alpha", "validated alpha", "beta", "public beta", "release candidate", "sale-ready"]
+    },
+    "truth_label": { "type": "string" },
+    "source_commit": { "type": "string", "minLength": 1 },
+    "preset_id": { "type": "string" },
+    "seed": { "type": ["string", "number", "null"] },
+    "inputs": { "type": "array", "items": { "type": "string" } },
+    "outputs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "metrics": { "type": "object", "additionalProperties": true },
+    "known_limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

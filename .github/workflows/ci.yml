@@ -1,0 +1,103 @@
+name: Sattari Audio CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast, dependency-light gates. No JUCE / no submodules, so this finishes in
+  # seconds and gives quick feedback on structure + cross-language consistency.
+  # ---------------------------------------------------------------------------
+  checks:
+    name: Checks (structure + brand sync + core contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Suite structure inventory
+        run: python3 scripts/suite_gate_check.py
+
+      - name: Source layout + truth-label gate
+        run: ./scripts/validate_sources.sh
+
+      - name: Brand registry <-> Hub manifest sync
+        run: python3 scripts/check_brand_registry_sync.py
+
+      - name: Build + run pure-C++ core contract
+        run: |
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/harmonic_core_contract.cpp -o /tmp/harmonic_core_contract
+          /tmp/harmonic_core_contract
+
+  # ---------------------------------------------------------------------------
+  # Per-plugin build matrix on macOS: proves each plugin still configures and
+  # builds AU/VST3/Standalone, and runs the plugin's contract test where one
+  # exists. fail-fast: false so one broken plugin doesn't mask the others.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.plugin }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { plugin: sub-conjurer }
+          - { plugin: side-chain-master }
+          - { plugin: royal-chain }
+          - { plugin: sattari-arp }
+          - { plugin: voxkey,     test: VoxKeyCoreContract }
+          - { plugin: auto-pitch, test: AutoPitchCoreContract }
+          - { plugin: stemdeck,   test: StemDeckArchitectureContract }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # JUCE lives in third_party/JUCE
+
+      - name: Install build tools
+        run: brew install ninja rubberband pkg-config
+
+      - name: Configure
+        run: >
+          cmake -S plugins/${{ matrix.plugin }}
+          -B build/${{ matrix.plugin }}
+          -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build plugin (AU/VST3/Standalone)
+        run: cmake --build build/${{ matrix.plugin }} --config Release -j3
+
+      - name: Build + run contract test
+        if: ${{ matrix.test != '' }}
+        run: |
+          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.test }} -j3
+          bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.test }}' -perm +111 | head -n1)"
+          if [ -z "$bin" ]; then echo "::error::contract test binary ${{ matrix.test }} not found"; exit 1; fi
+          echo "Running $bin"
+          "$bin"
+
+  # ---------------------------------------------------------------------------
+  # Suite build from the repo root: compiles JUCE once and every plugin + core
+  # together, catching cross-target / shared-core breakage the matrix can miss.
+  # ---------------------------------------------------------------------------
+  suite-build:
+    name: Build whole suite (root)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: brew install ninja rubberband pkg-config
+
+      - name: Configure suite
+        run: cmake -S . -B build/all -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build suite
+        run: cmake --build build/all --config Release -j3

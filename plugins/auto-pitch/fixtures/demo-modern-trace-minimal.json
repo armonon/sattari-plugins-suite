@@ -1,0 +1,47 @@
+{
+  "version": "0.6.0-guardrail-segmentation-v0",
+  "truth_label": "internal trace-contract fixture; no audio; not vocal-quality proof",
+  "settings": {
+    "root": "A",
+    "scale": "minor",
+    "style": "modern",
+    "style_label": "Modern Tight"
+  },
+  "key_suggestion": {
+    "root": "C",
+    "scale": "major",
+    "confidence": 0.604,
+    "alternatives": [
+      { "root": "C", "scale": "major", "score": 0.84 },
+      { "root": "A", "scale": "minor", "score": 0.84 }
+    ]
+  },
+  "pitch_compass": {
+    "root": "A",
+    "scale": "minor",
+    "notes": [
+      { "name": "C", "enabled": true, "histogram_weight": 0.1543, "gravity": 1.0 },
+      { "name": "C#", "enabled": false, "histogram_weight": 0.0065, "gravity": 0.0 },
+      { "name": "D", "enabled": true, "histogram_weight": 0.026, "gravity": 1.0 },
+      { "name": "D#", "enabled": false, "histogram_weight": 0.0013, "gravity": 0.0 },
+      { "name": "E", "enabled": true, "histogram_weight": 0.1988, "gravity": 1.0 },
+      { "name": "F", "enabled": true, "histogram_weight": 0.0252, "gravity": 1.0 },
+      { "name": "F#", "enabled": false, "histogram_weight": 0.0031, "gravity": 0.0 },
+      { "name": "G", "enabled": true, "histogram_weight": 0.151, "gravity": 1.0 },
+      { "name": "G#", "enabled": false, "histogram_weight": 0.0485, "gravity": 0.0 },
+      { "name": "A", "enabled": true, "histogram_weight": 0.3852, "gravity": 1.0 },
+      { "name": "A#", "enabled": false, "histogram_weight": 0.0, "gravity": 0.0 },
+      { "name": "B", "enabled": true, "histogram_weight": 0.0, "gravity": 1.0 }
+    ]
+  },
+  "summary": {
+    "points": 127,
+    "voiced_points": 127,
+    "voiced_ratio": 1.0,
+    "protected_region_count": 18,
+    "avg_confidence": 0.872,
+    "avg_abs_correction_cents": 12.89,
+    "max_abs_correction_cents": 77.82,
+    "do_no_harm_events": 18
+  }
+}
