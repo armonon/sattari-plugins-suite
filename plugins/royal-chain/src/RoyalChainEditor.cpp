@@ -47,7 +47,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     setupSlider (inputSlider, "Input", " dB");
     setupSlider (outputSlider, "Output", " dB");
     setupSlider (cleanSlider, "Clean");
-    setupSlider (tuneSlider, "Tune*");
+    setupSlider (tuneSlider, "Tune");
     setupSlider (controlSlider, "Control");
     setupSlider (toneSlider, "Tone");
     setupSlider (airSlider, "Air");
@@ -192,7 +192,7 @@ void RoyalChainAudioProcessorEditor::drawChainFlow (juce::Graphics& g, juce::Rec
 
 void RoyalChainAudioProcessorEditor::drawSliderLabel (juce::Graphics& g, const juce::Slider& slider)
 {
-    g.setColour (slider.getName() == "Tune*" ? juce::Colour (0xffa78bfa) : juce::Colours::white.withAlpha (0.88f));
+    g.setColour (slider.getName() == "Tune" ? juce::Colour (0xffa78bfa) : juce::Colours::white.withAlpha (0.88f));
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     auto b = slider.getBounds();
     g.drawText (slider.getName(), b.withHeight (18).translated (0, -14), juce::Justification::centred);

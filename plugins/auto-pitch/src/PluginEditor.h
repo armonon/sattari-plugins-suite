@@ -109,8 +109,8 @@ private:
     juce::Label editNotesLabel, detuneLabel, modeLabel;
     juce::ToggleButton lowLatency { "Low Latency" };
 
-    juce::Label retuneSpeedCaption, flexTuneCaption, formantCaptionBasic;
-    juce::Slider retuneSpeed, flexTune, formantShiftBasic;
+    juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;
+    juce::Slider retuneSpeed, flexTune, humanize;
     juce::ToggleButton style;        // off = Modern, on = Classic
     juce::Label modernLabel, classicLabel;
 
@@ -135,7 +135,7 @@ private:
 
     // --- APVTS attachments ---------------------------------------------------
     std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
-    std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, formantShiftBasicAttach,
+    std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, humanizeAttach,
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
     std::unique_ptr<ButtonAttachment> autoKeyAttach, lowLatencyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach;

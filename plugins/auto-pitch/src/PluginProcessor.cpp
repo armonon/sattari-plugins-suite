@@ -139,6 +139,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
         juce::StringArray { "Wide", "Bass", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano" }, 4));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize", "Humanize",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -829,6 +831,33 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const double retune = (double) styleRetuneCoefficient();
     smoothedPitchScale += (targetPitchScale - smoothedPitchScale) * retune;
     smoothedPitchScale = juce::jlimit (0.5, 2.0, smoothedPitchScale);
+
+    // Humanize: slow random walk between fresh target cent-offsets, low-pass
+    // filtered toward the current target. New target every ~200 ms (humans
+    // don't drift faster than that), max ±25 cents at humanize=1. Applied
+    // multiplicatively on the smoothed pitch scale so the natural vocal vibrato
+    // shape stays intact - we're just biasing the centre of tuning.
+    const float humanize = apvts.getRawParameterValue ("humanize")->load();
+    if (humanize > 0.0001f)
+    {
+        if (--humanizeBlocksUntilNewTarget <= 0)
+        {
+            humanizeTargetCents = (humanizeRng.nextDouble() * 2.0 - 1.0) * 25.0;
+            const double blocksPer200ms = (currentSampleRate * 0.2) / juce::jmax (1, numSamples);
+            humanizeBlocksUntilNewTarget = juce::jmax (1, (int) std::round (blocksPer200ms));
+        }
+        // One-pole toward the target, time constant ~80 ms.
+        const double blockTime = (double) numSamples / currentSampleRate;
+        const double alpha = 1.0 - std::exp (-blockTime / 0.080);
+        humanizeSmoothedCents += alpha * (humanizeTargetCents - humanizeSmoothedCents);
+        const double centsApplied = humanizeSmoothedCents * (double) humanize;
+        smoothedPitchScale *= std::pow (2.0, centsApplied / 1200.0);
+        smoothedPitchScale = juce::jlimit (0.5, 2.0, smoothedPitchScale);
+    }
+    else
+    {
+        humanizeSmoothedCents *= 0.95;   // drift back to zero when off
+    }
 
     const float inputDb = apvts.getRawParameterValue ("inputGain")->load();
     const float outputDb = apvts.getRawParameterValue ("outputGain")->load();

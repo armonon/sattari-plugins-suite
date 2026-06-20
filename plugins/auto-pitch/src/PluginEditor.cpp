@@ -219,8 +219,10 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     styleKnob (retuneSpeed, true);
     styleKnob (flexTune);
-    styleKnob (formantShiftBasic);
-    formantShiftBasic.setTextValueSuffix (" st");
+    styleKnob (humanize);
+    humanize.textFromValueFunction = [] (double v) {
+        return juce::String ((int) std::round (v * 100.0));
+    };
     flexTune.textFromValueFunction = [] (double v) {
         return juce::String ((int) std::round (v * 100.0));
     };
@@ -229,13 +231,13 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     };
     styleCaption (retuneSpeedCaption, "RETUNE SPEED");
     styleCaption (flexTuneCaption, "FLEX TUNE");
-    styleCaption (formantCaptionBasic, "FORMANT");
+    styleCaption (humanizeCaption, "HUMANIZE");
     basicPanel.addAndMakeVisible (retuneSpeed);
     basicPanel.addAndMakeVisible (flexTune);
-    basicPanel.addAndMakeVisible (formantShiftBasic);
+    basicPanel.addAndMakeVisible (humanize);
     basicPanel.addAndMakeVisible (retuneSpeedCaption);
     basicPanel.addAndMakeVisible (flexTuneCaption);
-    basicPanel.addAndMakeVisible (formantCaptionBasic);
+    basicPanel.addAndMakeVisible (humanizeCaption);
 
     style.setButtonText ("");
     basicPanel.addAndMakeVisible (style);
@@ -314,7 +316,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     retuneSpeedAttach    = std::make_unique<SliderAttachment> (params, "speed", retuneSpeed);
     flexTuneAttach       = std::make_unique<SliderAttachment> (params, "amount", flexTune);
-    formantShiftBasicAttach = std::make_unique<SliderAttachment> (params, "formantShift", formantShiftBasic);
+    humanizeAttach       = std::make_unique<SliderAttachment> (params, "humanize", humanize);
     inputGainAttach      = std::make_unique<SliderAttachment> (params, "inputGain", inputGain);
     outputGainAttach     = std::make_unique<SliderAttachment> (params, "outputGain", outputGain);
     formantShiftAttach   = std::make_unique<SliderAttachment> (params, "formantShift", formantShift);
@@ -537,9 +539,9 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto flexCell = twoKnobRow.removeFromLeft (kw);
     flexTuneCaption.setBounds (flexCell.removeFromTop (14));
     flexTune.setBounds (flexCell);
-    auto formantCell = twoKnobRow;
-    formantCaptionBasic.setBounds (formantCell.removeFromTop (14));
-    formantShiftBasic.setBounds (formantCell);
+    auto humanizeCell = twoKnobRow;
+    humanizeCaption.setBounds (humanizeCell.removeFromTop (14));
+    humanize.setBounds (humanizeCell);
 
     right.removeFromTop (12);
     auto styleRow = right.removeFromTop (30);

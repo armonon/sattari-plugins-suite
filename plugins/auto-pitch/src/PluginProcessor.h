@@ -158,6 +158,15 @@ private:
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
 
+    // Humanize: a slow, low-passed random walk that nudges the corrected pitch
+    // by up to a few tens of cents. Re-evaluated once per block. State is just
+    // two filtered scalars and a juce::Random; deterministic across plugin loads
+    // only insofar as Random is seeded the same way.
+    juce::Random humanizeRng;
+    double humanizeTargetCents = 0.0;
+    double humanizeSmoothedCents = 0.0;
+    int    humanizeBlocksUntilNewTarget = 0;
+
     // Chroma FFT for the polyphonic-AutoKey / sidechain path.
     static constexpr int chromaFftOrder = 12;             // 4096-point FFT
     static constexpr int chromaFftSize  = 1 << chromaFftOrder;
