@@ -59,45 +59,84 @@ public:
 
     juce::Colour getAccent() const noexcept { return accent; }
 
-    // --- Shared backdrop: flat dark + hairline frame + thin accent top line ---
+    // --- Shared backdrop: subtle blue gradient + hairline frame + accent top line ---
     void paintSuiteBackground (juce::Graphics& g, juce::Rectangle<int> bounds) const
     {
-        g.fillAll (juce::Colour (sattari::brand::kBackground));
+        // Soft vertical gradient from a deep ink-blue at the top to near-black at
+        // the bottom; gives the suite the "premium-modern" feel without going loud.
+        const auto top    = juce::Colour (sattari::brand::kBackground).brighter (0.04f);
+        const auto bottom = juce::Colour (sattari::brand::kBackground).darker (0.10f);
+        g.setGradientFill (juce::ColourGradient (top, bounds.toFloat().getX(), bounds.toFloat().getY(),
+                                                  bottom, bounds.toFloat().getX(), bounds.toFloat().getBottom(),
+                                                  false));
+        g.fillRect (bounds);
+
         auto area = bounds.toFloat().reduced (sattari::brand::kPanelInset);
         g.setColour (juce::Colour (sattari::brand::kHairline));
         g.drawRoundedRectangle (area, sattari::brand::kCornerRadius, 1.0f);
         // a single thin accent line along the top edge = quiet product identity
-        auto top = area.removeFromTop (2.0f).reduced (sattari::brand::kCornerRadius, 0.0f);
+        auto topLine = area.removeFromTop (2.0f).reduced (sattari::brand::kCornerRadius, 0.0f);
         g.setColour (accent.withAlpha (0.6f));
-        g.fillRoundedRectangle (top, 1.0f);
+        g.fillRoundedRectangle (topLine, 1.0f);
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPos, float startAngle, float endAngle,
-                           juce::Slider&) override
+                           juce::Slider& slider) override
     {
         const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
         const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto centre = bounds.getCentre();
         const auto angle  = startAngle + sliderPos * (endAngle - startAngle);
-        const auto lineW  = juce::jmax (2.0f, radius * 0.07f);   // thin ring
+        const auto lineW  = juce::jmax (2.0f, radius * 0.07f);
         const auto arcR   = radius - lineW;
 
+        // Recessed dial face: a soft dark disc inside the ring, like the Antares
+        // knob look. Only drawn for "feature" knobs (radius > 28) to keep dense
+        // multi-knob editors clean.
+        const bool feature = radius > 28.0f;
+        if (feature)
+        {
+            juce::ColourGradient dial (juce::Colour (sattari::brand::kPanelRaised), centre.x, centre.y - arcR * 0.4f,
+                                       juce::Colour (sattari::brand::kPanelDeep),   centre.x, centre.y + arcR * 0.6f, false);
+            g.setGradientFill (dial);
+            g.fillEllipse (juce::Rectangle<float> (arcR * 1.5f, arcR * 1.5f).withCentre (centre));
+            g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.7f));
+            g.drawEllipse (juce::Rectangle<float> (arcR * 1.5f, arcR * 1.5f).withCentre (centre), 1.0f);
+        }
+
+        // Track (full arc, hairline).
         juce::Path track;
         track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
         g.setColour (juce::Colour (sattari::brand::kHairline));
         g.strokePath (track, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
+        // Accent arc: feature knobs get a soft outer glow halo, then the bright
+        // arc on top — the Antares "lit ring" look without going neon.
         juce::Path arc;
         arc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
+        if (feature)
+        {
+            g.setColour (accent.withAlpha (0.18f));
+            g.strokePath (arc, juce::PathStrokeType (lineW * 2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
         g.setColour (accent);
         g.strokePath (arc, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // small indicator dot at the value position; clean empty centre.
+        // Indicator: a small accent dot at the value position. Feature knobs also
+        // draw a short bright "pointer" line from the dial face to the dot.
         const juce::Point<float> tip (centre.x + arcR * std::cos (angle - juce::MathConstants<float>::halfPi),
                                       centre.y + arcR * std::sin (angle - juce::MathConstants<float>::halfPi));
+        if (feature)
+        {
+            const juce::Point<float> innerTip (centre.x + (arcR * 0.55f) * std::cos (angle - juce::MathConstants<float>::halfPi),
+                                               centre.y + (arcR * 0.55f) * std::sin (angle - juce::MathConstants<float>::halfPi));
+            g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.85f));
+            g.drawLine ({ innerTip, tip }, lineW * 0.9f);
+        }
         g.setColour (juce::Colour (sattari::brand::kTextPrimary));
         g.fillEllipse (juce::Rectangle<float> (lineW * 1.7f, lineW * 1.7f).withCentre (tip));
+        juce::ignoreUnused (slider);
     }
 
     void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,

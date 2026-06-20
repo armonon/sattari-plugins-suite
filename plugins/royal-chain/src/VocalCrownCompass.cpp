@@ -39,13 +39,9 @@ void VocalCrownCompass::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white);
     g.drawText ("Vocal Crown Compass", area.removeFromTop (30.0f), juce::Justification::centred);
 
-    drawNode (g, { centre.x, centre.y - radius }, processor.getTuneConfidence(), juce::Colour (0xff7dd3fc), "Tune*" );
+    drawNode (g, { centre.x, centre.y - radius }, processor.getTuneConfidence(), juce::Colour (0xff7dd3fc), "Tune" );
     drawNode (g, { centre.x + radius, centre.y }, processor.getControlMeter(), juce::Colour (0xff62f5c8), "Control" );
     drawNode (g, { centre.x, centre.y + radius }, processor.getLimiterMeter(), juce::Colour (0xfffacc15), "Finish" );
     drawNode (g, { centre.x - radius, centre.y }, processor.getSibilanceMeter(), juce::Colour (0xfff472b6), "Smooth" );
     drawNode (g, { centre.x + radius * 0.72f, centre.y - radius * 0.72f }, processor.getWidthMeter(), juce::Colour (0xffa78bfa), "Width" );
-
-    g.setColour (juce::Colours::lightgrey.withAlpha (0.75f));
-    g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("* Tune is a disabled placeholder in Lite", getLocalBounds().reduced (12).removeFromBottom (18), juce::Justification::centred);
 }

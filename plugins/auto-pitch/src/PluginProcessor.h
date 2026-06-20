@@ -46,6 +46,28 @@ public:
     juce::String getLiveStatusSummary() const;
     juce::String getKeyDetectionTabSummary() const;
 
+    // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
+    // sensible defaults when nothing has been processed yet.
+    struct LiveSnapshot
+    {
+        bool  voiced = false;
+        int   detectedMidi = -1;     // nearest MIDI note of detected pitch
+        float correctionCents = 0.0f;
+        float confidence = 0.0f;
+        int   detectedRoot = 0;      // 0..11, AutoKey output (or selected key)
+    };
+    LiveSnapshot getLiveSnapshot() const noexcept
+    {
+        LiveSnapshot s;
+        s.voiced = lastPitchFrame.voiced;
+        s.detectedMidi = lastPitchFrame.voiced
+            ? juce::jlimit (0, 127, (int) std::round (lastPitchFrame.midi)) : -1;
+        s.correctionCents = (float) juce::jlimit (-200.0, 200.0, lastPitchFrame.correctionCents);
+        s.confidence = (float) juce::jlimit (0.0, 1.0, lastPitchFrame.confidence);
+        s.detectedRoot = detectedAutoRoot;
+        return s;
+    }
+
 private:
     struct PitchFrame
     {

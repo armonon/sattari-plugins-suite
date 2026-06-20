@@ -1,36 +1,67 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <array>
+#include <sattari_audio_core/SattariBranding.h>
+#include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
-class SattariAutoPitchLookAndFeel final : public juce::LookAndFeel_V4
+class SattariAutoPitchAudioProcessorEditor;
+
+// -----------------------------------------------------------------------------
+// NoteDisplay: large stylised note ("F#" / "C") + cents-off bar (live-driven).
+// -----------------------------------------------------------------------------
+class NoteDisplay final : public juce::Component
 {
 public:
-    SattariAutoPitchLookAndFeel();
+    NoteDisplay() = default;
 
-    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
-                           float sliderPosProportional, float rotaryStartAngle,
-                           float rotaryEndAngle, juce::Slider&) override;
-    void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool shouldDrawButtonAsHighlighted,
-                           bool shouldDrawButtonAsDown) override;
-    void drawComboBox (juce::Graphics&, int width, int height, bool isButtonDown,
-                       int buttonX, int buttonY, int buttonW, int buttonH,
-                       juce::ComboBox&) override;
-    void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour& backgroundColour,
-                               bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
-    void drawButtonText (juce::Graphics&, juce::TextButton&, bool shouldDrawButtonAsHighlighted,
-                         bool shouldDrawButtonAsDown) override;
-    juce::Font getComboBoxFont (juce::ComboBox&) override;
-};
+    void setSnapshot (const SattariAutoPitchAudioProcessor::LiveSnapshot& s) noexcept
+    {
+        snapshot = s;
+        repaint();
+    }
 
-class PitchCompassStub final : public juce::Component
-{
-public:
-    PitchCompassStub() = default;
     void paint (juce::Graphics&) override;
+
+private:
+    SattariAutoPitchAudioProcessor::LiveSnapshot snapshot;
 };
 
+// -----------------------------------------------------------------------------
+// KeyPillRow: 12 chromatic note pills. Pills lit when the note is in the
+// current key/scale; the currently-detected pitch is highlighted.
+// -----------------------------------------------------------------------------
+class KeyPillRow final : public juce::Component
+{
+public:
+    KeyPillRow() = default;
+
+    void setScale (int keyRoot, int scaleIndex) noexcept
+    {
+        keyRootIdx = keyRoot;
+        scaleIdx   = scaleIndex;
+        repaint();
+    }
+
+    void setDetectedMidi (int midi) noexcept
+    {
+        detectedMidi = midi;
+        repaint();
+    }
+
+    void paint (juce::Graphics&) override;
+
+private:
+    int keyRootIdx = 0;
+    int scaleIdx   = 0;
+    int detectedMidi = -1;
+};
+
+// -----------------------------------------------------------------------------
+// Editor proper.
+// -----------------------------------------------------------------------------
 class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -46,39 +77,57 @@ private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     void timerCallback() override;
-    void setupSlider (juce::Slider&, const juce::String& suffix = {});
-    void setupCombo (juce::ComboBox&);
-    void setupLabel (juce::Label&, const juce::String& text, float size = 14.0f);
-    void setupCaption (juce::Label&, const juce::String& text);
-    void loadTraceFromClipboard();
+    void styleKnob (juce::Slider& s, bool feature = false);
+    void styleCaption (juce::Label& l, const juce::String& text);
+    void registerFactoryPresets();
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
-    void drawCard (juce::Graphics&, juce::Rectangle<float>, const juce::String& eyebrow,
-                   const juce::String& titleText, juce::Colour accent) const;
+    void loadTraceFromClipboard();
+    void showTab (int idx);
 
     SattariAutoPitchAudioProcessor& audioProcessor;
-    SattariAutoPitchLookAndFeel lookAndFeel;
+    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("auto-pitch") };
 
-    // Shared cross-plugin preset system (styled by this plugin's own look).
     sattari::presets::SattariPresetManager presetManager;
-    juce::ComboBox userPresets;
-    juce::TextButton savePresetButton { "Save Preset" };
 
-    juce::Label title, subtitle, keyLabel, correctionLabel, gainLabel, traceLabel, traceStatus, keyDetectionStatus;
-    juce::Label amountCaption, speedCaption, confidenceCaption, inputCaption, outputCaption, formantCaption;
-    juce::ComboBox keyRoot, scale, style, factoryPresets;
-    juce::Slider amount, speed, inputGain, outputGain, traceConfidence, formantShift;
-    juce::ToggleButton doNoHarm, enableCorrection, autoKey, formantPreserve;
+    // --- Tab strip ------------------------------------------------------------
+    juce::TextButton tabBasic { "BASIC" }, tabPro { "PRO" };
+    int currentTab = 0;
+    juce::Component basicPanel, proPanel;
+
+    // --- Header (shared by both tabs) ----------------------------------------
+    juce::Label title;
+    juce::ComboBox vocalRange, keyRoot, scale;
+    juce::Label vocalRangeCaption, keyScaleCaption;
+    juce::ComboBox factoryPresets, userPresets;
+    juce::TextButton savePresetButton { "Save" };
+
+    // --- Basic tab widgets ---------------------------------------------------
+    juce::ToggleButton autoKey { "AutoKey Listen" };
+    NoteDisplay noteDisplay;
+    KeyPillRow pillRow;
+    juce::Label editNotesLabel, detuneLabel, modeLabel;
+    juce::ToggleButton lowLatency { "Low Latency" };
+
+    juce::Label retuneSpeedCaption, flexTuneCaption, formantCaptionBasic;
+    juce::Slider retuneSpeed, flexTune, formantShiftBasic;
+    juce::ToggleButton style;        // off = Modern, on = Classic
+    juce::Label modernLabel, classicLabel;
+
+    // --- Pro tab widgets -----------------------------------------------------
+    juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
+                       formantPreserve  { "Formant Preserve" };
+    juce::Slider inputGain, outputGain, formantShift;
+    juce::Label inputCaption, outputCaption, formantCaption;
     juce::TextButton loadTraceButton { "Load trace JSON" };
-    PitchCompassStub pitchCompass;
+    juce::Label traceStatus, keyDetectionStatus;
 
-    juce::Rectangle<int> headerArea, keyCard, tuneCard, utilityCard, compassCard, statusCard;
-
-    void registerFactoryPresets();
-
-    std::unique_ptr<ComboAttachment> keyRootAttach, scaleAttach, styleAttach;
-    std::unique_ptr<SliderAttachment> amountAttach, speedAttach, inputGainAttach, outputGainAttach, traceConfidenceAttach, formantShiftAttach;
-    std::unique_ptr<ButtonAttachment> doNoHarmAttach, enableCorrectionAttach, autoKeyAttach, formantPreserveAttach;
+    // --- APVTS attachments ---------------------------------------------------
+    std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
+    std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, formantShiftBasicAttach,
+                                       inputGainAttach, outputGainAttach, formantShiftAttach;
+    std::unique_ptr<ButtonAttachment> autoKeyAttach, lowLatencyAttach,
+                                       enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };

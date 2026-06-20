@@ -125,6 +125,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
         juce::NormalisableRange<float> (0.05f, 1.0f, 0.01f), 0.70f));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("doNoHarm", "Do No Harm", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("formantPreserve", "Formant Preserve", true));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("vocalRange", "Vocal Range",
+        juce::StringArray { "Wide", "Bass", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano" }, 4));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
