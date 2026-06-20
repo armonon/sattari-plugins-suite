@@ -275,6 +275,20 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (traceStatus);
     proPanel.addAndMakeVisible (keyDetectionStatus);
 
+    // Track Key Map (Pro tab) — scan a song -> key timeline, applied at playback.
+    proPanel.addAndMakeVisible (scanTrackButton);
+    proPanel.addAndMakeVisible (clearMapButton);
+    proPanel.addAndMakeVisible (useKeyMap);
+    keyMapStatusLabel.setJustificationType (juce::Justification::topLeft);
+    keyMapStatusLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    keyMapStatusLabel.setText ("No key map loaded.\nScan a track to build a per-section key timeline that the live\n"
+                               "correction follows via the host playhead.",
+                               juce::dontSendNotification);
+    proPanel.addAndMakeVisible (keyMapStatusLabel);
+    scanTrackButton.onClick = [this] { onScanTrackClicked(); };
+    clearMapButton.onClick  = [this] { audioProcessor.clearKeyMap(); };
+    useKeyMapAttach = std::make_unique<ButtonAttachment> (audioProcessor.parameters(), "useKeyMap", useKeyMap);
+
     // Attachments
     auto& params = audioProcessor.parameters();
     vocalRangeAttach     = std::make_unique<ComboAttachment> (params, "vocalRange", vocalRange);
@@ -379,6 +393,22 @@ void SattariAutoPitchAudioProcessorEditor::loadTraceFromClipboard()
     audioProcessor.applyTraceContractJson (juce::SystemClipboard::getTextFromClipboard());
 }
 
+void SattariAutoPitchAudioProcessorEditor::onScanTrackClicked()
+{
+    trackFileChooser = std::make_unique<juce::FileChooser> (
+        "Pick a track to scan for the Key Map",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+        "*.wav;*.aif;*.aiff;*.mp3;*.flac;*.ogg;*.m4a");
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles;
+    trackFileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (file.existsAsFile())
+            audioProcessor.startKeyMapScan (file);
+    });
+}
+
 void SattariAutoPitchAudioProcessorEditor::showTab (int idx)
 {
     currentTab = idx;
@@ -405,6 +435,25 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     traceStatus.setText (audioProcessor.getLastTraceSummary() + "\n" + audioProcessor.getLiveStatusSummary(),
                          juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
+
+    // Track Key Map status panel.
+    const auto km = audioProcessor.getKeyMapStatus();
+    juce::String s;
+    if (km.scanProgress >= 0 && km.scanProgress < 100)
+        s << "Scanning: " << km.scanProgress << "%\n";
+    if (km.hasMap)
+    {
+        s << "Loaded: " << km.loadedFileName << "\n";
+        s << km.numSegments << " key segments\n";
+        if (km.currentSegment >= 0)
+            s << "Currently at segment " << (km.currentSegment + 1);
+    }
+    else if (km.lastError.isNotEmpty())
+        s << "Error: " << km.lastError;
+    else if (km.scanProgress < 0)
+        s << "No key map loaded.\nScan a track to build a per-section key timeline that\n"
+             "the live correction follows via the host playhead.";
+    keyMapStatusLabel.setText (s, juce::dontSendNotification);
 }
 
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)
@@ -523,9 +572,21 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
 
-    loadTraceButton.setBounds (pRight.removeFromTop (32));
+    // Trace + key-detection (top half of right column)
+    auto traceArea = pRight.removeFromTop ((int) (pRight.getHeight() * 0.45f));
+    loadTraceButton.setBounds (traceArea.removeFromTop (28));
+    traceArea.removeFromTop (6);
+    traceStatus.setBounds (traceArea.removeFromTop ((int) (traceArea.getHeight() * 0.55f)));
+    keyDetectionStatus.setBounds (traceArea);
+
+    // Track Key Map (bottom half of right column)
     pRight.removeFromTop (10);
-    traceStatus.setBounds (pRight.removeFromTop ((int) (pRight.getHeight() * 0.45f)));
-    pRight.removeFromTop (8);
-    keyDetectionStatus.setBounds (pRight);
+    auto keymapHeader = pRight.removeFromTop (28);
+    scanTrackButton.setBounds (keymapHeader.removeFromLeft (130));
+    keymapHeader.removeFromLeft (6);
+    clearMapButton.setBounds  (keymapHeader.removeFromLeft (100));
+    keymapHeader.removeFromLeft (10);
+    useKeyMap.setBounds (keymapHeader);
+    pRight.removeFromTop (6);
+    keyMapStatusLabel.setBounds (pRight);
 }

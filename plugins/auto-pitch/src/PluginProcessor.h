@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
@@ -16,7 +17,7 @@ class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariAutoPitchAudioProcessor();
-    ~SattariAutoPitchAudioProcessor() override = default;
+    ~SattariAutoPitchAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -47,6 +48,32 @@ public:
     juce::String getLastTraceSummary() const { return lastTraceSummary; }
     juce::String getLiveStatusSummary() const;
     juce::String getKeyDetectionTabSummary() const;
+
+    // --- Track Key Map -------------------------------------------------------
+    //  Offline scan of an audio file -> timeline of (timeSec, rootIdx, scaleIdx)
+    //  segments. When `useKeyMap` is enabled and a map is loaded, the live
+    //  correction key follows the map based on the host playhead position, so
+    //  the vocal stays in the right key as the song modulates.
+    struct KeyMapEntry
+    {
+        double timeSec = 0.0;
+        int rootIdx = 0;        // 0..11
+        int scaleIdx = 0;       // 0=major, 1=minor, 2=chromatic
+        float confidence = 0.0f;
+    };
+    struct KeyMapStatus
+    {
+        bool hasMap = false;
+        int  numSegments = 0;
+        int  currentSegment = -1;
+        int  scanProgress = -1;            // -1 = idle, 0..100 = scanning
+        juce::String loadedFileName;
+        juce::String lastError;
+    };
+
+    bool startKeyMapScan (const juce::File& audioFile);
+    void clearKeyMap();
+    KeyMapStatus getKeyMapStatus() const;
 
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
     // sensible defaults when nothing has been processed yet.
@@ -142,6 +169,20 @@ private:
     int chromaSamplesSinceFft = 0;
     bool sidechainSeenAudio = false;                      // true when SC bus delivered non-silence
     std::vector<float> scMonoScratch;                     // per-block mono sum of sidechain, no allocation in process
+
+    // Track Key Map state. The vector is built on a background thread, then
+    // swapped under `keyMapLock`. The audio thread reads with a try-lock and
+    // skips lookup if the writer holds it (the writer's hold is microseconds).
+    juce::CriticalSection keyMapLock;
+    std::vector<KeyMapEntry> keyMap;
+    std::atomic<bool> keyMapScanning { false };
+    std::atomic<int>  keyMapProgress { -1 };
+    std::atomic<int>  keyMapCurrentSegment { -1 };
+    juce::String keyMapFileName;
+    juce::String keyMapLastError;
+    std::unique_ptr<std::thread> keyMapScanThread;
+    void runKeyMapScan (juce::File audioFile);
+    void applyKeyMapAtSeconds (double seconds);
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

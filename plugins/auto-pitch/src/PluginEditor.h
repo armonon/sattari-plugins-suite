@@ -122,6 +122,17 @@ private:
     juce::TextButton loadTraceButton { "Load trace JSON" };
     juce::Label traceStatus, keyDetectionStatus;
 
+    // Track Key Map (Pro tab) — scan a song to build a key timeline that the
+    // live correction follows.
+    juce::TextButton scanTrackButton { "Scan Track..." };
+    juce::TextButton clearMapButton  { "Clear Map" };
+    juce::ToggleButton useKeyMap     { "Use Key Map" };
+    juce::Label keyMapStatusLabel;
+    std::unique_ptr<juce::FileChooser> trackFileChooser;
+    std::unique_ptr<ButtonAttachment> useKeyMapAttach;
+
+    void onScanTrackClicked();
+
     // --- APVTS attachments ---------------------------------------------------
     std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, formantShiftBasicAttach,

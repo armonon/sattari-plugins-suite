@@ -111,6 +111,15 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
 {
 }
 
+SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
+{
+    // Stop and join the offline scan thread cleanly so we never leak a worker
+    // across plugin unloads (the worker holds a juce::AudioFormatReader that
+    // owns a file handle).
+    if (keyMapScanThread && keyMapScanThread->joinable())
+        keyMapScanThread->join();
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -129,6 +138,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("vocalRange", "Vocal Range",
         juce::StringArray { "Wide", "Bass", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano" }, 4));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -465,6 +475,214 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
         autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
 }
 
+// ============================================================================
+// Track Key Map
+// ============================================================================
+bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFile)
+{
+    if (! audioFile.existsAsFile()) return false;
+    if (keyMapScanning.load()) return false;     // already running
+
+    // Join any finished thread first (its progress is at 100 or it errored out).
+    if (keyMapScanThread && keyMapScanThread->joinable())
+        keyMapScanThread->join();
+    keyMapScanThread.reset();
+
+    keyMapScanning.store (true);
+    keyMapProgress.store (0);
+    keyMapLastError.clear();
+    keyMapScanThread = std::make_unique<std::thread> ([this, audioFile] { runKeyMapScan (audioFile); });
+    return true;
+}
+
+void SattariAutoPitchAudioProcessor::clearKeyMap()
+{
+    if (keyMapScanThread && keyMapScanThread->joinable())
+        keyMapScanThread->join();
+    keyMapScanThread.reset();
+    const juce::ScopedLock l (keyMapLock);
+    keyMap.clear();
+    keyMapFileName.clear();
+    keyMapProgress.store (-1);
+    keyMapCurrentSegment.store (-1);
+    keyMapScanning.store (false);
+}
+
+SattariAutoPitchAudioProcessor::KeyMapStatus SattariAutoPitchAudioProcessor::getKeyMapStatus() const
+{
+    KeyMapStatus s;
+    const juce::ScopedLock l (keyMapLock);
+    s.hasMap = ! keyMap.empty();
+    s.numSegments = (int) keyMap.size();
+    s.currentSegment = keyMapCurrentSegment.load();
+    s.scanProgress = keyMapProgress.load();
+    s.loadedFileName = keyMapFileName;
+    s.lastError = keyMapLastError;
+    return s;
+}
+
+void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
+{
+    juce::AudioFormatManager fmtMgr;
+    fmtMgr.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader (fmtMgr.createReaderFor (audioFile));
+    if (reader == nullptr)
+    {
+        keyMapLastError = "Could not open audio file";
+        keyMapProgress.store (-1);
+        keyMapScanning.store (false);
+        return;
+    }
+
+    const double sr = reader->sampleRate;
+    const juce::int64 totalLen = reader->lengthInSamples;
+    const double durationSec = (double) totalLen / sr;
+
+    // Window the scan: ~3.5 second analysis windows hop every ~1 second so the
+    // map captures mid-song key changes without spamming segments.
+    const int windowSamples = juce::jmax (8192, (int) (sr * 3.5));
+    const int hopSamples    = juce::jmax (1024, (int) (sr * 1.0));
+
+    juce::AudioBuffer<float> readBuf (2, windowSamples);
+    std::vector<float> windowMono ((size_t) windowSamples, 0.0f);
+
+    // Local FFT (same params as the live chroma; built fresh so we never touch
+    // the audio thread's FFT state).
+    const int fftOrder = 12;
+    const int fftSize  = 1 << fftOrder;
+    juce::dsp::FFT fft (fftOrder);
+    std::vector<float> fftBuf ((size_t) (fftSize * 2), 0.0f);
+    std::vector<float> hann   ((size_t) fftSize, 0.0f);
+    for (int i = 0; i < fftSize; ++i)
+        hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
+                                                   * (float) i / (float) (fftSize - 1));
+
+    static constexpr double kProfileMajor[12] = { 6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88 };
+    static constexpr double kProfileMinor[12] = { 6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17 };
+
+    auto pearson = [] (const std::array<double,12>& h, const double* profile, int root) -> double
+    {
+        double meanH = 0.0, meanP = 0.0;
+        for (int i = 0; i < 12; ++i) { meanH += h[(size_t) i]; meanP += profile[i]; }
+        meanH /= 12.0; meanP /= 12.0;
+        double num = 0.0, dH = 0.0, dP = 0.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            const double dh = h[(size_t) ((i + root) % 12)] - meanH;
+            const double dp = profile[i] - meanP;
+            num += dh * dp; dH += dh * dh; dP += dp * dp;
+        }
+        const double d = std::sqrt (dH * dP);
+        return d > 1.0e-9 ? num / d : -1.0;
+    };
+
+    std::vector<KeyMapEntry> built;
+    juce::int64 pos = 0;
+    int prevRoot = -1, prevScale = -1;
+
+    while (pos + windowSamples <= totalLen)
+    {
+        reader->read (&readBuf, 0, windowSamples, pos, true, true);
+        // Mono-sum the window.
+        for (int i = 0; i < windowSamples; ++i)
+        {
+            float m = 0.0f;
+            for (int ch = 0; ch < readBuf.getNumChannels(); ++ch)
+                m += readBuf.getSample (ch, i);
+            m /= (float) juce::jmax (1, readBuf.getNumChannels());
+            windowMono[(size_t) i] = m;
+        }
+
+        // Chroma over the centred FFT-sized portion of the window.
+        const int start = (windowSamples - fftSize) / 2;
+        for (int i = 0; i < fftSize; ++i)
+            fftBuf[(size_t) i] = windowMono[(size_t) (start + i)] * hann[(size_t) i];
+        std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (fftBuf.data());
+
+        std::array<double, 12> chroma {};
+        const double binHz = sr / (double) fftSize;
+        const int firstBin = juce::jmax (1, (int) std::ceil (55.0  / binHz));
+        const int lastBin  = juce::jmin (fftSize / 2, (int) std::floor (4186.0 / binHz));
+        for (int bin = firstBin; bin <= lastBin; ++bin)
+        {
+            const double f = bin * binHz;
+            const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
+            const int pc = ((int) std::round (midi) % 12 + 12) % 12;
+            const float mag = fftBuf[(size_t) bin];
+            chroma[(size_t) pc] += (double) mag * mag;
+        }
+
+        double total = 0.0;
+        for (double v : chroma) total += v;
+        if (total > 1.0e-9)
+            for (auto& v : chroma) v /= total;
+
+        // Pick best (root, mode) by Krumhansl correlation.
+        double bestScore = -2.0;
+        int bestRoot = 0, bestMode = 0;
+        for (int mode = 0; mode < 2; ++mode)
+        {
+            const double* prof = (mode == 0) ? kProfileMajor : kProfileMinor;
+            for (int root = 0; root < 12; ++root)
+            {
+                const double s = pearson (chroma, prof, root);
+                if (s > bestScore) { bestScore = s; bestRoot = root; bestMode = mode; }
+            }
+        }
+
+        const double tSec = (double) pos / sr;
+        // Only emit a new entry when the (root, mode) actually changes -> compact map.
+        if (bestRoot != prevRoot || bestMode != prevScale)
+        {
+            built.push_back ({ tSec, bestRoot, bestMode, (float) bestScore });
+            prevRoot = bestRoot; prevScale = bestMode;
+        }
+
+        pos += hopSamples;
+        const int pct = totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0;
+        keyMapProgress.store (juce::jlimit (0, 100, pct));
+    }
+
+    // Publish.
+    {
+        const juce::ScopedLock l (keyMapLock);
+        keyMap = std::move (built);
+        keyMapFileName = audioFile.getFileName();
+        keyMapCurrentSegment.store (-1);
+    }
+    keyMapProgress.store (100);
+    keyMapScanning.store (false);
+}
+
+// Called from processBlock when useKeyMap is on and the playhead has a position.
+// Looks up the segment covering `seconds` and writes the result to
+// `detectedAutoRoot` + (best-effort) the user's scale param.
+void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
+{
+    const juce::ScopedTryLock l (keyMapLock);
+    if (! l.isLocked() || keyMap.empty())
+        return;
+
+    // Binary search for the latest entry whose timeSec <= seconds.
+    int lo = 0, hi = (int) keyMap.size() - 1, idx = 0;
+    while (lo <= hi)
+    {
+        const int mid = (lo + hi) / 2;
+        if (keyMap[(size_t) mid].timeSec <= seconds)
+        {
+            idx = mid;
+            lo = mid + 1;
+        }
+        else hi = mid - 1;
+    }
+
+    const auto& e = keyMap[(size_t) idx];
+    detectedAutoRoot = juce::jlimit (0, 11, e.rootIdx);
+    keyMapCurrentSegment.store (idx);
+}
+
 SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::buildCorrectionFrame (PitchFrame detected) const
 {
     if (! detected.voiced)
@@ -545,6 +763,17 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         return;
 
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
+    const bool useKeyMap = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f;
+
+    // Key Map: when on and the host gives us a playhead position, the live
+    // correction key follows the offline-scanned map. This is how a single
+    // Auto Pitch instance keeps the vocal in the right key as the song
+    // modulates - no per-section automation needed.
+    if (useKeyMap)
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+                if (auto t = pos->getTimeInSeconds())
+                    applyKeyMapAtSeconds (*t);
 
     // Pull sidechain (master) audio if the bus is enabled. When AutoKey is on,
     // route a mono sum into the chroma analyser. This is how AutoKey "listens to
@@ -971,6 +1200,24 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 {
     auto state = apvts.copyState();
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+
+    // Persist the Track Key Map so reloading a project restores the timeline.
+    juce::ValueTree km ("KeyMap");
+    {
+        const juce::ScopedLock l (keyMapLock);
+        km.setProperty ("file", keyMapFileName, nullptr);
+        for (const auto& e : keyMap)
+        {
+            juce::ValueTree seg ("Seg");
+            seg.setProperty ("t", e.timeSec, nullptr);
+            seg.setProperty ("r", e.rootIdx, nullptr);
+            seg.setProperty ("s", e.scaleIdx, nullptr);
+            seg.setProperty ("c", e.confidence, nullptr);
+            km.appendChild (seg, nullptr);
+        }
+    }
+    state.appendChild (km, nullptr);
+
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -982,6 +1229,28 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     {
         auto restored = juce::ValueTree::fromXml (*xml);
         lastTraceSummary = restored.getProperty ("lastTraceSummary", "No trace loaded").toString();
+
+        // Pull any persisted Key Map back into memory.
+        auto km = restored.getChildWithName ("KeyMap");
+        if (km.isValid())
+        {
+            std::vector<KeyMapEntry> rebuilt;
+            for (int i = 0; i < km.getNumChildren(); ++i)
+            {
+                auto seg = km.getChild (i);
+                KeyMapEntry e;
+                e.timeSec    = (double) seg.getProperty ("t", 0.0);
+                e.rootIdx    = (int)    seg.getProperty ("r", 0);
+                e.scaleIdx   = (int)    seg.getProperty ("s", 0);
+                e.confidence = (float)  (double) seg.getProperty ("c", 0.0);
+                rebuilt.push_back (e);
+            }
+            const juce::ScopedLock l (keyMapLock);
+            keyMap = std::move (rebuilt);
+            keyMapFileName = km.getProperty ("file", "").toString();
+            keyMapProgress.store (keyMap.empty() ? -1 : 100);
+        }
+
         apvts.replaceState (restored);
     }
 }
