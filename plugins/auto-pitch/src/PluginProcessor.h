@@ -1,8 +1,10 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <array>
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -95,6 +97,12 @@ private:
     PitchFrame buildCorrectionFrame (PitchFrame detected) const;
     int currentCorrectionRootIndex() const;
     void updateAutoKeyHistogram (const PitchFrame& frame);
+    // Polyphonic AutoKey path: spectral chroma of the sidechain (master) audio
+    // feeds the histogram instead of the monophonic vocal pitch. Both paths share
+    // correlateAutoKeyHistogram() so the Krumhansl decision logic stays one place.
+    void pushSidechainBlock (const float* mono, int numSamples);
+    void runChromaAnalysis();
+    void correlateAutoKeyHistogram();
     float styleCorrectionStrength() const;
     float styleRetuneCoefficient() const;
     juce::String currentStyleChoice() const;
@@ -122,6 +130,18 @@ private:
     double smoothedPitchScale = 1.0;
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
+
+    // Chroma FFT for the polyphonic-AutoKey / sidechain path.
+    static constexpr int chromaFftOrder = 12;             // 4096-point FFT
+    static constexpr int chromaFftSize  = 1 << chromaFftOrder;
+    std::unique_ptr<juce::dsp::FFT> chromaFft;
+    std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
+    std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
+    std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
+    int chromaWritePos = 0;
+    int chromaSamplesSinceFft = 0;
+    bool sidechainSeenAudio = false;                      // true when SC bus delivered non-silence
+    std::vector<float> scMonoScratch;                     // per-block mono sum of sidechain, no allocation in process
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

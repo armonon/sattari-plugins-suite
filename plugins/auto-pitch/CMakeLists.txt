@@ -46,6 +46,7 @@ target_link_libraries(AutoPitchCoreContract
     PRIVATE
         SattariAudioCore
         juce::juce_audio_utils
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

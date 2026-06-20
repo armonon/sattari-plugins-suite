@@ -104,8 +104,9 @@ float readLinearInterpolated (const juce::AudioBuffer<float>& buffer, int channe
 
 SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     : AudioProcessor (BusesProperties()
-          .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+          .withInput  ("Input",     juce::AudioChannelSet::stereo(), true)
+          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
+          .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
 }
@@ -151,6 +152,20 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     harmonyScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     formantScratch.clear();
     harmonyScratch.clear();
+
+    // Chroma FFT setup (allocation-free after this). Hann-windowed magnitude
+    // spectrum is mapped to 12 pitch classes for polyphonic AutoKey on the SC.
+    chromaFft = std::make_unique<juce::dsp::FFT> (chromaFftOrder);
+    chromaRing.assign ((size_t) chromaFftSize, 0.0f);
+    chromaFftScratch.assign ((size_t) (chromaFftSize * 2), 0.0f);
+    chromaHannWindow.assign ((size_t) chromaFftSize, 0.0f);
+    for (int i = 0; i < chromaFftSize; ++i)
+        chromaHannWindow[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
+                                                              * (float) i / (float) (chromaFftSize - 1));
+    chromaWritePos = 0;
+    chromaSamplesSinceFft = 0;
+    sidechainSeenAudio = false;
+    scMonoScratch.assign ((size_t) preparedBlockSize, 0.0f);
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
@@ -208,7 +223,17 @@ bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& 
 {
     const auto& mainIn = layouts.getMainInputChannelSet();
     const auto& mainOut = layouts.getMainOutputChannelSet();
-    return mainIn == mainOut && (! mainOut.isDisabled());
+    if (mainIn != mainOut || mainOut.isDisabled())
+        return false;
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled()
+            && sc != juce::AudioChannelSet::mono()
+            && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void SattariAutoPitchAudioProcessor::pushPitchSample (float sample)
@@ -308,6 +333,11 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
         value *= 0.995;
     autoKeyHistogram[(size_t) note] += weight;
 
+    correlateAutoKeyHistogram();
+}
+
+void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
+{
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
 
@@ -369,6 +399,70 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
     }
 
     detectedAutoRoot = bestRoot;
+}
+
+void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int numSamples)
+{
+    if (chromaRing.empty())
+        return;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        chromaRing[(size_t) chromaWritePos] = mono[i];
+        chromaWritePos = (chromaWritePos + 1) % chromaFftSize;
+    }
+    chromaSamplesSinceFft += numSamples;
+
+    // Run the FFT roughly every 256 ms (chroma changes slowly; this keeps the
+    // CPU cost negligible). Skip if the buffer hasn't seen non-silence yet.
+    const int hop = (int) (currentSampleRate * 0.256);
+    if (chromaSamplesSinceFft >= hop && sidechainSeenAudio)
+    {
+        chromaSamplesSinceFft = 0;
+        runChromaAnalysis();
+        correlateAutoKeyHistogram();
+    }
+}
+
+void SattariAutoPitchAudioProcessor::runChromaAnalysis()
+{
+    if (chromaFft == nullptr || chromaFftScratch.empty())
+        return;
+
+    // Copy the ring into the scratch (oldest -> newest), Hann-window it, FFT it.
+    for (int i = 0; i < chromaFftSize; ++i)
+    {
+        const float s = chromaRing[(size_t) ((chromaWritePos + i) % chromaFftSize)];
+        chromaFftScratch[(size_t) i] = s * chromaHannWindow[(size_t) i];
+    }
+    // Zero the imaginary half required by performFrequencyOnlyForwardTransform.
+    std::fill (chromaFftScratch.begin() + chromaFftSize, chromaFftScratch.end(), 0.0f);
+    chromaFft->performFrequencyOnlyForwardTransform (chromaFftScratch.data());
+
+    // Map FFT magnitude bins to pitch classes (sum power per pc). Bins below ~A1
+    // (55 Hz) and above ~C8 (4186 Hz) are out of musical range -> skip.
+    std::array<double, 12> pcAccum {};
+    const double binHz = currentSampleRate / (double) chromaFftSize;
+    const int firstBin = juce::jmax (1, (int) std::ceil (55.0  / binHz));
+    const int lastBin  = juce::jmin (chromaFftSize / 2, (int) std::floor (4186.0 / binHz));
+    for (int bin = firstBin; bin <= lastBin; ++bin)
+    {
+        const double f = bin * binHz;
+        const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
+        const int pc = ((int) std::round (midi) % 12 + 12) % 12;
+        const float mag = chromaFftScratch[(size_t) bin];
+        pcAccum[(size_t) pc] += (double) mag * mag;   // power, not amplitude
+    }
+
+    // Normalise -> chroma vector summing to 1. Then blend it into the histogram
+    // with a moderate weight so the rolling estimate stays smooth.
+    double total = 0.0;
+    for (double v : pcAccum) total += v;
+    if (total < 1.0e-9) return;
+    for (auto& v : pcAccum) v /= total;
+
+    constexpr double blend = 0.35;
+    for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
+        autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
 }
 
 SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::buildCorrectionFrame (PitchFrame detected) const
@@ -439,21 +533,64 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     juce::ScopedNoDenormals noDenormals;
 
     const int numSamples = buffer.getNumSamples();
-    const int numChannels = buffer.getNumChannels();
-    if (numSamples <= 0 || numChannels <= 0)
+    if (numSamples <= 0)
         return;
+
+    // Bus-aware: main input/output is bus 0, sidechain (optional) is bus 1.
+    // The monophonic vocal pitch tracker only sees the main input; the sidechain
+    // is read-only and feeds the polyphonic-AutoKey chroma analyser.
+    auto mainBuffer = getBusBuffer (buffer, true, 0);
+    const int numChannels = mainBuffer.getNumChannels();
+    if (numChannels <= 0)
+        return;
+
+    const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
+
+    // Pull sidechain (master) audio if the bus is enabled. When AutoKey is on,
+    // route a mono sum into the chroma analyser. This is how AutoKey "listens to
+    // the whole master track" — the user sidechains the master bus into us.
+    if (autoKeyOn && getBusCount (true) > 1)
+    {
+        if (auto* scBus = getBus (true, 1); scBus != nullptr && scBus->isEnabled())
+        {
+            auto scBuffer = getBusBuffer (buffer, true, 1);
+            const int scCh = scBuffer.getNumChannels();
+            if (scCh > 0)
+            {
+                if ((int) scMonoScratch.size() < numSamples)
+                    scMonoScratch.assign ((size_t) numSamples, 0.0f);
+                float energy = 0.0f;
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    float m = 0.0f;
+                    for (int ch = 0; ch < scCh; ++ch)
+                        m += scBuffer.getSample (ch, i);
+                    m /= (float) scCh;
+                    scMonoScratch[(size_t) i] = m;
+                    energy += m * m;
+                }
+                if (energy > 1.0e-6f)
+                    sidechainSeenAudio = true;
+                pushSidechainBlock (scMonoScratch.data(), numSamples);
+            }
+        }
+    }
 
     for (int i = 0; i < numSamples; ++i)
     {
         float mono = 0.0f;
         for (int channel = 0; channel < numChannels; ++channel)
-            mono += buffer.getSample (channel, i);
+            mono += mainBuffer.getSample (channel, i);
         pushPitchSample (mono / (float) numChannels);
 
         if (--pitchSamplesUntilAnalysis <= 0)
         {
             auto detected = analyseCurrentPitchFrame();
-            updateAutoKeyHistogram (detected);
+            // Only fall back to the vocal-driven AutoKey when no sidechain is
+            // actively training the histogram. Otherwise the polyphonic SC path
+            // (much more accurate for a full mix) owns the key estimate.
+            if (! sidechainSeenAudio)
+                updateAutoKeyHistogram (detected);
             lastPitchFrame = buildCorrectionFrame (detected);
             pitchSamplesUntilAnalysis = pitchHopSize;
         }
@@ -469,11 +606,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const float linearGain = juce::Decibels::decibelsToGain (inputDb + outputDb);
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-    processWithRubberBand (buffer, smoothedPitchScale, linearGain);
+    processWithRubberBand (mainBuffer, smoothedPitchScale, linearGain);
 #else
-    processFallbackFormantGuide (buffer, smoothedPitchScale, linearGain);
+    processFallbackFormantGuide (mainBuffer, smoothedPitchScale, linearGain);
 #endif
-    applyModeCharacter (buffer);
+    applyModeCharacter (mainBuffer);
 }
 
 void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
