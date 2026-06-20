@@ -167,13 +167,17 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Auto Pitch");
     addAndMakeVisible (title);
 
-    vocalRange.addItemList ({ "Wide", "Bass", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano" }, 1);
+    vocalRange.addItemList ({
+        "Wide",
+        "Bass Voice", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano",
+        "Instrument: Bass", "Instrument: Mid", "Instrument: High"
+    }, 1);
     keyRoot.addItemList ({ "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
     scale.addItemList ({ "Major", "Minor", "Chromatic" }, 1);
     for (auto* c : { &vocalRange, &keyRoot, &scale, &factoryPresets, &userPresets })
         addAndMakeVisible (*c);
 
-    styleCaption (vocalRangeCaption, "VOCAL RANGE");
+    styleCaption (vocalRangeCaption, "SOUND SOURCE");
     styleCaption (keyScaleCaption, "KEY & SCALE");
     addAndMakeVisible (vocalRangeCaption);
     addAndMakeVisible (keyScaleCaption);

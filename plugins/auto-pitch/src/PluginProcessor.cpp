@@ -135,8 +135,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
         juce::NormalisableRange<float> (0.05f, 1.0f, 0.01f), 0.70f));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("doNoHarm", "Do No Harm", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("formantPreserve", "Formant Preserve", true));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> ("vocalRange", "Vocal Range",
-        juce::StringArray { "Wide", "Bass", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano" }, 4));
+    // "Sound Source" replaces the vocals-only "Vocal Range" param. Adding
+    // explicit Instrument bands so the same correction engine can target a
+    // bass / lead / lead-high source (electric bass, monophonic synth lead,
+    // brass / sax / flute, etc.) — same monophonic algorithm, just a wider
+    // tracking range and formant preserve defaults to OFF for instruments.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("vocalRange", "Sound Source",
+        juce::StringArray {
+            "Wide",
+            "Bass Voice", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano",
+            "Instrument: Bass", "Instrument: Mid", "Instrument: High"
+        }, 4));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize", "Humanize",
@@ -284,8 +293,21 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
     if (rms < silenceRms)
         return result;
 
-    const int minLag = juce::jlimit (1, pitchFrameSize - 2, (int) std::floor (currentSampleRate / maxVoiceHz));
-    const int maxLag = juce::jlimit (minLag + 1, pitchFrameSize - 2, (int) std::ceil (currentSampleRate / minVoiceHz));
+    // Source-aware pitch tracking range. Voice ranges keep the vocal-tuned
+    // [70..950 Hz] window; instrument ranges widen low (40 Hz for bass) or
+    // high (2 kHz for whistles / brass tops). The shapes are conservative —
+    // wider than typical fundamentals so vibrato + bends stay inside.
+    const int sourceIdx = juce::roundToInt (apvts.getRawParameterValue ("vocalRange")->load());
+    double rangeMinHz = minVoiceHz, rangeMaxHz = maxVoiceHz;
+    switch (sourceIdx)
+    {
+        case 7: rangeMinHz =  40.0; rangeMaxHz =  500.0; break;   // Instrument: Bass
+        case 8: rangeMinHz =  60.0; rangeMaxHz = 1500.0; break;   // Instrument: Mid
+        case 9: rangeMinHz = 110.0; rangeMaxHz = 2200.0; break;   // Instrument: High
+        default: break;                                            // voice ranges -> unchanged
+    }
+    const int minLag = juce::jlimit (1, pitchFrameSize - 2, (int) std::floor (currentSampleRate / rangeMaxHz));
+    const int maxLag = juce::jlimit (minLag + 1, pitchFrameSize - 2, (int) std::ceil (currentSampleRate / rangeMinHz));
 
     double bestScore = 0.0;
     int bestLag = minLag;
@@ -322,7 +344,7 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
     result.frequencyHz = frequencyHz;
     result.midi = midiFromHz (frequencyHz);
     result.confidence = juce::jlimit (0.0, 1.0, bestScore);
-    result.voiced = frequencyHz >= minVoiceHz && frequencyHz <= maxVoiceHz;
+    result.voiced = frequencyHz >= rangeMinHz && frequencyHz <= rangeMaxHz;
     return result;
 }
 

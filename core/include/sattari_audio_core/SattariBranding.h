@@ -81,6 +81,7 @@ inline const std::vector<Product>& products()
         { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      0xffd8b45a }, // gold
         { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  0xffff6b35 }, // orange
         { "bus",               "Sattari Bus",         "Bus / mix",        0xff9b7bff }, // violet
+        { "align",             "Sattari Align",       "Timing alignment", 0xff7dd3fc }, // cyan
     };
     return registry;
 }

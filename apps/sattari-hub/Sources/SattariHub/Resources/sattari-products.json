@@ -236,6 +236,38 @@
         }
       ],
       "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+    },
+    {
+      "id": "align",
+      "name": "Sattari Align",
+      "category": "Timing alignment",
+      "accent": "#7dd3fc",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Time-aligns the Main signal to the Guide sidechain via onset-envelope cross-correlation. Works on any transient material - vocal doubles, guitar layers, drum stems.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/AU/Sattari Align.component",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Align.component"
+        },
+        {
+          "kind": "VST3",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/VST3/Sattari Align.vst3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Align.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/Standalone/Sattari Align.app",
+          "installSubpath": "Applications/Sattari Align.app"
+        }
+      ],
+      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
     }
   ],
   "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"
