@@ -43,6 +43,8 @@ private:
     juce::Label title, subtitle, grLabel;
     juce::ComboBox mode, factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
+    juce::TextButton abAButton { "A" }, abBButton { "B" }, abSwap { "x" };
+    int activeAB = 0;   // 0 = neither, 1 = A active, 2 = B active
     juce::ToggleButton mute, bypass;
     std::unique_ptr<ComboAttachment> modeAttach;
     std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach;

@@ -41,6 +41,29 @@ SattariBusAudioProcessorEditor::SattariBusAudioProcessorEditor (SattariBusAudioP
     addAndMakeVisible (savePresetButton);
     refreshUserPresets();
 
+    // A/B compare. First click on A captures the current state; subsequent
+    // clicks recall it. Same for B. Swap exchanges A <-> B in place.
+    auto stylePill = [] (juce::Button& b) {
+        b.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kPanelRaised));
+        b.setColour (juce::TextButton::textColourOnId, juce::Colour (sattari::brand::kTextPrimary));
+        b.setColour (juce::TextButton::textColourOffId, juce::Colour (sattari::brand::kTextMuted));
+    };
+    stylePill (abAButton); stylePill (abBButton); stylePill (abSwap);
+    abAButton.onClick = [this] {
+        if (activeAB != 1 && presetManager.hasSlotA()) { presetManager.recallSlotA(); activeAB = 1; }
+        else { presetManager.captureSlotA(); activeAB = 1; }
+        repaint();
+    };
+    abBButton.onClick = [this] {
+        if (activeAB != 2 && presetManager.hasSlotB()) { presetManager.recallSlotB(); activeAB = 2; }
+        else { presetManager.captureSlotB(); activeAB = 2; }
+        repaint();
+    };
+    abSwap.onClick = [this] { presetManager.swapSlots(); repaint(); };
+    addAndMakeVisible (abAButton);
+    addAndMakeVisible (abBButton);
+    addAndMakeVisible (abSwap);
+
     mute.setButtonText ("Mute");
     bypass.setButtonText ("Bypass");
     addAndMakeVisible (mute);
@@ -155,7 +178,13 @@ void SattariBusAudioProcessorEditor::resized()
     auto presetRow = area.removeFromTop (34);
     factoryPresets.setBounds (presetRow.removeFromLeft (175));
     presetRow.removeFromLeft (8);
-    userPresets.setBounds (presetRow.removeFromLeft (160));
+    userPresets.setBounds (presetRow.removeFromLeft (140));
+    presetRow.removeFromLeft (6);
+    abAButton.setBounds (presetRow.removeFromLeft (28));
+    presetRow.removeFromLeft (2);
+    abBButton.setBounds (presetRow.removeFromLeft (28));
+    presetRow.removeFromLeft (2);
+    abSwap.setBounds    (presetRow.removeFromLeft (28));
     presetRow.removeFromLeft (8);
     savePresetButton.setBounds (presetRow.removeFromLeft (110));
     grLabel.setBounds (presetRow.removeFromRight (110));
