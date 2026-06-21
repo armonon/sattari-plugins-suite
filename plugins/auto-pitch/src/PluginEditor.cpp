@@ -272,7 +272,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (inputCaption);
     proPanel.addAndMakeVisible (outputCaption);
     proPanel.addAndMakeVisible (formantCaption);
-    proPanel.addAndMakeVisible (loadTraceButton);
+    // loadTraceButton is a dev-only JSON trace import. Plumbing kept for the
+    // contract test (loadTraceFromClipboard) but the button stays off-UI in
+    // shipping builds - it's not a user feature.
     loadTraceButton.onClick = [this] { loadTraceFromClipboard(); };
     traceStatus.setJustificationType (juce::Justification::topLeft);
     keyDetectionStatus.setJustificationType (juce::Justification::topLeft);
@@ -438,8 +440,8 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         ? "Detune " + juce::String (snap.correctionCents, 1) + " ct"
         : "Detune -", juce::dontSendNotification);
 
-    traceStatus.setText (audioProcessor.getLastTraceSummary() + "\n" + audioProcessor.getLiveStatusSummary(),
-                         juce::dontSendNotification);
+    // Show only the live engine status; the JSON-trace summary is dev-only.
+    traceStatus.setText (audioProcessor.getLiveStatusSummary(), juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
 
     // Track Key Map status panel.
@@ -578,12 +580,11 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
 
-    // Trace + key-detection (top half of right column)
-    auto traceArea = pRight.removeFromTop ((int) (pRight.getHeight() * 0.45f));
-    loadTraceButton.setBounds (traceArea.removeFromTop (28));
-    traceArea.removeFromTop (6);
-    traceStatus.setBounds (traceArea.removeFromTop ((int) (traceArea.getHeight() * 0.55f)));
-    keyDetectionStatus.setBounds (traceArea);
+    // Live status + key-detection (top half of right column).
+    // loadTraceButton is intentionally not laid out - it's dev-only.
+    auto statusArea = pRight.removeFromTop ((int) (pRight.getHeight() * 0.45f));
+    traceStatus.setBounds (statusArea.removeFromTop ((int) (statusArea.getHeight() * 0.55f)));
+    keyDetectionStatus.setBounds (statusArea);
 
     // Track Key Map (bottom half of right column)
     pRight.removeFromTop (10);

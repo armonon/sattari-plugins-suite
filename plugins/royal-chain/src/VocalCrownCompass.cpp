@@ -157,6 +157,17 @@ void VocalCrownCompass::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.75f));
         g.drawEllipse (pos.x - nodeR, pos.y - nodeR, nodeR * 2.0f, nodeR * 2.0f, 1.0f);
 
+        // Snap feedback: when the macro is at exactly 0 or 1, draw a bright
+        // pulse ring around the node so the user gets a visual cue that the
+        // limit's been hit (otherwise dragging into the rail feels mushy).
+        const float macro = getMacro (n.paramId);
+        if (macro <= 0.001f || macro >= 0.999f)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.55f));
+            const float pulseR = nodeR + 4.0f;
+            g.drawEllipse (pos.x - pulseR, pos.y - pulseR, pulseR * 2.0f, pulseR * 2.0f, 2.0f);
+        }
+
         // Label outside the node, offset away from the centre so it reads.
         const float labelDist = nodeR + 14.0f;
         const juce::Point<float> labelPos (pos.x + std::cos (n.angleRad) * labelDist,
