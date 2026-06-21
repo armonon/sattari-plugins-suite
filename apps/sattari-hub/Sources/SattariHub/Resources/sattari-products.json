@@ -21,17 +21,17 @@
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/AU/Sattari Auto Pitch.component",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/AU/Sattari Auto Pitch.component",
           "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/VST3/Sattari Auto Pitch.vst3",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/VST3/Sattari Auto Pitch.vst3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/Standalone/Sattari Auto Pitch.app",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/Standalone/Sattari Auto Pitch.app",
           "installSubpath": "Applications/Sattari Auto Pitch.app"
         }
       ],
@@ -52,12 +52,12 @@
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/voxkey/SattariVoxKey_artefacts/Release/AU/Sattari VoxKey.component",
+          "relativeSourcePath": "build/all/plugins/voxkey/SattariVoxKey_artefacts/Release/AU/Sattari VoxKey.component",
           "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari VoxKey.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/voxkey/SattariVoxKey_artefacts/Release/VST3/Sattari VoxKey.vst3",
+          "relativeSourcePath": "build/all/plugins/voxkey/SattariVoxKey_artefacts/Release/VST3/Sattari VoxKey.vst3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari VoxKey.vst3"
         }
       ],
@@ -77,7 +77,7 @@
       "bundles": [
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/stemdeck-app/SattariStemDeck_artefacts/Release/Standalone/Sattari StemDeck.app",
+          "relativeSourcePath": "build/all/plugins/stemdeck/SattariStemDeck_artefacts/Release/Standalone/Sattari StemDeck.app",
           "installSubpath": "Applications/Sattari StemDeck.app"
         }
       ],

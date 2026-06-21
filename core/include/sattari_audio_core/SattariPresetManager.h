@@ -141,6 +141,23 @@ public:
             }
     }
 
+    // --- A/B compare ----------------------------------------------------------
+    //  Two in-memory slots for snapshot-and-recall. Editors give the user three
+    //  buttons (A, B, Swap) and the plugin can flip between two states without
+    //  touching the file-backed user presets. Slots are NOT persisted across
+    //  reloads (that is what factory + user presets are for).
+    void captureSlotA() { slotAState = captureState(); slotAHasValue = true; }
+    void captureSlotB() { slotBState = captureState(); slotBHasValue = true; }
+    bool recallSlotA()  { if (! slotAHasValue) return false; applyState (slotAState); return true; }
+    bool recallSlotB()  { if (! slotBHasValue) return false; applyState (slotBState); return true; }
+    void swapSlots()
+    {
+        std::swap (slotAState, slotBState);
+        std::swap (slotAHasValue, slotBHasValue);
+    }
+    bool hasSlotA() const noexcept { return slotAHasValue; }
+    bool hasSlotB() const noexcept { return slotBHasValue; }
+
     // --- User preset files ----------------------------------------------------
     bool saveUserPreset (const juce::String& name)
     {
@@ -191,6 +208,10 @@ private:
     juce::String product;
     juce::String suiteFolder;
     std::vector<FactoryPreset> factoryPresets;
+
+    // A/B slots (in-memory).
+    juce::var slotAState, slotBState;
+    bool slotAHasValue = false, slotBHasValue = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariPresetManager)
 };

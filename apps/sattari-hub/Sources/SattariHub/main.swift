@@ -342,6 +342,19 @@ final class HubWindowController: NSWindowController {
             : "Package root: \(model.repoRoot!.path) • bundled/local available products: \(bundledCount)"
         root.addArrangedSubview(statusLabel)
 
+        // Suite-wide action row: one click installs / updates every available product.
+        let actionRow = NSStackView()
+        actionRow.orientation = .horizontal
+        actionRow.spacing = 12
+        let installAll = NSButton(title: "Install All", target: self, action: #selector(installAllClicked(_:)))
+        installAll.bezelStyle = .rounded
+        installAll.keyEquivalent = "\r"
+        let updateAll = NSButton(title: "Update All", target: self, action: #selector(updateAllClicked(_:)))
+        updateAll.bezelStyle = .rounded
+        actionRow.addArrangedSubview(installAll)
+        actionRow.addArrangedSubview(updateAll)
+        root.addArrangedSubview(actionRow)
+
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
@@ -461,6 +474,39 @@ final class HubWindowController: NSWindowController {
             statusLabel.stringValue = "Install failed: \(error.localizedDescription)"
             NSSound.beep()
         }
+    }
+
+    @objc private func installAllClicked(_ sender: NSButton) {
+        installMany(products: model.manifest.products, label: "Install All")
+    }
+
+    @objc private func updateAllClicked(_ sender: NSButton) {
+        let needsUpdate = model.manifest.products.filter { model.productNeedsUpdate($0) }
+        if needsUpdate.isEmpty {
+            statusLabel.stringValue = "All products are up to date."
+            return
+        }
+        installMany(products: needsUpdate, label: "Update All")
+    }
+
+    private func installMany(products: [HubProduct], label: String) {
+        var installed = 0
+        var failed: [String] = []
+        for product in products {
+            do {
+                _ = try model.install(product: product)
+                installed += 1
+            } catch {
+                failed.append("\(product.name) (\(error.localizedDescription))")
+            }
+        }
+        if failed.isEmpty {
+            statusLabel.stringValue = "\(label): installed \(installed) of \(products.count) product(s). Restart or rescan your DAW."
+        } else {
+            statusLabel.stringValue = "\(label): \(installed)/\(products.count) installed. Failed: \(failed.joined(separator: "; "))"
+            NSSound.beep()
+        }
+        reloadProductCards()
     }
 }
 
