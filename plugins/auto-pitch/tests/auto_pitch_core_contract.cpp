@@ -72,7 +72,9 @@ int main()
     }
 
     const auto status = processor.getLiveStatusSummary();
-    if (! status.containsIgnoreCase ("AutoTune alpha"))
+    // Assert on what proves the engine ran, not on marketing copy: the status
+    // must name either the real Rubber Band engine or the fallback guide.
+    if (! (status.containsIgnoreCase ("Rubber Band") || status.containsIgnoreCase ("fallback")))
     {
         std::cerr << "unexpected status: " << status << "\n";
         return 1;

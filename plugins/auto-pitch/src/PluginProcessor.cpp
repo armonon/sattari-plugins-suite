@@ -1050,7 +1050,7 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
 juce::String SattariAutoPitchAudioProcessor::midiNoteName (double midi)
 {
     if (midi <= 0.0)
-        return "—";
+        return "-";
 
     const int rounded = (int) std::round (midi);
     const int note = ((rounded % 12) + 12) % 12;
@@ -1071,12 +1071,12 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 #endif
 
     if (! lastPitchFrame.voiced)
-        return "AutoTune alpha armed — " + engine + " engine, " + (autoKeyOn ? "AutoKey " : "key ") + root + " " + scale + ", waiting for voiced input";
+        return engine + " engine, " + (autoKeyOn ? "AutoKey " : "key ") + root + " " + scale + " - waiting for voiced input";
 
-    return "AutoTune alpha — " + engine + (autoKeyOn ? ", AutoKey " : ", key ") + root + " " + scale
+    return engine + (autoKeyOn ? " - AutoKey " : " - key ") + root + " " + scale
         + ", mode " + currentStyleChoice()
         + ", in " + midiNoteName (lastPitchFrame.midi)
-        + " → " + midiNoteName (lastPitchFrame.targetMidi)
+        + " -> " + midiNoteName (lastPitchFrame.targetMidi)
         + ", correction " + juce::String (lastPitchFrame.correctionCents, 1) + " cents"
         + ", confidence " + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
 }
