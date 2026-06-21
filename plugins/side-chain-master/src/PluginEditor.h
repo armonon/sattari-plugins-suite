@@ -27,13 +27,14 @@ private:
     void timerCallback() override;
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
+    void registerFactoryPresets();
 
     SideChainMasterAudioProcessor& audioProcessor;
 
     // Shared suite UI + cross-plugin preset system.
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("side-chain-master") };
     sattari::presets::SattariPresetManager presetManager;
-    juce::ComboBox userPresets;
+    juce::ComboBox factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
 
     juce::Label title, subtitle, grLabel, sidechainStatus;

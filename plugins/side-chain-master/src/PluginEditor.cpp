@@ -13,6 +13,16 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Clean external ducking with musical internal fallback");
     addAndMakeVisible (subtitle);
 
+    registerFactoryPresets();
+    factoryPresets.setTextWhenNothingSelected ("Factory presets...");
+    factoryPresets.addItemList (presetManager.factoryPresetNames(), 1);
+    factoryPresets.onChange = [this]
+    {
+        const int idx = factoryPresets.getSelectedItemIndex();
+        if (idx >= 0) presetManager.loadFactoryPreset (idx);
+    };
+    addAndMakeVisible (factoryPresets);
+
     userPresets.setTextWhenNothingSelected ("User presets...");
     userPresets.onChange = [this]
     {
@@ -83,6 +93,33 @@ SideChainMasterAudioProcessorEditor::~SideChainMasterAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void SideChainMasterAudioProcessorEditor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    // Mode indices: 0 Clean, 1 Pump, 2 Tight, 3 Smooth, 4 Creative.
+    presetManager.addFactoryPreset ("EDM Pump", PV {
+        {"mode",1},{"threshold",-22},{"ratio",6},{"attack",2},{"release",140},
+        {"depth",16},{"makeup",0},{"mix",100},{"sidechainHpf",90},{"external",1} });
+    presetManager.addFactoryPreset ("Subtle Tighten", PV {
+        {"mode",0},{"threshold",-30},{"ratio",3},{"attack",10},{"release",240},
+        {"depth",6},{"makeup",0},{"mix",80},{"sidechainHpf",60},{"external",1} });
+    presetManager.addFactoryPreset ("Punch Through", PV {
+        {"mode",2},{"threshold",-18},{"ratio",8},{"attack",1},{"release",80},
+        {"depth",14},{"makeup",1},{"mix",100},{"sidechainHpf",100},{"external",1} });
+    presetManager.addFactoryPreset ("Vocal Duck", PV {
+        {"mode",3},{"threshold",-26},{"ratio",4},{"attack",15},{"release",300},
+        {"depth",8},{"makeup",0},{"mix",100},{"sidechainHpf",120},{"external",1} });
+    presetManager.addFactoryPreset ("Tempo Sync 1/4", PV {
+        {"mode",1},{"depth",18},{"makeup",0},{"mix",100},{"syncDuck",1},
+        {"syncRate",2},{"syncCurve",1.0f} });
+    presetManager.addFactoryPreset ("Tempo Sync 1/8", PV {
+        {"mode",1},{"depth",14},{"makeup",0},{"mix",100},{"syncDuck",1},
+        {"syncRate",3},{"syncCurve",0.7f} });
+    presetManager.addFactoryPreset ("Master Glue", PV {
+        {"mode",3},{"threshold",-32},{"ratio",2},{"attack",30},{"release",400},
+        {"depth",4},{"makeup",0},{"mix",100},{"sidechainHpf",40},{"external",0} });
 }
 
 void SideChainMasterAudioProcessorEditor::refreshUserPresets()
@@ -185,9 +222,11 @@ void SideChainMasterAudioProcessorEditor::resized()
 
     area.removeFromTop (10);
     auto presetRow = area.removeFromTop (34);
-    userPresets.setBounds (presetRow.removeFromLeft (200));
+    factoryPresets.setBounds (presetRow.removeFromLeft (180));
     presetRow.removeFromLeft (10);
-    savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    userPresets.setBounds (presetRow.removeFromLeft (180));
+    presetRow.removeFromLeft (10);
+    savePresetButton.setBounds (presetRow.removeFromLeft (110));
 
     area.removeFromTop (12);
     auto modeRow = area.removeFromTop (52);
