@@ -45,7 +45,7 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari VoxKey");
     addAndMakeVisible (title);
 
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Voice-to-MIDI instrument - dry vocal pass-through - Ableton MVP");
+    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Voice-to-MIDI instrument with dry vocal pass-through");
     addAndMakeVisible (subtitle);
 
     setupCombo (userPresets);

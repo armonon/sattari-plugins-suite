@@ -12,7 +12,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Royal Chain");
     addAndMakeVisible (title);
 
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "From raw vocal to royal vocal - Royal Chain Lite internal scaffold");
+    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Nine-stage vocal chain with one-knob macros and Vocal Crown Compass");
     addAndMakeVisible (subtitle);
 
     setupCombo (userPresets);
