@@ -151,6 +151,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize", "Humanize",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+    // 12-bit mask of enabled pitch classes (bit 0 = C, bit 11 = B). Default
+    // 4095 = all 12 notes valid. The Edit Notes pill row clicks toggle bits
+    // (shift-click sets root, plain click blocks/unblocks the note). When a
+    // note is blocked, correction snaps to the next nearest enabled note.
+    params.push_back (std::make_unique<juce::AudioParameterInt> ("enabledNotes", "Enabled Notes",
+        0, 4095, 4095));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -730,7 +736,38 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     const int rootIndex = currentCorrectionRootIndex();
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
-    const int targetMidi = nearestScaleMidi (detected.midi, rootIndex, scaleName);
+    int targetMidi = nearestScaleMidi (detected.midi, rootIndex, scaleName);
+
+    // Edit Notes mask: bit-N of `enabledNotes` enables pitch-class N. If the
+    // scale snap landed on a blocked note, search outward for the nearest
+    // enabled-AND-in-scale note. If the user has blocked literally every note
+    // (mask = 0) we fall back to the un-masked target so we never produce
+    // silence-on-pitch as a "feature".
+    const int mask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
+    if (mask != 0)
+    {
+        auto pcEnabled = [mask] (int midi) { return (mask >> (((midi % 12) + 12) % 12)) & 1; };
+        if (! pcEnabled (targetMidi))
+        {
+            int searchTarget = targetMidi;
+            for (int radius = 1; radius <= 12 && ! pcEnabled (searchTarget); ++radius)
+            {
+                const int down = targetMidi - radius;
+                const int up   = targetMidi + radius;
+                // Honour scale: candidate must be in-scale AND enabled. Chromatic
+                // mode passes the in-scale check trivially.
+                auto inScale = [&] (int m) {
+                    if (scaleName == "chromatic") return true;
+                    const int deg = ((m - rootIndex) % 12 + 12) % 12;
+                    return scaleAllowsDegree (deg, scaleName);
+                };
+                if (inScale (down) && pcEnabled (down)) { searchTarget = down; break; }
+                if (inScale (up)   && pcEnabled (up))   { searchTarget = up;   break; }
+            }
+            targetMidi = searchTarget;
+        }
+    }
+
     detected.targetMidi = (double) targetMidi;
     detected.correctionCents = (detected.targetMidi - detected.midi) * 100.0;
     return detected;

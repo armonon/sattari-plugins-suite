@@ -108,15 +108,17 @@ void KeyPillRow::paint (juce::Graphics& g)
 
     auto drawPill = [&] (juce::Rectangle<float> r, int pc)
     {
-        const bool lit       = inScale (pc);
+        const bool lit        = inScale (pc);
+        const bool enabled    = (enabledMask >> pc) & 1;
         const bool isDetected = (detectedMidi >= 0)
                                 && (((detectedMidi % 12) + 12) % 12) == pc;
-        const auto pillBg = lit ? accent.withAlpha (isDetected ? 0.95f : 0.50f)
-                                : juce::Colour (sattari::brand::kPanelRaised);
-        const auto stroke = lit ? accent.withAlpha (0.85f)
-                                : juce::Colour (sattari::brand::kHairline);
-        const auto textCol = lit ? juce::Colour (sattari::brand::kBackground)
-                                 : juce::Colour (sattari::brand::kTextMuted);
+        const auto pillBg = (lit && enabled) ? accent.withAlpha (isDetected ? 0.95f : 0.50f)
+                                              : juce::Colour (sattari::brand::kPanelRaised);
+        const auto stroke = (lit && enabled) ? accent.withAlpha (0.85f)
+                                              : juce::Colour (sattari::brand::kHairline);
+        const auto textCol = (! enabled) ? juce::Colour (sattari::brand::kTextFaint)
+                                          : ((lit) ? juce::Colour (sattari::brand::kBackground)
+                                                   : juce::Colour (sattari::brand::kTextMuted));
         g.setColour (pillBg);
         g.fillRoundedRectangle (r.reduced (2.0f), r.getHeight() * 0.5f);
         g.setColour (stroke);
@@ -124,6 +126,13 @@ void KeyPillRow::paint (juce::Graphics& g)
         g.setColour (textCol);
         g.setFont (juce::FontOptions (r.getHeight() * 0.42f, juce::Font::plain));
         g.drawText (noteNames[pc], r.toNearestInt(), juce::Justification::centred, false);
+        // Strike-through for blocked notes.
+        if (! enabled)
+        {
+            g.setColour (juce::Colour (sattari::brand::kDanger).withAlpha (0.7f));
+            const auto centre = r.getCentre();
+            g.drawLine (r.getX() + 6.0f, centre.y, r.getRight() - 6.0f, centre.y, 1.4f);
+        }
     };
 
     // Top row: positions match the black-key positions on a keyboard.
@@ -169,8 +178,15 @@ int KeyPillRow::hitTestPill (juce::Point<float> p) const
 void KeyPillRow::mouseDown (const juce::MouseEvent& e)
 {
     const int pc = hitTestPill (e.position);
-    if (pc >= 0 && onPillClicked)
-        onPillClicked (pc);
+    if (pc < 0) return;
+    if (e.mods.isShiftDown())
+    {
+        if (onPillShiftClicked) onPillShiftClicked (pc);
+    }
+    else
+    {
+        if (onPillClicked) onPillClicked (pc);
+    }
 }
 
 // ============================================================================
@@ -238,7 +254,20 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     basicPanel.addAndMakeVisible (autoKey);
     basicPanel.addAndMakeVisible (noteDisplay);
     basicPanel.addAndMakeVisible (pillRow);
+    // Plain click toggles whether the note is a valid correction target.
     pillRow.onPillClicked = [this] (int pc) {
+        if (auto* p = audioProcessor.parameters().getParameter ("enabledNotes"))
+        {
+            const auto& range = p->getNormalisableRange();
+            const int current = (int) std::round (range.convertFrom0to1 (p->getValue()));
+            const int flipped = current ^ (1 << pc);
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (range.convertTo0to1 ((float) flipped));
+            p->endChangeGesture();
+        }
+    };
+    // Shift-click sets the key root (the previous behaviour).
+    pillRow.onPillShiftClicked = [this] (int pc) {
         if (auto* p = audioProcessor.parameters().getParameter ("keyRoot"))
         {
             p->beginChangeGesture();
@@ -469,6 +498,8 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("scale")->load()));
     pillRow.setScale (keyRootIdx, scaleIdx);
     pillRow.setDetectedMidi (snap.detectedMidi);
+    pillRow.setEnabledMask (juce::jlimit (0, 4095,
+        juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("enabledNotes")->load())));
 
     detuneLabel.setText (snap.voiced
         ? "Detune " + juce::String (snap.correctionCents, 1) + " ct"

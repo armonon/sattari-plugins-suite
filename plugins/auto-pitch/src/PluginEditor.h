@@ -39,15 +39,22 @@ class KeyPillRow final : public juce::Component
 public:
     KeyPillRow() = default;
 
-    // Click handler: called with the clicked pitch class (0..11). Editors hook
-    // this up to write the key root via the APVTS so the pill row is fully
-    // interactive instead of read-only.
-    std::function<void(int)> onPillClicked;
+    // Click handlers. Plain click toggles the note's bit in the enabled-notes
+    // mask (block / unblock for correction). Shift+click sets the key root to
+    // that pitch class. Editor wires both to APVTS params.
+    std::function<void(int)> onPillClicked;       // plain click -> toggle enabled bit
+    std::function<void(int)> onPillShiftClicked;  // shift-click -> set key root
 
     void setScale (int keyRoot, int scaleIndex) noexcept
     {
         keyRootIdx = keyRoot;
         scaleIdx   = scaleIndex;
+        repaint();
+    }
+
+    void setEnabledMask (int mask) noexcept
+    {
+        enabledMask = mask;
         repaint();
     }
 
@@ -66,6 +73,7 @@ private:
     int keyRootIdx = 0;
     int scaleIdx   = 0;
     int detectedMidi = -1;
+    int enabledMask = 4095;   // all 12 bits on by default
     juce::Rectangle<float> sharpRects[5];
     juce::Rectangle<float> naturalRects[7];
 };
