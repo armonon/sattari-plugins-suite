@@ -329,6 +329,14 @@ final class HubWindowController: NSWindowController {
         subtitle.textColor = NSColor(calibratedWhite: 0.75, alpha: 1)
         root.addArrangedSubview(subtitle)
 
+        if let feed = model.manifest.updateFeedURL, !feed.isEmpty {
+            let host = URL(string: feed)?.host ?? feed
+            let feedLine = NSTextField(labelWithString: "Update feed: \(host)")
+            feedLine.font = NSFont.systemFont(ofSize: 11)
+            feedLine.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
+            root.addArrangedSubview(feedLine)
+        }
+
         let truth = NSTextField(labelWithString: model.manifest.truthLabel)
         truth.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         truth.textColor = NSColor(calibratedRed: 0.2, green: 0.95, blue: 0.82, alpha: 1)
