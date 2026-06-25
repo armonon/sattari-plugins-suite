@@ -33,6 +33,7 @@ private:
     juce::TextButton savePresetButton { "Save Preset" };
     juce::Slider octaves, ratchet, gate, swing, fixedVelocity, humanize, transpose;
     juce::ToggleButton latch, inputThru, hostSync;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
 
     std::unique_ptr<ComboAttachment> rateAttach, patternAttach, velocityModeAttach, scaleRootAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> octavesAttach, ratchetAttach, gateAttach, swingAttach, fixedVelocityAttach, humanizeAttach, transposeAttach;

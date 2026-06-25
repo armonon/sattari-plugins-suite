@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -29,7 +30,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "Sattari Auto Pitch"; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // for MIDI Learn
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override;
@@ -144,6 +145,9 @@ private:
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
     double currentSampleRate = 44100.0;
     int preparedBlockSize = 512;
     juce::String lastTraceSummary { "No trace loaded" };

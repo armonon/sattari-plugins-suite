@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAudioProcessor& p)
     : AudioProcessorEditor (&p),
@@ -63,6 +64,11 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     subOnly.setButtonText ("Sub only output");
     subOnly.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (subOnly);
+
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
+    };
 
     auto& params = processor.parameters();
     modeAttach = std::make_unique<ComboAttachment> (params, "mode", mode);
@@ -212,6 +218,8 @@ void SubConjurerAudioProcessorEditor::resized()
     note.setBounds (top.removeFromLeft (82));
     top.removeFromLeft (10);
     subOnly.setBounds (top.removeFromLeft (130));
+    top.removeFromLeft (8);
+    midiLearnButton.setBounds (top.removeFromLeft (120));
 
     area.removeFromTop (18);
     auto row1 = area.removeFromTop (138);

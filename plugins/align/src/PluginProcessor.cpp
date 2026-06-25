@@ -220,9 +220,10 @@ void SattariAlignAudioProcessor::resetDspState()
     smoothedLagSamples = 0.0f;
 }
 
-void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    midiLearn.processMidi (midi);
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples <= 0) return;
@@ -327,7 +328,9 @@ juce::AudioProcessorEditor* SattariAlignAudioProcessor::createEditor()
 
 void SattariAlignAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    midiLearn.saveTo (state);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
 
@@ -335,7 +338,11 @@ void SattariAlignAudioProcessor::setStateInformation (const void* data, int size
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

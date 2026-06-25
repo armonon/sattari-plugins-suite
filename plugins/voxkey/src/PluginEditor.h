@@ -54,6 +54,7 @@ private:
     juce::Slider sensitivity, smoothness, confidence, octave, hold, release, velocity, pitchBendRange;
     juce::ToggleButton pitchBend, glide, bypass;
     juce::TextButton panicButton { "Panic" };
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
     VoxKeyOrb orb;
 
     std::unique_ptr<ComboAttachment> modeAttach, keyAttach, scaleAttach;

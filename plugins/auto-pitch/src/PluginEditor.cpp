@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 namespace
 {
@@ -355,6 +356,11 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     clearMapButton.onClick  = [this] { audioProcessor.clearKeyMap(); };
     useKeyMapAttach = std::make_unique<ButtonAttachment> (audioProcessor.parameters(), "useKeyMap", useKeyMap);
 
+    proPanel.addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+    };
+
     // Attachments
     auto& params = audioProcessor.parameters();
     vocalRangeAttach     = std::make_unique<ComboAttachment> (params, "vocalRange", vocalRange);
@@ -661,7 +667,9 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     keymapHeader.removeFromLeft (6);
     clearMapButton.setBounds  (keymapHeader.removeFromLeft (100));
     keymapHeader.removeFromLeft (10);
-    useKeyMap.setBounds (keymapHeader);
+    useKeyMap.setBounds (keymapHeader.removeFromLeft (140));
+    keymapHeader.removeFromLeft (10);
+    midiLearnButton.setBounds (keymapHeader);
     pRight.removeFromTop (6);
     keyMapStatusLabel.setBounds (pRight);
 }

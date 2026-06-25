@@ -32,6 +32,7 @@ private:
     juce::Label title, subtitle, inputMeterLabel, outputMeterLabel;
     juce::ComboBox presetBox, styleBox, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::Slider inputSlider, outputSlider;
     juce::Slider cleanSlider, tuneSlider, controlSlider, toneSlider, airSlider, smoothSlider, glowSlider, widthSlider, spaceSlider, royalSlider;
     VocalCrownCompass compass;

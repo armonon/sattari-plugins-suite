@@ -74,6 +74,7 @@ VoxKeyVoiceMidiMapper::Settings SattariVoxKeyAudioProcessor::readSettings() cons
 void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    midiLearn.processMidi (midi);
 
     const int numSamples = buffer.getNumSamples();
     const int numInputChannels = getTotalNumInputChannels();
@@ -144,15 +145,20 @@ void SattariVoxKeyAudioProcessor::panic()
 
 void SattariVoxKeyAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    auto state = apvts.copyState();
+    midiLearn.saveTo (state);
     juce::MemoryOutputStream stream (destData, true);
-    apvts.state.writeToStream (stream);
+    state.writeToStream (stream);
 }
 
 void SattariVoxKeyAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     auto tree = juce::ValueTree::readFromData (data, (size_t) sizeInBytes);
     if (tree.isValid())
+    {
+        midiLearn.loadFrom (tree);
         apvts.replaceState (tree);
+    }
 }
 
 juce::AudioProcessorEditor* SattariVoxKeyAudioProcessor::createEditor()

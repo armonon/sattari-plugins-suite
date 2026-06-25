@@ -1,4 +1,5 @@
 #include "RoyalChainEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include "MacroController.h"
 
 RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioProcessor& p)
@@ -26,6 +27,10 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
     addAndMakeVisible (abRow);
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
+    };
     refreshUserPresets();
 
     setupCombo (presetBox);
@@ -231,6 +236,8 @@ void RoyalChainAudioProcessorEditor::resized()
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
     presetRow.removeFromLeft (8);
     abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
     area.removeFromTop (10);
 
     auto center = area.removeFromTop (230);

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <array>
 #include <atomic>
@@ -40,7 +41,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "Sattari Align"; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // for MIDI Learn
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -75,6 +76,9 @@ private:
     void resetDspState();
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
     double currentSampleRate = 44100.0;
     int    preparedBlockSize = 512;
 

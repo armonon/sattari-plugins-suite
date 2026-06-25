@@ -33,6 +33,7 @@ private:
     juce::TextButton savePresetButton;
     juce::Slider octave, amount, dry, richness, glide, saturation, attack, release, limiter;
     juce::ToggleButton subOnly;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
 
     std::unique_ptr<ComboAttachment> modeAttach, tuningAttach, noteAttach;
     std::unique_ptr<SliderAttachment> octaveAttach, amountAttach, dryAttach, richnessAttach, glideAttach, saturationAttach, attackAttach, releaseAttach, limiterAttach;

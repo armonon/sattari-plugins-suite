@@ -132,4 +132,47 @@ private:
     juce::String armedParamId;
 };
 
+// Build + show the standard "MIDI Learn..." popup. Lists every continuous/
+// switch parameter in the APVTS, annotates with the current CC mapping if any,
+// and arms learning on selection. Plus a "Clear all mappings" entry. Editors
+// drop one of these in their button onClick lambda.
+inline void showLearnPopup (SattariMidiLearn& learner,
+                            juce::Component& anchor,
+                            juce::AudioProcessorValueTreeState& apvts)
+{
+    auto menu = std::make_shared<juce::PopupMenu>();
+
+    // Collect (id, label) for every named param. We iterate the parameter
+    // graph rather than APVTS internals because that exposes both APVTS-owned
+    // params and any external parameter groups uniformly.
+    auto ids = std::make_shared<juce::StringArray>();
+    menu->addSectionHeader ("Arm parameter for next CC");
+
+    auto* proc = &apvts.processor;
+    for (auto* p : proc->getParameters())
+    {
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (p))
+        {
+            const auto& id = withId->paramID;
+            const auto label = withId->name + (juce::String) "";
+            const int cc = learner.ccForParam (id);
+            const juce::String suffix = cc >= 0 ? " (CC " + juce::String (cc) + ")" : juce::String();
+            ids->add (id);
+            menu->addItem ((int) ids->size(), label + suffix);
+        }
+    }
+    menu->addSeparator();
+    menu->addItem (10000, "Clear all mappings");
+
+    menu->showMenuAsync (juce::PopupMenu::Options().withTargetComponent (anchor),
+        [ids, &learner] (int choice)
+        {
+            if (choice <= 0) return;
+            if (choice == 10000) { learner.clearAll(); return; }
+            const int idx = choice - 1;
+            if (juce::isPositiveAndBelow (idx, ids->size()))
+                learner.armForParam ((*ids)[idx]);
+        });
+}
+
 } // namespace sattari::midi

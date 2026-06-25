@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 void VoxKeyOrb::setState (const VoxKeyVoiceMidiMapper::State& newState)
 {
@@ -59,6 +60,10 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
     addAndMakeVisible (abRow);
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+    };
     refreshUserPresets();
 
     setupCombo (mode);
@@ -211,6 +216,8 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
     presetRow.removeFromLeft (8);
     abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
 
     area.removeFromTop (10);
 

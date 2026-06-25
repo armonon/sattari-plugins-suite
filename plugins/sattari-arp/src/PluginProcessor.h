@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <vector>
 
 class SattariArpAudioProcessor final : public juce::AudioProcessor
@@ -66,6 +67,9 @@ private:
     bool hasHeldNotes() const { return ! heldNotes.empty(); }
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
 
     double currentSampleRate = 44100.0;
     double currentBpm = 120.0;

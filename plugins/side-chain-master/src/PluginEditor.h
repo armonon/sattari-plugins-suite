@@ -43,6 +43,7 @@ private:
     juce::ComboBox mode, syncRate;
     juce::Slider threshold, ratio, attack, release, depth, makeup, mix, sidechainHpf, lookahead, syncCurve;
     juce::ToggleButton external, listen, syncDuck;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
 
     juce::Label modeLabel, thresholdLabel, ratioLabel, attackLabel, releaseLabel, depthLabel, makeupLabel, mixLabel, hpfLabel,
                 lookaheadLabel, syncCurveLabel, syncRateLabel;

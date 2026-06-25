@@ -96,6 +96,7 @@ int SubConjurerAudioProcessor::noteNameToMidi (int index) const
 void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    midiLearn.processMidi (midi);
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
@@ -211,6 +212,7 @@ juce::AudioProcessorEditor* SubConjurerAudioProcessor::createEditor()
 void SubConjurerAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    midiLearn.saveTo (state);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -219,7 +221,11 @@ void SubConjurerAudioProcessor::setStateInformation (const void* data, int sizeI
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

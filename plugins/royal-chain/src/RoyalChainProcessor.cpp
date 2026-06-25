@@ -83,7 +83,7 @@ void RoyalChainAudioProcessor::updateMeter (std::atomic<float>& meter, float tar
 void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    juce::ignoreUnused (midi);
+    midiLearn.processMidi (midi);
 
     const int totalInputs = getTotalNumInputChannels();
     const int totalOutputs = getTotalNumOutputChannels();
@@ -158,6 +158,7 @@ juce::AudioProcessorEditor* RoyalChainAudioProcessor::createEditor()
 void RoyalChainAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    midiLearn.saveTo (state);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -166,7 +167,11 @@ void RoyalChainAudioProcessor::setStateInformation (const void* data, int sizeIn
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

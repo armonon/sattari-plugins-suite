@@ -33,6 +33,7 @@ private:
     juce::Slider searchRange, sensitivity, smoothing, manualOffset;
     juce::Label searchCaption, sensitivityCaption, smoothingCaption, manualCaption;
     juce::ToggleButton autoAlign { "Auto Align" }, lock { "Lock" }, bypass { "Bypass" };
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::ComboBox userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
 

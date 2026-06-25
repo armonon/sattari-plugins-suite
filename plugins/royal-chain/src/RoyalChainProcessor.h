@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include "CleanModule.h"
 #include "TuneModule.h"
 #include "ControlModule.h"
@@ -27,7 +28,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // MIDI Learn
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.75; }
@@ -57,6 +58,9 @@ private:
     float measurePeak (const juce::AudioBuffer<float>& buffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
 
     CleanModule cleanModule;
     TuneModule tuneModule;

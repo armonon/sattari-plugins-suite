@@ -171,6 +171,7 @@ void SattariArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+    midiLearn.processMidi (midi);   // read-only: notes still flow into the arp
     refreshHostTempo();
 
     // Reuse the member MidiBuffer instead of allocating a fresh one each block.
@@ -462,6 +463,7 @@ juce::AudioProcessorEditor* SattariArpAudioProcessor::createEditor()
 void SattariArpAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    midiLearn.saveTo (state);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -470,7 +472,11 @@ void SattariArpAudioProcessor::setStateInformation (const void* data, int sizeIn
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

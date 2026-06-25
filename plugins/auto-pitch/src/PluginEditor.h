@@ -140,6 +140,7 @@ private:
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
     juce::TextButton loadTraceButton { "Load trace JSON" };
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::Label traceStatus, keyDetectionStatus;
 
     // Track Key Map (Pro tab) — scan a song to build a key timeline that the

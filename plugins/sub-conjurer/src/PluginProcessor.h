@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 
 class SubConjurerAudioProcessor final : public juce::AudioProcessor
@@ -43,6 +44,9 @@ private:
     int noteNameToMidi (int index) const;
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
 
     double currentSampleRate = 44100.0;
     float oscillatorPhase = 0.0f;

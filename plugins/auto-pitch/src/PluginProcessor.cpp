@@ -823,8 +823,8 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
 
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    juce::ignoreUnused (midi);
     juce::ScopedNoDenormals noDenormals;
+    midiLearn.processMidi (midi);
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples <= 0)
@@ -1321,6 +1321,8 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
     }
     state.appendChild (km, nullptr);
 
+    midiLearn.saveTo (state);
+
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -1353,6 +1355,8 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
             keyMapFileName = km.getProperty ("file", "").toString();
             keyMapProgress.store (keyMap.empty() ? -1 : 100);
         }
+
+        midiLearn.loadFrom (restored);
 
         apvts.replaceState (restored);
     }

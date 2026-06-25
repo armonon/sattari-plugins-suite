@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 class SideChainMasterAudioProcessor final : public juce::AudioProcessor
 {
@@ -20,7 +21,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // for MIDI Learn CC input
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -50,6 +51,9 @@ private:
     float applyDetectorHighPass (float input, float cutoffHz);
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
 
     double currentSampleRate = 44100.0;
     float smoothedGainReductionDb = 0.0f;

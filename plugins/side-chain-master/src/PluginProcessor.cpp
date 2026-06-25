@@ -153,8 +153,8 @@ float SideChainMasterAudioProcessor::nextDetectorSample (const juce::AudioBuffer
 
 void SideChainMasterAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    juce::ignoreUnused (midi);
     juce::ScopedNoDenormals noDenormals;
+    midiLearn.processMidi (midi);
 
     auto mainInput = getBusBuffer (buffer, true, 0);
     auto mainOutput = getBusBuffer (buffer, false, 0);
@@ -277,6 +277,7 @@ juce::AudioProcessorEditor* SideChainMasterAudioProcessor::createEditor()
 void SideChainMasterAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    midiLearn.saveTo (state);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -285,7 +286,11 @@ void SideChainMasterAudioProcessor::setStateInformation (const void* data, int s
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

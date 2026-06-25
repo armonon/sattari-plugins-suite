@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideChainMasterAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p),
@@ -86,6 +87,11 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     externalAttach = std::make_unique<ButtonAttachment> (params, "external", external);
     listenAttach = std::make_unique<ButtonAttachment> (params, "listen", listen);
     syncDuckAttach = std::make_unique<ButtonAttachment> (params, "syncDuck", syncDuck);
+
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+    };
 
     startTimerHz (30);
 }
@@ -230,6 +236,8 @@ void SideChainMasterAudioProcessorEditor::resized()
     savePresetButton.setBounds (presetRow.removeFromLeft (110));
     presetRow.removeFromLeft (8);
     abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
 
     area.removeFromTop (12);
     auto modeRow = area.removeFromTop (52);

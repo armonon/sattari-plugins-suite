@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include "PitchDetector.h"
 #include "VoiceMidiMapper.h"
 #include <atomic>
@@ -21,7 +22,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // for MIDI Learn
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -45,6 +46,9 @@ private:
     void publishDisplayState (const VoxKeyVoiceMidiMapper::State& state);
 
     juce::AudioProcessorValueTreeState apvts;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
     VoxKeyPitchDetector pitchDetector;
     VoxKeyVoiceMidiMapper midiMapper;
     juce::AudioBuffer<float> monoScratch;

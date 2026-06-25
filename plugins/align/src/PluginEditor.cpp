@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlignAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p),
@@ -65,6 +66,10 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
     addAndMakeVisible (abRow);
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+    };
 
     auto& params = audioProcessor.parameters();
     searchAttach = std::make_unique<SliderAttachment> (params, "searchRangeMs", searchRange);
@@ -146,6 +151,8 @@ void SattariAlignAudioProcessorEditor::resized()
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
     presetRow.removeFromLeft (8);
     abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
     guideStatus.setBounds (presetRow.removeFromRight (220));
 
     area.removeFromTop (8);
