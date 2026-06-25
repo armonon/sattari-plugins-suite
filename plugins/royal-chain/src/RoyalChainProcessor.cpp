@@ -1,5 +1,6 @@
 #include "RoyalChainProcessor.h"
 #include "RoyalChainEditor.h"
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 
 RoyalChainAudioProcessor::RoyalChainAudioProcessor()
@@ -24,6 +25,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("tune", "Tune", macroRange, 0.00f));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneKey", "Tune Key",
         juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("syncFromAutoPitch", "Sync Key from Auto Pitch", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneScale", "Tune Scale",
         juce::StringArray { "Chromatic", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("control", "Control", macroRange, 0.58f));
@@ -95,8 +97,42 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float outputDb = apvts.getRawParameterValue ("output")->load();
 
     cleanModule.process (buffer, inputDb, macros.clean, macros.royal);
-    const int tuneKey = (int) apvts.getRawParameterValue ("tuneKey")->load();
-    const int tuneScaleIdx = (int) apvts.getRawParameterValue ("tuneScale")->load();
+    int tuneKey = (int) apvts.getRawParameterValue ("tuneKey")->load();
+    int tuneScaleIdx = (int) apvts.getRawParameterValue ("tuneScale")->load();
+
+    // Sync Key from Auto Pitch (cross-plugin bus). Polled at most every ~500 ms
+    // (file is cheap but no point hammering disk). When a fresh key has been
+    // published, override tuneKey + tuneScaleIdx for this block onward.
+    if (apvts.getRawParameterValue ("syncFromAutoPitch")->load() > 0.5f)
+    {
+        static juce::int64 lastReadMs = 0;
+        static int cachedRoot = 0, cachedScale = 0;
+        static bool haveCache = false;
+        const auto now = juce::Time::currentTimeMillis();
+        if (now - lastReadMs >= 500)
+        {
+            lastReadMs = now;
+            if (auto msg = sattari::xplugin::readPublishedKey())
+            {
+                cachedRoot  = msg->root;
+                cachedScale = msg->scale;
+                haveCache = true;
+            }
+        }
+        if (haveCache)
+        {
+            tuneKey = cachedRoot;
+            // Auto Pitch scaleIdx: 0=major, 1=minor, 2=chromatic.
+            // Royal Chain tuneScale: 0=Chromatic, 1=Major, 2=Minor, etc.
+            switch (cachedScale)
+            {
+                case 0: tuneScaleIdx = 1; break;   // major
+                case 1: tuneScaleIdx = 2; break;   // minor
+                default: tuneScaleIdx = 0; break;  // chromatic / unknown
+            }
+        }
+    }
+
     tuneModule.process (buffer, macros.tune, tuneKey, (sattari::dsp::ScaleId) tuneScaleIdx);
     controlModule.process (buffer, macros.control, macros.royal);
     toneModule.process (buffer, macros.tone, macros.air, macros.royal);

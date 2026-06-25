@@ -430,6 +430,11 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     const auto snap = audioProcessor.getLiveSnapshot();
     noteDisplay.setSnapshot (snap);
 
+    // Publish the current correction key onto the cross-plugin bus so other
+    // Sattari instances (e.g. Royal Chain's Tune) can follow. Throttled to
+    // ~1 Hz inside publishCurrentKeyToBus() so the JSON file never thrashes.
+    audioProcessor.publishCurrentKeyToBus();
+
     const int keyRootIdx = juce::jlimit (0, 11,
         juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("keyRoot")->load()));
     const int scaleIdx = juce::jlimit (0, 2,

@@ -85,6 +85,11 @@ public:
         float confidence = 0.0f;
         int   detectedRoot = 0;      // 0..11, AutoKey output (or selected key)
     };
+    // Push the current correction key to the cross-plugin bus so other Sattari
+    // plugins (e.g. Royal Chain's Tune) can follow. Called from the editor
+    // timer with internal throttling so we never write per audio block.
+    void publishCurrentKeyToBus();
+
     LiveSnapshot getLiveSnapshot() const noexcept
     {
         LiveSnapshot s;

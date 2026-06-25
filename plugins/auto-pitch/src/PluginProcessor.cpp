@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <cmath>
 
@@ -433,6 +434,20 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
     }
 
     detectedAutoRoot = bestRoot;
+}
+
+void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
+{
+    // Throttle to once a second so we never thrash the bus file.
+    const auto now = juce::Time::currentTimeMillis();
+    static juce::int64 lastPublishMs = 0;
+    if (now - lastPublishMs < 1000) return;
+    lastPublishMs = now;
+
+    const int root  = currentCorrectionRootIndex();
+    const int scale = juce::jlimit (0, 11,
+        juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
+    sattari::xplugin::publishKey ("auto-pitch", root, scale);
 }
 
 void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int numSamples)
