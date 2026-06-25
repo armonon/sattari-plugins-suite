@@ -31,6 +31,21 @@ void WaveformDisplay::setOnFileDropped (std::function<void(const juce::File&)> c
     onFileDropped = std::move (callback);
 }
 
+void WaveformDisplay::setPlaybackState (double positionSeconds, double totalSeconds, bool playing)
+{
+    // Only repaint when state moves enough to matter (avoid 8x/sec repaint storms).
+    const bool playingChanged = playing != isPlaying;
+    const bool totalChanged   = std::abs (totalSeconds   - playbackTotalSeconds)    > 0.05;
+    const bool posChanged     = std::abs (positionSeconds - playbackPositionSeconds) > 0.10;
+
+    playbackPositionSeconds = positionSeconds;
+    playbackTotalSeconds    = totalSeconds;
+    isPlaying               = playing;
+
+    if (playingChanged || totalChanged || posChanged)
+        repaint();
+}
+
 void WaveformDisplay::setFile (const juce::File& file)
 {
     if (file == currentFile)
@@ -96,9 +111,56 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawText ("DROP AUDIO", wave.toNearestInt().reduced (4), juce::Justification::centred);
     }
 
-    // Centre playhead line.
-    g.setColour (juce::Colour (kTextPrimary).withAlpha (0.55f));
-    g.drawLine (wave.getCentreX(), wave.getY() - 1.0f, wave.getCentreX(), wave.getBottom() + 1.0f, 1.2f);
+    // Live playhead — dim "played" half, leave "remaining" portion fully bright.
+    if (thumbnail.getTotalLength() > 0.0 && playbackTotalSeconds > 0.0)
+    {
+        const float pos = juce::jlimit (0.0f, 1.0f, (float) (playbackPositionSeconds / playbackTotalSeconds));
+        const float playheadX = wave.getX() + pos * wave.getWidth();
+
+        // Subtle dim band over the played portion so the eye reads progress at a glance.
+        g.setColour (juce::Colour (kPanelDeep).withAlpha (0.32f));
+        g.fillRect (juce::Rectangle<float> (wave.getX(), wave.getY(), playheadX - wave.getX(), wave.getHeight()));
+
+        // Crisp playhead line.
+        g.setColour (juce::Colour (kTextPrimary).withAlpha (0.85f));
+        g.drawLine (playheadX, wave.getY() - 1.0f, playheadX, wave.getBottom() + 1.0f, 1.4f);
+    }
+    else
+    {
+        // Idle: centred guide line so the eye still has a reference point.
+        g.setColour (juce::Colour (kTextPrimary).withAlpha (0.30f));
+        g.drawLine (wave.getCentreX(), wave.getY() - 1.0f, wave.getCentreX(), wave.getBottom() + 1.0f, 1.0f);
+    }
+
+    // Large play / pause glyph — drawn last, semi-transparent so it overlays the wave.
+    if (thumbnail.getTotalLength() > 0.0)
+    {
+        const float glyphSize = juce::jmin (wave.getHeight() * 0.6f, 70.0f);
+        const auto glyphArea = juce::Rectangle<float> (glyphSize, glyphSize).withCentre (wave.getCentre());
+        const float alpha = isPlaying ? 0.18f : 0.32f;  // pause glyph more visible (deck is silent)
+        g.setColour (accent.withAlpha (alpha));
+        if (isPlaying)
+        {
+            // Triangle pointing right.
+            juce::Path play;
+            play.startNewSubPath (glyphArea.getX() + glyphArea.getWidth() * 0.18f, glyphArea.getY());
+            play.lineTo (glyphArea.getRight() - glyphArea.getWidth() * 0.05f, glyphArea.getCentreY());
+            play.lineTo (glyphArea.getX() + glyphArea.getWidth() * 0.18f, glyphArea.getBottom());
+            play.closeSubPath();
+            g.fillPath (play);
+        }
+        else
+        {
+            // Two pause bars.
+            const float barW = glyphArea.getWidth() * 0.22f;
+            const float gap  = glyphArea.getWidth() * 0.16f;
+            const float yT   = glyphArea.getY();
+            const float yB   = glyphArea.getBottom();
+            const float cx   = glyphArea.getCentreX();
+            g.fillRect (juce::Rectangle<float> (cx - gap / 2.0f - barW, yT, barW, yB - yT));
+            g.fillRect (juce::Rectangle<float> (cx + gap / 2.0f,        yT, barW, yB - yT));
+        }
+    }
 }
 
 bool WaveformDisplay::isInterestedInFileDrag (const juce::StringArray& files)

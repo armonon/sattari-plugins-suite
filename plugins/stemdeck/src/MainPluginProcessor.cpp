@@ -565,6 +565,26 @@ juce::String MainPluginProcessor::getDeckStemPath (int deckIndex, int stemLaneIn
         : juce::String{};
 }
 
+double MainPluginProcessor::getDeckPlayheadSeconds (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return 0.0;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0)
+        return 0.0;
+    return decks[(size_t) deckIndex].getPlayheadReferenceSamples() / audio->sourceSampleRate;
+}
+
+double MainPluginProcessor::getDeckTotalSeconds (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return 0.0;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0)
+        return 0.0;
+    return (double) audio->audio.getNumSamples() / audio->sourceSampleRate;
+}
+
 juce::StringArray MainPluginProcessor::getStemLaneLabels() const
 {
     juce::StringArray labels;

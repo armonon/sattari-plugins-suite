@@ -12,6 +12,7 @@ public:
 
     void setFile (const juce::File& file);
     void setOnFileDropped (std::function<void(const juce::File&)> callback);
+    void setPlaybackState (double positionSeconds, double totalSeconds, bool isPlaying);
     void paint (juce::Graphics& g) override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
@@ -24,6 +25,9 @@ private:
     juce::String title;
     juce::File currentFile;
     std::function<void(const juce::File&)> onFileDropped;
+    double playbackPositionSeconds = 0.0;
+    double playbackTotalSeconds = 0.0;
+    bool   isPlaying = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformDisplay)
 };

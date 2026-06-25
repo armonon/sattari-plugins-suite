@@ -2151,25 +2151,29 @@ void MainPluginEditor::resized()
             fileBrowser->setBounds (browserCol);
     }
 
-    standaloneWorkflowGuide.setBounds (area.removeFromTop (20));
-    area.removeFromTop (2);
-    pluginHostStatus.setBounds (area.removeFromTop (16));
+    // Compact info strip: workflow guide + host status sharing one row, FX
+    // management collapsed into a tight 22px strip so live use isn't crowded by
+    // setup chrome that should already be configured before the gig.
+    auto infoRow = area.removeFromTop (16);
+    standaloneWorkflowGuide.setBounds (infoRow.removeFromLeft (infoRow.getWidth() * 2 / 3));
+    pluginHostStatus.setBounds (infoRow);
     area.removeFromTop (4);
-    auto fxRow = area.removeFromTop (28);
-    pluginChainSelector.setBounds (fxRow.removeFromLeft (148));
-    fxRow.removeFromLeft (6);
-    pluginSelector.setBounds (fxRow.removeFromLeft (300));
-    fxRow.removeFromLeft (6);
-    scanPluginsButton.setBounds (fxRow.removeFromLeft (76));
-    fxRow.removeFromLeft (6);
-    reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (100));
-    fxRow.removeFromLeft (6);
-    loadPluginButton.setBounds (fxRow.removeFromLeft (76));
-    fxRow.removeFromLeft (6);
-    clearChainButton.setBounds (fxRow.removeFromLeft (80));
+
+    auto fxRow = area.removeFromTop (22);
+    pluginChainSelector.setBounds (fxRow.removeFromLeft (130));
+    fxRow.removeFromLeft (4);
+    pluginSelector.setBounds (fxRow.removeFromLeft (260));
+    fxRow.removeFromLeft (4);
+    loadPluginButton.setBounds (fxRow.removeFromLeft (66));
+    fxRow.removeFromLeft (3);
+    clearChainButton.setBounds (fxRow.removeFromLeft (66));
+    fxRow.removeFromLeft (3);
+    scanPluginsButton.setBounds (fxRow.removeFromLeft (60));
+    fxRow.removeFromLeft (3);
+    reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (80));
     fxRow.removeFromLeft (8);
     pluginHostMessage.setBounds (fxRow);
-    area.removeFromTop (8);
+    area.removeFromTop (6);
 
     auto keyRow = area.removeFromTop (28);
     masterKeyLabel.setBounds (keyRow.removeFromLeft (108));
@@ -2351,6 +2355,19 @@ void MainPluginEditor::timerCallback()
     {
         const auto bpm = juce::jlimit (40.0, 240.0, (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
         arrangementView.setSnap (true, 0.25, bpm);
+    }
+
+    // Push live playback state into each deck's waveform display so the playhead
+    // line + play/pause glyph track the actual deck transport in real time.
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        if (auto* wave = deckWaves[(size_t) i].get())
+        {
+            const bool playing = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+            wave->setPlaybackState (processorRef.getDeckPlayheadSeconds (i),
+                                    processorRef.getDeckTotalSeconds (i),
+                                    playing);
+        }
     }
     undoButton.setEnabled (arrangementView.canUndo());
     redoButton.setEnabled (arrangementView.canRedo());

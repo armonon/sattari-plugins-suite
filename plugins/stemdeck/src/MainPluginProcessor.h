@@ -65,6 +65,8 @@ public:
 
     juce::String getDeckPath (int deckIndex) const;
     juce::String getDeckStemPath (int deckIndex, int stemLaneIndex) const;
+    double getDeckPlayheadSeconds (int deckIndex) const;
+    double getDeckTotalSeconds (int deckIndex) const;
     juce::StringArray getStemLaneLabels() const;
     juce::StringArray getKeyTargetChoices() const;
     juce::StringArray getTempoInterpretationChoices() const;
