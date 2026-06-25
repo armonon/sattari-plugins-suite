@@ -40,5 +40,6 @@ target_link_libraries(VoxKeyCoreContract
     PRIVATE
         SattariAudioCore
         juce::juce_audio_utils
+        juce::juce_dsp
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)

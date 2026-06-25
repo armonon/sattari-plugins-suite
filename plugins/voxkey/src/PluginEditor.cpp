@@ -93,6 +93,8 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     glide.setButtonText ("Glide / Legato");
     setupToggle (bypass);
     bypass.setButtonText ("Bypass");
+    setupToggle (paraphonic);
+    paraphonic.setButtonText ("Paraphonic (alpha)");
 
     panicButton.onClick = [this] { audioProcessor.panic(); };
     panicButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a1320));
@@ -121,6 +123,7 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     pitchBendAttach = std::make_unique<ButtonAttachment> (params, "pitchBend", pitchBend);
     glideAttach = std::make_unique<ButtonAttachment> (params, "glide", glide);
     bypassAttach = std::make_unique<ButtonAttachment> (params, "bypass", bypass);
+    paraphonicAttach = std::make_unique<ButtonAttachment> (params, "paraphonic", paraphonic);
 
     startTimerHz (20);
 }
@@ -253,6 +256,7 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     glide.setBounds (toggleRow.removeFromLeft (140));
     bypass.setBounds (toggleRow.removeFromLeft (100));
     panicButton.setBounds (toggleRow.removeFromLeft (84));
+    paraphonic.setBounds (toggleRow.removeFromLeft (160));
 
     left.removeFromTop (10);
     routingLabel.setBounds (left.removeFromTop (48));

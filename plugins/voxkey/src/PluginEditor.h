@@ -52,14 +52,14 @@ private:
     juce::Label title, subtitle, inputLabel, routingLabel, detectedLabel, outputLabel, confidenceLabel;
     juce::ComboBox mode, key, scale;
     juce::Slider sensitivity, smoothness, confidence, octave, hold, release, velocity, pitchBendRange;
-    juce::ToggleButton pitchBend, glide, bypass;
+    juce::ToggleButton pitchBend, glide, bypass, paraphonic;
     juce::TextButton panicButton { "Panic" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
     VoxKeyOrb orb;
 
     std::unique_ptr<ComboAttachment> modeAttach, keyAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> sensitivityAttach, smoothnessAttach, confidenceAttach, octaveAttach, holdAttach, releaseAttach, velocityAttach, pitchBendRangeAttach;
-    std::unique_ptr<ButtonAttachment> pitchBendAttach, glideAttach, bypassAttach;
+    std::unique_ptr<ButtonAttachment> pitchBendAttach, glideAttach, bypassAttach, paraphonicAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariVoxKeyAudioProcessorEditor)
 };

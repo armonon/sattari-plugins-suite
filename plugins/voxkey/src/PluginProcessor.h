@@ -1,10 +1,12 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include "PitchDetector.h"
 #include "VoiceMidiMapper.h"
 #include <atomic>
+#include <array>
 
 class SattariVoxKeyAudioProcessor final : public juce::AudioProcessor
 {
@@ -53,6 +55,18 @@ private:
     VoxKeyVoiceMidiMapper midiMapper;
     juce::AudioBuffer<float> monoScratch;
     std::atomic<bool> panicRequested { false };
+
+    // --- Paraphonic (HPS) detector (alpha) -----------------------------------
+    static constexpr int paraFftOrder = 12;            // 4096
+    static constexpr int paraFftSize  = 1 << paraFftOrder;
+    std::unique_ptr<juce::dsp::FFT> paraFft;
+    std::vector<float> paraRing, paraFftBuf, paraHann;
+    int paraWritePos = 0, paraSamplesSinceFft = 0;
+    std::array<int, 3>  paraCurrentNotes { -1, -1, -1 };
+    std::array<int, 3>  paraDetectFrame (double sr);  // returns up to 3 MIDI notes (-1 = none)
+    void               paraProcessBlock (const float* mono, int n, double sr, juce::MidiBuffer& midi);
+    int                paraFrameCounter = 0;
+    std::array<int, 3>  paraActiveNotes { -1, -1, -1 };  // currently-sounding outputs
 
     std::atomic<float> displayRms { 0.0f };
     std::atomic<float> displayConfidence { 0.0f };
