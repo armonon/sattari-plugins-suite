@@ -1941,8 +1941,36 @@ void MainPluginEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
 
-    g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.6f));
-    g.drawHorizontalLine (title.getBounds().getBottom() + 7, 22.0f, (float) getWidth() - 22.0f);
+    // --- Header toolbar backdrop ---
+    if (! headerBarBounds.isEmpty())
+    {
+        const auto r = headerBarBounds.toFloat();
+        g.setColour (juce::Colour (sattari::brand::kPanel));
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.7f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+
+        // Accent stripe along the bottom of the toolbar = quiet product identity line.
+        g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.45f));
+        g.fillRect (juce::Rectangle<float> (r.getX() + 12.0f, r.getBottom() - 1.5f, r.getWidth() - 24.0f, 1.5f));
+    }
+
+    // --- Tempo chip in the right cluster ---
+    if (! tempoChipBounds.isEmpty())
+    {
+        const auto r = tempoChipBounds.toFloat();
+        g.setColour (juce::Colour (sattari::brand::kPanelDeep));
+        g.fillRoundedRectangle (r, 6.0f);
+        g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.45f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
+        g.setColour (juce::Colour (sattari::brand::kTextMuted));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.drawText ("HOST TEMPO", juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 2.0f, r.getWidth() - 16.0f, 10.0f),
+                    juce::Justification::centredLeft);
+    }
+
+    g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.5f));
+    g.drawHorizontalLine (title.getBounds().getBottom() + 9, 22.0f, (float) getWidth() - 22.0f);
 
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
@@ -2045,16 +2073,26 @@ void MainPluginEditor::paint (juce::Graphics& g)
 void MainPluginEditor::resized()
 {
     auto area = getLocalBounds().reduced (24);
-    auto header = area.removeFromTop (48);
+    auto header = area.removeFromTop (50);
+    headerBarBounds = header;
+
+    // Left cluster: Files toggle + subtitle (mode line).
     toggleBrowserButton.setBounds (header.removeFromLeft (62).withSizeKeepingCentre (62, 30));
-    header.removeFromLeft (8);
-    subtitle.setBounds (header.removeFromLeft (360));
-    title.setBounds (header.removeFromLeft (440));
-    savePresetButton.setBounds (header.removeFromRight (120));
+    header.removeFromLeft (10);
+    auto leftSlot = header.removeFromLeft (260);
+    subtitle.setBounds (leftSlot.withSizeKeepingCentre (260, 18));
+
+    // Right cluster: save / user presets / tempo chip — built right-to-left.
+    savePresetButton.setBounds (header.removeFromRight (108).withSizeKeepingCentre (108, 30));
     header.removeFromRight (8);
-    userPresets.setBounds (header.removeFromRight (180));
+    userPresets.setBounds (header.removeFromRight (160).withSizeKeepingCentre (160, 28));
+    header.removeFromRight (10);
+    tempoChipBounds = header.removeFromRight (150).withSizeKeepingCentre (150, 30);
+    tempoLabel.setBounds (tempoChipBounds.reduced (10, 0));
     header.removeFromRight (12);
-    tempoLabel.setBounds (header);
+
+    // Centre: title fills whatever remains.
+    title.setBounds (header);
 
     if (browserVisible)
     {
@@ -2255,7 +2293,8 @@ void MainPluginEditor::timerCallback()
 {
     processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();
-    tempoLabel.setText (juce::String (snapshot.bpm, 1) + " BPM • " + (snapshot.hostPlaying ? "host playing" : "host stopped"), juce::dontSendNotification);
+    tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? "  \xe2\x96\xb6" : "  \xe2\x97\xbc"),
+                        juce::dontSendNotification);
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
     recordButton.setButtonText (recording ? "Stop Rec" : "Record WAV");

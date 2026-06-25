@@ -194,6 +194,8 @@ private:
     std::array<DeckControls, MainPluginProcessor::numDecks> deckControls;
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
+    juce::Rectangle<int> headerBarBounds {};
+    juce::Rectangle<int> tempoChipBounds {};
     MixerSection mixerPanel;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
