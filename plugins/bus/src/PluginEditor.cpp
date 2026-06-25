@@ -45,10 +45,13 @@ SattariBusAudioProcessorEditor::SattariBusAudioProcessorEditor (SattariBusAudioP
 
     mute.setButtonText ("Mute");
     bypass.setButtonText ("Bypass");
+    msMode.setButtonText ("M/S");
     addAndMakeVisible (mute);
     addAndMakeVisible (bypass);
+    addAndMakeVisible (msMode);
     muteAttach   = std::make_unique<ButtonAttachment> (p.parameters(), "mute", mute);
     bypassAttach = std::make_unique<ButtonAttachment> (p.parameters(), "bypass", bypass);
+    msModeAttach = std::make_unique<ButtonAttachment> (p.parameters(), "msMode", msMode);
 
     grLabel.setJustificationType (juce::Justification::centredRight);
     grLabel.setColour (juce::Label::textColourId, lookAndFeel.getAccent());
@@ -170,6 +173,7 @@ void SattariBusAudioProcessorEditor::resized()
     modeRow.removeFromLeft (16);
     mute.setBounds (modeRow.removeFromLeft (90));
     bypass.setBounds (modeRow.removeFromLeft (100));
+    msMode.setBounds (modeRow.removeFromLeft (80));
 
     area.removeFromTop (12);
 

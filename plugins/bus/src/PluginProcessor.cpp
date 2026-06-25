@@ -134,6 +134,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariBusAudioProcessor::cr
     p.push_back (std::make_unique<P> (juce::ParameterID ("ceiling", 1), "Ceiling", R (-12.0f, 0.0f, 0.1f), -0.3f));
     p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("mute", 1), "Mute", false));
     p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("bypass", 1), "Bypass", false));
+    // M/S mode: encode L/R -> Mid + Side before EQ/comp/drive, decode back at
+    // the end. Lets you compress the centre image without squashing the stereo
+    // information, or shape the sides independently. The existing width knob
+    // continues to scale the side signal (post-M/S in this mode) the same way.
+    p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("msMode", 1), "M/S Process", false));
 
     return { p.begin(), p.end() };
 }
@@ -260,6 +265,27 @@ void SattariBusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     auto* left  = buffer.getWritePointer (0);
     auto* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
 
+    // M/S mode: stash the original L/R as the parallel-mix dry FIRST so the
+    // mix-back stays in L/R, then encode L/R -> M/S in-place. The pre-drive
+    // pipeline (trim/EQ/comp) and drive nonlinearity then operate on M and S
+    // separately; post-drive width re-balances the side and decodes to L/R.
+    const bool msMode = getParam ("msMode") > 0.5f && right != nullptr;
+    if (msMode)
+    {
+        // Stash dry L/R, then encode M/S in place. The existing per-sample
+        // stash loop below will overwrite the stash with already-encoded
+        // values, so we set a flag to skip its stash.
+        for (int i = 0; i < numSamples; ++i)
+        {
+            driveDryStash.setSample (0, i, left[i]);
+            if (osChannels > 1) driveDryStash.setSample (1, i, right[i]);
+            const float l = left[i];
+            const float r = right[i];
+            left[i]  = 0.5f * (l + r);
+            right[i] = 0.5f * (l - r);
+        }
+    }
+
     float blockMaxGr = 0.0f;
 
     // ---- Pre-drive: trim -> HPF/LPF -> tone -> glue comp. Stash the original
@@ -268,8 +294,13 @@ void SattariBusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         const float dryL = left[i];
         const float dryR = right != nullptr ? right[i] : left[i];
-        driveDryStash.setSample (0, i, dryL);
-        if (osChannels > 1) driveDryStash.setSample (1, i, dryR);
+        // In M/S mode the dry stash already has the original L/R captured
+        // before the encode; do not overwrite it here with the M/S samples.
+        if (! msMode)
+        {
+            driveDryStash.setSample (0, i, dryL);
+            if (osChannels > 1) driveDryStash.setSample (1, i, dryR);
+        }
 
         float l = dryL * inGain;
         float r = dryR * inGain;
@@ -327,16 +358,28 @@ void SattariBusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         float l = left[i];
         float r = right != nullptr ? right[i] : left[i];
 
-        // Width (M/S) + equal-power pan are stereo-only; skip in mono so the
-        // single channel isn't scaled by the pan law or collapsed by width.
+        // Width + pan. In M/S mode `l`/`r` are already M/S, so width just scales
+        // the side and we decode back to L/R after. Pan is suppressed in M/S
+        // (it would tilt the mid-side balance asymmetrically, not pan an L/R
+        // image). In normal stereo mode, do the existing M/S width + pan.
         if (right != nullptr)
         {
-            const float mid  = 0.5f * (l + r);
-            const float side = 0.5f * (l - r) * width;
-            l = mid + side;
-            r = mid - side;
-            l *= panL;
-            r *= panR;
+            if (msMode)
+            {
+                const float mid  = l;
+                const float side = r * width;
+                l = mid + side;
+                r = mid - side;
+            }
+            else
+            {
+                const float mid  = 0.5f * (l + r);
+                const float side = 0.5f * (l - r) * width;
+                l = mid + side;
+                r = mid - side;
+                l *= panL;
+                r *= panR;
+            }
         }
 
         const float ddL = driveDryRing.getSample (0, rp);

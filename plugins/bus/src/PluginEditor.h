@@ -45,9 +45,9 @@ private:
     juce::ComboBox mode, factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
     sattari::ui::SattariABRow abRow { presetManager };
-    juce::ToggleButton mute, bypass;
+    juce::ToggleButton mute, bypass, msMode;
     std::unique_ptr<ComboAttachment> modeAttach;
-    std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach;
+    std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach, msModeAttach;
 
     // 17 channel-strip knobs.
     Knob inputTrim, hpf, lpf, low, mid, high, threshold, ratio, attack, release,
