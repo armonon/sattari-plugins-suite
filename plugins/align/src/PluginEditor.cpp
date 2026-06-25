@@ -33,6 +33,15 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     for (auto* l : { &searchCaption, &sensitivityCaption, &smoothingCaption, &manualCaption })
         addAndMakeVisible (*l);
 
+    algorithm.addItemList ({ "Bulk Shift (v1)", "DTW Warp (v2 alpha)" }, 1);
+    algorithm.setColour (juce::ComboBox::backgroundColourId, juce::Colour (sattari::brand::kPanelRaised));
+    algorithm.setColour (juce::ComboBox::textColourId, juce::Colours::white);
+    addAndMakeVisible (algorithm);
+    algoCaption.setText ("ALGORITHM", juce::dontSendNotification);
+    algoCaption.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    algoCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    addAndMakeVisible (algoCaption);
+
     autoAlign.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     lock.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     bypass.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
@@ -76,6 +85,7 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     sensAttach   = std::make_unique<SliderAttachment> (params, "sensitivity", sensitivity);
     smoothAttach = std::make_unique<SliderAttachment> (params, "smoothing", smoothing);
     manualAttach = std::make_unique<SliderAttachment> (params, "manualOffsetMs", manualOffset);
+    algoAttach   = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (params, "algorithm", algorithm);
     autoAttach   = std::make_unique<ButtonAttachment> (params, "autoAlign", autoAlign);
     lockAttach   = std::make_unique<ButtonAttachment> (params, "lock", lock);
     bypassAttach = std::make_unique<ButtonAttachment> (params, "bypass", bypass);
@@ -182,4 +192,7 @@ void SattariAlignAudioProcessorEditor::resized()
     autoAlign.setBounds (toggleRow.removeFromLeft (140));
     lock.setBounds (toggleRow.removeFromLeft (100));
     bypass.setBounds (toggleRow.removeFromLeft (100));
+    toggleRow.removeFromLeft (10);
+    algoCaption.setBounds (toggleRow.removeFromLeft (80));
+    algorithm.setBounds (toggleRow.removeFromLeft (180));
 }

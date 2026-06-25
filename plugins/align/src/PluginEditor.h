@@ -31,7 +31,8 @@ private:
 
     juce::Label title, subtitle, offsetReadout, confidenceLabel, guideStatus;
     juce::Slider searchRange, sensitivity, smoothing, manualOffset;
-    juce::Label searchCaption, sensitivityCaption, smoothingCaption, manualCaption;
+    juce::Label searchCaption, sensitivityCaption, smoothingCaption, manualCaption, algoCaption;
+    juce::ComboBox algorithm;
     juce::ToggleButton autoAlign { "Auto Align" }, lock { "Lock" }, bypass { "Bypass" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::ComboBox userPresets;
@@ -39,6 +40,7 @@ private:
 
     std::unique_ptr<SliderAttachment> searchAttach, sensAttach, smoothAttach, manualAttach;
     std::unique_ptr<ButtonAttachment> autoAttach, lockAttach, bypassAttach;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algoAttach;
 
     void styleKnob (juce::Slider& s, bool feature = false);
     void styleCaption (juce::Label& l, const juce::String& text);

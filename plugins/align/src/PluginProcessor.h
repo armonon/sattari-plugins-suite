@@ -102,6 +102,16 @@ private:
     int delayWritePos = 0;
     float smoothedLagSamples = 0.0f;   // signed; positive = main delayed more
 
+    // --- DTW warp state (v2 alpha) -------------------------------------------
+    // A piecewise-linear warp path: lagSamples = warpLagAt(t). Computed every
+    // search cycle from a constrained-band DTW between the recent Guide and
+    // Main envelopes. The audio loop interpolates this path each block.
+    struct WarpAnchor { double timeSec; float lagSamples; };
+    std::vector<WarpAnchor> warpPath;
+    juce::CriticalSection warpPathLock;
+    double dtwClockSec = 0.0;       // monotonic audio-thread clock (s)
+    int    computeDtwWarp();        // returns 0 if path updated, non-zero on skip
+
     // --- Detection cadence + output state ------------------------------------
     int samplesUntilSearch = 0;
     std::atomic<float> publishedOffsetMs { 0.0f };

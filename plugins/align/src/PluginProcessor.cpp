@@ -22,6 +22,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAlignAudioProcessor::
     p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("autoAlign", 1), "Auto Align", true));
     p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("lock",      1), "Lock Alignment", false));
     p.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("bypass",    1), "Bypass", false));
+    // v1 = bulk-shift (single lag for the whole stream), v2 = DTW warping
+    // (time-varying delay that follows local drift). v2 is alpha - the warp
+    // path is recomputed every search cadence and smoothed into the delay so
+    // sudden warp changes can pump on transients. Read the editor caption.
+    p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID ("algorithm", 1), "Algorithm",
+                                                                juce::StringArray { "Bulk Shift (v1)", "DTW Warp (v2 alpha)" }, 0));
     p.push_back (std::make_unique<P> (juce::ParameterID ("manualOffsetMs", 1), "Manual Offset",
                                        R (-150.0f, 150.0f, 0.1f), 0.0f));
     p.push_back (std::make_unique<P> (juce::ParameterID ("searchRangeMs", 1), "Search Range",
@@ -152,6 +158,96 @@ void SattariAlignAudioProcessor::updateOnsetEnvelope (const juce::AudioBuffer<fl
 // Search lag (in envelope frames) within ±searchRangeFrames that maximises
 // the normalised cross-correlation between the two envelope rings. Returns
 // the lag in envelope frames; positive means Main is ahead of Guide.
+// Constrained-band DTW between recent Guide and Main envelopes. Builds a
+// piecewise-linear warp path of (time, lagSamples) anchors that the audio
+// thread interpolates each block. Real Sakoe-Chiba band (radius = search
+// frames). Returns 0 on success.
+int SattariAlignAudioProcessor::computeDtwWarp()
+{
+    const float searchRangeMs = apvts.getRawParameterValue ("searchRangeMs")->load();
+    const int radius = juce::jlimit (1, envWindowSize / 2,
+                                     (int) std::round ((double) searchRangeMs * 0.001 * (double) envSampleRate));
+    const int N = envWindowSize;
+
+    auto envAt = [this] (const std::vector<float>& ring, int idx) -> float
+    {
+        idx = ((idx % envHistorySize) + envHistorySize) % envHistorySize;
+        return ring[(size_t) idx];
+    };
+    const int base = (envWritePos + envHistorySize - envWindowSize) % envHistorySize;
+
+    // 1-D arrays held as flat (i,j) -> cost[(i*(2*radius+1)) + (j-i+radius)].
+    const int W = 2 * radius + 1;
+    std::vector<double> cost ((size_t) N * (size_t) W, std::numeric_limits<double>::infinity());
+    auto idx = [W, radius] (int i, int j) -> int { return i * W + (j - i + radius); };
+
+    cost[(size_t) idx (0, 0)] = 0.0;
+    for (int i = 1; i < N; ++i)
+    {
+        const float gi = envAt (guideEnv, base + i);
+        const int jLo = juce::jmax (0, i - radius);
+        const int jHi = juce::jmin (N - 1, i + radius);
+        for (int j = jLo; j <= jHi; ++j)
+        {
+            const float mj = envAt (mainEnv, base + j);
+            const double local = std::abs ((double) gi - (double) mj);
+            double best = std::numeric_limits<double>::infinity();
+            // Three predecessors: (i-1,j-1) diagonal, (i-1,j) advance guide,
+            // (i,j-1) advance main. Sakoe-Chiba band bounds j-i to [-radius, +radius].
+            if (j - 1 >= juce::jmax (0, (i - 1) - radius))
+                best = juce::jmin (best, cost[(size_t) idx (i - 1, j - 1)]);
+            if (std::abs (j - (i - 1)) <= radius)
+                best = juce::jmin (best, cost[(size_t) idx (i - 1, j)]);
+            if (j - 1 >= juce::jmax (0, i - radius))
+                best = juce::jmin (best, cost[(size_t) idx (i, j - 1)]);
+            cost[(size_t) idx (i, j)] = best + local;
+        }
+    }
+
+    // Backtrack from (N-1, N-1) - if it's unreachable, find the best terminal in
+    // the last row within band.
+    int i = N - 1, j = N - 1;
+    {
+        double bestEnd = std::numeric_limits<double>::infinity();
+        for (int jj = juce::jmax (0, i - radius); jj <= juce::jmin (N - 1, i + radius); ++jj)
+        {
+            if (cost[(size_t) idx (i, jj)] < bestEnd) { bestEnd = cost[(size_t) idx (i, jj)]; j = jj; }
+        }
+        if (! std::isfinite (bestEnd)) return 1;
+    }
+
+    // Walk back; sample every ~50 ms of guide-time so the path is compact.
+    const int stride = juce::jmax (1, (int) (envSampleRate * 0.05));
+    std::vector<WarpAnchor> rev;
+    rev.reserve ((size_t) (N / stride) + 4);
+    while (i > 0 && j > 0)
+    {
+        if ((N - 1 - i) % stride == 0)
+            rev.push_back ({ (double) i / (double) envSampleRate,
+                             (float) ((double) (j - i) * (double) currentSampleRate / (double) envSampleRate) });
+        const double diag = cost[(size_t) idx (i - 1, j - 1)];
+        const double upI  = (std::abs (j - (i - 1)) <= radius) ? cost[(size_t) idx (i - 1, j)] : std::numeric_limits<double>::infinity();
+        const double left = (j - 1 >= juce::jmax (0, i - radius)) ? cost[(size_t) idx (i, j - 1)] : std::numeric_limits<double>::infinity();
+        if (diag <= upI && diag <= left) { --i; --j; }
+        else if (upI <= left)            { --i; }
+        else                             { --j; }
+    }
+    rev.push_back ({ 0.0, (float) ((double) (j - i) * (double) currentSampleRate / (double) envSampleRate) });
+
+    // Reverse to forward-time order.
+    std::reverse (rev.begin(), rev.end());
+
+    // Publish atomically with a brief critical section. The audio thread reads
+    // under try-lock; we update `dtwClockSec` so the audio thread can interpolate
+    // relative to the path's t=0.
+    {
+        const juce::ScopedLock l (warpPathLock);
+        warpPath = std::move (rev);
+        dtwClockSec = 0.0;
+    }
+    return 0;
+}
+
 int SattariAlignAudioProcessor::searchBestLagFrames (float& outConfidence) const
 {
     const float searchRangeMs = apvts.getRawParameterValue ("searchRangeMs")->load();
@@ -253,28 +349,71 @@ void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     updateOnsetEnvelope (mainBuffer, guideBuffer, numSamples);
 
+    const int algorithm = juce::roundToInt (apvts.getRawParameterValue ("algorithm")->load());
+    const bool useDtw = (algorithm == 1);
+
     samplesUntilSearch -= numSamples;
     if (samplesUntilSearch <= 0 && autoAlign && ! lockOn && guideHasAudio.load())
     {
-        float conf = 0.0f;
-        const int lagFrames = searchBestLagFrames (conf);
-        const double lagSec = (double) lagFrames / (double) envSampleRate;
-        const float  lagSamples = (float) (lagSec * currentSampleRate);
-        publishedConfidence.store (conf);
-        if (conf >= sensitivity * 0.6f)   // only act on confident detections
+        if (useDtw)
         {
-            const float alpha = 1.0f - juce::jlimit (0.0f, 0.99f, smoothing);
-            const float blend = juce::jmax (alpha, 0.05f);
-            smoothedLagSamples += blend * (lagSamples - smoothedLagSamples);
+            // v2 alpha: full DTW. Path drives the per-sample interpolation below.
+            computeDtwWarp();
+            // Confidence reuses the cross-corr peak as a proxy (cheaper than
+            // computing path cost normalisation here on the audio thread).
+            float conf = 0.0f;
+            (void) searchBestLagFrames (conf);
+            publishedConfidence.store (conf);
         }
-        // Re-search at ~200 ms cadence (cheap; we average across many onsets).
+        else
+        {
+            float conf = 0.0f;
+            const int lagFrames = searchBestLagFrames (conf);
+            const double lagSec = (double) lagFrames / (double) envSampleRate;
+            const float  lagSamples = (float) (lagSec * currentSampleRate);
+            publishedConfidence.store (conf);
+            if (conf >= sensitivity * 0.6f)
+            {
+                const float alpha = 1.0f - juce::jlimit (0.0f, 0.99f, smoothing);
+                const float blend = juce::jmax (alpha, 0.05f);
+                smoothedLagSamples += blend * (lagSamples - smoothedLagSamples);
+            }
+        }
         samplesUntilSearch = (int) (0.2 * currentSampleRate);
     }
     else if (! autoAlign || lockOn)
     {
         const float target = (float) (manualMs * 0.001 * currentSampleRate);
-        const float blend  = 0.02f;        // smooth manual changes too
+        const float blend  = 0.02f;
         smoothedLagSamples += blend * (target - smoothedLagSamples);
+    }
+
+    // For DTW, the published "offset" is the lag at the current clock; for
+    // bulk-shift, the smoothed lag.
+    if (useDtw)
+    {
+        float lagNow = smoothedLagSamples;
+        {
+            const juce::ScopedTryLock l (warpPathLock);
+            if (l.isLocked() && warpPath.size() >= 2)
+            {
+                // Find segment around dtwClockSec.
+                const double t = dtwClockSec;
+                int hi = 1;
+                while (hi < (int) warpPath.size() && warpPath[(size_t) hi].timeSec < t) ++hi;
+                const int lo = juce::jmax (0, hi - 1);
+                const double t0 = warpPath[(size_t) lo].timeSec;
+                const double t1 = warpPath[(size_t) hi].timeSec;
+                const double f  = (t1 > t0) ? juce::jlimit (0.0, 1.0, (t - t0) / (t1 - t0)) : 0.0;
+                lagNow = (float) ((1.0 - f) * warpPath[(size_t) lo].lagSamples
+                                   + f         * warpPath[(size_t) hi].lagSamples);
+            }
+        }
+        // Smooth into the applied lag so the warp path's piecewise jumps don't
+        // click. The user's smoothing knob still controls how slewy this is.
+        const float alpha = 1.0f - juce::jlimit (0.0f, 0.995f, smoothing);
+        smoothedLagSamples += alpha * (lagNow - smoothedLagSamples);
+        dtwClockSec += (double) numSamples / currentSampleRate;
     }
 
     publishedOffsetMs.store ((float) (smoothedLagSamples / currentSampleRate * 1000.0));
