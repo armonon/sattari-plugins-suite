@@ -204,8 +204,11 @@ bool SattariBusAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 
 void SattariBusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    juce::ignoreUnused (midi);
     juce::ScopedNoDenormals noDenormals;
+
+    // MIDI Learn: feed any CCs to the learner. Steers mapped params; if the
+    // user has armed a param, the next CC seen here binds to it.
+    midiLearn.processMidi (midi);
 
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
@@ -412,7 +415,9 @@ juce::AudioProcessorEditor* SattariBusAudioProcessor::createEditor()
 
 void SattariBusAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+    midiLearn.saveTo (state);
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
@@ -420,7 +425,11 @@ void SattariBusAudioProcessor::setStateInformation (const void* data, int sizeIn
 {
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    {
+        auto state = juce::ValueTree::fromXml (*xml);
+        midiLearn.loadFrom (state);
+        apvts.replaceState (state);
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

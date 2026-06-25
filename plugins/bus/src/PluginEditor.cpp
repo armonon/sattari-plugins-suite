@@ -53,6 +53,9 @@ SattariBusAudioProcessorEditor::SattariBusAudioProcessorEditor (SattariBusAudioP
     bypassAttach = std::make_unique<ButtonAttachment> (p.parameters(), "bypass", bypass);
     msModeAttach = std::make_unique<ButtonAttachment> (p.parameters(), "msMode", msMode);
 
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] { showMidiLearnPopup(); };
+
     grLabel.setJustificationType (juce::Justification::centredRight);
     grLabel.setColour (juce::Label::textColourId, lookAndFeel.getAccent());
     grLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
@@ -150,6 +153,41 @@ void SattariBusAudioProcessorEditor::paint (juce::Graphics& g)
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
 }
 
+void SattariBusAudioProcessorEditor::showMidiLearnPopup()
+{
+    // Minimal MIDI Learn UI: pick a param from the list, click Arm, then move
+    // a CC on your controller. The next CC binds to that param.
+    juce::PopupMenu m;
+    static const std::pair<const char*, const char*> kParams[] = {
+        {"inputTrim","Input Trim"}, {"hpf","HPF"}, {"lpf","LPF"},
+        {"low","Low"}, {"mid","Mid"}, {"high","High"},
+        {"threshold","Threshold"}, {"ratio","Ratio"},
+        {"attack","Attack"}, {"release","Release"}, {"makeup","Makeup"},
+        {"drive","Drive"}, {"width","Width"}, {"pan","Pan"},
+        {"mix","Mix"}, {"output","Output"}, {"ceiling","Ceiling"},
+    };
+    m.addSectionHeader ("Arm parameter for next CC");
+    int id = 1;
+    for (const auto& kv : kParams)
+    {
+        const int cc = processor.midiLearn.ccForParam (kv.first);
+        const juce::String label = juce::String (kv.second)
+            + (cc >= 0 ? " (CC " + juce::String (cc) + ")" : juce::String());
+        m.addItem (id++, label);
+    }
+    m.addSeparator();
+    m.addItem (1000, "Clear all mappings");
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (midiLearnButton),
+        [this] (int choice)
+        {
+            if (choice <= 0) return;
+            if (choice == 1000) { processor.midiLearn.clearAll(); return; }
+            const auto& kv = kParams[choice - 1];
+            processor.midiLearn.armForParam (kv.first);
+        });
+}
+
 void SattariBusAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced (24);
@@ -174,6 +212,8 @@ void SattariBusAudioProcessorEditor::resized()
     mute.setBounds (modeRow.removeFromLeft (90));
     bypass.setBounds (modeRow.removeFromLeft (100));
     msMode.setBounds (modeRow.removeFromLeft (80));
+    modeRow.removeFromLeft (8);
+    midiLearnButton.setBounds (modeRow.removeFromLeft (120));
 
     area.removeFromTop (12);
 

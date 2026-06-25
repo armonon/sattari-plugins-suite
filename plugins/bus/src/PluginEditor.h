@@ -46,6 +46,8 @@ private:
     juce::TextButton savePresetButton { "Save Preset" };
     sattari::ui::SattariABRow abRow { presetManager };
     juce::ToggleButton mute, bypass, msMode;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
+    void showMidiLearnPopup();
     std::unique_ptr<ComboAttachment> modeAttach;
     std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach, msModeAttach;
 

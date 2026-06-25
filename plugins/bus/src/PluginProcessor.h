@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <array>
 #include <memory>
@@ -27,7 +28,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "Sattari Bus"; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }    // for MIDI Learn CC input
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -82,6 +83,9 @@ private:
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
     int currentProgram = 0;
     double sampleRate = 44100.0;
 
