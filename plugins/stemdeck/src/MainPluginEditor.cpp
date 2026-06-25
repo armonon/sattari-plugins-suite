@@ -2055,8 +2055,23 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
     if (! crossfader.getBounds().isEmpty())
     {
-        drawPanel (g, mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8),
-                   juce::Colour (sattari::brand::kAccent), 10.0f);
+        using namespace sattari::brand;
+        const auto mixerStrip = mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8);
+        drawPanel (g, mixerStrip, juce::Colour (kAccent), 10.0f);
+
+        // Vertical hairline dividers between functional groups.
+        auto dividerBetween = [&] (const juce::Component& leftCtl, const juce::Component& rightCtl)
+        {
+            if (leftCtl.getBounds().isEmpty() || rightCtl.getBounds().isEmpty()) return;
+            const int x = (leftCtl.getBounds().getRight() + rightCtl.getBounds().getX()) / 2;
+            g.setColour (juce::Colour (kHairline).withAlpha (0.6f));
+            g.drawVerticalLine (x, (float) mixerStrip.getY() + 8.0f, (float) mixerStrip.getBottom() - 8.0f);
+        };
+        dividerBetween (crossfader, masterBpm);
+        dividerBetween (limiter,    hostSync);
+        dividerBetween (beatSync,   micMonitor);
+        dividerBetween (micGain,    recordButton);
+        dividerBetween (bounceEditsButton, snapToggleButton);
     }
 
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
@@ -2065,7 +2080,27 @@ void MainPluginEditor::paint (juce::Graphics& g)
     g.drawText ("MASTER BPM", masterBpm.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
     g.drawText ("MASTER",     master   .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
     g.drawText ("LIMIT",      limiter  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("HOST SYNC",  hostSync .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("BEAT SYNC",  beatSync .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("MIC MON",    micMonitor.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
     g.drawText ("MIC GAIN",   micGain  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    // Section title bands for the right side (RECORD / EDIT clusters).
+    g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.78f));
+    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    if (! recordButton.getBounds().isEmpty())
+        g.drawText ("RECORD",
+                    juce::Rectangle<int> (recordButton.getBounds().getX(),
+                                          recordButton.getBounds().getY() - 18,
+                                          bounceEditsButton.getBounds().getRight() - recordButton.getBounds().getX(),
+                                          14),
+                    juce::Justification::centredLeft);
+    if (! snapToggleButton.getBounds().isEmpty())
+        g.drawText ("EDIT",
+                    juce::Rectangle<int> (snapToggleButton.getBounds().getX(),
+                                          snapToggleButton.getBounds().getY() - 18,
+                                          redoButton.getBounds().getRight() - snapToggleButton.getBounds().getX(),
+                                          14),
+                    juce::Justification::centredLeft);
 }
 
 void MainPluginEditor::resized()
