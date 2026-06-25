@@ -192,6 +192,8 @@ private:
     juce::Array<juce::PluginDescription> knownHostPlugins;
     std::array<std::unique_ptr<WaveformDisplay>, MainPluginProcessor::numDecks> deckWaves;
     std::array<DeckControls, MainPluginProcessor::numDecks> deckControls;
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
     MixerSection mixerPanel;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;

@@ -4,20 +4,26 @@ namespace
 {
 juce::Colour deckAccent (int deckIndex)
 {
-    static constexpr std::array<juce::uint32, 4> colours { 0xff26d9ff, 0xffff4c5f, 0xff50f06b, 0xffffcf4a };
+    // Pulled from the suite brand registry so deck accents read as one family.
+    static const std::array<juce::uint32, 4> colours {
+        sattari::brand::productAccent ("stemdeck"),     // cyan
+        sattari::brand::kAccent,                         // mint
+        sattari::brand::kAccentViolet,                   // violet
+        sattari::brand::productAccent ("royal-chain"),   // gold
+    };
     return juce::Colour (colours[(size_t) juce::jlimit (0, 3, deckIndex)]);
 }
 
-void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent, float corner = 12.0f)
+void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent, float corner = 10.0f)
 {
+    using namespace sattari::brand;
     const auto r = bounds.toFloat();
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff080a10), r.getTopLeft(),
-                                             juce::Colour (0xff151927), r.getBottomRight(), false));
+    g.setColour (juce::Colour (kPanel));
     g.fillRoundedRectangle (r, corner);
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.drawRoundedRectangle (r.reduced (1.0f), corner, 1.0f);
-    g.setColour (accent.withAlpha (0.36f));
-    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.1f);
+    g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
+    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
+    g.setColour (accent.withAlpha (0.40f));
+    g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, 1.0f);
 }
 }
 
@@ -574,122 +580,176 @@ double MainPluginEditor::ArrangementRecorderView::computeMaxLengthSeconds() cons
 
 void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 {
+    using namespace sattari::brand;
     const auto bounds = getLocalBounds().toFloat();
-    g.setColour (juce::Colour (0xff080a12));
-    g.fillRoundedRectangle (bounds, 18.0f);
 
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff151a29), bounds.getTopLeft(),
-                                             juce::Colour (0xff070911), bounds.getBottomRight(), false));
-    g.fillRoundedRectangle (bounds.reduced (1.0f), 17.0f);
+    // FL-style flat blue-grey panel — no gradient, brand palette.
+    const auto panelBase = juce::Colour (kPanelRaised).interpolatedWith (juce::Colour (kAccentViolet), 0.04f);
+    g.setColour (panelBase);
+    g.fillRoundedRectangle (bounds, 12.0f);
 
     juce::Colour accent;
     juce::String modeLabel;
     switch (mode)
     {
-        case Mode::Recording: accent = juce::Colour (0xffff4c6a); modeLabel = "RECORDING"; break;
-        case Mode::Finished:  accent = juce::Colour (0xff67f6d2); modeLabel = "ARRANGEMENT"; break;
-        case Mode::Idle:      accent = juce::Colour (0xff67f6d2); modeLabel = "READY"; break;
+        case Mode::Recording: accent = juce::Colour (kDanger);     modeLabel = "RECORDING";  break;
+        case Mode::Finished:  accent = juce::Colour (kAccent);     modeLabel = "ARRANGEMENT"; break;
+        case Mode::Idle:      accent = juce::Colour (kTextMuted);  modeLabel = "READY";       break;
     }
-    g.setColour (accent.withAlpha (0.75f));
-    g.drawRoundedRectangle (bounds.reduced (0.75f), 18.0f, 1.5f);
+    g.setColour (accent.withAlpha (0.55f));
+    g.drawRoundedRectangle (bounds.reduced (0.75f), 12.0f, 1.0f);
 
-    auto area = getLocalBounds().reduced (18, 14);
-    auto header = area.removeFromTop (24);
-    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-    g.setColour (juce::Colours::white.withAlpha (0.94f));
-    g.drawText ("Set Arrangement", header.removeFromLeft (220), juce::Justification::centredLeft);
+    auto area = getLocalBounds().reduced (16, 12);
 
-    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    // Title row.
+    auto header = area.removeFromTop (22);
+    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    g.setColour (juce::Colour (kTextPrimary));
+    g.drawText ("Arrangement", header.removeFromLeft (200), juce::Justification::centredLeft);
+
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.setColour (accent.withAlpha (0.95f));
     if (mode == Mode::Recording)
     {
         const int total = (int) std::floor (elapsedSeconds);
-        const int mins = total / 60;
-        const int secs = total % 60;
         const auto blink = ((juce::Time::currentTimeMillis() / 500) % 2) == 0;
         const juce::String dot = blink ? juce::String (juce::CharPointer_UTF8 ("\xe2\x97\x8f ")) : juce::String ("  ");
-        const juce::String elapsed = juce::String::formatted ("%02d:%02d", mins, secs);
-        g.drawText (dot + modeLabel + "  " + elapsed, header, juce::Justification::centredRight);
+        g.drawText (dot + modeLabel + "  " + juce::String::formatted ("%02d:%02d", total / 60, total % 60),
+                    header, juce::Justification::centredRight);
     }
     else
     {
         g.drawText (modeLabel, header, juce::Justification::centredRight);
     }
-
-    area.removeFromTop (6);
+    area.removeFromTop (8);
 
     const double maxLen = computeMaxLengthSeconds();
     const bool hasAudio = mode == Mode::Finished && maxLen > 0.0;
 
+    const int labelWidth = 90;       // must match hitTestAt()
     const int rulerHeight = 18;
-    const int labelWidth = 90;
+    const int statusHeight = 16;
+
+    auto statusArea = area.removeFromBottom (statusHeight);
+    area.removeFromBottom (4);
+
+    // Bar/beat math driven by snap BPM (default 120). Empty arrangement shows 8 empty bars.
+    const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
+    const double secsPerBeat = 60.0 / bpm;
+    const double secsPerBar  = 4.0 * secsPerBeat;
+    const double rulerLen    = hasAudio ? maxLen : (8.0 * secsPerBar);
+
     auto ruler = area.removeFromTop (rulerHeight);
+    auto rulerLabel = ruler.removeFromLeft (labelWidth);
+    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    g.setColour (juce::Colour (kTextMuted));
+    g.drawText ("BARS", rulerLabel.reduced (8, 0), juce::Justification::centredLeft);
+
+    auto rulerTimeToX = [&] (double t) -> int
     {
-        auto rulerArea = ruler.withTrimmedLeft (labelWidth);
-        g.setColour (juce::Colours::white.withAlpha (0.18f));
-        g.drawHorizontalLine (rulerArea.getBottom(), (float) rulerArea.getX(), (float) rulerArea.getRight());
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        const int divisions = 8;
-        for (int t = 0; t <= divisions; ++t)
+        return ruler.getX() + (int) std::round ((double) ruler.getWidth() * t / rulerLen);
+    };
+
+    const int totalBars = juce::jmax (1, (int) std::ceil (rulerLen / secsPerBar));
+    int labelStep = 1;
+    if      (totalBars > 96) labelStep = 16;
+    else if (totalBars > 48) labelStep = 8;
+    else if (totalBars > 24) labelStep = 4;
+    else if (totalBars > 12) labelStep = 2;
+
+    g.setColour (juce::Colour (kHairline));
+    g.drawHorizontalLine (ruler.getBottom() - 1, (float) ruler.getX(), (float) ruler.getRight());
+    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    for (int bar = 0; bar <= totalBars; ++bar)
+    {
+        const double t = (double) bar * secsPerBar;
+        if (t > rulerLen) break;
+        const int x = rulerTimeToX (t);
+        const bool labeled = (bar % labelStep) == 0;
+        g.setColour (juce::Colour (kTextFaint).withAlpha (labeled ? 0.85f : 0.45f));
+        g.drawVerticalLine (x, (float) ruler.getY() + (labeled ? 3.0f : 8.0f), (float) ruler.getBottom());
+        if (labeled)
         {
-            const float x = (float) rulerArea.getX() + (float) t * (float) rulerArea.getWidth() / (float) divisions;
-            g.setColour (juce::Colours::white.withAlpha (t % 2 == 0 ? 0.30f : 0.14f));
-            g.drawVerticalLine ((int) std::round (x), (float) rulerArea.getY(), (float) rulerArea.getBottom());
-            if (t < divisions && hasAudio)
-            {
-                const double secs = maxLen * (double) t / (double) divisions;
-                const int s = (int) std::floor (secs);
-                g.setColour (juce::Colours::white.withAlpha (0.55f));
-                g.drawText (juce::String::formatted ("%d:%02d", s / 60, s % 60),
-                            (int) x + 4, rulerArea.getY() - 1, 56, rulerHeight, juce::Justification::centredLeft);
-            }
+            g.setColour (juce::Colour (kTextMuted));
+            g.drawText (juce::String (bar + 1), x + 3, ruler.getY() - 1, 30, rulerHeight, juce::Justification::centredLeft);
         }
     }
 
-    const int statusHeight = 18;
-    auto statusArea = area.removeFromBottom (statusHeight);
-    area.removeFromBottom (6);
+    // Lanes area.
+    const int lanesTotal = numEditableLanes;
+    const int laneGap = 2;
+    const int laneAreaHeight = area.getHeight();
+    const int laneHeight = juce::jmax (16, (laneAreaHeight - laneGap * (lanesTotal - 1)) / lanesTotal);
 
-    const int lanesTotal = numLanes + 1;
-    const int laneGap = 4;
-    const int laneHeight = juce::jmax (14, (area.getHeight() - laneGap * (lanesTotal - 1)) / lanesTotal);
+    // Vertical grid lines extending through the entire stack of lanes (drawn before clips so clips overlay).
+    const int gridLeft  = area.getX() + labelWidth + 4;   // matches clip rect math below
+    const int gridRight = area.getRight() - 4;
+    const int gridTop   = area.getY();
+    const int gridBottom = area.getY() + lanesTotal * laneHeight + (lanesTotal - 1) * laneGap;
 
-    const std::array<juce::Colour, numLanes> deckColours { juce::Colour (0xff26d9ff), juce::Colour (0xffff4c5f),
-                                                            juce::Colour (0xff50f06b), juce::Colour (0xffffcf4a) };
+    auto gridTimeToX = [&] (double t) -> int
+    {
+        return gridLeft + (int) std::round ((double) (gridRight - gridLeft) * t / rulerLen);
+    };
 
-    auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& label, juce::Colour colour,
+    g.setColour (juce::Colour (kPanelDeep).withAlpha (0.65f));
+    g.fillRect (gridLeft, gridTop, gridRight - gridLeft, gridBottom - gridTop);
+
+    for (int bar = 0; bar <= totalBars; ++bar)
+    {
+        const double t = (double) bar * secsPerBar;
+        if (t > rulerLen) break;
+        const int x = gridTimeToX (t);
+        g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
+        g.drawVerticalLine (x, (float) gridTop, (float) gridBottom);
+        for (int beat = 1; beat < 4; ++beat)
+        {
+            const double bt = t + beat * secsPerBeat;
+            if (bt > rulerLen) break;
+            const int bx = gridTimeToX (bt);
+            g.setColour (juce::Colour (kHairline).withAlpha (0.35f));
+            g.drawVerticalLine (bx, (float) gridTop, (float) gridBottom);
+        }
+    }
+
+    auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& title, juce::Colour colour,
                          juce::AudioThumbnail* thumb, const juce::File& file, int deckIndex)
     {
         if (deckIndex >= 0 && deckIndex < numEditableLanes)
             laneRects[(size_t) deckIndex] = lane;
 
         const bool isSelected = (deckIndex >= 0 && deckIndex == selectedLane);
-        g.setColour (juce::Colours::white.withAlpha (isSelected ? 0.085f : 0.045f));
-        g.fillRoundedRectangle (lane.toFloat(), 6.0f);
-        g.setColour (colour.withAlpha (isSelected ? 0.7f : 0.32f));
-        g.drawRoundedRectangle (lane.toFloat(), 6.0f, isSelected ? 1.6f : 1.0f);
 
-        auto labelCell = lane.removeFromLeft (labelWidth);
-        g.setColour (colour.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        g.drawText (label, labelCell.reduced (8, 0), juce::Justification::centredLeft);
+        // Track header column (left).
+        auto headerCell = lane.removeFromLeft (labelWidth);
+        g.setColour (juce::Colour (kPanelRaised));
+        g.fillRect (headerCell);
+        g.setColour (colour);
+        g.fillRect (headerCell.removeFromLeft (3));
+        g.setColour (juce::Colour (kTextPrimary).withAlpha (0.92f));
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (title, headerCell.reduced (8, 0), juce::Justification::centredLeft);
 
+        // Track timeline area — must match hitTestAt: lane.withTrimmedLeft (labelWidth).reduced (4, 3)
         auto track = lane.reduced (4, 3);
+
+        // Subtle row banding inside the timeline.
+        g.setColour ((deckIndex % 2 == 0 ? juce::Colour (kPanel) : juce::Colour (kPanelDeep)).withAlpha (0.35f));
+        g.fillRect (track);
+
         if (mode == Mode::Finished && thumb != nullptr && thumb->getTotalLength() > 0.0 && maxLen > 0.0)
         {
             const double laneLen = thumb->getTotalLength();
-            double clipStart = 0.0;
-            double clipEnd = laneLen;
-            double fadeIn = 0.0, fadeOut = 0.0;
+            double clipStart = 0.0, clipEnd = laneLen, fadeIn = 0.0, fadeOut = 0.0;
             if (deckIndex >= 0 && deckIndex < numEditableLanes)
             {
                 const auto& clip = clips[(size_t) deckIndex];
                 if (clip.durationSeconds > 0.0)
                 {
                     clipStart = juce::jlimit (0.0, laneLen, clip.trimStartSeconds);
-                    clipEnd = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);
-                    fadeIn = juce::jlimit (0.0, clipEnd - clipStart, clip.fadeInSeconds);
-                    fadeOut = juce::jlimit (0.0, clipEnd - clipStart - fadeIn, clip.fadeOutSeconds);
+                    clipEnd   = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);
+                    fadeIn    = juce::jlimit (0.0, clipEnd - clipStart, clip.fadeInSeconds);
+                    fadeOut   = juce::jlimit (0.0, clipEnd - clipStart - fadeIn, clip.fadeOutSeconds);
                 }
             }
 
@@ -698,16 +758,35 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 return track.getX() + (int) std::round ((double) track.getWidth() * t / maxLen);
             };
             const int clipX0 = timeToX (clipStart);
-            const int clipX1 = juce::jmax (clipX0 + 4, timeToX (clipEnd));
+            const int clipX1 = juce::jmax (clipX0 + 6, timeToX (clipEnd));
             auto clipRect = juce::Rectangle<int> (clipX0, track.getY(), clipX1 - clipX0, track.getHeight());
 
-            g.setColour (colour.withAlpha (isSelected ? 0.32f : 0.22f));
-            g.fillRoundedRectangle (clipRect.toFloat(), 4.0f);
-            g.setColour (colour.withAlpha (0.92f));
-            thumb->drawChannels (g, clipRect.reduced (2), clipStart, clipEnd, 0.95f);
-            g.setColour (juce::Colours::white.withAlpha (0.65f));
-            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-            g.drawText (file.getFileName(), clipRect.reduced (8, 0), juce::Justification::centredLeft);
+            // FL/djay-style "Pattern" block: solid colored header band over a translucent body.
+            const int headerBand = juce::jlimit (10, 14, clipRect.getHeight() / 3);
+            auto patternHeader = clipRect.withHeight (headerBand);
+            auto patternBody   = clipRect.withTrimmedTop (headerBand);
+
+            g.setColour (colour.withAlpha (isSelected ? 0.28f : 0.18f));
+            g.fillRect (patternBody);
+
+            g.setColour (colour.withAlpha (isSelected ? 0.95f : 0.78f));
+            g.fillRect (patternHeader);
+
+            g.setColour (colour.withAlpha (isSelected ? 1.0f : 0.65f));
+            g.drawRect (clipRect, isSelected ? 2 : 1);
+
+            // Chevron + source filename inside the header band (FL "Pattern" labelling).
+            g.setColour (juce::Colours::black.withAlpha (0.78f));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            const auto chevron = juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe "));
+            g.drawText (chevron + file.getFileName(), patternHeader.reduced (5, 0),
+                        juce::Justification::centredLeft, true);
+
+            if (patternBody.getHeight() > 4)
+            {
+                g.setColour (colour.withAlpha (0.92f));
+                thumb->drawChannels (g, patternBody.reduced (2, 1), clipStart, clipEnd, 0.95f);
+            }
 
             if (fadeIn > 0.0)
             {
@@ -717,7 +796,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 tri.lineTo ((float) fadeInX, (float) clipRect.getY());
                 tri.lineTo ((float) clipRect.getX(), (float) clipRect.getBottom());
                 tri.closeSubPath();
-                g.setColour (juce::Colour (0xff080a12).withAlpha (0.65f));
+                g.setColour (juce::Colour (kPanelDeep).withAlpha (0.75f));
                 g.fillPath (tri);
                 g.setColour (colour.withAlpha (0.95f));
                 g.drawLine ((float) clipRect.getX(), (float) clipRect.getBottom(),
@@ -731,87 +810,89 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 tri.lineTo ((float) clipRect.getRight(), (float) clipRect.getY());
                 tri.lineTo ((float) clipRect.getRight(), (float) clipRect.getBottom());
                 tri.closeSubPath();
-                g.setColour (juce::Colour (0xff080a12).withAlpha (0.65f));
+                g.setColour (juce::Colour (kPanelDeep).withAlpha (0.75f));
                 g.fillPath (tri);
                 g.setColour (colour.withAlpha (0.95f));
                 g.drawLine ((float) fadeOutX, (float) clipRect.getY(),
                             (float) clipRect.getRight(), (float) clipRect.getBottom(), 1.2f);
             }
 
-            const float handleW = 4.0f;
+            const float handleW = 3.0f;
             g.setColour (juce::Colours::white.withAlpha (isSelected ? 0.85f : 0.45f));
-            g.fillRect (juce::Rectangle<float> ((float) clipRect.getX(), (float) clipRect.getY(), handleW, (float) clipRect.getHeight()));
-            g.fillRect (juce::Rectangle<float> ((float) clipRect.getRight() - handleW, (float) clipRect.getY(), handleW, (float) clipRect.getHeight()));
+            g.fillRect (juce::Rectangle<float> ((float) clipRect.getX(),
+                                                (float) clipRect.getY(), handleW, (float) clipRect.getHeight()));
+            g.fillRect (juce::Rectangle<float> ((float) clipRect.getRight() - handleW,
+                                                (float) clipRect.getY(), handleW, (float) clipRect.getHeight()));
 
-            const float grabSize = 7.0f;
+            const float grabSize = 6.0f;
             const float grabAlpha = isSelected ? 0.95f : 0.6f;
-            g.setColour (colour.withAlpha (grabAlpha));
+            g.setColour (colour.brighter (0.3f).withAlpha (grabAlpha));
             if (fadeIn <= 0.0)
             {
                 juce::Path g0;
-                g0.addTriangle ((float) clipRect.getX(),                  (float) clipRect.getY(),
-                                (float) clipRect.getX() + grabSize,        (float) clipRect.getY(),
-                                (float) clipRect.getX(),                   (float) clipRect.getY() + grabSize);
+                g0.addTriangle ((float) clipRect.getX(),            (float) clipRect.getY(),
+                                (float) clipRect.getX() + grabSize, (float) clipRect.getY(),
+                                (float) clipRect.getX(),            (float) clipRect.getY() + grabSize);
                 g.fillPath (g0);
             }
             if (fadeOut <= 0.0)
             {
                 juce::Path g1;
-                g1.addTriangle ((float) clipRect.getRight() - grabSize,    (float) clipRect.getY(),
-                                (float) clipRect.getRight(),               (float) clipRect.getY(),
-                                (float) clipRect.getRight(),               (float) clipRect.getY() + grabSize);
+                g1.addTriangle ((float) clipRect.getRight() - grabSize, (float) clipRect.getY(),
+                                (float) clipRect.getRight(),            (float) clipRect.getY(),
+                                (float) clipRect.getRight(),            (float) clipRect.getY() + grabSize);
                 g.fillPath (g1);
             }
 
             if (deckIndex >= 0 && deckIndex < numLanes)
                 for (const auto& curve : deckAutomation[(size_t) deckIndex])
-                    drawCurve (g, clipRect.reduced (2), curve, maxLen);
+                    drawCurve (g, patternBody.reduced (2), curve, maxLen);
         }
         else if (mode == Mode::Recording)
         {
-            g.setColour (colour.withAlpha (0.18f));
-            const auto rect = track.toFloat().withHeight ((float) track.getHeight() * 0.6f).withY ((float) track.getCentreY() - (float) track.getHeight() * 0.3f);
-            g.fillRoundedRectangle (rect, 3.0f);
-            g.setColour (colour.withAlpha (0.6f));
+            g.setColour (colour.withAlpha (0.22f));
+            const auto rect = track.toFloat().withHeight ((float) track.getHeight() * 0.55f)
+                                              .withY ((float) track.getCentreY() - (float) track.getHeight() * 0.275f);
+            g.fillRect (rect);
+            g.setColour (colour.withAlpha (0.85f));
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-            g.drawText ("capturing\xe2\x80\xa6", track.reduced (6, 0), juce::Justification::centredLeft);
+            g.drawText ("capturing\xe2\x80\xa6", track.reduced (8, 0), juce::Justification::centredLeft);
         }
         else
         {
-            g.setColour (juce::Colours::white.withAlpha (0.18f));
-            g.setFont (juce::FontOptions (10.0f));
-            g.drawText ("empty lane", track.reduced (6, 0), juce::Justification::centredLeft);
+            g.setColour (juce::Colour (kTextFaint).withAlpha (0.65f));
+            g.setFont (juce::FontOptions (9.5f));
+            g.drawText ("empty", track.reduced (8, 0), juce::Justification::centredLeft);
         }
     };
 
     auto masterLaneRect = area.removeFromTop (laneHeight);
-    drawLane (masterLaneRect, "MASTER", juce::Colour (0xff67f6d2), masterThumb.get(), masterFile, masterLane);
+    drawLane (masterLaneRect, "MASTER", juce::Colour (kAccent), masterThumb.get(), masterFile, masterLane);
     area.removeFromTop (laneGap);
 
     for (int i = 0; i < numLanes; ++i)
     {
         auto laneRect = area.removeFromTop (laneHeight);
-        const auto laneLabel = "DECK " + juce::String::charToString ((juce_wchar) ('A' + i));
-        drawLane (laneRect, laneLabel, deckColours[(size_t) i], deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
+        drawLane (laneRect, "DECK " + juce::String::charToString ((juce_wchar) ('A' + i)),
+                  deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
         if (i < numLanes - 1)
             area.removeFromTop (laneGap);
     }
 
-    g.setFont (juce::FontOptions (10.5f));
-    g.setColour (juce::Colours::white.withAlpha (0.6f));
+    g.setFont (juce::FontOptions (10.0f));
     const auto displayStatus = dragReadout.isNotEmpty()
                                    ? dragReadout
                                    : (mode == Mode::Recording && recordingPath.isNotEmpty()
-                                       ? "Writing: " + recordingPath
+                                       ? juce::String ("Writing: ") + recordingPath
                                        : status);
-    if (dragReadout.isNotEmpty())
-        g.setColour (juce::Colour (0xff67f6d2).withAlpha (0.9f));
+    g.setColour (dragReadout.isNotEmpty() ? juce::Colour (kAccent).withAlpha (0.92f)
+                                          : juce::Colour (kTextMuted));
     g.drawText (displayStatus, statusArea, juce::Justification::centredLeft);
 
     if (snapEnabled)
     {
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        g.setColour (juce::Colour (0xff67f6d2).withAlpha (0.75f));
+        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.setColour (juce::Colour (kAccent).withAlpha (0.8f));
         g.drawText ("SNAP \xe2\x97\x86 " + juce::String (snapBeatGrid, 2) + " beat @ " + juce::String (snapBpm, 1) + " BPM",
                     statusArea, juce::Justification::centredRight);
     }
@@ -1190,6 +1271,17 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     controls.volume.setSliderStyle (juce::Slider::LinearVertical);
     controls.fader.setSliderStyle (juce::Slider::LinearVertical);
     controls.pitch.setSliderStyle (juce::Slider::LinearVertical);
+    // djay-Pro feel: vertical faders read by position; values via tooltip on hover.
+    controls.volume.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    controls.fader .setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    controls.pitch .setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    controls.volume.setPopupDisplayEnabled (true, true, this);
+    controls.fader .setPopupDisplayEnabled (true, true, this);
+    controls.pitch .setPopupDisplayEnabled (true, true, this);
+    controls.low   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
+    controls.mid   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
+    controls.high  .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
+    controls.filter.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
     controls.bpm.setTextBoxStyle (juce::Slider::TextBoxRight, false, 58, 18);
     controls.beatOffset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
     controls.downbeat.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
@@ -1818,42 +1910,87 @@ void MainPluginEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white.withAlpha (0.075f));
     g.drawHorizontalLine (title.getBounds().getBottom() + 7, 22.0f, (float) getWidth() - 22.0f);
 
+    // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
-        const auto& controls = deckControls[(size_t) i];
-        auto deckBounds = deckWaves[(size_t) i] != nullptr ? deckWaves[(size_t) i]->getBounds().expanded (10, 12) : juce::Rectangle<int>{};
-        deckBounds = deckBounds.getUnion (controls.pitch.getBounds().expanded (8, 12));
-        if (! deckBounds.isEmpty())
+        auto deckBounds = deckPanelBounds[(size_t) i];
+        if (deckBounds.isEmpty())
+            continue;
+        drawPanel (g, deckBounds, deckAccent (i), 10.0f);
+        g.setColour (deckAccent (i).withAlpha (0.85f));
+        g.fillRoundedRectangle (deckBounds.removeFromTop (3).toFloat(), 1.5f);
+
+        // --- Deck header strip: letter badge + filename + key chip ---
+        auto headerBar = deckHeaderBounds[(size_t) i];
+        if (! headerBar.isEmpty())
         {
-            drawPanel (g, deckBounds, deckAccent (i), 14.0f);
-            g.setColour (deckAccent (i).withAlpha (0.72f));
-            g.fillRoundedRectangle (deckBounds.removeFromTop (4).toFloat(), 2.0f);
+            const juce::String letter = juce::String::charToString ((juce_wchar) ('A' + i));
+            auto badge = headerBar.removeFromLeft (22);
+            g.setColour (deckAccent (i).withAlpha (0.95f));
+            g.fillRoundedRectangle (badge.toFloat(), 4.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.85f));
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            g.drawText (letter, badge, juce::Justification::centred);
+            headerBar.removeFromLeft (8);
+
+            // Right-aligned key chip (uses live keyInfo text — short snippet).
+            auto chip = headerBar.removeFromRight (juce::jmin (90, headerBar.getWidth() / 2));
+            const auto keyText = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
+            if (keyText.isNotEmpty())
+            {
+                g.setColour (juce::Colour (sattari::brand::kPanelDeep));
+                g.fillRoundedRectangle (chip.toFloat(), 3.0f);
+                g.setColour (deckAccent (i).withAlpha (0.55f));
+                g.drawRoundedRectangle (chip.toFloat(), 3.0f, 1.0f);
+                g.setColour (deckAccent (i).withAlpha (0.95f));
+                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+                g.drawText (keyText, chip.reduced (6, 0), juce::Justification::centredRight);
+            }
+
+            // Filename in the middle slot (truncate left-most path components).
+            const auto path = processorRef.getDeckPath (i);
+            const auto file = juce::File (path).getFileName();
+            const auto display = file.isNotEmpty() ? file : juce::String ("— empty deck —");
+            g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (file.isNotEmpty() ? 0.92f : 0.45f));
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
         }
     }
 
-    g.setColour (juce::Colours::white.withAlpha (0.62f));
-    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
-
+    // --- Control labels above each control (matches djay-Pro nomenclature) ---
+    g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         const auto& controls = deckControls[(size_t) i];
-        auto drawControlLabel = [&g] (const juce::String& text, const juce::Component& component)
+        auto drawAbove = [&g] (const juce::String& text, const juce::Component& component)
         {
-            auto r = component.getBounds().withHeight (14).translated (0, -14);
+            auto r = component.getBounds().withHeight (13).translated (0, -13);
+            g.drawText (text, r, juce::Justification::centred);
+        };
+        auto drawBelow = [&g] (const juce::String& text, const juce::Component& component)
+        {
+            auto r = component.getBounds().withHeight (12).translated (0, component.getHeight());
             g.drawText (text, r, juce::Justification::centred);
         };
 
         g.setColour (deckAccent (i).withAlpha (0.92f));
-        drawControlLabel ("GAIN", controls.volume);
-        drawControlLabel ("BPM", controls.bpm);
-        drawControlLabel ("GRID", controls.beatOffset);
-        drawControlLabel ("DOWN", controls.downbeat);
-        drawControlLabel ("FADER", controls.fader);
-        drawControlLabel ("PITCH", controls.pitch);
-        drawControlLabel ("LOW", controls.low);
-        drawControlLabel ("MID", controls.mid);
-        drawControlLabel ("HIGH", controls.high);
-        drawControlLabel ("FILTER", controls.filter);
+        drawAbove ("VOL",   controls.volume);
+        drawAbove ("XF",    controls.fader);
+        drawAbove ("PITCH", controls.pitch);
+        drawAbove ("LOW",   controls.low);
+        drawAbove ("MID",   controls.mid);
+        drawAbove ("HIGH",  controls.high);
+        drawAbove ("FILT",  controls.filter);
+        drawAbove ("BPM",   controls.bpm);
+        drawAbove ("BEAT",  controls.beatOffset);
+        drawAbove ("DOWN",  controls.downbeat);
+
+        // Stem knob row labels (DRUMS / HARM / VOCALS / OTHER) — driven from slider.getName()
+        // which was set from DeckPlayer::stemLaneLabel() in setupDeck.
+        static constexpr std::array<const char*, 4> stemLabels { "DRUMS", "HARM", "VOCALS", "OTHER" };
+        const int stemCount = (int) controls.stemGains.size();
+        for (int s = 0; s < juce::jmin (4, stemCount); ++s)
+            drawAbove (stemLabels[(size_t) s], controls.stemGains[(size_t) s]);
     }
 
     if (! crossfader.getBounds().isEmpty())
@@ -1937,71 +2074,98 @@ void MainPluginEditor::resized()
     const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
     {
-        auto lane = decksArea.removeFromLeft (deckWidth);
+        auto laneOuter = decksArea.removeFromLeft (deckWidth);
         decksArea.removeFromLeft (deckGap);
-        lane = lane.reduced (10, 12);
+        deckPanelBounds[(size_t) deckIndex] = laneOuter;
+        auto lane = laneOuter.reduced (10, 10);
 
         auto& controls = deckControls[(size_t) deckIndex];
-        if (auto* wave = deckWaves[(size_t) deckIndex].get())
-            wave->setBounds (lane.removeFromTop (166));
 
-        lane.removeFromTop (8);
-        auto transport = lane.removeFromTop (30);
-        controls.load.setBounds (transport.removeFromLeft (48));
-        transport.removeFromLeft (4);
-        controls.aiStems.setBounds (transport.removeFromLeft (68));
-        transport.removeFromLeft (5);
-        controls.play.setBounds (transport.removeFromLeft (64));
-        transport.removeFromLeft (5);
-        controls.cue.setBounds (transport.removeFromLeft (42));
-        transport.removeFromLeft (5);
-        controls.liveKey.setBounds (transport.removeFromLeft (64));
-
-        lane.removeFromTop (8);
-        auto stemRow = lane.removeFromTop (24);
-        controls.stemLane.setBounds (stemRow.removeFromLeft (86));
-        stemRow.removeFromLeft (5);
-        controls.loadStem.setBounds (stemRow.removeFromLeft (52));
-        stemRow.removeFromLeft (5);
-        controls.keyTarget.setBounds (stemRow.removeFromLeft (76));
-        stemRow.removeFromLeft (5);
-        controls.keyLock.setBounds (stemRow);
-
-        lane.removeFromTop (7);
-        auto syncRow = lane.removeFromTop (24);
-        controls.tempoInterpretation.setBounds (syncRow.removeFromLeft (112));
-        syncRow.removeFromLeft (5);
-        controls.syncMode.setBounds (syncRow.removeFromLeft (116));
-
-        lane.removeFromTop (5);
-        controls.keyInfo.setBounds (lane.removeFromTop (18));
-        controls.stemStatus.setBounds (lane.removeFromTop (18));
-
-        lane.removeFromTop (10);
-        auto faders = lane.removeFromTop (92);
-        const int faderW = 42;
-        controls.volume.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
-        controls.fader.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
-        controls.pitch.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
-        faders.removeFromLeft (5);
-        controls.low.setBounds (faders.removeFromLeft (44).reduced (1));
-        controls.mid.setBounds (faders.removeFromLeft (44).reduced (1));
-        controls.high.setBounds (faders.removeFromLeft (44).reduced (1));
-        controls.filter.setBounds (faders.removeFromLeft (44).reduced (1));
-
-        lane.removeFromTop (6);
-        auto gridRow = lane.removeFromTop (44);
-        controls.bpm.setBounds (gridRow.removeFromLeft (96).reduced (2));
-        gridRow.removeFromLeft (6);
-        controls.beatOffset.setBounds (gridRow.removeFromLeft (88).reduced (2));
-        gridRow.removeFromLeft (6);
-        controls.downbeat.setBounds (gridRow.reduced (2));
-
+        // 1. Deck header strip (track # + filename + key chip — painted in paint()).
+        auto headerStrip = lane.removeFromTop (22);
+        deckHeaderBounds[(size_t) deckIndex] = headerStrip;
         lane.removeFromTop (4);
-        auto stemRow2 = lane.removeFromTop (44);
-        const int stemKnobW = juce::jmax (28, stemRow2.getWidth() / DeckPlayer::numStemLanes);
-        for (int lane2 = 0; lane2 < DeckPlayer::numStemLanes; ++lane2)
-            controls.stemGains[(size_t) lane2].setBounds (stemRow2.removeFromLeft (stemKnobW).reduced (2));
+
+        // 2. Waveform.
+        if (auto* wave = deckWaves[(size_t) deckIndex].get())
+            wave->setBounds (lane.removeFromTop (116));
+        lane.removeFromTop (8);
+
+        // 3. Upper zone — left controls + right vertical-fader column (VOL/FADER/PITCH).
+        const int upperHeight = 128;
+        auto upperZone = lane.removeFromTop (upperHeight);
+        const int faderColW = 38;
+        const int faderColGap = 4;
+        auto fadersCol = upperZone.removeFromRight (faderColW * 3 + faderColGap * 2);
+        upperZone.removeFromRight (6);
+        controls.volume.setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 4));
+        fadersCol.removeFromLeft (faderColGap);
+        controls.fader .setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 4));
+        fadersCol.removeFromLeft (faderColGap);
+        controls.pitch .setBounds (fadersCol.reduced (3, 4));
+
+        // 3a. Stem knob row (DRUMS / HARM / VOCALS / OTHER).
+        auto stemKnobRow = upperZone.removeFromTop (48);
+        const int stemW = juce::jmax (28, stemKnobRow.getWidth() / DeckPlayer::numStemLanes);
+        for (int s = 0; s < DeckPlayer::numStemLanes; ++s)
+            controls.stemGains[(size_t) s].setBounds (stemKnobRow.removeFromLeft (stemW).reduced (3, 4));
+        upperZone.removeFromTop (6);
+
+        // 3b. Transport row.
+        auto transport = upperZone.removeFromTop (28);
+        controls.play   .setBounds (transport.removeFromLeft (72));
+        transport.removeFromLeft (4);
+        controls.cue    .setBounds (transport.removeFromLeft (44));
+        transport.removeFromLeft (4);
+        controls.liveKey.setBounds (transport.removeFromLeft (64));
+        transport.removeFromLeft (4);
+        controls.keyLock.setBounds (transport);
+        upperZone.removeFromTop (4);
+
+        // 3c. EQ row (LOW / MID / HIGH / FILTER rotary knobs).
+        auto eqRow = upperZone.removeFromTop (42);
+        const int eqW = juce::jmax (28, eqRow.getWidth() / 4);
+        controls.low   .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
+        controls.mid   .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
+        controls.high  .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
+        controls.filter.setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
+
+        lane.removeFromTop (8);
+
+        // 4. Lower zone — full width again.
+        auto bpmRow = lane.removeFromTop (40);
+        const int bpmW = juce::jmax (60, bpmRow.getWidth() / 3);
+        controls.bpm       .setBounds (bpmRow.removeFromLeft (bpmW).reduced (2));
+        bpmRow.removeFromLeft (4);
+        controls.beatOffset.setBounds (bpmRow.removeFromLeft (bpmW).reduced (2));
+        bpmRow.removeFromLeft (4);
+        controls.downbeat  .setBounds (bpmRow.reduced (2));
+        lane.removeFromTop (5);
+
+        // 5. Advanced combos row (tempo / sync / key target).
+        auto advancedRow = lane.removeFromTop (22);
+        const int comboW = juce::jmax (50, advancedRow.getWidth() / 3);
+        controls.tempoInterpretation.setBounds (advancedRow.removeFromLeft (comboW));
+        advancedRow.removeFromLeft (3);
+        controls.syncMode          .setBounds (advancedRow.removeFromLeft (comboW));
+        advancedRow.removeFromLeft (3);
+        controls.keyTarget         .setBounds (advancedRow);
+        lane.removeFromTop (4);
+
+        // 6. Status labels.
+        controls.keyInfo   .setBounds (lane.removeFromTop (15));
+        controls.stemStatus.setBounds (lane.removeFromTop (15));
+        lane.removeFromTop (4);
+
+        // 7. Source / stem actions row (Load / AI Split / Stem load / stem-lane combo).
+        auto sourceRow = lane.removeFromTop (26);
+        controls.load     .setBounds (sourceRow.removeFromLeft (50));
+        sourceRow.removeFromLeft (4);
+        controls.aiStems  .setBounds (sourceRow.removeFromLeft (72));
+        sourceRow.removeFromLeft (4);
+        controls.loadStem .setBounds (sourceRow.removeFromLeft (50));
+        sourceRow.removeFromLeft (4);
+        controls.stemLane .setBounds (sourceRow);
     }
 
     auto mixer = topMixer.reduced (0, 5);
