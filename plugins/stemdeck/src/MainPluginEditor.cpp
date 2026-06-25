@@ -1993,10 +1993,12 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.drawText (letter, badge, juce::Justification::centred);
             headerBar.removeFromLeft (8);
 
-            // Right-aligned key chip (uses live keyInfo text — short snippet).
-            auto chip = headerBar.removeFromRight (juce::jmin (90, headerBar.getWidth() / 2));
-            const auto keyText = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
-            if (keyText.isNotEmpty())
+            // Right-aligned BPM + key chips.
+            const auto bpmValue  = deckControls[(size_t) i].bpm.getValue();
+            const auto bpmText   = juce::String (bpmValue, 1);
+            const auto keyText   = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
+
+            auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text)
             {
                 g.setColour (juce::Colour (sattari::brand::kPanelDeep));
                 g.fillRoundedRectangle (chip.toFloat(), 3.0f);
@@ -2004,13 +2006,19 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 g.drawRoundedRectangle (chip.toFloat(), 3.0f, 1.0f);
                 g.setColour (deckAccent (i).withAlpha (0.95f));
                 g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-                g.drawText (keyText, chip.reduced (6, 0), juce::Justification::centredRight);
-            }
+                g.drawText (text, chip.reduced (6, 0), juce::Justification::centredRight);
+            };
+
+            if (keyText.isNotEmpty())
+                drawChip (headerBar.removeFromRight (juce::jmin (66, headerBar.getWidth() / 3)), keyText);
+            headerBar.removeFromRight (4);
+            drawChip (headerBar.removeFromRight (juce::jmin (80, headerBar.getWidth() / 3)), bpmText + " BPM");
+            headerBar.removeFromRight (6);
 
             // Filename in the middle slot (truncate left-most path components).
             const auto path = processorRef.getDeckPath (i);
             const auto file = juce::File (path).getFileName();
-            const auto display = file.isNotEmpty() ? file : juce::String ("— empty deck —");
+            const auto display = file.isNotEmpty() ? file : juce::String ("\xe2\x80\x94 empty deck \xe2\x80\x94");
             g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (file.isNotEmpty() ? 0.92f : 0.45f));
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
