@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
@@ -26,6 +27,7 @@ private:
 
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("align") };
     sattari::presets::SattariPresetManager presetManager;
+    sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, offsetReadout, confidenceLabel, guideStatus;
     juce::Slider searchRange, sensitivity, smoothing, manualOffset;

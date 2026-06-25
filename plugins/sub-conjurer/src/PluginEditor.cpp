@@ -42,6 +42,7 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     savePresetButton.setButtonText ("Save Preset");
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
 
     refreshUserPresets();
 
@@ -199,6 +200,8 @@ void SubConjurerAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (170));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (110));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
 
     area.removeFromTop (12);
     auto top = area.removeFromTop (44);

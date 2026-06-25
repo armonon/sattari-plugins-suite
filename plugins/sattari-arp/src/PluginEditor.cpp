@@ -23,6 +23,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     refreshUserPresets();
 
     setupCombo (preset);
@@ -208,6 +209,8 @@ void SattariArpAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (200));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
 
     area.removeFromTop (12);
 

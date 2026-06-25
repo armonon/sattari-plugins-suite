@@ -25,6 +25,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     refreshUserPresets();
 
     setupCombo (presetBox);
@@ -228,6 +229,8 @@ void RoyalChainAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (200));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
     area.removeFromTop (10);
 
     auto center = area.removeFromTop (230);

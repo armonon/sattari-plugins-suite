@@ -33,6 +33,7 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     addAndMakeVisible (userPresets);
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     refreshUserPresets();
 
     setupCombo (mode, modeLabel, "Mode");
@@ -227,6 +228,8 @@ void SideChainMasterAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (180));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (110));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
 
     area.removeFromTop (12);
     auto modeRow = area.removeFromTop (52);

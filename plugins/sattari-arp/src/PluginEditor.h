@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
@@ -25,6 +26,7 @@ private:
     // Shared suite UI + cross-plugin preset system.
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("sattari-arp") };
     sattari::presets::SattariPresetManager presetManager;
+    sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, rateLabel, patternLabel, velocityLabel, performanceLabel, scaleLabel;
     juce::ComboBox preset, rate, pattern, velocityMode, scaleRoot, scale, userPresets;

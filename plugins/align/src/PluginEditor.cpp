@@ -64,6 +64,7 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     addAndMakeVisible (userPresets);
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
 
     auto& params = audioProcessor.parameters();
     searchAttach = std::make_unique<SliderAttachment> (params, "searchRangeMs", searchRange);
@@ -143,6 +144,8 @@ void SattariAlignAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (200));
     presetRow.removeFromLeft (8);
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
     guideStatus.setBounds (presetRow.removeFromRight (220));
 
     area.removeFromTop (8);

@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
@@ -43,8 +44,7 @@ private:
     juce::Label title, subtitle, grLabel;
     juce::ComboBox mode, factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
-    juce::TextButton abAButton { "A" }, abBButton { "B" }, abSwap { "x" };
-    int activeAB = 0;   // 0 = neither, 1 = A active, 2 = B active
+    sattari::ui::SattariABRow abRow { presetManager };
     juce::ToggleButton mute, bypass;
     std::unique_ptr<ComboAttachment> modeAttach;
     std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach;

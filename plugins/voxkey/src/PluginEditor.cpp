@@ -58,6 +58,7 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     refreshUserPresets();
 
     setupCombo (mode);
@@ -208,6 +209,8 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (200));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
 
     area.removeFromTop (10);
 

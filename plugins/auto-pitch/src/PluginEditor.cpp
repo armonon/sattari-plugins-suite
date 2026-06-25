@@ -195,6 +195,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         if (n.isNotEmpty()) presetManager.loadUserPreset (n);
     };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     refreshUserPresets();
 
@@ -492,7 +493,10 @@ void SattariAutoPitchAudioProcessorEditor::resized()
 
     // Preset (right of header)
     auto presetCol = header.removeFromRight (300);
-    factoryPresets.setBounds (presetCol.removeFromTop (24));
+    auto factoryRow = presetCol.removeFromTop (24);
+    abRow.setBounds (factoryRow.removeFromRight (84));
+    factoryRow.removeFromRight (6);
+    factoryPresets.setBounds (factoryRow);
     presetCol.removeFromTop (2);
     auto userRow = presetCol;
     savePresetButton.setBounds (userRow.removeFromRight (60));
