@@ -940,9 +940,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (subtitle);
 
     standaloneWorkflowGuide.setText (
-        "STANDALONE \xe2\x80\xa2" " Load mixes onto Decks A\xe2\x80\x93" "D \xe2\x80\xa2"
-        " AI Split via Demucs \xe2\x80\xa2" " Mix stems / EQ / pads \xe2\x80\xa2"
-        " Record captures master + 4 deck WAVs + automation arrangement \xe2\x80\xa2" " Internal alpha",
+        "RECORD captures master + 4 deck WAVs + automation \xe2\x80\xa2" " Reload bounces back into decks for post-set tweaks",
         juce::dontSendNotification);
     standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     standaloneWorkflowGuide.setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -2298,6 +2296,12 @@ void MainPluginEditor::timerCallback()
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
     recordButton.setButtonText (recording ? "Stop Rec" : "Record WAV");
+    recordButton.setColour (juce::TextButton::buttonColourId,
+                            recording ? juce::Colour (sattari::brand::kDanger)
+                                      : juce::Colour (sattari::brand::kPanelRaised));
+    recordButton.setColour (juce::TextButton::textColourOffId,
+                            recording ? juce::Colours::white
+                                      : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
 
     if (snapToggleButton.getToggleState())
     {
