@@ -136,6 +136,7 @@ void KeyPillRow::paint (juce::Graphics& g)
     for (int i = 0; i < 5; ++i)
     {
         auto cell = cursor.removeFromLeft (pillWTop);
+        sharpRects[i] = cell;       // cache hit-test rect
         drawPill (cell, sharps[i]);
         cursor.removeFromLeft (gapTop);
     }
@@ -148,9 +149,28 @@ void KeyPillRow::paint (juce::Graphics& g)
     for (int i = 0; i < 7; ++i)
     {
         auto cell = cursor.removeFromLeft (pillWBot);
+        naturalRects[i] = cell;     // cache hit-test rect
         drawPill (cell, naturals[i]);
         cursor.removeFromLeft (gapBot);
     }
+}
+
+int KeyPillRow::hitTestPill (juce::Point<float> p) const
+{
+    static const int sharps[5] = { 1, 3, 6, 8, 10 };
+    for (int i = 0; i < 5; ++i)
+        if (sharpRects[i].contains (p)) return sharps[i];
+    static const int naturals[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    for (int i = 0; i < 7; ++i)
+        if (naturalRects[i].contains (p)) return naturals[i];
+    return -1;
+}
+
+void KeyPillRow::mouseDown (const juce::MouseEvent& e)
+{
+    const int pc = hitTestPill (e.position);
+    if (pc >= 0 && onPillClicked)
+        onPillClicked (pc);
 }
 
 // ============================================================================
@@ -218,6 +238,14 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     basicPanel.addAndMakeVisible (autoKey);
     basicPanel.addAndMakeVisible (noteDisplay);
     basicPanel.addAndMakeVisible (pillRow);
+    pillRow.onPillClicked = [this] (int pc) {
+        if (auto* p = audioProcessor.parameters().getParameter ("keyRoot"))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 ((float) pc));
+            p->endChangeGesture();
+        }
+    };
     styleCaption (editNotesLabel, "EDIT NOTES");
     basicPanel.addAndMakeVisible (editNotesLabel);
     basicPanel.addAndMakeVisible (lowLatency);

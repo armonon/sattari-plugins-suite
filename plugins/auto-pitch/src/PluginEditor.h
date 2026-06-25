@@ -39,6 +39,11 @@ class KeyPillRow final : public juce::Component
 public:
     KeyPillRow() = default;
 
+    // Click handler: called with the clicked pitch class (0..11). Editors hook
+    // this up to write the key root via the APVTS so the pill row is fully
+    // interactive instead of read-only.
+    std::function<void(int)> onPillClicked;
+
     void setScale (int keyRoot, int scaleIndex) noexcept
     {
         keyRootIdx = keyRoot;
@@ -53,11 +58,16 @@ public:
     }
 
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
+    int hitTestPill (juce::Point<float> p) const;
+
     int keyRootIdx = 0;
     int scaleIdx   = 0;
     int detectedMidi = -1;
+    juce::Rectangle<float> sharpRects[5];
+    juce::Rectangle<float> naturalRects[7];
 };
 
 // -----------------------------------------------------------------------------
