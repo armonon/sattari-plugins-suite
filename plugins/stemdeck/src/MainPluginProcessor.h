@@ -48,6 +48,7 @@ public:
     void loadDeckFileAsync (int deckIndex, const juce::File& file);
     void loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file);
     void requestDeckAiStemsAsync (int deckIndex);
+    void clearDeck (int deckIndex);
     void loadPadFileAsync (int padIndex, const juce::File& file);
     void triggerPad (int padIndex);
     void rewindDeck (int deckIndex);
@@ -58,6 +59,9 @@ public:
     juce::File getMicRecordingTarget() const { return micRecorder.getTargetFile(); }
     juce::File getLastPerformanceEventLogFile() const { return lastPerformanceEventLogFile; }
     juce::File getLastArrangementFile() const { return lastArrangementFile; }
+    juce::File getLastDeckRecordingFile (int deckIndex) const;
+    int64_t getRecordedSamples() const noexcept { return recordingSampleCounter.load (std::memory_order_relaxed); }
+    double getRecordingSampleRate() const noexcept { return currentSampleRate; }
 
     juce::String getDeckPath (int deckIndex) const;
     juce::String getDeckStemPath (int deckIndex, int stemLaneIndex) const;

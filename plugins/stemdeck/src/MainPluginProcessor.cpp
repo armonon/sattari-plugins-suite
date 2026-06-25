@@ -138,6 +138,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("beatSync", 1), "Host Beat/Grid Sync", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("micMonitor", 1), "Mic/Input Monitor", false));
     params.push_back (floatParam ("micGain", "Mic/Input Gain", -60.0f, 6.0f, -12.0f, "dB"));
+    params.push_back (choiceParam ("masterKey", "Master Key Target", keyTargetChoices(), 0));
+    params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("stemLink", 1), "Link Stem Gains Across Decks", false));
 
     for (int i = 0; i < PadBank::numPads; ++i)
         params.push_back (floatParam ("pad" + juce::String (i + 1) + "Gain", "Pad " + juce::String (i + 1) + " Gain", -60.0f, 6.0f, 0.0f, "dB"));
@@ -240,7 +242,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         auto analysis = getBoolParam (deck + "LiveKey") ? getDeckLiveAnalysisFromAtomics (i) : getDeckAnalysis (i);
         if (! analysis.hasKey())
             analysis = getDeckAnalysis (i);
-        const int targetKey = keyTargetChoiceToPitchClass ((int) std::round (getFloatParam (deck + "KeyTarget")));
+        const int masterKeyChoice = (int) std::round (getFloatParam ("masterKey"));
+        const int deckKeyChoice = (int) std::round (getFloatParam (deck + "KeyTarget"));
+        const int targetKey = keyTargetChoiceToPitchClass (masterKeyChoice > 0 ? masterKeyChoice : deckKeyChoice);
         const float matchShift = analysis.hasKey() && targetKey >= 0
                                ? (float) TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey)
                                : 0.0f;
@@ -262,12 +266,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         decks[(size_t) i].process (deckBuffer, 0, buffer.getNumSamples(), getBoolParam (deck + "Play"), getFloatParam (deck + "Volume"),
                                    getFloatParam (deck + "Fader"),
                                    getFloatParam (deck + "Low"), getFloatParam (deck + "Mid"), getFloatParam (deck + "High"),
-                                   getFloatParam (deck + "Filter"), deckMixGain, warpPlan.timePitch, stemGains,
+                                   getFloatParam (deck + "Filter"), 1.0f, warpPlan.timePitch, stemGains,
                                    warpPlan.beatSync);
         hostGraph.processChain ((HostGraph::Chain) i, deckBuffer, midi);
         deckRecorders[(size_t) i].captureBlock (deckBuffer);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.addFrom (ch, 0, deckBuffer, ch, 0, buffer.getNumSamples());
+            buffer.addFrom (ch, 0, deckBuffer, ch, 0, buffer.getNumSamples(), deckMixGain);
     }
 
     if (micInput.getNumSamples() == buffer.getNumSamples())
@@ -292,7 +296,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
     applyLimiter (buffer, getFloatParam ("limiterCeiling"));
     masterRecorder.captureBlock (buffer);
-    micRecorder.captureBlock (micInput.getNumSamples() == buffer.getNumSamples() ? micInput : buffer);
+    if (micInput.getNumSamples() == buffer.getNumSamples())
+        micRecorder.captureBlock (micInput);
     if (isCapturingPerformance)
         recordingSampleCounter.fetch_add (buffer.getNumSamples(), std::memory_order_relaxed);
     transportSampleCounter += buffer.getNumSamples();
@@ -384,6 +389,18 @@ void MainPluginProcessor::loadAudioAsync (const juce::File& file, std::function<
 void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& file)
 {
     loadDeckStemFileAsync (deckIndex, DeckPlayer::fullMixStem, file);
+}
+
+void MainPluginProcessor::clearDeck (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return;
+    decks[(size_t) deckIndex].reset();
+    setStatePathProperty (deckPathProperty (deckIndex), {});
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        setStatePathProperty (deckStemPathProperty (deckIndex, lane), {});
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "track_cleared", deckNameFor (deckIndex), "full_mix", "cleared");
 }
 
 void MainPluginProcessor::requestDeckAiStemsAsync (int deckIndex)
@@ -529,6 +546,13 @@ juce::File MainPluginProcessor::stopMasterRecording()
     return masterFile;
 }
 
+juce::File MainPluginProcessor::getLastDeckRecordingFile (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return {};
+    return lastDeckRecordingTargets[(size_t) deckIndex];
+}
+
 juce::String MainPluginProcessor::getDeckPath (int deckIndex) const
 {
     return juce::isPositiveAndBelow (deckIndex, numDecks) ? decks[(size_t) deckIndex].getPath() : juce::String{};
@@ -635,7 +659,9 @@ juce::String MainPluginProcessor::getDeckKeyInfo (int deckIndex) const
     const bool liveKeyEnabled = getBoolParam (deck + "LiveKey");
     const auto liveAnalysis = getDeckLiveAnalysisFromAtomics (deckIndex);
     const auto analysis = getDeckActiveAnalysis (deckIndex);
-    const int targetKey = keyTargetChoiceToPitchClass ((int) std::round (getFloatParam (deck + "KeyTarget")));
+    const int masterKeyChoice = (int) std::round (getFloatParam ("masterKey"));
+    const int deckKeyChoice = (int) std::round (getFloatParam (deck + "KeyTarget"));
+    const int targetKey = keyTargetChoiceToPitchClass (masterKeyChoice > 0 ? masterKeyChoice : deckKeyChoice);
     const float manualShift = getFloatParam (deck + "Pitch");
 
     juce::String text = analysis.hasKey()
@@ -667,7 +693,9 @@ juce::String MainPluginProcessor::getDeckTimePitchStatus (int deckIndex) const
 
     const auto deck = deckPrefix (deckIndex);
     const auto analysis = getDeckActiveAnalysis (deckIndex);
-    const int targetKey = keyTargetChoiceToPitchClass ((int) std::round (getFloatParam (deck + "KeyTarget")));
+    const int masterKeyChoice = (int) std::round (getFloatParam ("masterKey"));
+    const int deckKeyChoice = (int) std::round (getFloatParam (deck + "KeyTarget"));
+    const int targetKey = keyTargetChoiceToPitchClass (masterKeyChoice > 0 ? masterKeyChoice : deckKeyChoice);
     const float matchShift = analysis.hasKey() && targetKey >= 0
                            ? (float) TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey)
                            : 0.0f;
