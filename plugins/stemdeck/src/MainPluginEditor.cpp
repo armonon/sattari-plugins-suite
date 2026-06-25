@@ -928,29 +928,30 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupFileBrowser();
 
     title.setText ("StemDeck PRO", juce::dontSendNotification);
-    title.setFont (juce::FontOptions (30.0f, juce::Font::bold));
-    title.setColour (juce::Label::textColourId, juce::Colours::white);
+    title.setFont (juce::FontOptions (28.0f, juce::Font::bold));
+    title.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextPrimary));
     title.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (title);
 
-    subtitle.setText ("FOUR DECKS  •  STEM MIXER  •  ARRANGEMENT RECORDER", juce::dontSendNotification);
-    subtitle.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
-    subtitle.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    subtitle.setText ("FOUR DECKS  \xe2\x80\xa2  STEM MIXER  \xe2\x80\xa2  ARRANGEMENT", juce::dontSendNotification);
+    subtitle.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    subtitle.setFont (juce::FontOptions (10.5f, juce::Font::bold));
     subtitle.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (subtitle);
 
-    standaloneWorkflowGuide.setText ("STANDALONE APP ALPHA QUICK START  Load or drag a full mix onto Deck A/B/C/D  •  AI Split after local Demucs setup  •  Mix stems/faders/FX/pads  •  Record WAV to capture the performed arrangement  •  Not notarized or sale-ready", juce::dontSendNotification);
-    standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2).withAlpha (0.94f));
-    standaloneWorkflowGuide.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    standaloneWorkflowGuide.setText ("STANDALONE \xe2\x80\xa2 Load mixes onto Decks A\xe2\x80\x93D \xe2\x80\xa2 AI Split via Demucs \xe2\x80\xa2 Mix stems / EQ / pads \xe2\x80\xa2 Record captures master + 4 deck WAVs + automation arrangement \xe2\x80\xa2 Internal alpha", juce::dontSendNotification);
+    standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
+    standaloneWorkflowGuide.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     standaloneWorkflowGuide.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (standaloneWorkflowGuide);
 
-    tempoLabel.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2));
+    tempoLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     tempoLabel.setJustificationType (juce::Justification::centredRight);
+    tempoLabel.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     addAndMakeVisible (tempoLabel);
 
-    pluginHostStatus.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.82f));
-    pluginHostStatus.setFont (juce::FontOptions (11.0f));
+    pluginHostStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    pluginHostStatus.setFont (juce::FontOptions (10.5f));
     pluginHostStatus.setJustificationType (juce::Justification::centredLeft);
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     addAndMakeVisible (pluginHostStatus);
@@ -973,8 +974,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (clearChainButton);
     setupComboBox (pluginChainSelector);
     setupComboBox (pluginSelector);
-    pluginHostMessage.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.88f));
-    pluginHostMessage.setFont (juce::FontOptions (11.0f));
+    pluginHostMessage.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    pluginHostMessage.setFont (juce::FontOptions (10.5f));
     pluginHostMessage.setJustificationType (juce::Justification::centredLeft);
     pluginHostMessage.setText ("FX host cache: " + processorRef.getPluginHostCacheFile().getFileName(), juce::dontSendNotification);
     addAndMakeVisible (scanPluginsButton);
@@ -984,7 +985,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (pluginHostMessage);
 
     masterKeyLabel.setText ("MASTER KEY", juce::dontSendNotification);
-    masterKeyLabel.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2).withAlpha (0.85f));
+    masterKeyLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     masterKeyLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     masterKeyLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (masterKeyLabel);
@@ -1039,6 +1040,26 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         addAndMakeVisible (*deckWaves[(size_t) i]);
 
         setupDeck (deckControls[(size_t) i], deckPrefix (i), juce::String::charToString ((juce_wchar) ('A' + i)) + " Play");
+        {
+            const auto accent = deckAccent (i);
+            auto& dc = deckControls[(size_t) i];
+            for (auto* knob : { &dc.low, &dc.mid, &dc.high, &dc.filter })
+            {
+                knob->setColour (juce::Slider::rotarySliderFillColourId, accent);
+                knob->setColour (juce::Slider::trackColourId, accent);
+            }
+            for (auto& sg : dc.stemGains)
+            {
+                sg.setColour (juce::Slider::rotarySliderFillColourId, accent);
+                sg.setColour (juce::Slider::trackColourId, accent);
+            }
+            for (auto* fader : { &dc.volume, &dc.fader, &dc.pitch })
+                fader->setColour (juce::Slider::trackColourId, accent);
+            dc.play   .setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
+            dc.cue    .setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
+            dc.liveKey.setColour (juce::ToggleButton::tickColourId, accent);
+            dc.keyLock.setColour (juce::ToggleButton::tickColourId, accent);
+        }
         deckControls[(size_t) i].load.onClick = [this, i] { openDeckChooser (i); };
         deckControls[(size_t) i].loadStem.onClick = [this, i]
         {
@@ -1105,7 +1126,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                                   juce::dontSendNotification);
         }
     };
-    recordStatus.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+    recordStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    recordStatus.setFont (juce::FontOptions (10.5f, juce::Font::bold));
     recordStatus.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (recordStatus);
     arrangementView.initialise (thumbnailFormatManager, thumbnailCache);
@@ -1181,38 +1203,46 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
 
 void MainPluginEditor::setupButton (juce::Button& button)
 {
+    using namespace sattari::brand;
     button.setWantsKeyboardFocus (false);
-    button.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff121621));
-    button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff0f5664));
-    button.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.9f));
-    button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    button.setColour (juce::TextButton::buttonColourId,    juce::Colour (kPanelRaised));
+    button.setColour (juce::TextButton::buttonOnColourId,  juce::Colour (kAccent).withAlpha (0.35f).withBrightness (0.55f));
+    button.setColour (juce::TextButton::textColourOffId,   juce::Colour (kTextPrimary).withAlpha (0.9f));
+    button.setColour (juce::TextButton::textColourOnId,    juce::Colour (kTextPrimary));
+    button.setColour (juce::ToggleButton::textColourId,    juce::Colour (kTextPrimary).withAlpha (0.9f));
+    button.setColour (juce::ToggleButton::tickColourId,    juce::Colour (kAccent));
+    button.setColour (juce::ToggleButton::tickDisabledColourId, juce::Colour (kHairline));
 }
 
 void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juce::String& suffix)
 {
+    using namespace sattari::brand;
     slider.setWantsKeyboardFocus (false);
     slider.setSliderStyle (rotary ? juce::Slider::RotaryHorizontalVerticalDrag : juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
     slider.setTextValueSuffix (suffix);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff67f6d2));
-    slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::white.withAlpha (0.12f));
-    slider.setColour (juce::Slider::trackColourId, juce::Colour (0xff67f6d2));
-    slider.setColour (juce::Slider::backgroundColourId, juce::Colours::white.withAlpha (0.08f));
-    slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-    slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
-    slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    slider.setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (kAccent));
+    slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (kHairline));
+    slider.setColour (juce::Slider::trackColourId,               juce::Colour (kAccent));
+    slider.setColour (juce::Slider::backgroundColourId,          juce::Colour (kPanelDeep));
+    slider.setColour (juce::Slider::thumbColourId,               juce::Colour (kTextPrimary));
+    slider.setColour (juce::Slider::textBoxTextColourId,         juce::Colour (kTextPrimary));
+    slider.setColour (juce::Slider::textBoxOutlineColourId,      juce::Colours::transparentBlack);
     addAndMakeVisible (slider);
 }
 
 void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
 {
+    using namespace sattari::brand;
     comboBox.setWantsKeyboardFocus (false);
-    comboBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff10141f));
-    comboBox.setColour (juce::ComboBox::textColourId, juce::Colours::white.withAlpha (0.9f));
-    comboBox.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff67f6d2).withAlpha (0.35f));
-    comboBox.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff67f6d2));
-    comboBox.setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff101522));
-    comboBox.setColour (juce::PopupMenu::textColourId, juce::Colours::white);
+    comboBox.setColour (juce::ComboBox::backgroundColourId,    juce::Colour (kPanelRaised));
+    comboBox.setColour (juce::ComboBox::textColourId,          juce::Colour (kTextPrimary).withAlpha (0.92f));
+    comboBox.setColour (juce::ComboBox::outlineColourId,       juce::Colour (kHairline));
+    comboBox.setColour (juce::ComboBox::arrowColourId,         juce::Colour (kAccent));
+    comboBox.setColour (juce::PopupMenu::backgroundColourId,   juce::Colour (kPanelDeep));
+    comboBox.setColour (juce::PopupMenu::textColourId,         juce::Colour (kTextPrimary));
+    comboBox.setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (kAccent).withAlpha (0.20f));
+    comboBox.setColour (juce::PopupMenu::highlightedTextColourId,       juce::Colour (kTextPrimary));
     addAndMakeVisible (comboBox);
 }
 
@@ -1248,13 +1278,13 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     setupButton (controls.keyLock);
     controls.liveKey.setButtonText ("LiveKey");
     setupButton (controls.liveKey);
-    controls.keyInfo.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.9f));
+    controls.keyInfo.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     controls.keyInfo.setJustificationType (juce::Justification::centredLeft);
-    controls.keyInfo.setFont (juce::FontOptions (11.0f));
+    controls.keyInfo.setFont (juce::FontOptions (10.0f));
     addAndMakeVisible (controls.keyInfo);
-    controls.stemStatus.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2).withAlpha (0.92f));
+    controls.stemStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     controls.stemStatus.setJustificationType (juce::Justification::centredLeft);
-    controls.stemStatus.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    controls.stemStatus.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     controls.stemStatus.setText ("AI stems: load a full mix", juce::dontSendNotification);
     addAndMakeVisible (controls.stemStatus);
     setupSlider (controls.bpm, false, " BPM");
@@ -1316,7 +1346,7 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
         auto& slider = controls.stemGains[(size_t) lane];
         setupSlider (slider, true, " dB");
         slider.setRange (-60.0, 12.0);
-        slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff67f6d2));
+        // Stem-knob fill tracks the deck's brand accent so each deck reads as a colour.
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         slider.setName (DeckPlayer::stemLaneLabel (lane));
         slider.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain");
@@ -1805,10 +1835,10 @@ void MainPluginEditor::setupFileBrowser()
 
     fileBrowser = std::make_unique<juce::FileTreeComponent> (browserContents);
     fileBrowser->addListener (this);
-    fileBrowser->setColour (juce::TreeView::backgroundColourId, juce::Colour (0xff10141f));
-    fileBrowser->setColour (juce::TreeView::linesColourId, juce::Colours::white.withAlpha (0.18f));
-    fileBrowser->setColour (juce::DirectoryContentsDisplayComponent::highlightColourId, juce::Colour (0xff0f5664));
-    fileBrowser->setColour (juce::DirectoryContentsDisplayComponent::textColourId, juce::Colours::white.withAlpha (0.92f));
+    fileBrowser->setColour (juce::TreeView::backgroundColourId, juce::Colour (sattari::brand::kPanelDeep));
+    fileBrowser->setColour (juce::TreeView::linesColourId, juce::Colour (sattari::brand::kHairline));
+    fileBrowser->setColour (juce::DirectoryContentsDisplayComponent::highlightColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.30f));
+    fileBrowser->setColour (juce::DirectoryContentsDisplayComponent::textColourId, juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.92f));
     addChildComponent (*fileBrowser);
 
     browserNavigateTo (juce::File::getSpecialLocation (juce::File::userMusicDirectory));
@@ -1907,7 +1937,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
 
-    g.setColour (juce::Colours::white.withAlpha (0.075f));
+    g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.6f));
     g.drawHorizontalLine (title.getBounds().getBottom() + 7, 22.0f, (float) getWidth() - 22.0f);
 
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
@@ -1995,16 +2025,17 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
     if (! crossfader.getBounds().isEmpty())
     {
-        drawPanel (g, mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8), juce::Colour (0xff67f6d2), 14.0f);
+        drawPanel (g, mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8),
+                   juce::Colour (sattari::brand::kAccent), 10.0f);
     }
 
-    g.setColour (juce::Colours::white.withAlpha (0.68f));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-    g.drawText ("Crossfader groups: A/C  ↔  B/D", crossfader.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
-    g.drawText ("Master BPM", masterBpm.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
-    g.drawText ("Master", master.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
-    g.drawText ("Limit", limiter.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
-    g.drawText ("Mic gain", micGain.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
+    g.setColour (juce::Colour (sattari::brand::kTextMuted));
+    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    g.drawText ("CROSSFADER A/C \xe2\x86\x94 B/D", crossfader.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("MASTER BPM", masterBpm.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("MASTER",     master   .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("LIMIT",      limiter  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
+    g.drawText ("MIC GAIN",   micGain  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
 }
 
 void MainPluginEditor::resized()
