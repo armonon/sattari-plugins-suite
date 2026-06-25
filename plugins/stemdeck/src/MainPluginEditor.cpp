@@ -939,7 +939,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     subtitle.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (subtitle);
 
-    standaloneWorkflowGuide.setText ("STANDALONE \xe2\x80\xa2 Load mixes onto Decks A\xe2\x80\x93D \xe2\x80\xa2 AI Split via Demucs \xe2\x80\xa2 Mix stems / EQ / pads \xe2\x80\xa2 Record captures master + 4 deck WAVs + automation arrangement \xe2\x80\xa2 Internal alpha", juce::dontSendNotification);
+    standaloneWorkflowGuide.setText (
+        "STANDALONE \xe2\x80\xa2" " Load mixes onto Decks A\xe2\x80\x93" "D \xe2\x80\xa2"
+        " AI Split via Demucs \xe2\x80\xa2" " Mix stems / EQ / pads \xe2\x80\xa2"
+        " Record captures master + 4 deck WAVs + automation arrangement \xe2\x80\xa2" " Internal alpha",
+        juce::dontSendNotification);
     standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     standaloneWorkflowGuide.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     standaloneWorkflowGuide.setJustificationType (juce::Justification::centredLeft);
