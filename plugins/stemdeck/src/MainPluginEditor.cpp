@@ -2137,10 +2137,10 @@ void MainPluginEditor::resized()
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (22));
-    auto topMixer = area.removeFromTop (570);
+    auto topMixer = area.removeFromTop (600);
     topMixer = topMixer.reduced (0, 4);
 
-    auto decksArea = topMixer.removeFromTop (446);
+    auto decksArea = topMixer.removeFromTop (480);
     const int deckGap = 10;
     const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
@@ -2157,9 +2157,9 @@ void MainPluginEditor::resized()
         deckHeaderBounds[(size_t) deckIndex] = headerStrip;
         lane.removeFromTop (4);
 
-        // 2. Waveform.
+        // 2. Waveform — large djay-Pro-style display, full deck width.
         if (auto* wave = deckWaves[(size_t) deckIndex].get())
-            wave->setBounds (lane.removeFromTop (116));
+            wave->setBounds (lane.removeFromTop (170));
         lane.removeFromTop (8);
 
         // 3. Upper zone — left controls + right vertical-fader column (VOL/FADER/PITCH).
@@ -2223,13 +2223,14 @@ void MainPluginEditor::resized()
         controls.keyTarget         .setBounds (advancedRow);
         lane.removeFromTop (4);
 
-        // 6. Status labels.
-        controls.keyInfo   .setBounds (lane.removeFromTop (15));
-        controls.stemStatus.setBounds (lane.removeFromTop (15));
-        lane.removeFromTop (4);
+        // 6. Status labels — single tight row to claw back vertical space for the big waveform.
+        auto statusRow = lane.removeFromTop (14);
+        controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
+        controls.stemStatus.setBounds (statusRow);
+        lane.removeFromTop (3);
 
         // 7. Source / stem actions row (Load / AI Split / Stem load / stem-lane combo).
-        auto sourceRow = lane.removeFromTop (26);
+        auto sourceRow = lane.removeFromTop (22);
         controls.load     .setBounds (sourceRow.removeFromLeft (50));
         sourceRow.removeFromLeft (4);
         controls.aiStems  .setBounds (sourceRow.removeFromLeft (72));
