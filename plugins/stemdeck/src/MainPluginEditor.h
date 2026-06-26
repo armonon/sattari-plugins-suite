@@ -97,16 +97,22 @@ private:
 
         using DeckAutomation = std::vector<AutomationCurve>;
 
+        // A clip is a region [trimStartSeconds, trimEndSeconds] of its source file,
+        // shown in place on the timeline (timeline position == source region). A
+        // lane holds one or more clips; razor-splitting one produces two adjacent
+        // clips referencing the same file.
         struct LaneClip
         {
             juce::File file;
-            double durationSeconds = 0.0;
-            double trimStartSeconds = 0.0;
-            double trimEndSeconds = 0.0;
+            double durationSeconds = 0.0;    // full source-file duration
+            double trimStartSeconds = 0.0;   // region start (also timeline start)
+            double trimEndSeconds = 0.0;     // region end (also timeline end)
             double fadeInSeconds = 0.0;
             double fadeOutSeconds = 0.0;
             bool selected = false;
         };
+
+        using LaneClips = std::array<std::vector<LaneClip>, numEditableLanes>;
 
         ArrangementRecorderView();
         ~ArrangementRecorderView() override;
@@ -120,17 +126,24 @@ private:
         void setDeckAutomation (std::array<DeckAutomation, numLanes> automation);
         void clearArrangement();
         bool hasArrangement() const noexcept { return mode == Mode::Finished; }
-        const std::array<LaneClip, numEditableLanes>& getClips() const noexcept { return clips; }
+        const LaneClips& getClips() const noexcept { return clips; }
         int getSelectedLane() const noexcept { return selectedLane; }
         void updateClipAfterBounce (int laneIndex, const juce::File& newFile, double newDuration);
         void resetSelectedClipEdits();
         void resetClipEdits (int laneIndex);
         bool copyClip (int sourceLane, int destLane);
         void setSnap (bool enabled, double beatGrid, double bpm);
+        void setRazorMode (bool shouldSplit);
+        bool isRazorMode() const noexcept { return razorMode; }
+        void splitClipAt (int laneIndex, int clipIndex, double timeSeconds);
+        void deleteClip (int laneIndex, int clipIndex);
+        void deleteSelectedClip();
 
         // Undo / redo. Callers should snapshot via captureLaneState() before any edit,
         // then call commitEdit() after the edit completes to push it onto the stack.
-        struct LaneSnapshot { int lane = -1; LaneClip state; };
+        // A snapshot captures the whole lane (its full clip vector) so split / delete
+        // round-trip cleanly.
+        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; };
         LaneSnapshot captureLaneState (int laneIndex) const;
         void commitEdit (LaneSnapshot before);
         bool canUndo() const noexcept { return ! undoStack.empty(); }
@@ -164,14 +177,18 @@ private:
         std::array<std::unique_ptr<juce::AudioThumbnail>, numLanes> deckThumbs;
         juce::File masterFile;
         std::array<juce::File, numLanes> deckFiles {};
-        std::array<LaneClip, numEditableLanes> clips {};
+        LaneClips clips {};
         std::array<juce::Rectangle<int>, numEditableLanes> laneRects {};
         std::array<DeckAutomation, numLanes> deckAutomation;
         int selectedLane = -1;
+        int selectedClip = -1;
+        bool razorMode = false;
+        juce::Point<int> lastContextPos;
 
         enum class Handle { None, Body, TrimStart, TrimEnd, FadeIn, FadeOut };
-        struct HitTest { int lane = -1; Handle handle = Handle::None; };
+        struct HitTest { int lane = -1; int clip = -1; Handle handle = Handle::None; };
         HitTest hitTestAt (juce::Point<int> p) const;
+        double timeAtX (int laneIndex, int x) const;
         HitTest activeDrag;
         double dragStartValue = 0.0;
         juce::Point<int> dragStartPoint;
@@ -228,6 +245,7 @@ private:
     juce::TextButton reloadIntoDecksButton { "Reload to Decks" };
     juce::TextButton bounceEditsButton { "Bounce Edits" };
     juce::TextButton snapToggleButton { "Snap" };
+    juce::TextButton razorButton { "Razor" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     juce::Label masterKeyLabel;
