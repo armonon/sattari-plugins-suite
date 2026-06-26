@@ -35,12 +35,18 @@ private:
     juce::ToggleButton subOnly;
     juce::TextButton midiLearnButton { "MIDI Learn..." };
 
+    // Name captions for every control (knobs were previously unlabelled).
+    juce::Label modeLabel, tuningLabel, noteLabel;
+    juce::Label octaveLabel, amountLabel, dryLabel, richnessLabel, glideLabel,
+                saturationLabel, attackLabel, releaseLabel, limiterLabel;
+
     std::unique_ptr<ComboAttachment> modeAttach, tuningAttach, noteAttach;
     std::unique_ptr<SliderAttachment> octaveAttach, amountAttach, dryAttach, richnessAttach, glideAttach, saturationAttach, attackAttach, releaseAttach, limiterAttach;
     std::unique_ptr<ButtonAttachment> subOnlyAttach;
 
     void setupSlider (juce::Slider&, const juce::String& suffix = {});
     void setupCombo (juce::ComboBox&);
+    void styleCaption (juce::Label&, const juce::String& text);
     void applyPreset (int presetIndex);
     void setParameterValue (const juce::String& parameterID, float value);
 

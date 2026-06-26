@@ -73,6 +73,14 @@ private:
     FinishModule finishModule;
 
     double currentSampleRate = 44100.0;
+
+    // Cross-plugin "Sync Key from Auto Pitch" state. Per-instance (members, not
+    // function-local statics) so multiple Royal Chain instances don't share /
+    // corrupt each other's cached key.
+    juce::int64 lastBusReadMs = 0;
+    int  cachedBusRoot = 0, cachedBusScale = 0;
+    bool haveBusCache = false;
+
     std::atomic<float> inputMeter { 0.0f };
     std::atomic<float> outputMeter { 0.0f };
     std::atomic<float> tuneConfidence { 0.0f };

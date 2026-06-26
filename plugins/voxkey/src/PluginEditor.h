@@ -50,6 +50,11 @@ private:
     juce::TextButton savePresetButton { "Save Preset" };
 
     juce::Label title, subtitle, inputLabel, routingLabel, detectedLabel, outputLabel, confidenceLabel;
+    // Per-knob name captions (knobs were previously unnamed; the other Labels are
+    // section/status text, not control names).
+    juce::Label sensitivityLabel, smoothnessLabel, confidenceKnobLabel, octaveLabel,
+                holdLabel, releaseLabel, velocityLabel, bendRangeLabel;
+    juce::Label modeLabel, keyLabel, scaleLabel;
     juce::ComboBox mode, key, scale;
     juce::Slider sensitivity, smoothness, confidence, octave, hold, release, velocity, pitchBendRange;
     juce::ToggleButton pitchBend, glide, bypass, paraphonic;

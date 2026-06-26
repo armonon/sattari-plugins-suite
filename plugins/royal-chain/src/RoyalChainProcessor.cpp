@@ -105,26 +105,23 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // published, override tuneKey + tuneScaleIdx for this block onward.
     if (apvts.getRawParameterValue ("syncFromAutoPitch")->load() > 0.5f)
     {
-        static juce::int64 lastReadMs = 0;
-        static int cachedRoot = 0, cachedScale = 0;
-        static bool haveCache = false;
         const auto now = juce::Time::currentTimeMillis();
-        if (now - lastReadMs >= 500)
+        if (now - lastBusReadMs >= 500)
         {
-            lastReadMs = now;
+            lastBusReadMs = now;
             if (auto msg = sattari::xplugin::readPublishedKey())
             {
-                cachedRoot  = msg->root;
-                cachedScale = msg->scale;
-                haveCache = true;
+                cachedBusRoot  = msg->root;
+                cachedBusScale = msg->scale;
+                haveBusCache = true;
             }
         }
-        if (haveCache)
+        if (haveBusCache)
         {
-            tuneKey = cachedRoot;
+            tuneKey = cachedBusRoot;
             // Auto Pitch scaleIdx: 0=major, 1=minor, 2=chromatic.
             // Royal Chain tuneScale: 0=Chromatic, 1=Major, 2=Minor, etc.
-            switch (cachedScale)
+            switch (cachedBusScale)
             {
                 case 0: tuneScaleIdx = 1; break;   // major
                 case 1: tuneScaleIdx = 2; break;   // minor

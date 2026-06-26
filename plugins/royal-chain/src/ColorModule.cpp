@@ -4,6 +4,9 @@
 void ColorModule::prepare (double sampleRate)
 {
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+    // Pre-size ADAA state so process() never allocates on the audio thread.
+    // Royal Chain is stereo; the in-process guard stays as a safety net.
+    x1.assign (2, 0.0f);
     reset();
 }
 

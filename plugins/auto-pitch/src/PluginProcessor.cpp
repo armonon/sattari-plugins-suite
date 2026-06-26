@@ -576,11 +576,12 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 
 void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
 {
-    // Throttle to once a second so we never thrash the bus file.
+    // Throttle to once a second so we never thrash the bus file. Per-instance
+    // (member, not a function-local static) so multiple Auto Pitch instances do
+    // not share / corrupt each other's publish timing.
     const auto now = juce::Time::currentTimeMillis();
-    static juce::int64 lastPublishMs = 0;
-    if (now - lastPublishMs < 1000) return;
-    lastPublishMs = now;
+    if (now - lastBusPublishMs < 1000) return;
+    lastBusPublishMs = now;
 
     const int root  = currentCorrectionRootIndex();
     const int scale = juce::jlimit (0, 11,

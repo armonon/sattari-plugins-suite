@@ -186,6 +186,7 @@ private:
     // Sattari plugins follow tempo / react to onsets, not just the key.
     std::atomic<double>      hostBpmForBus { 0.0 };
     std::atomic<juce::int64> sessionTransientId { 0 };
+    juce::int64              lastBusPublishMs = 0;   // per-instance bus publish throttle
 
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just

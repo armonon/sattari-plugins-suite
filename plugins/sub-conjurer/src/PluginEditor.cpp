@@ -61,6 +61,20 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     setupSlider (release, " s");
     setupSlider (limiter);
 
+    // Name captions for every control.
+    styleCaption (modeLabel, "MODE");
+    styleCaption (tuningLabel, "TUNING");
+    styleCaption (noteLabel, "NOTE");
+    styleCaption (octaveLabel, "OCTAVE");
+    styleCaption (amountLabel, "AMOUNT");
+    styleCaption (dryLabel, "DRY");
+    styleCaption (richnessLabel, "RICHNESS");
+    styleCaption (glideLabel, "GLIDE");
+    styleCaption (saturationLabel, "SATURATION");
+    styleCaption (attackLabel, "ATTACK");
+    styleCaption (releaseLabel, "RELEASE");
+    styleCaption (limiterLabel, "LIMITER");
+
     subOnly.setButtonText ("Sub only output");
     subOnly.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (subOnly);
@@ -126,6 +140,15 @@ void SubConjurerAudioProcessorEditor::setupCombo (juce::ComboBox& c)
     c.setColour (juce::ComboBox::textColourId, juce::Colours::white);
     c.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff62f5c8));
     addAndMakeVisible (c);
+}
+
+void SubConjurerAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
+{
+    l.setText (text, juce::dontSendNotification);
+    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    l.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (l);
 }
 
 void SubConjurerAudioProcessorEditor::setParameterValue (const juce::String& parameterID, float value)
@@ -210,6 +233,14 @@ void SubConjurerAudioProcessorEditor::resized()
     abRow.setBounds (presetRow.removeFromLeft (94));
 
     area.removeFromTop (12);
+    // Caption strip above the combo row.
+    auto comboCaptions = area.removeFromTop (14);
+    modeLabel.setBounds (comboCaptions.removeFromLeft (125));
+    comboCaptions.removeFromLeft (10);
+    tuningLabel.setBounds (comboCaptions.removeFromLeft (125));
+    comboCaptions.removeFromLeft (10);
+    noteLabel.setBounds (comboCaptions.removeFromLeft (82));
+
     auto top = area.removeFromTop (44);
     mode.setBounds (top.removeFromLeft (125));
     top.removeFromLeft (10);
@@ -221,16 +252,23 @@ void SubConjurerAudioProcessorEditor::resized()
     top.removeFromLeft (8);
     midiLearnButton.setBounds (top.removeFromLeft (120));
 
-    area.removeFromTop (18);
-    auto row1 = area.removeFromTop (138);
+    area.removeFromTop (16);
+    // Knob row: each cell is a caption strip on top, knob below.
+    auto row1 = area.removeFromTop (154);
     const int kw = row1.getWidth() / 9;
-    octave.setBounds (row1.removeFromLeft (kw));
-    amount.setBounds (row1.removeFromLeft (kw));
-    dry.setBounds (row1.removeFromLeft (kw));
-    richness.setBounds (row1.removeFromLeft (kw));
-    glide.setBounds (row1.removeFromLeft (kw));
-    saturation.setBounds (row1.removeFromLeft (kw));
-    attack.setBounds (row1.removeFromLeft (kw));
-    release.setBounds (row1.removeFromLeft (kw));
-    limiter.setBounds (row1.removeFromLeft (kw));
+    auto placeKnob = [&row1, kw] (juce::Label& cap, juce::Slider& knob)
+    {
+        auto cell = row1.removeFromLeft (kw);
+        cap.setBounds (cell.removeFromTop (14));
+        knob.setBounds (cell);
+    };
+    placeKnob (octaveLabel, octave);
+    placeKnob (amountLabel, amount);
+    placeKnob (dryLabel, dry);
+    placeKnob (richnessLabel, richness);
+    placeKnob (glideLabel, glide);
+    placeKnob (saturationLabel, saturation);
+    placeKnob (attackLabel, attack);
+    placeKnob (releaseLabel, release);
+    placeKnob (limiterLabel, limiter);
 }

@@ -106,6 +106,24 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     setupLabel (detectedLabel, "Detected: --");
     setupLabel (outputLabel, "MIDI Out: --");
     setupLabel (confidenceLabel, "MIDI activity: idle");
+
+    // Per-knob + combo name captions (centred above each control).
+    using LabelCaption = std::pair<juce::Label*, const char*>;
+    for (const LabelCaption lt : { LabelCaption { &modeLabel, "MODE" },
+                                   LabelCaption { &keyLabel, "KEY" },
+                                   LabelCaption { &scaleLabel, "SCALE" },
+                                   LabelCaption { &sensitivityLabel, "SENSITIVITY" },
+                                   LabelCaption { &smoothnessLabel, "SMOOTHNESS" },
+                                   LabelCaption { &confidenceKnobLabel, "CONFIDENCE" },
+                                   LabelCaption { &octaveLabel, "OCTAVE" },
+                                   LabelCaption { &holdLabel, "HOLD" },
+                                   LabelCaption { &releaseLabel, "RELEASE" },
+                                   LabelCaption { &velocityLabel, "VELOCITY" },
+                                   LabelCaption { &bendRangeLabel, "BEND RANGE" } })
+    {
+        setupLabel (*lt.first, lt.second, 10.0f);
+        lt.first->setJustificationType (juce::Justification::centred);
+    }
     addAndMakeVisible (orb);
 
     auto& params = audioProcessor.parameters();
@@ -229,6 +247,12 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     auto right = area;
 
     inputLabel.setBounds (left.removeFromTop (24));
+    auto comboCaptions = left.removeFromTop (13);
+    modeLabel.setBounds (comboCaptions.removeFromLeft (160));
+    comboCaptions.removeFromLeft (8);
+    keyLabel.setBounds (comboCaptions.removeFromLeft (80));
+    comboCaptions.removeFromLeft (8);
+    scaleLabel.setBounds (comboCaptions.removeFromLeft (130));
     auto combos = left.removeFromTop (40);
     mode.setBounds (combos.removeFromLeft (160));
     combos.removeFromLeft (8);
@@ -236,15 +260,25 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     combos.removeFromLeft (8);
     scale.setBounds (combos.removeFromLeft (130));
 
-    left.removeFromTop (14);
-    auto row1 = left.removeFromTop (124);
+    left.removeFromTop (12);
+    auto cap1 = left.removeFromTop (13);
+    sensitivityLabel.setBounds (cap1.removeFromLeft (100));
+    smoothnessLabel.setBounds (cap1.removeFromLeft (100));
+    confidenceKnobLabel.setBounds (cap1.removeFromLeft (100));
+    octaveLabel.setBounds (cap1.removeFromLeft (100));
+    auto row1 = left.removeFromTop (118);
     sensitivity.setBounds (row1.removeFromLeft (100));
     smoothness.setBounds (row1.removeFromLeft (100));
     confidence.setBounds (row1.removeFromLeft (100));
     octave.setBounds (row1.removeFromLeft (100));
 
-    left.removeFromTop (12);
-    auto row2 = left.removeFromTop (124);
+    left.removeFromTop (10);
+    auto cap2 = left.removeFromTop (13);
+    holdLabel.setBounds (cap2.removeFromLeft (100));
+    releaseLabel.setBounds (cap2.removeFromLeft (100));
+    velocityLabel.setBounds (cap2.removeFromLeft (100));
+    bendRangeLabel.setBounds (cap2.removeFromLeft (100));
+    auto row2 = left.removeFromTop (118);
     hold.setBounds (row2.removeFromLeft (100));
     release.setBounds (row2.removeFromLeft (100));
     velocity.setBounds (row2.removeFromLeft (100));

@@ -29,6 +29,9 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, rateLabel, patternLabel, velocityLabel, performanceLabel, scaleLabel;
+    // Per-knob name captions (the knobs themselves were previously unnamed).
+    juce::Label octavesLabel, ratchetLabel, gateLabel, swingLabel,
+                fixedVelocityLabel, humanizeLabel, transposeLabel;
     juce::ComboBox preset, rate, pattern, velocityMode, scaleRoot, scale, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
     juce::Slider octaves, ratchet, gate, swing, fixedVelocity, humanize, transpose;

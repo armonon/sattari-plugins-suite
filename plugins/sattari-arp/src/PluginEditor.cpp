@@ -75,6 +75,18 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     setupLabel (performanceLabel, "Performance");
     setupLabel (scaleLabel, "Scale");
 
+    // Per-knob name captions (smaller than the section headers, centred).
+    for (auto* l : { &octavesLabel, &ratchetLabel, &gateLabel, &swingLabel,
+                     &fixedVelocityLabel, &humanizeLabel, &transposeLabel })
+        l->setJustificationType (juce::Justification::centred);
+    setupLabel (octavesLabel, "Octaves", 11.0f);
+    setupLabel (ratchetLabel, "Ratchet", 11.0f);
+    setupLabel (gateLabel, "Gate", 11.0f);
+    setupLabel (swingLabel, "Swing", 11.0f);
+    setupLabel (fixedVelocityLabel, "Fixed Vel", 11.0f);
+    setupLabel (humanizeLabel, "Humanize", 11.0f);
+    setupLabel (transposeLabel, "Transpose", 11.0f);
+
     auto& params = audioProcessor.parameters();
     rateAttach = std::make_unique<ComboAttachment> (params, "rate", rate);
     patternAttach = std::make_unique<ComboAttachment> (params, "pattern", pattern);
@@ -248,8 +260,18 @@ void SattariArpAudioProcessorEditor::resized()
     velocityLabel.setBounds (labelRow.removeFromLeft (210));
     performanceLabel.setBounds (labelRow);
 
-    auto row = area.removeFromTop (142);
     const int kw = 102;
+    // Per-knob caption strip directly above the knobs.
+    auto knobCaptions = area.removeFromTop (15);
+    octavesLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    ratchetLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    gateLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    swingLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    fixedVelocityLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    humanizeLabel.setBounds (knobCaptions.removeFromLeft (kw));
+    transposeLabel.setBounds (knobCaptions.removeFromLeft (kw));
+
+    auto row = area.removeFromTop (142);
     octaves.setBounds (row.removeFromLeft (kw));
     ratchet.setBounds (row.removeFromLeft (kw));
     gate.setBounds (row.removeFromLeft (kw));
