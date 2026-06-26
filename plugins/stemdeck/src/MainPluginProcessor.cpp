@@ -69,6 +69,37 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyIsMinor[(size_t) i].store (0, std::memory_order_relaxed);
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
     }
+    buildMidiTargets();
+}
+
+void MainPluginProcessor::buildMidiTargets()
+{
+    std::vector<MidiMappingManager::CcTarget> cc;
+    auto addCc = [&] (const juce::String& name, const juce::String& paramId)
+    {
+        cc.push_back ({ name, apvts.getParameter (paramId) });
+    };
+
+    addCc ("Crossfader",    "crossfader");
+    addCc ("Master BPM",    "masterBpm");
+    addCc ("Master Volume", "master");
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto label = deckLabel (i);
+        addCc (label + " Volume", deckPrefix (i) + "Volume");
+        addCc (label + " Filter", deckPrefix (i) + "Filter");
+        addCc (label + " Low",    deckPrefix (i) + "Low");
+        addCc (label + " High",   deckPrefix (i) + "High");
+    }
+
+    std::vector<MidiMappingManager::NoteTarget> notes;
+    for (int i = 0; i < numDecks; ++i)
+    {
+        notes.push_back ({ deckLabel (i) + " Play", i, MidiMappingManager::ActionPlay });
+        notes.push_back ({ deckLabel (i) + " Cue",  i, MidiMappingManager::ActionCue  });
+    }
+
+    midiMapping.setTargets (std::move (cc), std::move (notes));
 }
 
 MainPluginProcessor::~MainPluginProcessor()
@@ -212,8 +243,30 @@ bool MainPluginProcessor::getBoolParam (const juce::String& id) const
 
 void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    juce::ignoreUnused (midi);
     juce::ScopedNoDenormals noDenormals;
+
+    // ── Hardware MIDI controller mapping ──────────────────────────────────────
+    // CC messages are applied to mapped parameters inside processBlock();
+    // note triggers are returned for us to dispatch as deck actions.
+    {
+        const int nTriggers = midiMapping.processBlock (midi);
+        for (int t = 0; t < nTriggers; ++t)
+        {
+            const auto tr = midiMapping.triggered (t);
+            if (! juce::isPositiveAndBelow (tr.deck, numDecks)) continue;
+
+            if (tr.action == MidiMappingManager::ActionPlay)
+            {
+                if (auto* p = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (deckPrefix (tr.deck) + "Play")))
+                    p->setValueNotifyingHost (p->get() ? 0.0f : 1.0f);
+            }
+            else if (tr.action == MidiMappingManager::ActionCue)
+            {
+                decks[(size_t) tr.deck].seekToSamples (0.0);   // RT-safe queued seek
+            }
+        }
+    }
+
     juce::AudioBuffer<float> micInput;
     const bool isCapturingPerformance = masterRecorder.isRecording();
     if ((getBoolParam ("micMonitor") || isCapturingPerformance) && getTotalNumInputChannels() > 0)
@@ -1119,6 +1172,7 @@ void MainPluginProcessor::restoreFileAssignmentsFromState()
 void MainPluginProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    state.setProperty ("midiMap", midiMapping.serialize(), nullptr);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -1130,6 +1184,7 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
     {
         apvts.replaceState (juce::ValueTree::fromXml (*xml));
         restoreFileAssignmentsFromState();
+        midiMapping.deserialize (apvts.state.getProperty ("midiMap").toString());
     }
 }
 

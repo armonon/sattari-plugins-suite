@@ -16,6 +16,7 @@ sattari_add_plugin(
     PLUGIN_CODE Sd01
     FORMATS VST3 Standalone
     IS_SYNTH
+    NEEDS_MIDI_INPUT
     EDITOR_WANTS_KEYBOARD_FOCUS
     SOURCES
         src/ArrangementBuilder.cpp

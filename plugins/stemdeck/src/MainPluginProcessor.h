@@ -5,6 +5,7 @@
 #include "DeckPlayer.h"
 #include "HostGraph.h"
 #include "MasterRecorder.h"
+#include "MidiMappingManager.h"
 #include "PadBank.h"
 #include "PerformanceRecorder.h"
 #include "StemProvider.h"
@@ -29,7 +30,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -120,6 +121,9 @@ public:
     // True when no offline stems are loaded and real-time separation is active.
     bool isDeckRtssActive (int deckIndex) const;
     void setDeckRtssSensitivity (int deckIndex, float sensitivity);   // 0..1
+
+    // Hardware MIDI controller mapping (learn + apply).
+    MidiMappingManager& getMidiMapping() noexcept { return midiMapping; }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -221,6 +225,8 @@ private:
     std::array<juce::AudioBuffer<float>, numDecks> rtssVocalsBuffers;
 
     std::vector<juce::int64> tapTimes;   // millisecond timestamps of recent taps
+    MidiMappingManager midiMapping;
+    void buildMidiTargets();
 
     std::array<DeckPlayer, numDecks> decks;
     PadBank padBank;

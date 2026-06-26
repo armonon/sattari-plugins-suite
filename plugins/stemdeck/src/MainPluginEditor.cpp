@@ -1148,6 +1148,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
     libraryMetaLabel.setFont (juce::FontOptions (10.0f));
     libraryMetaLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    libraryMetaLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (libraryMetaLabel);
 
     addAndMakeVisible (mixerPanel);
@@ -2440,7 +2441,11 @@ void MainPluginEditor::resized()
     recordStatus.setBounds (mixControls.withTrimmedTop (20).withHeight (32));
 
     area.removeFromTop (8);
-    arrangementLabel.setBounds (area.removeFromTop (22));
+    {
+        auto labelRow = area.removeFromTop (22);
+        arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
+        libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
+    }
     auto bottom = area;
     auto samplerStrip = bottom.removeFromRight (270);
     bottom.removeFromRight (14);
@@ -2461,6 +2466,22 @@ void MainPluginEditor::resized()
 
 void MainPluginEditor::timerCallback()
 {
+    // MIDI learn feedback — reflect bindings as they happen.
+    {
+        auto& midi = processorRef.getMidiMapping();
+        if (auto res = midi.pollLearnResult(); res.valid)
+        {
+            const auto name = res.isCc ? midi.ccName (res.targetIdx) : midi.noteName (res.targetIdx);
+            libraryMetaLabel.setText ((res.isCc ? "Mapped CC " : "Mapped Note ")
+                                      + juce::String (res.controller) + "  \xe2\x86\x92  " + name,
+                                      juce::dontSendNotification);
+        }
+        midiLearnButton.setButtonText (midi.isLearning() ? "LEARN\xe2\x80\xa6" : "MIDI");
+        midiLearnButton.setColour (juce::TextButton::buttonColourId,
+                                   midi.isLearning() ? juce::Colour (sattari::brand::kAccent).withAlpha (0.55f)
+                                                     : juce::Colour (sattari::brand::kPanelRaised));
+    }
+
     processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();
     tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? "  \xe2\x96\xb6" : "  \xe2\x97\xbc"),
@@ -2741,25 +2762,75 @@ void MainPluginEditor::showLibraryMeta (const juce::File& file)
                                juce::dontSendNotification);
 }
 
-// ── MIDI learn placeholder ────────────────────────────────────────────────────
+// ── MIDI learn — real controller mapping ───────────────────────────────────────
 
 void MainPluginEditor::updateMidiLearnUI()
 {
-    juce::AlertWindow::showMessageBoxAsync (
-        juce::AlertWindow::InfoIcon,
-        "MIDI Mapping",
-        "MIDI learn: right-click any knob or fader and choose \"MIDI Learn\" to map a controller.\n\n"
-        "Common Pioneer CDJ defaults:\n"
-        "  CC 2  = Crossfader\n"
-        "  CC 3  = Master BPM\n"
-        "  CC 14 = Deck A volume\n"
-        "  CC 15 = Deck B volume\n"
-        "  CC 16 = Deck C volume\n"
-        "  CC 17 = Deck D volume\n"
-        "  Note 36 = Deck A play/pause\n"
-        "  Note 37 = Deck B play/pause\n"
-        "  Note 38 = Deck C play/pause\n"
-        "  Note 39 = Deck D play/pause",
-        "OK",
-        this);
+    auto& midi = processorRef.getMidiMapping();
+
+    // If a learn is already in progress, a second click cancels it.
+    if (midi.isLearning())
+    {
+        midi.cancelLearn();
+        libraryMetaLabel.setText ("MIDI learn cancelled", juce::dontSendNotification);
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("MIDI Learn  (enable controller in \xe2\x9a\x99 Options first)");
+
+    constexpr int kCcBase   = 1;
+    constexpr int kNoteBase = 1000;
+    constexpr int kClearAll = 9999;
+
+    juce::PopupMenu cont;
+    for (int i = 0; i < midi.numCc(); ++i)
+    {
+        const int cc = midi.ccForTarget (i);
+        cont.addItem (kCcBase + i,
+                      midi.ccName (i) + (cc >= 0 ? "   [CC " + juce::String (cc) + "]" : "   [\xe2\x80\x94]"));
+    }
+    menu.addSubMenu ("Continuous  (move a knob / fader)", cont);
+
+    juce::PopupMenu trig;
+    for (int i = 0; i < midi.numNote(); ++i)
+    {
+        const int n = midi.noteForTarget (i);
+        trig.addItem (kNoteBase + i,
+                      midi.noteName (i) + (n >= 0 ? "   [Note " + juce::String (n) + "]" : "   [\xe2\x80\x94]"));
+    }
+    menu.addSubMenu ("Triggers  (press a pad / button)", trig);
+
+    menu.addSeparator();
+    menu.addItem (kClearAll, "Clear all MIDI mappings");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (midiLearnButton),
+        [this, kCcBase, kNoteBase, kClearAll] (int result)
+        {
+            if (result <= 0) return;
+            auto& m = processorRef.getMidiMapping();
+
+            if (result == kClearAll)
+            {
+                m.clearAll();
+                libraryMetaLabel.setText ("All MIDI mappings cleared", juce::dontSendNotification);
+                return;
+            }
+
+            if (result >= kNoteBase)
+            {
+                const int idx = result - kNoteBase;
+                m.beginLearnNote (idx);
+                libraryMetaLabel.setText ("MIDI learn: press a pad for \"" + m.noteName (idx) + "\"\xe2\x80\xa6",
+                                          juce::dontSendNotification);
+            }
+            else
+            {
+                const int idx = result - kCcBase;
+                m.beginLearnCc (idx);
+                libraryMetaLabel.setText ("MIDI learn: move a control for \"" + m.ccName (idx) + "\"\xe2\x80\xa6",
+                                          juce::dontSendNotification);
+            }
+            midiLearnButton.setButtonText ("LEARN\xe2\x80\xa6");
+        });
 }
