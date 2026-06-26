@@ -316,6 +316,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (enableCorrection);
     proPanel.addAndMakeVisible (doNoHarm);
     proPanel.addAndMakeVisible (formantPreserve);
+    proPanel.addAndMakeVisible (polyphonic);
     styleKnob (inputGain);
     styleKnob (outputGain);
     styleKnob (formantShift);
@@ -394,6 +395,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     enableCorrectionAttach = std::make_unique<ButtonAttachment> (params, "enableCorrection", enableCorrection);
     doNoHarmAttach         = std::make_unique<ButtonAttachment> (params, "doNoHarm", doNoHarm);
     formantPreserveAttach  = std::make_unique<ButtonAttachment> (params, "formantPreserve", formantPreserve);
+    polyphonicAttach       = std::make_unique<ButtonAttachment> (params, "polyphonic", polyphonic);
 
     showTab (0);
     startTimerHz (15);
@@ -640,6 +642,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     doNoHarm.setBounds (pLeft.removeFromTop (28));
     pLeft.removeFromTop (4);
     formantPreserve.setBounds (pLeft.removeFromTop (28));
+    pLeft.removeFromTop (4);
+    polyphonic.setBounds (pLeft.removeFromTop (28));
     pLeft.removeFromTop (16);
 
     auto knobsRow = pLeft.removeFromTop (140);

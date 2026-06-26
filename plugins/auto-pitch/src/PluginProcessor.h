@@ -188,6 +188,16 @@ private:
     bool sidechainSeenAudio = false;                      // true when SC bus delivered non-silence
     std::vector<float> scMonoScratch;                     // per-block mono sum of sidechain, no allocation in process
 
+    // --- Polyphonic (alpha) HPS detector on the main input -------------------
+    // Reuses chromaFft for FFT but its own ring + a separate accumulator so the
+    // sidechain-chroma path stays independent.
+    std::vector<float> polyRing;
+    int polyWritePos = 0, polySamplesSinceFft = 0;
+    double polyAveragePitchScale = 1.0;        // smoothed weighted-mean correction
+    std::array<int, 3> polyLastNotes { -1, -1, -1 };
+    void   polyPushBlock (const float* mono, int n);
+    double polyAnalyseAndComputeScale();       // returns target pitch scale, or 1.0 if no correction
+
     // Track Key Map state. The vector is built on a background thread, then
     // swapped under `keyMapLock`. The audio thread reads with a try-lock and
     // skips lookup if the writer holds it (the writer's hold is microseconds).

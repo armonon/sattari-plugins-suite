@@ -136,7 +136,8 @@ private:
 
     // --- Pro tab widgets -----------------------------------------------------
     juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
-                       formantPreserve  { "Formant Preserve" };
+                       formantPreserve  { "Formant Preserve" },
+                       polyphonic       { "Polyphonic (alpha)" };
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
     juce::TextButton loadTraceButton { "Load trace JSON" };
@@ -159,7 +160,8 @@ private:
     std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, humanizeAttach,
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
     std::unique_ptr<ButtonAttachment> autoKeyAttach, lowLatencyAttach,
-                                       enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach;
+                                       enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
+                                       polyphonicAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };
