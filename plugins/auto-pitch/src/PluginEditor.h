@@ -140,6 +140,11 @@ private:
                        polyphonic       { "Polyphonic (alpha)" };
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
+
+    // --- Antares-class behaviour controls (Pro tab) --------------------------
+    juce::ToggleButton classicMode { "Classic Mode" };
+    juce::Slider flexAmt, transition, throat;
+    juce::Label flexAmtCaption, transitionCaption, throatCaption;
     juce::TextButton loadTraceButton { "Load trace JSON" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::Label traceStatus, keyDetectionStatus;
@@ -161,7 +166,8 @@ private:
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
     std::unique_ptr<ButtonAttachment> autoKeyAttach, lowLatencyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
-                                       polyphonicAttach;
+                                       polyphonicAttach, classicModeAttach;
+    std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };

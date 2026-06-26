@@ -148,6 +148,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             "Instrument: Bass", "Instrument: Mid", "Instrument: High"
         }, 4));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
+
+    // --- Antares-class behavioural controls ----------------------------------
+    // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
+    // audible DSP, documented honestly:
+
+    // Classic Mode: the hard "Auto-Tune 5 / T-Pain" character. When ON, correction
+    // is always-on at full strength, retune is near-instant, and Flex/Do-No-Harm
+    // expressive gating is bypassed. This is the deliberate robotic snap, not a
+    // transparent correction. (We don't ship Antares' actual A5 resampler; this
+    // reproduces its behavioural signature: zero-transition hard pull.)
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("classicMode", "Classic Mode", false));
+
+    // Flex-Tune: correction only engages as the voice clearly heads toward a
+    // target. Inside a "flex zone" around each note centre, expressive pitch
+    // (scoops, vibrato, slides) passes through untouched; only clearly-off pitch
+    // gets pulled. 0 = always correct (rigid). 1 = very permissive. This is our
+    // analogue of Antares Flex-Tune / Graillon's "smooth".
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("flexTune", "Flex-Tune",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+
+    // Transition: note-onset retune modeling. Right after a note change the
+    // engine retunes fast to catch the new note; while sustaining it relaxes so
+    // vibrato and natural drift survive. This is the single biggest contributor
+    // to "natural vs robotic" feel. 0 = uniform speed (old behaviour). 1 = strong
+    // onset snap + slow sustain.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("transition", "Transition",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.5f));
+
+    // Throat: vocal-tract-length modeling. Independent of pitch, this scales the
+    // formant envelope to make the voice sound like it comes from a longer
+    // (darker, bigger) or shorter (brighter, smaller) throat — Antares'
+    // "Throat Length" analogue, driven through Rubber Band's formant scale.
+    // 1.0 = natural. <1 = shorter/brighter, >1 = longer/darker.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("throat", "Throat",
+        juce::NormalisableRange<float> (0.5f, 2.0f, 0.01f), 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("useKeyMap", "Use Key Map", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize", "Humanize",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
@@ -211,23 +246,38 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
+
+    // Low Latency mode: trade a little pitch-shift fidelity for a noticeably
+    // shorter window so the plugin is usable while tracking/monitoring. The
+    // standard path uses the high-quality (longer) window for the best printed
+    // sound. Either way we report Rubber Band's real start delay to the host so
+    // delay-compensation keeps the project phase-tight.
+    const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
+                        && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+
+    auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
+              | RubberBand::RubberBandStretcher::OptionTransientsMixed
+              | RubberBand::RubberBandStretcher::OptionDetectorSoft
+              | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
+                        : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
+
     for (int channel = 0; channel < numChannels; ++channel)
     {
         auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
-            currentSampleRate,
-            1,
-            RubberBand::RubberBandStretcher::OptionProcessRealTime
-                | RubberBand::RubberBandStretcher::OptionPitchHighQuality
-                | RubberBand::RubberBandStretcher::OptionTransientsMixed
-                | RubberBand::RubberBandStretcher::OptionDetectorSoft,
-            1.0,
-            1.0);
+            currentSampleRate, 1, opts, 1.0, 1.0);
         stretcher->setMaxProcessSize ((size_t) preparedBlockSize);
         stretcher->setPitchScale (1.0);
         rubberBand.push_back (std::move (stretcher));
     }
     rubberBandOutput.setSize (numChannels, preparedBlockSize);
     rubberBandScratch.resize ((size_t) preparedBlockSize, 0.0f);
+
+    // Report latency so the host delay-compensates. getStartDelay() is the
+    // Rubber Band pipeline latency at unity pitch.
+    reportedLatencySamples = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
+    setLatencySamples (reportedLatencySamples);
+#else
+    reportedLatencySamples = 0;
 #endif
 }
 
@@ -258,6 +308,9 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     smoothedPitchScale = 1.0;
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
+    lastTargetMidiForTransition = -1000;
+    transitionBoost = 0.0;
+    flexEngageState = 0.0;
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -944,10 +997,42 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
     if (! frame.voiced || apvts.getRawParameterValue ("enableCorrection")->load() < 0.5f)
         return 1.0;
 
-    if (apvts.getRawParameterValue ("doNoHarm")->load() > 0.5f && (frame.confidence < minConfidence || frame.rms < silenceRms))
+    const bool classic = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
+
+    // Do No Harm gating is bypassed in Classic Mode (the hard sound corrects
+    // everything, including low-confidence frames - that grit is the point).
+    if (! classic
+        && apvts.getRawParameterValue ("doNoHarm")->load() > 0.5f
+        && (frame.confidence < minConfidence || frame.rms < silenceRms))
         return 1.0;
 
-    const double limitedCents = juce::jlimit (-700.0, 700.0, frame.correctionCents * (double) styleCorrectionStrength());
+    double strength = (double) styleCorrectionStrength();
+
+    if (classic)
+    {
+        // Always-on hard pull. Strength clamped high so even in-tune notes get
+        // snapped to centre - the Auto-Tune 5 behavioural signature.
+        strength = 1.0;
+    }
+    else
+    {
+        // Flex-Tune: inside a cents "flex zone" around the target, expressive
+        // pitch passes through (strength scales down toward the centre); outside
+        // it, full correction. Quadratic so the release feels natural, not gated.
+        const double flex = (double) apvts.getRawParameterValue ("flexTune")->load();
+        if (flex > 0.0001)
+        {
+            const double errCents = std::abs (frame.correctionCents);
+            const double zone     = flex * 45.0;        // up to ±45 cents of freedom
+            if (errCents < zone)
+            {
+                const double t = errCents / zone;        // 0 at perfect, 1 at zone edge
+                strength *= t * t;                       // soft engage
+            }
+        }
+    }
+
+    const double limitedCents = juce::jlimit (-700.0, 700.0, frame.correctionCents * strength);
     return std::pow (2.0, limitedCents / 1200.0);
 }
 
@@ -1048,7 +1133,40 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // override; pitchScaleForFrame stays untouched for v1 (monophonic) path.
     const double targetPitchScale = polyOn ? polyAnalyseAndComputeScale()
                                             : pitchScaleForFrame (lastPitchFrame);
-    const double retune = (double) styleRetuneCoefficient();
+
+    // --- Note-transition retune modeling -------------------------------------
+    // Detect a target-note change. On a change, spike transitionBoost so the
+    // engine retunes FAST to catch the new note, then decay so the sustain
+    // retune is SLOW (letting vibrato / natural drift survive). This per-note
+    // speed shaping is the core of a natural Auto-Tune "feel".
+    const bool classicMode = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
+    const double transition = (double) apvts.getRawParameterValue ("transition")->load();
+
+    if (lastPitchFrame.voiced)
+    {
+        const int tgt = (int) std::llround (lastPitchFrame.targetMidi);
+        if (tgt != lastTargetMidiForTransition)
+        {
+            transitionBoost = 1.0;                 // fresh note: snap fast
+            lastTargetMidiForTransition = tgt;
+        }
+    }
+    // Decay the boost once per block (~time constant 60 ms).
+    {
+        const double blockTime = (double) numSamples / currentSampleRate;
+        transitionBoost *= std::exp (-blockTime / 0.060);
+    }
+
+    // Sustain retune from the Style/Speed control; onset retune is much faster.
+    const double sustainRetune = (double) styleRetuneCoefficient();
+    const double onsetRetune   = juce::jlimit (0.0, 1.0, sustainRetune + 0.55);
+    // Blend by the boost, scaled by the Transition amount. Classic Mode forces
+    // near-instant retune regardless (the hard snap).
+    double retune = classicMode
+        ? 0.95
+        : sustainRetune + transition * transitionBoost * (onsetRetune - sustainRetune);
+    retune = juce::jlimit (0.01, 0.98, retune);
+
     smoothedPitchScale += (targetPitchScale - smoothedPitchScale) * retune;
     smoothedPitchScale = juce::jlimit (0.5, 2.0, smoothedPitchScale);
 
@@ -1104,10 +1222,16 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     // vocal-tract resonances for a throat/gender effect (semitones -> scale).
     const bool formantPreserve = apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
     const float formantShiftSemis = apvts.getRawParameterValue ("formantShift")->load();
-    // 0.0 tells Rubber Band to auto-preserve (default); a non-zero shift sets an
-    // explicit formant scale for a deliberate throat/gender move.
-    const double formantScale = (formantShiftSemis == 0.0f)
-                                  ? 0.0 : std::pow (2.0, (double) formantShiftSemis / 12.0);
+    // Throat: vocal-tract-length ratio (1.0 = natural). Combines multiplicatively
+    // with the semitone Formant Shift so both controls move the formant envelope
+    // together. A throat > 1 lengthens the tract (darker/bigger); < 1 shortens it.
+    const double throat = (double) apvts.getRawParameterValue ("throat")->load();
+    const double shiftRatio = std::pow (2.0, (double) formantShiftSemis / 12.0);
+    const double combinedFormant = throat * shiftRatio;
+    // 0.0 tells Rubber Band to auto-preserve (default). We send an explicit scale
+    // whenever Throat or Formant Shift departs from neutral.
+    const bool neutralFormant = (std::abs (combinedFormant - 1.0) < 1.0e-4);
+    const double formantScale = neutralFormant ? 0.0 : combinedFormant;
 
     for (int channel = 0; channel < numChannels; ++channel)
     {

@@ -332,6 +332,25 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (inputCaption);
     proPanel.addAndMakeVisible (outputCaption);
     proPanel.addAndMakeVisible (formantCaption);
+
+    // Antares-class behaviour controls.
+    proPanel.addAndMakeVisible (classicMode);
+    styleKnob (flexAmt);
+    styleKnob (transition);
+    styleKnob (throat);
+    flexAmt.textFromValueFunction    = [] (double v) { return v < 0.005 ? juce::String ("Rigid")
+                                                                        : juce::String (juce::roundToInt (v * 100.0)) + "%"; };
+    transition.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
+    throat.textFromValueFunction     = [] (double v) { return juce::String (v, 2) + "x"; };
+    styleCaption (flexAmtCaption, "FLEX-TUNE");
+    styleCaption (transitionCaption, "TRANSITION");
+    styleCaption (throatCaption, "THROAT");
+    proPanel.addAndMakeVisible (flexAmt);
+    proPanel.addAndMakeVisible (transition);
+    proPanel.addAndMakeVisible (throat);
+    proPanel.addAndMakeVisible (flexAmtCaption);
+    proPanel.addAndMakeVisible (transitionCaption);
+    proPanel.addAndMakeVisible (throatCaption);
     // loadTraceButton is a dev-only JSON trace import. Plumbing kept for the
     // contract test (loadTraceFromClipboard) but the button stays off-UI in
     // shipping builds - it's not a user feature.
@@ -396,6 +415,10 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     doNoHarmAttach         = std::make_unique<ButtonAttachment> (params, "doNoHarm", doNoHarm);
     formantPreserveAttach  = std::make_unique<ButtonAttachment> (params, "formantPreserve", formantPreserve);
     polyphonicAttach       = std::make_unique<ButtonAttachment> (params, "polyphonic", polyphonic);
+    classicModeAttach      = std::make_unique<ButtonAttachment> (params, "classicMode", classicMode);
+    flexAmtAttach          = std::make_unique<SliderAttachment> (params, "flexTune", flexAmt);
+    transitionAttach       = std::make_unique<SliderAttachment> (params, "transition", transition);
+    throatAttach           = std::make_unique<SliderAttachment> (params, "throat", throat);
 
     showTab (0);
     startTimerHz (15);
@@ -657,6 +680,22 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto fCell = knobsRow;
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
+
+    // Antares-class behaviour row: Classic Mode toggle + Flex / Transition / Throat.
+    pLeft.removeFromTop (10);
+    classicMode.setBounds (pLeft.removeFromTop (28));
+    pLeft.removeFromTop (6);
+    auto behaviourRow = pLeft.removeFromTop (140);
+    const int bKw = behaviourRow.getWidth() / 3;
+    auto flexAmtCell = behaviourRow.removeFromLeft (bKw);
+    flexAmtCaption.setBounds (flexAmtCell.removeFromTop (14));
+    flexAmt.setBounds (flexAmtCell);
+    auto transCell = behaviourRow.removeFromLeft (bKw);
+    transitionCaption.setBounds (transCell.removeFromTop (14));
+    transition.setBounds (transCell);
+    auto throatCell = behaviourRow;
+    throatCaption.setBounds (throatCell.removeFromTop (14));
+    throat.setBounds (throatCell);
 
     // Live status + key-detection (top half of right column).
     // loadTraceButton is intentionally not laid out - it's dev-only.

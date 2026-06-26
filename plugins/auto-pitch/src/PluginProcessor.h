@@ -167,6 +167,20 @@ private:
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
 
+    // --- Note-transition retune modeling (Antares-class "feel") --------------
+    // When the correction target jumps to a new note, transitionBoost spikes to
+    // 1.0 and decays exponentially. The applied retune coefficient is blended
+    // between the slow "sustain" speed and a fast "onset" speed by this boost,
+    // so the engine catches new notes quickly but lets vibrato through while a
+    // note is held. lastTargetMidiForTransition tracks the previous target.
+    int    lastTargetMidiForTransition = -1000;
+    double transitionBoost = 0.0;        // 1.0 right after a note onset, decays to 0
+    double flexEngageState = 0.0;        // smoothed Flex-Tune engagement [0,1]
+
+    // Reported processing latency (Rubber Band start delay). Recomputed in
+    // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.
+    int reportedLatencySamples = 0;
+
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
