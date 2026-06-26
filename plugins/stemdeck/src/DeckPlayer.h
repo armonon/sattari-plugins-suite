@@ -51,8 +51,17 @@ public:
     juce::String getPath() const;
     juce::String getStemPath (int laneIndex) const;
     void seekStart();
+    void seekToSamples (double referenceSamples);   // thread-safe — queued for next process()
     double getPlayheadReferenceSamples() const noexcept;
     TrackAnalysis analyzeFullMixAroundPlayhead (double windowSeconds) const;
+
+    // Loop region (reference-sample coordinates, same rate as playhead)
+    void setLoopRegion (double inSamples, double outSamples);
+    void clearLoopRegion();
+    void setLoopActive (bool active);
+    bool isLoopActive() const noexcept { return loopActiveFlag.load (std::memory_order_relaxed); }
+    double getLoopInSamples()  const noexcept { return loopInRefSamples.load  (std::memory_order_relaxed); }
+    double getLoopOutSamples() const noexcept { return loopOutRefSamples.load (std::memory_order_relaxed); }
 
     void process (juce::AudioBuffer<float>& destination,
                   int startSample,
@@ -103,6 +112,10 @@ private:
     double currentSampleRate = 44100.0;
     double playheadSamples = 0.0;
     std::atomic<double> publicPlayheadSamples { 0.0 };
+    std::atomic<double> pendingSeekSamples    { -1.0 };
+    std::atomic<double> loopInRefSamples      { -1.0 };
+    std::atomic<double> loopOutRefSamples     { -1.0 };
+    std::atomic<bool>   loopActiveFlag        { false };
     int channels = 2;
     int preparedMaxBlockSize = 512;
     EQProcessor eq;

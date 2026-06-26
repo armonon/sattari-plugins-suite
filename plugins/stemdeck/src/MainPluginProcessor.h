@@ -52,6 +52,27 @@ public:
     void loadPadFileAsync (int padIndex, const juce::File& file);
     void triggerPad (int padIndex);
     void rewindDeck (int deckIndex);
+    void seekDeckSeconds (int deckIndex, double seconds);
+    void beatJumpDeck (int deckIndex, double bars);      // negative = back
+
+    // Hot cues — 8 per deck, seconds-domain; -1 = unset
+    static constexpr int numHotCues = 8;
+    void   setHotCue (int deckIndex, int cueIndex, double seconds);
+    void   clearHotCue (int deckIndex, int cueIndex);
+    double getHotCue (int deckIndex, int cueIndex) const;   // -1 = unset
+    void   jumpToHotCue (int deckIndex, int cueIndex);
+
+    // Loop
+    void setDeckLoopSeconds (int deckIndex, double inSeconds, double outSeconds);
+    void setDeckLoopActive (int deckIndex, bool active);
+    void clearDeckLoop (int deckIndex);
+    bool isDeckLoopActive (int deckIndex) const;
+    double getDeckLoopInSeconds (int deckIndex) const;
+    double getDeckLoopOutSeconds (int deckIndex) const;
+
+    // Tap tempo
+    void tapTempo();
+
     bool beginMasterRecording (const juce::File& destinationFile);
     juce::File stopMasterRecording();
     bool isMasterRecording() const noexcept { return masterRecorder.isRecording(); }
@@ -120,9 +141,13 @@ private:
                               const juce::String& parameter = {}, const juce::String& value = {},
                               const juce::String& path = {}, const juce::String& details = {});
 
+    static juce::String hotCueProperty (int deckIndex, int cueIndex);
+
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioFormatManager formatManager;
     juce::ThreadPool loadPool { 4 };
+
+    std::vector<juce::int64> tapTimes;   // millisecond timestamps of recent taps
 
     std::array<DeckPlayer, numDecks> decks;
     PadBank padBank;

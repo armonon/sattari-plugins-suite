@@ -115,6 +115,29 @@ void DeckPlayer::seekStart()
 #endif
 }
 
+void DeckPlayer::seekToSamples (double referenceSamples)
+{
+    pendingSeekSamples.store (juce::jmax (0.0, referenceSamples), std::memory_order_relaxed);
+}
+
+void DeckPlayer::setLoopRegion (double inSamples, double outSamples)
+{
+    loopInRefSamples.store  (juce::jmax (0.0, inSamples),  std::memory_order_relaxed);
+    loopOutRefSamples.store (juce::jmax (0.0, outSamples), std::memory_order_relaxed);
+}
+
+void DeckPlayer::clearLoopRegion()
+{
+    loopActiveFlag.store    (false, std::memory_order_relaxed);
+    loopInRefSamples.store  (-1.0, std::memory_order_relaxed);
+    loopOutRefSamples.store (-1.0, std::memory_order_relaxed);
+}
+
+void DeckPlayer::setLoopActive (bool active)
+{
+    loopActiveFlag.store (active, std::memory_order_relaxed);
+}
+
 double DeckPlayer::getPlayheadReferenceSamples() const noexcept
 {
     return publicPlayheadSamples.load (std::memory_order_relaxed);
@@ -429,17 +452,37 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
         return;
 #endif
 
+    // Consume any pending user seek (hot cue jump, beat jump, cue set).
+    {
+        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
+        if (seekTarget >= 0.0)
+            playheadSamples = seekTarget;
+    }
+
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
     {
         const double sourceReferencePosition = wrapPosition (beatSyncPlan.lockedSourcePositionSamples, sourceLength);
         playheadSamples = useGranularKeyLock ? sourceReferencePosition / tempoRatio : sourceReferencePosition;
     }
 
+    const double loopIn  = loopInRefSamples.load  (std::memory_order_relaxed);
+    const double loopOut = loopOutRefSamples.load  (std::memory_order_relaxed);
+    const bool   hasLoop = loopActiveFlag.load (std::memory_order_relaxed)
+                        && loopIn >= 0.0 && loopOut > loopIn + 64.0;
+
     for (int i = 0; i < numSamples; ++i)
     {
-        const double loopLength = useGranularKeyLock ? granularLoopLength : sourceLength;
-        if (playheadSamples >= loopLength)
-            playheadSamples = wrapPosition (playheadSamples, loopLength);
+        if (hasLoop && ! useGranularKeyLock)
+        {
+            if (playheadSamples >= loopOut)
+                playheadSamples = loopIn + std::fmod (playheadSamples - loopIn, loopOut - loopIn);
+        }
+        else
+        {
+            const double loopLength = useGranularKeyLock ? granularLoopLength : sourceLength;
+            if (playheadSamples >= loopLength)
+                playheadSamples = wrapPosition (playheadSamples, loopLength);
+        }
 
         float left = 0.0f;
         float right = 0.0f;
