@@ -69,4 +69,59 @@ inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
     return k;
 }
 
+// --- Session channel: key + tempo + transient pulse --------------------------
+//  The cross-plugin story is bigger than key. A "session" message carries the
+//  detected key, the host tempo, and a monotonically-increasing transient pulse
+//  id so a reader can tell when the publisher last saw an onset (e.g. Side Chain
+//  ducking to a transient map another instance published, or a delay locking to
+//  the session tempo). Written to the SAME json object as the key, so existing
+//  publishKey / readPublishedKey readers keep working unchanged (they just ignore
+//  the extra fields); session readers fall back to sensible defaults when a
+//  key-only publisher wrote the file.
+struct SessionMessage
+{
+    int    root = 0;           // 0..11
+    int    scale = 0;          // 0=major, 1=minor, 2=chromatic
+    double bpm = 0.0;          // host tempo, 0 if unknown
+    juce::int64 transientId = 0;   // increments on each published onset
+    bool   hasTempo = false;
+};
+
+inline void publishSession (const juce::String& publisherId, int root, int scale,
+                            double bpm, juce::int64 transientId)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("root",  juce::jlimit (0, 11, root));
+    obj->setProperty ("scale", juce::jlimit (0, 11, scale));
+    obj->setProperty ("bpm",   bpm > 0.0 ? bpm : 0.0);
+    obj->setProperty ("transientId", transientId);
+    obj->setProperty ("timestampMs",
+        (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    keyBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+}
+
+inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
+{
+    auto file = keyBusFile();
+    if (! file.existsAsFile()) return std::nullopt;
+    const auto parsed = juce::JSON::parse (file.loadFileAsString());
+    if (! parsed.isObject()) return std::nullopt;
+
+    const auto ts = (juce::int64) parsed.getProperty ("timestampMs", 0);
+    const juce::int64 now = std::chrono::duration_cast<std::chrono::milliseconds> (
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    if (now - ts > (juce::int64) maxAgeSeconds * 1000)
+        return std::nullopt;
+
+    SessionMessage s;
+    s.root  = juce::jlimit (0, 11, (int) parsed.getProperty ("root", 0));
+    s.scale = juce::jlimit (0, 11, (int) parsed.getProperty ("scale", 0));
+    s.bpm   = (double) parsed.getProperty ("bpm", 0.0);
+    s.transientId = (juce::int64) parsed.getProperty ("transientId", 0);
+    s.hasTempo = s.bpm > 0.0;
+    return s;
+}
+
 } // namespace sattari::xplugin

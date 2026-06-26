@@ -116,3 +116,10 @@ jobs:
 
       - name: Build suite
         run: cmake --build build/all --config Release -j3
+
+      - name: Cross-plugin session bus contract
+        run: |
+          cmake --build build/all --target SattariCrossPluginBusContract -j3
+          bin="$(find build/all -type f -name SattariCrossPluginBusContract -perm +111 | head -n1)"
+          if [ -z "$bin" ]; then echo "::error::SattariCrossPluginBusContract not found"; exit 1; fi
+          "$bin"

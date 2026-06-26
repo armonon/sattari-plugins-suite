@@ -24,6 +24,7 @@ MODE="${1:-}"
 CONTRACTS=(
   "SattariAudioCorePitchContract|core/SattariAudioCorePitchContract"
   "SattariAudioCoreHarmonicContract|core/SattariAudioCoreHarmonicContract"
+  "SattariCrossPluginBusContract|SattariCrossPluginBusContract"
   "AutoPitchCoreContract|plugins/auto-pitch/AutoPitchCoreContract"
   "VoxKeyCoreContract|plugins/voxkey/VoxKeyCoreContract"
   "SattariArpTimingContract|plugins/sattari-arp/SattariArpTimingContract"

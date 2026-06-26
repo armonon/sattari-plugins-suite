@@ -585,7 +585,12 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     const int root  = currentCorrectionRootIndex();
     const int scale = juce::jlimit (0, 11,
         juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
-    sattari::xplugin::publishKey ("auto-pitch", root, scale);
+    // Publish the full session (key + host tempo + transient pulse) so other
+    // Sattari plugins can follow the key AND lock to tempo / react to onsets.
+    // Backward-compatible: key-only readers still parse this fine.
+    sattari::xplugin::publishSession ("auto-pitch", root, scale,
+                                      hostBpmForBus.load(),
+                                      sessionTransientId.load());
 }
 
 void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int numSamples)
@@ -1126,11 +1131,17 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // correction key follows the offline-scanned map. This is how a single
     // Auto Pitch instance keeps the vocal in the right key as the song
     // modulates - no per-section automation needed.
-    if (useKeyMap)
-        if (auto* ph = getPlayHead())
-            if (auto pos = ph->getPosition())
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+        {
+            // Cache host tempo for the cross-plugin session bus (read by the
+            // editor timer, published off the audio thread).
+            if (auto bpm = pos->getBpm())
+                hostBpmForBus.store (*bpm);
+            if (useKeyMap)
                 if (auto t = pos->getTimeInSeconds())
                     applyKeyMapAtSeconds (*t);
+        }
 
     // Pull sidechain (master) audio if the bus is enabled. When AutoKey is on,
     // route a mono sum into the chroma analyser. This is how AutoKey "listens to
@@ -1215,6 +1226,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         {
             transitionBoost = 1.0;                 // fresh note: snap fast
             lastTargetMidiForTransition = tgt;
+            sessionTransientId.fetch_add (1);      // pulse for the cross-plugin bus
         }
     }
     // Decay the boost once per block (~time constant 60 ms).

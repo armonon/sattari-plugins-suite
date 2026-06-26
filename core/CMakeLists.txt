@@ -25,3 +25,7 @@ add_executable(SattariAudioCorePitchContract
 target_link_libraries(SattariAudioCorePitchContract
     PRIVATE
         SattariAudioCore)
+
+# NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
+# available when core/ is configured (plugins add JUCE after this). It is defined
+# at the end of the root CMakeLists, once a JUCE target exists.

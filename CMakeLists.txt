@@ -13,3 +13,17 @@ add_subdirectory(plugins/auto-pitch)
 add_subdirectory(plugins/voxkey)
 add_subdirectory(plugins/bus)
 add_subdirectory(plugins/align)
+
+# Cross-plugin session bus contract: defined here (not in core/) because it needs
+# juce_core, which only exists after the plugins above have pulled JUCE in.
+if(TARGET juce::juce_core)
+    add_executable(SattariCrossPluginBusContract
+        EXCLUDE_FROM_ALL
+        core/tests/cross_plugin_bus_contract.cpp)
+    target_link_libraries(SattariCrossPluginBusContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_core
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()

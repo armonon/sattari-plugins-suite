@@ -181,6 +181,12 @@ private:
     // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.
     int reportedLatencySamples = 0;
 
+    // Cross-plugin session bus: host tempo + a transient pulse counter, cached
+    // on the audio thread and published off it (editor timer). Lets other
+    // Sattari plugins follow tempo / react to onsets, not just the key.
+    std::atomic<double>      hostBpmForBus { 0.0 };
+    std::atomic<juce::int64> sessionTransientId { 0 };
+
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
