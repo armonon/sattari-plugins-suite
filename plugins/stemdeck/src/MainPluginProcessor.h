@@ -8,6 +8,7 @@
 #include "PadBank.h"
 #include "PerformanceRecorder.h"
 #include "StemProvider.h"
+#include "RealTimeStemSeparator.h"
 #include "TransportSync.h"
 #include "WarpEngine.h"
 
@@ -116,6 +117,10 @@ public:
     juce::StringArray getSupportedAudioExtensions() const;
     TransportSync::Snapshot getTransportSnapshot() const { return sync.getSnapshot(); }
 
+    // True when no offline stems are loaded and real-time separation is active.
+    bool isDeckRtssActive (int deckIndex) const;
+    void setDeckRtssSensitivity (int deckIndex, float sensitivity);   // 0..1
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     static juce::String deckPrefix (int deckIndex);
@@ -208,6 +213,13 @@ private:
     juce::ThreadPool loadPool { 4 };
 
     std::array<DeckFX, numDecks> deckFX;
+    std::array<RealTimeStemSeparator, numDecks> deckRTSS;
+    // Per-deck scratch buffers for RTSS output (allocated in prepareToPlay)
+    std::array<juce::AudioBuffer<float>, numDecks> rtssDrumsBuffers;
+    std::array<juce::AudioBuffer<float>, numDecks> rtssBassBuffers;
+    std::array<juce::AudioBuffer<float>, numDecks> rtssMusicBuffers;
+    std::array<juce::AudioBuffer<float>, numDecks> rtssVocalsBuffers;
+
     std::vector<juce::int64> tapTimes;   // millisecond timestamps of recent taps
 
     std::array<DeckPlayer, numDecks> decks;

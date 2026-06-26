@@ -168,6 +168,15 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
     for (auto& fx : deckFX)
         fx.prepare (sampleRate);
+    for (auto& rtss : deckRTSS)
+        rtss.prepare (sampleRate, samplesPerBlock);
+    for (int i = 0; i < numDecks; ++i)
+    {
+        rtssDrumsBuffers [(size_t) i].setSize (outputChannels, samplesPerBlock, false, true, true);
+        rtssBassBuffers  [(size_t) i].setSize (outputChannels, samplesPerBlock, false, true, true);
+        rtssMusicBuffers [(size_t) i].setSize (outputChannels, samplesPerBlock, false, true, true);
+        rtssVocalsBuffers[(size_t) i].setSize (outputChannels, samplesPerBlock, false, true, true);
+    }
 }
 
 bool MainPluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -273,6 +282,65 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                                    getFloatParam (deck + "Low"), getFloatParam (deck + "Mid"), getFloatParam (deck + "High"),
                                    getFloatParam (deck + "Filter"), 1.0f, warpPlan.timePitch, stemGains,
                                    warpPlan.beatSync);
+        // ── Real-time stem separation ──────────────────────────────────────────
+        // Active when none of the four stem lanes (drums/bass/music/vocals)
+        // have offline files loaded.  The full-mix signal is split into four
+        // bands; per-lane gain knobs then independently attenuate each band
+        // before they are re-mixed back together.
+        {
+            bool hasOfflineStems = false;
+            for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+                hasOfflineStems = hasOfflineStems || decks[(size_t) i].getStemAudio (lane) != nullptr;
+
+            if (! hasOfflineStems && deckBuffer.getNumSamples() > 0 && deckBuffer.getNumChannels() >= 2)
+            {
+                const int n = deckBuffer.getNumSamples();
+                auto& drums  = rtssDrumsBuffers [(size_t) i];
+                auto& bass   = rtssBassBuffers  [(size_t) i];
+                auto& music  = rtssMusicBuffers [(size_t) i];
+                auto& vocals = rtssVocalsBuffers[(size_t) i];
+
+                // Resize scratch buffers if needed (e.g. after prepareToPlay with larger block)
+                const int ch = deckBuffer.getNumChannels();
+                if (drums.getNumSamples() < n)  drums .setSize (ch, n, false, true, true);
+                if (bass.getNumSamples()  < n)  bass  .setSize (ch, n, false, true, true);
+                if (music.getNumSamples() < n)  music .setSize (ch, n, false, true, true);
+                if (vocals.getNumSamples()< n)  vocals.setSize (ch, n, false, true, true);
+
+                deckRTSS[(size_t) i].process (
+                    deckBuffer.getReadPointer (0), deckBuffer.getReadPointer (1), n,
+                    drums .getWritePointer (0), drums .getWritePointer (ch > 1 ? 1 : 0),
+                    bass  .getWritePointer (0), bass  .getWritePointer (ch > 1 ? 1 : 0),
+                    music .getWritePointer (0), music .getWritePointer (ch > 1 ? 1 : 0),
+                    vocals.getWritePointer (0), vocals.getWritePointer (ch > 1 ? 1 : 0));
+
+                // Gain from stem knobs (same param ids as the loaded-file path)
+                const float gDrums  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem)  + "Gain")));
+                const float gBass   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::bassStem)   + "Gain")));
+                const float gMusic  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::musicStem)  + "Gain")));
+                const float gVocals = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::vocalsStem) + "Gain")));
+                const float gFull   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::fullMixStem)+ "Gain")));
+
+                // Any stem knob differs from 0 dB? → remix separated stems
+                const bool anyStemMoved = (gDrums  < 0.999f || gDrums  > 1.001f)
+                                       || (gBass   < 0.999f || gBass   > 1.001f)
+                                       || (gMusic  < 0.999f || gMusic  > 1.001f)
+                                       || (gVocals < 0.999f || gVocals > 1.001f);
+
+                if (anyStemMoved)
+                {
+                    deckBuffer.clear (0, n);
+                    for (int c = 0; c < ch; ++c)
+                    {
+                        deckBuffer.addFrom (c, 0, drums,  c, 0, n, gDrums  * gFull);
+                        deckBuffer.addFrom (c, 0, bass,   c, 0, n, gBass   * gFull);
+                        deckBuffer.addFrom (c, 0, music,  c, 0, n, gMusic  * gFull);
+                        deckBuffer.addFrom (c, 0, vocals, c, 0, n, gVocals * gFull);
+                    }
+                }
+            }
+        }
+
         // Apply built-in FX before plugin chain
         deckFX[(size_t) i].process (deckBuffer,
                                     getFloatParam (deck + "RevMix"),
@@ -502,6 +570,22 @@ void MainPluginProcessor::rewindDeck (int deckIndex)
         logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed), "cue_jump",
                              deckNameFor (deckIndex), "cue", "start", getDeckPath (deckIndex));
     }
+}
+
+// ── RTSS ─────────────────────────────────────────────────────────────────────
+bool MainPluginProcessor::isDeckRtssActive (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return false;
+    for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+        if (decks[(size_t) deckIndex].getStemAudio (lane) != nullptr)
+            return false;
+    return decks[(size_t) deckIndex].getLoadedAudio() != nullptr;
+}
+
+void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivity)
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        deckRTSS[(size_t) deckIndex].setDrumsSensitivity (sensitivity);
 }
 
 // ── Seek / beat jump ────────────────────────────────────────────────────────

@@ -171,6 +171,15 @@ void WaveformDisplay::setZoom (float level, float scroll)
     repaint();
 }
 
+void WaveformDisplay::setRtssActive (bool active)
+{
+    if (active != rtssActive)
+    {
+        rtssActive = active;
+        repaint();
+    }
+}
+
 std::pair<double, double> WaveformDisplay::visibleTimeRange (double totalLength) const
 {
     if (totalLength <= 0.0 || zoomLevel <= 1.001f)
@@ -408,6 +417,19 @@ void WaveformDisplay::paint (juce::Graphics& g)
             g.fillRect (juce::Rectangle<float> (cx - gap / 2.0f - barW, yT, barW, yB - yT));
             g.fillRect (juce::Rectangle<float> (cx + gap / 2.0f,        yT, barW, yB - yT));
         }
+    }
+
+    // ── RTSS badge ────────────────────────────────────────────────────────────
+    if (rtssActive)
+    {
+        const auto badge = juce::Rectangle<int> (wave.toNearestInt().getX() + 3,
+                                                  wave.toNearestInt().getY() + 3,
+                                                  52, 13);
+        g.setColour (accent.withAlpha (0.75f));
+        g.fillRoundedRectangle (badge.toFloat(), 3.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.92f));
+        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.drawText ("RTSS LIVE", badge, juce::Justification::centred);
     }
 
     // ── Zoom indicator (only when zoomed) ────────────────────────────────────

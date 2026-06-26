@@ -32,6 +32,7 @@ sattari_add_plugin(
         src/PadBank.cpp
         src/RoadmapAdapters.h
         src/SamplePad.cpp
+        src/RealTimeStemSeparator.cpp
         src/StemProvider.cpp
         src/TimePitchEngine.cpp
         src/TrackAnalysis.cpp
@@ -131,6 +132,7 @@ add_executable(StemDeckArchitectureContract
         src/FilterProcessor.cpp
         src/HostGraph.cpp
         src/PerformanceRecorder.cpp
+        src/RealTimeStemSeparator.cpp
         src/StemProvider.cpp
         src/TimePitchEngine.cpp
         src/TrackAnalysis.cpp

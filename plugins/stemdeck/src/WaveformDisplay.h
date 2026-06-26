@@ -37,6 +37,10 @@ public:
     // Zoom: level=1 = full track, level=4 = 4× zoomed in; scroll 0..1
     void setZoom (float level, float scrollFraction);
 
+    // Show RTSS badge when real-time separation is active with no offline stems
+    void setRtssActive (bool active);
+    bool getRtssActive() const noexcept { return rtssActive; }
+
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
@@ -74,6 +78,7 @@ private:
 
     float zoomLevel      = 1.0f;
     float scrollFraction = 0.0f;
+    bool  rtssActive     = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformDisplay)
 };
