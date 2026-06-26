@@ -495,6 +495,131 @@ void MainPluginProcessor::rewindDeck (int deckIndex)
     }
 }
 
+// ── Seek / beat jump ────────────────────────────────────────────────────────
+void MainPluginProcessor::seekDeckSeconds (int deckIndex, double seconds)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
+    decks[(size_t) deckIndex].seekToSamples (seconds * audio->sourceSampleRate);
+}
+
+void MainPluginProcessor::beatJumpDeck (int deckIndex, double bars)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
+
+    const float bpm = getFloatParam (deckPrefix (deckIndex) + "Bpm");
+    const double barSeconds = (60.0 / juce::jmax (1.0f, bpm)) * 4.0;
+    const double currentPos = getDeckPlayheadSeconds (deckIndex);
+    const double newPos = juce::jmax (0.0, currentPos + bars * barSeconds);
+    decks[(size_t) deckIndex].seekToSamples (newPos * audio->sourceSampleRate);
+}
+
+// ── Hot cues ────────────────────────────────────────────────────────────────
+juce::String MainPluginProcessor::hotCueProperty (int deckIndex, int cueIndex)
+{
+    return deckPrefix (deckIndex) + "HotCue" + juce::String (cueIndex);
+}
+
+void MainPluginProcessor::setHotCue (int deckIndex, int cueIndex, double seconds)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    if (! juce::isPositiveAndBelow (cueIndex, numHotCues)) return;
+    apvts.state.setProperty (hotCueProperty (deckIndex, cueIndex), seconds, nullptr);
+}
+
+void MainPluginProcessor::clearHotCue (int deckIndex, int cueIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    if (! juce::isPositiveAndBelow (cueIndex, numHotCues)) return;
+    apvts.state.setProperty (hotCueProperty (deckIndex, cueIndex), -1.0, nullptr);
+}
+
+double MainPluginProcessor::getHotCue (int deckIndex, int cueIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return -1.0;
+    if (! juce::isPositiveAndBelow (cueIndex, numHotCues)) return -1.0;
+    const auto val = apvts.state.getProperty (hotCueProperty (deckIndex, cueIndex), -1.0);
+    return (double) val;
+}
+
+void MainPluginProcessor::jumpToHotCue (int deckIndex, int cueIndex)
+{
+    const double seconds = getHotCue (deckIndex, cueIndex);
+    if (seconds >= 0.0)
+        seekDeckSeconds (deckIndex, seconds);
+}
+
+// ── Loop region ──────────────────────────────────────────────────────────────
+void MainPluginProcessor::setDeckLoopSeconds (int deckIndex, double inSeconds, double outSeconds)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
+    const double sr = audio->sourceSampleRate;
+    decks[(size_t) deckIndex].setLoopRegion (inSeconds * sr, outSeconds * sr);
+}
+
+void MainPluginProcessor::setDeckLoopActive (int deckIndex, bool active)
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        decks[(size_t) deckIndex].setLoopActive (active);
+}
+
+void MainPluginProcessor::clearDeckLoop (int deckIndex)
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        decks[(size_t) deckIndex].clearLoopRegion();
+}
+
+bool MainPluginProcessor::isDeckLoopActive (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return false;
+    return decks[(size_t) deckIndex].isLoopActive();
+}
+
+double MainPluginProcessor::getDeckLoopInSeconds (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return -1.0;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return -1.0;
+    const double s = decks[(size_t) deckIndex].getLoopInSamples();
+    return s < 0.0 ? -1.0 : s / audio->sourceSampleRate;
+}
+
+double MainPluginProcessor::getDeckLoopOutSeconds (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return -1.0;
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return -1.0;
+    const double s = decks[(size_t) deckIndex].getLoopOutSamples();
+    return s < 0.0 ? -1.0 : s / audio->sourceSampleRate;
+}
+
+// ── Tap tempo ────────────────────────────────────────────────────────────────
+void MainPluginProcessor::tapTempo()
+{
+    const juce::int64 now = juce::Time::currentTimeMillis();
+    // Drop taps older than 3 seconds.
+    tapTimes.erase (std::remove_if (tapTimes.begin(), tapTimes.end(),
+                                    [now] (juce::int64 t) { return (now - t) > 3000; }),
+                    tapTimes.end());
+    tapTimes.push_back (now);
+
+    if (tapTimes.size() < 2) return;
+
+    double avgInterval = 0.0;
+    for (size_t i = 1; i < tapTimes.size(); ++i)
+        avgInterval += (double) (tapTimes[i] - tapTimes[i - 1]);
+    avgInterval /= (double) (tapTimes.size() - 1);
+
+    const float bpm = (float) juce::jlimit (40.0, 240.0, 60000.0 / avgInterval);
+    if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter ("masterBpm")))
+        p->setValueNotifyingHost (p->getNormalisableRange().convertTo0to1 (bpm));
+}
+
 bool MainPluginProcessor::beginMasterRecording (const juce::File& destinationFile)
 {
     if (destinationFile.getFullPathName().isEmpty())
