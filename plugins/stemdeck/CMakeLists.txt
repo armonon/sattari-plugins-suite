@@ -29,6 +29,7 @@ sattari_add_plugin(
         src/MainPluginProcessor.cpp
         src/MasterRecorder.cpp
         src/MixerSection.cpp
+        src/MusicLibraryView.cpp
         src/PerformanceRecorder.cpp
         src/PadBank.cpp
         src/RoadmapAdapters.h

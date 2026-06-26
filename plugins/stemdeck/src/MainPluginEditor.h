@@ -7,6 +7,7 @@
 #include "DeckPlayer.h"
 #include "MainPluginProcessor.h"
 #include "MixerSection.h"
+#include "MusicLibraryView.h"
 #include "WaveformDisplay.h"
 
 class MainPluginEditor final : public juce::AudioProcessorEditor,
@@ -253,6 +254,9 @@ private:
     juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3", "*", "Audio files" };
     juce::DirectoryContentsList browserContents { &browserFilter, browserThread };
     std::unique_ptr<juce::FileTreeComponent> fileBrowser;
+    std::unique_ptr<MusicLibraryView> libraryView;
+    juce::TextButton toggleLibraryButton { "Library" };
+    bool libraryVisible = false;
     juce::TextButton toggleBrowserButton { "Files" };
     juce::TextButton browserUpButton { "Up" };
     juce::TextButton browserHomeButton { "Home" };
@@ -296,6 +300,8 @@ private:
     void showSyncAllDecksMenu();
     void setupFileBrowser();
     void toggleFileBrowser();
+    void setupLibrary();
+    void toggleLibrary();
     void browserNavigateTo (const juce::File& folder);
     void browserNavigateUp();
     void bounceArrangementEdits();

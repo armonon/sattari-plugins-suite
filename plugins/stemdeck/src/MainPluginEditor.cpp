@@ -933,6 +933,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     refreshUserPresets();
 
     setupFileBrowser();
+    setupLibrary();
 
     title.setText ("StemDeck PRO", juce::dontSendNotification);
     title.setFont (juce::FontOptions (28.0f, juce::Font::bold));
@@ -1929,6 +1930,38 @@ void MainPluginEditor::setupFileBrowser()
     browserNavigateTo (juce::File::getSpecialLocation (juce::File::userMusicDirectory));
 }
 
+void MainPluginEditor::setupLibrary()
+{
+    setupButton (toggleLibraryButton);
+    toggleLibraryButton.setClickingTogglesState (true);
+    toggleLibraryButton.onClick = [this] { toggleLibrary(); };
+    addAndMakeVisible (toggleLibraryButton);
+
+    libraryView = std::make_unique<MusicLibraryView> (thumbnailFormatManager);
+    libraryView->onLoadFile = [this] (const juce::File& f) { fileDoubleClicked (f); };
+    addChildComponent (*libraryView);
+    libraryView->restorePersistedCrates();
+}
+
+void MainPluginEditor::toggleLibrary()
+{
+    libraryVisible = toggleLibraryButton.getToggleState();
+    if (libraryView != nullptr)
+        libraryView->setVisible (libraryVisible);
+
+    // Library and the basic file browser share the left column — keep one open.
+    if (libraryVisible && browserVisible)
+    {
+        browserVisible = false;
+        toggleBrowserButton.setToggleState (false, juce::dontSendNotification);
+        if (fileBrowser != nullptr)        fileBrowser->setVisible (false);
+        browserUpButton.setVisible (false);
+        browserHomeButton.setVisible (false);
+        browserPathLabel.setVisible (false);
+    }
+    resized();
+}
+
 void MainPluginEditor::toggleFileBrowser()
 {
     browserVisible = toggleBrowserButton.getToggleState();
@@ -1937,6 +1970,15 @@ void MainPluginEditor::toggleFileBrowser()
     browserUpButton.setVisible (browserVisible);
     browserHomeButton.setVisible (browserVisible);
     browserPathLabel.setVisible (browserVisible);
+
+    // Mutually exclusive with the library panel — they share the left column.
+    if (browserVisible && libraryVisible)
+    {
+        libraryVisible = false;
+        toggleLibraryButton.setToggleState (false, juce::dontSendNotification);
+        if (libraryView != nullptr)
+            libraryView->setVisible (false);
+    }
     resized();
 }
 
@@ -2200,11 +2242,13 @@ void MainPluginEditor::resized()
     auto header = area.removeFromTop (50);
     headerBarBounds = header;
 
-    // Left cluster: Files toggle + subtitle (mode line).
-    toggleBrowserButton.setBounds (header.removeFromLeft (62).withSizeKeepingCentre (62, 30));
+    // Left cluster: Library + Files toggles + subtitle (mode line).
+    toggleLibraryButton.setBounds (header.removeFromLeft (72).withSizeKeepingCentre (72, 30));
+    header.removeFromLeft (6);
+    toggleBrowserButton.setBounds (header.removeFromLeft (58).withSizeKeepingCentre (58, 30));
     header.removeFromLeft (10);
-    auto leftSlot = header.removeFromLeft (260);
-    subtitle.setBounds (leftSlot.withSizeKeepingCentre (260, 18));
+    auto leftSlot = header.removeFromLeft (220);
+    subtitle.setBounds (leftSlot.withSizeKeepingCentre (220, 18));
 
     // Right cluster: save / user presets / tempo chip — built right-to-left.
     savePresetButton.setBounds (header.removeFromRight (108).withSizeKeepingCentre (108, 30));
@@ -2232,6 +2276,13 @@ void MainPluginEditor::resized()
         browserCol.removeFromTop (4);
         if (fileBrowser != nullptr)
             fileBrowser->setBounds (browserCol);
+    }
+    else if (libraryVisible && libraryView != nullptr)
+    {
+        const int libraryWidth = juce::jmin (460, area.getWidth() / 3);
+        auto libraryCol = area.removeFromLeft (libraryWidth);
+        area.removeFromLeft (10);
+        libraryView->setBounds (libraryCol);
     }
 
     // Compact info strip: workflow guide + host status sharing one row, FX
