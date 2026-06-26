@@ -30,6 +30,7 @@ CONTRACTS=(
   "SattariBusCoreContract|plugins/bus/SattariBusCoreContract"
   "SideChainMasterCoreContract|plugins/side-chain-master/SideChainMasterCoreContract"
   "SattariAlignCoreContract|plugins/align/SattariAlignCoreContract"
+  "RoyalChainColorAliasingContract|plugins/royal-chain/RoyalChainColorAliasingContract"
   "StemDeckArchitectureContract|plugins/stemdeck/StemDeckArchitectureContract"
   "StemDeckGranularRenderContract|plugins/stemdeck/StemDeckGranularRenderContract"
 )

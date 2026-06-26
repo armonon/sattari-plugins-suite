@@ -52,7 +52,7 @@ jobs:
           - { plugin: bus,               test: SattariBusCoreContract }
           - { plugin: side-chain-master, test: SideChainMasterCoreContract }
           - { plugin: align,             test: SattariAlignCoreContract }
-          - { plugin: royal-chain }
+          - { plugin: royal-chain,       test: RoyalChainColorAliasingContract }
           - { plugin: sattari-arp,       test: SattariArpTimingContract }
           - { plugin: voxkey,            test: VoxKeyCoreContract }
           - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
