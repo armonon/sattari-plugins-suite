@@ -95,6 +95,57 @@ int main()
         return 1;
     }
 
+    // --- YIN noise-robustness phase ------------------------------------------
+    // Feed a 220 Hz (A3) fundamental buried under a strong 2nd harmonic (440 Hz)
+    // AND broadband noise. Plain normalised autocorrelation tends to octave-jump
+    // here (the 440 Hz partial + noise pull the peak to the wrong lag). YIN's
+    // CMNDF + continuity prior should still report the A3 octave. We assert the
+    // detected input note name contains "A3" - i.e. correct octave under noise.
+    {
+        SattariAutoPitchAudioProcessor noiseProc;
+        noiseProc.prepareToPlay (48000.0, 512);
+        auto& nApvts = noiseProc.parameters();
+        setParameter (nApvts, "keyRoot", 9.0f);   // A
+        setParameter (nApvts, "scale", 0.0f);     // major
+        setParameter (nApvts, "enableCorrection", 1.0f);
+        setParameter (nApvts, "doNoHarm", 0.0f);
+        setParameter (nApvts, "vocalRange", 0.0f); // Wide
+
+        const double f0 = 220.0;                    // A3
+        double ph1 = 0.0, ph2 = 0.0;
+        unsigned int rngState = 0x12345u;
+        auto whiteNoise = [&rngState]() {
+            rngState = rngState * 1664525u + 1013904223u;
+            return ((double) rngState / (double) 0xFFFFFFFFu) * 2.0 - 1.0;
+        };
+        for (int block = 0; block < 80; ++block)
+        {
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const double fund = 0.16 * std::sin (ph1);
+                const double harm = 0.20 * std::sin (ph2);   // louder 2nd harmonic
+                const double noise = 0.07 * whiteNoise();     // broadband contamination
+                ph1 += juce::MathConstants<double>::twoPi * f0       / sampleRate;
+                ph2 += juce::MathConstants<double>::twoPi * (2.0*f0) / sampleRate;
+                const float s = (float) (fund + harm + noise);
+                for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+                    buffer.setSample (channel, i, s);
+            }
+            juce::MidiBuffer midi;
+            noiseProc.processBlock (buffer, midi);
+        }
+
+        const auto noiseStatus = noiseProc.getLiveStatusSummary();
+        if (! noiseStatus.contains (" in A3 "))
+        {
+            std::cerr << "YIN failed noise-robustness: expected detected note A3, got: "
+                      << noiseStatus << "\n";
+            return 1;
+        }
+        std::cout << "  noiseRobustness=PASS (tracked A3 through 2nd-harmonic + broadband noise)\n";
+    }
+
     const juce::StringArray expectedModes { "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" };
     for (int mode = 0; mode < expectedModes.size(); ++mode)
     {

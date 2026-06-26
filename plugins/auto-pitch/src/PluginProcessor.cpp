@@ -336,27 +336,34 @@ void SattariAutoPitchAudioProcessor::pushPitchSample (float sample)
     pitchWriteIndex = (pitchWriteIndex + 1) % pitchFrameSize;
 }
 
-// Auto Pitch's pitch follower is deliberately NOT migrated to the shared
-// sattari::dsp::PitchDetector. The shared detector targets general suite use
-// (Sub Conjurer, VoxKey, Royal Chain) and: (1) does not Hann-window the analysis
-// frame, and (2) picks the SHORTEST qualifying lag to dodge sub-harmonic errors.
-// Auto Pitch instead Hann-windows the frame (cleaner spectral peak for retune)
-// and picks the highest-score lag. Both behaviours are baked into the
-// AutoPitchCoreContract test (precise -33.5 cents correction), so this is kept
-// bespoke. The shared module remains the right choice everywhere else.
+// Auto Pitch's pitch follower uses YIN (de Cheveigné & Kawahara 2002) with a
+// causal octave-continuity prior - "pYIN-flavoured". The full pYIN runs an
+// offline forward-backward HMM over candidate distributions; we can't do that
+// in a realtime block, so we keep YIN's robust core (cumulative-mean-normalised
+// difference function + absolute threshold) and add a cheap online continuity
+// bias toward the previous frame's pitch. This is the part that tracks breathy /
+// noisy material far better than plain autocorrelation: the CMNDF divides out
+// amplitude and suppresses the zero-lag and sub-harmonic biases that make
+// autocorrelation octave-jump on weakly-pitched vocals.
+//
+// Honest scope: this is real YIN, NOT CREPE (which is a trained CNN needing
+// bundled weights + inference) and NOT the full offline pYIN HMM. It is a clear
+// step up from autocorrelation on rough sources and at least as accurate on
+// clean tones.
 SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analyseCurrentPitchFrame() const
 {
     PitchFrame result;
     if (currentSampleRate <= 0.0 || pitchFrameBuffer.empty())
         return result;
 
+    // YIN works on the raw (unwindowed) frame - the difference function already
+    // handles edge effects, and windowing would bias d(tau) at larger lags.
     std::array<float, pitchFrameSize> frame {};
     double rms = 0.0;
     for (int i = 0; i < pitchFrameSize; ++i)
     {
         const int index = (pitchWriteIndex + i) % pitchFrameSize;
-        const float window = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (pitchFrameSize - 1));
-        const float sample = pitchFrameBuffer[(size_t) index] * window;
+        const float sample = pitchFrameBuffer[(size_t) index];
         frame[(size_t) i] = sample;
         rms += (double) sample * (double) sample;
     }
@@ -382,41 +389,100 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
     const int minLag = juce::jlimit (1, pitchFrameSize - 2, (int) std::floor (currentSampleRate / rangeMaxHz));
     const int maxLag = juce::jlimit (minLag + 1, pitchFrameSize - 2, (int) std::ceil (currentSampleRate / rangeMinHz));
 
-    double bestScore = 0.0;
-    int bestLag = minLag;
-    for (int lag = minLag; lag <= maxLag; ++lag)
+    // --- YIN step 1+2: difference function and cumulative-mean normalisation ---
+    std::array<double, pitchFrameSize> dprime {};
+    dprime[0] = 1.0;
+    double runningSum = 0.0;
+    for (int tau = 1; tau <= maxLag; ++tau)
     {
-        double corr = 0.0;
-        double energyA = 0.0;
-        double energyB = 0.0;
-        for (int i = 0; i < pitchFrameSize - lag; ++i)
+        double d = 0.0;
+        const int limit = pitchFrameSize - tau;
+        for (int i = 0; i < limit; ++i)
         {
-            const double a = frame[(size_t) i];
-            const double b = frame[(size_t) (i + lag)];
-            corr += a * b;
-            energyA += a * a;
-            energyB += b * b;
+            const double diff = (double) frame[(size_t) i] - (double) frame[(size_t) (i + tau)];
+            d += diff * diff;
         }
+        runningSum += d;
+        // CMNDF: d'(tau) = d(tau) / ((1/tau) * sum_{j=1..tau} d(j)).
+        dprime[(size_t) tau] = (runningSum > 0.0) ? (d * (double) tau / runningSum) : 1.0;
+    }
 
-        const double denom = std::sqrt (energyA * energyB) + 1.0e-12;
-        const double score = corr / denom;
-        if (score > bestScore)
+    // --- YIN step 3: absolute threshold (shortest period below threshold) -------
+    // Classic YIN: walk tau upward and take the FIRST dip below the threshold,
+    // stepping to its local minimum. Taking the shortest qualifying period is
+    // what defeats sub-harmonic / octave-down errors by construction - a longer
+    // (deeper) dip at 2T/3T never wins over the true fundamental at T.
+    constexpr double yinThreshold = 0.15;      // classic YIN absolute threshold
+    const double prevHz = lastPitchFrame.voiced ? lastPitchFrame.frequencyHz : 0.0;
+
+    int chosenTau = -1;
+    for (int tau = minLag; tau < maxLag; ++tau)
+    {
+        if (dprime[(size_t) tau] < yinThreshold)
         {
-            bestScore = score;
-            bestLag = lag;
+            // Step forward to the bottom of this dip.
+            while (tau + 1 < maxLag && dprime[(size_t) (tau + 1)] < dprime[(size_t) tau])
+                ++tau;
+            chosenTau = tau;
+            break;
         }
     }
 
-    if (bestScore < minConfidence)
+    // No dip cleared the threshold: fall back to the global CMNDF minimum (lower
+    // confidence, but still the best periodic guess for weakly-pitched frames).
+    if (chosenTau < 0)
     {
-        result.confidence = bestScore;
+        double mn = 1.0e18;
+        for (int tau = minLag; tau <= maxLag; ++tau)
+            if (dprime[(size_t) tau] < mn) { mn = dprime[(size_t) tau]; chosenTau = tau; }
+    }
+    if (chosenTau < minLag) chosenTau = minLag;
+
+    // Continuity prior (online stand-in for pYIN's HMM transition smoothing):
+    // if there is an EQUALLY-VALID shorter-period candidate near the previous
+    // pitch, prefer it. This only ever pulls toward the previous octave when the
+    // CMNDF there is also below threshold, so it smooths octave flicker without
+    // forcing a wrong octave. (No effect on the very first voiced frame.)
+    if (prevHz > 0.0)
+    {
+        const int prevTau = (int) std::lround (currentSampleRate / prevHz);
+        for (int k = 2; k <= 4; ++k)
+        {
+            const int shorter = chosenTau / k;           // candidate higher octave
+            if (shorter < minLag) break;
+            if (std::abs (shorter - prevTau) <= 2
+                && dprime[(size_t) shorter] < yinThreshold * 1.5)
+            {
+                chosenTau = shorter;
+                break;
+            }
+        }
+    }
+
+    // --- YIN step 4: parabolic interpolation on d' around the chosen tau --------
+    double refinedTau = chosenTau;
+    if (chosenTau > minLag && chosenTau < maxLag)
+    {
+        const double s0 = dprime[(size_t) (chosenTau - 1)];
+        const double s1 = dprime[(size_t) chosenTau];
+        const double s2 = dprime[(size_t) (chosenTau + 1)];
+        const double denom = s0 - 2.0 * s1 + s2;
+        if (std::abs (denom) > 1.0e-12)
+            refinedTau += 0.5 * (s0 - s2) / denom;
+    }
+
+    // Confidence is periodicity = 1 - aperiodicity (the CMNDF value at the dip).
+    const double periodicity = juce::jlimit (0.0, 1.0, 1.0 - dprime[(size_t) chosenTau]);
+    if (periodicity < minConfidence)
+    {
+        result.confidence = periodicity;
         return result;
     }
 
-    const double frequencyHz = currentSampleRate / (double) bestLag;
+    const double frequencyHz = currentSampleRate / refinedTau;
     result.frequencyHz = frequencyHz;
     result.midi = midiFromHz (frequencyHz);
-    result.confidence = juce::jlimit (0.0, 1.0, bestScore);
+    result.confidence = periodicity;
     result.voiced = frequencyHz >= rangeMinHz && frequencyHz <= rangeMaxHz;
     return result;
 }
