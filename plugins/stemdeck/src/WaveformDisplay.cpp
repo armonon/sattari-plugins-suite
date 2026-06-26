@@ -12,11 +12,22 @@ juce::Colour accentForTitle (const juce::String& title)
     return juce::Colour (productAccent ("stemdeck"));
 }
 
-// djay Pro-style stem colours — universal conventions, independent of per-deck accent.
-static const juce::Colour kDrumsColour  { 0xFFE05A2B };   // burnt orange
-static const juce::Colour kBassColour   { 0xFF4A90E2 };   // electric blue
-static const juce::Colour kMusicColour  { 0xFF5BBF7A };   // leaf green
-static const juce::Colour kVocalsColour { 0xFFD44FC8 };   // magenta
+static const juce::Colour kDrumsColour  { 0xFFE05A2B };
+static const juce::Colour kBassColour   { 0xFF4A90E2 };
+static const juce::Colour kMusicColour  { 0xFF5BBF7A };
+static const juce::Colour kVocalsColour { 0xFFD44FC8 };
+
+// Standard 8-cue colours (Pioneer-style)
+static const std::array<juce::Colour, 8> kCueColours {{
+    juce::Colour (0xFFE03030),   // 1 red
+    juce::Colour (0xFF3090E0),   // 2 blue
+    juce::Colour (0xFF30C050),   // 3 green
+    juce::Colour (0xFFE0B020),   // 4 yellow
+    juce::Colour (0xFFB040E0),   // 5 purple
+    juce::Colour (0xFFE06020),   // 6 orange
+    juce::Colour (0xFF20C8C8),   // 7 cyan
+    juce::Colour (0xFFE040A0),   // 8 pink
+}};
 
 static juce::Colour stemColour (int lane)
 {
@@ -58,6 +69,10 @@ WaveformDisplay::WaveformDisplay (juce::AudioFormatManager& manager, juce::Audio
     bassThumbnail.addChangeListener (this);
     musicThumbnail.addChangeListener (this);
     vocalsThumbnail.addChangeListener (this);
+
+    // Default cue colours
+    for (int i = 0; i < numHotCues; ++i)
+        hotCues[(size_t) i].colour = kCueColours[(size_t) i];
 }
 
 WaveformDisplay::~WaveformDisplay()
@@ -72,6 +87,11 @@ WaveformDisplay::~WaveformDisplay()
 void WaveformDisplay::setOnFileDropped (std::function<void(const juce::File&)> callback)
 {
     onFileDropped = std::move (callback);
+}
+
+void WaveformDisplay::setOnSeekRequest (std::function<void(double)> callback)
+{
+    onSeekRequest = std::move (callback);
 }
 
 void WaveformDisplay::setPlaybackState (double positionSeconds, double totalSeconds, bool playing)
@@ -92,7 +112,6 @@ void WaveformDisplay::setFile (const juce::File& file)
 {
     if (file == currentFile)
         return;
-
     currentFile = file;
     thumbnail.clear();
     if (file.existsAsFile())
@@ -111,11 +130,72 @@ void WaveformDisplay::setStemFile (int laneIndex, const juce::File& file)
         case 4: t = &vocalsThumbnail; break;
         default: return;
     }
-
     t->clear();
     if (file.existsAsFile())
         t->setSource (new juce::FileInputSource (file));
     repaint();
+}
+
+void WaveformDisplay::setHotCues (const std::array<HotCue, numHotCues>& cues)
+{
+    hotCues = cues;
+    repaint();
+}
+
+void WaveformDisplay::setLoopRegion (double inSeconds, double outSeconds, bool active)
+{
+    loopInSeconds  = inSeconds;
+    loopOutSeconds = outSeconds;
+    loopActive     = active;
+    repaint();
+}
+
+void WaveformDisplay::clearLoopRegion()
+{
+    loopInSeconds  = -1.0;
+    loopOutSeconds = -1.0;
+    loopActive     = false;
+    repaint();
+}
+
+void WaveformDisplay::setBeatGridSeconds (std::vector<double> beatSeconds)
+{
+    beatGridSeconds = std::move (beatSeconds);
+    repaint();
+}
+
+void WaveformDisplay::setZoom (float level, float scroll)
+{
+    zoomLevel      = juce::jmax (1.0f, level);
+    scrollFraction = juce::jlimit (0.0f, 1.0f, scroll);
+    repaint();
+}
+
+std::pair<double, double> WaveformDisplay::visibleTimeRange (double totalLength) const
+{
+    if (totalLength <= 0.0 || zoomLevel <= 1.001f)
+        return { 0.0, totalLength };
+    const double visible = totalLength / (double) zoomLevel;
+    const double maxStart = totalLength - visible;
+    const double start    = juce::jlimit (0.0, maxStart, scrollFraction * maxStart);
+    return { start, start + visible };
+}
+
+void WaveformDisplay::mouseDown (const juce::MouseEvent& e)
+{
+    if (! onSeekRequest || playbackTotalSeconds <= 0.0)
+        return;
+    const auto wave  = getLocalBounds().toFloat().reduced (4.0f, 4.0f);
+    const float relX = juce::jlimit (0.0f, 1.0f, (e.position.x - wave.getX()) / wave.getWidth());
+    const auto [t0, t1] = visibleTimeRange (playbackTotalSeconds);
+    onSeekRequest (t0 + (double) relX * (t1 - t0));
+}
+
+void WaveformDisplay::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    const float delta = wheel.deltaY * 0.2f;
+    const float newZoom = juce::jlimit (1.0f, 16.0f, zoomLevel * (1.0f + delta));
+    setZoom (newZoom, scrollFraction - wheel.deltaX * 0.05f);
 }
 
 void WaveformDisplay::paint (juce::Graphics& g)
@@ -136,31 +216,46 @@ void WaveformDisplay::paint (juce::Graphics& g)
                        || musicThumbnail.getTotalLength()  > 0.0
                        || vocalsThumbnail.getTotalLength() > 0.0;
 
+    // Determine zoom-adjusted time window
+    const double totalLen = hasStems ? juce::jmax (juce::jmax (drumsThumbnail.getTotalLength(), bassThumbnail.getTotalLength()),
+                                                    juce::jmax (musicThumbnail.getTotalLength(), vocalsThumbnail.getTotalLength()))
+                                     : thumbnail.getTotalLength();
+    const auto [tStart, tEnd] = visibleTimeRange (totalLen);
+
+    // ── Loop region tint ─────────────────────────────────────────────────────
+    if (loopInSeconds >= 0.0 && loopOutSeconds > loopInSeconds && totalLen > 0.0)
+    {
+        const float inX  = wave.getX() + wave.getWidth() * (float) ((loopInSeconds  - tStart) / (tEnd - tStart));
+        const float outX = wave.getX() + wave.getWidth() * (float) ((loopOutSeconds - tStart) / (tEnd - tStart));
+        const auto loopRect = juce::Rectangle<float> (inX, wave.getY(), outX - inX, wave.getHeight());
+        g.setColour (accent.withAlpha (loopActive ? 0.22f : 0.10f));
+        g.fillRect (loopRect);
+        g.setColour (accent.brighter (0.4f).withAlpha (loopActive ? 0.9f : 0.5f));
+        g.drawLine (inX,  wave.getY(), inX,  wave.getBottom(), 1.5f);
+        g.drawLine (outX, wave.getY(), outX, wave.getBottom(), 1.5f);
+    }
+
     if (hasStems)
     {
-        // ── Stacked stem mode — 4 horizontal bands, djay Pro style ──────────────
+        // ── Stacked stem mode ─────────────────────────────────────────────────
         const float bandH = wave.getHeight() / 4.0f;
-
         juce::AudioThumbnail* stems[4] = { &drumsThumbnail, &bassThumbnail,
-                                          &musicThumbnail, &vocalsThumbnail };
+                                           &musicThumbnail, &vocalsThumbnail };
 
         for (int lane = 0; lane < 4; ++lane)
         {
             const auto band = wave.withY (wave.getY() + (float) lane * bandH).withHeight (bandH);
             const auto col  = stemColour (lane + 1);
 
-            // Band background tint
             g.setColour (col.withAlpha (0.10f));
             g.fillRect (band);
 
-            // Hairline separator between bands
             if (lane > 0)
             {
                 g.setColour (juce::Colour (kHairline).withAlpha (0.55f));
                 g.drawHorizontalLine ((int) std::round (band.getY()), band.getX(), band.getRight());
             }
 
-            // Lane label (top-left, tiny)
             g.setColour (col.withAlpha (0.65f));
             g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
             g.drawText (stemLabel (lane + 1),
@@ -170,16 +265,13 @@ void WaveformDisplay::paint (juce::Graphics& g)
             if (stems[lane]->getTotalLength() > 0.0)
             {
                 const auto waveArea = band.reduced (0.0f, 2.0f);
-                // Glow pass
                 g.setColour (col.withAlpha (0.28f));
-                stems[lane]->drawChannels (g, waveArea.toNearestInt(), 0.0, stems[lane]->getTotalLength(), 1.0f);
-                // Crisp pass
+                stems[lane]->drawChannels (g, waveArea.toNearestInt(), tStart, tEnd, 1.0f);
                 g.setColour (col.brighter (0.2f).withAlpha (0.92f));
-                stems[lane]->drawChannels (g, waveArea.reduced (0, 1).toNearestInt(), 0.0, stems[lane]->getTotalLength(), 0.85f);
+                stems[lane]->drawChannels (g, waveArea.reduced (0, 1).toNearestInt(), tStart, tEnd, 0.85f);
             }
             else
             {
-                // Empty lane placeholder text
                 g.setColour (col.withAlpha (0.30f));
                 g.setFont (juce::FontOptions (9.0f));
                 g.drawText ("drop " + juce::String (stemLabel (lane + 1)).toLowerCase(),
@@ -188,7 +280,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
             }
         }
 
-        // Vertical grid lines across all bands
+        // Vertical grid
         g.setColour (juce::Colour (kHairline).withAlpha (0.25f));
         for (int i = 1; i < 8; ++i)
         {
@@ -198,7 +290,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
     }
     else if (thumbnail.getTotalLength() > 0.0)
     {
-        // ── Single full-mix waveform ─────────────────────────────────────────────
+        // ── Full-mix waveform ─────────────────────────────────────────────────
         g.setColour (juce::Colour (kHairline).withAlpha (0.45f));
         for (int i = 1; i < 8; ++i)
         {
@@ -209,13 +301,13 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawHorizontalLine ((int) std::round (wave.getCentreY()), wave.getX(), wave.getRight());
 
         g.setColour (accent.withAlpha (0.30f));
-        thumbnail.drawChannels (g, wave.toNearestInt(), 0.0, thumbnail.getTotalLength(), 1.0f);
+        thumbnail.drawChannels (g, wave.toNearestInt(), tStart, tEnd, 1.0f);
         g.setColour (accent.brighter (0.25f).withAlpha (0.95f));
-        thumbnail.drawChannels (g, wave.toNearestInt().reduced (0, 1), 0.0, thumbnail.getTotalLength(), 0.85f);
+        thumbnail.drawChannels (g, wave.toNearestInt().reduced (0, 1), tStart, tEnd, 0.85f);
     }
     else
     {
-        // ── Empty deck placeholder ───────────────────────────────────────────────
+        // ── Empty placeholder ─────────────────────────────────────────────────
         g.setColour (juce::Colour (kHairline).withAlpha (0.45f));
         for (int i = 1; i < 8; ++i)
         {
@@ -241,16 +333,41 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawText ("DROP AUDIO", wave.toNearestInt().reduced (4), juce::Justification::centred);
     }
 
-    // ── Live playhead + progress shading (applies to all modes) ─────────────────
-    const double totalLen = hasStems ? juce::jmax (drumsThumbnail.getTotalLength(),
-                                                    bassThumbnail.getTotalLength(),
-                                                    musicThumbnail.getTotalLength(),
-                                                    vocalsThumbnail.getTotalLength())
-                                     : thumbnail.getTotalLength();
+    // ── Beat grid tick marks ─────────────────────────────────────────────────
+    if (! beatGridSeconds.empty() && totalLen > 0.0)
+    {
+        g.setColour (juce::Colour (kTextMuted).withAlpha (0.40f));
+        for (double beat : beatGridSeconds)
+        {
+            if (beat < tStart || beat > tEnd) continue;
+            const float x = wave.getX() + wave.getWidth() * (float) ((beat - tStart) / (tEnd - tStart));
+            g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getY() + 8.0f);
+        }
+    }
 
+    // ── Hot cue markers ──────────────────────────────────────────────────────
+    if (totalLen > 0.0)
+    {
+        for (int i = 0; i < numHotCues; ++i)
+        {
+            const auto& cue = hotCues[(size_t) i];
+            if (cue.seconds < 0.0) continue;
+            if (cue.seconds < tStart || cue.seconds > tEnd) continue;
+            const float cx = wave.getX() + wave.getWidth() * (float) ((cue.seconds - tStart) / (tEnd - tStart));
+            g.setColour (cue.colour.withAlpha (0.90f));
+            g.drawLine (cx, wave.getY(), cx, wave.getBottom(), 1.5f);
+            // Small triangle flag at top
+            juce::Path flag;
+            flag.addTriangle (cx, wave.getY(), cx + 7.0f, wave.getY(), cx, wave.getY() + 7.0f);
+            g.fillPath (flag);
+        }
+    }
+
+    // ── Live playhead + progress shading ────────────────────────────────────
     if (totalLen > 0.0 && playbackTotalSeconds > 0.0)
     {
-        const float pos       = juce::jlimit (0.0f, 1.0f, (float) (playbackPositionSeconds / playbackTotalSeconds));
+        const double tLen = hasStems ? totalLen : thumbnail.getTotalLength();
+        const float pos       = juce::jlimit (0.0f, 1.0f, (float) ((playbackPositionSeconds - tStart) / (tEnd - tStart)));
         const float playheadX = wave.getX() + pos * wave.getWidth();
 
         g.setColour (juce::Colour (kPanelDeep).withAlpha (0.32f));
@@ -258,6 +375,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
 
         g.setColour (juce::Colour (kTextPrimary).withAlpha (0.85f));
         g.drawLine (playheadX, wave.getY() - 1.0f, playheadX, wave.getBottom() + 1.0f, 1.4f);
+        juce::ignoreUnused (tLen);
     }
     else if (totalLen <= 0.0)
     {
@@ -265,13 +383,12 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawLine (wave.getCentreX(), wave.getY() - 1.0f, wave.getCentreX(), wave.getBottom() + 1.0f, 1.0f);
     }
 
-    // ── Play / pause glyph ───────────────────────────────────────────────────────
+    // ── Play / pause glyph ───────────────────────────────────────────────────
     if (totalLen > 0.0)
     {
         const float glyphSize = juce::jmin (wave.getHeight() * 0.6f, 70.0f);
         const auto  glyphArea = juce::Rectangle<float> (glyphSize, glyphSize).withCentre (wave.getCentre());
-        const float alpha     = isPlaying ? 0.18f : 0.32f;
-        g.setColour (accent.withAlpha (alpha));
+        g.setColour (accent.withAlpha (isPlaying ? 0.18f : 0.32f));
         if (isPlaying)
         {
             juce::Path play;
@@ -292,6 +409,26 @@ void WaveformDisplay::paint (juce::Graphics& g)
             g.fillRect (juce::Rectangle<float> (cx + gap / 2.0f,        yT, barW, yB - yT));
         }
     }
+
+    // ── Zoom indicator (only when zoomed) ────────────────────────────────────
+    if (zoomLevel > 1.05f)
+    {
+        g.setColour (accent.withAlpha (0.55f));
+        g.setFont (juce::FontOptions (9.0f));
+        g.drawText (juce::String (zoomLevel, 1) + "x",
+                    wave.toNearestInt().withLeft (wave.toNearestInt().getRight() - 32).withHeight (12),
+                    juce::Justification::centredRight);
+
+        // Mini scrollbar at bottom
+        const float sbH    = 3.0f;
+        const float sbY    = wave.getBottom() - sbH - 1.0f;
+        const float thumbW = wave.getWidth() / zoomLevel;
+        const float thumbX = wave.getX() + scrollFraction * (wave.getWidth() - thumbW);
+        g.setColour (juce::Colour (kHairline).withAlpha (0.4f));
+        g.fillRect (juce::Rectangle<float> (wave.getX(), sbY, wave.getWidth(), sbH));
+        g.setColour (accent.withAlpha (0.7f));
+        g.fillRect (juce::Rectangle<float> (thumbX, sbY, thumbW, sbH));
+    }
 }
 
 bool WaveformDisplay::isInterestedInFileDrag (const juce::StringArray& files)
@@ -309,7 +446,6 @@ void WaveformDisplay::filesDropped (const juce::StringArray& files, int, int)
 {
     if (files.isEmpty())
         return;
-
     const juce::File file (files[0]);
     if (onFileDropped)
         onFileDropped (file);

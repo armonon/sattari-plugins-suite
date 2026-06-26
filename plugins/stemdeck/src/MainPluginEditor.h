@@ -48,6 +48,24 @@ private:
         std::unique_ptr<ComboBoxAttachment> keyTargetAttachment, tempoInterpretationAttachment, syncModeAttachment;
         std::unique_ptr<SliderAttachment> bpmAttachment, beatOffsetAttachment, downbeatAttachment, volumeAttachment, faderAttachment, pitchAttachment, lowAttachment, midAttachment, highAttachment, filterAttachment;
         std::array<std::unique_ptr<SliderAttachment>, DeckPlayer::numStemLanes> stemGainAttachments;
+
+        // ── Hot cues ──────────────────────────────────────────────────────────
+        std::array<juce::TextButton, MainPluginProcessor::numHotCues> hotCues;
+
+        // ── Loop controls ─────────────────────────────────────────────────────
+        juce::TextButton loopIn   { "IN" };
+        juce::TextButton loopOut  { "OUT" };
+        juce::TextButton loopToggle { "LOOP" };
+        juce::TextButton loopHalf { "\xc2\xbd" };    // ½
+        juce::TextButton loopDouble { "2\xc3\x97" }; // 2×
+
+        // ── Beat jump (back: bars[3]=32 [2]=16 [1]=8 [0]=4, fwd mirror) ──────
+        std::array<juce::TextButton, 4> beatJumpBack;
+        std::array<juce::TextButton, 4> beatJumpFwd;
+
+        // ── Built-in FX ───────────────────────────────────────────────────────
+        juce::Slider reverbMix, echoMix;
+        std::unique_ptr<SliderAttachment> reverbMixAttachment, echoMixAttachment;
     };
 
     struct PadControls
@@ -200,6 +218,11 @@ private:
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton recordButton { "Record WAV" };
+    juce::TextButton tapTempoButton { "TAP" };
+    juce::Label tapTempoLabel;
+    juce::TextButton camelotButton { "Key" };
+    juce::TextButton midiLearnButton { "MIDI" };
+    juce::Label libraryMetaLabel;   // shows BPM / key / duration for hovered file
     juce::TextButton revealRecordingButton { "Reveal" };
     juce::TextButton reloadIntoDecksButton { "Reload to Decks" };
     juce::TextButton bounceEditsButton { "Bounce Edits" };
@@ -248,6 +271,23 @@ private:
     void openDeckChooser (int deckIndex);
     void openDeckStemChooser (int deckIndex, int stemLaneIndex);
     void openPadChooser (int padIndex);
+
+    // Hot cue helpers
+    void setupHotCueButtons (int deckIndex);
+    void handleHotCuePress (int deckIndex, int cueIndex, juce::ModifierKeys mods);
+    void refreshHotCueButtonColours (int deckIndex);
+    void updateWaveformHotCues (int deckIndex);
+
+    // Loop helpers
+    void setupLoopControls (int deckIndex);
+    void updateLoopButtonStates (int deckIndex);
+    void updateWaveformLoopRegion (int deckIndex);
+
+    // UI helpers
+    void showCamelotWheel (int deckIndex);
+    void showLibraryMeta (const juce::File& file);
+    void updateMidiLearnUI();
+
     void toggleRecording();
     void revealLastRecording();
     void reloadLastRecordingIntoDecks();

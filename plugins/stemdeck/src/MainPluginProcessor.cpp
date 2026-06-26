@@ -128,6 +128,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
             params.push_back (floatParam (deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain",
                                           label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem Gain",
                                           -60.0f, 12.0f, lane == DeckPlayer::fullMixStem ? 0.0f : 0.0f, "dB"));
+
+        params.push_back (floatParam (deck + "RevMix",  label + " Reverb Mix",   0.0f, 1.0f, 0.0f));
+        params.push_back (floatParam (deck + "EchoMix", label + " Echo Mix",     0.0f, 1.0f, 0.0f));
     }
 
     params.push_back (floatParam ("crossfader", "Crossfader", 0.0f, 1.0f, 0.5f));
@@ -163,6 +166,8 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         scratch.setSize (outputChannels, samplesPerBlock);
     warpEngine.prepare (sampleRate, samplesPerBlock, outputChannels);
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
+    for (auto& fx : deckFX)
+        fx.prepare (sampleRate);
 }
 
 bool MainPluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -268,6 +273,10 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                                    getFloatParam (deck + "Low"), getFloatParam (deck + "Mid"), getFloatParam (deck + "High"),
                                    getFloatParam (deck + "Filter"), 1.0f, warpPlan.timePitch, stemGains,
                                    warpPlan.beatSync);
+        // Apply built-in FX before plugin chain
+        deckFX[(size_t) i].process (deckBuffer,
+                                    getFloatParam (deck + "RevMix"),
+                                    getFloatParam (deck + "EchoMix"));
         hostGraph.processChain ((HostGraph::Chain) i, deckBuffer, midi);
         deckRecorders[(size_t) i].captureBlock (deckBuffer);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)

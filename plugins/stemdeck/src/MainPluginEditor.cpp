@@ -1070,7 +1070,78 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         };
         deckControls[(size_t) i].aiStems.onClick = [this, i] { processorRef.requestDeckAiStemsAsync (i); };
         deckControls[(size_t) i].cue.onClick = [this, i] { processorRef.rewindDeck (i); };
+
+        // Seek on waveform click
+        deckWaves[(size_t) i]->setOnSeekRequest ([this, i] (double seconds)
+        {
+            processorRef.seekDeckSeconds (i, seconds);
+        });
+
+        setupHotCueButtons (i);
+        setupLoopControls (i);
+
+        // Beat jump buttons — back: bars[0]=4 [1]=8 [2]=16 [3]=32
+        {
+            static constexpr double kBars[] = { 4.0, 8.0, 16.0, 32.0 };
+            static constexpr const char* kBackLabels[] = { "◀4", "◀8", "◀16", "◀32" };
+            static constexpr const char* kFwdLabels[]  = { "4▶", "8▶", "16▶", "32▶" };
+            auto& dc = deckControls[(size_t) i];
+            for (int b = 0; b < 4; ++b)
+            {
+                dc.beatJumpBack[b].setButtonText (kBackLabels[b]);
+                setupButton (dc.beatJumpBack[b]);
+                dc.beatJumpBack[b].onClick = [this, i, b] { processorRef.beatJumpDeck (i, -kBars[b]); };
+                addAndMakeVisible (dc.beatJumpBack[b]);
+
+                dc.beatJumpFwd[b].setButtonText (kFwdLabels[b]);
+                setupButton (dc.beatJumpFwd[b]);
+                dc.beatJumpFwd[b].onClick = [this, i, b] { processorRef.beatJumpDeck (i, kBars[b]); };
+                addAndMakeVisible (dc.beatJumpFwd[b]);
+            }
+        }
+
+        // Built-in FX sliders
+        {
+            auto& dc = deckControls[(size_t) i];
+            setupSlider (dc.reverbMix, true);
+            dc.reverbMix.setTooltip ("Reverb mix");
+            dc.reverbMix.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            dc.reverbMix.setPopupDisplayEnabled (true, true, this);
+            addAndMakeVisible (dc.reverbMix);
+            dc.reverbMixAttachment = std::make_unique<SliderAttachment> (
+                processorRef.parameters(), deckPrefix (i) + "RevMix", dc.reverbMix);
+
+            setupSlider (dc.echoMix, true);
+            dc.echoMix.setTooltip ("Echo mix");
+            dc.echoMix.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            dc.echoMix.setPopupDisplayEnabled (true, true, this);
+            addAndMakeVisible (dc.echoMix);
+            dc.echoMixAttachment = std::make_unique<SliderAttachment> (
+                processorRef.parameters(), deckPrefix (i) + "EchoMix", dc.echoMix);
+        }
     }
+
+    // Tap tempo
+    setupButton (tapTempoButton);
+    tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
+    addAndMakeVisible (tapTempoButton);
+    tapTempoLabel.setFont (juce::FontOptions (9.0f));
+    tapTempoLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    tapTempoLabel.setText ("TAP BPM", juce::dontSendNotification);
+    addAndMakeVisible (tapTempoLabel);
+
+    // Camelot wheel & MIDI learn buttons
+    setupButton (camelotButton);
+    camelotButton.onClick = [this] { showCamelotWheel (-1); };
+    addAndMakeVisible (camelotButton);
+
+    setupButton (midiLearnButton);
+    midiLearnButton.onClick = [this] { updateMidiLearnUI(); };
+    addAndMakeVisible (midiLearnButton);
+
+    libraryMetaLabel.setFont (juce::FontOptions (10.0f));
+    libraryMetaLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    addAndMakeVisible (libraryMetaLabel);
 
     addAndMakeVisible (mixerPanel);
     setupSlider (crossfader, false);
@@ -2211,7 +2282,42 @@ void MainPluginEditor::resized()
         // 2. Waveform — large djay-Pro-style display, full deck width.
         if (auto* wave = deckWaves[(size_t) deckIndex].get())
             wave->setBounds (lane.removeFromTop (170));
-        lane.removeFromTop (8);
+        lane.removeFromTop (4);
+
+        // 2a. Hot cue row — 8 coloured buttons, Pioneer style.
+        {
+            auto hotCueRow = lane.removeFromTop (20);
+            const int btnW = hotCueRow.getWidth() / 8;
+            for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+                controls.hotCues[(size_t) c].setBounds (hotCueRow.removeFromLeft (btnW).reduced (1, 0));
+        }
+        lane.removeFromTop (3);
+
+        // 2b. Beat jump row — ◀32 ◀16 ◀8 ◀4 | 4▶ 8▶ 16▶ 32▶
+        {
+            auto jumpRow = lane.removeFromTop (20);
+            const int jW = jumpRow.getWidth() / 8;
+            for (int b = 3; b >= 0; --b)
+                controls.beatJumpBack[(size_t) b].setBounds (jumpRow.removeFromLeft (jW).reduced (1, 0));
+            for (int b = 0; b < 4; ++b)
+                controls.beatJumpFwd[(size_t) b].setBounds (jumpRow.removeFromLeft (jW).reduced (1, 0));
+        }
+        lane.removeFromTop (3);
+
+        // 2c. Loop controls row + built-in FX knobs
+        {
+            auto loopRow = lane.removeFromTop (22);
+            const int btnW = 34;
+            controls.loopIn    .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
+            controls.loopOut   .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
+            controls.loopToggle.setBounds (loopRow.removeFromLeft (40) .reduced (1, 0));
+            controls.loopHalf  .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
+            controls.loopDouble.setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
+            loopRow.removeFromLeft (8);
+            controls.reverbMix .setBounds (loopRow.removeFromLeft (28).reduced (2, 1));
+            controls.echoMix   .setBounds (loopRow.removeFromLeft (28).reduced (2, 1));
+        }
+        lane.removeFromTop (4);
 
         // 3. Upper zone — left controls + right vertical-fader column (VOL/FADER/PITCH).
         const int upperHeight = 128;
@@ -2303,6 +2409,13 @@ void MainPluginEditor::resized()
     beatSync.setBounds (mixControls.removeFromLeft (112).withTrimmedTop (24));
     micMonitor.setBounds (mixControls.removeFromLeft (120).withTrimmedTop (24));
     micGain.setBounds (mixControls.removeFromLeft (90));
+    tapTempoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
+    mixControls.removeFromLeft (3);
+    tapTempoLabel.setBounds (mixControls.removeFromLeft (70).withTrimmedTop (28).withHeight (16));
+    camelotButton.setBounds (mixControls.removeFromLeft (46).withTrimmedTop (20).withHeight (32));
+    mixControls.removeFromLeft (3);
+    midiLearnButton.setBounds (mixControls.removeFromLeft (46).withTrimmedTop (20).withHeight (32));
+    mixControls.removeFromLeft (8);
     recordButton.setBounds (mixControls.removeFromLeft (96).withTrimmedTop (20).withHeight (32));
     mixControls.removeFromLeft (3);
     revealRecordingButton.setBounds (mixControls.removeFromLeft (60).withTrimmedTop (20).withHeight (32));
@@ -2414,4 +2527,228 @@ void MainPluginEditor::timerCallback()
             }
         }
     }
+}
+
+// ── Hot cue helpers ───────────────────────────────────────────────────────────
+
+static const std::array<juce::Colour, 8> kHotCueColours {{
+    juce::Colour (0xFFE03030), juce::Colour (0xFF3090E0), juce::Colour (0xFF30C050),
+    juce::Colour (0xFFE0B020), juce::Colour (0xFFB040E0), juce::Colour (0xFFE06020),
+    juce::Colour (0xFF20C8C8), juce::Colour (0xFFE040A0),
+}};
+
+void MainPluginEditor::setupHotCueButtons (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+    {
+        auto& btn = dc.hotCues[(size_t) c];
+        btn.setButtonText (juce::String (c + 1));
+        btn.setClickingTogglesState (false);
+        btn.setColour (juce::TextButton::buttonColourId,    kHotCueColours[(size_t) c].withAlpha (0.25f));
+        btn.setColour (juce::TextButton::buttonOnColourId,  kHotCueColours[(size_t) c].withAlpha (0.80f));
+        btn.setColour (juce::TextButton::textColourOffId,   kHotCueColours[(size_t) c]);
+        btn.setColour (juce::TextButton::textColourOnId,    juce::Colours::white);
+        btn.onClick = [this, deckIndex, c]
+        {
+            handleHotCuePress (deckIndex, c, juce::ModifierKeys::getCurrentModifiers());
+        };
+        addAndMakeVisible (btn);
+    }
+}
+
+void MainPluginEditor::handleHotCuePress (int deckIndex, int cueIndex, juce::ModifierKeys mods)
+{
+    if (mods.isAltDown())
+    {
+        // Alt+click = clear cue
+        processorRef.clearHotCue (deckIndex, cueIndex);
+    }
+    else if (mods.isShiftDown() || processorRef.getHotCue (deckIndex, cueIndex) < 0.0)
+    {
+        // Shift+click or unset cue = set at current playhead
+        processorRef.setHotCue (deckIndex, cueIndex, processorRef.getDeckPlayheadSeconds (deckIndex));
+    }
+    else
+    {
+        // Normal click = jump to cue
+        processorRef.jumpToHotCue (deckIndex, cueIndex);
+    }
+    refreshHotCueButtonColours (deckIndex);
+    updateWaveformHotCues (deckIndex);
+}
+
+void MainPluginEditor::refreshHotCueButtonColours (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+    {
+        const bool isSet = processorRef.getHotCue (deckIndex, c) >= 0.0;
+        dc.hotCues[(size_t) c].setColour (juce::TextButton::buttonColourId,
+                                          kHotCueColours[(size_t) c].withAlpha (isSet ? 0.60f : 0.18f));
+    }
+}
+
+void MainPluginEditor::updateWaveformHotCues (int deckIndex)
+{
+    auto* wave = deckWaves[(size_t) deckIndex].get();
+    if (wave == nullptr) return;
+    std::array<WaveformDisplay::HotCue, WaveformDisplay::numHotCues> cues {};
+    for (int c = 0; c < WaveformDisplay::numHotCues; ++c)
+    {
+        cues[(size_t) c].seconds = processorRef.getHotCue (deckIndex, c);
+        cues[(size_t) c].colour  = kHotCueColours[(size_t) c];
+    }
+    wave->setHotCues (cues);
+}
+
+// ── Loop helpers ─────────────────────────────────────────────────────────────
+
+void MainPluginEditor::setupLoopControls (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    const auto accent = deckAccent (deckIndex);
+
+    setupButton (dc.loopIn);
+    dc.loopIn.onClick = [this, deckIndex]
+    {
+        // Set loop-in at current playhead; if loop-out already set keep it, else set 2-bar ahead
+        const double pos = processorRef.getDeckPlayheadSeconds (deckIndex);
+        double loopOut   = processorRef.getDeckLoopOutSeconds (deckIndex);
+        if (loopOut < pos)
+        {
+            const float bpm = *processorRef.parameters().getRawParameterValue (deckPrefix (deckIndex) + "Bpm");
+            loopOut = pos + (60.0 / juce::jmax (1.0f, bpm)) * 8.0;  // 2 bars default
+        }
+        processorRef.setDeckLoopSeconds (deckIndex, pos, loopOut);
+        processorRef.setDeckLoopActive (deckIndex, true);
+        updateLoopButtonStates (deckIndex);
+        updateWaveformLoopRegion (deckIndex);
+    };
+    addAndMakeVisible (dc.loopIn);
+
+    setupButton (dc.loopOut);
+    dc.loopOut.onClick = [this, deckIndex]
+    {
+        const double pos    = processorRef.getDeckPlayheadSeconds (deckIndex);
+        const double loopIn = juce::jmax (0.0, processorRef.getDeckLoopInSeconds (deckIndex));
+        processorRef.setDeckLoopSeconds (deckIndex, loopIn, pos);
+        processorRef.setDeckLoopActive (deckIndex, true);
+        updateLoopButtonStates (deckIndex);
+        updateWaveformLoopRegion (deckIndex);
+    };
+    addAndMakeVisible (dc.loopOut);
+
+    setupButton (dc.loopToggle);
+    dc.loopToggle.setClickingTogglesState (false);
+    dc.loopToggle.setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.6f));
+    dc.loopToggle.onClick = [this, deckIndex]
+    {
+        processorRef.setDeckLoopActive (deckIndex, ! processorRef.isDeckLoopActive (deckIndex));
+        updateLoopButtonStates (deckIndex);
+        updateWaveformLoopRegion (deckIndex);
+    };
+    addAndMakeVisible (dc.loopToggle);
+
+    setupButton (dc.loopHalf);
+    dc.loopHalf.onClick = [this, deckIndex]
+    {
+        const double in  = processorRef.getDeckLoopInSeconds (deckIndex);
+        const double out = processorRef.getDeckLoopOutSeconds (deckIndex);
+        if (in >= 0.0 && out > in)
+        {
+            const double mid = in + (out - in) * 0.5;
+            processorRef.setDeckLoopSeconds (deckIndex, in, mid);
+            updateWaveformLoopRegion (deckIndex);
+        }
+    };
+    addAndMakeVisible (dc.loopHalf);
+
+    setupButton (dc.loopDouble);
+    dc.loopDouble.onClick = [this, deckIndex]
+    {
+        const double in  = processorRef.getDeckLoopInSeconds (deckIndex);
+        const double out = processorRef.getDeckLoopOutSeconds (deckIndex);
+        if (in >= 0.0 && out > in)
+        {
+            processorRef.setDeckLoopSeconds (deckIndex, in, out + (out - in));
+            updateWaveformLoopRegion (deckIndex);
+        }
+    };
+    addAndMakeVisible (dc.loopDouble);
+}
+
+void MainPluginEditor::updateLoopButtonStates (int deckIndex)
+{
+    const bool active = processorRef.isDeckLoopActive (deckIndex);
+    deckControls[(size_t) deckIndex].loopToggle.setToggleState (active, juce::dontSendNotification);
+}
+
+void MainPluginEditor::updateWaveformLoopRegion (int deckIndex)
+{
+    auto* wave = deckWaves[(size_t) deckIndex].get();
+    if (wave == nullptr) return;
+    const double in  = processorRef.getDeckLoopInSeconds (deckIndex);
+    const double out = processorRef.getDeckLoopOutSeconds (deckIndex);
+    const bool active = processorRef.isDeckLoopActive (deckIndex);
+    if (in >= 0.0 && out > in)
+        wave->setLoopRegion (in, out, active);
+    else
+        wave->clearLoopRegion();
+}
+
+// ── Camelot wheel popup ───────────────────────────────────────────────────────
+
+void MainPluginEditor::showCamelotWheel (int /*deckIndex*/)
+{
+    // 12 keys × 2 (major/minor) shown in a grid popup
+    // Columns: C Db D Eb E F F# G Ab A Bb B
+    static const char* const kKeys[] = {
+        "C","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"
+    };
+    static const int kCamelotMaj[] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };   // camelot number
+    static const int kCamelotMin[] = { 5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10 };
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Camelot Key Wheel");
+    for (int k = 0; k < 12; ++k)
+    {
+        menu.addItem (k + 1,
+                      juce::String (kCamelotMaj[k]) + "B  " + kKeys[k] + " maj   |   "
+                      + juce::String (kCamelotMin[k]) + "A  " + kKeys[k] + " min");
+    }
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (camelotButton), nullptr);
+}
+
+// ── Library meta info ─────────────────────────────────────────────────────────
+
+void MainPluginEditor::showLibraryMeta (const juce::File& file)
+{
+    if (! file.existsAsFile()) { libraryMetaLabel.setText ({}, juce::dontSendNotification); return; }
+    // Show what we know without full analysis (duration via thumbnail if loaded)
+    libraryMetaLabel.setText (file.getFileName() + "  |  " + file.getFileExtension().toUpperCase(),
+                               juce::dontSendNotification);
+}
+
+// ── MIDI learn placeholder ────────────────────────────────────────────────────
+
+void MainPluginEditor::updateMidiLearnUI()
+{
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::AlertWindow::InfoIcon,
+        "MIDI Mapping",
+        "MIDI learn: right-click any knob or fader and choose \"MIDI Learn\" to map a controller.\n\n"
+        "Common Pioneer CDJ defaults:\n"
+        "  CC 2  = Crossfader\n"
+        "  CC 3  = Master BPM\n"
+        "  CC 14 = Deck A volume\n"
+        "  CC 15 = Deck B volume\n"
+        "  CC 16 = Deck C volume\n"
+        "  CC 17 = Deck D volume\n"
+        "  Note 36 = Deck A play/pause\n"
+        "  Note 37 = Deck B play/pause\n"
+        "  Note 38 = Deck C play/pause\n"
+        "  Note 39 = Deck D play/pause",
+        "OK",
+        this);
 }
