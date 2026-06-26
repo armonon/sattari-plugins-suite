@@ -1373,9 +1373,13 @@ void MainPluginEditor::openDeckStemChooser (int deckIndex, int stemLaneIndex)
             if (file.existsAsFile())
             {
                 processorRef.loadDeckStemFileAsync (deckIndex, stemLaneIndex, file);
-                if (stemLaneIndex == DeckPlayer::fullMixStem)
-                    if (auto* wave = deckWaves[(size_t) deckIndex].get())
+                if (auto* wave = deckWaves[(size_t) deckIndex].get())
+                {
+                    if (stemLaneIndex == DeckPlayer::fullMixStem)
                         wave->setFile (file);
+                    else
+                        wave->setStemFile (stemLaneIndex, file);
+                }
             }
         });
 }
@@ -2396,6 +2400,18 @@ void MainPluginEditor::timerCallback()
             if (path.isNotEmpty())
                 if (auto* wave = deckWaves[(size_t) i].get())
                     wave->setFile (juce::File (path));
+        }
+
+        // Keep stem thumbnails in sync when AI stem separation completes or on reload.
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+        {
+            const auto stemPath = processorRef.getDeckStemPath (i, lane);
+            if (stemPath != deckStemPaths[(size_t) i][(size_t) lane])
+            {
+                deckStemPaths[(size_t) i][(size_t) lane] = stemPath;
+                if (auto* wave = deckWaves[(size_t) i].get())
+                    wave->setStemFile (lane, stemPath.isNotEmpty() ? juce::File (stemPath) : juce::File());
+            }
         }
     }
 }

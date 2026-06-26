@@ -224,6 +224,7 @@ private:
     juce::FileChooser padChooser { "Load a one-shot sample" };
     juce::FileChooser recordChooser { "Save StemDeck master recording", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("StemDeck-master.wav"), "*.wav" };
     std::array<juce::String, MainPluginProcessor::numDecks> deckPaths;
+    std::array<std::array<juce::String, DeckPlayer::numStemLanes>, MainPluginProcessor::numDecks> deckStemPaths {};
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };
     juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3", "*", "Audio files" };

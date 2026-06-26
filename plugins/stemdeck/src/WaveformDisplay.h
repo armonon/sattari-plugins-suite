@@ -11,6 +11,7 @@ public:
     ~WaveformDisplay() override;
 
     void setFile (const juce::File& file);
+    void setStemFile (int laneIndex, const juce::File& file);   // laneIndex: 1=drums 2=bass 3=music 4=vocals
     void setOnFileDropped (std::function<void(const juce::File&)> callback);
     void setPlaybackState (double positionSeconds, double totalSeconds, bool isPlaying);
     void paint (juce::Graphics& g) override;
@@ -22,6 +23,11 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     juce::AudioThumbnail thumbnail;
+    juce::AudioThumbnail drumsThumbnail;
+    juce::AudioThumbnail bassThumbnail;
+    juce::AudioThumbnail musicThumbnail;
+    juce::AudioThumbnail vocalsThumbnail;
+
     juce::String title;
     juce::File currentFile;
     std::function<void(const juce::File&)> onFileDropped;
