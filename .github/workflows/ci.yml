@@ -49,12 +49,14 @@ jobs:
       matrix:
         include:
           - { plugin: sub-conjurer }
-          - { plugin: side-chain-master }
+          - { plugin: bus,               test: SattariBusCoreContract }
+          - { plugin: side-chain-master, test: SideChainMasterCoreContract }
+          - { plugin: align,             test: SattariAlignCoreContract }
           - { plugin: royal-chain }
-          - { plugin: sattari-arp }
-          - { plugin: voxkey,     test: VoxKeyCoreContract }
-          - { plugin: auto-pitch, test: AutoPitchCoreContract }
-          - { plugin: stemdeck,   test: StemDeckArchitectureContract }
+          - { plugin: sattari-arp,       test: SattariArpTimingContract }
+          - { plugin: voxkey,            test: VoxKeyCoreContract }
+          - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
+          - { plugin: stemdeck,          test: StemDeckArchitectureContract }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,6 +82,19 @@ jobs:
           if [ -z "$bin" ]; then echo "::error::contract test binary ${{ matrix.test }} not found"; exit 1; fi
           echo "Running $bin"
           "$bin"
+
+      # Render harness in --smoke mode: proves the real audio path produces
+      # finite, non-silent output. A strict null-test against the golden runs
+      # locally (same machine + Rubber Band); it is intentionally NOT a CI gate
+      # because Rubber Band output is not bit-portable across versions/platforms.
+      - name: Build + run render smoke
+        if: ${{ matrix.render != '' }}
+        run: |
+          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.render }} -j3
+          bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.render }}' -perm +111 | head -n1)"
+          if [ -z "$bin" ]; then echo "::error::render binary ${{ matrix.render }} not found"; exit 1; fi
+          echo "Running $bin --smoke"
+          "$bin" --smoke
 
   # ---------------------------------------------------------------------------
   # Suite build from the repo root: compiles JUCE once and every plugin + core

@@ -39,3 +39,8 @@ third_party/.rubberband_broken/
 # Logs + FUSE filesystem leftovers.
 *.log
 **/.fuse_hidden*
+
+# Render-harness audio output is regenerable (run AutoPitchRender). The committed
+# regression reference is the small text fingerprint in validation/golden/, NOT
+# the .wav.
+validation/renders/

@@ -53,3 +53,37 @@ target_link_libraries(AutoPitchCoreContract
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+
+# Offline render + null-test driver (regression net on the actual sound).
+add_executable(AutoPitchRender
+    EXCLUDE_FROM_ALL
+        tools/auto_pitch_render.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+
+add_dependencies(AutoPitchRender SattariAutoPitch)
+
+target_include_directories(AutoPitchRender
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
+
+target_compile_definitions(AutoPitchRender
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        SATTARI_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
+target_link_libraries(AutoPitchRender
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+
+sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
