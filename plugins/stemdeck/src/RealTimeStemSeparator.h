@@ -4,25 +4,37 @@
 #include <array>
 
 /**
- * Sample-accurate real-time stem separator.
+ * Sample-accurate real-time stem separator (v2 — exact reconstruction).
  *
- * Splits stereo audio into four stems in a single pass using only IIR filters,
- * envelope followers, and M/S mid-side processing — no FFT or lookahead.
+ * Splits stereo audio into four stems in a single zero-latency pass using
+ * biquad crossovers, center-channel (mid/side) extraction, and transient
+ * onset gating.  No FFT, no lookahead, RT-safe (no allocations in process()).
  *
- * Algorithm:
- *   Bass   = steep low-pass (2nd-order Butterworth, ~200 Hz) on the mono sum.
- *   Vocals = bandpass of the mid (centre) channel: HPF ~300 Hz then LPF ~3.5 kHz.
- *            Centre content == vocals in most mixed material.
- *   Drums  = onset-gated wideband signal.  A fast envelope follower on the HPF
- *            signal detects transients; a slow follower tracks the RMS floor.
- *            When fast / slow > threshold the sample belongs to "drums".
- *   Music  = input minus bass, minus an attenuated drums contribution, minus
- *            an attenuated vocals contribution — i.e. the harmonic remainder.
+ * The defining property of this version is **exact reconstruction**:
  *
- * Quality caveat: this is substantially below Demucs/HTDemucs.  It works well
- * for surgical EQ use-cases (kill the kick, ride the vocals up, etc.) but will
- * bleed at transient edges and on complex material.  The AI Split button still
- * delivers the full-quality offline separation when the user has time to wait.
+ *     bass + vocals + drums + music  ==  input    (per channel, sample exact)
+ *
+ * Each stem is carved out as a residual of the previous, so summing all four
+ * at unity gain reproduces the dry signal bit-for-bit — riding the stem knobs
+ * never introduces phase cancellation or level shift.  This is the property
+ * that makes spectral-mask separators (djay Neural Mix, Serato Stems) sound
+ * clean, and the previous v1 lacked it.
+ *
+ * Carving order:
+ *   bass   = LR4 low-pass (~180 Hz) of the mono sum.
+ *   hp     = input − bass                         (everything above bass, exact)
+ *   vocals = center-dominant vocal-band content of mid(hp).  A mid/side power
+ *            ratio gates the 220 Hz–5.2 kHz band of the centre channel, so
+ *            lead vocals (centre-panned) are pulled while panned instruments
+ *            stay behind.
+ *   drums  = transient-gated (hp − vocals).  A fast/slow envelope ratio on a
+ *            120 Hz high-passed signal opens a soft gate on percussive onsets.
+ *   music  = (hp − vocals) − drums                (tonal residual, exact)
+ *
+ * Quality caveat: still well below Demucs/HTDemucs — snares bleed between the
+ * drums and vocals lanes, and dense mixes smear.  But it is genuinely usable
+ * for live "pull the vocal / kill the drums" moves, and the AI Split button
+ * still delivers full-quality offline separation when there is time to wait.
  */
 class RealTimeStemSeparator
 {
@@ -32,75 +44,73 @@ public:
 
     /**
      * Separate @p numSamples of stereo input into four stereo output buffers.
-     * All output buffers must have at least @p numSamples frames allocated.
-     * Gains: each output already contains ONLY that stem — the caller applies
-     * per-stem gain and mixes back.
+     * Every output buffer must have at least @p numSamples frames.
      *
-     * Lane indices match DeckPlayer::StemLane:
-     *   0 = fullMix (not written — caller keeps the pre-separation signal)
-     *   1 = drums
-     *   2 = bass
-     *   3 = music
-     *   4 = vocals
+     * Lane indices match DeckPlayer::StemLane (fullMix=0 is never written;
+     * the caller keeps the pre-separation signal for that lane):
+     *   1 = drums, 2 = bass, 3 = music, 4 = vocals
      */
     void process (const float* inL, const float* inR, int numSamples,
-                  float* drumsL, float* drumsR,     // lane 1
-                  float* bassL,  float* bassR,      // lane 2
-                  float* musicL, float* musicR,     // lane 3
-                  float* vocalsL, float* vocalsR);  // lane 4
+                  float* drumsL, float* drumsR,
+                  float* bassL,  float* bassR,
+                  float* musicL, float* musicR,
+                  float* vocalsL, float* vocalsR);
 
-    // Tweakable thresholds (normalised 0..1)
+    // Tunable thresholds (normalised 0..1)
     void setDrumsSensitivity (float s) noexcept { drumsSensitivity = juce::jlimit (0.05f, 0.99f, s); }
     void setVocalsMidWeight  (float w) noexcept { vocalsMidWeight  = juce::jlimit (0.0f,  1.0f,  w); }
 
 private:
-    // ── per-channel state ─────────────────────────────────────────────────────
-    struct Chan
+    // ── Transposed-Direct-Form-II biquad ──────────────────────────────────────
+    struct Biquad
     {
-        // Bass: 2nd-order Butterworth LP ~200 Hz (two cascaded one-poles)
-        float bassZ1 = 0.0f, bassZ2 = 0.0f;
+        double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
+        double z1 = 0.0, z2 = 0.0;
 
-        // Vocal bandpass: HPF ~300 Hz then LPF ~3.5 kHz
-        float vocHPZ = 0.0f;
-        float vocLPZ = 0.0f;
+        void reset() noexcept { z1 = z2 = 0.0; }
 
-        // Drum transient detection: HPF + fast/slow envelope
-        float drumHPZ    = 0.0f;
-        float drumFastEnv = 0.0f;
-        float drumSlowEnv = 0.0001f;
+        void setLowpass  (double fc, double fs, double q) noexcept;
+        void setHighpass (double fc, double fs, double q) noexcept;
 
-        // Music: notch the centre channel (mid-side) for the side component
-        float musicLPZ = 0.0f;
+        inline float process (float x) noexcept
+        {
+            const double y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return (float) y;
+        }
     };
 
+    // Mono-path filters (mid / side derived once per sample)
+    Biquad bassLP1, bassLP2;     // LR4 low-pass on mid → bass
+    Biquad vMidHP,  vMidLP;      // vocal band-pass on mid
+    Biquad vSideHP, vSideLP;     // vocal band-pass on side (for dominance ratio)
+
+    // Per-channel filters / envelopes
+    struct Chan
+    {
+        Biquad drumHP;           // isolate snare/hat transients
+        float  fastEnv = 0.0f;
+        float  slowEnv = 1.0e-4f;
+        float  drumMaskSm = 0.0f;
+    };
     std::array<Chan, 2> ch {};
 
-    // ── filter coefficients (computed in prepare()) ───────────────────────────
-    float bassA  = 0.0f;   // one-pole LP coeff for bass (applied twice)
-    float vocHPA = 0.0f;   // one-pole HP coeff for vocal HPF
-    float vocLPA = 0.0f;   // one-pole LP coeff for vocal LPF
-    float drumHPA = 0.0f;  // one-pole HP coeff for drum onset detector
+    // Mono envelopes for the vocal dominance gate
+    float vEnvMid  = 0.0f;
+    float vEnvSide = 0.0f;
+    float vMaskSm  = 0.0f;
 
-    float drumFastDecay = 0.0f;   // fast envelope release
-    float drumSlowAttack = 0.0f;  // slow envelope attack (smooths RMS floor)
-    float drumSlowDecay  = 0.0f;
+    // Smoothing / detection coefficients (set in prepare)
+    float envCoeff      = 0.0f;   // mid/side dominance envelope smoothing
+    float fastRelease   = 0.0f;
+    float slowAttack    = 0.0f;
+    float slowRelease   = 0.0f;
+    float vMaskSmooth   = 0.0f;
+    float drumMaskSmooth = 0.0f;
 
     float drumsSensitivity = 0.55f;
-    float vocalsMidWeight  = 0.85f;  // how much of the mid channel to use for vocals
+    float vocalsMidWeight  = 0.90f;
 
     double sr = 44100.0;
-
-    static float onePoleLP (float in, float z, float a) noexcept
-    {
-        return a * in + (1.0f - a) * z;
-    }
-
-    static float onePoleHP (float in, float& z, float a) noexcept
-    {
-        const float y = a * (z + in - z);  // HP = input − LP
-        // Simpler: HP = in − LP(in)
-        const float lp = onePoleLP (in, z, a);
-        z = lp;
-        return in - lp;
-    }
 };

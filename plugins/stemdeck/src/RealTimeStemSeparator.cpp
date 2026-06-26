@@ -2,45 +2,96 @@
 
 namespace
 {
-// One-pole LP coefficient for a given cut-off.
-// a = 1 - exp(-2π * fc / sr)  (bilinear approx)
-inline float lpCoeff (double fc, double sampleRate) noexcept
+constexpr double kButterworthQ = 0.70710678118654752440;  // 1/√2
+
+// Crossover / band edges
+constexpr double kBassFc   = 180.0;    // bass low-pass (LR4)
+constexpr double kVocalLoFc = 220.0;   // vocal band high-pass
+constexpr double kVocalHiFc = 5200.0;  // vocal band low-pass
+constexpr double kDrumHpFc = 120.0;    // drum onset detector high-pass
+
+// One-pole smoothing coefficient for a given time constant (seconds).
+inline float smoothingCoeff (double seconds, double sampleRate) noexcept
 {
-    const double rc = 1.0 / (juce::MathConstants<double>::twoPi * fc);
-    return (float) (1.0 / (1.0 + rc * sampleRate));
+    return (float) (1.0 - std::exp (-1.0 / (juce::jmax (1.0e-4, seconds) * sampleRate)));
 }
 }
+
+// ── Biquad coefficient design (RBJ cookbook) ───────────────────────────────────
+
+void RealTimeStemSeparator::Biquad::setLowpass (double fc, double fs, double q) noexcept
+{
+    const double w0    = juce::MathConstants<double>::twoPi * fc / fs;
+    const double cosw0 = std::cos (w0);
+    const double sinw0 = std::sin (w0);
+    const double alpha = sinw0 / (2.0 * q);
+    const double a0    = 1.0 + alpha;
+
+    b0 = ((1.0 - cosw0) * 0.5) / a0;
+    b1 =  (1.0 - cosw0)        / a0;
+    b2 = ((1.0 - cosw0) * 0.5) / a0;
+    a1 = (-2.0 * cosw0)        / a0;
+    a2 = (1.0 - alpha)         / a0;
+}
+
+void RealTimeStemSeparator::Biquad::setHighpass (double fc, double fs, double q) noexcept
+{
+    const double w0    = juce::MathConstants<double>::twoPi * fc / fs;
+    const double cosw0 = std::cos (w0);
+    const double sinw0 = std::sin (w0);
+    const double alpha = sinw0 / (2.0 * q);
+    const double a0    = 1.0 + alpha;
+
+    b0 = ((1.0 + cosw0) * 0.5)  / a0;
+    b1 = (-(1.0 + cosw0))       / a0;
+    b2 = ((1.0 + cosw0) * 0.5)  / a0;
+    a1 = (-2.0 * cosw0)         / a0;
+    a2 = (1.0 - alpha)          / a0;
+}
+
+// ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 void RealTimeStemSeparator::prepare (double sampleRate, int /*maxBlockSize*/)
 {
     sr = sampleRate;
 
-    // ── Bass: 2nd-order LP (two cascaded one-poles) at ~200 Hz ───────────────
-    bassA = lpCoeff (200.0, sr);
+    bassLP1.setLowpass  (kBassFc,    sr, kButterworthQ);
+    bassLP2.setLowpass  (kBassFc,    sr, kButterworthQ);   // cascade → LR4
+    vMidHP .setHighpass (kVocalLoFc, sr, kButterworthQ);
+    vMidLP .setLowpass  (kVocalHiFc, sr, kButterworthQ);
+    vSideHP.setHighpass (kVocalLoFc, sr, kButterworthQ);
+    vSideLP.setLowpass  (kVocalHiFc, sr, kButterworthQ);
 
-    // ── Vocal HPF ~300 Hz, LPF ~3500 Hz ─────────────────────────────────────
-    vocHPA = 1.0f - lpCoeff (300.0, sr);   // HP coeff = 1 - LP coeff
-    vocLPA = lpCoeff (3500.0, sr);
+    for (auto& c : ch)
+        c.drumHP.setHighpass (kDrumHpFc, sr, kButterworthQ);
 
-    // ── Drum onset HPF ~150 Hz (removes bass from transient detector) ─────────
-    drumHPA = 1.0f - lpCoeff (150.0, sr);
-
-    // Fast envelope: ~4 ms attack, ~40 ms release
-    drumFastDecay  = (float) std::exp (-1.0 / (0.040 * sr));
-    // Slow envelope tracks RMS floor: ~200 ms attack, 400 ms release
-    drumSlowAttack = lpCoeff (1.0 / (0.200), sr);
-    drumSlowDecay  = (float) std::exp (-1.0 / (0.400 * sr));
+    envCoeff       = smoothingCoeff (0.015, sr);   // 15 ms dominance follower
+    fastRelease    = (float) std::exp (-1.0 / (0.030 * sr));   // 30 ms drum release
+    slowAttack     = smoothingCoeff (0.060, sr);   // 60 ms floor attack
+    slowRelease    = (float) std::exp (-1.0 / (0.300 * sr));   // 300 ms floor release
+    vMaskSmooth    = smoothingCoeff (0.012, sr);   // 12 ms vocal mask glide
+    drumMaskSmooth = smoothingCoeff (0.004, sr);   // 4 ms drum mask glide
 
     reset();
 }
 
 void RealTimeStemSeparator::reset()
 {
-    ch = {};
-    // Initialise slow envelope to a small non-zero value to avoid div-by-zero.
+    bassLP1.reset(); bassLP2.reset();
+    vMidHP.reset();  vMidLP.reset();
+    vSideHP.reset(); vSideLP.reset();
     for (auto& c : ch)
-        c.drumSlowEnv = 0.0001f;
+    {
+        c.drumHP.reset();
+        c.fastEnv = 0.0f;
+        c.slowEnv = 1.0e-4f;
+        c.drumMaskSm = 0.0f;
+    }
+    vEnvMid = vEnvSide = 0.0f;
+    vMaskSm = 0.0f;
 }
+
+// ── Separation ──────────────────────────────────────────────────────────────────
 
 void RealTimeStemSeparator::process (const float* inL, const float* inR, int numSamples,
                                      float* drumsL, float* drumsR,
@@ -50,76 +101,71 @@ void RealTimeStemSeparator::process (const float* inL, const float* inR, int num
 {
     jassert (inL != nullptr && inR != nullptr);
 
-    const float* inputs[2]  = { inL,    inR    };
-    float* drumsOut[2]      = { drumsL, drumsR };
-    float* bassOut[2]       = { bassL,  bassR  };
-    float* musicOut[2]      = { musicL, musicR };
-    float* vocalsOut[2]     = { vocalsL, vocalsR };
+    const float drumThreshold = 1.0f + drumsSensitivity * 4.0f;   // 1.2 .. 5.0
 
     for (int i = 0; i < numSamples; ++i)
     {
         const float lIn = inL[i];
         const float rIn = inR[i];
 
-        // M/S decomposition
-        const float mid  = (lIn + rIn) * 0.5f;
-        const float side = (lIn - rIn) * 0.5f;
+        const float mid  = 0.5f * (lIn + rIn);
+        const float side = 0.5f * (lIn - rIn);
+
+        // ── BASS: LR4 low-pass of the mono sum (mono, summed into both ch) ───────
+        const float bass = bassLP2.process (bassLP1.process (mid));
+
+        // ── VOCALS: centre-dominant vocal-band content of the mid channel ────────
+        const float vbMid  = vMidLP.process (vMidHP.process (mid));
+        const float vbSide = vSideLP.process (vSideHP.process (side));
+
+        vEnvMid  += envCoeff * (std::abs (vbMid)  - vEnvMid);
+        vEnvSide += envCoeff * (std::abs (vbSide) - vEnvSide);
+
+        // Power-domain centre dominance: 1 when the band is purely centred.
+        const float midPow  = vEnvMid  * vEnvMid;
+        const float sidePow = vEnvSide * vEnvSide;
+        const float dominance = midPow / (midPow + sidePow + 1.0e-9f);
+        const float vMaskRaw  = dominance * vocalsMidWeight;
+        vMaskSm += vMaskSmooth * (vMaskRaw - vMaskSm);
+
+        const float vocals = vbMid * vMaskSm;   // mono vocal estimate
+
+        // ── Per-channel: drums (transient gate) + music (residual) ───────────────
+        const float inCh[2]  = { lIn, rIn };
+        float* drumsOut[2]   = { drumsL, drumsR };
+        float* musicOut[2]   = { musicL, musicR };
 
         for (int c = 0; c < 2; ++c)
         {
-            const float x = inputs[c][i];
             auto& s = ch[(size_t) c];
 
-            // ── BASS (2-stage LP on mono sum) ────────────────────────────────
-            s.bassZ1 = bassA * mid  + (1.0f - bassA) * s.bassZ1;
-            s.bassZ2 = bassA * s.bassZ1 + (1.0f - bassA) * s.bassZ2;
-            const float bass = s.bassZ2;
+            const float hp  = inCh[c] - bass;     // everything above bass (exact)
+            const float src = hp - vocals;        // non-vocal upper signal
 
-            // ── VOCALS (bandpass of mid channel) ─────────────────────────────
-            // HPF: remove sub-bass rumble
-            const float midLP = vocHPA == 0.0f ? 0.0f : (1.0f - vocHPA) * s.vocHPZ + vocHPA * mid;
-            const float midHP = mid - midLP;
-            s.vocHPZ = midLP;
-            // LPF: remove high-frequency sibilance
-            const float vocalLP = vocLPA * midHP + (1.0f - vocLPA) * s.vocLPZ;
-            s.vocLPZ = vocalLP;
-            const float vocals = vocalLP * vocalsMidWeight;
+            // Transient detection on a high-passed copy of src
+            const float d   = s.drumHP.process (src);
+            const float ad  = std::abs (d);
 
-            // ── DRUMS (onset-gated full signal) ──────────────────────────────
-            // HPF the input to isolate attack transients
-            const float xLP = (1.0f - drumHPA) * s.drumHPZ + drumHPA * x;
-            s.drumHPZ = xLP;
-            const float hpf = x - xLP;
-            const float hpfAbs = std::abs (hpf);
+            s.fastEnv = ad > s.fastEnv ? ad : s.fastEnv * fastRelease;
+            s.slowEnv = ad > s.slowEnv
+                      ? s.slowEnv + slowAttack * (ad - s.slowEnv)
+                      : s.slowEnv * slowRelease;
+            s.slowEnv = juce::jmax (s.slowEnv, 1.0e-6f);
 
-            // Fast envelope follower: attack instant, release slow
-            s.drumFastEnv = hpfAbs > s.drumFastEnv
-                          ? hpfAbs                               // instant attack
-                          : s.drumFastEnv * drumFastDecay;       // slow release
+            const float ratio    = s.fastEnv / (s.slowEnv + 1.0e-9f);
+            const float maskRaw  = juce::jlimit (0.0f, 1.0f,
+                                                 (ratio - drumThreshold) / (drumThreshold * 0.5f));
+            s.drumMaskSm += drumMaskSmooth * (maskRaw - s.drumMaskSm);
 
-            // Slow envelope follower: tracks longer-term noise floor
-            s.drumSlowEnv = hpfAbs > s.drumSlowEnv
-                          ? drumSlowAttack * hpfAbs + (1.0f - drumSlowAttack) * s.drumSlowEnv
-                          : s.drumSlowEnv * drumSlowDecay;
+            const float drums = src * s.drumMaskSm;
+            const float music = src - drums;      // tonal residual (exact)
 
-            // Transient mask: ratio of fast to slow, smoothed by a curve
-            const float ratio = s.drumFastEnv / (s.drumSlowEnv + 1e-9f);
-            // Soft gate: below threshold the mask fades to 0 smoothly
-            const float threshold = 1.0f + drumsSensitivity * 6.0f;  // 1..7
-            const float drumMask  = juce::jlimit (0.0f, 1.0f, (ratio - threshold) / threshold);
-            const float drums = x * drumMask;
-
-            // ── MUSIC (harmonic residual) ─────────────────────────────────────
-            // Music = input minus the centre/vocal content; side channel carries
-            // most instrumental spread.  We add a blend of both to retain width.
-            const float sideScaled = (c == 0) ? side : -side;   // reconstruct L=mid+side, R=mid-side
-            const float music = sideScaled + mid * (1.0f - vocalsMidWeight) - bass * 0.5f;
-
-            // ── Write outputs ─────────────────────────────────────────────────
-            drumsOut[c][i]  = drums;
-            bassOut[c][i]   = bass;
-            vocalsOut[c][i] = vocals;
-            musicOut[c][i]  = music;
+            drumsOut[c][i] = drums;
+            musicOut[c][i] = music;
         }
+
+        // Bass and vocals are mono → write to both channels.
+        bassL[i]   = bass;   bassR[i]   = bass;
+        vocalsL[i] = vocals; vocalsR[i] = vocals;
     }
 }
