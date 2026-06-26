@@ -77,6 +77,8 @@ void MainPluginEditor::ArrangementRecorderView::initialise (juce::AudioFormatMan
 
 void MainPluginEditor::ArrangementRecorderView::setIdle (juce::String hint)
 {
+    if (mode == Mode::Idle && hint == status)
+        return;
     mode = Mode::Idle;
     status = std::move (hint);
     repaint();
@@ -84,10 +86,15 @@ void MainPluginEditor::ArrangementRecorderView::setIdle (juce::String hint)
 
 void MainPluginEditor::ArrangementRecorderView::setRecordingProgress (double seconds, juce::String path)
 {
+    const int newSecond = (int) seconds;
+    const bool changed = mode != Mode::Recording
+                      || newSecond != (int) elapsedSeconds
+                      || path != recordingPath;
     mode = Mode::Recording;
     elapsedSeconds = seconds;
     recordingPath = std::move (path);
-    repaint();
+    if (changed)
+        repaint();
 }
 
 void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File& masterAudio,
@@ -2526,6 +2533,10 @@ void MainPluginEditor::timerCallback()
                     wave->setStemFile (lane, stemPath.isNotEmpty() ? juce::File (stemPath) : juce::File());
             }
         }
+
+        // RTSS badge — illuminates when real-time separation is running
+        if (auto* wave = deckWaves[(size_t) i].get())
+            wave->setRtssActive (processorRef.isDeckRtssActive (i));
     }
 }
 
