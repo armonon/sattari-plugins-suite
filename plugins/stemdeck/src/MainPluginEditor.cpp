@@ -1242,7 +1242,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f) { processorRef.loadDeckFileAsync (i, f); });
         addAndMakeVisible (*deckWaves[(size_t) i]);
 
-        setupDeck (deckControls[(size_t) i], deckPrefix (i), juce::String::charToString ((juce_wchar) ('A' + i)) + " Play");
+        setupDeck (deckControls[(size_t) i], deckPrefix (i), "PLAY");
         {
             const auto accent = deckAccent (i);
             auto& dc = deckControls[(size_t) i];
@@ -1513,6 +1513,7 @@ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juc
     slider.setWantsKeyboardFocus (false);
     slider.setSliderStyle (rotary ? juce::Slider::RotaryHorizontalVerticalDrag : juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
+    slider.setNumDecimalPlacesToDisplay (1);   // clean, untruncated readouts
     slider.setTextValueSuffix (suffix);
     slider.setColour (juce::Slider::rotarySliderFillColourId,    juce::Colour (kAccent));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (kHairline));
@@ -1601,10 +1602,12 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     controls.volume.setPopupDisplayEnabled (true, true, this);
     controls.fader .setPopupDisplayEnabled (true, true, this);
     controls.pitch .setPopupDisplayEnabled (true, true, this);
-    controls.low   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
-    controls.mid   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
-    controls.high  .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
-    controls.filter.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 46, 14);
+    // Clean EQ knobs — no inline value text; value shows on hover (matches stems/faders).
+    for (auto* eq : { &controls.low, &controls.mid, &controls.high, &controls.filter })
+    {
+        eq->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        eq->setPopupDisplayEnabled (true, true, this);
+    }
     controls.bpm.setTextBoxStyle (juce::Slider::TextBoxRight, false, 58, 18);
     controls.beatOffset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
     controls.downbeat.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
@@ -2654,7 +2657,7 @@ void MainPluginEditor::resized()
         lane.removeFromBottom (4);
 
         // Toolbox content (the active tab's controls render here).
-        auto tabContent = lane.removeFromBottom (54);
+        auto tabContent = lane.removeFromBottom (58);
         lane.removeFromBottom (3);
 
         // Toolbox tab strip (CUE / LOOP / FX / SYNC / SRC).
@@ -2685,14 +2688,12 @@ void MainPluginEditor::resized()
         }
         lane.removeFromBottom (6);
 
-        // Transport row — play / cue / live-key / key-lock (always visible).
-        auto transport = lane.removeFromBottom (26);
+        // Transport row — big, clean PLAY + CUE (key toggles moved to SYNC tab).
+        auto transport = lane.removeFromBottom (28);
         {
             const int w = transport.getWidth();
-            controls.play   .setBounds (transport.removeFromLeft (w * 30 / 100).reduced (1, 0));
-            controls.cue    .setBounds (transport.removeFromLeft (w * 20 / 100).reduced (1, 0));
-            controls.liveKey.setBounds (transport.removeFromLeft (w * 25 / 100).reduced (1, 0));
-            controls.keyLock.setBounds (transport.reduced (1, 0));
+            controls.play.setBounds (transport.removeFromLeft (w * 58 / 100).reduced (1, 0));
+            controls.cue .setBounds (transport.reduced (1, 0));
         }
         lane.removeFromBottom (6);
 
@@ -2750,17 +2751,21 @@ void MainPluginEditor::resized()
             }
             case DeckControls::TabSync:
             {
-                auto r1 = tabContent.removeFromTop (26);
+                auto r1 = tabContent.removeFromTop (22);
                 const int w = juce::jmax (44, r1.getWidth() / 3);
                 controls.bpm       .setBounds (r1.removeFromLeft (w).reduced (2, 1));
                 controls.beatOffset.setBounds (r1.removeFromLeft (w).reduced (2, 1));
                 controls.downbeat  .setBounds (r1.reduced (2, 1));
                 tabContent.removeFromTop (2);
-                auto r2 = tabContent.removeFromTop (22);
+                auto r2 = tabContent.removeFromTop (20);
                 const int cw = juce::jmax (44, r2.getWidth() / 3);
                 controls.tempoInterpretation.setBounds (r2.removeFromLeft (cw).reduced (1, 0));
                 controls.syncMode           .setBounds (r2.removeFromLeft (cw).reduced (1, 0));
                 controls.keyTarget          .setBounds (r2.reduced (1, 0));
+                tabContent.removeFromTop (2);
+                auto r3 = tabContent.removeFromTop (18);
+                controls.liveKey.setBounds (r3.removeFromLeft (r3.getWidth() / 2).reduced (1, 0));
+                controls.keyLock.setBounds (r3.reduced (1, 0));
                 break;
             }
             case DeckControls::TabSrc:
@@ -3008,7 +3013,7 @@ void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
     dc.bpm.setVisible (sync); dc.beatOffset.setVisible (sync); dc.downbeat.setVisible (sync);
     dc.tempoInterpretation.setVisible (sync); dc.syncMode.setVisible (sync); dc.keyTarget.setVisible (sync);
     dc.load.setVisible (src); dc.aiStems.setVisible (src); dc.loadStem.setVisible (src); dc.stemLane.setVisible (src);
-    // liveKey / keyLock live in the always-visible transport row.
+    dc.liveKey.setVisible (sync); dc.keyLock.setVisible (sync);   // key controls live in the SYNC tab
 }
 
 // ── Hot cue helpers ───────────────────────────────────────────────────────────
