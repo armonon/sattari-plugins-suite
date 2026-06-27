@@ -68,6 +68,11 @@ private:
         // ── Built-in FX ───────────────────────────────────────────────────────
         juce::Slider reverbMix, echoMix;
         std::unique_ptr<SliderAttachment> reverbMixAttachment, echoMixAttachment;
+
+        // ── Toolbox tabs (declutter): CUE / LOOP / FX / SYNC / SRC ─────────────
+        enum ToolTab { TabCue = 0, TabLoop, TabFx, TabSync, TabSrc, NumToolTabs };
+        std::array<juce::TextButton, NumToolTabs> toolTabs;
+        int activeToolTab = TabCue;
     };
 
     struct PadControls
@@ -238,6 +243,8 @@ private:
     std::array<DeckControls, MainPluginProcessor::numDecks> deckControls;
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStemBounds {};
+    juce::Rectangle<int> recordModuleBounds {};
     juce::Rectangle<int> headerBarBounds {};
     juce::Rectangle<int> tempoChipBounds {};
     MixerSection mixerPanel;
@@ -304,6 +311,11 @@ private:
     void openDeckChooser (int deckIndex);
     void openDeckStemChooser (int deckIndex, int stemLaneIndex);
     void openPadChooser (int padIndex);
+
+    // Toolbox tab helpers
+    void setupToolTabs (int deckIndex);
+    void setDeckToolTab (int deckIndex, int tab);
+    void applyDeckToolTabVisibility (int deckIndex);
 
     // Hot cue helpers
     void setupHotCueButtons (int deckIndex);

@@ -1102,7 +1102,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     thumbnailFormatManager.registerFormat (new juce::MP3AudioFormat(), true);
 #endif
 
-    setSize (1500, 940);
+    setResizable (true, true);
+    setResizeLimits (1180, 800, 4200, 2600);
+    setSize (1500, 980);
     setWantsKeyboardFocus (true);
     setMouseClickGrabsKeyboardFocus (true);
 
@@ -1273,6 +1275,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
         setupHotCueButtons (i);
         setupLoopControls (i);
+        setupToolTabs (i);
 
         // Beat jump buttons — back: bars[0]=4 [1]=8 [2]=16 [3]=32
         {
@@ -2431,6 +2434,38 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
         }
+
+        // --- STEM SEPARATION centerpiece: accent-tinted module + per-stem labels ---
+        auto stemBox = deckStemBounds[(size_t) i];
+        if (! stemBox.isEmpty())
+        {
+            g.setColour (deckAccent (i).withAlpha (0.09f));
+            g.fillRoundedRectangle (stemBox.toFloat(), 6.0f);
+            g.setColour (deckAccent (i).withAlpha (0.30f));
+            g.drawRoundedRectangle (stemBox.toFloat().reduced (0.5f), 6.0f, 1.0f);
+
+            auto labelRow = stemBox.removeFromTop (13);
+
+            // RTSS "LIVE" badge tucked at the far right of the stem label row.
+            if (processorRef.isDeckRtssActive (i))
+            {
+                auto badge = labelRow.removeFromRight (30);
+                g.setColour (deckAccent (i).withAlpha (0.85f));
+                g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+                g.drawText ("LIVE", badge, juce::Justification::centredRight);
+            }
+
+            // Per-stem labels aligned to the 5 knob columns (FULL/DRUMS/BASS/MUSIC/VOX).
+            static constexpr std::array<const char*, 5> stemNames { "FULL", "DRUMS", "BASS", "MUSIC", "VOX" };
+            const int n = DeckPlayer::numStemLanes;
+            const int colW = juce::jmax (1, stemBox.getWidth() / n);
+            g.setColour (deckAccent (i).withAlpha (0.92f));
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            for (int s = 0; s < juce::jmin (n, 5); ++s)
+                g.drawText (stemNames[(size_t) s],
+                            juce::Rectangle<int> (stemBox.getX() + s * colW, labelRow.getY(), colW, 12),
+                            juce::Justification::centred);
+        }
     }
 
     // --- Control labels above each control (matches djay-Pro nomenclature) ---
@@ -2440,12 +2475,8 @@ void MainPluginEditor::paint (juce::Graphics& g)
         const auto& controls = deckControls[(size_t) i];
         auto drawAbove = [&g] (const juce::String& text, const juce::Component& component)
         {
-            auto r = component.getBounds().withHeight (13).translated (0, -13);
-            g.drawText (text, r, juce::Justification::centred);
-        };
-        auto drawBelow = [&g] (const juce::String& text, const juce::Component& component)
-        {
-            auto r = component.getBounds().withHeight (12).translated (0, component.getHeight());
+            if (! component.isVisible()) return;   // tab-hidden controls draw no stray label
+            auto r = component.getBounds().withHeight (12).translated (0, -13);
             g.drawText (text, r, juce::Justification::centred);
         };
 
@@ -2460,63 +2491,50 @@ void MainPluginEditor::paint (juce::Graphics& g)
         drawAbove ("BPM",   controls.bpm);
         drawAbove ("BEAT",  controls.beatOffset);
         drawAbove ("DOWN",  controls.downbeat);
-
-        // Stem knob row labels (DRUMS / HARM / VOCALS / OTHER) — driven from slider.getName()
-        // which was set from DeckPlayer::stemLaneLabel() in setupDeck.
-        static constexpr std::array<const char*, 4> stemLabels { "DRUMS", "HARM", "VOCALS", "OTHER" };
-        const int stemCount = (int) controls.stemGains.size();
-        for (int s = 0; s < juce::jmin (4, stemCount); ++s)
-            drawAbove (stemLabels[(size_t) s], controls.stemGains[(size_t) s]);
     }
 
-    if (! crossfader.getBounds().isEmpty())
+    using namespace sattari::brand;
+
+    // Mixer panel box (left band).
+    if (! mixerPanel.getBounds().isEmpty() && ! redoButton.getBounds().isEmpty())
     {
-        using namespace sattari::brand;
-        const auto mixerStrip = mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8);
-        drawPanel (g, mixerStrip, juce::Colour (kAccent), 10.0f);
-
-        // Vertical hairline dividers between functional groups.
-        auto dividerBetween = [&] (const juce::Component& leftCtl, const juce::Component& rightCtl)
-        {
-            if (leftCtl.getBounds().isEmpty() || rightCtl.getBounds().isEmpty()) return;
-            const int x = (leftCtl.getBounds().getRight() + rightCtl.getBounds().getX()) / 2;
-            g.setColour (juce::Colour (kHairline).withAlpha (0.6f));
-            g.drawVerticalLine (x, (float) mixerStrip.getY() + 8.0f, (float) mixerStrip.getBottom() - 8.0f);
-        };
-        dividerBetween (crossfader, masterBpm);
-        dividerBetween (limiter,    hostSync);
-        dividerBetween (beatSync,   micMonitor);
-        dividerBetween (micGain,    recordButton);
-        dividerBetween (bounceEditsButton, snapToggleButton);
+        const auto mixBox = mixerPanel.getBounds().getUnion (redoButton.getBounds()).expanded (10, 8);
+        drawPanel (g, mixBox, juce::Colour (kAccent), 10.0f);
     }
 
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
-    g.drawText ("CROSSFADER A/C \xe2\x86\x94 B/D", crossfader.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("MASTER BPM", masterBpm.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("MASTER",     master   .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("LIMIT",      limiter  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("HOST SYNC",  hostSync .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("BEAT SYNC",  beatSync .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("MIC MON",    micMonitor.getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    g.drawText ("MIC GAIN",   micGain  .getBounds().withHeight (14).translated (0, -16), juce::Justification::centred);
-    // Section title bands for the right side (RECORD / EDIT clusters).
-    g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.78f));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-    if (! recordButton.getBounds().isEmpty())
-        g.drawText ("RECORD",
-                    juce::Rectangle<int> (recordButton.getBounds().getX(),
-                                          recordButton.getBounds().getY() - 18,
-                                          bounceEditsButton.getBounds().getRight() - recordButton.getBounds().getX(),
-                                          14),
+    // Labels above the top-row sliders.
+    g.setColour (juce::Colour (kTextMuted));
+    g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    auto sliderLabel = [&] (const char* t, juce::Component& c)
+    {
+        if (c.isVisible() && ! c.getBounds().isEmpty())
+            g.drawText (t, c.getBounds().withHeight (12).translated (0, -13), juce::Justification::centred);
+    };
+    sliderLabel ("CROSSFADER A/C \xe2\x86\x94 B/D", crossfader);
+    sliderLabel ("MASTER BPM", masterBpm);
+    sliderLabel ("MASTER",     master);
+    sliderLabel ("LIMIT",      limiter);
+    sliderLabel ("MIC GAIN",   micGain);
+
+    // --- Recording module: defined panel with a clear, prominent title ---
+    if (! recordModuleBounds.isEmpty())
+    {
+        const bool recording = processorRef.isMasterRecording();
+        const auto accent = recording ? juce::Colour (kDanger) : juce::Colour (kAccent);
+        const auto r = recordModuleBounds.toFloat();
+        g.setColour (juce::Colour (kPanel));
+        g.fillRoundedRectangle (r, 10.0f);
+        g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
+        g.setColour (accent.withAlpha (recording ? 0.95f : 0.6f));
+        g.drawRoundedRectangle (r.reduced (1.5f), 9.0f, recording ? 2.0f : 1.5f);
+
+        g.setColour (accent);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        const auto dot = recording ? juce::String (juce::CharPointer_UTF8 ("\xe2\x97\x8f ")) : juce::String();
+        g.drawText (dot + "RECORDING", recordModuleBounds.reduced (12, 6).withHeight (14),
                     juce::Justification::centredLeft);
-    if (! snapToggleButton.getBounds().isEmpty())
-        g.drawText ("EDIT",
-                    juce::Rectangle<int> (snapToggleButton.getBounds().getX(),
-                                          snapToggleButton.getBounds().getY() - 18,
-                                          redoButton.getBounds().getRight() - snapToggleButton.getBounds().getX(),
-                                          14),
-                    juce::Justification::centredLeft);
+    }
 }
 
 void MainPluginEditor::resized()
@@ -2600,11 +2618,12 @@ void MainPluginEditor::resized()
     syncAllDecksButton.setBounds (keyRow.removeFromLeft (140));
     area.removeFromTop (6);
 
-    liveMixerLabel.setBounds (area.removeFromTop (22));
-    auto topMixer = area.removeFromTop (600);
-    topMixer = topMixer.reduced (0, 4);
+    liveMixerLabel.setBounds (area.removeFromTop (20));
+    area.removeFromTop (2);
 
-    auto decksArea = topMixer.removeFromTop (480);
+    // Deck row gets a fixed band; the arrangement below takes ALL remaining height
+    // (so it is large and grows as the window resizes).
+    auto decksArea = area.removeFromTop (juce::jmax (430, area.getHeight() * 48 / 100));
     const int deckGap = 10;
     const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
@@ -2616,167 +2635,191 @@ void MainPluginEditor::resized()
 
         auto& controls = deckControls[(size_t) deckIndex];
 
-        // 1. Deck header strip (track # + filename + key chip — painted in paint()).
+        // Header strip (badge + filename + chips — painted in paint()).
         auto headerStrip = lane.removeFromTop (22);
         deckHeaderBounds[(size_t) deckIndex] = headerStrip;
-        lane.removeFromTop (4);
+        lane.removeFromTop (6);
 
-        // 2. Waveform — large djay-Pro-style display, full deck width.
-        if (auto* wave = deckWaves[(size_t) deckIndex].get())
-            wave->setBounds (lane.removeFromTop (170));
-        lane.removeFromTop (4);
+        // ---- Bottom-up fixed sections; the waveform claims the flexible middle ----
 
-        // 2a. Hot cue row — 8 coloured buttons, Pioneer style.
-        {
-            auto hotCueRow = lane.removeFromTop (20);
-            const int btnW = hotCueRow.getWidth() / 8;
-            for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
-                controls.hotCues[(size_t) c].setBounds (hotCueRow.removeFromLeft (btnW).reduced (1, 0));
-        }
-        lane.removeFromTop (3);
-
-        // 2b. Beat jump row — ◀32 ◀16 ◀8 ◀4 | 4▶ 8▶ 16▶ 32▶
-        {
-            auto jumpRow = lane.removeFromTop (20);
-            const int jW = jumpRow.getWidth() / 8;
-            for (int b = 3; b >= 0; --b)
-                controls.beatJumpBack[(size_t) b].setBounds (jumpRow.removeFromLeft (jW).reduced (1, 0));
-            for (int b = 0; b < 4; ++b)
-                controls.beatJumpFwd[(size_t) b].setBounds (jumpRow.removeFromLeft (jW).reduced (1, 0));
-        }
-        lane.removeFromTop (3);
-
-        // 2c. Loop controls row + built-in FX knobs
-        {
-            auto loopRow = lane.removeFromTop (22);
-            const int btnW = 34;
-            controls.loopIn    .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
-            controls.loopOut   .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
-            controls.loopToggle.setBounds (loopRow.removeFromLeft (40) .reduced (1, 0));
-            controls.loopHalf  .setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
-            controls.loopDouble.setBounds (loopRow.removeFromLeft (btnW).reduced (1, 0));
-            loopRow.removeFromLeft (8);
-            controls.reverbMix .setBounds (loopRow.removeFromLeft (28).reduced (2, 1));
-            controls.echoMix   .setBounds (loopRow.removeFromLeft (28).reduced (2, 1));
-        }
-        lane.removeFromTop (4);
-
-        // 3. Upper zone — left controls + right vertical-fader column (VOL/FADER/PITCH).
-        const int upperHeight = 128;
-        auto upperZone = lane.removeFromTop (upperHeight);
-        const int faderColW = 38;
-        const int faderColGap = 4;
-        auto fadersCol = upperZone.removeFromRight (faderColW * 3 + faderColGap * 2);
-        upperZone.removeFromRight (6);
-        controls.volume.setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 4));
-        fadersCol.removeFromLeft (faderColGap);
-        controls.fader .setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 4));
-        fadersCol.removeFromLeft (faderColGap);
-        controls.pitch .setBounds (fadersCol.reduced (3, 4));
-
-        // 3a. Stem knob row (DRUMS / HARM / VOCALS / OTHER).
-        auto stemKnobRow = upperZone.removeFromTop (48);
-        const int stemW = juce::jmax (28, stemKnobRow.getWidth() / DeckPlayer::numStemLanes);
-        for (int s = 0; s < DeckPlayer::numStemLanes; ++s)
-            controls.stemGains[(size_t) s].setBounds (stemKnobRow.removeFromLeft (stemW).reduced (3, 4));
-        upperZone.removeFromTop (6);
-
-        // 3b. Transport row.
-        auto transport = upperZone.removeFromTop (28);
-        controls.play   .setBounds (transport.removeFromLeft (72));
-        transport.removeFromLeft (4);
-        controls.cue    .setBounds (transport.removeFromLeft (44));
-        transport.removeFromLeft (4);
-        controls.liveKey.setBounds (transport.removeFromLeft (64));
-        transport.removeFromLeft (4);
-        controls.keyLock.setBounds (transport);
-        upperZone.removeFromTop (4);
-
-        // 3c. EQ row (LOW / MID / HIGH / FILTER rotary knobs).
-        auto eqRow = upperZone.removeFromTop (42);
-        const int eqW = juce::jmax (28, eqRow.getWidth() / 4);
-        controls.low   .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
-        controls.mid   .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
-        controls.high  .setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
-        controls.filter.setBounds (eqRow.removeFromLeft (eqW).reduced (3, 2));
-
-        lane.removeFromTop (8);
-
-        // 4. Lower zone — full width again.
-        auto bpmRow = lane.removeFromTop (40);
-        const int bpmW = juce::jmax (60, bpmRow.getWidth() / 3);
-        controls.bpm       .setBounds (bpmRow.removeFromLeft (bpmW).reduced (2));
-        bpmRow.removeFromLeft (4);
-        controls.beatOffset.setBounds (bpmRow.removeFromLeft (bpmW).reduced (2));
-        bpmRow.removeFromLeft (4);
-        controls.downbeat  .setBounds (bpmRow.reduced (2));
-        lane.removeFromTop (5);
-
-        // 5. Advanced combos row (tempo / sync / key target).
-        auto advancedRow = lane.removeFromTop (22);
-        const int comboW = juce::jmax (50, advancedRow.getWidth() / 3);
-        controls.tempoInterpretation.setBounds (advancedRow.removeFromLeft (comboW));
-        advancedRow.removeFromLeft (3);
-        controls.syncMode          .setBounds (advancedRow.removeFromLeft (comboW));
-        advancedRow.removeFromLeft (3);
-        controls.keyTarget         .setBounds (advancedRow);
-        lane.removeFromTop (4);
-
-        // 6. Status labels — single tight row to claw back vertical space for the big waveform.
-        auto statusRow = lane.removeFromTop (14);
+        // Status row (key / stem provider status).
+        auto statusRow = lane.removeFromBottom (13);
         controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
         controls.stemStatus.setBounds (statusRow);
-        lane.removeFromTop (3);
+        lane.removeFromBottom (4);
 
-        // 7. Source / stem actions row (Load / AI Split / Stem load / stem-lane combo).
-        auto sourceRow = lane.removeFromTop (22);
-        controls.load     .setBounds (sourceRow.removeFromLeft (50));
-        sourceRow.removeFromLeft (4);
-        controls.aiStems  .setBounds (sourceRow.removeFromLeft (72));
-        sourceRow.removeFromLeft (4);
-        controls.loadStem .setBounds (sourceRow.removeFromLeft (50));
-        sourceRow.removeFromLeft (4);
-        controls.stemLane .setBounds (sourceRow);
+        // Toolbox content (the active tab's controls render here).
+        auto tabContent = lane.removeFromBottom (54);
+        lane.removeFromBottom (3);
+
+        // Toolbox tab strip (CUE / LOOP / FX / SYNC / SRC).
+        auto tabStrip = lane.removeFromBottom (20);
+        {
+            const int tw = tabStrip.getWidth() / DeckControls::NumToolTabs;
+            for (int t = 0; t < DeckControls::NumToolTabs; ++t)
+                controls.toolTabs[(size_t) t].setBounds (tabStrip.removeFromLeft (tw).reduced (1, 0));
+        }
+        lane.removeFromBottom (8);
+
+        // Mix band: EQ knobs (left) + VOL / FADER / PITCH vertical faders (right).
+        auto mixBand = lane.removeFromBottom (64);
+        {
+            const int faderColW = 32, fgap = 4;
+            auto fadersCol = mixBand.removeFromRight (faderColW * 3 + fgap * 2);
+            auto eqArea = mixBand.withTrimmedRight (8);
+            const int eqW = juce::jmax (26, eqArea.getWidth() / 4);
+            controls.low   .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
+            controls.mid   .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
+            controls.high  .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
+            controls.filter.setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
+            controls.volume.setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 2));
+            fadersCol.removeFromLeft (fgap);
+            controls.fader .setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 2));
+            fadersCol.removeFromLeft (fgap);
+            controls.pitch .setBounds (fadersCol.reduced (3, 2));
+        }
+        lane.removeFromBottom (6);
+
+        // Transport row — play / cue / live-key / key-lock (always visible).
+        auto transport = lane.removeFromBottom (26);
+        {
+            const int w = transport.getWidth();
+            controls.play   .setBounds (transport.removeFromLeft (w * 30 / 100).reduced (1, 0));
+            controls.cue    .setBounds (transport.removeFromLeft (w * 20 / 100).reduced (1, 0));
+            controls.liveKey.setBounds (transport.removeFromLeft (w * 25 / 100).reduced (1, 0));
+            controls.keyLock.setBounds (transport.reduced (1, 0));
+        }
+        lane.removeFromBottom (6);
+
+        // STEM SEPARATION — the centerpiece: label band + 5 colour-coded knobs.
+        auto stemKnobRow = lane.removeFromBottom (54);
+        auto stemLabelRow = lane.removeFromBottom (14);
+        deckStemBounds[(size_t) deckIndex] = stemLabelRow.getUnion (stemKnobRow);
+        {
+            const int stemW = juce::jmax (28, stemKnobRow.getWidth() / DeckPlayer::numStemLanes);
+            for (int s = 0; s < DeckPlayer::numStemLanes; ++s)
+                controls.stemGains[(size_t) s].setBounds (stemKnobRow.removeFromLeft (stemW).reduced (3, 3));
+        }
+        lane.removeFromBottom (6);
+
+        // Waveform — flexible: everything that's left between header and stems.
+        if (auto* wave = deckWaves[(size_t) deckIndex].get())
+            wave->setBounds (lane);
+
+        // ---- Active toolbox tab content ----
+        switch (controls.activeToolTab)
+        {
+            case DeckControls::TabCue:
+            {
+                auto row = tabContent.removeFromTop (24);
+                const int w = juce::jmax (12, row.getWidth() / 8);
+                for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+                    controls.hotCues[(size_t) c].setBounds (row.removeFromLeft (w).reduced (1, 0));
+                break;
+            }
+            case DeckControls::TabLoop:
+            {
+                auto r1 = tabContent.removeFromTop (24);
+                const int bw = juce::jmax (28, r1.getWidth() / 5);
+                controls.loopIn    .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.loopOut   .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.loopToggle.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.loopHalf  .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.loopDouble.setBounds (r1.reduced (1, 0));
+                tabContent.removeFromTop (2);
+                auto r2 = tabContent.removeFromTop (24);
+                const int jw = juce::jmax (12, r2.getWidth() / 8);
+                for (int b = 3; b >= 0; --b)
+                    controls.beatJumpBack[(size_t) b].setBounds (r2.removeFromLeft (jw).reduced (1, 0));
+                for (int b = 0; b < 4; ++b)
+                    controls.beatJumpFwd[(size_t) b].setBounds (r2.removeFromLeft (jw).reduced (1, 0));
+                break;
+            }
+            case DeckControls::TabFx:
+            {
+                const int knobW = juce::jmin (60, tabContent.getWidth() / 2 - 6);
+                controls.reverbMix.setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
+                tabContent.removeFromLeft (8);
+                controls.echoMix  .setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
+                break;
+            }
+            case DeckControls::TabSync:
+            {
+                auto r1 = tabContent.removeFromTop (26);
+                const int w = juce::jmax (44, r1.getWidth() / 3);
+                controls.bpm       .setBounds (r1.removeFromLeft (w).reduced (2, 1));
+                controls.beatOffset.setBounds (r1.removeFromLeft (w).reduced (2, 1));
+                controls.downbeat  .setBounds (r1.reduced (2, 1));
+                tabContent.removeFromTop (2);
+                auto r2 = tabContent.removeFromTop (22);
+                const int cw = juce::jmax (44, r2.getWidth() / 3);
+                controls.tempoInterpretation.setBounds (r2.removeFromLeft (cw).reduced (1, 0));
+                controls.syncMode           .setBounds (r2.removeFromLeft (cw).reduced (1, 0));
+                controls.keyTarget          .setBounds (r2.reduced (1, 0));
+                break;
+            }
+            case DeckControls::TabSrc:
+            {
+                auto row = tabContent.removeFromTop (24);
+                controls.load    .setBounds (row.removeFromLeft (juce::jmax (44, row.getWidth() * 22 / 100)).reduced (1, 0));
+                controls.aiStems .setBounds (row.removeFromLeft (juce::jmax (60, row.getWidth() * 36 / 100)).reduced (1, 0));
+                controls.loadStem.setBounds (row.removeFromLeft (juce::jmax (44, row.getWidth() * 38 / 100)).reduced (1, 0));
+                controls.stemLane.setBounds (row.reduced (1, 0));
+                break;
+            }
+            default: break;
+        }
+
+        applyDeckToolTabVisibility (deckIndex);
     }
 
-    auto mixer = topMixer.reduced (0, 5);
-    mixerPanel.setBounds (mixer.removeFromLeft (150));
-    auto mixControls = mixer.reduced (12, 12);
-    crossfader.setBounds (mixControls.removeFromLeft (250));
-    mixControls.removeFromLeft (18);
-    masterBpm.setBounds (mixControls.removeFromLeft (116));
-    master.setBounds (mixControls.removeFromLeft (84));
-    limiter.setBounds (mixControls.removeFromLeft (84));
-    hostSync.setBounds (mixControls.removeFromLeft (112).withTrimmedTop (24));
-    beatSync.setBounds (mixControls.removeFromLeft (112).withTrimmedTop (24));
-    micMonitor.setBounds (mixControls.removeFromLeft (120).withTrimmedTop (24));
-    micGain.setBounds (mixControls.removeFromLeft (90));
-    tapTempoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    tapTempoLabel.setBounds (mixControls.removeFromLeft (70).withTrimmedTop (28).withHeight (16));
-    camelotButton.setBounds (mixControls.removeFromLeft (46).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    midiLearnButton.setBounds (mixControls.removeFromLeft (46).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (8);
-    recordButton.setBounds (mixControls.removeFromLeft (96).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    revealRecordingButton.setBounds (mixControls.removeFromLeft (60).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    reloadIntoDecksButton.setBounds (mixControls.removeFromLeft (110).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    bounceEditsButton.setBounds (mixControls.removeFromLeft (94).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    snapToggleButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    razorButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    playArrButton.setBounds (mixControls.removeFromLeft (64).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    undoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (3);
-    redoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
-    mixControls.removeFromLeft (5);
-    recordStatus.setBounds (mixControls.withTrimmedTop (20).withHeight (32));
+    area.removeFromTop (8);
+
+    // ---- Mixer + defined recording module band ----
+    auto mixerStrip = area.removeFromTop (100);
+    recordModuleBounds = mixerStrip.removeFromRight (juce::jmax (320, mixerStrip.getWidth() * 30 / 100));
+    mixerStrip.removeFromRight (10);
+
+    auto mixer = mixerStrip.reduced (2, 5);
+    mixerPanel.setBounds (mixer.removeFromLeft (140));
+    auto mixControls = mixer.reduced (10, 10);
+    auto mcTop = mixControls.removeFromTop (mixControls.getHeight() / 2);
+    auto mcBot = mixControls;
+    // Top row: crossfader + master bpm + master + limiter + mic gain.
+    crossfader.setBounds (mcTop.removeFromLeft (juce::jmax (180, mcTop.getWidth() * 32 / 100)));
+    mcTop.removeFromLeft (12);
+    masterBpm.setBounds (mcTop.removeFromLeft (110));
+    master.setBounds   (mcTop.removeFromLeft (80));
+    limiter.setBounds  (mcTop.removeFromLeft (80));
+    micGain.setBounds  (mcTop.removeFromLeft (84));
+    // Bottom row: sync toggles + utility buttons + edit/transport buttons.
+    auto chip = [&mcBot] (juce::Component& c, int w) { c.setBounds (mcBot.removeFromLeft (w).withHeight (30)); mcBot.removeFromLeft (3); };
+    hostSync.setBounds (mcBot.removeFromLeft (96).withTrimmedTop (8)); mcBot.removeFromLeft (3);
+    beatSync.setBounds (mcBot.removeFromLeft (96).withTrimmedTop (8)); mcBot.removeFromLeft (3);
+    micMonitor.setBounds (mcBot.removeFromLeft (104).withTrimmedTop (8)); mcBot.removeFromLeft (6);
+    chip (tapTempoButton, 48);
+    chip (camelotButton, 44);
+    chip (midiLearnButton, 48);
+    chip (snapToggleButton, 48);
+    chip (razorButton, 50);
+    chip (playArrButton, 60);
+    chip (bounceEditsButton, 64);
+    chip (undoButton, 46);
+    chip (redoButton, 46);
+
+    // Recording module (painted bordered panel in paint()): big record button + status.
+    {
+        auto rec = recordModuleBounds.reduced (12, 10);
+        rec.removeFromTop (16);   // room for the painted "RECORDING" title
+        auto recRow = rec.removeFromTop (34);
+        recordButton.setBounds (recRow.removeFromLeft (juce::jmax (96, recRow.getWidth() * 36 / 100)));
+        recRow.removeFromLeft (6);
+        revealRecordingButton.setBounds (recRow.removeFromLeft (64));
+        recRow.removeFromLeft (6);
+        reloadIntoDecksButton.setBounds (recRow);
+        rec.removeFromTop (6);
+        recordStatus.setBounds (rec.removeFromTop (16));
+    }
 
     area.removeFromTop (8);
     {
@@ -2784,8 +2827,8 @@ void MainPluginEditor::resized()
         arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
-    auto bottom = area;
-    auto samplerStrip = bottom.removeFromRight (270);
+    auto bottom = area;   // everything left → the arrangement (large, grows on resize)
+    auto samplerStrip = bottom.removeFromRight (260);
     bottom.removeFromRight (14);
     arrangementView.setBounds (bottom);
 
@@ -2910,6 +2953,57 @@ void MainPluginEditor::timerCallback()
         if (auto* wave = deckWaves[(size_t) i].get())
             wave->setRtssActive (processorRef.isDeckRtssActive (i));
     }
+}
+
+// ── Toolbox tabs (declutter) ──────────────────────────────────────────────────
+
+void MainPluginEditor::setupToolTabs (int deckIndex)
+{
+    static const char* const kLabels[] = { "CUE", "LOOP", "FX", "SYNC", "SRC" };
+    auto& dc = deckControls[(size_t) deckIndex];
+    for (int t = 0; t < DeckControls::NumToolTabs; ++t)
+    {
+        auto& btn = dc.toolTabs[(size_t) t];
+        btn.setButtonText (kLabels[t]);
+        setupButton (btn);
+        btn.setColour (juce::TextButton::buttonOnColourId, deckAccent (deckIndex).withAlpha (0.55f));
+        btn.onClick = [this, deckIndex, t] { setDeckToolTab (deckIndex, t); };
+        addAndMakeVisible (btn);
+    }
+    setDeckToolTab (deckIndex, DeckControls::TabCue);
+}
+
+void MainPluginEditor::setDeckToolTab (int deckIndex, int tab)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    dc.activeToolTab = tab;
+    for (int t = 0; t < DeckControls::NumToolTabs; ++t)
+        dc.toolTabs[(size_t) t].setToggleState (t == tab, juce::dontSendNotification);
+    applyDeckToolTabVisibility (deckIndex);
+    resized();
+}
+
+void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    const int tab = dc.activeToolTab;
+
+    const bool cue  = tab == DeckControls::TabCue;
+    const bool loop = tab == DeckControls::TabLoop;
+    const bool fx   = tab == DeckControls::TabFx;
+    const bool sync = tab == DeckControls::TabSync;
+    const bool src  = tab == DeckControls::TabSrc;
+
+    for (auto& b : dc.hotCues)       b.setVisible (cue);
+    dc.loopIn.setVisible (loop); dc.loopOut.setVisible (loop); dc.loopToggle.setVisible (loop);
+    dc.loopHalf.setVisible (loop); dc.loopDouble.setVisible (loop);
+    for (auto& b : dc.beatJumpBack)  b.setVisible (loop);
+    for (auto& b : dc.beatJumpFwd)   b.setVisible (loop);
+    dc.reverbMix.setVisible (fx); dc.echoMix.setVisible (fx);
+    dc.bpm.setVisible (sync); dc.beatOffset.setVisible (sync); dc.downbeat.setVisible (sync);
+    dc.tempoInterpretation.setVisible (sync); dc.syncMode.setVisible (sync); dc.keyTarget.setVisible (sync);
+    dc.load.setVisible (src); dc.aiStems.setVisible (src); dc.loadStem.setVisible (src); dc.stemLane.setVisible (src);
+    // liveKey / keyLock live in the always-visible transport row.
 }
 
 // ── Hot cue helpers ───────────────────────────────────────────────────────────
