@@ -20,31 +20,15 @@ void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour acc
     using namespace sattari::brand;
     const auto r = bounds.toFloat();
 
-    // Soft drop shadow for depth (lifted card).
-    juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 16, { 0, 5 })
-        .drawForRectangle (g, bounds.reduced (2));
-
-    // Body with a subtle top-down sheen.
-    juce::ColourGradient body (juce::Colour (kPanel).brighter (0.05f), r.getCentreX(), r.getY(),
-                               juce::Colour (kPanel),                  r.getCentreX(), r.getBottom(), false);
-    g.setGradientFill (body);
+    // Flat solid card — no gradient, no shadow.
+    g.setColour (juce::Colour (kPanel));
     g.fillRoundedRectangle (r, corner);
 
-    // Top inner highlight — the glassy edge.
-    g.setColour (juce::Colours::white.withAlpha (0.05f));
-    g.drawRoundedRectangle (r.reduced (1.0f).withTrimmedBottom (r.getHeight() * 0.5f), corner - 1.0f, 1.0f);
-
-    // Active cards get an accent aura.
-    if (active)
-    {
-        g.setColour (accent.withAlpha (0.22f));
-        g.drawRoundedRectangle (r.expanded (1.5f), corner + 1.0f, 2.0f);
-    }
-
+    // Hairline frame; the accent border firms up when the deck is active.
     g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
     g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
-    g.setColour (accent.withAlpha (active ? 0.80f : 0.40f));
-    g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, 1.0f);
+    g.setColour (accent.withAlpha (active ? 0.85f : 0.35f));
+    g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, active ? 1.5f : 1.0f);
 }
 }
 
@@ -128,11 +112,11 @@ void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File
     deckFiles = decks;
     for (int i = 0; i < numLanes; ++i)
     {
-        clips[(size_t) i].assign (1, LaneClip { decks[(size_t) i], 0.0, 0.0, 0.0, 0.0, 0.0, false });
+        clips[(size_t) i].assign (1, LaneClip { decks[(size_t) i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
         if (deckThumbs[(size_t) i] != nullptr)
             loadThumbnail (*deckThumbs[(size_t) i], deckFiles[(size_t) i]);
     }
-    clips[(size_t) masterLane].assign (1, LaneClip { masterAudio, 0.0, 0.0, 0.0, 0.0, 0.0, false });
+    clips[(size_t) masterLane].assign (1, LaneClip { masterAudio, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
     if (masterThumb != nullptr)
         loadThumbnail (*masterThumb, masterFile);
     selectedLane = -1;
@@ -152,7 +136,7 @@ void MainPluginEditor::ArrangementRecorderView::updateClipAfterBounce (int laneI
         return;
     // Bounce flattens the lane's clips into one rendered file → collapse to a
     // single clip spanning the whole new file.
-    clips[(size_t) laneIndex].assign (1, LaneClip { newFile, newDuration, 0.0, newDuration, 0.0, 0.0, false });
+    clips[(size_t) laneIndex].assign (1, LaneClip { newFile, newDuration, 0.0, newDuration, 0.0, 0.0, 0.0, false });
     if (laneIndex == masterLane)
     {
         masterFile = newFile;
@@ -232,8 +216,8 @@ MainPluginEditor::ArrangementRecorderView::hitTestAt (juce::Point<int> p) const
                 h.handle = Handle::Body;
                 return h;
             }
-            const int clipX0 = timeToX (clip.trimStartSeconds);
-            const int clipX1 = timeToX (clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds);
+            const int clipX0 = timeToX (clip.timelineStartSeconds);
+            const int clipX1 = timeToX (clip.timelineEndSeconds());
             if (p.x < clipX0 - 6 || p.x > clipX1 + 6)
                 continue;
 
@@ -392,23 +376,21 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
     const auto& clip = clips[(size_t) activeDrag.lane][(size_t) activeDrag.clip];
     switch (activeDrag.handle)
     {
-        case Handle::TrimStart: dragStartValue = clip.trimStartSeconds; break;
-        case Handle::TrimEnd:   dragStartValue = clip.trimEndSeconds;   break;
-        case Handle::FadeIn:    dragStartValue = clip.fadeInSeconds;    break;
-        case Handle::FadeOut:   dragStartValue = clip.fadeOutSeconds;   break;
+        case Handle::TrimStart: dragStartValue = clip.trimStartSeconds;     break;
+        case Handle::TrimEnd:   dragStartValue = clip.trimEndSeconds;       break;
+        case Handle::FadeIn:    dragStartValue = clip.fadeInSeconds;        break;
+        case Handle::FadeOut:   dragStartValue = clip.fadeOutSeconds;       break;
+        case Handle::Body:      dragStartValue = clip.timelineStartSeconds; break;
         default: dragStartValue = 0.0;
     }
     dragStartPoint = e.getPosition();
-    if (activeDrag.handle == Handle::TrimStart || activeDrag.handle == Handle::TrimEnd
-        || activeDrag.handle == Handle::FadeIn || activeDrag.handle == Handle::FadeOut)
-        pendingEditSnapshot = captureLaneState (activeDrag.lane);
-    else
-        pendingEditSnapshot = {};
+    // Every clip-targeted handle (including Body-move) snapshots for undo.
+    pendingEditSnapshot = captureLaneState (activeDrag.lane);
 }
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
-    if (activeDrag.lane < 0 || activeDrag.handle == Handle::None || activeDrag.handle == Handle::Body)
+    if (activeDrag.lane < 0 || activeDrag.handle == Handle::None)
         return;
     const double maxLen = computeMaxLengthSeconds();
     if (maxLen <= 0.0)
@@ -430,12 +412,17 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
     switch (activeDrag.handle)
     {
         case Handle::TrimStart:
+        {
+            const double oldStart = clip.trimStartSeconds;
             clip.trimStartSeconds = juce::jlimit (0.0, juce::jmax (0.0, clip.trimEndSeconds - minClipWidth), snapTime (dragStartValue + delta));
+            // Keep the clip's right edge fixed on the timeline as the in-point moves.
+            clip.timelineStartSeconds = juce::jmax (0.0, clip.timelineStartSeconds + (clip.trimStartSeconds - oldStart));
             if (clip.fadeInSeconds > clip.trimEndSeconds - clip.trimStartSeconds)
                 clip.fadeInSeconds = juce::jmax (0.0, clip.trimEndSeconds - clip.trimStartSeconds);
             readoutValue = clip.trimStartSeconds;
             readoutLabel = "Start";
             break;
+        }
         case Handle::TrimEnd:
             clip.trimEndSeconds = juce::jlimit (clip.trimStartSeconds + minClipWidth, total, snapTime (dragStartValue + delta));
             if (clip.fadeOutSeconds > clip.trimEndSeconds - clip.trimStartSeconds - clip.fadeInSeconds)
@@ -452,6 +439,11 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
             clip.fadeOutSeconds = juce::jlimit (0.0, juce::jmax (0.0, clip.trimEndSeconds - clip.trimStartSeconds - clip.fadeInSeconds), snapTime (dragStartValue - delta));
             readoutValue = clip.fadeOutSeconds;
             readoutLabel = "Fade Out";
+            break;
+        case Handle::Body:
+            clip.timelineStartSeconds = juce::jmax (0.0, snapTime (dragStartValue + delta));
+            readoutValue = clip.timelineStartSeconds;
+            readoutLabel = "Move";
             break;
         default: break;
     }
@@ -471,10 +463,11 @@ void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent&
         {
             const auto& before = beforeVec[(size_t) activeDrag.clip];
             const auto& after  = afterVec[(size_t) activeDrag.clip];
-            changed = before.trimStartSeconds != after.trimStartSeconds
-                   || before.trimEndSeconds   != after.trimEndSeconds
-                   || before.fadeInSeconds    != after.fadeInSeconds
-                   || before.fadeOutSeconds   != after.fadeOutSeconds;
+            changed = before.trimStartSeconds     != after.trimStartSeconds
+                   || before.trimEndSeconds       != after.trimEndSeconds
+                   || before.timelineStartSeconds != after.timelineStartSeconds
+                   || before.fadeInSeconds        != after.fadeInSeconds
+                   || before.fadeOutSeconds       != after.fadeOutSeconds;
         }
         if (changed)
             commitEdit (std::move (pendingEditSnapshot));
@@ -647,21 +640,25 @@ void MainPluginEditor::ArrangementRecorderView::splitClipAt (int laneIndex, int 
     if (! juce::isPositiveAndBelow (clipIndex, (int) laneClips.size())) return;
 
     auto& clip = laneClips[(size_t) clipIndex];
-    const double start = clip.trimStartSeconds;
-    const double end   = clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds;
-    const double cut   = snapTime (timeSeconds);
+    // timeSeconds is a timeline position; map it to a source in-point.
+    const double tlStart = clip.timelineStartSeconds;
+    const double tlEnd   = clip.timelineEndSeconds();
+    const double cutTl   = snapTime (timeSeconds);
     const double minWidth = 0.05;
-    if (cut <= start + minWidth || cut >= end - minWidth)
+    if (cutTl <= tlStart + minWidth || cutTl >= tlEnd - minWidth)
         return;   // too close to an edge to split meaningfully
+
+    const double sourceCut = clip.trimStartSeconds + (cutTl - tlStart);
 
     auto before = captureLaneState (laneIndex);
 
-    // Left half keeps the fade-in; right half keeps the fade-out.
+    // Left half keeps the fade-in; right half keeps the fade-out + its timeline slot.
     LaneClip right = clip;
-    clip.trimEndSeconds   = cut;
-    clip.fadeOutSeconds   = 0.0;
-    right.trimStartSeconds = cut;
-    right.fadeInSeconds    = 0.0;
+    clip.trimEndSeconds      = sourceCut;
+    clip.fadeOutSeconds      = 0.0;
+    right.trimStartSeconds    = sourceCut;
+    right.timelineStartSeconds = cutTl;
+    right.fadeInSeconds       = 0.0;
     right.selected = false;
     clip.selected  = false;
 
@@ -702,7 +699,7 @@ void MainPluginEditor::ArrangementRecorderView::resetClipEdits (int laneIndex)
 
     auto before = captureLaneState (laneIndex);
     // Collapse splits and edits back to a single full-length clip.
-    laneClips.assign (1, LaneClip { file, dur, 0.0, dur, 0.0, 0.0, false });
+    laneClips.assign (1, LaneClip { file, dur, 0.0, dur, 0.0, 0.0, 0.0, false });
     selectedClip = -1;
     commitEdit (std::move (before));
     repaint();
@@ -743,6 +740,10 @@ double MainPluginEditor::ArrangementRecorderView::computeMaxLengthSeconds() cons
     for (const auto& thumb : deckThumbs)
         if (thumb != nullptr)
             maxLen = juce::jmax (maxLen, thumb->getTotalLength());
+    // Include moved clips so a clip dragged past the source length stays on-screen.
+    for (const auto& laneClips : clips)
+        for (const auto& clip : laneClips)
+            maxLen = juce::jmax (maxLen, clip.timelineEndSeconds());
     return maxLen;
 }
 
@@ -922,14 +923,17 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 const auto& clip = laneClips[(size_t) ci];
                 if (clip.durationSeconds <= 0.0) continue;
 
-                const double clipStart = juce::jlimit (0.0, laneLen, clip.trimStartSeconds);
-                const double clipEnd   = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);
+                const double clipStart = juce::jlimit (0.0, laneLen, clip.trimStartSeconds);                          // source in-point
+                const double clipEnd   = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);  // source out-point
                 const double fadeIn    = juce::jlimit (0.0, clipEnd - clipStart, clip.fadeInSeconds);
                 const double fadeOut   = juce::jlimit (0.0, clipEnd - clipStart - fadeIn, clip.fadeOutSeconds);
                 const bool clipSelected = isSelected && ci == selectedClip;
 
-                const int clipX0 = timeToX (clipStart);
-                const int clipX1 = juce::jmax (clipX0 + 6, timeToX (clipEnd));
+                // Rect comes from the timeline position; the waveform is drawn from the source region.
+                const double tlStart = clip.timelineStartSeconds;
+                const double tlEnd   = tlStart + (clipEnd - clipStart);
+                const int clipX0 = timeToX (tlStart);
+                const int clipX1 = juce::jmax (clipX0 + 6, timeToX (tlEnd));
                 auto clipRect = juce::Rectangle<int> (clipX0, track.getY(), clipX1 - clipX0, track.getHeight());
 
                 const int headerBand = juce::jlimit (10, 14, clipRect.getHeight() / 3);
@@ -962,7 +966,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 
                 if (fadeIn > 0.0)
                 {
-                    const int fadeInX = timeToX (clipStart + fadeIn);
+                    const int fadeInX = timeToX (tlStart + fadeIn);
                     juce::Path tri;
                     tri.startNewSubPath ((float) clipRect.getX(), (float) clipRect.getY());
                     tri.lineTo ((float) fadeInX, (float) clipRect.getY());
@@ -976,7 +980,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 }
                 if (fadeOut > 0.0)
                 {
-                    const int fadeOutX = timeToX (clipEnd - fadeOut);
+                    const int fadeOutX = timeToX (tlEnd - fadeOut);
                     juce::Path tri;
                     tri.startNewSubPath ((float) fadeOutX, (float) clipRect.getY());
                     tri.lineTo ((float) clipRect.getRight(), (float) clipRect.getY());
@@ -1788,8 +1792,8 @@ void MainPluginEditor::toggleArrangementPlayback()
             if (end - start < 0.02) continue;
 
             MainPluginProcessor::ArrangementClipSpec spec;
-            spec.file                = clip.file;
-            spec.timelineStartSeconds = start;        // in-place playback
+            spec.file                 = clip.file;
+            spec.timelineStartSeconds = clip.timelineStartSeconds;   // free-positioned
             spec.sourceStartSeconds   = start;
             spec.lengthSeconds        = end - start;
             spec.gain                 = 1.0f;
@@ -1835,10 +1839,11 @@ void MainPluginEditor::bounceArrangementEdits()
         for (const auto& clip : laneClips)
         {
             const double endSec = clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds;
-            laneTimelineEnd = juce::jmax (laneTimelineEnd, endSec);
+            laneTimelineEnd = juce::jmax (laneTimelineEnd, clip.timelineEndSeconds());
             const double fadeIn  = juce::jlimit (0.0, endSec - clip.trimStartSeconds, clip.fadeInSeconds);
             const double fadeOut = juce::jlimit (0.0, endSec - clip.trimStartSeconds - fadeIn, clip.fadeOutSeconds);
             if (clip.trimStartSeconds > 0.001 || endSec < clip.durationSeconds - 0.001
+                || std::abs (clip.timelineStartSeconds - clip.trimStartSeconds) > 0.001
                 || fadeIn > 0.001 || fadeOut > 0.001)
                 needsBounce = true;
         }
@@ -1890,7 +1895,7 @@ void MainPluginEditor::bounceArrangementEdits()
                 region.applyGainRamp (regionSamples - n, n, 1.0f, 0.0f);
             }
 
-            const int destOffset = juce::jlimit (0, totalSamples, (int) std::round (startSec * sr));
+            const int destOffset = juce::jlimit (0, totalSamples, (int) std::round (clip.timelineStartSeconds * sr));
             const int copyLen = juce::jmin (regionSamples, totalSamples - destOffset);
             for (int ch = 0; ch < channels; ++ch)
                 out.copyFrom (ch, destOffset, region, ch, 0, copyLen);

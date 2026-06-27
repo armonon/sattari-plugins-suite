@@ -105,12 +105,16 @@ private:
         struct LaneClip
         {
             juce::File file;
-            double durationSeconds = 0.0;    // full source-file duration
-            double trimStartSeconds = 0.0;   // region start (also timeline start)
-            double trimEndSeconds = 0.0;     // region end (also timeline end)
+            double durationSeconds = 0.0;      // full source-file duration
+            double trimStartSeconds = 0.0;     // source in-point
+            double trimEndSeconds = 0.0;       // source out-point
+            double timelineStartSeconds = 0.0; // free position on the timeline
             double fadeInSeconds = 0.0;
             double fadeOutSeconds = 0.0;
             bool selected = false;
+
+            double lengthSeconds() const noexcept { return juce::jmax (0.0, trimEndSeconds - trimStartSeconds); }
+            double timelineEndSeconds() const noexcept { return timelineStartSeconds + lengthSeconds(); }
         };
 
         using LaneClips = std::array<std::vector<LaneClip>, numEditableLanes>;
