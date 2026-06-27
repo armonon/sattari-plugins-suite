@@ -2,6 +2,8 @@
 
 namespace
 {
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
 juce::var objectWith (std::initializer_list<std::pair<juce::Identifier, juce::var>> properties)
 {
     auto* object = new juce::DynamicObject();
@@ -20,7 +22,7 @@ public:
     JobStatus runJob() override
     {
         auto result = provider.inspectCache (sourceFile);
-        provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, true, provider.getSeparatorCommand().trim().isNotEmpty(), "Preparing premium offline stem cache…"));
+        provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, true, provider.getSeparatorCommand().trim().isNotEmpty(), u8 ("Preparing premium offline stem cache\xe2\x80\xa6")));
         if (! result.allCoreStemsReady)
         {
             juce::String message;
@@ -29,7 +31,7 @@ public:
                 result = provider.inspectCache (sourceFile);
 
             if (message.isNotEmpty())
-                result.message = message + " • " + result.message;
+                result.message = message + u8 (" \xe2\x80\xa2 ") + result.message;
         }
         provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, false, provider.getSeparatorCommand().trim().isNotEmpty()));
         provider.writeManifest (result);
@@ -180,9 +182,9 @@ StemProvider::Status StemProvider::statusFromResult (const Result& result,
     status.backendConfigured = backendConfigured;
 
     if (status.allCoreStemsReady)
-        status.headline = "AI stems ready — vocals, drums, bass, music";
+        status.headline = u8 ("AI stems ready \xe2\x80\x94 vocals, drums, bass, music");
     else if (running)
-        status.headline = backendConfigured ? "Splitting AI stems offline…" : "Waiting for AI stem backend";
+        status.headline = backendConfigured ? u8 ("Splitting AI stems offline\xe2\x80\xa6") : juce::String ("Waiting for AI stem backend");
     else if (queued)
         status.headline = "AI stem split queued";
     else if (status.readyCoreStems > 0)

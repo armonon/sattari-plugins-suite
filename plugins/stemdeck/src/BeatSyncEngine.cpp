@@ -2,6 +2,7 @@
 
 namespace
 {
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
 constexpr float fallbackBpm = 120.0f;
 
 float sanitiseBpm (float bpm) noexcept
@@ -244,13 +245,13 @@ BeatSyncEngine::PlaybackPlan BeatSyncEngine::makePlaybackPlan (const TransportSy
         case SyncMode::strict:    mode = "Strict Sync"; break;
     }
 
-    plan.statusLabel = mode + " • " + juce::String (plan.sourceBpm, 1) + "→" + juce::String (plan.masterBpm, 1) + " BPM • " + grid.interpretationLabel();
+    plan.statusLabel = mode + u8 (" \xe2\x80\xa2 ") + juce::String (plan.sourceBpm, 1) + u8 ("\xe2\x86\x92") + juce::String (plan.masterBpm, 1) + u8 (" BPM \xe2\x80\xa2 ") + grid.interpretationLabel();
     if (! plan.syncEnabled)
-        plan.statusLabel += " • armed";
+        plan.statusLabel += u8 (" \xe2\x80\xa2 armed");
     else if (plan.hasLockedSourcePosition)
-        plan.statusLabel += " • grid-locked";
+        plan.statusLabel += u8 (" \xe2\x80\xa2 grid-locked");
     else
-        plan.statusLabel += " • tempo drift";
+        plan.statusLabel += u8 (" \xe2\x80\xa2 tempo drift");
 
     return plan;
 }

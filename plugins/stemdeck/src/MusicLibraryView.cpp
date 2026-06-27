@@ -3,6 +3,8 @@
 
 namespace
 {
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
 juce::File appDataDir()
 {
     auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
@@ -40,7 +42,7 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     header.setSortColumnId (colTitle, true);
     addAndMakeVisible (table);
 
-    searchBox.setTextToShowWhenEmpty ("Search title / BPM / key…", juce::Colour (sattari::brand::kTextMuted));
+    searchBox.setTextToShowWhenEmpty (u8 ("Search title / BPM / key\xe2\x80\xa6"), juce::Colour (sattari::brand::kTextMuted));
     searchBox.setColour (juce::TextEditor::backgroundColourId, juce::Colour (sattari::brand::kPanel));
     searchBox.setColour (juce::TextEditor::textColourId, juce::Colour (sattari::brand::kTextPrimary));
     searchBox.onTextChange = [this]
@@ -261,7 +263,7 @@ void MusicLibraryView::rebuildView()
 
     const int inFlight = analysesInFlight.load();
     countLabel.setText (juce::String ((int) entries.size()) + " tracks"
-                        + (inFlight > 0 ? "  ·  analyzing " + juce::String (inFlight) + "…" : juce::String()),
+                        + (inFlight > 0 ? u8 ("  \xc2\xb7  analyzing ") + juce::String (inFlight) + u8 ("\xe2\x80\xa6") : juce::String()),
                         juce::dontSendNotification);
 }
 
@@ -296,7 +298,7 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
         case colBpm:
             g.setColour (e.analyzed ? juce::Colour (sattari::brand::kTextPrimary)
                                     : juce::Colour (sattari::brand::kTextMuted));
-            g.drawText (e.bpm > 0.0f ? juce::String (e.bpm, 1) : (e.analyzed ? "—" : "…"),
+            g.drawText (e.bpm > 0.0f ? juce::String (e.bpm, 1) : (e.analyzed ? u8 ("\xe2\x80\x94") : u8 ("\xe2\x80\xa6")),
                         area, juce::Justification::centredLeft);
             break;
         case colKey:
@@ -319,7 +321,7 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
             else
             {
                 g.setColour (juce::Colour (sattari::brand::kTextMuted));
-                g.drawText (e.analyzed ? "—" : "…", area, juce::Justification::centredLeft);
+                g.drawText (e.analyzed ? u8 ("\xe2\x80\x94") : u8 ("\xe2\x80\xa6"), area, juce::Justification::centredLeft);
             }
             break;
         }

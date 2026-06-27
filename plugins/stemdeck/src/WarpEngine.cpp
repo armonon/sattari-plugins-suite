@@ -6,6 +6,8 @@
 
 namespace
 {
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
 class GranularFallbackBackend final : public WarpEngine::TimeStretchBackend
 {
 public:
@@ -89,7 +91,7 @@ juce::String WarpEngine::getStatusSummary() const
     juce::String text = backendInfo.name;
     text += backendInfo.available ? " ready" : " unavailable";
     if (backendInfo.notes.isNotEmpty())
-        text += " — " + backendInfo.notes;
+        text += u8 (" \xe2\x80\x94 ") + backendInfo.notes;
     return text;
 }
 
@@ -125,9 +127,9 @@ WarpEngine::Plan WarpEngine::makePlan (const TransportSync::Snapshot& transport,
     plan.backend = getSelectedBackend();
 
     plan.statusLabel = "Warp: " + plan.beatSync.statusLabel
-                     + " • tempo x" + juce::String (plan.timePitch.tempoRatio, 3)
-                     + " • pitch " + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
-                     + " • " + plan.timePitch.statusLabel
-                     + " • backend: " + plan.backend.name;
+                     + u8 (" \xe2\x80\xa2 tempo x") + juce::String (plan.timePitch.tempoRatio, 3)
+                     + u8 (" \xe2\x80\xa2 pitch ") + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
+                     + u8 (" \xe2\x80\xa2 ") + plan.timePitch.statusLabel
+                     + u8 (" \xe2\x80\xa2 backend: ") + plan.backend.name;
     return plan;
 }

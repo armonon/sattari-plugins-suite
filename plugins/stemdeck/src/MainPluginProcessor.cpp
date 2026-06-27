@@ -28,6 +28,10 @@ private:
     std::function<void(std::shared_ptr<const DeckPlayer::LoadedAudio>)> onDone;
 };
 
+// This build decodes bare char* literals as Latin-1; wrap non-ASCII text so it
+// is interpreted as UTF-8 (otherwise "•" / "→" render as mojibake).
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
 std::unique_ptr<juce::AudioParameterFloat> floatParam (const juce::String& id, const juce::String& name,
                                                        float min, float max, float def, const juce::String& suffix = {})
 {
@@ -1021,17 +1025,17 @@ juce::String MainPluginProcessor::getDeckKeyInfo (int deckIndex) const
     if (analysis.hasKey() && targetKey >= 0)
     {
         const int matchShift = TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey);
-        text += " → " + TrackAnalyzer::pitchClassName (targetKey) + " (" + (matchShift >= 0 ? "+" : "") + juce::String (matchShift) + " st)";
+        text += u8 (" \xe2\x86\x92 ") + TrackAnalyzer::pitchClassName (targetKey) + " (" + (matchShift >= 0 ? "+" : "") + juce::String (matchShift) + " st)";
     }
 
     if (std::abs (manualShift) > 0.01f)
         text += " + manual " + juce::String (manualShift, 1) + " st";
 
     if (getBoolParam (deck + "KeyLock"))
-        text += " • preserve requested";
+        text += u8 (" \xe2\x80\xa2 preserve requested");
 
     if (liveKeyEnabled && ! liveAnalysis.hasKey())
-        text += " • live listening…";
+        text += u8 (" \xe2\x80\xa2 live listening\xe2\x80\xa6");
 
     return text;
 }
@@ -1088,11 +1092,11 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
 
     juce::String text = plan.statusLabel;
     if (analysis.detectedBpm > 1.0f)
-        text += " • detected " + juce::String (analysis.detectedBpm, 1);
+        text += u8 (" \xe2\x80\xa2 detected ") + juce::String (analysis.detectedBpm, 1);
     if (! analysis.beatGridSamples.empty())
-        text += " • " + juce::String ((int) analysis.beatGridSamples.size()) + " beats";
+        text += u8 (" \xe2\x80\xa2 ") + juce::String ((int) analysis.beatGridSamples.size()) + " beats";
     if (! analysis.transientAnchorSamples.empty())
-        text += " • " + juce::String ((int) analysis.transientAnchorSamples.size()) + " anchors";
+        text += u8 (" \xe2\x80\xa2 ") + juce::String ((int) analysis.transientAnchorSamples.size()) + " anchors";
     return text;
 }
 
@@ -1113,7 +1117,7 @@ juce::String MainPluginProcessor::getPluginHostStatus() const
 
 juce::String MainPluginProcessor::getStemProviderStatus() const
 {
-    return stemProvider.getName() + " • cache: " + stemProvider.getCacheRoot().getFullPathName();
+    return stemProvider.getName() + u8 (" \xe2\x80\xa2 cache: ") + stemProvider.getCacheRoot().getFullPathName();
 }
 
 juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) const
@@ -1125,13 +1129,13 @@ juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) cons
     const auto status = stemProvider.getStatusForSource (juce::File (path));
     juce::String text = status.headline;
     if (status.sourceFile.existsAsFile())
-        text += " • " + juce::String (status.readyCoreStems) + "/" + juce::String (status.totalCoreStems) + " stems";
+        text += u8 (" \xe2\x80\xa2 ") + juce::String (status.readyCoreStems) + "/" + juce::String (status.totalCoreStems) + " stems";
     if (status.jobQueued && ! status.jobRunning)
-        text += " • queued";
+        text += u8 (" \xe2\x80\xa2 queued");
     if (status.jobRunning)
-        text += " • processing";
+        text += u8 (" \xe2\x80\xa2 processing");
     if (status.detail.isNotEmpty())
-        text += " • " + status.detail;
+        text += u8 (" \xe2\x80\xa2 ") + status.detail;
     return text;
 }
 

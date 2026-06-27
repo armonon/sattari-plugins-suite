@@ -58,8 +58,8 @@ private:
         juce::TextButton loopIn   { "IN" };
         juce::TextButton loopOut  { "OUT" };
         juce::TextButton loopToggle { "LOOP" };
-        juce::TextButton loopHalf { "\xc2\xbd" };    // ½
-        juce::TextButton loopDouble { "2\xc3\x97" }; // 2×
+        juce::TextButton loopHalf { "1/2" };
+        juce::TextButton loopDouble { "x2" };
 
         // ── Beat jump (back: bars[3]=32 [2]=16 [1]=8 [0]=4, fwd mirror) ──────
         std::array<juce::TextButton, 4> beatJumpBack;

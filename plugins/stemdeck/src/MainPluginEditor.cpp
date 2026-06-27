@@ -14,6 +14,11 @@ juce::Colour deckAccent (int deckIndex)
     return juce::Colour (colours[(size_t) juce::jlimit (0, 3, deckIndex)]);
 }
 
+// This build decodes bare `char*` string literals as Latin-1, so any literal with
+// non-ASCII bytes must be wrapped to be interpreted as UTF-8 or it renders as
+// mojibake ("—" → "â€"). u8() forces correct UTF-8 decoding.
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent,
                 float corner = 10.0f, bool active = false)
 {
@@ -314,7 +319,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
                     if (i == lane) continue;
                     copyTo.addItem (100 + i, "Deck " + juce::String::charToString ((juce_wchar) ('A' + i)));
                 }
-                menu.addSubMenu ("Copy lane to\xe2\x80\xa6", copyTo);
+                menu.addSubMenu (u8 ("Copy lane to\xe2\x80\xa6"), copyTo);
             }
             menu.addSeparator();
             menu.addItem (4, "Undo", canUndo());
@@ -1033,7 +1038,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.fillRect (rect);
             g.setColour (colour.withAlpha (0.85f));
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-            g.drawText ("capturing\xe2\x80\xa6", track.reduced (8, 0), juce::Justification::centredLeft);
+            g.drawText (u8 ("capturing\xe2\x80\xa6"), track.reduced (8, 0), juce::Justification::centredLeft);
         }
         else
         {
@@ -1086,7 +1091,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     {
         g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
         g.setColour (juce::Colour (kAccent).withAlpha (0.8f));
-        g.drawText ("SNAP \xe2\x97\x86 " + juce::String (snapBeatGrid, 2) + " beat @ " + juce::String (snapBpm, 1) + " BPM",
+        g.drawText (u8 ("SNAP \xe2\x97\x86 ") + juce::String (snapBeatGrid, 2) + " beat @ " + juce::String (snapBpm, 1) + " BPM",
                     statusArea, juce::Justification::centredRight);
     }
 }
@@ -1129,14 +1134,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     title.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (title);
 
-    subtitle.setText ("FOUR DECKS  \xe2\x80\xa2  STEM MIXER  \xe2\x80\xa2  ARRANGEMENT", juce::dontSendNotification);
+    subtitle.setText (u8 ("FOUR DECKS  \xe2\x80\xa2  STEM MIXER  \xe2\x80\xa2  ARRANGEMENT"), juce::dontSendNotification);
     subtitle.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     subtitle.setFont (juce::FontOptions (10.5f, juce::Font::bold));
     subtitle.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (subtitle);
 
     standaloneWorkflowGuide.setText (
-        "RECORD captures master + 4 deck WAVs + automation \xe2\x80\xa2" " Reload bounces back into decks for post-set tweaks",
+        u8 ("RECORD captures master + 4 deck WAVs + automation \xe2\x80\xa2 Reload bounces back into decks for post-set tweaks"),
         juce::dontSendNotification);
     standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     standaloneWorkflowGuide.setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -1285,12 +1290,12 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             auto& dc = deckControls[(size_t) i];
             for (int b = 0; b < 4; ++b)
             {
-                dc.beatJumpBack[b].setButtonText (kBackLabels[b]);
+                dc.beatJumpBack[b].setButtonText (u8 (kBackLabels[b]));
                 setupButton (dc.beatJumpBack[b]);
                 dc.beatJumpBack[b].onClick = [this, i, b] { processorRef.beatJumpDeck (i, -kBars[b]); };
                 addAndMakeVisible (dc.beatJumpBack[b]);
 
-                dc.beatJumpFwd[b].setButtonText (kFwdLabels[b]);
+                dc.beatJumpFwd[b].setButtonText (u8 (kFwdLabels[b]));
                 setupButton (dc.beatJumpFwd[b]);
                 dc.beatJumpFwd[b].onClick = [this, i, b] { processorRef.beatJumpDeck (i, kBars[b]); };
                 addAndMakeVisible (dc.beatJumpFwd[b]);
@@ -1766,7 +1771,7 @@ void MainPluginEditor::reloadLastRecordingIntoDecks()
     }
     recordStatus.setText (loaded > 0
                               ? "Reloaded " + juce::String (loaded) + " deck capture" + (loaded == 1 ? "" : "s") + " into decks A–D"
-                              : juce::String ("No deck captures to reload — record a set first"),
+                              : u8 ("No deck captures to reload \xe2\x80\x94 record a set first"),
                           juce::dontSendNotification);
 }
 
@@ -1808,12 +1813,12 @@ void MainPluginEditor::toggleArrangementPlayback()
 
     if (specs.empty())
     {
-        recordStatus.setText ("Nothing to play — record or load an arrangement first", juce::dontSendNotification);
+        recordStatus.setText (u8 ("Nothing to play \xe2\x80\x94 record or load an arrangement first"), juce::dontSendNotification);
         return;
     }
 
     processorRef.buildAndStartArrangement (std::move (specs));
-    recordStatus.setText ("Playing arrangement\xe2\x80\xa6", juce::dontSendNotification);
+    recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
 }
 
 void MainPluginEditor::bounceArrangementEdits()
@@ -1934,10 +1939,10 @@ void MainPluginEditor::bounceArrangementEdits()
     }
 
     if (rendered > 0)
-        recordStatus.setText ("Bounced " + juce::String (rendered) + " edited lane" + (rendered == 1 ? "" : "s") + " — Reload to Decks uses the new versions",
+        recordStatus.setText ("Bounced " + juce::String (rendered) + " edited lane" + (rendered == 1 ? "" : "s") + u8 (" \xe2\x80\x94 Reload to Decks uses the new versions"),
                               juce::dontSendNotification);
     else
-        recordStatus.setText (errors.isNotEmpty() ? errors : juce::String ("No edits to bounce — drag a clip edge or fade handle first"),
+        recordStatus.setText (errors.isNotEmpty() ? errors : u8 ("No edits to bounce \xe2\x80\x94 drag a clip edge or fade handle first"),
                               juce::dontSendNotification);
 }
 
@@ -2095,7 +2100,7 @@ void MainPluginEditor::loadLastArrangementIntoView (juce::String statusLine)
     }
     else
     {
-        arrangementView.setIdle ("Recording produced no files — check the destination folder.");
+        arrangementView.setIdle (u8 ("Recording produced no files \xe2\x80\x94 check the destination folder."));
     }
 }
 
@@ -2116,7 +2121,7 @@ void MainPluginEditor::refreshHostPluginChoices()
 
 void MainPluginEditor::runPluginHostScan()
 {
-    pluginHostMessage.setText ("Scanning FX defaults…", juce::dontSendNotification);
+    pluginHostMessage.setText (u8 ("Scanning FX defaults\xe2\x80\xa6"), juce::dontSendNotification);
     scanPluginsButton.setEnabled (false);
 
     juce::Thread::launch ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
@@ -2133,9 +2138,9 @@ void MainPluginEditor::runPluginHostScan()
             safeThis->scanPluginsButton.setEnabled (true);
             safeThis->refreshHostPluginChoices();
             juce::String message = "Scanned " + result.scannedFormats.joinIntoString (", ")
-                                 + " • known FX: " + juce::String (result.plugins.size());
+                                 + u8 (" \xe2\x80\xa2 known FX: ") + juce::String (result.plugins.size());
             if (! result.blacklistedFiles.isEmpty())
-                message += " • blacklisted: " + juce::String (result.blacklistedFiles.size());
+                message += u8 (" \xe2\x80\xa2 blacklisted: ") + juce::String (result.blacklistedFiles.size());
             safeThis->pluginHostMessage.setText (message, juce::dontSendNotification);
         });
     });
@@ -2152,7 +2157,7 @@ void MainPluginEditor::loadSelectedHostPlugin()
     }
 
     loadPluginButton.setEnabled (false);
-    pluginHostMessage.setText ("Loading " + pluginSelector.getText() + " → " + pluginChainSelector.getText(), juce::dontSendNotification);
+    pluginHostMessage.setText ("Loading " + pluginSelector.getText() + u8 (" \xe2\x86\x92 ") + pluginChainSelector.getText(), juce::dontSendNotification);
     processorRef.loadHostPluginToChainAsync (chainIndex, pluginIndex,
         [safeThis = juce::Component::SafePointer<MainPluginEditor> (this)] (bool success, juce::String message)
         {
@@ -2307,7 +2312,7 @@ void MainPluginEditor::fileDoubleClicked (const juce::File& file)
     }
 
     juce::PopupMenu menu;
-    menu.addSectionHeader ("All decks are loaded — pick one to replace");
+    menu.addSectionHeader (u8 ("All decks are loaded \xe2\x80\x94 pick one to replace"));
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         const auto name = "Replace Deck " + juce::String::charToString ((juce_wchar) ('A' + i))
@@ -2429,7 +2434,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             // Filename in the middle slot (truncate left-most path components).
             const auto path = processorRef.getDeckPath (i);
             const auto file = juce::File (path).getFileName();
-            const auto display = file.isNotEmpty() ? file : juce::String ("\xe2\x80\x94 empty deck \xe2\x80\x94");
+            const auto display = file.isNotEmpty() ? file : u8 ("\xe2\x80\x94 empty deck \xe2\x80\x94");
             g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (file.isNotEmpty() ? 0.92f : 0.45f));
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
@@ -2505,12 +2510,12 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // Labels above the top-row sliders.
     g.setColour (juce::Colour (kTextMuted));
     g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-    auto sliderLabel = [&] (const char* t, juce::Component& c)
+    auto sliderLabel = [&] (const juce::String& t, juce::Component& c)
     {
         if (c.isVisible() && ! c.getBounds().isEmpty())
             g.drawText (t, c.getBounds().withHeight (12).translated (0, -13), juce::Justification::centred);
     };
-    sliderLabel ("CROSSFADER A/C \xe2\x86\x94 B/D", crossfader);
+    sliderLabel (u8 ("CROSSFADER A/C \xe2\x86\x94 B/D"), crossfader);
     sliderLabel ("MASTER BPM", masterBpm);
     sliderLabel ("MASTER",     master);
     sliderLabel ("LIMIT",      limiter);
@@ -2623,7 +2628,7 @@ void MainPluginEditor::resized()
 
     // Deck row gets a fixed band; the arrangement below takes ALL remaining height
     // (so it is large and grows as the window resizes).
-    auto decksArea = area.removeFromTop (juce::jmax (430, area.getHeight() * 48 / 100));
+    auto decksArea = area.removeFromTop (juce::jmax (390, area.getHeight() * 44 / 100));
     const int deckGap = 10;
     const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
@@ -2854,10 +2859,10 @@ void MainPluginEditor::timerCallback()
         {
             const auto name = res.isCc ? midi.ccName (res.targetIdx) : midi.noteName (res.targetIdx);
             libraryMetaLabel.setText ((res.isCc ? "Mapped CC " : "Mapped Note ")
-                                      + juce::String (res.controller) + "  \xe2\x86\x92  " + name,
+                                      + juce::String (res.controller) + u8 ("  \xe2\x86\x92  ") + name,
                                       juce::dontSendNotification);
         }
-        midiLearnButton.setButtonText (midi.isLearning() ? "LEARN\xe2\x80\xa6" : "MIDI");
+        midiLearnButton.setButtonText (midi.isLearning() ? u8 ("LEARN\xe2\x80\xa6") : juce::String ("MIDI"));
         midiLearnButton.setColour (juce::TextButton::buttonColourId,
                                    midi.isLearning() ? juce::Colour (sattari::brand::kAccent).withAlpha (0.55f)
                                                      : juce::Colour (sattari::brand::kPanelRaised));
@@ -2865,7 +2870,7 @@ void MainPluginEditor::timerCallback()
 
     processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();
-    tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? "  \xe2\x96\xb6" : "  \xe2\x97\xbc"),
+    tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? u8 ("  \xe2\x96\xb6") : u8 ("  \xe2\x97\xbc")),
                         juce::dontSendNotification);
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
@@ -2924,7 +2929,7 @@ void MainPluginEditor::timerCallback()
 
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
-        deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + " • " + processorRef.getDeckTimePitchStatus (i) + " • " + processorRef.getDeckBeatSyncStatus (i),
+        deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckTimePitchStatus (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckBeatSyncStatus (i),
                                                    juce::dontSendNotification);
         deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
 
@@ -3222,7 +3227,7 @@ void MainPluginEditor::updateMidiLearnUI()
     }
 
     juce::PopupMenu menu;
-    menu.addSectionHeader ("MIDI Learn  (enable controller in \xe2\x9a\x99 Options first)");
+    menu.addSectionHeader (u8 ("MIDI Learn  (enable controller in \xe2\x9a\x99 Options first)"));
 
     constexpr int kCcBase   = 1;
     constexpr int kNoteBase = 1000;
@@ -3233,7 +3238,7 @@ void MainPluginEditor::updateMidiLearnUI()
     {
         const int cc = midi.ccForTarget (i);
         cont.addItem (kCcBase + i,
-                      midi.ccName (i) + (cc >= 0 ? "   [CC " + juce::String (cc) + "]" : "   [\xe2\x80\x94]"));
+                      midi.ccName (i) + (cc >= 0 ? "   [CC " + juce::String (cc) + "]" : u8 ("   [\xe2\x80\x94]")));
     }
     menu.addSubMenu ("Continuous  (move a knob / fader)", cont);
 
@@ -3242,7 +3247,7 @@ void MainPluginEditor::updateMidiLearnUI()
     {
         const int n = midi.noteForTarget (i);
         trig.addItem (kNoteBase + i,
-                      midi.noteName (i) + (n >= 0 ? "   [Note " + juce::String (n) + "]" : "   [\xe2\x80\x94]"));
+                      midi.noteName (i) + (n >= 0 ? "   [Note " + juce::String (n) + "]" : u8 ("   [\xe2\x80\x94]")));
     }
     menu.addSubMenu ("Triggers  (press a pad / button)", trig);
 
@@ -3266,16 +3271,16 @@ void MainPluginEditor::updateMidiLearnUI()
             {
                 const int idx = result - kNoteBase;
                 m.beginLearnNote (idx);
-                libraryMetaLabel.setText ("MIDI learn: press a pad for \"" + m.noteName (idx) + "\"\xe2\x80\xa6",
+                libraryMetaLabel.setText ("MIDI learn: press a pad for \"" + m.noteName (idx) + u8 ("\"\xe2\x80\xa6"),
                                           juce::dontSendNotification);
             }
             else
             {
                 const int idx = result - kCcBase;
                 m.beginLearnCc (idx);
-                libraryMetaLabel.setText ("MIDI learn: move a control for \"" + m.ccName (idx) + "\"\xe2\x80\xa6",
+                libraryMetaLabel.setText ("MIDI learn: move a control for \"" + m.ccName (idx) + u8 ("\"\xe2\x80\xa6"),
                                           juce::dontSendNotification);
             }
-            midiLearnButton.setButtonText ("LEARN\xe2\x80\xa6");
+            midiLearnButton.setButtonText (u8 ("LEARN\xe2\x80\xa6"));
         });
 }
