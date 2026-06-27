@@ -147,7 +147,7 @@ void SattariArpAudioProcessorEditor::setupSlider (juce::Slider& s, const juce::S
     s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 76, 22);
     s.setTextValueSuffix (suffix);
-    s.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffff6b35));
+    s.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     s.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
     addAndMakeVisible (s);
@@ -157,7 +157,7 @@ void SattariArpAudioProcessorEditor::setupCombo (juce::ComboBox& c)
 {
     c.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171821));
     c.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    c.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xffff6b35));
+    c.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (c);
 }
 

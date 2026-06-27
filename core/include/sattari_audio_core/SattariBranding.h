@@ -69,19 +69,21 @@ struct Product
 
 inline const std::vector<Product>& products()
 {
+    // Unified suite identity: every product uses the Sattari Auto Pitch mint
+    // accent so the whole suite reads as one family ("everything looks like the
+    // Auto Pitch plugin"). The shared LookAndFeel already unifies background,
+    // shapes and layout; this unifies colour too. (Per-product accents are kept
+    // as a single constant here so it stays trivial to re-diversify later.)
     static const std::vector<Product> registry {
-        // Accents track each plugin's established editor colour so the shared
-        // LookAndFeel unifies form (shapes, background, layout) without recolouring
-        // any plugin's identity. Tweak freely - every editor reads from here.
-        { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     0xff62f5c8 }, // mint
-        { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    0xff7cffd4 }, // mint
-        { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       0xff26d9ff }, // cyan
-        { "sub-conjurer",      "Sub Conjurer",        "Low-end",          0xff62f5c8 }, // mint
-        { "side-chain-master", "Side Chain Master",   "Dynamics",         0xff7cffd8 }, // mint
-        { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      0xffd8b45a }, // gold
-        { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  0xffff6b35 }, // orange
-        { "bus",               "Sattari Bus",         "Bus / mix",        0xff9b7bff }, // violet
-        { "align",             "Sattari Align",       "Timing alignment", 0xff7dd3fc }, // cyan
+        { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     kAccent },
+        { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
+        { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
+        { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
+        { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },
+        { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      kAccent },
+        { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  kAccent },
+        { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
+        { "align",             "Sattari Align",       "Timing alignment", kAccent },
     };
     return registry;
 }

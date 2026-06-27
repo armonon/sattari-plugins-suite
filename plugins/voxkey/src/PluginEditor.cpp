@@ -13,7 +13,7 @@ void VoxKeyOrb::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff080913));
     g.fillRoundedRectangle (area, 22.0f);
 
-    const auto glow = state.midiActive ? juce::Colour (0xff7cffd4) : (state.voiced ? juce::Colour (0xffffb45e) : juce::Colour (0xff4b4f66));
+    const auto glow = state.midiActive ? juce::Colour (sattari::brand::kAccent) : (state.voiced ? juce::Colour (0xffffb45e) : juce::Colour (0xff4b4f66));
     g.setColour (glow.withAlpha (0.32f));
     g.fillEllipse (area.reduced (36.0f));
     g.setColour (glow);
@@ -188,7 +188,7 @@ void SattariVoxKeyAudioProcessorEditor::setupSlider (juce::Slider& slider, const
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 82, 22);
     slider.setTextValueSuffix (suffix);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff7cffd4));
+    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colour (0xff272c42));
@@ -199,7 +199,7 @@ void SattariVoxKeyAudioProcessorEditor::setupCombo (juce::ComboBox& combo)
 {
     combo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff111525));
     combo.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff7cffd4));
+    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (combo);
 }
 
@@ -215,7 +215,7 @@ void SattariVoxKeyAudioProcessorEditor::setupLabel (juce::Label& label, const ju
 void SattariVoxKeyAudioProcessorEditor::setupToggle (juce::ToggleButton& button)
 {
     button.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
-    button.setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff7cffd4));
+    button.setColour (juce::ToggleButton::tickColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (button);
 }
 

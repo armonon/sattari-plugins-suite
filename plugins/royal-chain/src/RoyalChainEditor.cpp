@@ -51,7 +51,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     styleAttachment = std::make_unique<ComboAttachment> (processor.parameters(), "style", styleBox);
 
     inputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (0xff62f5c8));
-    outputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8b45a));
+    outputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     inputMeterLabel.setJustificationType (juce::Justification::centredRight);
     outputMeterLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (inputMeterLabel);
@@ -118,7 +118,7 @@ void RoyalChainAudioProcessorEditor::setupSlider (juce::Slider& slider, const ju
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 22);
     slider.setTextValueSuffix (suffix);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffd8b45a));
+    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff34394d));
     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
@@ -130,7 +130,7 @@ void RoyalChainAudioProcessorEditor::setupCombo (juce::ComboBox& combo)
 {
     combo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171927));
     combo.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xffd8b45a));
+    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (combo);
 }
 
@@ -195,7 +195,7 @@ void RoyalChainAudioProcessorEditor::drawChainFlow (juce::Graphics& g, juce::Rec
         auto block = area.removeFromLeft (blockW);
         g.setColour (i == 1 ? juce::Colour (0xff3b3145) : juce::Colour (0xff1c2232));
         g.fillRoundedRectangle (block.toFloat(), 8.0f);
-        g.setColour (i == 1 ? juce::Colour (0xffa78bfa) : juce::Colour (0xffd8b45a));
+        g.setColour (i == 1 ? juce::Colour (0xffa78bfa) : juce::Colour (sattari::brand::kAccent));
         g.drawRoundedRectangle (block.toFloat(), 8.0f, 1.0f);
         g.setColour (juce::Colours::white);
         g.drawText (names[i], block, juce::Justification::centred);

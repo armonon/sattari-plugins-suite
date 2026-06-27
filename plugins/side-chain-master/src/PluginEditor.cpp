@@ -67,7 +67,7 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     grLabel.setText ("GR 0.0 dB", juce::dontSendNotification);
     grLabel.setJustificationType (juce::Justification::centred);
     grLabel.setFont (juce::FontOptions (18.0f, juce::Font::bold));
-    grLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7cffd8));
+    grLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (grLabel);
 
     sidechainStatus.setText ("Sidechain: internal detector", juce::dontSendNotification);
@@ -155,7 +155,7 @@ void SideChainMasterAudioProcessorEditor::setupSlider (juce::Slider& slider, juc
 {
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 78, 22);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff7cffd8));
+    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff202637));
     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
@@ -172,7 +172,7 @@ void SideChainMasterAudioProcessorEditor::setupCombo (juce::ComboBox& combo, juc
 {
     combo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171b27));
     combo.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff7cffd8));
+    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (combo);
 
     label.setText (text, juce::dontSendNotification);

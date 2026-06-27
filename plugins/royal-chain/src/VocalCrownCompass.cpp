@@ -10,12 +10,15 @@ constexpr float twoPi = juce::MathConstants<float>::twoPi;
 VocalCrownCompass::VocalCrownCompass (RoyalChainAudioProcessor& p)
     : processor (p)
 {
-    // Five module nodes mapped to existing macro params.
-    nodes[0] = { "TUNE",    "tune",    juce::Colour (0xff7dd3fc), -juce::MathConstants<float>::halfPi };                       // top
-    nodes[1] = { "CONTROL", "control", juce::Colour (0xff62f5c8),  0.0f };                                                       // right
-    nodes[2] = { "FINISH",  "glow",    juce::Colour (0xfffacc15),  juce::MathConstants<float>::halfPi };                       // bottom
-    nodes[3] = { "SMOOTH",  "smooth",  juce::Colour (0xfff472b6),  juce::MathConstants<float>::pi };                            // left
-    nodes[4] = { "WIDTH",   "width",   juce::Colour (0xffa78bfa), -juce::MathConstants<float>::halfPi - 0.78f };                 // upper-left
+    // Five module nodes mapped to existing macro params. Coloured within the
+    // suite mint/teal/cyan family (rather than a rainbow) so the Compass reads as
+    // the same Auto-Pitch identity as the rest of the suite, while the five shades
+    // stay distinguishable.
+    nodes[0] = { "TUNE",    "tune",    juce::Colour (0xff7dd3fc), -juce::MathConstants<float>::halfPi };                       // top (light cyan)
+    nodes[1] = { "CONTROL", "control", juce::Colour (0xff62f5c8),  0.0f };                                                       // right (signature mint)
+    nodes[2] = { "FINISH",  "glow",    juce::Colour (0xff26d9ff),  juce::MathConstants<float>::halfPi };                       // bottom (cyan)
+    nodes[3] = { "SMOOTH",  "smooth",  juce::Colour (0xff34d8b4),  juce::MathConstants<float>::pi };                            // left (teal)
+    nodes[4] = { "WIDTH",   "width",   juce::Colour (0xff8ce0d0), -juce::MathConstants<float>::halfPi - 0.78f };                 // upper-left (pale mint)
 
     // Star-field rays — fixed once so the layout stays steady (no flicker).
     juce::Random rng (0xC0FFEEu);
