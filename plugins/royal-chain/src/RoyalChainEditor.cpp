@@ -186,26 +186,49 @@ void RoyalChainAudioProcessorEditor::timerCallback()
 void RoyalChainAudioProcessorEditor::drawChainFlow (juce::Graphics& g, juce::Rectangle<int> area)
 {
     static const char* names[] = { "Clean", "Tune", "Control", "Tone", "De-Ess", "Color", "Width", "Space", "Finish" };
-    const int gap = 6;
-    const int blockW = (area.getWidth() - gap * 8) / 9;
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    const auto accent = juce::Colour (sattari::brand::kAccent);
+    const int  gap    = 14;                       // room for the connectors
+    const int  blockW = (area.getWidth() - gap * 8) / 9;
+    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
 
+    juce::Rectangle<float> prev;
     for (int i = 0; i < 9; ++i)
     {
-        auto block = area.removeFromLeft (blockW);
-        g.setColour (i == 1 ? juce::Colour (0xff3b3145) : juce::Colour (0xff1c2232));
-        g.fillRoundedRectangle (block.toFloat(), 8.0f);
-        g.setColour (i == 1 ? juce::Colour (0xffa78bfa) : juce::Colour (sattari::brand::kAccent));
-        g.drawRoundedRectangle (block.toFloat(), 8.0f, 1.0f);
-        g.setColour (juce::Colours::white);
-        g.drawText (names[i], block, juce::Justification::centred);
-        area.removeFromLeft (gap);
+        auto block = area.removeFromLeft (blockW).toFloat();
+
+        // Connector: a hairline + a small chevron flowing into this stage, so the
+        // strip reads as left-to-right signal flow rather than nine loose chips.
+        if (i > 0)
+        {
+            const float y  = block.getCentreY();
+            const float x0 = prev.getRight();
+            const float x1 = block.getX();
+            g.setColour (accent.withAlpha (0.30f));
+            g.drawLine (x0, y, x1, y, 1.0f);
+            juce::Path chev;
+            chev.startNewSubPath (x1 - 4.0f, y - 3.0f);
+            chev.lineTo (x1, y);
+            chev.lineTo (x1 - 4.0f, y + 3.0f);
+            g.strokePath (chev, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        const bool isTune = (i == 1);             // the hero stage of this chain
+        g.setColour (isTune ? accent.withAlpha (0.16f) : juce::Colour (sattari::brand::kPanelRaised));
+        g.fillRoundedRectangle (block, 8.0f);
+        g.setColour (isTune ? accent.withAlpha (0.85f) : juce::Colour (sattari::brand::kHairline));
+        g.drawRoundedRectangle (block, 8.0f, 1.0f);
+        g.setColour (isTune ? accent : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
+        g.drawText (names[i], block.toNearestInt(), juce::Justification::centred);
+
+        prev = block;
     }
 }
 
 void RoyalChainAudioProcessorEditor::drawSliderLabel (juce::Graphics& g, const juce::Slider& slider)
 {
-    g.setColour (slider.getName() == "Tune" ? juce::Colour (0xffa78bfa) : juce::Colours::white.withAlpha (0.88f));
+    const bool isTune = (slider.getName() == "Tune");
+    g.setColour (isTune ? juce::Colour (sattari::brand::kAccent)
+                        : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.88f));
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     auto b = slider.getBounds();
     g.drawText (slider.getName(), b.withHeight (18).translated (0, -14), juce::Justification::centred);
