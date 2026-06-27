@@ -41,6 +41,13 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     presetBox.onChange = [this] { applyPreset (presetBox.getSelectedItemIndex()); };
 
     setupCombo (styleBox);
+    // Populate the style combo. ComboBoxAttachment maps item IDs (1-based) to the
+    // param's choice indices, so the order MUST match the "style" StringArray in
+    // RoyalChainProcessor.cpp. Without addItemList the box renders blank.
+    styleBox.addItemList (juce::StringArray {
+        "Modern Rap", "R&B", "Pop", "Persian/World Pop", "Indie",
+        "Podcast/Spoken", "Background", "Hook", "Demo Rescue", "Live" }, 1);
+    styleBox.setTextWhenNothingSelected ("Vocal style...");
     styleAttachment = std::make_unique<ComboAttachment> (processor.parameters(), "style", styleBox);
 
     inputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (0xff62f5c8));

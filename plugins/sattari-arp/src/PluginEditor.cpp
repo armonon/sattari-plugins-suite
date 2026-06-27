@@ -42,9 +42,15 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     preset.setTextWhenNothingSelected ("Load preset...");
     preset.onChange = [this] { applyPreset (preset.getSelectedItemIndex()); };
 
+    // Populate the choice combos. ComboBoxAttachment maps item IDs (1-based) to
+    // each param's choice indices, so order MUST match the StringArrays in
+    // PluginProcessor.cpp. Without addItemList the boxes render blank/unusable.
     setupCombo (rate);
+    rate.addItemList (juce::StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 1);
     setupCombo (pattern);
+    pattern.addItemList (juce::StringArray { "Up", "Down", "Up-Down", "Down-Up", "As Played", "Random", "Chord Pulse" }, 1);
     setupCombo (velocityMode);
+    velocityMode.addItemList (juce::StringArray { "Input", "Fixed", "Accent" }, 1);
     setupCombo (scaleRoot);
     scaleRoot.addItemList (juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
     setupCombo (scale);

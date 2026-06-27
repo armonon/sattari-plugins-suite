@@ -38,6 +38,10 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     refreshUserPresets();
 
     setupCombo (mode, modeLabel, "Mode");
+    // Populate the mode combo (ComboBoxAttachment maps 1-based item IDs to the
+    // param's choice indices; order matches the "mode" StringArray in the
+    // processor). Without this the box renders blank.
+    mode.addItemList (juce::StringArray { "Clean", "Pump", "Tight", "Smooth", "Creative" }, 1);
     setupSlider (threshold, thresholdLabel, "Threshold");
     setupSlider (ratio, ratioLabel, "Ratio");
     setupSlider (attack, attackLabel, "Attack");
