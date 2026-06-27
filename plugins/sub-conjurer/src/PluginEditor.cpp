@@ -47,9 +47,16 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
 
     refreshUserPresets();
 
+    // Populate the choice combos. ComboBoxAttachment maps item IDs (1-based) to
+    // the parameter's choice indices, so the item order MUST match the param's
+    // StringArray in PluginProcessor.cpp. Without addItemList the boxes render
+    // blank and are unselectable.
     setupCombo (mode);
+    mode.addItemList (juce::StringArray { "Clean", "Power", "Deep", "808", "Perc-to-Sub" }, 1);
     setupCombo (tuning);
+    tuning.addItemList (juce::StringArray { "Follow Pitch", "Lock Note", "MIDI Note" }, 1);
     setupCombo (note);
+    note.addItemList (juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
 
     setupSlider (octave);
     setupSlider (amount);
