@@ -22,16 +22,26 @@ HEADER = ROOT / "core" / "include" / "sattari_audio_core" / "SattariBranding.h"
 MANIFEST = ROOT / "apps" / "sattari-hub" / "Sources" / "SattariHub" / "Resources" / "sattari-products.json"
 
 # Matches: { "id", "Display Name", "Category", 0xAARRGGBB },
+# The accent field is either a literal 0xAARRGGBB or a named palette constant
+# (e.g. kAccent) — the suite now uses the symbol for every product, so resolve it.
 ENTRY = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*0x([0-9a-fA-F]{8})\s*\}'
+    r'\{\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*(0x[0-9a-fA-F]{8}|k[A-Za-z0-9_]+)\s*\}'
 )
+# Matches: inline constexpr std::uint32_t kAccent = 0xff62f5c8;
+CONST = re.compile(r'constexpr\s+std::uint32_t\s+(k[A-Za-z0-9_]+)\s*=\s*0x([0-9a-fA-F]{8})')
+
+
+def _accent_to_hex6(token: str, symbols: dict[str, str]) -> str:
+    argb = token[2:] if token.startswith("0x") else symbols.get(token, "")
+    return ("#" + argb[-6:].lower()) if argb else ""
 
 
 def parse_registry() -> dict[str, dict[str, str]]:
     text = HEADER.read_text()
+    symbols = {name: argb for name, argb in CONST.findall(text)}
     out: dict[str, dict[str, str]] = {}
-    for pid, name, _category, argb in ENTRY.findall(text):
-        out[pid] = {"name": name, "accent": "#" + argb[-6:].lower()}
+    for pid, name, _category, accent in ENTRY.findall(text):
+        out[pid] = {"name": name, "accent": _accent_to_hex6(accent, symbols)}
     return out
 
 
