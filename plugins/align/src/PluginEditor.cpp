@@ -36,11 +36,16 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     algorithm.addItemList ({ "Bulk Shift (v1)", "DTW Warp (v2 alpha)" }, 1);
     algorithm.setColour (juce::ComboBox::backgroundColourId, juce::Colour (sattari::brand::kPanelRaised));
     algorithm.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    addAndMakeVisible (algorithm);
     algoCaption.setText ("ALGORITHM", juce::dontSendNotification);
     algoCaption.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     algoCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    // The DTW (v2 alpha) path is experimental; the Algorithm selector is hidden
+    // in the shipping UI so the plugin always runs the validated Bulk Shift (v1).
+    // Build -DSATTARI_ENABLE_EXPERIMENTAL=1 to expose the selector.
+   #if SATTARI_ENABLE_EXPERIMENTAL
+    addAndMakeVisible (algorithm);
     addAndMakeVisible (algoCaption);
+   #endif
 
     autoAlign.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     lock.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
@@ -192,7 +197,9 @@ void SattariAlignAudioProcessorEditor::resized()
     autoAlign.setBounds (toggleRow.removeFromLeft (140));
     lock.setBounds (toggleRow.removeFromLeft (100));
     bypass.setBounds (toggleRow.removeFromLeft (100));
+   #if SATTARI_ENABLE_EXPERIMENTAL
     toggleRow.removeFromLeft (10);
     algoCaption.setBounds (toggleRow.removeFromLeft (80));
     algorithm.setBounds (toggleRow.removeFromLeft (180));
+   #endif
 }

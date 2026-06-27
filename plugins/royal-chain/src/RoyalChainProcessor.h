@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include "CleanModule.h"
 #include "TuneModule.h"
@@ -20,7 +21,7 @@ public:
     ~RoyalChainAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -74,12 +75,9 @@ private:
 
     double currentSampleRate = 44100.0;
 
-    // Cross-plugin "Sync Key from Auto Pitch" state. Per-instance (members, not
-    // function-local statics) so multiple Royal Chain instances don't share /
-    // corrupt each other's cached key.
-    juce::int64 lastBusReadMs = 0;
-    int  cachedBusRoot = 0, cachedBusScale = 0;
-    bool haveBusCache = false;
+    // Cross-plugin "Sync Key from Auto Pitch": realtime-safe reader (background
+    // poll thread + lock-free snapshot; no file I/O on the audio thread).
+    sattari::xplugin::SessionReader sessionReader;
 
     std::atomic<float> inputMeter { 0.0f };
     std::atomic<float> outputMeter { 0.0f };

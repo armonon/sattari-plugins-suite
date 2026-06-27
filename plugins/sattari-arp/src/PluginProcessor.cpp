@@ -36,6 +36,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterInt> ("ratchet", "Ratchet", 1, 4, 1));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scaleRoot", "Scale Root",
         juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
+    // Cross-plugin session bus: when on, the arp's scale root follows the song key
+    // published by Auto Pitch (or any Sattari publisher).
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Off", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("gate", "Gate",
@@ -59,6 +62,7 @@ void SattariArpAudioProcessor::prepareToPlay (double sampleRate, int)
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     refreshHostTempo();
     resetSequence();
+    sessionReader.start();   // poll the cross-plugin session bus off the audio thread
     outputNotes.clear();
     heldNotes.clear();
     wasPlayingNotes = false;
@@ -139,7 +143,10 @@ void SattariArpAudioProcessor::handleTransport (juce::MidiBuffer& output)
 int SattariArpAudioProcessor::snapNoteToScale (int note) const
 {
     const int scaleIndex = (int) *apvts.getRawParameterValue ("scale");
-    const int root = (int) *apvts.getRawParameterValue ("scaleRoot");
+    int root = (int) *apvts.getRawParameterValue ("scaleRoot");
+    if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
+        if (auto s = sessionReader.current(); s.valid)
+            root = s.root;
     return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scaleIndex);
 }
 

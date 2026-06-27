@@ -35,12 +35,12 @@ private:
     juce::ComboBox preset, rate, pattern, velocityMode, scaleRoot, scale, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
     juce::Slider octaves, ratchet, gate, swing, fixedVelocity, humanize, transpose;
-    juce::ToggleButton latch, inputThru, hostSync;
+    juce::ToggleButton latch, inputThru, hostSync, followKey;
     juce::TextButton midiLearnButton { "MIDI Learn..." };
 
     std::unique_ptr<ComboAttachment> rateAttach, patternAttach, velocityModeAttach, scaleRootAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> octavesAttach, ratchetAttach, gateAttach, swingAttach, fixedVelocityAttach, humanizeAttach, transposeAttach;
-    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach;
+    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach, followKeyAttach;
 
     void setupSlider (juce::Slider&, const juce::String& suffix = {});
     void setupCombo (juce::ComboBox&);

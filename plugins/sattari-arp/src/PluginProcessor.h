@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <vector>
 
@@ -11,7 +12,7 @@ public:
     ~SattariArpAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -70,6 +71,7 @@ private:
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:
+    sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
 
     double currentSampleRate = 44100.0;
     double currentBpm = 120.0;

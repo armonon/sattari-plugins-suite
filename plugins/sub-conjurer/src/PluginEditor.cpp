@@ -7,7 +7,7 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
       presetManager (p.parameters(), "sub-conjurer")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (760, 470);
+    setSize (880, 470);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sub Conjurer");
     addAndMakeVisible (title);
@@ -79,6 +79,10 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     subOnly.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (subOnly);
 
+    followKey.setButtonText ("Follow Song Key");
+    followKey.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+    addAndMakeVisible (followKey);
+
     addAndMakeVisible (midiLearnButton);
     midiLearnButton.onClick = [this] {
         sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
@@ -98,6 +102,7 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     releaseAttach = std::make_unique<SliderAttachment> (params, "release", release);
     limiterAttach = std::make_unique<SliderAttachment> (params, "limiter", limiter);
     subOnlyAttach = std::make_unique<ButtonAttachment> (params, "subonly", subOnly);
+    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
 }
 
 SubConjurerAudioProcessorEditor::~SubConjurerAudioProcessorEditor()
@@ -249,6 +254,8 @@ void SubConjurerAudioProcessorEditor::resized()
     note.setBounds (top.removeFromLeft (82));
     top.removeFromLeft (10);
     subOnly.setBounds (top.removeFromLeft (130));
+    top.removeFromLeft (8);
+    followKey.setBounds (top.removeFromLeft (140));
     top.removeFromLeft (8);
     midiLearnButton.setBounds (top.removeFromLeft (120));
 

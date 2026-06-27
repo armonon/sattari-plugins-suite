@@ -34,6 +34,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubConjurerAudioProcessor::c
         juce::StringArray { "Follow Pitch", "Lock Note", "MIDI Note" }, 1));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("note", "Lock Note",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 9));
+    // Cross-plugin session bus: when on, the locked sub note follows the song key
+    // published by Auto Pitch (or any Sattari publisher), so the sub always sits
+    // in the current key without manual retuning.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterInt> ("octave", "Octave", 0, 3, 1));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Sub Amount",
         juce::NormalisableRange<float> (0.0f, 1.5f, 0.001f), 0.9f));
@@ -64,6 +68,7 @@ void SubConjurerAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     smoothedHz = 55.0f;
     limiterState = 1.0f;
     monoScratch.resize ((size_t) juce::jmax (samplesPerBlock, 32));
+    sessionReader.start();   // poll the cross-plugin session bus off the audio thread
 
     // Shared detector with a long low-frequency window (>= one period down to 25 Hz);
     // ~90 ms so the 25 Hz floor still gets a couple of periods inside the window.
@@ -149,7 +154,15 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
             wantedHz = midiNoteToHz (metadata.getMessage().getNoteNumber());
 
     if (tuning == 1)
-        wantedHz = midiNoteToHz (noteNameToMidi ((int) *apvts.getRawParameterValue ("note")));
+    {
+        int lockNote = (int) *apvts.getRawParameterValue ("note");
+        // Follow Song Key: override the locked note with the published session
+        // root when enabled and a fresh key is on the bus.
+        if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
+            if (auto s = sessionReader.current(); s.valid)
+                lockNote = s.root;
+        wantedHz = midiNoteToHz (noteNameToMidi (lockNote));
+    }
     else if (tuning == 2 && wantedHz <= 0.0f)
         wantedHz = smoothedHz;
 

@@ -66,6 +66,27 @@ int main()
         check (! s.has_value(), "stale session entry should be ignored");
     }
 
+    // 5) SessionReader (consumer side): a fresh publish reaches the lock-free
+    //    snapshot via the background poll thread (no audio-thread file I/O).
+    {
+        publishSession ("auto-pitch", /*root*/ 5, /*scale*/ 1, /*bpm*/ 96.0, /*transientId*/ 7);
+        SessionReader reader;
+        reader.start (/*pollIntervalMs*/ 40);
+        // Give the poll thread a few cycles to pick up the file.
+        SessionReader::Snapshot snap;
+        for (int i = 0; i < 40; ++i)
+        {
+            snap = reader.current();
+            if (snap.valid) break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+        }
+        reader.stop();
+        check (snap.valid, "SessionReader never saw the published session");
+        check (snap.root == 5 && snap.scale == 1, "SessionReader snapshot key wrong");
+        check (std::abs (snap.bpm - 96.0) < 1e-6, "SessionReader snapshot bpm wrong");
+        check (snap.transientId == 7, "SessionReader snapshot transientId wrong");
+    }
+
     if (fails != 0) { std::fprintf (stderr, "Cross-plugin bus contract FAILED (%d)\n", fails); return 1; }
     std::printf ("Cross-plugin session bus contract ok\n");
     return 0;

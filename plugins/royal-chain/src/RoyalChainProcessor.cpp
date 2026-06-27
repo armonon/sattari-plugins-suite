@@ -52,6 +52,7 @@ void RoyalChainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     widthModule.prepare (sampleRate, samplesPerBlock);
     spaceModule.prepare (sampleRate, samplesPerBlock);
     finishModule.prepare (sampleRate);
+    sessionReader.start();   // poll the cross-plugin session bus off the audio thread
 }
 
 bool RoyalChainAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -100,28 +101,19 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     int tuneKey = (int) apvts.getRawParameterValue ("tuneKey")->load();
     int tuneScaleIdx = (int) apvts.getRawParameterValue ("tuneScale")->load();
 
-    // Sync Key from Auto Pitch (cross-plugin bus). Polled at most every ~500 ms
-    // (file is cheap but no point hammering disk). When a fresh key has been
-    // published, override tuneKey + tuneScaleIdx for this block onward.
+    // Sync Key from Auto Pitch (cross-plugin bus). The SessionReader's background
+    // thread polls the bus; here we just read its lock-free snapshot and, when a
+    // fresh key has been published, override tuneKey + tuneScaleIdx for this block.
     if (apvts.getRawParameterValue ("syncFromAutoPitch")->load() > 0.5f)
     {
-        const auto now = juce::Time::currentTimeMillis();
-        if (now - lastBusReadMs >= 500)
+        // Read the bus via the lock-free SessionReader snapshot (the background
+        // poll thread does the file I/O, never the audio thread).
+        if (auto s = sessionReader.current(); s.valid)
         {
-            lastBusReadMs = now;
-            if (auto msg = sattari::xplugin::readPublishedKey())
-            {
-                cachedBusRoot  = msg->root;
-                cachedBusScale = msg->scale;
-                haveBusCache = true;
-            }
-        }
-        if (haveBusCache)
-        {
-            tuneKey = cachedBusRoot;
+            tuneKey = s.root;
             // Auto Pitch scaleIdx: 0=major, 1=minor, 2=chromatic.
             // Royal Chain tuneScale: 0=Chromatic, 1=Major, 2=Minor, etc.
-            switch (cachedBusScale)
+            switch (s.scale)
             {
                 case 0: tuneScaleIdx = 1; break;   // major
                 case 1: tuneScaleIdx = 2; break;   // minor

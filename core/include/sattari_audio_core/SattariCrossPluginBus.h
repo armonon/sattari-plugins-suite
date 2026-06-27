@@ -124,4 +124,77 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
     return s;
 }
 
+// --- SessionReader: realtime-safe consumer side ------------------------------
+//  A consumer plugin holds ONE of these as a member. It owns a low-priority
+//  background thread that polls the bus file every ~400 ms and publishes the
+//  result into lock-free atomics. The audio thread only ever reads those atomics
+//  (current()), so there is NO file I/O on the audio thread and NO shared/static
+//  state between instances. Start it in prepareToPlay(), it stops itself on
+//  destruction (or call stop() in releaseResources()).
+class SessionReader : private juce::Thread
+{
+public:
+    SessionReader() : juce::Thread ("SattariSessionBus") {}
+    ~SessionReader() override { stopThread (1000); }
+
+    void start (int pollIntervalMs = 400)
+    {
+        intervalMs = juce::jmax (50, pollIntervalMs);
+        if (! isThreadRunning())
+            startThread();
+    }
+    void stop() { stopThread (1000); }
+
+    // Lock-free snapshot for the audio thread. `valid` is false until a fresh,
+    // non-stale session has been read.
+    struct Snapshot
+    {
+        bool        valid = false;
+        int         root = 0, scale = 0;
+        double      bpm = 0.0;
+        juce::int64 transientId = 0;
+        bool        hasTempo = false;
+    };
+
+    Snapshot current() const noexcept
+    {
+        Snapshot s;
+        s.valid       = hasValue.load (std::memory_order_relaxed);
+        s.root        = root.load (std::memory_order_relaxed);
+        s.scale       = scale.load (std::memory_order_relaxed);
+        s.bpm         = bpm.load (std::memory_order_relaxed);
+        s.transientId = tid.load (std::memory_order_relaxed);
+        s.hasTempo    = hasTempo.load (std::memory_order_relaxed);
+        return s;
+    }
+
+private:
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            if (auto m = readSession())
+            {
+                root.store (m->root, std::memory_order_relaxed);
+                scale.store (m->scale, std::memory_order_relaxed);
+                bpm.store (m->bpm, std::memory_order_relaxed);
+                tid.store (m->transientId, std::memory_order_relaxed);
+                hasTempo.store (m->hasTempo, std::memory_order_relaxed);
+                hasValue.store (true, std::memory_order_relaxed);
+            }
+            else
+            {
+                hasValue.store (false, std::memory_order_relaxed);
+            }
+            wait (intervalMs);   // wakes early when stopThread() is called
+        }
+    }
+
+    int intervalMs = 400;
+    std::atomic<int>         root { 0 }, scale { 0 };
+    std::atomic<double>      bpm { 0.0 };
+    std::atomic<juce::int64> tid { 0 };
+    std::atomic<bool>        hasTempo { false }, hasValue { false };
+};
+
 } // namespace sattari::xplugin

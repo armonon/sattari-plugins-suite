@@ -6,7 +6,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
       presetManager (p.parameters(), "sattari-arp")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (780, 540);
+    setSize (940, 540);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Arp");
     addAndMakeVisible (title);
@@ -69,6 +69,10 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     hostSync.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (hostSync);
 
+    followKey.setButtonText ("Follow Song Key");
+    followKey.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+    addAndMakeVisible (followKey);
+
     setupLabel (rateLabel, "Time");
     setupLabel (patternLabel, "Pattern");
     setupLabel (velocityLabel, "Velocity");
@@ -103,6 +107,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     latchAttach = std::make_unique<ButtonAttachment> (params, "latch", latch);
     inputThruAttach = std::make_unique<ButtonAttachment> (params, "inputThru", inputThru);
     hostSyncAttach = std::make_unique<ButtonAttachment> (params, "hostSync", hostSync);
+    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
 
     gate.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
     swing.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
@@ -252,6 +257,7 @@ void SattariArpAudioProcessorEditor::resized()
     latch.setBounds (scaleRow.removeFromLeft (150));
     inputThru.setBounds (scaleRow.removeFromLeft (120));
     hostSync.setBounds (scaleRow.removeFromLeft (110));
+    followKey.setBounds (scaleRow.removeFromLeft (150));
 
     area.removeFromTop (18);
     auto labelRow = area.removeFromTop (22);

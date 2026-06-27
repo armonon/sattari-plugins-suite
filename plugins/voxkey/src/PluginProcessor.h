@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include "PitchDetector.h"
 #include "VoiceMidiMapper.h"
@@ -15,7 +16,7 @@ public:
     ~SattariVoxKeyAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -51,6 +52,7 @@ private:
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:
+    sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
     VoxKeyPitchDetector pitchDetector;
     VoxKeyVoiceMidiMapper midiMapper;
     juce::AudioBuffer<float> monoScratch;

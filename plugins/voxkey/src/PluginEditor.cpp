@@ -93,8 +93,16 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     glide.setButtonText ("Glide / Legato");
     setupToggle (bypass);
     bypass.setButtonText ("Bypass");
+    setupToggle (followKey);
+    followKey.setButtonText ("Follow Song Key");
+    // Experimental "alpha" features are hidden from the shipping UI so users never
+    // see a half-validated toggle. Build with -DSATTARI_ENABLE_EXPERIMENTAL=1 to
+    // expose them for development. The param itself stays registered (default off)
+    // so saved sessions remain compatible either way.
+   #if SATTARI_ENABLE_EXPERIMENTAL
     setupToggle (paraphonic);
     paraphonic.setButtonText ("Paraphonic (alpha)");
+   #endif
 
     panicButton.onClick = [this] { audioProcessor.panic(); };
     panicButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a1320));
@@ -142,6 +150,7 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     glideAttach = std::make_unique<ButtonAttachment> (params, "glide", glide);
     bypassAttach = std::make_unique<ButtonAttachment> (params, "bypass", bypass);
     paraphonicAttach = std::make_unique<ButtonAttachment> (params, "paraphonic", paraphonic);
+    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
 
     startTimerHz (20);
 }
@@ -290,7 +299,10 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     glide.setBounds (toggleRow.removeFromLeft (140));
     bypass.setBounds (toggleRow.removeFromLeft (100));
     panicButton.setBounds (toggleRow.removeFromLeft (84));
+    followKey.setBounds (toggleRow.removeFromLeft (150));
+   #if SATTARI_ENABLE_EXPERIMENTAL
     paraphonic.setBounds (toggleRow.removeFromLeft (160));
+   #endif
 
     left.removeFromTop (10);
     routingLabel.setBounds (left.removeFromTop (48));
