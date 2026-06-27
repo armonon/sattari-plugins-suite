@@ -81,6 +81,7 @@ inline const std::vector<Product>& products()
         { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
         { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },
         { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      kAccent },
+        { "harmony",           "Sattari Harmony",     "Vocal harmony",    kAccent },
         { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  kAccent },
         { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
         { "align",             "Sattari Align",       "Timing alignment", kAccent },
