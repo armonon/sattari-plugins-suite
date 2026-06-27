@@ -8,6 +8,7 @@
 #include "MainPluginProcessor.h"
 #include "MixerSection.h"
 #include "MusicLibraryView.h"
+#include "StemDeckLookAndFeel.h"
 #include "WaveformDisplay.h"
 
 class MainPluginEditor final : public juce::AudioProcessorEditor,
@@ -209,7 +210,7 @@ private:
     MainPluginProcessor& processorRef;
 
     // Shared suite UI + cross-plugin preset system.
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("stemdeck") };
+    StemDeckLookAndFeel lookAndFeel { sattari::brand::productAccent ("stemdeck") };
     sattari::presets::SattariPresetManager presetManager;
     juce::ComboBox userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
@@ -267,6 +268,7 @@ private:
     juce::FileChooser recordChooser { "Save StemDeck master recording", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("StemDeck-master.wav"), "*.wav" };
     std::array<juce::String, MainPluginProcessor::numDecks> deckPaths;
     std::array<std::array<juce::String, DeckPlayer::numStemLanes>, MainPluginProcessor::numDecks> deckStemPaths {};
+    std::array<bool, MainPluginProcessor::numDecks> lastDeckPlayingUI {};
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };
     juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3", "*", "Audio files" };

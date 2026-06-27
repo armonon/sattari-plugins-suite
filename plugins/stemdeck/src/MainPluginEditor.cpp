@@ -14,15 +14,36 @@ juce::Colour deckAccent (int deckIndex)
     return juce::Colour (colours[(size_t) juce::jlimit (0, 3, deckIndex)]);
 }
 
-void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent, float corner = 10.0f)
+void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent,
+                float corner = 10.0f, bool active = false)
 {
     using namespace sattari::brand;
     const auto r = bounds.toFloat();
-    g.setColour (juce::Colour (kPanel));
+
+    // Soft drop shadow for depth (lifted card).
+    juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 16, { 0, 5 })
+        .drawForRectangle (g, bounds.reduced (2));
+
+    // Body with a subtle top-down sheen.
+    juce::ColourGradient body (juce::Colour (kPanel).brighter (0.05f), r.getCentreX(), r.getY(),
+                               juce::Colour (kPanel),                  r.getCentreX(), r.getBottom(), false);
+    g.setGradientFill (body);
     g.fillRoundedRectangle (r, corner);
+
+    // Top inner highlight — the glassy edge.
+    g.setColour (juce::Colours::white.withAlpha (0.05f));
+    g.drawRoundedRectangle (r.reduced (1.0f).withTrimmedBottom (r.getHeight() * 0.5f), corner - 1.0f, 1.0f);
+
+    // Active cards get an accent aura.
+    if (active)
+    {
+        g.setColour (accent.withAlpha (0.22f));
+        g.drawRoundedRectangle (r.expanded (1.5f), corner + 1.0f, 2.0f);
+    }
+
     g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
     g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
-    g.setColour (accent.withAlpha (0.40f));
+    g.setColour (accent.withAlpha (active ? 0.80f : 0.40f));
     g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, 1.0f);
 }
 }
@@ -2243,7 +2264,7 @@ void MainPluginEditor::saveCurrentAsUserPreset()
 
 void MainPluginEditor::paint (juce::Graphics& g)
 {
-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+    lookAndFeel.paintModernBackground (g, getLocalBounds());
 
     // --- Header toolbar backdrop ---
     if (! headerBarBounds.isEmpty())
@@ -2282,7 +2303,8 @@ void MainPluginEditor::paint (juce::Graphics& g)
         auto deckBounds = deckPanelBounds[(size_t) i];
         if (deckBounds.isEmpty())
             continue;
-        drawPanel (g, deckBounds, deckAccent (i), 10.0f);
+        const bool deckPlaying = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+        drawPanel (g, deckBounds, deckAccent (i), 10.0f, deckPlaying);
         g.setColour (deckAccent (i).withAlpha (0.85f));
         g.fillRoundedRectangle (deckBounds.removeFromTop (3).toFloat(), 1.5f);
 
@@ -2738,16 +2760,23 @@ void MainPluginEditor::timerCallback()
 
     // Push live playback state into each deck's waveform display so the playhead
     // line + play/pause glyph track the actual deck transport in real time.
+    bool deckPlayChanged = false;
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        const bool playing = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
         if (auto* wave = deckWaves[(size_t) i].get())
-        {
-            const bool playing = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
             wave->setPlaybackState (processorRef.getDeckPlayheadSeconds (i),
                                     processorRef.getDeckTotalSeconds (i),
                                     playing);
+        if (playing != lastDeckPlayingUI[(size_t) i])
+        {
+            lastDeckPlayingUI[(size_t) i] = playing;
+            deckPlayChanged = true;
         }
     }
+    if (deckPlayChanged)
+        repaint();   // refresh the deck-card active glow
+
     undoButton.setEnabled (arrangementView.canUndo());
     redoButton.setEnabled (arrangementView.canRedo());
     if (recording)
