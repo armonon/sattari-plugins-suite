@@ -205,10 +205,7 @@ MainPluginEditor::ArrangementRecorderView::hitTestAt (juce::Point<int> p) const
 
         const int labelWidth = 90;
         auto track = laneRect.withTrimmedLeft (labelWidth).reduced (4, 3);
-        auto timeToX = [&] (double t) -> int
-        {
-            return track.getX() + (int) std::round ((double) track.getWidth() * t / maxLen);
-        };
+        auto timeToX = [&] (double t) -> int { return timeToXIn (track, t); };
         const int edgeBand = 8;
         const int cornerH = juce::jmax (16, juce::jmin (28, track.getHeight() * 2 / 3));
 
@@ -275,12 +272,28 @@ double MainPluginEditor::ArrangementRecorderView::timeAtX (int laneIndex, int x)
     const int labelWidth = 90;
     const auto track = laneRects[(size_t) laneIndex].withTrimmedLeft (labelWidth).reduced (4, 3);
     if (track.getWidth() <= 0) return 0.0;
-    const double frac = juce::jlimit (0.0, 1.0, (double) (x - track.getX()) / (double) track.getWidth());
-    return frac * maxLen;
+    return juce::jlimit (0.0, maxLen, xToTimeIn (track, x));
 }
 
 void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEvent& e)
 {
+    if (scrollThumbBounds.contains (e.getPosition()) || scrollTrackBounds.contains (e.getPosition()))
+    {
+        draggingScrollBar = true;
+        if (! scrollThumbBounds.contains (e.getPosition()))   // clicked the track: center the window on the click
+        {
+            const double content = timelineContentSeconds();
+            const double frac = juce::jlimit (0.0, 1.0,
+                (double) (e.getPosition().x - scrollTrackBounds.getX()) / (double) juce::jmax (1, scrollTrackBounds.getWidth()));
+            viewStartSeconds = frac * content - visibleSeconds() * 0.5;
+            clampView();
+        }
+        scrollDragAnchorX = e.getPosition().x;
+        scrollDragAnchorView = viewStartSeconds;
+        repaint();
+        return;
+    }
+
     const auto hit = hitTestAt (e.getPosition());
 
     if (e.mods.isPopupMenu())
@@ -395,6 +408,16 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
+    if (draggingScrollBar)
+    {
+        const double content = timelineContentSeconds();
+        const double perPixel = scrollTrackBounds.getWidth() > 0 ? content / (double) scrollTrackBounds.getWidth() : 0.0;
+        viewStartSeconds = scrollDragAnchorView + (double) (e.getPosition().x - scrollDragAnchorX) * perPixel;
+        clampView();
+        repaint();
+        return;
+    }
+
     if (activeDrag.lane < 0 || activeDrag.handle == Handle::None)
         return;
     const double maxLen = computeMaxLengthSeconds();
@@ -406,7 +429,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
     const auto laneRect = laneRects[(size_t) laneIdx];
     const int labelWidth = 90;
     const int trackWidth = juce::jmax (1, laneRect.getWidth() - labelWidth - 8);
-    const double secondsPerPixel = maxLen / (double) trackWidth;
+    const double secondsPerPixel = visibleSeconds() / (double) trackWidth;
     const double delta = (double) (e.getPosition().x - dragStartPoint.x) * secondsPerPixel;
 
     auto& clip = clips[(size_t) laneIdx][(size_t) activeDrag.clip];
@@ -459,6 +482,8 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
+    if (draggingScrollBar) { draggingScrollBar = false; repaint(); return; }
+
     if (pendingEditSnapshot.lane >= 0 && activeDrag.clip >= 0)
     {
         const auto& beforeVec = pendingEditSnapshot.state;
@@ -752,6 +777,79 @@ double MainPluginEditor::ArrangementRecorderView::computeMaxLengthSeconds() cons
     return maxLen;
 }
 
+// ── Timeline viewport (zoom + horizontal scroll) ───────────────────────────────
+double MainPluginEditor::ArrangementRecorderView::timelineContentSeconds() const
+{
+    const double maxLen = computeMaxLengthSeconds();
+    if (maxLen > 0.0 && mode == Mode::Finished)
+        return maxLen;
+    const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
+    return 8.0 * (4.0 * 60.0 / bpm);   // empty arrangement spans 8 bars
+}
+
+double MainPluginEditor::ArrangementRecorderView::visibleSeconds() const
+{
+    return timelineContentSeconds() / juce::jmax (1.0, zoom);
+}
+
+void MainPluginEditor::ArrangementRecorderView::clampView()
+{
+    zoom = juce::jlimit (1.0, 64.0, zoom);
+    const double maxStart = juce::jmax (0.0, timelineContentSeconds() - visibleSeconds());
+    viewStartSeconds = juce::jlimit (0.0, maxStart, viewStartSeconds);
+}
+
+int MainPluginEditor::ArrangementRecorderView::timeToXIn (juce::Rectangle<int> track, double t) const
+{
+    const double vis = juce::jmax (1.0e-6, visibleSeconds());
+    const double pps = (double) track.getWidth() / vis;
+    return track.getX() + (int) std::round ((t - viewStartSeconds) * pps);
+}
+
+double MainPluginEditor::ArrangementRecorderView::xToTimeIn (juce::Rectangle<int> track, int x) const
+{
+    const double vis = juce::jmax (1.0e-6, visibleSeconds());
+    const double pps = (double) track.getWidth() / vis;
+    if (pps <= 0.0) return 0.0;
+    return viewStartSeconds + (double) (x - track.getX()) / pps;
+}
+
+void MainPluginEditor::ArrangementRecorderView::setZoomAnchored (double newZoom, double anchorTime)
+{
+    newZoom = juce::jlimit (1.0, 64.0, newZoom);
+    const double oldVis = visibleSeconds();
+    const double frac = oldVis > 0.0 ? (anchorTime - viewStartSeconds) / oldVis : 0.0;
+    zoom = newZoom;
+    viewStartSeconds = anchorTime - frac * visibleSeconds();
+    clampView();
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::mouseWheelMove (const juce::MouseEvent& e,
+                                                                const juce::MouseWheelDetails& wheel)
+{
+    const int labelWidth = 90;
+    auto track = laneRects[0].withTrimmedLeft (labelWidth).reduced (4, 3);
+    if (track.getWidth() <= 0)
+        track = getLocalBounds().withTrimmedLeft (labelWidth + 20).reduced (16, 12);
+
+    if (e.mods.isCommandDown() || e.mods.isCtrlDown())   // zoom, anchored under the cursor
+    {
+        const double anchorTime = xToTimeIn (track, e.getPosition().x);
+        setZoomAnchored (zoom * (wheel.deltaY > 0.0f ? 1.2 : 1.0 / 1.2), anchorTime);
+    }
+    else                                                 // horizontal scroll
+    {
+        viewStartSeconds -= (double) wheel.deltaY * visibleSeconds() * 0.35;
+        clampView();
+        repaint();
+    }
+}
+
+void MainPluginEditor::ArrangementRecorderView::zoomIn()    { setZoomAnchored (zoom * 1.5, viewStartSeconds + visibleSeconds() * 0.5); }
+void MainPluginEditor::ArrangementRecorderView::zoomOut()   { setZoomAnchored (zoom / 1.5, viewStartSeconds + visibleSeconds() * 0.5); }
+void MainPluginEditor::ArrangementRecorderView::zoomToFit() { zoom = 1.0; viewStartSeconds = 0.0; clampView(); repaint(); }
+
 void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 {
     using namespace sattari::brand;
@@ -807,11 +905,20 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     auto statusArea = area.removeFromBottom (statusHeight);
     area.removeFromBottom (4);
 
+    const int scrollBarH = 9;                       // horizontal scrollbar strip
+    auto scrollStrip = area.removeFromBottom (scrollBarH);
+    area.removeFromBottom (4);
+
     // Bar/beat math driven by snap BPM (default 120). Empty arrangement shows 8 empty bars.
     const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
     const double secsPerBeat = 60.0 / bpm;
     const double secsPerBar  = 4.0 * secsPerBeat;
-    const double rulerLen    = hasAudio ? maxLen : (8.0 * secsPerBar);
+    const double rulerLen    = timelineContentSeconds();   // honors zoom via timeToXIn below
+
+    // X-range shared by the ruler, grid, clips, playhead and scrollbar (zoom/scroll aware).
+    const int gridLeftX  = area.getX() + labelWidth + 4;
+    const int gridRightX = area.getRight() - 4;
+    auto mapRect = juce::Rectangle<int> (gridLeftX, area.getY(), juce::jmax (1, gridRightX - gridLeftX), 1);
 
     auto ruler = area.removeFromTop (rulerHeight);
     g.setColour (juce::Colour (kPanelDeep).darker (0.4f));   // FL timebar strip
@@ -821,10 +928,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     g.setColour (juce::Colour (kTextMuted));
     g.drawText ("BARS", rulerLabel.reduced (8, 0), juce::Justification::centredLeft);
 
-    auto rulerTimeToX = [&] (double t) -> int
-    {
-        return ruler.getX() + (int) std::round ((double) ruler.getWidth() * t / rulerLen);
-    };
+    auto rulerTimeToX = [&] (double t) -> int { return timeToXIn (mapRect, t); };
 
     const int totalBars = juce::jmax (1, (int) std::ceil (rulerLen / secsPerBar));
     int labelStep = 1;
@@ -836,6 +940,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     g.setColour (juce::Colour (kHairline));
     g.drawHorizontalLine (ruler.getBottom() - 1, (float) ruler.getX(), (float) ruler.getRight());
     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    g.saveState();
+    g.reduceClipRegion (ruler);
     for (int bar = 0; bar <= totalBars; ++bar)
     {
         const double t = (double) bar * secsPerBar;
@@ -851,6 +957,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.drawText (juce::String (bar + 1), x + 3, ruler.getY() - 1, 30, rulerHeight, juce::Justification::centredLeft);
         }
     }
+    g.restoreState();
 
     // Lanes area.
     const int lanesTotal = numEditableLanes;
@@ -864,10 +971,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     const int gridTop   = area.getY();
     const int gridBottom = area.getY() + lanesTotal * laneHeight + (lanesTotal - 1) * laneGap;
 
-    auto gridTimeToX = [&] (double t) -> int
-    {
-        return gridLeft + (int) std::round ((double) (gridRight - gridLeft) * t / rulerLen);
-    };
+    auto gridTimeToX = [&] (double t) -> int { return timeToXIn (mapRect, t); };
 
     g.setColour (juce::Colour (kPanelDeep).withAlpha (0.65f));
     g.fillRect (gridLeft, gridTop, gridRight - gridLeft, gridBottom - gridTop);
@@ -896,13 +1000,18 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         // Track timeline area — must match hitTestAt: lane.withTrimmedLeft (labelWidth).reduced (4, 3)
         auto track = lane.reduced (4, 3);
 
+        // Clip everything in this lane to the track so zoomed/scrolled content never
+        // bleeds into the header column or past the right edge.
+        g.saveState();
+        g.reduceClipRegion (track);
+
         // Subtle row banding inside the timeline.
         g.setColour ((deckIndex % 2 == 0 ? juce::Colour (kPanel) : juce::Colour (kPanelDeep)).withAlpha (0.35f));
         g.fillRect (track);
 
         // FL-style bar/beat grid over this lane (track spans the same x-range as the ruler).
         {
-            auto gx = [&] (double t) { return track.getX() + (int) std::round ((double) track.getWidth() * t / rulerLen); };
+            auto gx = [&] (double t) { return timeToXIn (track, t); };
             const float top = (float) track.getY(), bot = (float) track.getBottom();
             for (int bar = 0; bar < totalBars; ++bar)
             {
@@ -943,10 +1052,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             && deckIndex >= 0 && deckIndex < numEditableLanes)
         {
             const double laneLen = thumb->getTotalLength();
-            auto timeToX = [&] (double t) -> int
-            {
-                return track.getX() + (int) std::round ((double) track.getWidth() * t / maxLen);
-            };
+            auto timeToX = [&] (double t) -> int { return timeToXIn (track, t); };
 
             const auto& laneClips = clips[(size_t) deckIndex];
             juce::Rectangle<int> firstBody;   // for automation overlay
@@ -1087,6 +1193,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (9.5f));
             g.drawText ("empty", track.reduced (8, 0), juce::Justification::centredLeft);
         }
+
+        g.restoreState();   // end track clip region
     };
 
     auto masterLaneRect = area.removeFromTop (laneHeight);
@@ -1117,6 +1225,27 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.setColour (juce::Colour (kAccent));
             g.fillPath (head);
         }
+    }
+
+    // Horizontal scrollbar: the visible window over the whole arrangement (drag to scroll).
+    {
+        const double content = timelineContentSeconds();
+        scrollTrackBounds = juce::Rectangle<int> (gridLeftX, scrollStrip.getY(),
+                                                  juce::jmax (1, gridRightX - gridLeftX), scrollStrip.getHeight());
+        g.setColour (juce::Colour (kPanelDeep).withAlpha (0.85f));
+        g.fillRoundedRectangle (scrollTrackBounds.toFloat(), 3.0f);
+        if (content > 0.0)
+        {
+            const double f0 = juce::jlimit (0.0, 1.0, viewStartSeconds / content);
+            const double f1 = juce::jlimit (0.0, 1.0, (viewStartSeconds + visibleSeconds()) / content);
+            const int tx = scrollTrackBounds.getX() + (int) std::round (f0 * scrollTrackBounds.getWidth());
+            const int tw = juce::jmax (18, (int) std::round ((f1 - f0) * scrollTrackBounds.getWidth()));
+            scrollThumbBounds = juce::Rectangle<int> (tx, scrollTrackBounds.getY(), tw, scrollTrackBounds.getHeight());
+            g.setColour (juce::Colour (kAccent).withAlpha (zoom > 1.0001 ? 0.85f : 0.4f));
+            g.fillRoundedRectangle (scrollThumbBounds.toFloat(), 3.0f);
+        }
+        else
+            scrollThumbBounds = {};
     }
 
     g.setFont (juce::FontOptions (10.0f));
@@ -1450,6 +1579,18 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (redoButton);
     redoButton.onClick = [this] { arrangementView.redo(); };
     addAndMakeVisible (redoButton);
+    setupButton (arrZoomOutButton);
+    arrZoomOutButton.setTooltip ("Zoom out");
+    arrZoomOutButton.onClick = [this] { arrangementView.zoomOut(); };
+    addAndMakeVisible (arrZoomOutButton);
+    setupButton (arrZoomInButton);
+    arrZoomInButton.setTooltip ("Zoom in");
+    arrZoomInButton.onClick = [this] { arrangementView.zoomIn(); };
+    addAndMakeVisible (arrZoomInButton);
+    setupButton (arrZoomFitButton);
+    arrZoomFitButton.setTooltip ("Zoom to fit");
+    arrZoomFitButton.onClick = [this] { arrangementView.zoomToFit(); };
+    addAndMakeVisible (arrZoomFitButton);
     arrangementView.onClearDeckRequest = [this] (int lane)
     {
         if (lane >= 0 && lane < MainPluginProcessor::numDecks)
@@ -2882,6 +3023,12 @@ void MainPluginEditor::resized()
     {
         auto labelRow = area.removeFromTop (22);
         arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
+        auto zoomBox = labelRow.removeFromRight (118);
+        arrZoomFitButton.setBounds (zoomBox.removeFromRight (40).reduced (1));
+        zoomBox.removeFromRight (4);
+        arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1));
+        arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1));
+        labelRow.removeFromRight (8);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
     // Performance pads relocate to a compact full-width strip along the bottom,

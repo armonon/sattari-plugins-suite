@@ -149,6 +149,9 @@ private:
         void splitClipAt (int laneIndex, int clipIndex, double timeSeconds);
         void deleteClip (int laneIndex, int clipIndex);
         void deleteSelectedClip();
+        void zoomIn();
+        void zoomOut();
+        void zoomToFit();
 
         // Undo / redo. Callers should snapshot via captureLaneState() before any edit,
         // then call commitEdit() after the edit completes to push it onto the stack.
@@ -169,6 +172,7 @@ private:
         void mouseDown (const juce::MouseEvent& e) override;
         void mouseDrag (const juce::MouseEvent& e) override;
         void mouseUp (const juce::MouseEvent& e) override;
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -214,6 +218,20 @@ private:
         double snapBpm = 120.0;
         double playbackPositionSeconds = -1.0;
         bool   playbackActive = false;
+
+        // ---- Timeline viewport: zoom + horizontal scroll ----
+        double zoom = 1.0;                 // 1 = whole arrangement fits the width
+        double viewStartSeconds = 0.0;     // left edge of the visible window
+        juce::Rectangle<int> scrollTrackBounds, scrollThumbBounds;   // computed in paint()
+        bool   draggingScrollBar = false;
+        double scrollDragAnchorView = 0.0;
+        int    scrollDragAnchorX = 0;
+        double timelineContentSeconds() const;
+        double visibleSeconds() const;
+        void   clampView();
+        void   setZoomAnchored (double newZoom, double anchorTime);
+        int    timeToXIn (juce::Rectangle<int> track, double t) const;
+        double xToTimeIn (juce::Rectangle<int> track, int x) const;
 
         std::vector<LaneSnapshot> undoStack;
         std::vector<LaneSnapshot> redoStack;
@@ -261,6 +279,7 @@ private:
     juce::TextButton bounceEditsButton { "Bounce Edits" };
     juce::TextButton snapToggleButton { "Snap" };
     juce::TextButton razorButton { "Razor" };
+    juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
