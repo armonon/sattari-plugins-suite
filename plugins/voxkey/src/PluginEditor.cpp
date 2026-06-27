@@ -41,7 +41,11 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
       presetManager (p.parameters(), "voxkey")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (860, 520);
+    // Tall enough that the full left column fits: header + two knob rows with
+    // captions + the toggle row (Pitch Bend / Glide / Bypass / Panic / Follow
+    // Song Key) + the routing help label. (Previously 520, which clipped the
+    // toggle row and routing label off the bottom.)
+    setSize (860, 630);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari VoxKey");
     addAndMakeVisible (title);
@@ -294,12 +298,14 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     pitchBendRange.setBounds (row2.removeFromLeft (100));
 
     left.removeFromTop (8);
+    // Five controls in the 500px column: trimmed so "Follow Song Key" fits
+    // (the widths sum to 500 - previously overflowed and truncated the label).
     auto toggleRow = left.removeFromTop (32);
-    pitchBend.setBounds (toggleRow.removeFromLeft (120));
-    glide.setBounds (toggleRow.removeFromLeft (140));
-    bypass.setBounds (toggleRow.removeFromLeft (100));
-    panicButton.setBounds (toggleRow.removeFromLeft (84));
-    followKey.setBounds (toggleRow.removeFromLeft (150));
+    pitchBend.setBounds (toggleRow.removeFromLeft (100));
+    glide.setBounds (toggleRow.removeFromLeft (122));
+    bypass.setBounds (toggleRow.removeFromLeft (82));
+    panicButton.setBounds (toggleRow.removeFromLeft (66));
+    followKey.setBounds (toggleRow.removeFromLeft (130));
    #if SATTARI_ENABLE_EXPERIMENTAL
     paraphonic.setBounds (toggleRow.removeFromLeft (160));
    #endif
