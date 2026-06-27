@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <atomic>
+#include "ArrangementPlayer.h"
 #include "DeckPlayer.h"
 #include "HostGraph.h"
 #include "MasterRecorder.h"
@@ -125,6 +126,24 @@ public:
     // Hardware MIDI controller mapping (learn + apply).
     MidiMappingManager& getMidiMapping() noexcept { return midiMapping; }
 
+    // Arrangement playback — plays the edited multi-clip arrangement back through
+    // the master out via a sample-accurate, RT-safe scheduler.
+    struct ArrangementClipSpec
+    {
+        juce::File file;
+        double timelineStartSeconds = 0.0;
+        double sourceStartSeconds   = 0.0;
+        double lengthSeconds        = 0.0;
+        float  gain = 1.0f;
+        double fadeInSeconds  = 0.0;
+        double fadeOutSeconds = 0.0;
+    };
+    void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips);
+    void stopArrangement();
+    bool isArrangementPlaying() const noexcept { return arrangementPlayer.isPlaying(); }
+    double getArrangementPositionSeconds() const noexcept { return arrangementPlayer.getPositionSeconds(); }
+    double getArrangementLengthSeconds()   const noexcept { return arrangementPlayer.getLengthSeconds(); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     static juce::String deckPrefix (int deckIndex);
@@ -216,6 +235,7 @@ private:
     juce::AudioFormatManager formatManager;
     juce::ThreadPool loadPool { 4 };
 
+    ArrangementPlayer arrangementPlayer;
     std::array<DeckFX, numDecks> deckFX;
     std::array<RealTimeStemSeparator, numDecks> deckRTSS;
     // Per-deck scratch buffers for RTSS output (allocated in prepareToPlay)

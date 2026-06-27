@@ -572,6 +572,15 @@ double MainPluginEditor::ArrangementRecorderView::snapTime (double seconds) cons
     return std::round (seconds / gridSeconds) * gridSeconds;
 }
 
+void MainPluginEditor::ArrangementRecorderView::setPlaybackPosition (double seconds, bool active)
+{
+    const bool changed = active != playbackActive || std::abs (seconds - playbackPositionSeconds) > 0.02;
+    playbackPositionSeconds = seconds;
+    playbackActive = active;
+    if (changed)
+        repaint();
+}
+
 void MainPluginEditor::ArrangementRecorderView::setSnap (bool enabled, double beatGrid, double bpm)
 {
     snapEnabled = enabled;
@@ -1043,6 +1052,22 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             area.removeFromTop (laneGap);
     }
 
+    // Arrangement playback head — sweeps across all lanes during playback.
+    if (playbackActive && playbackPositionSeconds >= 0.0 && rulerLen > 0.0)
+    {
+        const int px = gridTimeToX (playbackPositionSeconds);
+        if (px >= gridLeft && px <= gridRight)
+        {
+            g.setColour (juce::Colour (kAccent).withAlpha (0.95f));
+            g.drawVerticalLine (px, (float) gridTop, (float) gridBottom);
+            juce::Path head;
+            head.addTriangle ((float) px - 5.0f, (float) gridTop,
+                              (float) px + 5.0f, (float) gridTop,
+                              (float) px,        (float) gridTop + 6.0f);
+            g.fillPath (head);
+        }
+    }
+
     g.setFont (juce::FontOptions (10.0f));
     const auto displayStatus = dragReadout.isNotEmpty()
                                    ? dragReadout
@@ -1356,6 +1381,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         arrangementView.setRazorMode (razorButton.getToggleState());
     };
     addAndMakeVisible (razorButton);
+    setupButton (playArrButton);
+    playArrButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    playArrButton.onClick = [this] { toggleArrangementPlayback(); };
+    addAndMakeVisible (playArrButton);
     setupButton (undoButton);
     undoButton.onClick = [this] { arrangementView.undo(); };
     addAndMakeVisible (undoButton);
@@ -1732,6 +1761,52 @@ void MainPluginEditor::reloadLastRecordingIntoDecks()
                               ? "Reloaded " + juce::String (loaded) + " deck capture" + (loaded == 1 ? "" : "s") + " into decks A–D"
                               : juce::String ("No deck captures to reload — record a set first"),
                           juce::dontSendNotification);
+}
+
+void MainPluginEditor::toggleArrangementPlayback()
+{
+    if (processorRef.isArrangementPlaying())
+    {
+        processorRef.stopArrangement();
+        recordStatus.setText ("Arrangement stopped", juce::dontSendNotification);
+        return;
+    }
+
+    // Build clip specs from the editable deck lanes (the master lane is their sum,
+    // so we skip it to avoid doubling). Timeline position == the clip's recorded
+    // region, so the edited multi-clip arrangement plays back in place.
+    const auto& clips = arrangementView.getClips();
+    std::vector<MainPluginProcessor::ArrangementClipSpec> specs;
+    for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
+    {
+        for (const auto& clip : clips[(size_t) lane])
+        {
+            if (! clip.file.existsAsFile() || clip.durationSeconds <= 0.0) continue;
+            const double start = juce::jlimit (0.0, clip.durationSeconds, clip.trimStartSeconds);
+            const double end   = juce::jlimit (start, clip.durationSeconds,
+                                               clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds);
+            if (end - start < 0.02) continue;
+
+            MainPluginProcessor::ArrangementClipSpec spec;
+            spec.file                = clip.file;
+            spec.timelineStartSeconds = start;        // in-place playback
+            spec.sourceStartSeconds   = start;
+            spec.lengthSeconds        = end - start;
+            spec.gain                 = 1.0f;
+            spec.fadeInSeconds        = clip.fadeInSeconds;
+            spec.fadeOutSeconds       = clip.fadeOutSeconds;
+            specs.push_back (spec);
+        }
+    }
+
+    if (specs.empty())
+    {
+        recordStatus.setText ("Nothing to play — record or load an arrangement first", juce::dontSendNotification);
+        return;
+    }
+
+    processorRef.buildAndStartArrangement (std::move (specs));
+    recordStatus.setText ("Playing arrangement\xe2\x80\xa6", juce::dontSendNotification);
 }
 
 void MainPluginEditor::bounceArrangementEdits()
@@ -2690,6 +2765,8 @@ void MainPluginEditor::resized()
     mixControls.removeFromLeft (3);
     razorButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
     mixControls.removeFromLeft (3);
+    playArrButton.setBounds (mixControls.removeFromLeft (64).withTrimmedTop (20).withHeight (32));
+    mixControls.removeFromLeft (3);
     undoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
     mixControls.removeFromLeft (3);
     redoButton.setBounds (mixControls.removeFromLeft (52).withTrimmedTop (20).withHeight (32));
@@ -2779,6 +2856,12 @@ void MainPluginEditor::timerCallback()
 
     undoButton.setEnabled (arrangementView.canUndo());
     redoButton.setEnabled (arrangementView.canRedo());
+
+    // Arrangement transport feedback: moving playhead + button state.
+    const bool arrPlaying = processorRef.isArrangementPlaying();
+    arrangementView.setPlaybackPosition (processorRef.getArrangementPositionSeconds(), arrPlaying);
+    playArrButton.setToggleState (arrPlaying, juce::dontSendNotification);
+    playArrButton.setButtonText (arrPlaying ? "Stop Arr" : "Play Arr");
     if (recording)
     {
         const auto samples = processorRef.getRecordedSamples();

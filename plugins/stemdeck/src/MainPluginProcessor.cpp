@@ -199,6 +199,7 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
     for (auto& fx : deckFX)
         fx.prepare (sampleRate);
+    arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     for (auto& rtss : deckRTSS)
         rtss.prepare (sampleRate, samplesPerBlock);
     for (int i = 0; i < numDecks; ++i)
@@ -422,6 +423,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         padGains[(size_t) i] = getFloatParam ("pad" + juce::String (i + 1) + "Gain");
     padBank.process (buffer, 0, buffer.getNumSamples(), padGains);
 
+    // Arrangement playback mixes into the master bus (subject to master gain + limiter).
+    arrangementPlayer.process (buffer);
+
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
     buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
     applyLimiter (buffer, getFloatParam ("limiterCeiling"));
@@ -639,6 +643,61 @@ void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivi
 {
     if (juce::isPositiveAndBelow (deckIndex, numDecks))
         deckRTSS[(size_t) deckIndex].setDrumsSensitivity (sensitivity);
+}
+
+// ── Arrangement playback ──────────────────────────────────────────────────────
+void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips)
+{
+    arrangementPlayer.stop();   // immutable-while-playing: stop before re-scheduling
+    const double engineSr = currentSampleRate;
+
+    loadPool.addJob ([this, clips = std::move (clips), engineSr]
+    {
+        auto schedule = std::make_shared<ArrangementPlayer::Schedule>();
+        std::map<juce::String, std::shared_ptr<const DeckPlayer::LoadedAudio>> cache;
+
+        for (const auto& spec : clips)
+        {
+            if (! spec.file.existsAsFile() || spec.lengthSeconds <= 0.0) continue;
+
+            const auto key = spec.file.getFullPathName();
+            auto it = cache.find (key);
+            std::shared_ptr<const DeckPlayer::LoadedAudio> audio;
+            if (it != cache.end())
+                audio = it->second;
+            else
+            {
+                audio = loadAudioFile (spec.file);
+                cache[key] = audio;
+            }
+            if (audio == nullptr || audio->audio.getNumSamples() <= 1) continue;
+
+            ArrangementPlayer::Clip clip;
+            // Aliasing shared_ptr: shares ownership of the LoadedAudio, points at its buffer.
+            clip.audio = std::shared_ptr<const juce::AudioBuffer<float>> (audio, &audio->audio);
+            clip.sourceSampleRate      = audio->sourceSampleRate;
+            clip.timelineStartSamples  = (juce::int64) std::round (spec.timelineStartSeconds * engineSr);
+            clip.sourceStartSamples    = (juce::int64) std::round (spec.sourceStartSeconds * audio->sourceSampleRate);
+            clip.timelineLengthSamples = (juce::int64) std::round (spec.lengthSeconds * engineSr);
+            clip.gain          = spec.gain;
+            clip.fadeInSamples  = (juce::int64) std::round (spec.fadeInSeconds  * engineSr);
+            clip.fadeOutSamples = (juce::int64) std::round (spec.fadeOutSeconds * engineSr);
+            schedule->push_back (std::move (clip));
+        }
+
+        juce::MessageManager::callAsync ([this, schedule]
+        {
+            arrangementPlayer.setSchedule (schedule);
+            arrangementPlayer.setPositionSeconds (0.0);
+            if (! schedule->empty())
+                arrangementPlayer.start();
+        });
+    });
+}
+
+void MainPluginProcessor::stopArrangement()
+{
+    arrangementPlayer.stop();
 }
 
 // ── Seek / beat jump ────────────────────────────────────────────────────────

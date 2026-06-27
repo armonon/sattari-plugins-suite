@@ -134,6 +134,7 @@ private:
         void resetClipEdits (int laneIndex);
         bool copyClip (int sourceLane, int destLane);
         void setSnap (bool enabled, double beatGrid, double bpm);
+        void setPlaybackPosition (double seconds, bool active);
         void setRazorMode (bool shouldSplit);
         bool isRazorMode() const noexcept { return razorMode; }
         void splitClipAt (int laneIndex, int clipIndex, double timeSeconds);
@@ -202,6 +203,8 @@ private:
         bool snapEnabled = false;
         double snapBeatGrid = 0.25;
         double snapBpm = 120.0;
+        double playbackPositionSeconds = -1.0;
+        bool   playbackActive = false;
 
         std::vector<LaneSnapshot> undoStack;
         std::vector<LaneSnapshot> redoStack;
@@ -247,8 +250,10 @@ private:
     juce::TextButton bounceEditsButton { "Bounce Edits" };
     juce::TextButton snapToggleButton { "Snap" };
     juce::TextButton razorButton { "Razor" };
+    juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
+    void toggleArrangementPlayback();
     juce::Label masterKeyLabel;
     juce::ComboBox masterKey;
     juce::TextButton syncAllDecksButton { "Sync All Decks" };
