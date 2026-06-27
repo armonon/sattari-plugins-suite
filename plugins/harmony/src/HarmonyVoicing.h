@@ -78,4 +78,25 @@ inline int diatonicShift (int leadMidi, int root, ScaleId scale, int degrees) no
     return detail::clampMidi (root + tOct * 12 + iv[tIdx]);
 }
 
+// Snap a desired MIDI note to the nearest note whose pitch-class belongs to a
+// chord (a set of 0-11 pitch classes, e.g. the notes held on a chord track).
+// This is what lets the harmony follow the *chords*, not just the scale — each
+// voice lands on the closest real chord tone to where the scale would send it.
+inline int nearestChordTone (int desiredMidi, const std::vector<int>& pitchClasses) noexcept
+{
+    if (pitchClasses.empty())
+        return detail::clampMidi (desiredMidi);
+
+    int best = desiredMidi, bestDist = 1 << 30;
+    for (int raw : pitchClasses)
+    {
+        const int pc = ((raw % 12) + 12) % 12;
+        const int k = (int) std::lround ((double) (desiredMidi - pc) / 12.0);
+        const int cand = pc + 12 * k;                     // nearest octave of pc to desired
+        const int d = cand > desiredMidi ? cand - desiredMidi : desiredMidi - cand;
+        if (d < bestDist) { bestDist = d; best = cand; }
+    }
+    return detail::clampMidi (best);
+}
+
 } // namespace sattari::harmony

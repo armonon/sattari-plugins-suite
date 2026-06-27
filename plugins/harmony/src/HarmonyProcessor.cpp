@@ -18,6 +18,10 @@ juce::StringArray SattariHarmonyAudioProcessor::intervalChoices()
     return { "Octave Below", "6th Below", "5th Below", "4th Below", "3rd Below",
              "Unison", "3rd Above", "4th Above", "5th Above", "6th Above", "Octave Above" };
 }
+juce::StringArray SattariHarmonyAudioProcessor::sourceChoices()
+{
+    return { "Scale", "Chord (MIDI)" };
+}
 int SattariHarmonyAudioProcessor::intervalDegrees (int choiceIndex) noexcept
 {
     static constexpr int degrees[] = { -7, -5, -4, -3, -2, 0, 2, 3, 4, 5, 7 };
@@ -42,6 +46,7 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "spread", 1 }, "Spread",    juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.6f));
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "humanize",1 }, "Humanize", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.35f));
 
+    p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "source", 1 }, "Harmonise To", sourceChoices(), 0));
     p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", true));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "root",  1 }, "Root",  rootChoices(),  0));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "scale", 1 }, "Scale", scaleChoices(), 0));
@@ -186,6 +191,22 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     juce::ScopedNoDenormals noDenormals;
     midiLearn.processMidi (midi);
 
+    // Track the held chord (Chord mode follows the notes on the MIDI/chord track).
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn())
+        {
+            const int n = m.getNoteNumber();
+            if (std::find (heldNotes.begin(), heldNotes.end(), n) == heldNotes.end())
+                heldNotes.push_back (n);
+        }
+        else if (m.isNoteOff())
+            heldNotes.erase (std::remove (heldNotes.begin(), heldNotes.end(), m.getNoteNumber()), heldNotes.end());
+        else if (m.isAllNotesOff() || m.isAllSoundOff())
+            heldNotes.clear();
+    }
+
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
     if (numSamples <= 0) return;
@@ -237,6 +258,12 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     const float tuneAmt   = param ("tune");
     const bool  haveLead  = voicedLive && leadMidiLive >= 0 && leadHzSmoothed > 0.0f;
 
+    // Chord mode: voice each harmony to the nearest tone of the held chord.
+    const bool chordMode = ((int) std::round (param ("source")) == 1) && ! heldNotes.empty();
+    chordPcs.clear();
+    if (chordMode)
+        for (int n : heldNotes) chordPcs.push_back (((n % 12) + 12) % 12);
+
     // Voiced gate: fast in, slow out, so harmonies bloom on the note and tail off.
     const double gateTarget = haveLead ? 1.0 : 0.0;
     voicedGain += (gateTarget - voicedGain) * (gateTarget > voicedGain ? 0.4 : 0.05);
@@ -254,7 +281,9 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         if (haveLead)
         {
             const int deg = intervalDegrees ((int) std::round (param (("v" + s + "int").toRawUTF8())));
-            const int harmonyMidi = sattari::harmony::diatonicShift (leadMidiLive, root, scale, deg);
+            int harmonyMidi = sattari::harmony::diatonicShift (leadMidiLive, root, scale, deg);
+            if (chordMode)
+                harmonyMidi = sattari::harmony::nearestChordTone (harmonyMidi, chordPcs);
             snapVoiceMidi[v].store (harmonyMidi);
 
             // Two ways to place the voice, blended by Auto-Tune amount:

@@ -2,6 +2,7 @@
 // Builds with:  g++ -std=c++17 -Icore/include plugins/harmony/tests/harmony_core_contract.cpp
 #include "../src/HarmonyVoicing.h"
 #include <cstdio>
+#include <vector>
 
 using namespace sattari::harmony;
 using sattari::dsp::ScaleId;
@@ -36,6 +37,13 @@ int main()
     // Bus-scale mapping: 1 => minor, anything else => major fallback.
     check ("bus scale minor", (int) (scaleIdFromBus (1) == ScaleId::Minor), 1);
     check ("bus scale major", (int) (scaleIdFromBus (0) == ScaleId::Major), 1);
+
+    // Chord-follow voicing: snap a desired note onto the nearest chord tone.
+    const std::vector<int> CmajTriad { 0, 4, 7 };     // C major triad: C E G
+    check ("F snaps to E (Cmaj)",  nearestChordTone (65, CmajTriad), 64);
+    check ("C stays C (Cmaj)",     nearestChordTone (60, CmajTriad), 60);
+    check ("Bb snaps to C (Cmaj)", nearestChordTone (70, CmajTriad), 72);
+    check ("empty chord passes through", nearestChordTone (61, {}), 61);
 
     if (failures == 0)
         std::printf ("harmony core contract: OK\n");

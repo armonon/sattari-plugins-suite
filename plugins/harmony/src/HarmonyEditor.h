@@ -38,7 +38,7 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, keyStatus, inputMeterLabel, outputMeterLabel;
-    juce::ComboBox userPresets, rootBox, scaleBox;
+    juce::ComboBox userPresets, sourceBox, rootBox, scaleBox;
     juce::TextButton savePresetButton { "Save Preset" }, midiLearnButton { "MIDI Learn..." };
     juce::ToggleButton followKeyToggle { "Follow Song Key" };
 
@@ -52,7 +52,7 @@ private:
     };
     std::array<VoiceStrip, kNumVoices> voices;
 
-    std::unique_ptr<ComboAttachment>  rootAtt, scaleAtt;
+    std::unique_ptr<ComboAttachment>  sourceAtt, rootAtt, scaleAtt;
     std::unique_ptr<ButtonAttachment> followAtt;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAtts;
     std::vector<std::unique_ptr<ComboAttachment>>  comboAtts;

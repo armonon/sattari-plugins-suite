@@ -65,6 +65,7 @@ public:
     static juce::StringArray rootChoices();
     static juce::StringArray scaleChoices();
     static juce::StringArray intervalChoices();
+    static juce::StringArray sourceChoices();   // Scale vs Chord (MIDI)
     static int  intervalDegrees (int choiceIndex) noexcept;  // choice -> scale-degree shift
 
     // Live readout for the editor (timer-polled, lock-free).
@@ -95,6 +96,8 @@ private:
     int    preparedBlockSize = 512;
 
     std::vector<float> monoScratch;
+    std::vector<int>   heldNotes;      // MIDI notes currently held (the chord, for Chord mode)
+    std::vector<int>   chordPcs;       // their pitch classes, rebuilt per block
     int   analysisHop = 0, analysisCounter = 0;
     int   leadMidiLive = -1;
     bool  voicedLive = false;

@@ -45,6 +45,8 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
     refreshUserPresets();
 
     // Key section.
+    setupCombo (sourceBox, SattariHarmonyAudioProcessor::sourceChoices());
+    sourceAtt = std::make_unique<ComboAttachment> (processor.parameters(), "source", sourceBox);
     addAndMakeVisible (followKeyToggle);
     followAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "followKey", followKeyToggle);
     setupCombo (rootBox,  SattariHarmonyAudioProcessor::rootChoices());
@@ -275,6 +277,8 @@ void SattariHarmonyAudioProcessorEditor::resized()
     area.removeFromTop (10);
 
     auto keyRow = area.removeFromTop (30);
+    sourceBox.setBounds (keyRow.removeFromLeft (130));
+    keyRow.removeFromLeft (12);
     followKeyToggle.setBounds (keyRow.removeFromLeft (165));
     keyRow.removeFromLeft (8);
     rootBox.setBounds (keyRow.removeFromLeft (78));
