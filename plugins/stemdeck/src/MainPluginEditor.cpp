@@ -757,10 +757,10 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     using namespace sattari::brand;
     const auto bounds = getLocalBounds().toFloat();
 
-    // FL-style flat blue-grey panel — no gradient, brand palette.
-    const auto panelBase = juce::Colour (kPanelRaised).interpolatedWith (juce::Colour (kAccentViolet), 0.04f);
+    // FL-style playlist: deep flat charcoal panel, brand palette.
+    const auto panelBase = juce::Colour (kPanelDeep).darker (0.18f);
     g.setColour (panelBase);
-    g.fillRoundedRectangle (bounds, 12.0f);
+    g.fillRoundedRectangle (bounds, 10.0f);
 
     juce::Colour accent;
     juce::String modeLabel;
@@ -771,7 +771,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         case Mode::Idle:      accent = juce::Colour (kTextMuted);  modeLabel = "READY";       break;
     }
     g.setColour (accent.withAlpha (0.55f));
-    g.drawRoundedRectangle (bounds.reduced (0.75f), 12.0f, 1.0f);
+    g.drawRoundedRectangle (bounds.reduced (0.75f), 10.0f, 1.0f);
 
     auto area = getLocalBounds().reduced (16, 12);
 
@@ -814,6 +814,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     const double rulerLen    = hasAudio ? maxLen : (8.0 * secsPerBar);
 
     auto ruler = area.removeFromTop (rulerHeight);
+    g.setColour (juce::Colour (kPanelDeep).darker (0.4f));   // FL timebar strip
+    g.fillRect (ruler);
     auto rulerLabel = ruler.removeFromLeft (labelWidth);
     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
     g.setColour (juce::Colour (kTextMuted));
@@ -844,7 +846,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         g.drawVerticalLine (x, (float) ruler.getY() + (labeled ? 3.0f : 8.0f), (float) ruler.getBottom());
         if (labeled)
         {
-            g.setColour (juce::Colour (kTextMuted));
+            const bool major = (bar % 4) == 0;   // emphasise 4-bar groups like FL
+            g.setColour (major ? juce::Colour (kTextPrimary).withAlpha (0.9f) : juce::Colour (kTextMuted));
             g.drawText (juce::String (bar + 1), x + 3, ruler.getY() - 1, 30, rulerHeight, juce::Justification::centredLeft);
         }
     }
@@ -869,22 +872,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     g.setColour (juce::Colour (kPanelDeep).withAlpha (0.65f));
     g.fillRect (gridLeft, gridTop, gridRight - gridLeft, gridBottom - gridTop);
 
-    for (int bar = 0; bar <= totalBars; ++bar)
-    {
-        const double t = (double) bar * secsPerBar;
-        if (t > rulerLen) break;
-        const int x = gridTimeToX (t);
-        g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
-        g.drawVerticalLine (x, (float) gridTop, (float) gridBottom);
-        for (int beat = 1; beat < 4; ++beat)
-        {
-            const double bt = t + beat * secsPerBeat;
-            if (bt > rulerLen) break;
-            const int bx = gridTimeToX (bt);
-            g.setColour (juce::Colour (kHairline).withAlpha (0.35f));
-            g.drawVerticalLine (bx, (float) gridTop, (float) gridBottom);
-        }
-    }
+    // Bar/beat grid is drawn per-lane (inside drawLane, over each lane's banding) so
+    // it stays crisp instead of being washed out by the translucent lane fills.
 
     auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& title, juce::Colour colour,
                          juce::AudioThumbnail* thumb, const juce::File& file, int deckIndex)
@@ -910,6 +899,45 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         // Subtle row banding inside the timeline.
         g.setColour ((deckIndex % 2 == 0 ? juce::Colour (kPanel) : juce::Colour (kPanelDeep)).withAlpha (0.35f));
         g.fillRect (track);
+
+        // FL-style bar/beat grid over this lane (track spans the same x-range as the ruler).
+        {
+            auto gx = [&] (double t) { return track.getX() + (int) std::round ((double) track.getWidth() * t / rulerLen); };
+            const float top = (float) track.getY(), bot = (float) track.getBottom();
+            for (int bar = 0; bar < totalBars; ++bar)
+            {
+                const double t = (double) bar * secsPerBar;
+                if (t > rulerLen) break;
+                const int x  = gx (t);
+                const int xN = gx (juce::jmin (rulerLen, (double) (bar + 1) * secsPerBar));
+                if ((bar % 2) == 1)   // alternating bar shading
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.025f));
+                    g.fillRect (x, track.getY(), xN - x, track.getHeight());
+                }
+                const bool wideBar = (xN - x) > 120;
+                for (int beat = 1; beat < 4; ++beat)
+                {
+                    const double bt = t + beat * secsPerBeat;
+                    if (bt > rulerLen) break;
+                    g.setColour (juce::Colour (kHairline).withAlpha (0.28f));
+                    g.drawVerticalLine (gx (bt), top, bot);
+                    if (wideBar)   // half-beat ticks only when there's room
+                    {
+                        g.setColour (juce::Colour (kHairline).withAlpha (0.12f));
+                        g.drawVerticalLine (gx (bt - 0.5 * secsPerBeat), top, bot);
+                    }
+                }
+            }
+            for (int bar = 0; bar <= totalBars; ++bar)   // bar lines on top; every 4th brighter
+            {
+                const double t = (double) bar * secsPerBar;
+                if (t > rulerLen) break;
+                const bool major = (bar % 4) == 0;
+                g.setColour (juce::Colour (major ? kTextFaint : kHairline).withAlpha (major ? 0.55f : 0.4f));
+                g.drawVerticalLine (gx (t), top, bot);
+            }
+        }
 
         if (mode == Mode::Finished && thumb != nullptr && thumb->getTotalLength() > 0.0 && maxLen > 0.0
             && deckIndex >= 0 && deckIndex < numEditableLanes)
@@ -946,12 +974,25 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 auto patternBody   = clipRect.withTrimmedTop (headerBand);
                 if (ci == 0) firstBody = patternBody;
 
-                g.setColour (colour.withAlpha (clipSelected ? 0.28f : 0.18f));
-                g.fillRect (patternBody);
-                g.setColour (colour.withAlpha (clipSelected ? 0.95f : 0.78f));
-                g.fillRect (patternHeader);
-                g.setColour (colour.withAlpha (clipSelected ? 1.0f : 0.65f));
-                g.drawRect (clipRect, clipSelected ? 2 : 1);
+                // FL clip block: rounded tinted body (soft gradient) + solid rounded-top title strip.
+                auto clipF = clipRect.toFloat().reduced (0.5f);
+                const float radius = 3.0f;
+                g.setGradientFill (juce::ColourGradient (
+                    colour.withAlpha (clipSelected ? 0.38f : 0.26f), clipF.getX(), clipF.getY(),
+                    colour.withAlpha (clipSelected ? 0.20f : 0.12f), clipF.getX(), clipF.getBottom(), false));
+                g.fillRoundedRectangle (clipF, radius);
+
+                juce::Path titlePath;
+                titlePath.addRoundedRectangle (clipF.getX(), clipF.getY(), clipF.getWidth(), (float) headerBand,
+                                               radius, radius, true, true, false, false);
+                g.setColour (colour.withAlpha (clipSelected ? 0.98f : 0.82f));
+                g.fillPath (titlePath);
+
+                g.setColour (juce::Colours::white.withAlpha (clipSelected ? 0.22f : 0.12f));   // top highlight
+                g.drawLine (clipF.getX() + radius, clipF.getY() + 0.75f, clipF.getRight() - radius, clipF.getY() + 0.75f, 1.0f);
+
+                g.setColour (clipSelected ? juce::Colours::white.withAlpha (0.9f) : colour.withAlpha (0.7f));
+                g.drawRoundedRectangle (clipF, radius, clipSelected ? 1.8f : 1.0f);
 
                 // Chevron + source filename (only label the first clip to avoid clutter).
                 if (ci == 0)
@@ -998,8 +1039,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                                 (float) clipRect.getRight(), (float) clipRect.getBottom(), 1.2f);
                 }
 
-                const float handleW = 3.0f;
-                g.setColour (juce::Colours::white.withAlpha (clipSelected ? 0.85f : 0.45f));
+                const float handleW = 2.5f;
+                g.setColour (juce::Colours::white.withAlpha (clipSelected ? 0.7f : 0.18f));
                 g.fillRect (juce::Rectangle<float> ((float) clipRect.getX(),
                                                     (float) clipRect.getY(), handleW, (float) clipRect.getHeight()));
                 g.fillRect (juce::Rectangle<float> ((float) clipRect.getRight() - handleW,
@@ -1067,12 +1108,13 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         const int px = gridTimeToX (playbackPositionSeconds);
         if (px >= gridLeft && px <= gridRight)
         {
-            g.setColour (juce::Colour (kAccent).withAlpha (0.95f));
-            g.drawVerticalLine (px, (float) gridTop, (float) gridBottom);
+            g.setColour (juce::Colours::white.withAlpha (0.92f));
+            g.fillRect (px - 1, gridTop, 2, gridBottom - gridTop);
             juce::Path head;
             head.addTriangle ((float) px - 5.0f, (float) gridTop,
                               (float) px + 5.0f, (float) gridTop,
                               (float) px,        (float) gridTop + 6.0f);
+            g.setColour (juce::Colour (kAccent));
             g.fillPath (head);
         }
     }
@@ -1351,6 +1393,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupSlider (masterBpm, false, " BPM");
     setupSlider (master, true, " dB");
     setupSlider (limiter, true, " dB");
+    // Widen these readouts so "120.0 BPM" / "-60.0 dB" fit without truncation.
+    masterBpm.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
+    master   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
+    limiter  .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
     hostSync.setButtonText ("Host sync");
     setupButton (hostSync);
     addAndMakeVisible (hostSync);
@@ -1361,6 +1407,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (micMonitor);
     addAndMakeVisible (micMonitor);
     setupSlider (micGain, false, " dB");
+    micGain.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
     setupButton (recordButton);
     recordButton.onClick = [this] { toggleRecording(); };
     addAndMakeVisible (recordButton);
@@ -2631,7 +2678,7 @@ void MainPluginEditor::resized()
 
     // Deck row gets a fixed band; the arrangement below takes ALL remaining height
     // (so it is large and grows as the window resizes).
-    auto decksArea = area.removeFromTop (juce::jmax (390, area.getHeight() * 44 / 100));
+    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() * 40 / 100));
     const int deckGap = 10;
     const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
@@ -2837,21 +2884,30 @@ void MainPluginEditor::resized()
         arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
-    auto bottom = area;   // everything left → the arrangement (large, grows on resize)
-    auto samplerStrip = bottom.removeFromRight (260);
-    bottom.removeFromRight (14);
-    arrangementView.setBounds (bottom);
+    // Performance pads relocate to a compact full-width strip along the bottom,
+    // so the arrangement timeline spans the ENTIRE width above them.
+    auto bottom = area;
+    auto samplerStrip = bottom.removeFromBottom (64);
+    bottom.removeFromBottom (8);
+    arrangementView.setBounds (bottom);   // full-width arrangement timeline
 
-    samplerLabel.setBounds (samplerStrip.removeFromTop (22));
-    const int padH = juce::jmax (58, samplerStrip.getHeight() / 8);
+    samplerLabel.setBounds (samplerStrip.removeFromLeft (150));
+    samplerStrip.removeFromLeft (6);
+    const int padGap = 6;
+    const int padW = juce::jmax (96,
+        (samplerStrip.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
     for (int i = 0; i < PadBank::numPads; ++i)
     {
-        auto cell = samplerStrip.removeFromTop (padH).reduced (4);
-        pads[(size_t) i].trigger.setBounds (cell.removeFromLeft (92));
-        cell.removeFromLeft (5);
-        pads[(size_t) i].load.setBounds (cell.removeFromLeft (48));
-        cell.removeFromLeft (5);
-        pads[(size_t) i].gain.setBounds (cell);
+        auto cell = samplerStrip.removeFromLeft (padW);
+        if (i < PadBank::numPads - 1)
+            samplerStrip.removeFromLeft (padGap);
+
+        auto top = cell.removeFromTop (cell.getHeight() * 58 / 100);
+        pads[(size_t) i].trigger.setBounds (top.reduced (1, 1));
+        cell.removeFromTop (2);
+        pads[(size_t) i].load.setBounds (cell.removeFromLeft (cell.getWidth() * 42 / 100).reduced (1, 0));
+        cell.removeFromLeft (3);
+        pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
     }
 }
 

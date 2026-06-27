@@ -35,9 +35,15 @@ inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_
 std::unique_ptr<juce::AudioParameterFloat> floatParam (const juce::String& id, const juce::String& name,
                                                        float min, float max, float def, const juce::String& suffix = {})
 {
-    juce::NormalisableRange<float> range (min, max, 0.001f);
+    juce::NormalisableRange<float> range (min, max, 0.001f);   // keep fine internal precision
+    const auto unit = suffix.trim();                            // host-facing label only
+    // Display 1 decimal place so readouts stay short ("120.0") instead of the
+    // 0.001-interval default "120.000". The Slider appends its own unit suffix, so the
+    // value text must NOT include the unit here, or it would double ("0.0 dB dB").
     return std::make_unique<juce::AudioParameterFloat> (juce::ParameterID (id, 1), name, range, def,
-        juce::AudioParameterFloatAttributes().withLabel (suffix));
+        juce::AudioParameterFloatAttributes()
+            .withLabel (unit)
+            .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); }));
 }
 
 std::unique_ptr<juce::AudioParameterChoice> choiceParam (const juce::String& id, const juce::String& name,
