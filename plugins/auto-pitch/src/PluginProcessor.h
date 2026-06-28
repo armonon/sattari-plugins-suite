@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/SattariKeyDetector.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <array>
 #include <atomic>

@@ -514,50 +514,20 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
 
-    // Krumhansl-Schmuckler key-profile correlation for major/minor (the textbook
-    // music-IR algorithm — pitch-classes are weighted by their perceptual key-
-    // definition strength, not just in/out of scale). Highest Pearson correlation
-    // between the rolling histogram and a candidate key's profile wins.
-    static constexpr double kProfileMajor[12] = {
-        6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88
-    };
-    static constexpr double kProfileMinor[12] = {
-        6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17
-    };
-
-    auto pearson = [this] (const double* profile, int root) -> double
-    {
-        double meanH = 0.0, meanP = 0.0;
-        for (int i = 0; i < 12; ++i) { meanH += autoKeyHistogram[(size_t) i]; meanP += profile[i]; }
-        meanH /= 12.0; meanP /= 12.0;
-        double num = 0.0, dH = 0.0, dP = 0.0;
-        for (int i = 0; i < 12; ++i)
-        {
-            const double h = autoKeyHistogram[(size_t) ((i + root) % 12)] - meanH;
-            const double p = profile[i] - meanP;
-            num += h * p; dH += h * h; dP += p * p;
-        }
-        const double denom = std::sqrt (dH * dP);
-        return denom > 1.0e-9 ? num / denom : -1.0;
-    };
-
-    double bestScore = -2.0;
     int bestRoot = detectedAutoRoot;
 
     if (scaleName == "major" || scaleName == "minor")
     {
-        // Correlate against the user-selected mode's profile across all 12 roots.
-        const double* profile = (scaleName == "major") ? kProfileMajor : kProfileMinor;
-        for (int root = 0; root < 12; ++root)
-        {
-            const double s = pearson (profile, root);
-            if (s > bestScore) { bestScore = s; bestRoot = root; }
-        }
+        // Shared Krumhansl-Schmuckler key detector — de-duplicated from the inline
+        // copy that used to live here, now unit-tested in
+        // core/tests/key_detector_contract.cpp. (sattari::dsp::detectKey() also
+        // offers full 24-key auto major/minor detection for a future AutoKey mode.)
+        bestRoot = sattari::dsp::detectKeyRootForMode (autoKeyHistogram.data(), scaleName == "minor");
     }
     else
     {
-        // Chromatic / non-modal: fall back to "which root maximises in-scale energy",
-        // same shape as before but using the shared scaleAllowsDegree() helper.
+        // Chromatic / non-modal: "which root maximises in-scale energy".
+        double bestScore = -2.0;
         for (int root = 0; root < 12; ++root)
         {
             double score = 0.0;

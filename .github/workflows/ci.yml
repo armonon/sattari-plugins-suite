@@ -30,11 +30,14 @@ jobs:
       - name: Brand registry <-> Hub manifest sync
         run: python3 scripts/check_brand_registry_sync.py
 
-      - name: Build + run pure-C++ core contract
+      - name: Build + run pure-C++ core contracts
         run: |
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/harmonic_core_contract.cpp -o /tmp/harmonic_core_contract
           /tmp/harmonic_core_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/key_detector_contract.cpp -o /tmp/key_detector_contract
+          /tmp/key_detector_contract
 
   # ---------------------------------------------------------------------------
   # Per-plugin build matrix on macOS: proves each plugin still configures and
@@ -58,7 +61,7 @@ jobs:
           - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
           - { plugin: stemdeck,          test: StemDeckArchitectureContract }
           - { plugin: harmony,           test: HarmonyCoreContract }
-          - { plugin: maqam,             test: MaqamCoreContract }
+          - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
           - { plugin: rhythm-genie,      test: RhythmGenieCoreContract }
     steps:
       - uses: actions/checkout@v4
