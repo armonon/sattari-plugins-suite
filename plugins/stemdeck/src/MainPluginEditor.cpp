@@ -457,8 +457,11 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         default: dragStartValue = 0.0;
     }
     dragStartPoint = e.getPosition();
-    // Every clip-targeted handle (including Body-move) snapshots for undo.
-    pendingEditSnapshot = captureLaneState (activeDrag.lane);
+    // Every clip-targeted handle snapshots for undo. Body drags can cross lanes, so
+    // they snapshot the whole arrangement; other handles snapshot just their lane.
+    dragOrigLane = activeDrag.lane;
+    pendingEditSnapshot = (activeDrag.handle == Handle::Body) ? captureFullState()
+                                                             : captureLaneState (activeDrag.lane);
 }
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
@@ -492,9 +495,39 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
     const double maxLen = computeMaxLengthSeconds();
     if (maxLen <= 0.0)
         return;
-    const int laneIdx = activeDrag.lane;
+    int laneIdx = activeDrag.lane;
     if (activeDrag.clip < 0 || activeDrag.clip >= (int) clips[(size_t) laneIdx].size())
         return;
+
+    // Body drag can move the clip to another lane (follow the cursor's y).
+    if (activeDrag.handle == Handle::Body)
+    {
+        const int targetLane = laneAtY (e.getPosition().y);
+        if (targetLane >= 0 && targetLane < numEditableLanes && targetLane != laneIdx)
+        {
+            LaneClip moved = clips[(size_t) laneIdx][(size_t) activeDrag.clip];
+            clips[(size_t) laneIdx].erase (clips[(size_t) laneIdx].begin() + activeDrag.clip);
+            clips[(size_t) targetLane].push_back (moved);
+
+            // Give the moved clip its own thumbnail so its waveform follows it across lanes.
+            const auto key = moved.file.getFullPathName();
+            if (moved.file.existsAsFile() && formatManager != nullptr && thumbnailCache != nullptr
+                && clipThumbs.find (key) == clipThumbs.end())
+            {
+                auto t = std::make_unique<juce::AudioThumbnail> (512, *formatManager, *thumbnailCache);
+                t->addChangeListener (this);
+                t->setSource (new juce::FileInputSource (moved.file));
+                clipThumbs[key] = std::move (t);
+            }
+
+            laneIdx          = targetLane;
+            activeDrag.lane  = targetLane;
+            activeDrag.clip  = (int) clips[(size_t) targetLane].size() - 1;
+            selectedLane     = targetLane;
+            selectedClip     = activeDrag.clip;
+        }
+    }
+
     const auto laneRect = laneRects[(size_t) laneIdx];
     const int labelWidth = 90;
     const int trackWidth = juce::jmax (1, laneRect.getWidth() - labelWidth - 8);
@@ -554,7 +587,17 @@ void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent&
     if (rulerDragActive) { rulerDragActive = false; return; }
     if (draggingScrollBar) { draggingScrollBar = false; repaint(); return; }
 
-    if (pendingEditSnapshot.lane >= 0 && activeDrag.clip >= 0)
+    if (pendingEditSnapshot.full)   // Body drag (possibly cross-lane)
+    {
+        bool changed = (activeDrag.lane != dragOrigLane);
+        if (! changed && activeDrag.lane >= 0 && activeDrag.clip >= 0
+            && activeDrag.clip < (int) clips[(size_t) activeDrag.lane].size())
+            changed = std::abs (clips[(size_t) activeDrag.lane][(size_t) activeDrag.clip].timelineStartSeconds
+                                - dragStartValue) > 1.0e-9;
+        if (changed)
+            commitEdit (std::move (pendingEditSnapshot));
+    }
+    else if (pendingEditSnapshot.lane >= 0 && activeDrag.clip >= 0)
     {
         const auto& beforeVec = pendingEditSnapshot.state;
         const auto& afterVec  = clips[(size_t) pendingEditSnapshot.lane];
@@ -573,6 +616,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent&
             commitEdit (std::move (pendingEditSnapshot));
     }
     pendingEditSnapshot = {};
+    dragOrigLane = -1;
     activeDrag = {};
     dragReadout.clear();
     setMouseCursor (cursorForHandle (hitTestAt (e.getPosition()).handle));
@@ -796,9 +840,18 @@ MainPluginEditor::ArrangementRecorderView::captureLaneState (int laneIndex) cons
     return s;
 }
 
+MainPluginEditor::ArrangementRecorderView::LaneSnapshot
+MainPluginEditor::ArrangementRecorderView::captureFullState() const
+{
+    LaneSnapshot s;
+    s.full = true;
+    s.allState = clips;
+    return s;
+}
+
 void MainPluginEditor::ArrangementRecorderView::commitEdit (LaneSnapshot before)
 {
-    if (before.lane < 0) return;
+    if (! before.full && before.lane < 0) return;
     undoStack.push_back (std::move (before));
     redoStack.clear();
 }
@@ -809,10 +862,18 @@ void MainPluginEditor::ArrangementRecorderView::undo()
     auto entry = std::move (undoStack.back());
     undoStack.pop_back();
     LaneSnapshot redoEntry;
-    redoEntry.lane = entry.lane;
-    redoEntry.state = clips[(size_t) entry.lane];
+    if (entry.full)
+    {
+        redoEntry = captureFullState();
+        clips = entry.allState;
+    }
+    else
+    {
+        redoEntry.lane = entry.lane;
+        redoEntry.state = clips[(size_t) entry.lane];
+        clips[(size_t) entry.lane] = entry.state;
+    }
     redoStack.push_back (std::move (redoEntry));
-    clips[(size_t) entry.lane] = entry.state;
     selectedClip = -1;
     repaint();
 }
@@ -823,10 +884,18 @@ void MainPluginEditor::ArrangementRecorderView::redo()
     auto entry = std::move (redoStack.back());
     redoStack.pop_back();
     LaneSnapshot undoEntry;
-    undoEntry.lane = entry.lane;
-    undoEntry.state = clips[(size_t) entry.lane];
+    if (entry.full)
+    {
+        undoEntry = captureFullState();
+        clips = entry.allState;
+    }
+    else
+    {
+        undoEntry.lane = entry.lane;
+        undoEntry.state = clips[(size_t) entry.lane];
+        clips[(size_t) entry.lane] = entry.state;
+    }
     undoStack.push_back (std::move (undoEntry));
-    clips[(size_t) entry.lane] = entry.state;
     selectedClip = -1;
     repaint();
 }

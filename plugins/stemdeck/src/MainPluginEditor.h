@@ -164,8 +164,9 @@ private:
         // then call commitEdit() after the edit completes to push it onto the stack.
         // A snapshot captures the whole lane (its full clip vector) so split / delete
         // round-trip cleanly.
-        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; };
+        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; bool full = false; LaneClips allState; };
         LaneSnapshot captureLaneState (int laneIndex) const;
+        LaneSnapshot captureFullState() const;   // whole arrangement (for cross-lane moves)
         void commitEdit (LaneSnapshot before);
         bool canUndo() const noexcept { return ! undoStack.empty(); }
         bool canRedo() const noexcept { return ! redoStack.empty(); }
@@ -238,6 +239,7 @@ private:
         HitTest hitTestAt (juce::Point<int> p) const;
         double timeAtX (int laneIndex, int x) const;
         HitTest activeDrag;
+        int dragOrigLane = -1;   // lane a Body-drag started in (for cross-lane move detection)
         double dragStartValue = 0.0;
         juce::Point<int> dragStartPoint;
         juce::String dragReadout;
