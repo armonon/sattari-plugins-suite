@@ -306,6 +306,12 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         return;
     }
 
+    for (int i = 0; i < numLanes; ++i)   // M / S toggles in the deck headers
+    {
+        if (muteBtnRects[(size_t) i].contains (e.getPosition())) { laneMuted[(size_t) i]  = ! laneMuted[(size_t) i];  repaint(); return; }
+        if (soloBtnRects[(size_t) i].contains (e.getPosition())) { laneSoloed[(size_t) i] = ! laneSoloed[(size_t) i]; repaint(); return; }
+    }
+
     const auto hit = hitTestAt (e.getPosition());
 
     if (e.mods.isPopupMenu())
@@ -325,12 +331,31 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
             const bool hasClip = overClip && clips[(size_t) lane][(size_t) clipIdx].durationSeconds > 0.0;
             const juce::File sourceFile = overClip ? clips[(size_t) lane][(size_t) clipIdx].file : juce::File();
 
+            const std::array<juce::uint32, 8> clipPalette {
+                0xffe2564f, 0xffe08a3a, 0xffd9c84a, 0xff5fae6e,
+                0xff4fb6c9, 0xff5b8def, 0xff9a6bff, 0xffd86bb0 };
+            const juce::String currentClipName = overClip
+                ? (clips[(size_t) lane][(size_t) clipIdx].label.isNotEmpty()
+                       ? clips[(size_t) lane][(size_t) clipIdx].label
+                       : sourceFile.getFileNameWithoutExtension())
+                : juce::String();
+
             juce::PopupMenu menu;
             menu.addSectionHeader (lane == masterLane
                                       ? juce::String ("Master lane")
                                       : "Deck " + juce::String::charToString ((juce_wchar) ('A' + lane)));
             menu.addItem (6, "Split clip here", hasClip);
+            menu.addItem (8, "Duplicate clip", overClip);
+            menu.addItem (9, u8 ("Rename clip\xe2\x80\xa6"), overClip);
             menu.addItem (7, "Delete this clip", overClip && clips[(size_t) lane].size() > 1);
+            {
+                juce::PopupMenu colourMenu;
+                colourMenu.addItem (128, "Default (lane colour)");
+                static const char* const names[] = { "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink" };
+                for (int i = 0; i < 8; ++i)
+                    colourMenu.addItem (120 + i, names[i]);
+                menu.addSubMenu ("Clip colour", colourMenu, overClip);
+            }
             menu.addSeparator();
             menu.addItem (1, "Reset edits on this lane", ! clips[(size_t) lane].empty());
             menu.addItem (2, "Reveal source in Finder", sourceFile.existsAsFile());
@@ -353,7 +378,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
             const juce::Component::SafePointer<ArrangementRecorderView> safeThis (this);
             const double splitTime = timeAtX (lane, e.getPosition().x);
             menu.showMenuAsync (juce::PopupMenu::Options(),
-                [safeThis, lane, clipIdx, splitTime, sourceFile] (int choice)
+                [safeThis, lane, clipIdx, splitTime, sourceFile, clipPalette, currentClipName] (int choice)
                 {
                     if (safeThis == nullptr) return;
                     auto& self = *safeThis;
@@ -361,14 +386,32 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
                     {
                         case 6: self.splitClipAt (lane, clipIdx, splitTime); break;
                         case 7: self.deleteClip (lane, clipIdx); break;
+                        case 8: self.duplicateClip (lane, clipIdx); break;
+                        case 9:
+                        {
+                            auto* w = new juce::AlertWindow ("Rename clip", "Display name:",
+                                                             juce::MessageBoxIconType::NoIcon);
+                            w->addTextEditor ("name", currentClipName);
+                            w->addButton ("OK",     1, juce::KeyPress (juce::KeyPress::returnKey));
+                            w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+                            w->enterModalState (true, juce::ModalCallbackFunction::create (
+                                [safeThis, lane, clipIdx, w] (int r)
+                                {
+                                    if (r == 1 && safeThis != nullptr)
+                                        safeThis->setClipLabel (lane, clipIdx, w->getTextEditorContents ("name").trim());
+                                    delete w;
+                                }), false);
+                            break;
+                        }
                         case 1: self.resetClipEdits (lane); break;
                         case 2: if (sourceFile.existsAsFile()) sourceFile.revealToUser(); break;
                         case 3: if (self.onClearDeckRequest) self.onClearDeckRequest (lane); break;
                         case 4: self.undo(); break;
                         case 5: self.redo(); break;
                         default:
-                            if (choice >= 100 && choice < 100 + numLanes)
-                                self.copyClip (lane, choice - 100);
+                            if      (choice == 128)                       self.setClipColour (lane, clipIdx, 0);
+                            else if (choice >= 120 && choice < 128)       self.setClipColour (lane, clipIdx, clipPalette[(size_t) (choice - 120)]);
+                            else if (choice >= 100 && choice < 100 + numLanes) self.copyClip (lane, choice - 100);
                             break;
                     }
                 });
@@ -849,6 +892,42 @@ void MainPluginEditor::ArrangementRecorderView::deleteSelectedClip()
         deleteClip (selectedLane, selectedClip);
 }
 
+void MainPluginEditor::ArrangementRecorderView::duplicateClip (int laneIndex, int clipIndex)
+{
+    if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
+    auto& vec = clips[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) vec.size())) return;
+    auto before = captureLaneState (laneIndex);
+    LaneClip copy = vec[(size_t) clipIndex];
+    copy.timelineStartSeconds = vec[(size_t) clipIndex].timelineEndSeconds();   // place right after the original
+    copy.selected = false;
+    vec.push_back (copy);
+    commitEdit (std::move (before));
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setClipLabel (int laneIndex, int clipIndex, const juce::String& label)
+{
+    if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
+    auto& vec = clips[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) vec.size())) return;
+    auto before = captureLaneState (laneIndex);
+    vec[(size_t) clipIndex].label = label;
+    commitEdit (std::move (before));
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setClipColour (int laneIndex, int clipIndex, juce::uint32 argb)
+{
+    if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
+    auto& vec = clips[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) vec.size())) return;
+    auto before = captureLaneState (laneIndex);
+    vec[(size_t) clipIndex].colourArgb = argb;
+    commitEdit (std::move (before));
+    repaint();
+}
+
 void MainPluginEditor::ArrangementRecorderView::resetClipEdits (int laneIndex)
 {
     if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
@@ -1134,9 +1213,30 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         g.fillRect (headerCell);
         g.setColour (colour);
         g.fillRect (headerCell.removeFromLeft (3));
-        g.setColour (juce::Colour (kTextPrimary).withAlpha (0.92f));
+
+        auto hc = headerCell.reduced (5, 1);
+        if (deckIndex >= 0 && deckIndex != masterLane && deckIndex < numEditableLanes)   // M/S on deck lanes
+        {
+            auto sRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
+            hc.removeFromRight (3);
+            auto mRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
+            hc.removeFromRight (4);
+            muteBtnRects[(size_t) deckIndex] = mRect;
+            soloBtnRects[(size_t) deckIndex] = sRect;
+            auto drawTag = [&] (juce::Rectangle<int> r, const char* tag, bool on, juce::Colour onCol)
+            {
+                g.setColour (on ? onCol.withAlpha (0.9f) : juce::Colour (kPanelDeep).withAlpha (0.85f));
+                g.fillRoundedRectangle (r.toFloat(), 2.5f);
+                g.setColour (on ? juce::Colours::black.withAlpha (0.85f) : juce::Colour (kTextMuted));
+                g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+                g.drawText (tag, r, juce::Justification::centred);
+            };
+            drawTag (mRect, "M", laneMuted[(size_t) deckIndex], juce::Colour (kDanger));
+            drawTag (sRect, "S", laneSoloed[(size_t) deckIndex], juce::Colour (kAccent));
+        }
+        g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.92f : 0.4f));
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-        g.drawText (title, headerCell.reduced (8, 0), juce::Justification::centredLeft);
+        g.drawText (title, hc, juce::Justification::centredLeft);
 
         // Track timeline area — must match hitTestAt: lane.withTrimmedLeft (labelWidth).reduced (4, 3)
         auto track = lane.reduced (4, 3);
@@ -1207,6 +1307,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 auto* clipThumb = thumbForClip (deckIndex, clip);
                 const double laneLen = (clipThumb != nullptr && clipThumb->getTotalLength() > 0.0)
                                            ? clipThumb->getTotalLength() : clip.durationSeconds;
+                const juce::Colour clipColour = clip.colourArgb != 0 ? juce::Colour (clip.colourArgb) : colour;
 
                 const double clipStart = juce::jlimit (0.0, laneLen, clip.trimStartSeconds);                          // source in-point
                 const double clipEnd   = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);  // source out-point
@@ -1230,20 +1331,20 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 auto clipF = clipRect.toFloat().reduced (0.5f);
                 const float radius = 3.0f;
                 g.setGradientFill (juce::ColourGradient (
-                    colour.withAlpha (clipSelected ? 0.38f : 0.26f), clipF.getX(), clipF.getY(),
-                    colour.withAlpha (clipSelected ? 0.20f : 0.12f), clipF.getX(), clipF.getBottom(), false));
+                    clipColour.withAlpha (clipSelected ? 0.38f : 0.26f), clipF.getX(), clipF.getY(),
+                    clipColour.withAlpha (clipSelected ? 0.20f : 0.12f), clipF.getX(), clipF.getBottom(), false));
                 g.fillRoundedRectangle (clipF, radius);
 
                 juce::Path titlePath;
                 titlePath.addRoundedRectangle (clipF.getX(), clipF.getY(), clipF.getWidth(), (float) headerBand,
                                                radius, radius, true, true, false, false);
-                g.setColour (colour.withAlpha (clipSelected ? 0.98f : 0.82f));
+                g.setColour (clipColour.withAlpha (clipSelected ? 0.98f : 0.82f));
                 g.fillPath (titlePath);
 
                 g.setColour (juce::Colours::white.withAlpha (clipSelected ? 0.22f : 0.12f));   // top highlight
                 g.drawLine (clipF.getX() + radius, clipF.getY() + 0.75f, clipF.getRight() - radius, clipF.getY() + 0.75f, 1.0f);
 
-                g.setColour (clipSelected ? juce::Colours::white.withAlpha (0.9f) : colour.withAlpha (0.7f));
+                g.setColour (clipSelected ? juce::Colours::white.withAlpha (0.9f) : clipColour.withAlpha (0.7f));
                 g.drawRoundedRectangle (clipF, radius, clipSelected ? 1.8f : 1.0f);
 
                 // Chevron + source filename (only label the first clip to avoid clutter).
@@ -1252,13 +1353,14 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                     g.setColour (juce::Colours::black.withAlpha (0.78f));
                     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
                     const auto chevron = juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe "));
-                    g.drawText (chevron + clip.file.getFileName(), patternHeader.reduced (5, 0),
+                    const auto labelText = clip.label.isNotEmpty() ? clip.label : clip.file.getFileName();
+                    g.drawText (chevron + labelText, patternHeader.reduced (5, 0),
                                 juce::Justification::centredLeft, true);
                 }
 
                 if (patternBody.getHeight() > 4 && clipThumb != nullptr && clipThumb->getTotalLength() > 0.0)
                 {
-                    g.setColour (colour.withAlpha (0.92f));
+                    g.setColour (clipColour.withAlpha (0.92f));
                     clipThumb->drawChannels (g, patternBody.reduced (2, 1), clipStart, clipEnd, 0.95f);
                 }
 
@@ -2175,6 +2277,7 @@ void MainPluginEditor::toggleArrangementPlayback()
     std::vector<MainPluginProcessor::ArrangementClipSpec> specs;
     for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
     {
+        if (! arrangementView.laneAudible (lane)) continue;   // honour per-lane mute/solo
         for (const auto& clip : clips[(size_t) lane])
         {
             if (! clip.file.existsAsFile() || clip.durationSeconds <= 0.0) continue;

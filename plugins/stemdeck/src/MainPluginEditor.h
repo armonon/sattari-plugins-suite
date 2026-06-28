@@ -119,6 +119,8 @@ private:
             double fadeInSeconds = 0.0;
             double fadeOutSeconds = 0.0;
             bool selected = false;
+            juce::String label;          // optional display name (overrides the filename)
+            juce::uint32 colourArgb = 0; // 0 = use the lane colour; else an explicit clip colour
 
             double lengthSeconds() const noexcept { return juce::jmax (0.0, trimEndSeconds - trimStartSeconds); }
             double timelineEndSeconds() const noexcept { return timelineStartSeconds + lengthSeconds(); }
@@ -151,6 +153,9 @@ private:
         void splitClipAt (int laneIndex, int clipIndex, double timeSeconds);
         void deleteClip (int laneIndex, int clipIndex);
         void deleteSelectedClip();
+        void duplicateClip (int laneIndex, int clipIndex);
+        void setClipLabel (int laneIndex, int clipIndex, const juce::String& label);
+        void setClipColour (int laneIndex, int clipIndex, juce::uint32 argb);
         void zoomIn();
         void zoomOut();
         void zoomToFit();
@@ -172,6 +177,15 @@ private:
         std::function<void(double,double,bool)> onLoopChanged;   // loop region changed (start, end, enabled)
         void setLoopEnabled (bool shouldLoop);
         bool isLoopEnabled() const noexcept { return loopEnabled; }
+
+        // Per-lane mute/solo (applied when the arrangement playback schedule is built).
+        bool laneAudible (int lane) const noexcept
+        {
+            if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return true;
+            bool anySolo = false;
+            for (int i = 0; i < numLanes; ++i) anySolo = anySolo || laneSoloed[(size_t) i];
+            return ! laneMuted[(size_t) lane] && (! anySolo || laneSoloed[(size_t) lane]);
+        }
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -207,6 +221,8 @@ private:
         juce::AudioThumbnail* thumbForClip (int laneIndex, const LaneClip& clip) const;
         int laneAtY (int y) const;
         int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
+        std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
+        std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
         juce::File masterFile;
         std::array<juce::File, numLanes> deckFiles {};
         LaneClips clips {};
