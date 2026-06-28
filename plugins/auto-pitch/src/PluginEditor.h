@@ -124,6 +124,7 @@ private:
 
     // --- Basic tab widgets ---------------------------------------------------
     juce::ToggleButton autoKey { "AutoKey Listen" };
+    juce::ToggleButton followKey { "Follow Song Key" };
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
     juce::Label editNotesLabel, detuneLabel, modeLabel;
@@ -164,7 +165,7 @@ private:
     std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, humanizeAttach,
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
-    std::unique_ptr<ButtonAttachment> autoKeyAttach, lowLatencyAttach,
+    std::unique_ptr<ButtonAttachment> autoKeyAttach, followKeyAttach, lowLatencyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
                                        polyphonicAttach, classicModeAttach;
     std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach;

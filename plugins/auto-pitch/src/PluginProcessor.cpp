@@ -130,6 +130,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 1));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("enableCorrection", "Enable Correction", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("autoKey", "AutoKey Follow", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSongKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Amount",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.82f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("speed", "Speed",
@@ -215,6 +216,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     preparedBlockSize = juce::jmax (samplesPerBlock, 512);
+    sessionReader.start();   // Follow Song Key reads the bus published by Sattari Key
     resetPitchState (preparedBlockSize);
 
     const int scratchChannels = juce::jmax (2, getTotalNumOutputChannels());
@@ -283,6 +285,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
 
 void SattariAutoPitchAudioProcessor::releaseResources()
 {
+    sessionReader.stop();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     rubberBandOutput.setSize (0, 0);
@@ -489,10 +492,24 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
 
 int SattariAutoPitchAudioProcessor::currentCorrectionRootIndex() const
 {
+    // Follow Song Key (from Sattari Key on the master) takes precedence over the
+    // local AutoKey: the project's one detected key drives the correction.
+    if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f)
+        if (const auto s = sessionReader.current(); s.valid)
+            return juce::jlimit (0, 11, s.root);
+
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f)
         return juce::jlimit (0, 11, detectedAutoRoot);
 
     return juce::jlimit (0, 11, juce::roundToInt (apvts.getRawParameterValue ("keyRoot")->load()));
+}
+
+int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
+{
+    if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f)
+        if (const auto s = sessionReader.current(); s.valid)
+            return s.scale == 1 ? 1 : 0;   // bus convention: 0 major, 1 minor
+    return juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
 }
 
 void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& frame)
@@ -549,6 +566,10 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     // Throttle to once a second so we never thrash the bus file. Per-instance
     // (member, not a function-local static) so multiple Auto Pitch instances do
     // not share / corrupt each other's publish timing.
+    // When following the bus, don't republish — Sattari Key (the master scanner)
+    // is the authority; republishing would fight it for the one bus slot.
+    if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f) return;
+
     const auto now = juce::Time::currentTimeMillis();
     if (now - lastBusPublishMs < 1000) return;
     lastBusPublishMs = now;
@@ -959,7 +980,7 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
         return detected;
 
     const int rootIndex = currentCorrectionRootIndex();
-    const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    const int scaleIndex = effectiveScaleIndex();
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     int targetMidi = nearestScaleMidi (detected.midi, rootIndex, scaleName);
 
@@ -1454,7 +1475,7 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 
 sattari::audio_core::KeySignature SattariAutoPitchAudioProcessor::currentKeySignature() const
 {
-    const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    const int scaleIndex = effectiveScaleIndex();
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     sattari::audio_core::MusicalMode mode = sattari::audio_core::MusicalMode::Unknown;
     if (scale == "major")

@@ -253,6 +253,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     // ----- Basic -----
     basicPanel.addAndMakeVisible (autoKey);
+    basicPanel.addAndMakeVisible (followKey);
     basicPanel.addAndMakeVisible (noteDisplay);
     basicPanel.addAndMakeVisible (pillRow);
     // Plain click toggles whether the note is a valid correction target.
@@ -393,6 +394,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     scaleAttach          = std::make_unique<ComboAttachment> (params, "scale", scale);
 
     autoKeyAttach        = std::make_unique<ButtonAttachment> (params, "autoKey", autoKey);
+    followKeyAttach      = std::make_unique<ButtonAttachment> (params, "followSongKey", followKey);
     lowLatencyAttach     = std::make_unique<ButtonAttachment> (params, "lowLatency", lowLatency);
 
     // Style is a Choice param (5 modes), not Bool. The Modern/Classic toggle maps
@@ -624,7 +626,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto right = bArea;
 
     auto leftTop = left.removeFromTop (32);
-    autoKey.setBounds (leftTop.removeFromLeft (160));
+    autoKey.setBounds (leftTop.removeFromLeft (150));
+    followKey.setBounds (leftTop.removeFromLeft (160));
 
     noteDisplay.setBounds (left.removeFromTop ((int) (left.getHeight() * 0.55f)));
     left.removeFromTop (8);

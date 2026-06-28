@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <array>
 #include <atomic>
@@ -130,6 +131,7 @@ private:
     PitchFrame analyseCurrentPitchFrame() const;
     PitchFrame buildCorrectionFrame (PitchFrame detected) const;
     int currentCorrectionRootIndex() const;
+    int effectiveScaleIndex() const;     // bus scale when Follow Song Key is on, else the param
     void updateAutoKeyHistogram (const PitchFrame& frame);
     // Polyphonic AutoKey path: spectral chroma of the sidechain (master) audio
     // feeds the histogram instead of the monophonic vocal pitch. Both paths share
@@ -188,6 +190,9 @@ private:
     std::atomic<double>      hostBpmForBus { 0.0 };
     std::atomic<juce::int64> sessionTransientId { 0 };
     juce::int64              lastBusPublishMs = 0;   // per-instance bus publish throttle
+
+    // Follow Song Key: read the key Sattari Key (or any publisher) puts on the bus.
+    sattari::xplugin::SessionReader sessionReader;
 
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just
