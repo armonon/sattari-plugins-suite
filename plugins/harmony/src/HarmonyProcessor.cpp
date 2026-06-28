@@ -44,6 +44,9 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
     // the voice onto the exact scale note" (1, the Auto Pitch hard-tune feel).
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "tune",   1 }, "Auto-Tune", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.85f));
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "spread", 1 }, "Spread",    juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.6f));
+    // Choir: a chorus-modulated double of each voice, panned opposite, for a
+    // wider/lusher ensemble out of the same voices.
+    p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "choir",  1 }, "Choir",    juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.3f));
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "humanize",1 }, "Humanize", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.35f));
 
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "source", 1 }, "Harmonise To", sourceChoices(), 0));
@@ -103,6 +106,11 @@ void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samples
     smoothedRatio.fill (1.0);
     humanizeCents.fill (0.0);
     humanizeTarget.fill (0.0);
+
+    const int choirLen = (int) (currentSampleRate * 0.05) + 4;   // up to 50 ms of doubler delay
+    for (auto& ring : choirRing) ring.assign ((size_t) choirLen, 0.0f);
+    choirWrite.fill (0);
+    choirPhase.fill (0.0);
 
     monoScratch.assign ((size_t) preparedBlockSize, 0.0f);
     voiceBuffer.setSize (1, preparedBlockSize);
@@ -338,6 +346,38 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         const float* vb = voiceBuffer.getReadPointer (0);
         harmonyAccum.addFrom (0, 0, vb, numSamples, gL * lvl);
         harmonyAccum.addFrom (1, 0, vb, numSamples, gR * lvl);
+
+        // Choir doubler: a slow chorus-modulated Haas copy panned opposite the
+        // voice, so the few voices read as a wide ensemble (no extra shifter).
+        const float choir = param ("choir");
+        auto& ring = choirRing[(size_t) v];
+        const int rsize = (int) ring.size();
+        if (choir > 0.001f && rsize > 4)
+        {
+            const int    haas   = juce::jlimit (1, rsize - 2, (int) ((0.013 + 0.006 * v) * currentSampleRate));
+            const float  depth  = (float) (0.002 * currentSampleRate);
+            const double lfoInc = (0.6 + 0.25 * v) / currentSampleRate * (double) twoPi;
+            float oGL, oGR; panGains (-basePan, oGL, oGR);
+            const float cg = lvl * choir * 0.8f;
+            int    w  = choirWrite[(size_t) v];
+            double ph = choirPhase[(size_t) v];
+            for (int i = 0; i < numSamples; ++i)
+            {
+                ring[(size_t) w] = vb[i];
+                double rpos = (double) w - ((double) haas + (double) depth * std::sin (ph));
+                while (rpos < 0.0) rpos += rsize;
+                const int   r0 = (int) rpos;
+                const int   r1 = (r0 + 1) % rsize;
+                const float fr = (float) (rpos - r0);
+                const float d  = ring[(size_t) r0] * (1.0f - fr) + ring[(size_t) r1] * fr;
+                harmonyAccum.addSample (0, i, d * cg * oGL);
+                harmonyAccum.addSample (1, i, d * cg * oGR);
+                ph += lfoInc; if (ph > (double) twoPi) ph -= (double) twoPi;
+                if (++w >= rsize) w = 0;
+            }
+            choirWrite[(size_t) v] = w;
+            choirPhase[(size_t) v] = ph;
+        }
 #endif
     }
 

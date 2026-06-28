@@ -42,7 +42,7 @@ private:
     juce::TextButton savePresetButton { "Save Preset" }, midiLearnButton { "MIDI Learn..." };
     juce::ToggleButton followKeyToggle { "Follow Song Key" };
 
-    juce::Slider inputSlider, outputSlider, mixSlider, tuneSlider, spreadSlider, humanizeSlider;
+    juce::Slider inputSlider, outputSlider, mixSlider, tuneSlider, choirSlider, spreadSlider, humanizeSlider;
 
     struct VoiceStrip
     {

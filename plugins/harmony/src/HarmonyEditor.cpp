@@ -70,6 +70,7 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
     setupSlider (outputSlider, " dB");  outputSlider.setName ("Out");
     setupSlider (mixSlider);            mixSlider.setName ("Blend");
     setupSlider (tuneSlider);           tuneSlider.setName ("Auto-Tune");
+    setupSlider (choirSlider);          choirSlider.setName ("Choir");
     setupSlider (spreadSlider);         spreadSlider.setName ("Spread");
     setupSlider (humanizeSlider);       humanizeSlider.setName ("Human");
     auto& params = processor.parameters();
@@ -77,6 +78,7 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
     sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "output",   outputSlider));
     sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "mix",      mixSlider));
     sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "tune",     tuneSlider));
+    sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "choir",    choirSlider));
     sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "spread",   spreadSlider));
     sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "humanize", humanizeSlider));
 
@@ -234,7 +236,7 @@ void SattariHarmonyAudioProcessorEditor::paint (juce::Graphics& g)
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         g.drawText (s.getName(), s.getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
     };
-    for (auto* s : { &inputSlider, &outputSlider, &mixSlider, &tuneSlider, &spreadSlider, &humanizeSlider })
+    for (auto* s : { &inputSlider, &outputSlider, &mixSlider, &tuneSlider, &choirSlider, &spreadSlider, &humanizeSlider })
         caption (*s);
     for (auto& vs : voices)
         for (auto* s : { &vs.level, &vs.pan, &vs.formant })
@@ -311,11 +313,12 @@ void SattariHarmonyAudioProcessorEditor::resized()
 
     area.removeFromTop (10);
     auto globals = area.removeFromTop (96);
-    auto globalRow = globals.withSizeKeepingCentre (juce::jmin (globals.getWidth(), 660), globals.getHeight());
-    const int gw = globalRow.getWidth() / 6;
+    auto globalRow = globals.withSizeKeepingCentre (juce::jmin (globals.getWidth(), 770), globals.getHeight());
+    const int gw = globalRow.getWidth() / 7;
     inputSlider.setBounds    (globalRow.removeFromLeft (gw).reduced (4));
     mixSlider.setBounds      (globalRow.removeFromLeft (gw).reduced (4));
     tuneSlider.setBounds     (globalRow.removeFromLeft (gw).reduced (4));
+    choirSlider.setBounds    (globalRow.removeFromLeft (gw).reduced (4));
     spreadSlider.setBounds   (globalRow.removeFromLeft (gw).reduced (4));
     humanizeSlider.setBounds (globalRow.removeFromLeft (gw).reduced (4));
     outputSlider.setBounds   (globalRow.removeFromLeft (gw).reduced (4));

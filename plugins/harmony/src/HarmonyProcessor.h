@@ -109,6 +109,11 @@ private:
     std::array<double, kNumVoices> humanizeTarget  { { 0.0, 0.0, 0.0, 0.0 } };
     juce::Random humanizeRng;
 
+    // Choir doubler: a modulated (chorus) Haas copy of each voice, panned opposite.
+    std::array<std::vector<float>, kNumVoices> choirRing;
+    std::array<int, kNumVoices>    choirWrite { { 0, 0, 0, 0 } };
+    std::array<double, kNumVoices> choirPhase { { 0.0, 0.0, 0.0, 0.0 } };
+
     juce::AudioBuffer<float> voiceBuffer;    // mono per-voice render scratch
     juce::AudioBuffer<float> harmonyAccum;   // stereo sum of all voices
     juce::dsp::DelayLine<float> dryDelay { 1 << 16 };  // aligns dry to the shifters' latency
