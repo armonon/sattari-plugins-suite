@@ -130,6 +130,10 @@ private:
 
         using LaneClips = std::array<std::vector<LaneClip>, numEditableLanes>;
 
+        // A per-lane MIDI clip: notes positioned (in beats) from its timeline start.
+        struct MidiNote { int pitch = 60; double startBeats = 0.0; double lengthBeats = 1.0; int velocity = 100; };
+        struct MidiClipData { bool active = false; double timelineStartSeconds = 0.0; std::vector<MidiNote> notes; };
+
         ArrangementRecorderView();
         ~ArrangementRecorderView() override;
 
@@ -180,6 +184,15 @@ private:
 
         std::function<void(int)> onClearDeckRequest;
         std::function<void(double)> onSeek;   // user clicked the ruler to move the play cursor
+        std::function<void(int)> onEditMidiLane;   // double-clicked a lane / its MIDI block
+
+        // ---- Per-lane MIDI clips ----
+        bool   hasMidiClip (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && midiClips[(size_t) lane].active; }
+        double midiClipStart (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? midiClips[(size_t) lane].timelineStartSeconds : 0.0; }
+        const std::vector<MidiNote>& midiClipNotes (int lane) const;
+        void   ensureMidiClip (int lane, double timeSec);
+        void   setMidiClipNotes (int lane, std::vector<MidiNote> notes);
+        int    midiClipLaneAt (juce::Point<int> p) const;
         std::function<void(double,double,bool)> onLoopChanged;   // loop region changed (start, end, enabled)
         void setLoopEnabled (bool shouldLoop);
         bool isLoopEnabled() const noexcept { return loopEnabled; }
@@ -209,6 +222,7 @@ private:
         void mouseDown (const juce::MouseEvent& e) override;
         void mouseDrag (const juce::MouseEvent& e) override;
         void mouseUp (const juce::MouseEvent& e) override;
+        void mouseDoubleClick (const juce::MouseEvent& e) override;
         void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
         // Free audio import: drag an audio file onto a lane to place a clip.
@@ -242,6 +256,8 @@ private:
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
         std::array<float, numEditableLanes> laneGainDb {};   // 0 dB default
         std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
+        std::array<MidiClipData, numEditableLanes> midiClips {};
+        std::array<juce::Rectangle<int>, numEditableLanes> midiClipRects {};   // for hit-testing
         juce::File masterFile;
         std::array<juce::File, numLanes> deckFiles {};
         LaneClips clips {};
@@ -347,6 +363,7 @@ private:
     void toggleArrangementPlayback();
     void saveProject();
     void loadProject();
+    void openPianoRollForLane (int lane);
     juce::Label masterKeyLabel;
     juce::ComboBox masterKey;
     juce::TextButton syncAllDecksButton { "Sync All Decks" };
@@ -363,6 +380,7 @@ private:
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
     juce::TextButton metronomeButton { "Click" };
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
+    int    pianoRollLane = -1;                // which lane's MIDI clip the piano roll edits
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;
     std::array<PadControls, PadBank::numPads> pads;

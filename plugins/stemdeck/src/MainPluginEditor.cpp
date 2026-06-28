@@ -746,6 +746,22 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             ct.setProperty ("colour",    (int) c.colourArgb,       nullptr);
             lt.appendChild (ct, nullptr);
         }
+        if (midiClips[(size_t) lane].active)
+        {
+            const auto& mc = midiClips[(size_t) lane];
+            juce::ValueTree mt ("MIDICLIP");
+            mt.setProperty ("tlStart", mc.timelineStartSeconds, nullptr);
+            for (const auto& nn : mc.notes)
+            {
+                juce::ValueTree nt ("MNOTE");
+                nt.setProperty ("pitch", nn.pitch,       nullptr);
+                nt.setProperty ("start", nn.startBeats,  nullptr);
+                nt.setProperty ("len",   nn.lengthBeats, nullptr);
+                nt.setProperty ("vel",   nn.velocity,    nullptr);
+                mt.appendChild (nt, nullptr);
+            }
+            lt.appendChild (mt, nullptr);
+        }
         root.appendChild (lt, nullptr);
     }
     return root;
@@ -755,6 +771,7 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
 {
     if (! root.hasType ("ARRANGEMENT")) return;
     for (auto& v : clips) v.clear();
+    for (auto& m : midiClips) m = {};
     loopStartSeconds = root.getProperty ("loopStart", 0.0);
     loopEndSeconds   = root.getProperty ("loopEnd",   0.0);
     loopEnabled      = root.getProperty ("loopEnabled", false);
@@ -787,6 +804,24 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             clips[(size_t) lane].push_back (c);
             anyClip = true;
         }
+        if (const auto mt = lt.getChildWithName ("MIDICLIP"); mt.isValid())
+        {
+            auto& mc = midiClips[(size_t) lane];
+            mc.active = true;
+            mc.timelineStartSeconds = mt.getProperty ("tlStart", 0.0);
+            for (int k = 0; k < mt.getNumChildren(); ++k)
+            {
+                const auto nt = mt.getChild (k);
+                if (! nt.hasType ("MNOTE")) continue;
+                MidiNote nn;
+                nn.pitch       = nt.getProperty ("pitch", 60);
+                nn.startBeats  = nt.getProperty ("start", 0.0);
+                nn.lengthBeats = nt.getProperty ("len",   1.0);
+                nn.velocity    = nt.getProperty ("vel",   100);
+                mc.notes.push_back (nn);
+            }
+            anyClip = true;
+        }
     }
     mode = anyClip ? Mode::Finished : Mode::Idle;
     undoStack.clear();
@@ -801,6 +836,53 @@ int MainPluginEditor::ArrangementRecorderView::laneAtY (int y) const
         if (y >= laneRects[(size_t) i].getY() && y < laneRects[(size_t) i].getBottom())
             return i;
     return -1;
+}
+
+// ── Per-lane MIDI clips ────────────────────────────────────────────────────────
+const std::vector<MainPluginEditor::ArrangementRecorderView::MidiNote>&
+MainPluginEditor::ArrangementRecorderView::midiClipNotes (int lane) const
+{
+    static const std::vector<MidiNote> empty;
+    return juce::isPositiveAndBelow (lane, numEditableLanes) ? midiClips[(size_t) lane].notes : empty;
+}
+
+void MainPluginEditor::ArrangementRecorderView::ensureMidiClip (int lane, double timeSec)
+{
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+    auto& m = midiClips[(size_t) lane];
+    if (! m.active) { m.active = true; m.timelineStartSeconds = juce::jmax (0.0, snapTime (timeSec)); }
+    mode = Mode::Finished;
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setMidiClipNotes (int lane, std::vector<MidiNote> notes)
+{
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+    midiClips[(size_t) lane].notes  = std::move (notes);
+    midiClips[(size_t) lane].active = true;
+    repaint();
+}
+
+int MainPluginEditor::ArrangementRecorderView::midiClipLaneAt (juce::Point<int> p) const
+{
+    for (int i = 0; i < numEditableLanes; ++i)
+        if (midiClips[(size_t) i].active && ! midiClipRects[(size_t) i].isEmpty()
+            && midiClipRects[(size_t) i].contains (p))
+            return i;
+    return -1;
+}
+
+void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    const int midiLane = midiClipLaneAt (e.getPosition());
+    if (midiLane >= 0) { if (onEditMidiLane) onEditMidiLane (midiLane); return; }
+
+    const int lane = laneAtY (e.getPosition().y);   // double-click an empty lane area → new MIDI clip
+    if (lane < 0) return;
+    const int labelWidth = 90;
+    const auto hit = hitTestAt (e.getPosition());
+    if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
+        if (onEditMidiLane) onEditMidiLane (lane);
 }
 
 // ── Free audio import (drag a file onto a lane) ────────────────────────────────
@@ -1591,11 +1673,49 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (u8 ("capturing\xe2\x80\xa6"), track.reduced (8, 0), juce::Justification::centredLeft);
         }
-        else
+        else if (! (deckIndex >= 0 && deckIndex < numEditableLanes && midiClips[(size_t) deckIndex].active))
         {
             g.setColour (juce::Colour (kTextFaint).withAlpha (0.65f));
             g.setFont (juce::FontOptions (9.5f));
             g.drawText ("empty", track.reduced (8, 0), juce::Justification::centredLeft);
+        }
+
+        // ---- Per-lane MIDI clip block (notes shown as a mini piano-roll) ----
+        if (deckIndex >= 0 && deckIndex < numEditableLanes && midiClips[(size_t) deckIndex].active)
+        {
+            const auto& mc = midiClips[(size_t) deckIndex];
+            double lenBeats = 4.0;
+            for (const auto& nn : mc.notes) lenBeats = juce::jmax (lenBeats, nn.startBeats + nn.lengthBeats);
+            const double endSec = mc.timelineStartSeconds + lenBeats * secsPerBeat;
+            const int mx0 = timeToXIn (track, mc.timelineStartSeconds);
+            const int mx1 = juce::jmax (mx0 + 8, timeToXIn (track, endSec));
+            auto mr = juce::Rectangle<int> (mx0, track.getY(), mx1 - mx0, track.getHeight());
+            midiClipRects[(size_t) deckIndex] = mr;
+
+            auto mf = mr.toFloat().reduced (0.5f);
+            g.setColour (colour.withAlpha (0.20f));
+            g.fillRoundedRectangle (mf, 3.0f);
+            g.setColour (colour.withAlpha (0.85f));
+            g.drawRoundedRectangle (mf, 3.0f, 1.0f);
+
+            const double pps = (double) (mx1 - mx0) / juce::jmax (1.0e-6, lenBeats);
+            const int lo = 36, rng = 84 - 36;
+            for (const auto& nn : mc.notes)
+            {
+                const int nx0 = mx0 + (int) std::round (nn.startBeats * pps);
+                const int nx1 = mx0 + (int) std::round ((nn.startBeats + nn.lengthBeats) * pps);
+                const float fy = 1.0f - juce::jlimit (0.0f, 1.0f, (float) (nn.pitch - lo) / (float) rng);
+                const int ny  = mr.getY() + 2 + (int) (fy * (float) juce::jmax (1, mr.getHeight() - 4));
+                g.setColour (juce::Colours::white.withAlpha (0.7f));
+                g.fillRect (nx0, ny, juce::jmax (2, nx1 - nx0), 2);
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.7f));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText ("MIDI", mr.withHeight (10).reduced (4, 0), juce::Justification::centredLeft);
+        }
+        else if (deckIndex >= 0 && deckIndex < numEditableLanes)
+        {
+            midiClipRects[(size_t) deckIndex] = {};
         }
 
         g.restoreState();   // end track clip region
@@ -2036,10 +2156,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     pianoRollButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     pianoRollButton.onClick = [this]
     {
-        const bool on = pianoRollButton.getToggleState();
-        if (on) { mixerButton.setToggleState (false, juce::dontSendNotification); mixerView.setVisible (false); }
-        pianoRoll.setVisible (on);
-        if (on) pianoRoll.toFront (true);
+        if (pianoRollButton.getToggleState())
+            openPianoRollForLane (pianoRollLane < 0 ? 0 : pianoRollLane);
+        else
+            pianoRoll.setVisible (false);
     };
     addAndMakeVisible (pianoRollButton);
 
@@ -2048,13 +2168,25 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         pianoRoll.setVisible (false);
         pianoRollButton.setToggleState (false, juce::dontSendNotification);
     };
-    pianoRoll.setBpm (120.0);
+    pianoRoll.onNotesChanged = [this]
+    {
+        if (! juce::isPositiveAndBelow (pianoRollLane, ArrangementRecorderView::numEditableLanes)) return;
+        std::vector<ArrangementRecorderView::MidiNote> notes;
+        for (const auto& n : pianoRoll.getNotes())
+            notes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
+        arrangementView.setMidiClipNotes (pianoRollLane, std::move (notes));
+    };
     pianoRoll.setBars (8);
-    pianoRoll.setNotes ({
+    addChildComponent (pianoRoll);   // hidden until toggled
+
+    arrangementView.onEditMidiLane = [this] (int lane) { openPianoRollForLane (lane); };
+
+    // Seed a demo MIDI clip on Deck A so there's a clip to see / edit / play.
+    arrangementView.setMidiClipNotes (0, {
         { 60, 0.0, 1.0,  80 }, { 62, 1.0, 1.0,  88 }, { 64, 2.0, 1.0,  96 },
         { 65, 3.0, 1.0, 104 }, { 67, 4.0, 1.0, 112 }, { 69, 5.0, 1.0, 120 },
         { 71, 6.0, 1.0, 124 }, { 72, 7.0, 2.0, 127 } });
-    addChildComponent (pianoRoll);   // hidden until toggled
+    arrangementView.ensureMidiClip (0, 0.0);
 
     // ── Mixer overlay (deck channel strips: volume + mute/solo) ──
     setupButton (mixerButton);
@@ -2521,14 +2653,22 @@ void MainPluginEditor::toggleArrangementPlayback()
     }
 
     // Piano-roll MIDI notes play through the built-in synth on the same transport.
-    const double midiBpm = 120.0;   // matches the piano-roll grid
+    const double midiBpm = juce::jlimit (40.0, 240.0,
+        (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());   // project tempo
     const double secsPerBeat = 60.0 / midiBpm;
     std::vector<MidiClipPlayer::SourceNote> midiNotes;
     double midiLenSec = 0.0;
-    for (const auto& n : pianoRoll.getNotes())
+    for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
     {
-        midiNotes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
-        midiLenSec = juce::jmax (midiLenSec, (n.startBeats + n.lengthBeats) * secsPerBeat);
+        if (! arrangementView.hasMidiClip (lane)) continue;
+        if (lane < MainPluginProcessor::numDecks && ! arrangementView.laneAudible (lane)) continue;   // mute/solo
+        const double clipStartBeats = arrangementView.midiClipStart (lane) / secsPerBeat;
+        for (const auto& n : arrangementView.midiClipNotes (lane))
+        {
+            const double absStartBeats = clipStartBeats + n.startBeats;
+            midiNotes.push_back ({ n.pitch, absStartBeats, n.lengthBeats, n.velocity });
+            midiLenSec = juce::jmax (midiLenSec, (absStartBeats + n.lengthBeats) * secsPerBeat);
+        }
     }
 
     double audioLenSec = 0.0;
@@ -2548,6 +2688,24 @@ void MainPluginEditor::toggleArrangementPlayback()
                                            arrangementCursorSeconds);
     processorRef.setArrangementLoop (arrangementLoopStart, arrangementLoopEnd, arrangementLoopEnabled);
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
+}
+
+void MainPluginEditor::openPianoRollForLane (int lane)
+{
+    if (! juce::isPositiveAndBelow (lane, ArrangementRecorderView::numEditableLanes)) lane = 0;
+    pianoRollLane = lane;
+    arrangementView.ensureMidiClip (lane, arrangementCursorSeconds);
+
+    std::vector<PianoRollView::Note> notes;
+    for (const auto& n : arrangementView.midiClipNotes (lane))
+        notes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
+    pianoRoll.setNotes (std::move (notes));
+
+    mixerButton.setToggleState (false, juce::dontSendNotification);
+    mixerView.setVisible (false);
+    pianoRollButton.setToggleState (true, juce::dontSendNotification);
+    pianoRoll.setVisible (true);
+    pianoRoll.toFront (true);
 }
 
 void MainPluginEditor::saveProject()
@@ -3688,10 +3846,11 @@ void MainPluginEditor::timerCallback()
                             recording ? juce::Colours::white
                                       : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
 
-    if (snapToggleButton.getToggleState())
     {
+        // Project tempo (MASTER BPM) drives the arrangement grid + the piano roll.
         const auto bpm = juce::jlimit (40.0, 240.0, (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
-        arrangementView.setSnap (true, 0.25, bpm);
+        arrangementView.setSnap (snapToggleButton.getToggleState(), 0.25, bpm);
+        pianoRoll.setBpm (bpm);
     }
 
     // Push live playback state into each deck's waveform display so the playhead
