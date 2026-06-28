@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workspace_root="$(cd "$repo_root/../.." && pwd)"
 out_root="${1:-$workspace_root/deliverables/sattari-test-builds}"
-build_root="$repo_root/build/all/plugins"
+build_root="${SATTARI_BUILD_ROOT:-$repo_root/build/all/plugins}"
 version="0.1.0"
 
 mkdir -p "$out_root"
@@ -57,6 +57,36 @@ package_one() {
       au_name="Sattari Arp.component"; vst3_name="Sattari Arp.vst3"; app_name="";
       au_type=""; au_subtype=""; formats="AU, VST3";
       limitation="MIDI-effect internal alpha; needs DAW MIDI routing, preset UX, timing feel, and generated-pattern validation before any product claim."
+      ;;
+    harmony)
+      target="SattariHarmony"; product="Sattari Harmony"; bundle_dir="SattariHarmony_artefacts";
+      au_name="Sattari Harmony.component"; vst3_name="Sattari Harmony.vst3"; app_name="Sattari Harmony.app";
+      au_type="aufx"; au_subtype="Hm01"; formats="AU, VST3, Standalone";
+      limitation="Diatonic/chord-follow harmoniser + choir; render proof confirms the 5th is generated, but real-vocal listening and per-voice quality tuning are not validated yet."
+      ;;
+    maqam)
+      target="SattariMaqam"; product="Sattari Maqam"; bundle_dir="SattariMaqam_artefacts";
+      au_name="Sattari Maqam.component"; vst3_name="Sattari Maqam.vst3"; app_name="Sattari Maqam.app";
+      au_type="aufx"; au_subtype="Mq01"; formats="AU, VST3, Standalone";
+      limitation="Microtonal maqam tuner; render proof confirms quarter-tone snapping to 0.02c, but the maqam cents tables and real-vocal feel need musician validation."
+      ;;
+    vocal-master)
+      target="SattariVocalMaster"; product="Sattari Vocal Master"; bundle_dir="SattariVocalMaster_artefacts";
+      au_name="Sattari Vocal Master.component"; vst3_name="Sattari Vocal Master.vst3"; app_name="Sattari Vocal Master.app";
+      au_type="aufx"; au_subtype="Vm01"; formats="AU, VST3, Standalone";
+      limitation="Vocal cleanup chain; render proof confirms mid-side isolate, but de-noise/de-ess thresholds and the offline AI stem-removal path need real-material validation."
+      ;;
+    rhythm-genie)
+      target="SattariRhythmGenie"; product="Sattari Rhythm Genie"; bundle_dir="SattariRhythmGenie_artefacts";
+      au_name="Sattari Rhythm Genie.component"; vst3_name="Sattari Rhythm Genie.vst3"; app_name="Sattari Rhythm Genie.app";
+      au_type="aumf"; au_subtype="Rg01"; formats="AU, VST3, Standalone";
+      limitation="Host-synced MIDI drum generator; render proof confirms step timing, but pattern musicality and DAW MIDI routing across hosts need validation."
+      ;;
+    song-key)
+      target="SattariSongKey"; product="Sattari Key"; bundle_dir="SattariSongKey_artefacts";
+      au_name="Sattari Key.component"; vst3_name="Sattari Key.vst3"; app_name="Sattari Key.app";
+      au_type="aufx"; au_subtype="Sk01"; formats="AU, VST3, Standalone";
+      limitation="Master key scanner that publishes to the suite bus; render proof confirms C-major detection, but key accuracy across real mixes and the publish workflow need validation."
       ;;
     *)
       echo "unknown plugin slug: $slug" >&2
@@ -325,8 +355,13 @@ EOF
   echo "packaged $suite_dir"
 }
 
-for slug in sub-conjurer stemdeck side-chain-master royal-chain auto-pitch sattari-arp; do
+# Slugs to package (override with SATTARI_PACKAGE_SLUGS="harmony maqam ..." to do a subset).
+slugs="${SATTARI_PACKAGE_SLUGS:-sub-conjurer stemdeck side-chain-master royal-chain auto-pitch sattari-arp harmony maqam vocal-master rhythm-genie song-key}"
+for slug in $slugs; do
   package_one "$slug"
 done
 
-package_suite
+# Suite bundle (skip with SATTARI_PACKAGE_SUITE=0 when packaging only a subset).
+if [[ "${SATTARI_PACKAGE_SUITE:-1}" == "1" ]]; then
+  package_suite
+fi
