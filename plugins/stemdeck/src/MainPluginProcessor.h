@@ -143,6 +143,7 @@ public:
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
     void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm) { midiClipPlayer.setNotes (notes, bpm); }
+    void setMidiLaneGain (int lane, float gainLinear) noexcept { midiClipPlayer.setLaneGain (lane, gainLinear); }
     void setMetronomeEnabled (bool e) noexcept { metronome.setEnabled (e); }
     bool isMetronomeEnabled() const noexcept   { return metronome.isEnabled(); }
     void setMetronomeBpm (double b) noexcept    { metronome.setBpm (b); }

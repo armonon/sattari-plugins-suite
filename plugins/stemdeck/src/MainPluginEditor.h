@@ -173,7 +173,8 @@ private:
         // then call commitEdit() after the edit completes to push it onto the stack.
         // A snapshot captures the whole lane (its full clip vector) so split / delete
         // round-trip cleanly.
-        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; bool full = false; LaneClips allState; };
+        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; bool full = false; LaneClips allState;
+                              std::array<std::vector<MidiClipData>, numEditableLanes> allMidi; };
         LaneSnapshot captureLaneState (int laneIndex) const;
         LaneSnapshot captureFullState() const;   // whole arrangement (for cross-lane moves)
         void commitEdit (LaneSnapshot before);

@@ -1,82 +1,108 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
 
 /**
- * Tiny built-in synth + MIDI scheduler for the piano-roll clip.
+ * Built-in synth + MIDI scheduler for the per-lane piano-roll clips.
  *
- * The editor pushes a flat note list (pitch + beats) via setNotes(); process() is
- * driven from the audio thread with the arrangement playhead, emitting note on/off
- * for the current block and rendering an internal polyphonic sine synth into the
- * output. RT-safe schedule swap via a brief SpinLock (mirrors ArrangementPlayer).
+ * One small polyphonic sine synth per editable lane, so each lane's MIDI can be
+ * scaled by its own gain (independent of note velocity) and summed into the
+ * output. The editor pushes a flat lane-tagged note list via setNotes(); per-lane
+ * gain is a live atomic. RT-safe schedule swap via a brief SpinLock.
  */
 class MidiClipPlayer
 {
 public:
-    struct SourceNote { int pitch = 60; double startBeats = 0.0; double lengthBeats = 1.0; int velocity = 100; };
+    static constexpr int numLanes = 5;   // matches ArrangementRecorderView::numEditableLanes
 
-    void prepare (double sampleRate, int /*blockSize*/)
+    struct SourceNote { int lane = 0; int pitch = 60; double startBeats = 0.0; double lengthBeats = 1.0; int velocity = 100; };
+
+    void prepare (double sampleRate, int blockSize)
     {
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
-        synth.setCurrentPlaybackSampleRate (sr);
-        if (synth.getNumSounds() == 0)
+        for (auto& s : synths)
         {
-            for (int i = 0; i < 16; ++i) synth.addVoice (new Voice());
-            synth.addSound (new Sound());
+            s.setCurrentPlaybackSampleRate (sr);
+            if (s.getNumSounds() == 0)
+            {
+                for (int i = 0; i < 16; ++i) s.addVoice (new Voice());
+                s.addSound (new Sound());
+            }
         }
+        for (auto& g : laneGain) g.store (1.0f, std::memory_order_relaxed);
+        scratch.setSize (2, juce::jmax (16, blockSize));
     }
 
-    // Message thread. Safe to call any time (brief locked pointer swap).
+    void setLaneGain (int lane, float g) noexcept
+    {
+        if (juce::isPositiveAndBelow (lane, numLanes)) laneGain[(size_t) lane].store (g, std::memory_order_relaxed);
+    }
+
+    // Message thread. Safe any time (brief locked pointer swap per lane).
     void setNotes (const std::vector<SourceNote>& notes, double bpm)
     {
         const double secsPerBeat = 60.0 / (bpm > 0.0 ? bpm : 120.0);
-        auto sched = std::make_shared<std::vector<Evt>>();
-        sched->reserve (notes.size());
+        std::array<std::shared_ptr<std::vector<Evt>>, numLanes> built;
+        for (auto& b : built) b = std::make_shared<std::vector<Evt>>();
         for (const auto& n : notes)
         {
+            const int lane = juce::jlimit (0, numLanes - 1, n.lane);
             Evt e;
             e.pitch    = n.pitch;
             e.velocity = juce::jlimit (1, 127, n.velocity);
             e.on       = (juce::int64) std::llround (n.startBeats * secsPerBeat * sr);
             e.off      = (juce::int64) std::llround ((n.startBeats + juce::jmax (0.02, n.lengthBeats)) * secsPerBeat * sr);
-            sched->push_back (e);
+            built[(size_t) lane]->push_back (e);
         }
         const juce::SpinLock::ScopedLockType l (lock);
-        active = sched;
+        for (int i = 0; i < numLanes; ++i) active[(size_t) i] = built[(size_t) i];
     }
 
     double lengthSeconds() const
     {
-        std::shared_ptr<const std::vector<Evt>> sched;
-        { const juce::SpinLock::ScopedLockType l (lock); sched = active; }
+        std::array<std::shared_ptr<const std::vector<Evt>>, numLanes> sched;
+        { const juce::SpinLock::ScopedLockType l (lock); for (int i = 0; i < numLanes; ++i) sched[(size_t) i] = active[(size_t) i]; }
         juce::int64 maxOff = 0;
-        if (sched != nullptr)
-            for (const auto& e : *sched) maxOff = juce::jmax (maxOff, e.off);
+        for (const auto& s : sched)
+            if (s != nullptr)
+                for (const auto& e : *s) maxOff = juce::jmax (maxOff, e.off);
         return (double) maxOff / sr;
     }
 
-    // Audio thread. Renders the synth for [pos, pos+n) into @p out.
+    // Audio thread. Renders each lane's synth (scaled by its gain) into @p out.
     void process (juce::AudioBuffer<float>& out, juce::int64 pos, int n)
     {
-        std::shared_ptr<const std::vector<Evt>> sched;
-        { const juce::SpinLock::ScopedLockType l (lock); sched = active; }
+        std::array<std::shared_ptr<const std::vector<Evt>>, numLanes> sched;
+        { const juce::SpinLock::ScopedLockType l (lock); for (int i = 0; i < numLanes; ++i) sched[(size_t) i] = active[(size_t) i]; }
 
-        juce::MidiBuffer mb;
-        if (sched != nullptr)
-            for (const auto& e : *sched)
-            {
-                if (e.on  >= pos && e.on  < pos + n)
-                    mb.addEvent (juce::MidiMessage::noteOn  (1, e.pitch, (juce::uint8) e.velocity), (int) (e.on  - pos));
-                if (e.off >= pos && e.off < pos + n)
-                    mb.addEvent (juce::MidiMessage::noteOff (1, e.pitch), (int) (e.off - pos));
-            }
-        synth.renderNextBlock (out, mb, 0, n);
+        if (scratch.getNumSamples() < n) scratch.setSize (2, n, false, false, true);
+        const int outCh = out.getNumChannels();
+        const int scrCh = scratch.getNumChannels();
+
+        for (int lane = 0; lane < numLanes; ++lane)
+        {
+            juce::MidiBuffer mb;
+            if (sched[(size_t) lane] != nullptr)
+                for (const auto& e : *sched[(size_t) lane])
+                {
+                    if (e.on  >= pos && e.on  < pos + n) mb.addEvent (juce::MidiMessage::noteOn  (1, e.pitch, (juce::uint8) e.velocity), (int) (e.on  - pos));
+                    if (e.off >= pos && e.off < pos + n) mb.addEvent (juce::MidiMessage::noteOff (1, e.pitch), (int) (e.off - pos));
+                }
+
+            for (int ch = 0; ch < scrCh; ++ch) scratch.clear (ch, 0, n);
+            synths[(size_t) lane].renderNextBlock (scratch, mb, 0, n);
+
+            const float g = laneGain[(size_t) lane].load (std::memory_order_relaxed);
+            for (int ch = 0; ch < outCh; ++ch)
+                out.addFrom (ch, 0, scratch, juce::jmin (ch, scrCh - 1), 0, n, g);
+        }
     }
 
-    void allNotesOff() { synth.allNotesOff (1, false); }
+    void allNotesOff() { for (auto& s : synths) s.allNotesOff (1, false); }
 
 private:
     struct Evt { int pitch = 0; int velocity = 0; juce::int64 on = 0; juce::int64 off = 0; };
@@ -100,7 +126,7 @@ private:
         }
         void stopNote (float, bool allowTailOff) override
         {
-            if (allowTailOff) { env.noteOff(); }
+            if (allowTailOff) env.noteOff();
             else              { env.reset(); clearCurrentNote(); }
         }
         void pitchWheelMoved (int) override {}
@@ -138,7 +164,9 @@ private:
     };
 
     double sr = 44100.0;
-    juce::Synthesiser synth;
+    std::array<juce::Synthesiser, numLanes> synths;
+    std::array<std::atomic<float>, numLanes> laneGain;
+    std::array<std::shared_ptr<const std::vector<Evt>>, numLanes> active;
+    juce::AudioBuffer<float> scratch;
     juce::SpinLock lock;
-    std::shared_ptr<const std::vector<Evt>> active;
 };

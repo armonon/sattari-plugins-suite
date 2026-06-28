@@ -317,13 +317,16 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
     {
         if (e.mods.isPopupMenu())
         {
+            commitEdit (captureFullState());   // snapshot before delete (undoable)
             midiClips[(size_t) mref.lane].erase (midiClips[(size_t) mref.lane].begin() + mref.clip);
             repaint();
             return;
         }
-        activeMidiDrag     = mref;
-        dragStartPoint     = e.getPosition();
-        dragStartMidiStart = midiClips[(size_t) mref.lane][(size_t) mref.clip].timelineStartSeconds;
+        activeMidiDrag      = mref;
+        dragOrigLane        = mref.lane;
+        dragStartPoint      = e.getPosition();
+        dragStartMidiStart  = midiClips[(size_t) mref.lane][(size_t) mref.clip].timelineStartSeconds;
+        pendingEditSnapshot = captureFullState();   // snapshot before drag (undoable)
         return;
     }
 
@@ -621,7 +624,21 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
-    if (activeMidiDrag.valid()) { activeMidiDrag = {}; dragReadout.clear(); repaint(); return; }
+    if (activeMidiDrag.valid())
+    {
+        bool changed = (activeMidiDrag.lane != dragOrigLane);
+        if (! changed && juce::isPositiveAndBelow (activeMidiDrag.clip, (int) midiClips[(size_t) activeMidiDrag.lane].size()))
+            changed = std::abs (midiClips[(size_t) activeMidiDrag.lane][(size_t) activeMidiDrag.clip].timelineStartSeconds
+                                - dragStartMidiStart) > 1.0e-9;
+        if (changed && pendingEditSnapshot.full)
+            commitEdit (std::move (pendingEditSnapshot));
+        pendingEditSnapshot = {};
+        activeMidiDrag = {};
+        dragOrigLane = -1;
+        dragReadout.clear();
+        repaint();
+        return;
+    }
     if (rulerDragActive) { rulerDragActive = false; return; }
     if (draggingScrollBar) { draggingScrollBar = false; repaint(); return; }
 
@@ -949,6 +966,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::Mo
     if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
     {
         const double t = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
+        commitEdit (captureFullState());   // snapshot before adding the clip (undoable)
         const int idx = addMidiClip (lane, t);
         if (idx >= 0 && onEditMidiClip) onEditMidiClip (lane, idx);
     }
@@ -1084,6 +1102,7 @@ MainPluginEditor::ArrangementRecorderView::captureFullState() const
     LaneSnapshot s;
     s.full = true;
     s.allState = clips;
+    s.allMidi  = midiClips;
     return s;
 }
 
@@ -1103,7 +1122,8 @@ void MainPluginEditor::ArrangementRecorderView::undo()
     if (entry.full)
     {
         redoEntry = captureFullState();
-        clips = entry.allState;
+        clips     = entry.allState;
+        midiClips = entry.allMidi;
     }
     else
     {
@@ -1125,7 +1145,8 @@ void MainPluginEditor::ArrangementRecorderView::redo()
     if (entry.full)
     {
         undoEntry = captureFullState();
-        clips = entry.allState;
+        clips     = entry.allState;
+        midiClips = entry.allMidi;
     }
     else
     {
@@ -2273,7 +2294,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     mixerView.getName    = [] (int i) { return "DECK " + juce::String::charToString ((juce_wchar) ('A' + i)); };
     mixerView.getColour  = [] (int i) { return deckAccent (i); };
     mixerView.getGainDb  = [this] (int i) { return arrangementView.getLaneGainDb (i); };
-    mixerView.setGainDb  = [this] (int i, float db) { arrangementView.setLaneGainDb (i, db); };
+    mixerView.setGainDb  = [this] (int i, float db) { arrangementView.setLaneGainDb (i, db); processorRef.setMidiLaneGain (i, arrangementView.laneGainLinear (i)); };
     mixerView.isMuted    = [this] (int i) { return arrangementView.isLaneMuted (i); };
     mixerView.isSoloed   = [this] (int i) { return arrangementView.isLaneSoloed (i); };
     mixerView.toggleMute = [this] (int i) { arrangementView.toggleLaneMute (i); };
@@ -2728,19 +2749,21 @@ void MainPluginEditor::toggleArrangementPlayback()
     for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
     {
         if (lane < MainPluginProcessor::numDecks && ! arrangementView.laneAudible (lane)) continue;   // mute/solo
-        const float laneGain = (lane < MainPluginProcessor::numDecks) ? arrangementView.laneGainLinear (lane) : 1.0f;
         for (int ci = 0; ci < arrangementView.numMidiClips (lane); ++ci)
         {
             const double clipStartBeats = arrangementView.midiClipStart (lane, ci) / secsPerBeat;
             for (const auto& n : arrangementView.midiClipNotes (lane, ci))
             {
                 const double absStartBeats = clipStartBeats + n.startBeats;
-                const int vel = juce::jlimit (1, 127, (int) std::round ((double) n.velocity * laneGain));   // per-lane MIDI gain
-                midiNotes.push_back ({ n.pitch, absStartBeats, n.lengthBeats, vel });
+                midiNotes.push_back ({ lane, n.pitch, absStartBeats, n.lengthBeats, n.velocity });
                 midiLenSec = juce::jmax (midiLenSec, (absStartBeats + n.lengthBeats) * secsPerBeat);
             }
         }
     }
+    // Per-lane MIDI gain (true gain stage on each lane's synth, independent of velocity).
+    for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
+        processorRef.setMidiLaneGain (lane, lane < MainPluginProcessor::numDecks
+                                                ? arrangementView.laneGainLinear (lane) : 1.0f);
 
     double audioLenSec = 0.0;
     for (const auto& s : specs)
