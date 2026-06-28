@@ -29,3 +29,33 @@ target_include_directories(MaqamCoreContract
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/../../core/include
         ${CMAKE_CURRENT_LIST_DIR}/src)
+
+# Offline render + microtonal-correction proof (links the processor + JUCE).
+# Default run measures the output pitch and asserts the quarter-tone snap;
+# --smoke just asserts finite/non-silent (CI-safe across Rubber Band versions).
+add_executable(MaqamRender
+    EXCLUDE_FROM_ALL
+        tools/maqam_render.cpp
+        src/MaqamProcessor.cpp
+        src/MaqamEditor.cpp)
+add_dependencies(MaqamRender SattariMaqam)
+target_include_directories(MaqamRender
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariMaqam_artefacts/JuceLibraryCode)
+target_compile_definitions(MaqamRender
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(MaqamRender
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+sattari_enable_rubberband(MaqamRender SATTARI_MAQAM_HAS_RUBBERBAND)
