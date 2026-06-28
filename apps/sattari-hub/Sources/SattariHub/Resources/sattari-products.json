@@ -242,6 +242,37 @@
       ]
     },
     {
+      "id": "vocal-master",
+      "name": "Sattari Vocal Master",
+      "category": "Vocal master",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Vocal cleanup + master: mid-side isolate (music down), de-noise, de-ess, tone, leveler, limiter \u2014 with an AI stem-removal seam for offline vocal isolation.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/AU/Sattari Vocal Master.component",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Vocal Master.component"
+        },
+        {
+          "kind": "VST3",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/VST3/Sattari Vocal Master.vst3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocal Master.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/Standalone/Sattari Vocal Master.app",
+          "installSubpath": "Applications/Sattari Vocal Master.app"
+        }
+      ]
+    },
+    {
       "id": "rhythm-genie",
       "name": "Sattari Rhythm Genie",
       "category": "MIDI / drums",

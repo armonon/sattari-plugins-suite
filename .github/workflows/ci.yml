@@ -62,6 +62,7 @@ jobs:
           - { plugin: stemdeck,          test: StemDeckArchitectureContract }
           - { plugin: harmony,           test: HarmonyCoreContract }
           - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
+          - { plugin: vocal-master,      test: VocalMasterCoreContract }
           - { plugin: rhythm-genie,      test: RhythmGenieCoreContract }
     steps:
       - uses: actions/checkout@v4

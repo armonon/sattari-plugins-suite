@@ -83,6 +83,7 @@ inline const std::vector<Product>& products()
         { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      kAccent },
         { "harmony",           "Sattari Harmony",     "Vocal harmony",    kAccent },
         { "maqam",             "Sattari Maqam",       "Microtonal tuning",kAccent },
+        { "vocal-master",      "Sattari Vocal Master","Vocal master",     kAccent },
         { "rhythm-genie",      "Sattari Rhythm Genie","MIDI / drums",     kAccent },
         { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  kAccent },
         { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
