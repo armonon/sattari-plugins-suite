@@ -130,7 +130,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 1));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("enableCorrection", "Enable Correction", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("autoKey", "AutoKey Follow", false));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSongKey", "Follow Song Key", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSongKey", "Follow Song Key", true));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Amount",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.82f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("speed", "Speed",

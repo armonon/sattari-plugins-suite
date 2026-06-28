@@ -63,6 +63,7 @@ int main (int argc, char** argv)
     auto& apvts = proc.parameters();
     setParam (apvts, "keyRoot", 0.0f);          // C
     setParam (apvts, "scale", 0.0f);            // major
+    setParam (apvts, "followSongKey", 0.0f);    // deterministic render: ignore the session bus
     setParam (apvts, "style", 2.0f);            // Modern Rap (hard)
     setParam (apvts, "amount", 1.0f);
     setParam (apvts, "speed", 0.9f);

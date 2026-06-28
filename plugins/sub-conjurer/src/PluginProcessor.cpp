@@ -37,7 +37,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SubConjurerAudioProcessor::c
     // Cross-plugin session bus: when on, the locked sub note follows the song key
     // published by Auto Pitch (or any Sattari publisher), so the sub always sits
     // in the current key without manual retuning.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", true));
     params.push_back (std::make_unique<juce::AudioParameterInt> ("octave", "Octave", 0, 3, 1));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Sub Amount",
         juce::NormalisableRange<float> (0.0f, 1.5f, 0.001f), 0.9f));
