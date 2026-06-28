@@ -166,6 +166,7 @@ private:
         void redo();
 
         std::function<void(int)> onClearDeckRequest;
+        std::function<void(double)> onSeek;   // user clicked the ruler to move the play cursor
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -218,6 +219,8 @@ private:
         double snapBpm = 120.0;
         double playbackPositionSeconds = -1.0;
         bool   playbackActive = false;
+        double cursorSeconds = 0.0;                       // play-start cursor (shown when stopped)
+        juce::Rectangle<int> rulerBounds, timelineMapRect;   // computed in paint(), for click-to-seek
 
         // ---- Timeline viewport: zoom + horizontal scroll ----
         double zoom = 1.0;                 // 1 = whole arrangement fits the width
@@ -293,6 +296,7 @@ private:
     bool stemLinkMirroring = false;
     juce::Label recordStatus;
     ArrangementRecorderView arrangementView;
+    double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     std::array<PadControls, PadBank::numPads> pads;
 
     std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment, limiterAttachment, micGainAttachment;

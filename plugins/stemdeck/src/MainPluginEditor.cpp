@@ -294,6 +294,14 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         return;
     }
 
+    if (rulerBounds.contains (e.getPosition()))   // click the ruler to move the play cursor
+    {
+        cursorSeconds = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
+        if (onSeek) onSeek (cursorSeconds);
+        repaint();
+        return;
+    }
+
     const auto hit = hitTestAt (e.getPosition());
 
     if (e.mods.isPopupMenu())
@@ -600,6 +608,15 @@ void MainPluginEditor::ArrangementRecorderView::setPlaybackPosition (double seco
     const bool changed = active != playbackActive || std::abs (seconds - playbackPositionSeconds) > 0.02;
     playbackPositionSeconds = seconds;
     playbackActive = active;
+    if (active)   // follow: page the view so the playhead stays visible when zoomed in
+    {
+        const double vis = visibleSeconds();
+        if (seconds < viewStartSeconds || seconds > viewStartSeconds + vis * 0.98)
+        {
+            viewStartSeconds = seconds - vis * 0.1;
+            clampView();
+        }
+    }
     if (changed)
         repaint();
 }
@@ -919,11 +936,13 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     const int gridLeftX  = area.getX() + labelWidth + 4;
     const int gridRightX = area.getRight() - 4;
     auto mapRect = juce::Rectangle<int> (gridLeftX, area.getY(), juce::jmax (1, gridRightX - gridLeftX), 1);
+    timelineMapRect = mapRect;   // remembered for click-to-seek hit-testing
 
     auto ruler = area.removeFromTop (rulerHeight);
     g.setColour (juce::Colour (kPanelDeep).darker (0.4f));   // FL timebar strip
     g.fillRect (ruler);
     auto rulerLabel = ruler.removeFromLeft (labelWidth);
+    rulerBounds = ruler;   // timeline portion of the ruler — click here to seek
     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
     g.setColour (juce::Colour (kTextMuted));
     g.drawText ("BARS", rulerLabel.reduced (8, 0), juce::Justification::centredLeft);
@@ -1210,20 +1229,23 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             area.removeFromTop (laneGap);
     }
 
-    // Arrangement playback head — sweeps across all lanes during playback.
-    if (playbackActive && playbackPositionSeconds >= 0.0 && rulerLen > 0.0)
+    // Play cursor / playhead — bright while playing, dim play-start cursor when stopped.
     {
-        const int px = gridTimeToX (playbackPositionSeconds);
-        if (px >= gridLeft && px <= gridRight)
+        const double markT = playbackActive ? playbackPositionSeconds : cursorSeconds;
+        if (rulerLen > 0.0 && markT >= 0.0)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.92f));
-            g.fillRect (px - 1, gridTop, 2, gridBottom - gridTop);
-            juce::Path head;
-            head.addTriangle ((float) px - 5.0f, (float) gridTop,
-                              (float) px + 5.0f, (float) gridTop,
-                              (float) px,        (float) gridTop + 6.0f);
-            g.setColour (juce::Colour (kAccent));
-            g.fillPath (head);
+            const int px = gridTimeToX (markT);
+            if (px >= gridLeft && px <= gridRight)
+            {
+                g.setColour (juce::Colours::white.withAlpha (playbackActive ? 0.92f : 0.5f));
+                g.fillRect (px - 1, gridTop, playbackActive ? 2 : 1, gridBottom - gridTop);
+                juce::Path head;
+                head.addTriangle ((float) px - 5.0f, (float) gridTop,
+                                  (float) px + 5.0f, (float) gridTop,
+                                  (float) px,        (float) gridTop + 6.0f);
+                g.setColour (juce::Colour (kAccent).withAlpha (playbackActive ? 1.0f : 0.7f));
+                g.fillPath (head);
+            }
         }
     }
 
@@ -1591,6 +1613,12 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     arrZoomFitButton.setTooltip ("Zoom to fit");
     arrZoomFitButton.onClick = [this] { arrangementView.zoomToFit(); };
     addAndMakeVisible (arrZoomFitButton);
+    arrangementView.onSeek = [this] (double s)
+    {
+        arrangementCursorSeconds = s;
+        if (processorRef.isArrangementPlaying())
+            processorRef.setArrangementPositionSeconds (s);
+    };
     arrangementView.onClearDeckRequest = [this] (int lane)
     {
         if (lane >= 0 && lane < MainPluginProcessor::numDecks)
@@ -2009,6 +2037,7 @@ void MainPluginEditor::toggleArrangementPlayback()
     }
 
     processorRef.buildAndStartArrangement (std::move (specs));
+    processorRef.setArrangementPositionSeconds (arrangementCursorSeconds);   // start from the play cursor
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
 }
 
