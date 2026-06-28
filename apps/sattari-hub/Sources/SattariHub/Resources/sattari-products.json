@@ -211,6 +211,37 @@
       ]
     },
     {
+      "id": "maqam",
+      "name": "Sattari Maqam",
+      "category": "Microtonal tuning",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Microtonal maqam tuner: quarter-tone pitch correction for Arabic/Persian/Turkish modes (Rast, Bayati, Hijaz, Saba...).",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/AU/Sattari Maqam.component",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Maqam.component"
+        },
+        {
+          "kind": "VST3",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/VST3/Sattari Maqam.vst3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Maqam.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/Standalone/Sattari Maqam.app",
+          "installSubpath": "Applications/Sattari Maqam.app"
+        }
+      ]
+    },
+    {
       "id": "rhythm-genie",
       "name": "Sattari Rhythm Genie",
       "category": "MIDI / drums",

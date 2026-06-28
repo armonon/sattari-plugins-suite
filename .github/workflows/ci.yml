@@ -58,6 +58,7 @@ jobs:
           - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
           - { plugin: stemdeck,          test: StemDeckArchitectureContract }
           - { plugin: harmony,           test: HarmonyCoreContract }
+          - { plugin: maqam,             test: MaqamCoreContract }
           - { plugin: rhythm-genie,      test: RhythmGenieCoreContract }
     steps:
       - uses: actions/checkout@v4
