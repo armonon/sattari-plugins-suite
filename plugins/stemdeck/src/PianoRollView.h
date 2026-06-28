@@ -30,6 +30,7 @@ public:
     const std::vector<Note>& getNotes() const noexcept { return notes; }
 
     std::function<void()> onClose;
+    std::function<void()> onNotesChanged;
 
     static constexpr int lowPitch  = 36;   // C2
     static constexpr int highPitch = 84;   // C6
@@ -60,6 +61,7 @@ public:
         auto keyCol = b.removeFromLeft (keyW);
         gridArea = b;
         const int rowH = juce::jmax (4, gridArea.getHeight() / numRows);
+        rowHpx = rowH;
 
         // ── Pitch rows + keyboard ──
         for (int i = 0; i < numRows; ++i)
@@ -90,6 +92,7 @@ public:
         // ── Vertical bar/beat grid ──
         const int beats = bars * 4;
         const double pxPerBeat = (double) gridArea.getWidth() / (double) juce::jmax (1, beats);
+        pxPerBeatCached = pxPerBeat;
         for (int beat = 0; beat <= beats; ++beat)
         {
             const int x = gridArea.getX() + (int) std::round ((double) beat * pxPerBeat);
@@ -117,11 +120,100 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (closeRect.contains (e.getPosition()) && onClose)
-            onClose();
+        if (closeRect.contains (e.getPosition()))
+        {
+            if (onClose) onClose();
+            return;
+        }
+        if (! gridArea.contains (e.getPosition()))
+            return;
+
+        bool onEdge = false;
+        const int hit = noteAt (e.getPosition(), onEdge);
+
+        if (e.mods.isPopupMenu() || e.mods.isAltDown())   // right/alt-click deletes
+        {
+            if (hit >= 0) { notes.erase (notes.begin() + hit); notesEdited(); }
+            return;
+        }
+
+        if (hit >= 0)
+        {
+            activeNote = hit;
+            prMode = onEdge ? 2 : 1;   // resize : move
+            dragStartBeats = notes[(size_t) hit].startBeats;
+            dragStartLen   = notes[(size_t) hit].lengthBeats;
+            dragStartPitch = notes[(size_t) hit].pitch;
+            dragStartPos   = e.getPosition();
+            return;
+        }
+
+        // Empty grid → add a new note, then drag to set its length.
+        Note n;
+        n.pitch       = juce::jlimit (lowPitch, highPitch, pitchAtY (e.getPosition().y));
+        n.startBeats  = juce::jmax (0.0, snap (beatsAtX (e.getPosition().x)));
+        n.lengthBeats = snapStep;
+        n.velocity    = 100;
+        notes.push_back (n);
+        activeNote     = (int) notes.size() - 1;
+        prMode         = 2;   // start resizing the fresh note
+        dragStartBeats = n.startBeats;
+        dragStartLen   = n.lengthBeats;
+        dragStartPitch = n.pitch;
+        dragStartPos   = e.getPosition();
+        notesEdited();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (activeNote < 0 || activeNote >= (int) notes.size() || pxPerBeatCached <= 0.0)
+            return;
+        auto& n = notes[(size_t) activeNote];
+        const double deltaBeats = (double) (e.getPosition().x - dragStartPos.x) / pxPerBeatCached;
+        if (prMode == 2)   // resize
+        {
+            n.lengthBeats = juce::jmax (snapStep, snap (dragStartLen + deltaBeats));
+        }
+        else               // move
+        {
+            n.startBeats = juce::jmax (0.0, snap (dragStartBeats + deltaBeats));
+            const int deltaRows = rowHpx > 0 ? (int) std::round ((double) (e.getPosition().y - dragStartPos.y) / (double) rowHpx) : 0;
+            n.pitch = juce::jlimit (lowPitch, highPitch, dragStartPitch - deltaRows);
+        }
+        repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (activeNote >= 0) notesEdited();
+        activeNote = -1;
+        prMode = 0;
     }
 
 private:
+    void notesEdited() { repaint(); if (onNotesChanged) onNotesChanged(); }
+
+    double beatsAtX (int x) const { return pxPerBeatCached > 0.0 ? (double) (x - gridArea.getX()) / pxPerBeatCached : 0.0; }
+    int    pitchAtY (int y) const { return rowHpx > 0 ? highPitch - (y - gridArea.getY()) / rowHpx : 60; }
+    double snap (double beats) const { return std::round (beats / snapStep) * snapStep; }
+
+    int noteAt (juce::Point<int> p, bool& onEdge) const
+    {
+        onEdge = false;
+        if (pxPerBeatCached <= 0.0 || rowHpx <= 0) return -1;
+        for (int i = (int) notes.size() - 1; i >= 0; --i)   // topmost first
+        {
+            const auto& n = notes[(size_t) i];
+            if (n.pitch < lowPitch || n.pitch > highPitch) continue;
+            const int y  = gridArea.getY() + (highPitch - n.pitch) * rowHpx;
+            const int x0 = gridArea.getX() + (int) std::round (n.startBeats * pxPerBeatCached);
+            const int x1 = gridArea.getX() + (int) std::round ((n.startBeats + n.lengthBeats) * pxPerBeatCached);
+            const juce::Rectangle<int> r (x0, y, juce::jmax (3, x1 - x0), rowHpx);
+            if (r.contains (p)) { onEdge = (p.x >= r.getRight() - 6); return i; }
+        }
+        return -1;
+    }
+
     static bool isBlackKey (int pitch)
     {
         switch (((pitch % 12) + 12) % 12)
@@ -137,6 +229,16 @@ private:
     int    bars = 8;
     std::vector<Note> notes;
     juce::Rectangle<int> closeRect, gridArea;
+
+    // Cached layout (set in paint) + edit state for mouse interaction.
+    int    rowHpx = 0;
+    double pxPerBeatCached = 0.0;
+    static constexpr double snapStep = 0.25;   // 1/16-note grid snapping
+    int    activeNote = -1;
+    int    prMode = 0;        // 0 none, 1 move, 2 resize
+    double dragStartBeats = 0.0, dragStartLen = 0.0;
+    int    dragStartPitch = 0;
+    juce::Point<int> dragStartPos;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollView)
 };
