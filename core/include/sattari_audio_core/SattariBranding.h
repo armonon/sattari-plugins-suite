@@ -76,6 +76,7 @@ inline const std::vector<Product>& products()
     // as a single constant here so it stays trivial to re-diversify later.)
     static const std::vector<Product> registry {
         { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     kAccent },
+        { "song-key",          "Sattari Key",         "Key detection",    kAccent },
         { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
         { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
         { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },

@@ -38,6 +38,9 @@ jobs:
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/key_detector_contract.cpp -o /tmp/key_detector_contract
           /tmp/key_detector_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/chromagram_contract.cpp -o /tmp/chromagram_contract
+          /tmp/chromagram_contract
 
   # ---------------------------------------------------------------------------
   # Per-plugin build matrix on macOS: proves each plugin still configures and
@@ -63,6 +66,7 @@ jobs:
           - { plugin: harmony,           test: HarmonyCoreContract, render: HarmonyRender }
           - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
           - { plugin: vocal-master,      test: VocalMasterCoreContract, render: VocalMasterRender }
+          - { plugin: song-key,          render: SongKeyRender }
           - { plugin: rhythm-genie,      test: RhythmGenieCoreContract, render: RhythmGenieRender }
     steps:
       - uses: actions/checkout@v4
