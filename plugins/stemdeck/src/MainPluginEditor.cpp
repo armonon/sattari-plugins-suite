@@ -1950,6 +1950,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     pianoRollButton.onClick = [this]
     {
         const bool on = pianoRollButton.getToggleState();
+        if (on) { mixerButton.setToggleState (false, juce::dontSendNotification); mixerView.setVisible (false); }
         pianoRoll.setVisible (on);
         if (on) pianoRoll.toFront (true);
     };
@@ -1967,6 +1968,31 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         { 65, 3.0, 1.0, 104 }, { 67, 4.0, 1.0, 112 }, { 69, 5.0, 1.0, 120 },
         { 71, 6.0, 1.0, 124 }, { 72, 7.0, 2.0, 127 } });
     addChildComponent (pianoRoll);   // hidden until toggled
+
+    // ── Mixer overlay (deck channel strips: volume + mute/solo) ──
+    setupButton (mixerButton);
+    mixerButton.setClickingTogglesState (true);
+    mixerButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    mixerButton.onClick = [this]
+    {
+        const bool on = mixerButton.getToggleState();
+        if (on) { pianoRollButton.setToggleState (false, juce::dontSendNotification); pianoRoll.setVisible (false); }
+        mixerView.setVisible (on);
+        if (on) mixerView.toFront (true);
+    };
+    addAndMakeVisible (mixerButton);
+
+    mixerView.numChannels = MainPluginProcessor::numDecks;
+    mixerView.onClose    = [this] { mixerView.setVisible (false); mixerButton.setToggleState (false, juce::dontSendNotification); };
+    mixerView.getName    = [] (int i) { return "DECK " + juce::String::charToString ((juce_wchar) ('A' + i)); };
+    mixerView.getColour  = [] (int i) { return deckAccent (i); };
+    mixerView.getGainDb  = [this] (int i) { return arrangementView.getLaneGainDb (i); };
+    mixerView.setGainDb  = [this] (int i, float db) { arrangementView.setLaneGainDb (i, db); };
+    mixerView.isMuted    = [this] (int i) { return arrangementView.isLaneMuted (i); };
+    mixerView.isSoloed   = [this] (int i) { return arrangementView.isLaneSoloed (i); };
+    mixerView.toggleMute = [this] (int i) { arrangementView.toggleLaneMute (i); };
+    mixerView.toggleSolo = [this] (int i) { arrangementView.toggleLaneSolo (i); };
+    addChildComponent (mixerView);   // hidden until toggled
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
@@ -2384,7 +2410,7 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.timelineStartSeconds = clip.timelineStartSeconds;   // free-positioned
             spec.sourceStartSeconds   = start;
             spec.lengthSeconds        = end - start;
-            spec.gain                 = 1.0f;
+            spec.gain                 = arrangementView.laneGainLinear (lane);
             spec.fadeInSeconds        = clip.fadeInSeconds;
             spec.fadeOutSeconds       = clip.fadeOutSeconds;
             specs.push_back (spec);
@@ -3221,7 +3247,9 @@ void MainPluginEditor::resized()
     keyRow.removeFromLeft (10);
     syncAllDecksButton.setBounds (keyRow.removeFromLeft (140));
     keyRow.removeFromLeft (10);
-    pianoRollButton.setBounds (keyRow.removeFromLeft (110));
+    pianoRollButton.setBounds (keyRow.removeFromLeft (100));
+    keyRow.removeFromLeft (8);
+    mixerButton.setBounds (keyRow.removeFromLeft (80));
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (20));
@@ -3469,8 +3497,10 @@ void MainPluginEditor::resized()
         pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
     }
 
-    // Piano-roll overlay covers the decks + arrangement when toggled on.
-    pianoRoll.setBounds (getLocalBounds().withTrimmedTop (252).reduced (8, 6));
+    // Piano-roll / mixer overlays cover the decks + arrangement when toggled on.
+    const auto overlay = getLocalBounds().withTrimmedTop (252).reduced (8, 6);
+    pianoRoll.setBounds (overlay);
+    mixerView.setBounds (overlay);
 }
 
 void MainPluginEditor::timerCallback()

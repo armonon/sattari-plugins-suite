@@ -8,6 +8,7 @@
 #include "DeckPlayer.h"
 #include "MainPluginProcessor.h"
 #include "MixerSection.h"
+#include "MixerView.h"
 #include "MusicLibraryView.h"
 #include "PianoRollView.h"
 #include "StemDeckLookAndFeel.h"
@@ -180,7 +181,7 @@ private:
         void setLoopEnabled (bool shouldLoop);
         bool isLoopEnabled() const noexcept { return loopEnabled; }
 
-        // Per-lane mute/solo (applied when the arrangement playback schedule is built).
+        // Per-lane mute/solo/volume (applied when the arrangement playback schedule is built).
         bool laneAudible (int lane) const noexcept
         {
             if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return true;
@@ -188,6 +189,17 @@ private:
             for (int i = 0; i < numLanes; ++i) anySolo = anySolo || laneSoloed[(size_t) i];
             return ! laneMuted[(size_t) lane] && (! anySolo || laneSoloed[(size_t) lane]);
         }
+        float laneGainLinear (int lane) const noexcept
+        {
+            return juce::isPositiveAndBelow (lane, numEditableLanes)
+                       ? juce::Decibels::decibelsToGain (laneGainDb[(size_t) lane]) : 1.0f;
+        }
+        float getLaneGainDb (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? laneGainDb[(size_t) lane] : 0.0f; }
+        void  setLaneGainDb (int lane, float db) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneGainDb[(size_t) lane] = juce::jlimit (-60.0f, 6.0f, db); repaint(); } }
+        bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
+        bool  isLaneSoloed (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneSoloed[(size_t) lane]; }
+        void  toggleLaneMute (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneMuted[(size_t) lane]  = ! laneMuted[(size_t) lane];  repaint(); } }
+        void  toggleLaneSolo (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneSoloed[(size_t) lane] = ! laneSoloed[(size_t) lane]; repaint(); } }
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -224,6 +236,7 @@ private:
         int laneAtY (int y) const;
         int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
+        std::array<float, numEditableLanes> laneGainDb {};   // 0 dB default
         std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
         juce::File masterFile;
         std::array<juce::File, numLanes> deckFiles {};
@@ -339,6 +352,8 @@ private:
     ArrangementRecorderView arrangementView;
     PianoRollView pianoRoll;
     juce::TextButton pianoRollButton { "Piano Roll" };
+    MixerView mixerView;
+    juce::TextButton mixerButton { "Mixer" };
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;
