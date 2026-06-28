@@ -144,6 +144,7 @@ public:
     double getArrangementPositionSeconds() const noexcept { return arrangementPlayer.getPositionSeconds(); }
     double getArrangementLengthSeconds()   const noexcept { return arrangementPlayer.getLengthSeconds(); }
     void   setArrangementPositionSeconds (double s) noexcept { arrangementPlayer.setPositionSeconds (s); }
+    void   setArrangementLoop (double startSec, double endSec, bool enabled) noexcept { arrangementPlayer.setLoop (startSec, endSec, enabled); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();

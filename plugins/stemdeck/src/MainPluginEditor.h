@@ -167,6 +167,9 @@ private:
 
         std::function<void(int)> onClearDeckRequest;
         std::function<void(double)> onSeek;   // user clicked the ruler to move the play cursor
+        std::function<void(double,double,bool)> onLoopChanged;   // loop region changed (start, end, enabled)
+        void setLoopEnabled (bool shouldLoop);
+        bool isLoopEnabled() const noexcept { return loopEnabled; }
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -221,6 +224,11 @@ private:
         bool   playbackActive = false;
         double cursorSeconds = 0.0;                       // play-start cursor (shown when stopped)
         juce::Rectangle<int> rulerBounds, timelineMapRect;   // computed in paint(), for click-to-seek
+        double loopStartSeconds = 0.0, loopEndSeconds = 0.0;
+        bool   loopEnabled = false;
+        bool   rulerDragActive = false;
+        double loopAnchorSeconds = 0.0;
+        int    rulerDownX = 0;
 
         // ---- Timeline viewport: zoom + horizontal scroll ----
         double zoom = 1.0;                 // 1 = whole arrangement fits the width
@@ -283,6 +291,7 @@ private:
     juce::TextButton snapToggleButton { "Snap" };
     juce::TextButton razorButton { "Razor" };
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
+    juce::TextButton arrLoopButton { "Loop" };
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
@@ -297,6 +306,8 @@ private:
     juce::Label recordStatus;
     ArrangementRecorderView arrangementView;
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
+    double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
+    bool   arrangementLoopEnabled = false;
     std::array<PadControls, PadBank::numPads> pads;
 
     std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment, limiterAttachment, micGainAttachment;

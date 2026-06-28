@@ -60,6 +60,12 @@ public:
     bool isPlaying() const noexcept    { return playing.load (std::memory_order_relaxed); }
 
     void setPositionSeconds (double s) { playhead.store ((juce::int64) (juce::jmax (0.0, s) * sr), std::memory_order_relaxed); }
+    void setLoop (double startSec, double endSec, bool enabled)
+    {
+        loopStartSamples.store ((juce::int64) (juce::jmax (0.0, startSec) * sr), std::memory_order_relaxed);
+        loopEndSamples  .store ((juce::int64) (juce::jmax (0.0, endSec)   * sr), std::memory_order_relaxed);
+        loopEnabled.store (enabled, std::memory_order_relaxed);
+    }
     double getPositionSeconds() const noexcept { return (double) playhead.load (std::memory_order_relaxed) / sr; }
     double getLengthSeconds()   const noexcept { return (double) lengthSamples.load (std::memory_order_relaxed) / sr; }
 
@@ -118,7 +124,14 @@ public:
         }
 
         pos += n;
-        if (len > 0 && pos >= len)
+        if (loopEnabled.load (std::memory_order_relaxed))
+        {
+            const juce::int64 ls = loopStartSamples.load (std::memory_order_relaxed);
+            const juce::int64 le = loopEndSamples.load (std::memory_order_relaxed);
+            if (le > ls && pos >= le)
+                pos = ls;                                       // wrap at the loop end (block-boundary)
+        }
+        else if (len > 0 && pos >= len)
         {
             pos = len;
             playing.store (false, std::memory_order_relaxed);   // stop at the end
@@ -143,4 +156,7 @@ private:
     std::atomic<bool>        playing { false };
     std::atomic<juce::int64> playhead { 0 };
     std::atomic<juce::int64> lengthSamples { 0 };
+    std::atomic<bool>        loopEnabled { false };
+    std::atomic<juce::int64> loopStartSamples { 0 };
+    std::atomic<juce::int64> loopEndSamples { 0 };
 };

@@ -294,10 +294,14 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         return;
     }
 
-    if (rulerBounds.contains (e.getPosition()))   // click the ruler to move the play cursor
+    if (rulerBounds.contains (e.getPosition()))   // ruler: click to seek, drag to set a loop region
     {
-        cursorSeconds = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
-        if (onSeek) onSeek (cursorSeconds);
+        const double t = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
+        cursorSeconds = t;
+        if (onSeek) onSeek (t);
+        rulerDragActive = true;
+        loopAnchorSeconds = t;
+        rulerDownX = e.getPosition().x;
         repaint();
         return;
     }
@@ -416,6 +420,20 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
+    if (rulerDragActive)
+    {
+        if (std::abs (e.getPosition().x - rulerDownX) > 4)   // a real drag → define a loop region
+        {
+            const double t = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
+            loopStartSeconds = juce::jmin (loopAnchorSeconds, t);
+            loopEndSeconds   = juce::jmax (loopAnchorSeconds, t);
+            loopEnabled = loopEndSeconds - loopStartSeconds > 1.0e-4;
+            if (onLoopChanged) onLoopChanged (loopStartSeconds, loopEndSeconds, loopEnabled);
+            repaint();
+        }
+        return;
+    }
+
     if (draggingScrollBar)
     {
         const double content = timelineContentSeconds();
@@ -490,6 +508,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
+    if (rulerDragActive) { rulerDragActive = false; return; }
     if (draggingScrollBar) { draggingScrollBar = false; repaint(); return; }
 
     if (pendingEditSnapshot.lane >= 0 && activeDrag.clip >= 0)
@@ -867,6 +886,13 @@ void MainPluginEditor::ArrangementRecorderView::zoomIn()    { setZoomAnchored (z
 void MainPluginEditor::ArrangementRecorderView::zoomOut()   { setZoomAnchored (zoom / 1.5, viewStartSeconds + visibleSeconds() * 0.5); }
 void MainPluginEditor::ArrangementRecorderView::zoomToFit() { zoom = 1.0; viewStartSeconds = 0.0; clampView(); repaint(); }
 
+void MainPluginEditor::ArrangementRecorderView::setLoopEnabled (bool shouldLoop)
+{
+    loopEnabled = shouldLoop && (loopEndSeconds - loopStartSeconds > 1.0e-4);
+    if (onLoopChanged) onLoopChanged (loopStartSeconds, loopEndSeconds, loopEnabled);
+    repaint();
+}
+
 void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 {
     using namespace sattari::brand;
@@ -1227,6 +1253,22 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
         if (i < numLanes - 1)
             area.removeFromTop (laneGap);
+    }
+
+    // Loop region overlay (shaded band across the lanes + a bracket on the ruler).
+    if (loopEnabled && loopEndSeconds > loopStartSeconds && rulerLen > 0.0)
+    {
+        const int lx0 = juce::jlimit (gridLeft, gridRight, gridTimeToX (loopStartSeconds));
+        const int lx1 = juce::jlimit (gridLeft, gridRight, gridTimeToX (loopEndSeconds));
+        if (lx1 > lx0)
+        {
+            g.setColour (juce::Colour (kAccent).withAlpha (0.10f));
+            g.fillRect (lx0, gridTop, lx1 - lx0, gridBottom - gridTop);
+            g.setColour (juce::Colour (kAccent).withAlpha (0.85f));
+            g.drawVerticalLine (lx0, (float) gridTop, (float) gridBottom);
+            g.drawVerticalLine (lx1, (float) gridTop, (float) gridBottom);
+            g.fillRect (lx0, rulerBounds.getY(), lx1 - lx0, 3);
+        }
     }
 
     // Play cursor / playhead — bright while playing, dim play-start cursor when stopped.
@@ -1613,11 +1655,23 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     arrZoomFitButton.setTooltip ("Zoom to fit");
     arrZoomFitButton.onClick = [this] { arrangementView.zoomToFit(); };
     addAndMakeVisible (arrZoomFitButton);
+    setupButton (arrLoopButton);
+    arrLoopButton.setClickingTogglesState (true);
+    arrLoopButton.setTooltip ("Loop the region (drag the ruler to set it)");
+    arrLoopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    arrLoopButton.onClick = [this] { arrangementView.setLoopEnabled (arrLoopButton.getToggleState()); };
+    addAndMakeVisible (arrLoopButton);
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
         if (processorRef.isArrangementPlaying())
             processorRef.setArrangementPositionSeconds (s);
+    };
+    arrangementView.onLoopChanged = [this] (double s, double e, bool on)
+    {
+        arrangementLoopStart = s; arrangementLoopEnd = e; arrangementLoopEnabled = on;
+        arrLoopButton.setToggleState (on, juce::dontSendNotification);
+        processorRef.setArrangementLoop (s, e, on);
     };
     arrangementView.onClearDeckRequest = [this] (int lane)
     {
@@ -2038,6 +2092,7 @@ void MainPluginEditor::toggleArrangementPlayback()
 
     processorRef.buildAndStartArrangement (std::move (specs));
     processorRef.setArrangementPositionSeconds (arrangementCursorSeconds);   // start from the play cursor
+    processorRef.setArrangementLoop (arrangementLoopStart, arrangementLoopEnd, arrangementLoopEnabled);
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
 }
 
@@ -3052,7 +3107,9 @@ void MainPluginEditor::resized()
     {
         auto labelRow = area.removeFromTop (22);
         arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
-        auto zoomBox = labelRow.removeFromRight (118);
+        auto zoomBox = labelRow.removeFromRight (170);
+        arrLoopButton.setBounds (zoomBox.removeFromRight (46).reduced (1));
+        zoomBox.removeFromRight (6);
         arrZoomFitButton.setBounds (zoomBox.removeFromRight (40).reduced (1));
         zoomBox.removeFromRight (4);
         arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1));
