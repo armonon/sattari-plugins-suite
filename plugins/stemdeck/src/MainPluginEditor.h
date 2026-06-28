@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <map>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -84,6 +85,7 @@ private:
     };
 
     class ArrangementRecorderView final : public juce::Component,
+                                          public juce::FileDragAndDropTarget,
                                           private juce::ChangeListener
     {
     public:
@@ -178,6 +180,13 @@ private:
         void mouseUp (const juce::MouseEvent& e) override;
         void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
+        // Free audio import: drag an audio file onto a lane to place a clip.
+        bool isInterestedInFileDrag (const juce::StringArray& files) override;
+        void fileDragEnter (const juce::StringArray& files, int x, int y) override;
+        void fileDragMove  (const juce::StringArray& files, int x, int y) override;
+        void fileDragExit  (const juce::StringArray& files) override;
+        void filesDropped  (const juce::StringArray& files, int x, int y) override;
+
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override;
         void loadThumbnail (juce::AudioThumbnail& thumb, const juce::File& file);
@@ -194,6 +203,10 @@ private:
         juce::AudioThumbnailCache* thumbnailCache = nullptr;
         std::unique_ptr<juce::AudioThumbnail> masterThumb;
         std::array<std::unique_ptr<juce::AudioThumbnail>, numLanes> deckThumbs;
+        std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> clipThumbs;   // per imported file
+        juce::AudioThumbnail* thumbForClip (int laneIndex, const LaneClip& clip) const;
+        int laneAtY (int y) const;
+        int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
         juce::File masterFile;
         std::array<juce::File, numLanes> deckFiles {};
         LaneClips clips {};

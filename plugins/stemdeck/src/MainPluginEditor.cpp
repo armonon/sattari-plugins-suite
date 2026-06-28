@@ -613,6 +613,101 @@ juce::AudioThumbnail* MainPluginEditor::ArrangementRecorderView::thumbForLane (i
     return nullptr;
 }
 
+juce::AudioThumbnail* MainPluginEditor::ArrangementRecorderView::thumbForClip (int laneIndex, const LaneClip& clip) const
+{
+    const auto it = clipThumbs.find (clip.file.getFullPathName());
+    if (it != clipThumbs.end())
+        return it->second.get();
+    return thumbForLane (laneIndex);   // recorded / split clips share the lane thumbnail
+}
+
+int MainPluginEditor::ArrangementRecorderView::laneAtY (int y) const
+{
+    for (int i = 0; i < numEditableLanes; ++i)
+        if (y >= laneRects[(size_t) i].getY() && y < laneRects[(size_t) i].getBottom())
+            return i;
+    return -1;
+}
+
+// ── Free audio import (drag a file onto a lane) ────────────────────────────────
+bool MainPluginEditor::ArrangementRecorderView::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (juce::File (f).hasFileExtension ("wav;aif;aiff;mp3;flac;m4a;ogg"))
+            return true;
+    return false;
+}
+
+void MainPluginEditor::ArrangementRecorderView::fileDragEnter (const juce::StringArray&, int, int y)
+{
+    fileDragLane = laneAtY (y);
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::fileDragMove (const juce::StringArray&, int, int y)
+{
+    const int lane = laneAtY (y);
+    if (lane != fileDragLane) { fileDragLane = lane; repaint(); }
+}
+
+void MainPluginEditor::ArrangementRecorderView::fileDragExit (const juce::StringArray&)
+{
+    fileDragLane = -1;
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    fileDragLane = -1;
+    if (formatManager == nullptr || thumbnailCache == nullptr) { repaint(); return; }
+
+    int lane = laneAtY (y);
+    if (lane < 0) lane = 0;
+
+    double dropTime = juce::jmax (0.0, snapTime (xToTimeIn (timelineMapRect, x)));
+    auto before = captureLaneState (lane);
+    bool added = false;
+
+    for (const auto& fs : files)
+    {
+        juce::File file (fs);
+        if (! file.existsAsFile() || ! file.hasFileExtension ("wav;aif;aiff;mp3;flac;m4a;ogg"))
+            continue;
+
+        double dur = 0.0;
+        if (std::unique_ptr<juce::AudioFormatReader> reader { formatManager->createReaderFor (file) })
+            if (reader->sampleRate > 0.0)
+                dur = (double) reader->lengthInSamples / reader->sampleRate;
+        if (dur <= 0.0) continue;
+
+        auto& slot = clipThumbs[file.getFullPathName()];
+        if (slot == nullptr)
+        {
+            slot = std::make_unique<juce::AudioThumbnail> (512, *formatManager, *thumbnailCache);
+            slot->addChangeListener (this);
+            slot->setSource (new juce::FileInputSource (file));
+        }
+
+        LaneClip clip;
+        clip.file                 = file;
+        clip.durationSeconds      = dur;
+        clip.trimStartSeconds     = 0.0;
+        clip.trimEndSeconds       = dur;
+        clip.timelineStartSeconds = dropTime;
+        clips[(size_t) lane].push_back (clip);
+
+        dropTime += dur;   // stack multiple dropped files end-to-end
+        added = true;
+    }
+
+    if (added)
+    {
+        mode = Mode::Finished;
+        commitEdit (std::move (before));
+    }
+    repaint();
+}
+
 double MainPluginEditor::ArrangementRecorderView::snapTime (double seconds) const
 {
     if (! snapEnabled || snapBpm <= 0.0 || snapBeatGrid <= 0.0)
@@ -1027,6 +1122,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& title, juce::Colour colour,
                          juce::AudioThumbnail* thumb, const juce::File& file, int deckIndex)
     {
+        juce::ignoreUnused (thumb, file);   // clips now resolve their own per-clip thumbnail
         if (deckIndex >= 0 && deckIndex < numEditableLanes)
             laneRects[(size_t) deckIndex] = lane;
 
@@ -1093,10 +1189,9 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             }
         }
 
-        if (mode == Mode::Finished && thumb != nullptr && thumb->getTotalLength() > 0.0 && maxLen > 0.0
-            && deckIndex >= 0 && deckIndex < numEditableLanes)
+        if (mode == Mode::Finished && maxLen > 0.0
+            && deckIndex >= 0 && deckIndex < numEditableLanes && ! clips[(size_t) deckIndex].empty())
         {
-            const double laneLen = thumb->getTotalLength();
             auto timeToX = [&] (double t) -> int { return timeToXIn (track, t); };
 
             const auto& laneClips = clips[(size_t) deckIndex];
@@ -1106,6 +1201,12 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             {
                 const auto& clip = laneClips[(size_t) ci];
                 if (clip.durationSeconds <= 0.0) continue;
+
+                // Each clip draws from its own source thumbnail (free-imported clips) or
+                // the lane's recording thumbnail (recorded / razor-split clips).
+                auto* clipThumb = thumbForClip (deckIndex, clip);
+                const double laneLen = (clipThumb != nullptr && clipThumb->getTotalLength() > 0.0)
+                                           ? clipThumb->getTotalLength() : clip.durationSeconds;
 
                 const double clipStart = juce::jlimit (0.0, laneLen, clip.trimStartSeconds);                          // source in-point
                 const double clipEnd   = juce::jlimit (clipStart, laneLen, clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : laneLen);  // source out-point
@@ -1151,14 +1252,14 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                     g.setColour (juce::Colours::black.withAlpha (0.78f));
                     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
                     const auto chevron = juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe "));
-                    g.drawText (chevron + file.getFileName(), patternHeader.reduced (5, 0),
+                    g.drawText (chevron + clip.file.getFileName(), patternHeader.reduced (5, 0),
                                 juce::Justification::centredLeft, true);
                 }
 
-                if (patternBody.getHeight() > 4)
+                if (patternBody.getHeight() > 4 && clipThumb != nullptr && clipThumb->getTotalLength() > 0.0)
                 {
                     g.setColour (colour.withAlpha (0.92f));
-                    thumb->drawChannels (g, patternBody.reduced (2, 1), clipStart, clipEnd, 0.95f);
+                    clipThumb->drawChannels (g, patternBody.reduced (2, 1), clipStart, clipEnd, 0.95f);
                 }
 
                 if (fadeIn > 0.0)
@@ -1253,6 +1354,16 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
         if (i < numLanes - 1)
             area.removeFromTop (laneGap);
+    }
+
+    // Highlight the lane under an in-progress file drag.
+    if (fileDragLane >= 0 && fileDragLane < numEditableLanes)
+    {
+        auto hl = laneRects[(size_t) fileDragLane].withTrimmedLeft (labelWidth).reduced (4, 3);
+        g.setColour (juce::Colour (kAccent).withAlpha (0.12f));
+        g.fillRect (hl);
+        g.setColour (juce::Colour (kAccent).withAlpha (0.8f));
+        g.drawRect (hl, 2);
     }
 
     // Loop region overlay (shaded band across the lanes + a bracket on the ruler).
