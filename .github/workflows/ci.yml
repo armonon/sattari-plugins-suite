@@ -63,7 +63,7 @@ jobs:
           - { plugin: harmony,           test: HarmonyCoreContract, render: HarmonyRender }
           - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
           - { plugin: vocal-master,      test: VocalMasterCoreContract, render: VocalMasterRender }
-          - { plugin: rhythm-genie,      test: RhythmGenieCoreContract }
+          - { plugin: rhythm-genie,      test: RhythmGenieCoreContract, render: RhythmGenieRender }
     steps:
       - uses: actions/checkout@v4
         with:

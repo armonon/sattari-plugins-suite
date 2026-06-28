@@ -27,3 +27,30 @@ target_include_directories(RhythmGenieCoreContract
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/../../core/include
         ${CMAKE_CURRENT_LIST_DIR}/src)
+
+# Offline MIDI-generation proof: drives a mock playhead and checks the grid timing.
+add_executable(RhythmGenieRender
+    EXCLUDE_FROM_ALL
+        tools/rhythm_genie_render.cpp
+        src/RhythmGenieProcessor.cpp
+        src/RhythmGenieEditor.cpp)
+add_dependencies(RhythmGenieRender SattariRhythmGenie)
+target_include_directories(RhythmGenieRender
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariRhythmGenie_artefacts/JuceLibraryCode)
+target_compile_definitions(RhythmGenieRender
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(RhythmGenieRender
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)

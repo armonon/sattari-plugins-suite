@@ -1,0 +1,113 @@
+// Sattari Rhythm Genie — offline MIDI-generation proof.
+//
+// Drives the processor with a mock playhead at 120 BPM and collects the MIDI it
+// emits, then asserts the "Four on Floor" kick lands on the four downbeats
+// (PPQ 0,1,2,3) and the snare on the backbeats (PPQ 1,3). Proves the host-synced
+// step engine actually places notes at the right musical positions.
+//
+//   rhythm_genie_render          # drive + assert the grid timing (local proof)
+//   rhythm_genie_render --smoke  # assert some notes are emitted (CI-safe)
+#include "RhythmGenieProcessor.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <vector>
+
+namespace
+{
+void setParam (juce::AudioProcessorValueTreeState& apvts, const juce::String& id, float v)
+{
+    if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (v));
+    else std::fprintf (stderr, "WARNING: missing parameter %s\n", id.toRawUTF8());
+}
+
+struct MockPlayHead : juce::AudioPlayHead
+{
+    double ppq = 0.0, bpm = 120.0;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setBpm (bpm);
+        info.setPpqPosition (ppq);
+        info.setIsPlaying (true);
+        return info;
+    }
+};
+
+// Count note-ons for a given note whose PPQ position lands near an integer beat.
+int onBeatCount (const std::vector<std::pair<double,int>>& notes, int note, double maxBeats)
+{
+    int c = 0;
+    for (const auto& e : notes)
+        if (e.second == note && e.first < maxBeats)
+        {
+            const double frac = std::abs (e.first - std::round (e.first));
+            if (frac < 0.06) ++c;     // within ~6% of a beat
+        }
+    return c;
+}
+}
+
+int main (int argc, char** argv)
+{
+    const bool smoke = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
+    const double sr = 48000.0;
+    const int    block = 512;
+    const double bpm = 120.0;
+
+    SattariRhythmGenieAudioProcessor proc;
+    auto& apvts = proc.parameters();
+    setParam (apvts, "style", 0.0f);       // Four on Floor
+    setParam (apvts, "density", 0.5f);
+    setParam (apvts, "swing", 0.0f);
+    setParam (apvts, "velocity", 0.8f);
+    setParam (apvts, "gate", 0.5f);
+    setParam (apvts, "humanize", 0.0f);
+    setParam (apvts, "kickOn", 1.0f);
+    setParam (apvts, "snareOn", 1.0f);
+    setParam (apvts, "chatOn", 1.0f);
+    setParam (apvts, "ohatOn", 1.0f);
+
+    MockPlayHead mph; mph.bpm = bpm;
+    proc.setPlayHead (&mph);
+    proc.prepareToPlay (sr, block);
+
+    const double spb = sr * 60.0 / bpm;          // samples per beat
+    const double blockBeats = block / spb;
+
+    std::vector<std::pair<double,int>> notes;    // (ppqPosition, note)
+    double ppq = 0.0;
+    int onCount = 0;
+    while (ppq < 4.2)                            // a bit over one 4/4 bar
+    {
+        mph.ppq = ppq;
+        juce::AudioBuffer<float> audio (2, block); audio.clear();
+        juce::MidiBuffer midi;
+        proc.processBlock (audio, midi);
+        for (const auto meta : midi)
+        {
+            const auto m = meta.getMessage();
+            if (m.isNoteOn())
+            {
+                notes.emplace_back (ppq + (double) meta.samplePosition / spb, m.getNoteNumber());
+                ++onCount;
+            }
+        }
+        ppq += blockBeats;
+    }
+
+    if (onCount == 0) { std::fprintf (stderr, "FAIL: no MIDI generated\n"); return 1; }
+    if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes)\n", onCount); return 0; }
+
+    const int kicks  = onBeatCount (notes, 36, 4.0);   // kick on 0,1,2,3
+    const int snares = onBeatCount (notes, 38, 4.0);   // snare on 1,3
+    std::printf ("Rhythm Genie: %d notes in bar 1 — kicks on-beat=%d, snares on-beat=%d\n",
+                 onCount, kicks, snares);
+
+    if (kicks < 4)  { std::fprintf (stderr, "FAIL: four-on-floor kick not on all 4 beats (%d)\n", kicks); return 1; }
+    if (snares < 2) { std::fprintf (stderr, "FAIL: snare not on the backbeats (%d)\n", snares); return 1; }
+
+    std::printf ("Rhythm Genie step-timing proof ok\n");
+    return 0;
+}
