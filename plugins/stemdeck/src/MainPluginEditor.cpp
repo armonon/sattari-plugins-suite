@@ -1943,6 +1943,30 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     arrLoopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     arrLoopButton.onClick = [this] { arrangementView.setLoopEnabled (arrLoopButton.getToggleState()); };
     addAndMakeVisible (arrLoopButton);
+
+    setupButton (pianoRollButton);
+    pianoRollButton.setClickingTogglesState (true);
+    pianoRollButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    pianoRollButton.onClick = [this]
+    {
+        const bool on = pianoRollButton.getToggleState();
+        pianoRoll.setVisible (on);
+        if (on) pianoRoll.toFront (true);
+    };
+    addAndMakeVisible (pianoRollButton);
+
+    pianoRoll.onClose = [this]
+    {
+        pianoRoll.setVisible (false);
+        pianoRollButton.setToggleState (false, juce::dontSendNotification);
+    };
+    pianoRoll.setBpm (120.0);
+    pianoRoll.setBars (8);
+    pianoRoll.setNotes ({
+        { 60, 0.0, 1.0,  80 }, { 62, 1.0, 1.0,  88 }, { 64, 2.0, 1.0,  96 },
+        { 65, 3.0, 1.0, 104 }, { 67, 4.0, 1.0, 112 }, { 69, 5.0, 1.0, 120 },
+        { 71, 6.0, 1.0, 124 }, { 72, 7.0, 2.0, 127 } });
+    addChildComponent (pianoRoll);   // hidden until toggled
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
@@ -3179,6 +3203,8 @@ void MainPluginEditor::resized()
     masterKey.setBounds (keyRow.removeFromLeft (110));
     keyRow.removeFromLeft (10);
     syncAllDecksButton.setBounds (keyRow.removeFromLeft (140));
+    keyRow.removeFromLeft (10);
+    pianoRollButton.setBounds (keyRow.removeFromLeft (110));
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (20));
@@ -3425,6 +3451,9 @@ void MainPluginEditor::resized()
         cell.removeFromLeft (3);
         pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
     }
+
+    // Piano-roll overlay covers the decks + arrangement when toggled on.
+    pianoRoll.setBounds (getLocalBounds().withTrimmedTop (252).reduced (8, 6));
 }
 
 void MainPluginEditor::timerCallback()

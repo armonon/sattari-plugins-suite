@@ -9,6 +9,7 @@
 #include "MainPluginProcessor.h"
 #include "MixerSection.h"
 #include "MusicLibraryView.h"
+#include "PianoRollView.h"
 #include "StemDeckLookAndFeel.h"
 #include "WaveformDisplay.h"
 
@@ -336,6 +337,8 @@ private:
     bool stemLinkMirroring = false;
     juce::Label recordStatus;
     ArrangementRecorderView arrangementView;
+    PianoRollView pianoRoll;
+    juce::TextButton pianoRollButton { "Piano Roll" };
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;
