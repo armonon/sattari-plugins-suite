@@ -31,3 +31,31 @@ target_include_directories(VocalMasterCoreContract
     PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/../../core/include
         ${CMAKE_CURRENT_LIST_DIR}/src)
+
+# Offline render + "clean the vocal out of the mix" proof (links processor + JUCE).
+add_executable(VocalMasterRender
+    EXCLUDE_FROM_ALL
+        tools/vocal_master_render.cpp
+        src/VocalMasterProcessor.cpp
+        src/VocalMasterEditor.cpp)
+add_dependencies(VocalMasterRender SattariVocalMaster)
+target_include_directories(VocalMasterRender
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariVocalMaster_artefacts/JuceLibraryCode)
+target_compile_definitions(VocalMasterRender
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(VocalMasterRender
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+sattari_enable_onnx(VocalMasterRender SATTARI_HAS_ONNX)
