@@ -312,6 +312,21 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         if (soloBtnRects[(size_t) i].contains (e.getPosition())) { laneSoloed[(size_t) i] = ! laneSoloed[(size_t) i]; repaint(); return; }
     }
 
+    // MIDI clip blocks: right-click deletes, drag moves (and can change lane).
+    if (const auto mref = midiClipAt (e.getPosition()); mref.valid())
+    {
+        if (e.mods.isPopupMenu())
+        {
+            midiClips[(size_t) mref.lane].erase (midiClips[(size_t) mref.lane].begin() + mref.clip);
+            repaint();
+            return;
+        }
+        activeMidiDrag     = mref;
+        dragStartPoint     = e.getPosition();
+        dragStartMidiStart = midiClips[(size_t) mref.lane][(size_t) mref.clip].timelineStartSeconds;
+        return;
+    }
+
     const auto hit = hitTestAt (e.getPosition());
 
     if (e.mods.isPopupMenu())
@@ -466,6 +481,28 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
+    if (activeMidiDrag.valid())
+    {
+        const int trackW = juce::jmax (1, laneRects[(size_t) activeMidiDrag.lane].getWidth() - 90 - 8);
+        const double secondsPerPixel = visibleSeconds() / (double) trackW;
+        const double newStart = juce::jmax (0.0, snapTime (dragStartMidiStart
+                                              + (double) (e.getPosition().x - dragStartPoint.x) * secondsPerPixel));
+        int targetLane = laneAtY (e.getPosition().y);
+        if (! juce::isPositiveAndBelow (targetLane, numEditableLanes)) targetLane = activeMidiDrag.lane;
+        if (targetLane != activeMidiDrag.lane)   // move the clip to another lane
+        {
+            auto mc = midiClips[(size_t) activeMidiDrag.lane][(size_t) activeMidiDrag.clip];
+            midiClips[(size_t) activeMidiDrag.lane].erase (midiClips[(size_t) activeMidiDrag.lane].begin() + activeMidiDrag.clip);
+            midiClips[(size_t) targetLane].push_back (mc);
+            activeMidiDrag.lane = targetLane;
+            activeMidiDrag.clip = (int) midiClips[(size_t) targetLane].size() - 1;
+        }
+        midiClips[(size_t) activeMidiDrag.lane][(size_t) activeMidiDrag.clip].timelineStartSeconds = newStart;
+        dragReadout = "MIDI clip: " + juce::String (newStart, 2) + " s";
+        repaint();
+        return;
+    }
+
     if (rulerDragActive)
     {
         if (std::abs (e.getPosition().x - rulerDownX) > 4)   // a real drag → define a loop region
@@ -584,6 +621,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
+    if (activeMidiDrag.valid()) { activeMidiDrag = {}; dragReadout.clear(); repaint(); return; }
     if (rulerDragActive) { rulerDragActive = false; return; }
     if (draggingScrollBar) { draggingScrollBar = false; repaint(); return; }
 
@@ -746,9 +784,8 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             ct.setProperty ("colour",    (int) c.colourArgb,       nullptr);
             lt.appendChild (ct, nullptr);
         }
-        if (midiClips[(size_t) lane].active)
+        for (const auto& mc : midiClips[(size_t) lane])
         {
-            const auto& mc = midiClips[(size_t) lane];
             juce::ValueTree mt ("MIDICLIP");
             mt.setProperty ("tlStart", mc.timelineStartSeconds, nullptr);
             for (const auto& nn : mc.notes)
@@ -804,9 +841,11 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             clips[(size_t) lane].push_back (c);
             anyClip = true;
         }
-        if (const auto mt = lt.getChildWithName ("MIDICLIP"); mt.isValid())
+        for (int kc = 0; kc < lt.getNumChildren(); ++kc)
         {
-            auto& mc = midiClips[(size_t) lane];
+            const auto mt = lt.getChild (kc);
+            if (! mt.hasType ("MIDICLIP")) continue;
+            MidiClipData mc;
             mc.active = true;
             mc.timelineStartSeconds = mt.getProperty ("tlStart", 0.0);
             for (int k = 0; k < mt.getNumChildren(); ++k)
@@ -820,6 +859,7 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
                 nn.velocity    = nt.getProperty ("vel",   100);
                 mc.notes.push_back (nn);
             }
+            midiClips[(size_t) lane].push_back (std::move (mc));
             anyClip = true;
         }
     }
@@ -838,51 +878,80 @@ int MainPluginEditor::ArrangementRecorderView::laneAtY (int y) const
     return -1;
 }
 
-// ── Per-lane MIDI clips ────────────────────────────────────────────────────────
+// ── Per-lane MIDI clips (multiple per lane, draggable) ─────────────────────────
+double MainPluginEditor::ArrangementRecorderView::midiClipStart (int lane, int idx) const noexcept
+{
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return 0.0;
+    if (! juce::isPositiveAndBelow (idx, (int) midiClips[(size_t) lane].size())) return 0.0;
+    return midiClips[(size_t) lane][(size_t) idx].timelineStartSeconds;
+}
+
 const std::vector<MainPluginEditor::ArrangementRecorderView::MidiNote>&
-MainPluginEditor::ArrangementRecorderView::midiClipNotes (int lane) const
+MainPluginEditor::ArrangementRecorderView::midiClipNotes (int lane, int idx) const
 {
     static const std::vector<MidiNote> empty;
-    return juce::isPositiveAndBelow (lane, numEditableLanes) ? midiClips[(size_t) lane].notes : empty;
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return empty;
+    if (! juce::isPositiveAndBelow (idx, (int) midiClips[(size_t) lane].size())) return empty;
+    return midiClips[(size_t) lane][(size_t) idx].notes;
 }
 
-void MainPluginEditor::ArrangementRecorderView::ensureMidiClip (int lane, double timeSec)
+int MainPluginEditor::ArrangementRecorderView::addMidiClip (int lane, double timeSec)
 {
-    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
-    auto& m = midiClips[(size_t) lane];
-    if (! m.active) { m.active = true; m.timelineStartSeconds = juce::jmax (0.0, snapTime (timeSec)); }
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return -1;
+    MidiClipData mc;
+    mc.active = true;
+    mc.timelineStartSeconds = juce::jmax (0.0, snapTime (timeSec));
+    midiClips[(size_t) lane].push_back (std::move (mc));
     mode = Mode::Finished;
     repaint();
+    return (int) midiClips[(size_t) lane].size() - 1;
 }
 
-void MainPluginEditor::ArrangementRecorderView::setMidiClipNotes (int lane, std::vector<MidiNote> notes)
+void MainPluginEditor::ArrangementRecorderView::setMidiClipNotes (int lane, int idx, std::vector<MidiNote> notes)
 {
     if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
-    midiClips[(size_t) lane].notes  = std::move (notes);
-    midiClips[(size_t) lane].active = true;
+    if (! juce::isPositiveAndBelow (idx, (int) midiClips[(size_t) lane].size())) return;
+    midiClips[(size_t) lane][(size_t) idx].notes = std::move (notes);
     repaint();
 }
 
-int MainPluginEditor::ArrangementRecorderView::midiClipLaneAt (juce::Point<int> p) const
+MainPluginEditor::ArrangementRecorderView::MidiRef
+MainPluginEditor::ArrangementRecorderView::midiClipAt (juce::Point<int> p) const
 {
-    for (int i = 0; i < numEditableLanes; ++i)
-        if (midiClips[(size_t) i].active && ! midiClipRects[(size_t) i].isEmpty()
-            && midiClipRects[(size_t) i].contains (p))
-            return i;
-    return -1;
+    const int lane = laneAtY (p.y);
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return {};
+    const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
+    const double spb = 60.0 / bpm;
+    const int labelWidth = 90;
+    const auto track = laneRects[(size_t) lane].withTrimmedLeft (labelWidth).reduced (4, 3);
+    const auto& vec = midiClips[(size_t) lane];
+    for (int ci = (int) vec.size() - 1; ci >= 0; --ci)   // topmost (last drawn) first
+    {
+        const auto& mc = vec[(size_t) ci];
+        double lenBeats = 4.0;
+        for (const auto& nn : mc.notes) lenBeats = juce::jmax (lenBeats, nn.startBeats + nn.lengthBeats);
+        const int x0 = timeToXIn (track, mc.timelineStartSeconds);
+        const int x1 = juce::jmax (x0 + 8, timeToXIn (track, mc.timelineStartSeconds + lenBeats * spb));
+        if (p.x >= x0 && p.x <= x1) return { lane, ci };
+    }
+    return {};
 }
 
 void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    const int midiLane = midiClipLaneAt (e.getPosition());
-    if (midiLane >= 0) { if (onEditMidiLane) onEditMidiLane (midiLane); return; }
+    const auto ref = midiClipAt (e.getPosition());
+    if (ref.valid()) { if (onEditMidiClip) onEditMidiClip (ref.lane, ref.clip); return; }
 
-    const int lane = laneAtY (e.getPosition().y);   // double-click an empty lane area → new MIDI clip
+    const int lane = laneAtY (e.getPosition().y);   // double-click empty lane area → new MIDI clip there
     if (lane < 0) return;
     const int labelWidth = 90;
     const auto hit = hitTestAt (e.getPosition());
     if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
-        if (onEditMidiLane) onEditMidiLane (lane);
+    {
+        const double t = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
+        const int idx = addMidiClip (lane, t);
+        if (idx >= 0 && onEditMidiClip) onEditMidiClip (lane, idx);
+    }
 }
 
 // ── Free audio import (drag a file onto a lane) ────────────────────────────────
@@ -1673,49 +1742,46 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (u8 ("capturing\xe2\x80\xa6"), track.reduced (8, 0), juce::Justification::centredLeft);
         }
-        else if (! (deckIndex >= 0 && deckIndex < numEditableLanes && midiClips[(size_t) deckIndex].active))
+        else if (! (deckIndex >= 0 && deckIndex < numEditableLanes && ! midiClips[(size_t) deckIndex].empty()))
         {
             g.setColour (juce::Colour (kTextFaint).withAlpha (0.65f));
             g.setFont (juce::FontOptions (9.5f));
             g.drawText ("empty", track.reduced (8, 0), juce::Justification::centredLeft);
         }
 
-        // ---- Per-lane MIDI clip block (notes shown as a mini piano-roll) ----
-        if (deckIndex >= 0 && deckIndex < numEditableLanes && midiClips[(size_t) deckIndex].active)
+        // ---- Per-lane MIDI clip blocks (each a mini piano-roll preview) ----
+        if (deckIndex >= 0 && deckIndex < numEditableLanes)
         {
-            const auto& mc = midiClips[(size_t) deckIndex];
-            double lenBeats = 4.0;
-            for (const auto& nn : mc.notes) lenBeats = juce::jmax (lenBeats, nn.startBeats + nn.lengthBeats);
-            const double endSec = mc.timelineStartSeconds + lenBeats * secsPerBeat;
-            const int mx0 = timeToXIn (track, mc.timelineStartSeconds);
-            const int mx1 = juce::jmax (mx0 + 8, timeToXIn (track, endSec));
-            auto mr = juce::Rectangle<int> (mx0, track.getY(), mx1 - mx0, track.getHeight());
-            midiClipRects[(size_t) deckIndex] = mr;
-
-            auto mf = mr.toFloat().reduced (0.5f);
-            g.setColour (colour.withAlpha (0.20f));
-            g.fillRoundedRectangle (mf, 3.0f);
-            g.setColour (colour.withAlpha (0.85f));
-            g.drawRoundedRectangle (mf, 3.0f, 1.0f);
-
-            const double pps = (double) (mx1 - mx0) / juce::jmax (1.0e-6, lenBeats);
-            const int lo = 36, rng = 84 - 36;
-            for (const auto& nn : mc.notes)
+            for (const auto& mc : midiClips[(size_t) deckIndex])
             {
-                const int nx0 = mx0 + (int) std::round (nn.startBeats * pps);
-                const int nx1 = mx0 + (int) std::round ((nn.startBeats + nn.lengthBeats) * pps);
-                const float fy = 1.0f - juce::jlimit (0.0f, 1.0f, (float) (nn.pitch - lo) / (float) rng);
-                const int ny  = mr.getY() + 2 + (int) (fy * (float) juce::jmax (1, mr.getHeight() - 4));
-                g.setColour (juce::Colours::white.withAlpha (0.7f));
-                g.fillRect (nx0, ny, juce::jmax (2, nx1 - nx0), 2);
+                double lenBeats = 4.0;
+                for (const auto& nn : mc.notes) lenBeats = juce::jmax (lenBeats, nn.startBeats + nn.lengthBeats);
+                const double endSec = mc.timelineStartSeconds + lenBeats * secsPerBeat;
+                const int mx0 = timeToXIn (track, mc.timelineStartSeconds);
+                const int mx1 = juce::jmax (mx0 + 8, timeToXIn (track, endSec));
+                auto mr = juce::Rectangle<int> (mx0, track.getY(), mx1 - mx0, track.getHeight());
+
+                auto mf = mr.toFloat().reduced (0.5f);
+                g.setColour (colour.withAlpha (0.20f));
+                g.fillRoundedRectangle (mf, 3.0f);
+                g.setColour (colour.withAlpha (0.85f));
+                g.drawRoundedRectangle (mf, 3.0f, 1.0f);
+
+                const double pps = (double) (mx1 - mx0) / juce::jmax (1.0e-6, lenBeats);
+                const int lo = 36, rng = 84 - 36;
+                for (const auto& nn : mc.notes)
+                {
+                    const int nx0 = mx0 + (int) std::round (nn.startBeats * pps);
+                    const int nx1 = mx0 + (int) std::round ((nn.startBeats + nn.lengthBeats) * pps);
+                    const float fy = 1.0f - juce::jlimit (0.0f, 1.0f, (float) (nn.pitch - lo) / (float) rng);
+                    const int ny  = mr.getY() + 2 + (int) (fy * (float) juce::jmax (1, mr.getHeight() - 4));
+                    g.setColour (juce::Colours::white.withAlpha (0.7f));
+                    g.fillRect (nx0, ny, juce::jmax (2, nx1 - nx0), 2);
+                }
+                g.setColour (juce::Colours::black.withAlpha (0.7f));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText ("MIDI", mr.withHeight (10).reduced (4, 0), juce::Justification::centredLeft);
             }
-            g.setColour (juce::Colours::black.withAlpha (0.7f));
-            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            g.drawText ("MIDI", mr.withHeight (10).reduced (4, 0), juce::Justification::centredLeft);
-        }
-        else if (deckIndex >= 0 && deckIndex < numEditableLanes)
-        {
-            midiClipRects[(size_t) deckIndex] = {};
         }
 
         g.restoreState();   // end track clip region
@@ -2157,7 +2223,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     pianoRollButton.onClick = [this]
     {
         if (pianoRollButton.getToggleState())
-            openPianoRollForLane (pianoRollLane < 0 ? 0 : pianoRollLane);
+            openPianoRollForClip (pianoRollLane < 0 ? 0 : pianoRollLane, pianoRollClip);
         else
             pianoRoll.setVisible (false);
     };
@@ -2170,23 +2236,24 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     pianoRoll.onNotesChanged = [this]
     {
-        if (! juce::isPositiveAndBelow (pianoRollLane, ArrangementRecorderView::numEditableLanes)) return;
         std::vector<ArrangementRecorderView::MidiNote> notes;
         for (const auto& n : pianoRoll.getNotes())
             notes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
-        arrangementView.setMidiClipNotes (pianoRollLane, std::move (notes));
+        arrangementView.setMidiClipNotes (pianoRollLane, pianoRollClip, std::move (notes));
     };
     pianoRoll.setBars (8);
     addChildComponent (pianoRoll);   // hidden until toggled
 
-    arrangementView.onEditMidiLane = [this] (int lane) { openPianoRollForLane (lane); };
+    arrangementView.onEditMidiClip = [this] (int lane, int clip) { openPianoRollForClip (lane, clip); };
 
     // Seed a demo MIDI clip on Deck A so there's a clip to see / edit / play.
-    arrangementView.setMidiClipNotes (0, {
-        { 60, 0.0, 1.0,  80 }, { 62, 1.0, 1.0,  88 }, { 64, 2.0, 1.0,  96 },
-        { 65, 3.0, 1.0, 104 }, { 67, 4.0, 1.0, 112 }, { 69, 5.0, 1.0, 120 },
-        { 71, 6.0, 1.0, 124 }, { 72, 7.0, 2.0, 127 } });
-    arrangementView.ensureMidiClip (0, 0.0);
+    {
+        const int idx = arrangementView.addMidiClip (0, 0.0);
+        arrangementView.setMidiClipNotes (0, idx, {
+            { 60, 0.0, 1.0,  80 }, { 62, 1.0, 1.0,  88 }, { 64, 2.0, 1.0,  96 },
+            { 65, 3.0, 1.0, 104 }, { 67, 4.0, 1.0, 112 }, { 69, 5.0, 1.0, 120 },
+            { 71, 6.0, 1.0, 124 }, { 72, 7.0, 2.0, 127 } });
+    }
 
     // ── Mixer overlay (deck channel strips: volume + mute/solo) ──
     setupButton (mixerButton);
@@ -2660,14 +2727,18 @@ void MainPluginEditor::toggleArrangementPlayback()
     double midiLenSec = 0.0;
     for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
     {
-        if (! arrangementView.hasMidiClip (lane)) continue;
         if (lane < MainPluginProcessor::numDecks && ! arrangementView.laneAudible (lane)) continue;   // mute/solo
-        const double clipStartBeats = arrangementView.midiClipStart (lane) / secsPerBeat;
-        for (const auto& n : arrangementView.midiClipNotes (lane))
+        const float laneGain = (lane < MainPluginProcessor::numDecks) ? arrangementView.laneGainLinear (lane) : 1.0f;
+        for (int ci = 0; ci < arrangementView.numMidiClips (lane); ++ci)
         {
-            const double absStartBeats = clipStartBeats + n.startBeats;
-            midiNotes.push_back ({ n.pitch, absStartBeats, n.lengthBeats, n.velocity });
-            midiLenSec = juce::jmax (midiLenSec, (absStartBeats + n.lengthBeats) * secsPerBeat);
+            const double clipStartBeats = arrangementView.midiClipStart (lane, ci) / secsPerBeat;
+            for (const auto& n : arrangementView.midiClipNotes (lane, ci))
+            {
+                const double absStartBeats = clipStartBeats + n.startBeats;
+                const int vel = juce::jlimit (1, 127, (int) std::round ((double) n.velocity * laneGain));   // per-lane MIDI gain
+                midiNotes.push_back ({ n.pitch, absStartBeats, n.lengthBeats, vel });
+                midiLenSec = juce::jmax (midiLenSec, (absStartBeats + n.lengthBeats) * secsPerBeat);
+            }
         }
     }
 
@@ -2690,14 +2761,16 @@ void MainPluginEditor::toggleArrangementPlayback()
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
 }
 
-void MainPluginEditor::openPianoRollForLane (int lane)
+void MainPluginEditor::openPianoRollForClip (int lane, int clip)
 {
     if (! juce::isPositiveAndBelow (lane, ArrangementRecorderView::numEditableLanes)) lane = 0;
+    if (! juce::isPositiveAndBelow (clip, arrangementView.numMidiClips (lane)))
+        clip = arrangementView.numMidiClips (lane) > 0 ? 0 : arrangementView.addMidiClip (lane, arrangementCursorSeconds);
     pianoRollLane = lane;
-    arrangementView.ensureMidiClip (lane, arrangementCursorSeconds);
+    pianoRollClip = clip;
 
     std::vector<PianoRollView::Note> notes;
-    for (const auto& n : arrangementView.midiClipNotes (lane))
+    for (const auto& n : arrangementView.midiClipNotes (lane, clip))
         notes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
     pianoRoll.setNotes (std::move (notes));
 
