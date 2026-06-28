@@ -210,6 +210,7 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     for (auto& fx : deckFX)
         fx.prepare (sampleRate);
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
+    midiClipPlayer.prepare (sampleRate, samplesPerBlock);
     for (auto& rtss : deckRTSS)
         rtss.prepare (sampleRate, samplesPerBlock);
     for (int i = 0; i < numDecks; ++i)
@@ -433,8 +434,24 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         padGains[(size_t) i] = getFloatParam ("pad" + juce::String (i + 1) + "Gain");
     padBank.process (buffer, 0, buffer.getNumSamples(), padGains);
 
-    // Arrangement playback mixes into the master bus (subject to master gain + limiter).
-    arrangementPlayer.process (buffer);
+    // Arrangement + piano-roll MIDI share one transport (the arrangement playhead),
+    // mixing into the master bus (subject to master gain + limiter).
+    const bool arrPlaying = arrangementPlayer.isPlaying();
+    if (arrPlaying)
+    {
+        const juce::int64 arrPos = arrangementPlayer.getPositionSamples();
+        arrangementPlayer.process (buffer);                          // audio clips + advance playhead
+        midiClipPlayer.process (buffer, arrPos, buffer.getNumSamples());
+        if (arrangementPlayer.getPositionSamples() < arrPos)         // looped → no hanging notes
+            midiClipPlayer.allNotesOff();
+    }
+    else
+    {
+        arrangementPlayer.process (buffer);                          // no-op while stopped
+        if (arrWasPlaying)
+            midiClipPlayer.allNotesOff();
+    }
+    arrWasPlaying = arrPlaying;
 
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
     buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
@@ -656,12 +673,12 @@ void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivi
 }
 
 // ── Arrangement playback ──────────────────────────────────────────────────────
-void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips)
+void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds, double startSeconds)
 {
     arrangementPlayer.stop();   // immutable-while-playing: stop before re-scheduling
     const double engineSr = currentSampleRate;
 
-    loadPool.addJob ([this, clips = std::move (clips), engineSr]
+    loadPool.addJob ([this, clips = std::move (clips), engineSr, minLengthSeconds, startSeconds]
     {
         auto schedule = std::make_shared<ArrangementPlayer::Schedule>();
         std::map<juce::String, std::shared_ptr<const DeckPlayer::LoadedAudio>> cache;
@@ -695,11 +712,12 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             schedule->push_back (std::move (clip));
         }
 
-        juce::MessageManager::callAsync ([this, schedule]
+        juce::MessageManager::callAsync ([this, schedule, minLengthSeconds, startSeconds]
         {
             arrangementPlayer.setSchedule (schedule);
-            arrangementPlayer.setPositionSeconds (0.0);
-            if (! schedule->empty())
+            arrangementPlayer.setLengthSeconds (minLengthSeconds);   // include MIDI past the audio
+            arrangementPlayer.setPositionSeconds (startSeconds);     // start from the play cursor
+            if (! schedule->empty() || minLengthSeconds > 0.0)       // start even if MIDI-only
                 arrangementPlayer.start();
         });
     });

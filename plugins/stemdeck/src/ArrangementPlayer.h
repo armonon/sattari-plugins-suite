@@ -68,6 +68,13 @@ public:
     }
     double getPositionSeconds() const noexcept { return (double) playhead.load (std::memory_order_relaxed) / sr; }
     double getLengthSeconds()   const noexcept { return (double) lengthSamples.load (std::memory_order_relaxed) / sr; }
+    juce::int64 getPositionSamples() const noexcept { return playhead.load (std::memory_order_relaxed); }
+    void setLengthSeconds (double s)   // raise the length to at least @p s (e.g. MIDI past the audio)
+    {
+        const juce::int64 want = (juce::int64) (juce::jmax (0.0, s) * sr);
+        if (want > lengthSamples.load (std::memory_order_relaxed))
+            lengthSamples.store (want, std::memory_order_relaxed);
+    }
 
     // Audio thread. Adds the playing clips into @p out at the current playhead.
     void process (juce::AudioBuffer<float>& out)
@@ -80,14 +87,14 @@ public:
             const juce::SpinLock::ScopedLockType l (lock);
             sched = active;   // member keeps a ref alive; this local is never the last owner
         }
-        if (sched == nullptr || sched->empty())
-            return;
-
         const int n = out.getNumSamples();
         const int outCh = out.getNumChannels();
         juce::int64 pos = playhead.load (std::memory_order_relaxed);
         const juce::int64 len = lengthSamples.load (std::memory_order_relaxed);
 
+        // Mix audio clips (skipped for a MIDI-only arrangement, but the transport
+        // below still advances so the synth and playhead progress).
+        if (sched != nullptr && ! sched->empty())
         for (const auto& clip : *sched)
         {
             if (clip.audio == nullptr || clip.timelineLengthSamples <= 0) continue;

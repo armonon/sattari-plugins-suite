@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include "ArrangementPlayer.h"
+#include "MidiClipPlayer.h"
 #include "DeckPlayer.h"
 #include "HostGraph.h"
 #include "MasterRecorder.h"
@@ -138,8 +139,9 @@ public:
         double fadeInSeconds  = 0.0;
         double fadeOutSeconds = 0.0;
     };
-    void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips);
+    void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
+    void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm) { midiClipPlayer.setNotes (notes, bpm); }
     bool isArrangementPlaying() const noexcept { return arrangementPlayer.isPlaying(); }
     double getArrangementPositionSeconds() const noexcept { return arrangementPlayer.getPositionSeconds(); }
     double getArrangementLengthSeconds()   const noexcept { return arrangementPlayer.getLengthSeconds(); }
@@ -238,6 +240,9 @@ private:
     juce::ThreadPool loadPool { 4 };
 
     ArrangementPlayer arrangementPlayer;
+    MidiClipPlayer    midiClipPlayer;
+    juce::int64       lastArrPos = 0;     // for loop-wrap detection (all-notes-off)
+    bool              arrWasPlaying = false;
     std::array<DeckFX, numDecks> deckFX;
     std::array<RealTimeStemSeparator, numDecks> deckRTSS;
     // Per-deck scratch buffers for RTSS output (allocated in prepareToPlay)

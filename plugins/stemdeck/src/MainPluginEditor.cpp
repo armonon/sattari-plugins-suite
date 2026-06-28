@@ -2391,14 +2391,31 @@ void MainPluginEditor::toggleArrangementPlayback()
         }
     }
 
-    if (specs.empty())
+    // Piano-roll MIDI notes play through the built-in synth on the same transport.
+    const double midiBpm = 120.0;   // matches the piano-roll grid
+    const double secsPerBeat = 60.0 / midiBpm;
+    std::vector<MidiClipPlayer::SourceNote> midiNotes;
+    double midiLenSec = 0.0;
+    for (const auto& n : pianoRoll.getNotes())
     {
-        recordStatus.setText (u8 ("Nothing to play \xe2\x80\x94 record or load an arrangement first"), juce::dontSendNotification);
+        midiNotes.push_back ({ n.pitch, n.startBeats, n.lengthBeats, n.velocity });
+        midiLenSec = juce::jmax (midiLenSec, (n.startBeats + n.lengthBeats) * secsPerBeat);
+    }
+
+    double audioLenSec = 0.0;
+    for (const auto& s : specs)
+        audioLenSec = juce::jmax (audioLenSec, s.timelineStartSeconds + s.lengthSeconds);
+
+    if (specs.empty() && midiNotes.empty())
+    {
+        recordStatus.setText (u8 ("Nothing to play \xe2\x80\x94 record, drop a file, or draw notes first"), juce::dontSendNotification);
         return;
     }
 
-    processorRef.buildAndStartArrangement (std::move (specs));
-    processorRef.setArrangementPositionSeconds (arrangementCursorSeconds);   // start from the play cursor
+    processorRef.setMidiNotes (midiNotes, midiBpm);
+    processorRef.buildAndStartArrangement (std::move (specs),
+                                           juce::jmax (audioLenSec, midiLenSec),
+                                           arrangementCursorSeconds);
     processorRef.setArrangementLoop (arrangementLoopStart, arrangementLoopEnd, arrangementLoopEnabled);
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
 }
