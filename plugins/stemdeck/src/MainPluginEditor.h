@@ -361,6 +361,7 @@ private:
     MixerView mixerView;
     juce::TextButton mixerButton { "Mixer" };
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
+    juce::TextButton metronomeButton { "Click" };
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;

@@ -4,6 +4,7 @@
 #include <atomic>
 #include "ArrangementPlayer.h"
 #include "MidiClipPlayer.h"
+#include "Metronome.h"
 #include "DeckPlayer.h"
 #include "HostGraph.h"
 #include "MasterRecorder.h"
@@ -142,6 +143,9 @@ public:
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
     void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm) { midiClipPlayer.setNotes (notes, bpm); }
+    void setMetronomeEnabled (bool e) noexcept { metronome.setEnabled (e); }
+    bool isMetronomeEnabled() const noexcept   { return metronome.isEnabled(); }
+    void setMetronomeBpm (double b) noexcept    { metronome.setBpm (b); }
     bool isArrangementPlaying() const noexcept { return arrangementPlayer.isPlaying(); }
     double getArrangementPositionSeconds() const noexcept { return arrangementPlayer.getPositionSeconds(); }
     double getArrangementLengthSeconds()   const noexcept { return arrangementPlayer.getLengthSeconds(); }
@@ -241,6 +245,7 @@ private:
 
     ArrangementPlayer arrangementPlayer;
     MidiClipPlayer    midiClipPlayer;
+    Metronome         metronome;
     juce::int64       lastArrPos = 0;     // for loop-wrap detection (all-notes-off)
     bool              arrWasPlaying = false;
     std::array<DeckFX, numDecks> deckFX;

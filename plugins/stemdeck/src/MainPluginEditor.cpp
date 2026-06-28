@@ -2089,6 +2089,13 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     openProjButton.setTooltip ("Open a .stemdeck project");
     openProjButton.onClick = [this] { loadProject(); };
     addAndMakeVisible (openProjButton);
+
+    setupButton (metronomeButton);
+    metronomeButton.setClickingTogglesState (true);
+    metronomeButton.setTooltip ("Metronome click during arrangement playback");
+    metronomeButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    metronomeButton.onClick = [this] { processorRef.setMetronomeEnabled (metronomeButton.getToggleState()); };
+    addAndMakeVisible (metronomeButton);
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
@@ -2535,6 +2542,7 @@ void MainPluginEditor::toggleArrangementPlayback()
     }
 
     processorRef.setMidiNotes (midiNotes, midiBpm);
+    processorRef.setMetronomeBpm (midiBpm);
     processorRef.buildAndStartArrangement (std::move (specs),
                                            juce::jmax (audioLenSec, midiLenSec),
                                            arrangementCursorSeconds);
@@ -3393,6 +3401,8 @@ void MainPluginEditor::resized()
     saveProjButton.setBounds (keyRow.removeFromLeft (90));
     keyRow.removeFromLeft (6);
     openProjButton.setBounds (keyRow.removeFromLeft (90));
+    keyRow.removeFromLeft (12);
+    metronomeButton.setBounds (keyRow.removeFromLeft (64));
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (20));

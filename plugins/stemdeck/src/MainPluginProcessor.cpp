@@ -211,6 +211,7 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         fx.prepare (sampleRate);
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     midiClipPlayer.prepare (sampleRate, samplesPerBlock);
+    metronome.prepare (sampleRate);
     for (auto& rtss : deckRTSS)
         rtss.prepare (sampleRate, samplesPerBlock);
     for (int i = 0; i < numDecks; ++i)
@@ -442,6 +443,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         const juce::int64 arrPos = arrangementPlayer.getPositionSamples();
         arrangementPlayer.process (buffer);                          // audio clips + advance playhead
         midiClipPlayer.process (buffer, arrPos, buffer.getNumSamples());
+        metronome.process (buffer, arrPos, buffer.getNumSamples());  // beat click
         if (arrangementPlayer.getPositionSamples() < arrPos)         // looped → no hanging notes
             midiClipPlayer.allNotesOff();
     }
