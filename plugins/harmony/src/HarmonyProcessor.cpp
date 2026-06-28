@@ -356,7 +356,8 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         {
             const int    haas   = juce::jlimit (1, rsize - 2, (int) ((0.013 + 0.006 * v) * currentSampleRate));
             const float  depth  = (float) (0.002 * currentSampleRate);
-            const double lfoInc = (0.6 + 0.25 * v) / currentSampleRate * (double) twoPi;
+            const double twoPi  = juce::MathConstants<double>::twoPi;
+            const double lfoInc = (0.6 + 0.25 * v) / currentSampleRate * twoPi;
             float oGL, oGR; panGains (-basePan, oGL, oGR);
             const float cg = lvl * choir * 0.8f;
             int    w  = choirWrite[(size_t) v];
@@ -372,7 +373,7 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
                 const float d  = ring[(size_t) r0] * (1.0f - fr) + ring[(size_t) r1] * fr;
                 harmonyAccum.addSample (0, i, d * cg * oGL);
                 harmonyAccum.addSample (1, i, d * cg * oGR);
-                ph += lfoInc; if (ph > (double) twoPi) ph -= (double) twoPi;
+                ph += lfoInc; if (ph > twoPi) ph -= twoPi;
                 if (++w >= rsize) w = 0;
             }
             choirWrite[(size_t) v] = w;
