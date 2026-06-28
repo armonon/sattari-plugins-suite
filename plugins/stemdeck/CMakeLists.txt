@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
 
 sattari_add_plugin(
     TARGET SattariStemDeck
@@ -49,6 +50,10 @@ target_compile_definitions(SattariStemDeck
         JUCE_PLUGINHOST_VST=0)
 
 sattari_enable_rubberband(SattariStemDeck SATTARI_STEMDECK_HAS_RUBBERBAND)
+
+# Optional ML stem separation (off by default; -DSATTARI_USE_ONNX=ON to enable).
+# Defines SATTARI_HAS_ONNX for SattariStemSeparator.h; no-op when disabled.
+sattari_enable_onnx(SattariStemDeck SATTARI_HAS_ONNX)
 
 add_executable(StemDeckGranularRenderContract
     EXCLUDE_FROM_ALL

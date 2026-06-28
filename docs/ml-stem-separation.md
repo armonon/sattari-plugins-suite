@@ -5,15 +5,22 @@ into StemDeck, so a loaded track can be split into stems on import. This is an
 **offline** feature — it runs once on a background thread when a track is loaded,
 not in the realtime audio callback.
 
-## What's in this spike (committed, non-invasive)
+## What's wired (committed, non-invasive)
 
-- `core/include/sattari_audio_core/SattariStemSeparator.h` — the interface +
-  ONNX-backed skeleton + a no-op fallback. Compiles with **zero** new deps.
+- `core/include/sattari_audio_core/SattariStemSeparator.h` — interface + the
+  **full waveform-Demucs inference pipeline** (normalise → segment → ONNX `Run`
+  → triangular overlap-add → de-normalise) behind `#if SATTARI_HAS_ONNX`, plus a
+  no-op fallback. The default build compiles the fallback with **zero** new deps.
 - `cmake/SattariOnnx.cmake` — `sattari_enable_onnx(target DEFINE)`, **OFF by
   default** (`-DSATTARI_USE_ONNX=ON` to enable). Mirrors `SattariRubberBand.cmake`.
+- `plugins/stemdeck/CMakeLists.txt` — calls `sattari_enable_onnx(SattariStemDeck
+  SATTARI_HAS_ONNX)`. With ONNX off it's a no-op, so the green build is untouched.
 
-Neither is wired into a plugin yet, so the green build is untouched. The
-remaining work below is the actual model + DSP plumbing.
+Because the ONNX path is compiled out by default, the pipeline code can't be
+machine-verified here (no ONNX headers) — the two remaining steps both need the
+real lib + model: (1) obtain ONNX Runtime + an htdemucs/MDX `.onnx`, (2) call
+`StemSeparator::loadModel()` + `separate()` from the `TrackAnalysis` thread on
+track load.
 
 ## Architecture (how it slots into StemDeck)
 
