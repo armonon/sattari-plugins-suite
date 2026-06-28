@@ -29,6 +29,43 @@ public:
     void setNotes (std::vector<Note> n) { notes = std::move (n);      repaint(); }
     const std::vector<Note>& getNotes() const noexcept { return notes; }
 
+    juce::ValueTree toState() const
+    {
+        juce::ValueTree root ("PIANOROLL");
+        root.setProperty ("bpm", bpm, nullptr);
+        root.setProperty ("bars", bars, nullptr);
+        for (const auto& n : notes)
+        {
+            juce::ValueTree nt ("NOTE");
+            nt.setProperty ("pitch", n.pitch,       nullptr);
+            nt.setProperty ("start", n.startBeats,  nullptr);
+            nt.setProperty ("len",   n.lengthBeats, nullptr);
+            nt.setProperty ("vel",   n.velocity,    nullptr);
+            root.appendChild (nt, nullptr);
+        }
+        return root;
+    }
+
+    void fromState (const juce::ValueTree& root)
+    {
+        if (! root.hasType ("PIANOROLL")) return;
+        bpm  = root.getProperty ("bpm", 120.0);
+        bars = root.getProperty ("bars", 8);
+        notes.clear();
+        for (int i = 0; i < root.getNumChildren(); ++i)
+        {
+            const auto nt = root.getChild (i);
+            if (! nt.hasType ("NOTE")) continue;
+            Note n;
+            n.pitch       = nt.getProperty ("pitch", 60);
+            n.startBeats  = nt.getProperty ("start", 0.0);
+            n.lengthBeats = nt.getProperty ("len",   1.0);
+            n.velocity    = nt.getProperty ("vel",   100);
+            notes.push_back (n);
+        }
+        repaint();
+    }
+
     std::function<void()> onClose;
     std::function<void()> onNotesChanged;
 

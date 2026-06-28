@@ -708,6 +708,93 @@ juce::AudioThumbnail* MainPluginEditor::ArrangementRecorderView::thumbForClip (i
     return thumbForLane (laneIndex);   // recorded / split clips share the lane thumbnail
 }
 
+void MainPluginEditor::ArrangementRecorderView::ensureClipThumb (const juce::File& file)
+{
+    if (! file.existsAsFile() || formatManager == nullptr || thumbnailCache == nullptr) return;
+    const auto key = file.getFullPathName();
+    if (clipThumbs.find (key) != clipThumbs.end()) return;
+    auto t = std::make_unique<juce::AudioThumbnail> (512, *formatManager, *thumbnailCache);
+    t->addChangeListener (this);
+    t->setSource (new juce::FileInputSource (file));
+    clipThumbs[key] = std::move (t);
+}
+
+juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
+{
+    juce::ValueTree root ("ARRANGEMENT");
+    root.setProperty ("loopStart",   loopStartSeconds, nullptr);
+    root.setProperty ("loopEnd",     loopEndSeconds,   nullptr);
+    root.setProperty ("loopEnabled", loopEnabled,      nullptr);
+    for (int lane = 0; lane < numEditableLanes; ++lane)
+    {
+        juce::ValueTree lt ("LANE");
+        lt.setProperty ("index",  lane,                   nullptr);
+        lt.setProperty ("muted",  laneMuted[(size_t) lane],  nullptr);
+        lt.setProperty ("soloed", laneSoloed[(size_t) lane], nullptr);
+        lt.setProperty ("gainDb", (double) laneGainDb[(size_t) lane], nullptr);
+        for (const auto& c : clips[(size_t) lane])
+        {
+            juce::ValueTree ct ("CLIP");
+            ct.setProperty ("file",      c.file.getFullPathName(), nullptr);
+            ct.setProperty ("dur",       c.durationSeconds,        nullptr);
+            ct.setProperty ("trimStart", c.trimStartSeconds,       nullptr);
+            ct.setProperty ("trimEnd",   c.trimEndSeconds,         nullptr);
+            ct.setProperty ("tlStart",   c.timelineStartSeconds,   nullptr);
+            ct.setProperty ("fadeIn",    c.fadeInSeconds,          nullptr);
+            ct.setProperty ("fadeOut",   c.fadeOutSeconds,         nullptr);
+            ct.setProperty ("label",     c.label,                  nullptr);
+            ct.setProperty ("colour",    (int) c.colourArgb,       nullptr);
+            lt.appendChild (ct, nullptr);
+        }
+        root.appendChild (lt, nullptr);
+    }
+    return root;
+}
+
+void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree& root)
+{
+    if (! root.hasType ("ARRANGEMENT")) return;
+    for (auto& v : clips) v.clear();
+    loopStartSeconds = root.getProperty ("loopStart", 0.0);
+    loopEndSeconds   = root.getProperty ("loopEnd",   0.0);
+    loopEnabled      = root.getProperty ("loopEnabled", false);
+
+    bool anyClip = false;
+    for (int i = 0; i < root.getNumChildren(); ++i)
+    {
+        const auto lt = root.getChild (i);
+        if (! lt.hasType ("LANE")) continue;
+        const int lane = (int) lt.getProperty ("index", -1);
+        if (! juce::isPositiveAndBelow (lane, numEditableLanes)) continue;
+        laneMuted[(size_t) lane]  = lt.getProperty ("muted",  false);
+        laneSoloed[(size_t) lane] = lt.getProperty ("soloed", false);
+        laneGainDb[(size_t) lane] = (float) (double) lt.getProperty ("gainDb", 0.0);
+        for (int j = 0; j < lt.getNumChildren(); ++j)
+        {
+            const auto ct = lt.getChild (j);
+            if (! ct.hasType ("CLIP")) continue;
+            LaneClip c;
+            c.file                 = juce::File (ct.getProperty ("file").toString());
+            c.durationSeconds      = ct.getProperty ("dur",       0.0);
+            c.trimStartSeconds     = ct.getProperty ("trimStart", 0.0);
+            c.trimEndSeconds       = ct.getProperty ("trimEnd",   0.0);
+            c.timelineStartSeconds = ct.getProperty ("tlStart",   0.0);
+            c.fadeInSeconds        = ct.getProperty ("fadeIn",    0.0);
+            c.fadeOutSeconds       = ct.getProperty ("fadeOut",   0.0);
+            c.label                = ct.getProperty ("label").toString();
+            c.colourArgb           = (juce::uint32) (int) ct.getProperty ("colour", 0);
+            ensureClipThumb (c.file);
+            clips[(size_t) lane].push_back (c);
+            anyClip = true;
+        }
+    }
+    mode = anyClip ? Mode::Finished : Mode::Idle;
+    undoStack.clear();
+    redoStack.clear();
+    selectedLane = selectedClip = -1;
+    repaint();
+}
+
 int MainPluginEditor::ArrangementRecorderView::laneAtY (int y) const
 {
     for (int i = 0; i < numEditableLanes; ++i)
@@ -1993,6 +2080,15 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     mixerView.toggleMute = [this] (int i) { arrangementView.toggleLaneMute (i); };
     mixerView.toggleSolo = [this] (int i) { arrangementView.toggleLaneSolo (i); };
     addChildComponent (mixerView);   // hidden until toggled
+
+    setupButton (saveProjButton);
+    saveProjButton.setTooltip ("Save the arrangement + piano-roll to a .stemdeck project");
+    saveProjButton.onClick = [this] { saveProject(); };
+    addAndMakeVisible (saveProjButton);
+    setupButton (openProjButton);
+    openProjButton.setTooltip ("Open a .stemdeck project");
+    openProjButton.onClick = [this] { loadProject(); };
+    addAndMakeVisible (openProjButton);
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
@@ -2444,6 +2540,49 @@ void MainPluginEditor::toggleArrangementPlayback()
                                            arrangementCursorSeconds);
     processorRef.setArrangementLoop (arrangementLoopStart, arrangementLoopEnd, arrangementLoopEnabled);
     recordStatus.setText (u8 ("Playing arrangement\xe2\x80\xa6"), juce::dontSendNotification);
+}
+
+void MainPluginEditor::saveProject()
+{
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Save StemDeck project",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.stemdeck");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this, chooser] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            f = f.withFileExtension ("stemdeck");
+            juce::ValueTree root ("STEMDECK_PROJECT");
+            root.appendChild (arrangementView.toState(), nullptr);
+            root.appendChild (pianoRoll.toState(), nullptr);
+            if (auto xml = root.createXml())
+                xml->writeTo (f);
+            recordStatus.setText ("Saved project: " + f.getFileName(), juce::dontSendNotification);
+        });
+}
+
+void MainPluginEditor::loadProject()
+{
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Open StemDeck project",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.stemdeck");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (! f.existsAsFile()) return;
+            if (auto xml = juce::XmlDocument::parse (f))
+            {
+                const auto root = juce::ValueTree::fromXml (*xml);
+                arrangementView.fromState (root.getChildWithName ("ARRANGEMENT"));
+                pianoRoll.fromState (root.getChildWithName ("PIANOROLL"));
+                recordStatus.setText ("Loaded project: " + f.getFileName(), juce::dontSendNotification);
+            }
+        });
 }
 
 void MainPluginEditor::bounceArrangementEdits()
@@ -3250,6 +3389,10 @@ void MainPluginEditor::resized()
     pianoRollButton.setBounds (keyRow.removeFromLeft (100));
     keyRow.removeFromLeft (8);
     mixerButton.setBounds (keyRow.removeFromLeft (80));
+    keyRow.removeFromLeft (16);
+    saveProjButton.setBounds (keyRow.removeFromLeft (90));
+    keyRow.removeFromLeft (6);
+    openProjButton.setBounds (keyRow.removeFromLeft (90));
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (20));

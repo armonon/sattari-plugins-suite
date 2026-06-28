@@ -162,6 +162,9 @@ private:
         void zoomOut();
         void zoomToFit();
 
+        juce::ValueTree toState() const;                  // serialize clips + lane state + loop
+        void fromState (const juce::ValueTree& state);
+
         // Undo / redo. Callers should snapshot via captureLaneState() before any edit,
         // then call commitEdit() after the edit completes to push it onto the stack.
         // A snapshot captures the whole lane (its full clip vector) so split / delete
@@ -233,6 +236,7 @@ private:
         std::array<std::unique_ptr<juce::AudioThumbnail>, numLanes> deckThumbs;
         std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> clipThumbs;   // per imported file
         juce::AudioThumbnail* thumbForClip (int laneIndex, const LaneClip& clip) const;
+        void ensureClipThumb (const juce::File& file);
         int laneAtY (int y) const;
         int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
@@ -341,6 +345,8 @@ private:
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     void toggleArrangementPlayback();
+    void saveProject();
+    void loadProject();
     juce::Label masterKeyLabel;
     juce::ComboBox masterKey;
     juce::TextButton syncAllDecksButton { "Sync All Decks" };
@@ -354,6 +360,7 @@ private:
     juce::TextButton pianoRollButton { "Piano Roll" };
     MixerView mixerView;
     juce::TextButton mixerButton { "Mixer" };
+    juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;
