@@ -15,7 +15,7 @@ sattari_add_plugin(
     SLUG stemdeck
     PRODUCT_NAME "Sattari StemDeck"
     PLUGIN_CODE Sd01
-    FORMATS VST3 Standalone
+    FORMATS AU VST3 Standalone
     IS_SYNTH
     EDITOR_WANTS_KEYBOARD_FOCUS
     SOURCES
