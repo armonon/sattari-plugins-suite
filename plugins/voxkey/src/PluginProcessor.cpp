@@ -19,8 +19,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor:
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("key", "Key",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
     // Cross-plugin session bus: when on, the key follows the song key published
-    // by Auto Pitch (or any Sattari publisher), so voice->MIDI stays in key.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", true));
+    // by Sattari Key (or any Sattari publisher), so voice->MIDI stays in key.
+    // Default OFF so the manual Key menu is authoritative out of the box; Follow
+    // is an explicit opt-in and the editor greys the Key menu while it's active.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Chromatic", "Major", "Minor", "Pentatonic" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("sensitivity", "Sensitivity", juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.62f));

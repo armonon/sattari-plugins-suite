@@ -110,6 +110,12 @@ SubConjurerAudioProcessorEditor::SubConjurerAudioProcessorEditor (SubConjurerAud
     limiterAttach = std::make_unique<SliderAttachment> (params, "limiter", limiter);
     subOnlyAttach = std::make_unique<ButtonAttachment> (params, "subonly", subOnly);
     followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
+
+    // Grey the manual Lock Note menu while Follow Song Key is engaged so the bus
+    // override is never silent. Reflect the state now and on every toggle.
+    auto syncNoteEnabled = [this] { note.setEnabled (! followKey.getToggleState()); };
+    followKey.onStateChange = syncNoteEnabled;
+    syncNoteEnabled();
 }
 
 SubConjurerAudioProcessorEditor::~SubConjurerAudioProcessorEditor()

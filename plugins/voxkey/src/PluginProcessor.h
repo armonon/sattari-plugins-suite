@@ -43,6 +43,22 @@ public:
     VoxKeyVoiceMidiMapper::State getDisplayState() const;
     void panic();
 
+    // Editor feedback: is the cross-plugin bus currently driving the key? Writes
+    // the effective root (followed root when true, manual "key" param otherwise)
+    // so the editor can grey the Key menu and show the followed root — the bus
+    // override is never silent.
+    bool followingBusKey (int& rootOut) const noexcept
+    {
+        if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
+            if (auto s = sessionReader.current(); s.valid)
+            {
+                rootOut = juce::jlimit (0, 11, s.root);
+                return true;
+            }
+        rootOut = juce::jlimit (0, 11, (int) *apvts.getRawParameterValue ("key"));
+        return false;
+    }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     VoxKeyVoiceMidiMapper::Settings readSettings() const;

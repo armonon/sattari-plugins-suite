@@ -231,6 +231,15 @@ void SattariVoxKeyAudioProcessorEditor::updateMeters()
     detectedLabel.setText ("Detected: " + state.detectedName, juce::dontSendNotification);
     outputLabel.setText ("MIDI Out: " + state.outputName, juce::dontSendNotification);
     confidenceLabel.setText (state.midiActive ? "MIDI activity: sending" : (state.voiced ? "MIDI activity: tracking" : "MIDI activity: idle"), juce::dontSendNotification);
+
+    // Grey the manual Key menu while the bus is driving the key, and show the
+    // followed root in the caption, so the override is never silent.
+    static const char* noteNm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    int followedRoot = 0;
+    const bool following = audioProcessor.followingBusKey (followedRoot);
+    key.setEnabled (! following);
+    keyLabel.setText (following ? "KEY -> " + juce::String (noteNm[followedRoot]) : "KEY",
+                      juce::dontSendNotification);
 }
 
 void SattariVoxKeyAudioProcessorEditor::paint (juce::Graphics& g)

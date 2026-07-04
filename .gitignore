@@ -44,3 +44,11 @@ third_party/.rubberband_broken/
 # regression reference is the small text fingerprint in validation/golden/, NOT
 # the .wav.
 validation/renders/
+
+# Local Netlify folder
+.netlify
+third_party/onnxruntime-osx-universal2-*/
+
+# Python caches
+__pycache__/
+*.pyc

@@ -8,7 +8,11 @@
 //  can broadcast the currently-detected key and a reader (e.g. Royal Chain's
 //  Tune module) can follow it.
 //
-//  Storage: ~/Library/Application Support/Sattari Audio/cross-plugin/key-bus.json
+//  Storage: <userAppData>/Sattari Audio/cross-plugin/key-bus.json, where
+//  userAppData is juce::File::userApplicationDataDirectory — on macOS that is
+//  ~/Library (NOT ~/Library/Application Support), on Windows %APPDATA%, on Linux
+//  ~/.config. All suite plugins call keyBusFile() so they always agree on the
+//  location; the concrete path only matters if you poke the file by hand.
 //  Schema:  { "publisher": "auto-pitch", "root": 0..11, "scale": 0..2,
 //             "timestampMs": <epoch ms> }
 //

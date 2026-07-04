@@ -37,8 +37,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scaleRoot", "Scale Root",
         juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
     // Cross-plugin session bus: when on, the arp's scale root follows the song key
-    // published by Auto Pitch (or any Sattari publisher).
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", true));
+    // published by Sattari Key (or any Sattari publisher). Default OFF so the manual
+    // Root menu is authoritative out of the box; the editor greys Root while Follow
+    // is engaged so the override is never silent.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Off", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("gate", "Gate",

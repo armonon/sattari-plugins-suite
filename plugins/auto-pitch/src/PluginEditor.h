@@ -123,8 +123,8 @@ private:
     juce::TextButton savePresetButton { "Save" };
 
     // --- Basic tab widgets ---------------------------------------------------
-    juce::ToggleButton autoKey { "AutoKey Listen" };
-    juce::ToggleButton followKey { "Follow Song Key" };
+    juce::ToggleButton autoKey { "AutoKey (this track)" };
+    juce::ToggleButton followKey { "Follow Song Key (Sattari Key)" };
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
     juce::Label editNotesLabel, detuneLabel, modeLabel;
@@ -144,8 +144,12 @@ private:
 
     // --- Antares-class behaviour controls (Pro tab) --------------------------
     juce::ToggleButton classicMode { "Classic Mode" };
-    juce::Slider flexAmt, transition, throat;
-    juce::Label flexAmtCaption, transitionCaption, throatCaption;
+    juce::Slider flexAmt, transition, throat, vibratoKnob;
+    juce::Label flexAmtCaption, transitionCaption, throatCaption, vibratoCaption;
+
+    // --- New engine / detector controls (Pro tab) ----------------------------
+    juce::ToggleButton liveEngine  { "Live Engine (PSOLA)" };
+    juce::ToggleButton neuralPitch { "Neural Pitch" };
     juce::TextButton loadTraceButton { "Load trace JSON" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::Label traceStatus, keyDetectionStatus;
@@ -168,7 +172,8 @@ private:
     std::unique_ptr<ButtonAttachment> autoKeyAttach, followKeyAttach, lowLatencyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
                                        polyphonicAttach, classicModeAttach;
-    std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach;
+    std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
+    std::unique_ptr<ButtonAttachment> liveEngineAttach, neuralPitchAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };

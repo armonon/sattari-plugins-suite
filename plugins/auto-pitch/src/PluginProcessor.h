@@ -6,6 +6,8 @@
 #include <sattari_audio_core/SattariKeyDetector.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/SattariCrepePitch.h>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -92,6 +94,20 @@ public:
     // plugins (e.g. Royal Chain's Tune) can follow. Called from the editor
     // timer with internal throttling so we never write per audio block.
     void publishCurrentKeyToBus();
+
+    // Where the correction key is *actually* coming from right now, plus the
+    // effective root/scale. The editor uses this to reflect the real key in the
+    // header (and disable the manual dropdowns) so a bus/AutoKey override is
+    // never silent. FollowBus only reports when Follow is on AND a fresh session
+    // is on the bus; otherwise it falls through to AutoKey or Manual.
+    struct KeyOrigin
+    {
+        enum class Source { Manual, AutoKey, FollowBus };
+        Source source = Source::Manual;
+        int    root  = 9;   // 0..11, effective correction root
+        int    scale = 1;   // 0=major, 1=minor, 2=chromatic (effective)
+    };
+    KeyOrigin currentKeyOrigin() const;
 
     LiveSnapshot getLiveSnapshot() const noexcept
     {
@@ -244,6 +260,37 @@ private:
     juce::AudioBuffer<float> rubberBandOutput;
     std::vector<float> rubberBandScratch;
 #endif
+
+    // --- Live-monitor engine: streaming TD-PSOLA -----------------------------
+    // Near-zero-latency, formant-preserving pitch shift for tracking/monitoring.
+    // Rubber Band stays the default "print" engine (higher fidelity, more
+    // latency); the "Live Engine" toggle swaps to PSOLA per channel.
+    std::vector<sattari::dsp::PsolaShifter> psola;
+    void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+
+    // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
+    // When a crepe.onnx model is present and "Neural Pitch" is on, its estimate
+    // overrides YIN (killing octave errors on breathy vocals). Absent a model,
+    // isAvailable() is false and YIN is used — zero behavioural change.
+    sattari::dsp::CrepePitchTracker crepe;
+    bool  crepeModelPresent = false;
+    float lastCrepeHz = 0.0f;
+    float lastCrepeConfidence = 0.0f;
+    // Inference runs on a background worker, never the audio thread. The audio
+    // thread only pushes samples (lock-free ring) and reads these result atomics.
+    std::thread        crepeThread;
+    std::atomic<bool>  crepeThreadRun { false };
+    std::atomic<float> crepeResultHz { 0.0f };
+    std::atomic<float> crepeResultConf { 0.0f };
+    std::atomic<bool>  crepeResultVoiced { false };
+    void crepeWorkerLoop();
+
+    // --- Vibrato preservation ------------------------------------------------
+    // Low-passed "note centre" of the detected pitch. Correction snaps the centre
+    // to the scale while a fraction of the singer's fast pitch oscillation
+    // (vibrato) is re-injected, so hard tuning doesn't flatten expressive vibrato.
+    // Reset on note onset so new notes still snap.
+    double vibratoCenterMidi = -1000.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessor)
 };

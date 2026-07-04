@@ -105,10 +105,14 @@ void SattariMaqamAudioProcessorEditor::timerCallback()
     inputMeterLabel.setText  ("IN "  + juce::String (juce::Decibels::gainToDecibels (processor.getInputMeter()  + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
     outputMeterLabel.setText ("OUT " + juce::String (juce::Decibels::gainToDecibels (processor.getOutputMeter() + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
 
-    keyStatus.setText ((snapshot.followingBus ? "Following Auto Pitch root:  " : "Root:  ") + noteName (snapshot.rootPc),
+    keyStatus.setText ((snapshot.followingBus ? "Following Song Key root:  " : "Root:  ") + noteName (snapshot.rootPc),
                        juce::dontSendNotification);
     keyStatus.setColour (juce::Label::textColourId,
         juce::Colour (snapshot.followingBus ? sattari::brand::kAccent : sattari::brand::kTextMuted));
+    // Grey out the manual Root menu when the bus is driving it, so the override
+    // is never silent (it shows the followed root but can't be edited until
+    // Follow Song Key is turned off).
+    rootBox.setEnabled (! snapshot.followingBus);
     repaint();
 }
 

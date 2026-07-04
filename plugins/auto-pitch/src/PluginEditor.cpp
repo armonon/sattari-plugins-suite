@@ -341,9 +341,17 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     // Antares-class behaviour controls.
     proPanel.addAndMakeVisible (classicMode);
+    proPanel.addAndMakeVisible (liveEngine);
+    proPanel.addAndMakeVisible (neuralPitch);
     styleKnob (flexAmt);
     styleKnob (transition);
     styleKnob (throat);
+    styleKnob (vibratoKnob);
+    vibratoKnob.textFromValueFunction = [] (double v) {
+        return v < 0.005 ? juce::String ("Off") : juce::String (juce::roundToInt (v * 100.0)) + "%"; };
+    styleCaption (vibratoCaption, "VIBRATO");
+    proPanel.addAndMakeVisible (vibratoKnob);
+    proPanel.addAndMakeVisible (vibratoCaption);
     flexAmt.textFromValueFunction    = [] (double v) { return v < 0.005 ? juce::String ("Rigid")
                                                                         : juce::String (juce::roundToInt (v * 100.0)) + "%"; };
     transition.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
@@ -426,6 +434,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     flexAmtAttach          = std::make_unique<SliderAttachment> (params, "flexTune", flexAmt);
     transitionAttach       = std::make_unique<SliderAttachment> (params, "transition", transition);
     throatAttach           = std::make_unique<SliderAttachment> (params, "throat", throat);
+    vibratoAttach          = std::make_unique<SliderAttachment> (params, "vibrato", vibratoKnob);
+    liveEngineAttach       = std::make_unique<ButtonAttachment> (params, "liveEngine", liveEngine);
+    neuralPitchAttach      = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
 
     showTab (0);
     startTimerHz (15);
@@ -530,11 +541,34 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     // ~1 Hz inside publishCurrentKeyToBus() so the JSON file never thrashes.
     audioProcessor.publishCurrentKeyToBus();
 
-    const int keyRootIdx = juce::jlimit (0, 11,
-        juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("keyRoot")->load()));
-    const int scaleIdx = juce::jlimit (0, 2,
-        juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("scale")->load()));
-    pillRow.setScale (keyRootIdx, scaleIdx);
+    // Reflect where the correction key ACTUALLY comes from. When Follow Song Key
+    // or AutoKey is driving it, the manual dropdowns are overridden — so we grey
+    // them out and label the caption with the real key, instead of leaving them
+    // live-looking but silently ignored (the old "menu doesn't work" trap).
+    const auto origin = audioProcessor.currentKeyOrigin();
+    const bool manualKey = origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::Manual;
+
+    static const char* scaleShort[] = { "maj", "min", "chr" };
+    const juce::String effKeyText = noteNames[juce::jlimit (0, 11, origin.root)]
+                                  + " " + scaleShort[juce::jlimit (0, 2, origin.scale)];
+
+    keyRoot.setEnabled (manualKey);
+    scale.setEnabled (manualKey);
+
+    switch (origin.source)
+    {
+        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus:
+            keyScaleCaption.setText ("FOLLOWING SONG KEY: " + effKeyText, juce::dontSendNotification); break;
+        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey:
+            keyScaleCaption.setText ("AUTOKEY: " + effKeyText, juce::dontSendNotification); break;
+        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::Manual:
+        default:
+            keyScaleCaption.setText ("KEY & SCALE", juce::dontSendNotification); break;
+    }
+
+    // Pills light for the key actually in use (the followed/detected key when
+    // overriding, the manual key otherwise) — not the stale dropdown value.
+    pillRow.setScale (origin.root, origin.scale);
     pillRow.setDetectedMidi (snap.detectedMidi);
     pillRow.setEnabledMask (juce::jlimit (0, 4095,
         juce::roundToInt (audioProcessor.parameters().getRawParameterValue ("enabledNotes")->load())));
@@ -627,7 +661,7 @@ void SattariAutoPitchAudioProcessorEditor::resized()
 
     auto leftTop = left.removeFromTop (32);
     autoKey.setBounds (leftTop.removeFromLeft (150));
-    followKey.setBounds (leftTop.removeFromLeft (160));
+    followKey.setBounds (leftTop.removeFromLeft (210));
 
     noteDisplay.setBounds (left.removeFromTop ((int) (left.getHeight() * 0.55f)));
     left.removeFromTop (8);
@@ -691,21 +725,31 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
 
-    // Antares-class behaviour row: Classic Mode toggle + Flex / Transition / Throat.
+    // Engine / detector toggles: Live Engine (PSOLA) + Neural Pitch (CREPE).
+    pLeft.removeFromTop (10);
+    auto engineRow = pLeft.removeFromTop (28);
+    liveEngine.setBounds (engineRow.removeFromLeft (engineRow.getWidth() / 2));
+    neuralPitch.setBounds (engineRow);
+
+    // Antares-class behaviour row: Classic Mode toggle + Flex / Transition /
+    // Throat / Vibrato.
     pLeft.removeFromTop (10);
     classicMode.setBounds (pLeft.removeFromTop (28));
     pLeft.removeFromTop (6);
     auto behaviourRow = pLeft.removeFromTop (140);
-    const int bKw = behaviourRow.getWidth() / 3;
+    const int bKw = behaviourRow.getWidth() / 4;
     auto flexAmtCell = behaviourRow.removeFromLeft (bKw);
     flexAmtCaption.setBounds (flexAmtCell.removeFromTop (14));
     flexAmt.setBounds (flexAmtCell);
     auto transCell = behaviourRow.removeFromLeft (bKw);
     transitionCaption.setBounds (transCell.removeFromTop (14));
     transition.setBounds (transCell);
-    auto throatCell = behaviourRow;
+    auto throatCell = behaviourRow.removeFromLeft (bKw);
     throatCaption.setBounds (throatCell.removeFromTop (14));
     throat.setBounds (throatCell);
+    auto vibratoCell = behaviourRow;
+    vibratoCaption.setBounds (vibratoCell.removeFromTop (14));
+    vibratoKnob.setBounds (vibratoCell);
 
     // Live status + key-detection (top half of right column).
     // loadTraceButton is intentionally not laid out - it's dev-only.

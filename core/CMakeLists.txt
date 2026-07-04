@@ -26,6 +26,23 @@ target_link_libraries(SattariAudioCorePitchContract
     PRIVATE
         SattariAudioCore)
 
+# Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
+add_executable(SattariAudioCorePsolaContract
+    tests/psola_shifter_contract.cpp)
+
+target_link_libraries(SattariAudioCorePsolaContract
+    PRIVATE
+        SattariAudioCore)
+
+# CREPE salience-decode contract (pure-std; ONNX inference itself is optional and
+# not exercised here — this locks the bin<->Hz mapping + weighted-average decode).
+add_executable(SattariAudioCoreCrepeContract
+    tests/crepe_pitch_contract.cpp)
+
+target_link_libraries(SattariAudioCoreCrepeContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.

@@ -115,6 +115,12 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     hostSyncAttach = std::make_unique<ButtonAttachment> (params, "hostSync", hostSync);
     followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
 
+    // Grey the manual Root menu while Follow Song Key is engaged so the bus
+    // override is never silent. Reflect the current state now and on every toggle.
+    auto syncRootEnabled = [this] { scaleRoot.setEnabled (! followKey.getToggleState()); };
+    followKey.onStateChange = syncRootEnabled;
+    syncRootEnabled();
+
     gate.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
     swing.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
 }

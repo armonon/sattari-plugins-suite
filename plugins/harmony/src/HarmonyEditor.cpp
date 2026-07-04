@@ -155,10 +155,16 @@ void SattariHarmonyAudioProcessorEditor::timerCallback()
     const auto scales = SattariHarmonyAudioProcessor::scaleChoices();
     const auto rootName  = roots[juce::jlimit (0, roots.size() - 1, snapshot.root)];
     const auto scaleName = scales[juce::jlimit (0, scales.size() - 1, snapshot.scaleChoice)];
-    keyStatus.setText ((snapshot.followingBus ? "Following Auto Pitch:  " : "Manual key:  ") + rootName + " " + scaleName,
+    keyStatus.setText ((snapshot.followingBus ? "Following Song Key:  " : "Manual key:  ") + rootName + " " + scaleName,
                        juce::dontSendNotification);
     keyStatus.setColour (juce::Label::textColourId,
         juce::Colour (snapshot.followingBus ? sattari::brand::kAccent : sattari::brand::kTextMuted));
+
+    // When the bus is driving the key, grey out the manual root/scale menus so the
+    // override is never silent — they show the followed key but can't be edited
+    // until Follow Song Key is turned off.
+    rootBox.setEnabled  (! snapshot.followingBus);
+    scaleBox.setEnabled (! snapshot.followingBus);
 
     repaint();
 }

@@ -24,7 +24,10 @@ APVTS::ParameterLayout SattariMaqamAudioProcessor::createParameterLayout()
     auto unit = [] { return juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f); };
 
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "maqam", 1 }, "Maqam", maqamChoices(), 0));
-    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", true));
+    // Default OFF: the manual Root menu is authoritative out of the box. Follow
+    // Song Key is an explicit opt-in for the whole-suite workflow; when on, the
+    // editor disables + annotates Root so the bus override is never silent.
+    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", false));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "root",  1 }, "Root", rootChoices(), 0));
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "strength", 1 }, "Strength", unit(), 0.9f));
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "mix",      1 }, "Mix",      unit(), 1.0f));

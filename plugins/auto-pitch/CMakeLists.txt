@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
 
 sattari_add_plugin(
     TARGET SattariAutoPitch
@@ -21,6 +22,7 @@ sattari_add_plugin(
         src/PluginEditor.cpp)
 
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)
 
 add_executable(AutoPitchCoreContract
     EXCLUDE_FROM_ALL
@@ -53,6 +55,7 @@ target_link_libraries(AutoPitchCoreContract
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(AutoPitchCoreContract SATTARI_HAS_ONNX)
 
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
@@ -87,3 +90,4 @@ target_link_libraries(AutoPitchRender
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(AutoPitchRender SATTARI_HAS_ONNX)

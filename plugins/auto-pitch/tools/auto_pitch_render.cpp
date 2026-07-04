@@ -18,10 +18,12 @@
 // CMake target) so the .wav and golden land in validation/ regardless of CWD.
 #include "PluginProcessor.h"
 #include <sattari_audio_core/SattariRenderHarness.h>
+#include <sattari_audio_core/SattariPitchDetector.h>
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 namespace
 {
@@ -41,16 +43,161 @@ juce::File repoRoot()
     return juce::File::getCurrentWorkingDirectory();
    #endif
 }
+
+// A steady tone with sinusoidal vibrato: baseHz modulated +/- depthCents at
+// rateHz. Used to prove vibrato preservation (the wiggle survives correction).
+void makeVibratoTone (juce::AudioBuffer<float>& buf, double sr, double seconds,
+                      double baseHz, double depthCents, double rateHz)
+{
+    const int n = (int) (sr * seconds);
+    buf.setSize (1, n);
+    float* d = buf.getWritePointer (0);
+    double phase = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const double t = (double) i / sr;
+        const double cents = depthCents * std::sin (2.0 * M_PI * rateHz * t);
+        const double hz = baseHz * std::pow (2.0, cents / 1200.0);
+        d[i] = 0.5f * (float) std::sin (phase);
+        phase += 2.0 * M_PI * hz / sr;
+    }
+}
+
+// Standard deviation (in cents) of the detected pitch over the tail of a buffer
+// — a direct measure of how much pitch movement (vibrato) survives.
+double pitchStdCents (const juce::AudioBuffer<float>& buf, double sr)
+{
+    sattari::dsp::PitchDetector det;
+    det.prepare (sr, 80.0f, 800.0f, 0.045f);
+    const int n = buf.getNumSamples();
+    const int start = n / 3;                      // skip attack/priming
+    const int hop = 256;
+    std::vector<double> midis;
+    for (int s = start; s + hop <= n; s += hop)
+    {
+        det.pushBlock (buf.getReadPointer (0) + s, hop);
+        const auto r = det.analyse (0.2f);
+        if (r.voiced) midis.push_back (12.0 * std::log2 (r.frequencyHz / 440.0) + 69.0);
+    }
+    if (midis.size() < 4) return 0.0;
+    double mean = 0.0; for (double m : midis) mean += m; mean /= (double) midis.size();
+    double var = 0.0;  for (double m : midis) var += (m - mean) * (m - mean);
+    var /= (double) midis.size();
+    return std::sqrt (var) * 100.0;               // semitones -> cents
+}
 } // namespace
 
 int main (int argc, char** argv)
 {
-    const bool bless = (argc > 1 && std::strcmp (argv[1], "--bless") == 0);
-    const bool smoke = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
+    const bool bless    = (argc > 1 && std::strcmp (argv[1], "--bless") == 0);
+    const bool smoke    = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
+    const bool features = (argc > 1 && std::strcmp (argv[1], "--features") == 0);
+    const bool crepeTest= (argc > 1 && std::strcmp (argv[1], "--crepe") == 0);
 
     const double sr = 48000.0;
     const int    block = 512;
     const double seconds = 4.0;
+
+    // ---- CREPE (C++ ONNX) proof: load the real model + track known tones ------
+    // Deterministic: drives CrepePitchTracker directly (synchronous analyse, no
+    // worker-timing race) so it proves the C++ ONNX path loads crepe.onnx and
+    // decodes pitch correctly. Requires -DSATTARI_USE_ONNX=ON and the model at
+    // ~/Library/Sattari Audio/models/crepe.onnx.
+    if (crepeTest)
+    {
+       #if SATTARI_HAS_ONNX
+        sattari::dsp::CrepePitchTracker t;
+        t.prepare (sr);
+        auto model = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                         .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("crepe.onnx");
+        const bool loaded = t.loadModel (model.getFullPathName().toStdString());
+        std::printf ("crepe model: loaded=%d available=%d\n  %s\n",
+                     (int) loaded, (int) t.isAvailable(), model.getFullPathName().toRawUTF8());
+        if (! t.isAvailable()) { std::fprintf (stderr, "FAIL: crepe model not available\n"); return 1; }
+
+        int fails = 0;
+        for (double hz : { 220.0, 440.0, 660.0 })
+        {
+            std::vector<float> buf ((size_t) block);
+            double ph = 0.0;
+            for (int b = 0; b < 24; ++b)   // ~256 ms, more than one model frame
+            {
+                for (int i = 0; i < block; ++i) { buf[(size_t) i] = 0.5f * (float) std::sin (ph); ph += 2.0 * M_PI * hz / sr; }
+                t.pushBlock (buf.data(), block);
+            }
+            const auto r = t.analyse (0.4f);
+            const double cents = 1200.0 * std::log2 (r.frequencyHz / hz);
+            std::printf ("  %.0f Hz -> %.2f Hz (%+.1f cents) conf=%.2f voiced=%d\n",
+                         hz, r.frequencyHz, cents, r.confidence, (int) r.voiced);
+            if (! r.voiced || std::fabs (cents) > 30.0) ++fails;
+        }
+        std::printf (fails == 0 ? "Auto Pitch CREPE (C++ ONNX) proof ok\n"
+                                : "Auto Pitch CREPE proof FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
+       #else
+        std::fprintf (stderr, "built without ONNX — configure with -DSATTARI_USE_ONNX=ON\n");
+        return 2;
+       #endif
+    }
+
+    // ---- Feature proof: vibrato preservation + PSOLA live engine -------------
+    // Separate from the golden null-test. Uses a vibrato tone (A3 + 5.5 Hz, +/-40
+    // cents) tuned to A: with vibrato preservation OFF the wiggle is flattened;
+    // ON, it survives. Also proves the PSOLA engine produces valid audio.
+    if (features)
+    {
+        juce::AudioBuffer<float> vib;
+        makeVibratoTone (vib, sr, 3.0, 220.0 /*A3*/, 40.0, 5.5);
+        const double inStd = pitchStdCents (vib, sr);
+
+        auto render = [&] (float vibAmt, bool live) {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "keyRoot", 9.0f);            // A
+            setParam (a, "scale", 0.0f);              // major
+            setParam (a, "followSongKey", 0.0f);
+            setParam (a, "style", 2.0f);              // Modern Rap: strong + fast retune
+            setParam (a, "amount", 1.0f);
+            setParam (a, "speed", 0.95f);
+            setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "doNoHarm", 0.0f);
+            setParam (a, "classicMode", 0.0f);
+            setParam (a, "flexTune", 0.0f);
+            setParam (a, "vibrato", vibAmt);
+            setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+            return sattari::harness::renderThrough (p, vib, sr, block);
+        };
+
+        const auto noVib = render (0.0f, false);
+        const auto keptVib = render (0.9f, false);
+        const auto liveOut = render (0.0f, true);
+
+        const double sNo   = pitchStdCents (noVib, sr);
+        const double sKept = pitchStdCents (keptVib, sr);
+        std::printf ("vibrato: input=%.1f ct, corrected(off)=%.1f ct, corrected(0.9)=%.1f ct\n",
+                     inStd, sNo, sKept);
+
+        bool finite = true; float peak = 0.0f;
+        for (int i = 0; i < liveOut.getNumSamples(); ++i)
+        {
+            const float v = liveOut.getSample (0, i);
+            if (! std::isfinite (v)) finite = false;
+            peak = std::max (peak, std::fabs (v));
+        }
+        std::printf ("PSOLA live engine: finite=%d peak=%.3f\n", (int) finite, peak);
+
+        // Core claim (robust to Rubber Band's own pitch jitter): with preservation
+        // ON the corrected signal keeps clearly MORE of the singer's vibrato than
+        // with it OFF, and retains a solid fraction of the input wiggle.
+        int fails = 0;
+        if (sKept <= sNo * 1.3)    { std::fprintf (stderr, "FAIL: vibrato not preserved (0.9 std not clearly > off std)\n"); ++fails; }
+        if (sKept <= inStd * 0.6)  { std::fprintf (stderr, "FAIL: vibrato-0.9 kept too little of the input wiggle\n"); ++fails; }
+        if (! finite)              { std::fprintf (stderr, "FAIL: PSOLA produced non-finite samples\n"); ++fails; }
+        if (peak < 1.0e-3f)        { std::fprintf (stderr, "FAIL: PSOLA output is silent\n"); ++fails; }
+
+        std::printf (fails == 0 ? "Auto Pitch feature proof ok\n" : "Auto Pitch feature proof FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
+    }
 
     // Deterministic vocal-like input.
     juce::AudioBuffer<float> input;
@@ -74,6 +221,12 @@ int main (int argc, char** argv)
     setParam (apvts, "flexTune", 0.0f);
     setParam (apvts, "transition", 0.5f);
     setParam (apvts, "throat", 1.0f);
+    // New engine/detector/vibrato features pinned OFF so this golden stays the
+    // Rubber Band + YIN + no-vibrato reference (each feature is proven by its own
+    // core contract; this locks the default correction path).
+    setParam (apvts, "liveEngine", 0.0f);
+    setParam (apvts, "neuralPitch", 0.0f);
+    setParam (apvts, "vibrato", 0.0f);
 
     const auto out = sattari::harness::renderThrough (proc, input, sr, block);
 

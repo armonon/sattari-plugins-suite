@@ -50,7 +50,11 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "humanize",1 }, "Humanize", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.35f));
 
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "source", 1 }, "Harmonise To", sourceChoices(), 0));
-    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", true));
+    // Default OFF: the manual root/scale menu is authoritative out of the box.
+    // Follow Song Key is an explicit opt-in for the whole-suite workflow (Sattari
+    // Key on the master drives every plugin); when it's on, the editor disables +
+    // annotates the menu so the bus override is never silent.
+    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", false));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "root",  1 }, "Root",  rootChoices(),  0));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "scale", 1 }, "Scale", scaleChoices(), 0));
     p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "lowLatency", 1 }, "Low Latency", false));
