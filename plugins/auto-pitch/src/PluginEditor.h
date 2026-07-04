@@ -79,6 +79,42 @@ private:
 };
 
 // -----------------------------------------------------------------------------
+// KeyButton: ONE tactile control for the whole key story. The face shows the key
+// currently in effect + how it's being driven (MANUAL / AUTO / FOLLOW). Clicking
+// opens a menu to link AutoKey (auto-detect from the track), Follow Song Key
+// (from the master bus), or set any key by hand. Replaces the separate AutoKey /
+// Follow toggles + status label with a single button.
+// -----------------------------------------------------------------------------
+class KeyButton final : public juce::Component
+{
+public:
+    enum class Mode { Manual, Auto, Follow };
+
+    KeyButton() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+    std::function<void()> onLinkAuto;                   // engage AutoKey (and drop Follow)
+    std::function<void()> onLinkFollow;                 // engage Follow Song Key (and drop AutoKey)
+    std::function<void(int root, int scaleIdx)> onManualKey;  // set key by hand (drops Auto/Follow)
+
+    void setState (Mode m, int root, int scaleIdx) noexcept
+    {
+        if (m == mode && root == rootIdx && scaleIdx == scaleIndex) return;
+        mode = m; rootIdx = root; scaleIndex = scaleIdx; repaint();
+    }
+
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseUp    (const juce::MouseEvent&) override { pressed = false; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true;  repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
+
+private:
+    Mode mode = Mode::Manual;
+    int  rootIdx = 9, scaleIndex = 1;
+    bool hover = false, pressed = false;
+};
+
+// -----------------------------------------------------------------------------
 // Editor proper.
 // -----------------------------------------------------------------------------
 class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
@@ -103,6 +139,8 @@ private:
     void saveCurrentAsUserPreset();
     void loadTraceFromClipboard();
     void showTab (int idx);
+    // Set an APVTS param by its real value (handles the 0-1 conversion + gesture).
+    void setKeyParam (const juce::String& id, float value);
 
     SattariAutoPitchAudioProcessor& audioProcessor;
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("auto-pitch") };
@@ -128,9 +166,9 @@ private:
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
     juce::Label editNotesLabel, detuneLabel, modeLabel;
-    // Live key readout next to the AutoKey / Follow toggles (mirrors Harmony's
-    // keyStatus): shows the key AutoKey is currently detecting / the bus key.
-    juce::Label keyStatusBasic;
+    // Single unified key control: shows the live key + how it's driven, and its
+    // menu links AutoKey / Follow Song Key or sets the key manually.
+    KeyButton keyButton;
     juce::ToggleButton lowLatency { "Low Latency" };
 
     juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;
