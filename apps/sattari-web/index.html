@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sattari Audio — Professional Plugin Suite for Mac</title>
+  <meta name="description" content="14 professional audio plugins for Mac. Auto Pitch, Harmony Engine, Maqam, Vocal Master, Rhythm Genie and more — all sharing one master key via the Sattari cross-plugin bus." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────── */
+    :root {
+      --bg:        #07090f;
+      --bg2:       #0d111c;
+      --bg3:       #131928;
+      --border:    #1c2438;
+      --mint:      #62f5c8;
+      --mint-dim:  rgba(98,245,200,.12);
+      --mint-glow: rgba(98,245,200,.35);
+      --white:     #edf2ff;
+      --sub:       #7a8baa;
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Inter', system-ui, sans-serif;
+      --radius:    14px;
+      --radius-sm: 8px;
+    }
+
+    /* ─── reset ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--white);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+
+    /* ─── nav ────────────────────────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 5vw;
+      height: 64px;
+      background: rgba(7,9,15,.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: 1.05rem; letter-spacing: -.01em;
+    }
+    .nav-logo .dot {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 14px var(--mint-glow);
+      flex-shrink: 0;
+    }
+    .nav-links {
+      display: flex; gap: 36px; list-style: none;
+    }
+    .nav-links a {
+      font-size: .875rem; font-weight: 500; color: var(--sub);
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--white); }
+    .nav-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 20px; border-radius: 50px;
+      background: var(--mint); color: #07090f;
+      font-size: .85rem; font-weight: 700; letter-spacing: .01em;
+      transition: box-shadow .2s, transform .15s;
+    }
+    .nav-cta:hover {
+      box-shadow: 0 0 22px var(--mint-glow);
+      transform: translateY(-1px);
+    }
+
+    /* ─── hero ───────────────────────────────────────────────── */
+    .hero {
+      position: relative; overflow: hidden;
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 5vw 80px;
+    }
+    /* cymatic SVG canvas behind hero */
+    .hero-canvas {
+      position: absolute; inset: 0; z-index: 0;
+      opacity: .55;
+    }
+    .hero-canvas svg { width: 100%; height: 100%; }
+
+    /* radial gradient overlay */
+    .hero::after {
+      content: '';
+      position: absolute; inset: 0; z-index: 1;
+      background: radial-gradient(ellipse 80% 60% at 50% 40%, transparent 30%, var(--bg) 100%);
+      pointer-events: none;
+    }
+    .hero-content { position: relative; z-index: 2; max-width: 860px; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 14px; border-radius: 50px;
+      border: 1px solid rgba(98,245,200,.3);
+      background: var(--mint-dim);
+      font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--mint); margin-bottom: 32px;
+    }
+    .hero-badge .pulse {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--mint);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .4; transform: scale(.7); }
+    }
+    h1 {
+      font-size: clamp(2.6rem, 6.5vw, 5.2rem);
+      font-weight: 900; line-height: 1.07; letter-spacing: -.035em;
+      margin-bottom: 28px;
+    }
+    h1 .accent { color: var(--mint); }
+    .hero-sub {
+      font-size: clamp(1rem, 2.2vw, 1.22rem);
+      color: var(--sub); line-height: 1.65;
+      max-width: 620px; margin: 0 auto 44px;
+    }
+    .hero-actions {
+      display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
+    }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 14px 32px; border-radius: 50px;
+      background: var(--mint); color: #07090f;
+      font-weight: 700; font-size: .95rem;
+      transition: box-shadow .2s, transform .15s;
+    }
+    .btn-primary:hover {
+      box-shadow: 0 0 36px var(--mint-glow);
+      transform: translateY(-2px);
+    }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 14px 32px; border-radius: 50px;
+      border: 1px solid var(--border);
+      color: var(--sub); font-weight: 600; font-size: .95rem;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-secondary:hover { border-color: var(--mint); color: var(--white); }
+
+    /* hero stats strip */
+    .hero-stats {
+      position: relative; z-index: 2;
+      display: flex; gap: 0; justify-content: center; flex-wrap: wrap;
+      margin-top: 64px;
+    }
+    .stat {
+      padding: 0 40px;
+      border-right: 1px solid var(--border);
+      text-align: center;
+    }
+    .stat:last-child { border-right: none; }
+    .stat-num { font-size: 2rem; font-weight: 900; color: var(--mint); letter-spacing: -.02em; }
+    .stat-label { font-size: .78rem; color: var(--sub); margin-top: 4px; letter-spacing: .04em; text-transform: uppercase; }
+
+    /* ─── section chrome ─────────────────────────────────────── */
+    section { padding: 100px 5vw; }
+    .section-label {
+      font-size: .78rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--mint);
+      margin-bottom: 14px;
+    }
+    h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+      font-weight: 800; line-height: 1.15; letter-spacing: -.03em;
+      margin-bottom: 20px;
+    }
+    .section-intro {
+      font-size: 1.05rem; color: var(--sub); line-height: 1.7;
+      max-width: 580px; margin-bottom: 64px;
+    }
+
+    /* ─── feature cards (top 3) ──────────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .feature-card:hover {
+      border-color: rgba(98,245,200,.4);
+      box-shadow: 0 0 32px rgba(98,245,200,.06);
+    }
+    .feature-icon {
+      width: 46px; height: 46px; border-radius: 12px;
+      background: var(--mint-dim);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+      font-size: 1.3rem;
+    }
+    .feature-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; }
+    .feature-card p { font-size: .9rem; color: var(--sub); line-height: 1.65; }
+
+    /* ─── plugin grid ────────────────────────────────────────── */
+    .plugins-section { background: var(--bg2); }
+    .filter-bar {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 40px;
+    }
+    .filter-btn {
+      padding: 7px 16px; border-radius: 50px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--sub); font-size: .82rem; font-weight: 500;
+      cursor: pointer; font-family: var(--sans);
+      transition: all .2s;
+    }
+    .filter-btn.active, .filter-btn:hover {
+      border-color: var(--mint); color: var(--mint);
+      background: var(--mint-dim);
+    }
+    .plugins-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 18px;
+    }
+    .plugin-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 26px;
+      display: flex; flex-direction: column; gap: 14px;
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+      cursor: default;
+    }
+    .plugin-card:hover {
+      border-color: rgba(98,245,200,.35);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(98,245,200,.08);
+    }
+    .plugin-card[data-hidden="true"] { display: none; }
+    .plugin-header {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    }
+    .plugin-icon {
+      width: 42px; height: 42px; border-radius: 10px;
+      background: var(--mint-dim);
+      border: 1px solid rgba(98,245,200,.2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; flex-shrink: 0;
+    }
+    .plugin-meta { flex: 1; min-width: 0; }
+    .plugin-name {
+      font-size: .975rem; font-weight: 700; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .plugin-cat {
+      font-size: .75rem; color: var(--sub); font-weight: 500;
+      letter-spacing: .03em;
+    }
+    .plugin-desc {
+      font-size: .85rem; color: var(--sub); line-height: 1.6;
+      flex: 1;
+    }
+    .plugin-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-top: 14px; border-top: 1px solid var(--border);
+    }
+    .format-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag {
+      font-family: var(--mono);
+      font-size: .7rem; font-weight: 500;
+      padding: 3px 8px; border-radius: 4px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      color: var(--sub);
+    }
+    .tag.mint {
+      background: var(--mint-dim);
+      border-color: rgba(98,245,200,.25);
+      color: var(--mint);
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(98,245,200,.5);
+    }
+
+    /* ─── key bus feature section ────────────────────────────── */
+    .bus-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px; align-items: center;
+    }
+    @media (max-width: 860px) { .bus-section { grid-template-columns: 1fr; } }
+    .bus-visual {
+      position: relative;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px;
+      overflow: hidden;
+    }
+    .bus-visual::before {
+      content: '';
+      position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
+      width: 200px; height: 200px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(98,245,200,.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .bus-node-center {
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 24px;
+    }
+    .bus-center-ring {
+      width: 64px; height: 64px; border-radius: 50%;
+      border: 2px solid var(--mint);
+      box-shadow: 0 0 24px var(--mint-glow), inset 0 0 16px rgba(98,245,200,.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .72rem; font-weight: 700; color: var(--mint);
+      letter-spacing: .05em; text-align: center; line-height: 1.2;
+    }
+    .bus-spokes {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+    }
+    .bus-spoke {
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: .78rem; color: var(--sub);
+      text-align: center;
+      position: relative;
+    }
+    .bus-spoke::before {
+      content: '';
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 1px; height: 12px; top: -13px;
+      background: linear-gradient(to bottom, transparent, rgba(98,245,200,.4));
+    }
+    .bus-spoke.active { border-color: rgba(98,245,200,.3); color: var(--white); }
+    .bus-line-up {
+      width: 1px; height: 24px; background: linear-gradient(to bottom, rgba(98,245,200,.4), transparent);
+      margin: 0 auto 0;
+    }
+    .bus-copy h2 { margin-bottom: 16px; }
+    .bus-copy p { color: var(--sub); line-height: 1.7; margin-bottom: 20px; font-size: 1rem; }
+    .feature-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .feature-list li {
+      display: flex; align-items: flex-start; gap: 12px;
+      font-size: .9rem; color: var(--sub); line-height: 1.5;
+    }
+    .feature-list li::before {
+      content: '→';
+      color: var(--mint); flex-shrink: 0; margin-top: 1px;
+    }
+
+    /* ─── download CTA ───────────────────────────────────────── */
+    .cta-section {
+      text-align: center;
+      background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 50%, var(--bg) 100%);
+      position: relative; overflow: hidden;
+    }
+    .cta-section::before {
+      content: '';
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 600px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(98,245,200,.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta-section .section-label { justify-content: center; display: flex; }
+    .cta-section h2 { max-width: 600px; margin: 0 auto 20px; }
+    .cta-section p { color: var(--sub); max-width: 480px; margin: 0 auto 40px; line-height: 1.7; }
+    .cta-section .hero-actions { margin-top: 0; }
+    .platform-note {
+      margin-top: 24px;
+      font-size: .8rem; color: var(--sub);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .platform-note svg { opacity: .5; }
+
+    /* ─── footer ─────────────────────────────────────────────── */
+    footer {
+      padding: 48px 5vw;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 24px;
+    }
+    .footer-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: .95rem;
+    }
+    .footer-logo .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--mint); }
+    .footer-links { display: flex; gap: 28px; flex-wrap: wrap; }
+    .footer-links a { font-size: .85rem; color: var(--sub); transition: color .2s; }
+    .footer-links a:hover { color: var(--white); }
+    .footer-copy { font-size: .8rem; color: var(--sub); }
+
+    /* ─── cymatic ring animation ─────────────────────────────── */
+    @keyframes ringExpand {
+      0%   { r: 0; opacity: .6; }
+      100% { r: 420; opacity: 0; }
+    }
+    .cymatic-ring {
+      animation: ringExpand var(--dur, 6s) ease-out infinite;
+      animation-delay: var(--delay, 0s);
+      fill: none;
+      stroke: rgba(98,245,200,.18);
+      stroke-width: 1;
+    }
+
+    /* ─── scrollbar ──────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ─── mobile ─────────────────────────────────────────────── */
+    @media (max-width: 680px) {
+      .nav-links { display: none; }
+      .stat { padding: 0 20px; }
+      footer { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ NAV ══════════════════════════════════════════════════════ -->
+<nav>
+  <div class="nav-logo">
+    <div class="dot"></div>
+    Sattari Audio
+  </div>
+  <ul class="nav-links">
+    <li><a href="#plugins">Plugins</a></li>
+    <li><a href="#key-bus">Key Bus</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a></li>
+  </ul>
+  <a href="#download" class="nav-cta">
+    <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Get the Hub
+  </a>
+</nav>
+
+<!-- ══ HERO ══════════════════════════════════════════════════════ -->
+<section class="hero" id="home">
+  <!-- animated cymatic rings -->
+  <div class="hero-canvas" aria-hidden="true">
+    <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:0s"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:1.4s"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:2.8s"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:4.2s"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:5.6s"/>
+      <!-- secondary offset rings -->
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:0s;stroke:rgba(98,245,200,.08)"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:2.75s;stroke:rgba(98,245,200,.08)"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:5.5s;stroke:rgba(98,245,200,.08)"/>
+      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:8.25s;stroke:rgba(98,245,200,.08)"/>
+      <!-- chladni-style spokes -->
+      <line x1="600" y1="340" x2="600" y2="-60" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="600" y2="740" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="1200" y2="340" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="0" y2="340" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="1100" y2="-40" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="100" y2="740" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="1100" y2="740" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
+      <line x1="600" y1="340" x2="100" y2="-40" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <div class="hero-content">
+    <div class="hero-badge">
+      <div class="pulse"></div>
+      Alpha — Mac AU &amp; VST3
+    </div>
+    <h1>
+      The <span class="accent">complete audio</span><br />
+      plugin suite for creators
+    </h1>
+    <p class="hero-sub">
+      14 professional plugins — pitch correction, vocal harmony, microtonal tuning, stem separation, rhythm generation and more — all sharing one master key via the Sattari cross-plugin bus.
+    </p>
+    <div class="hero-actions">
+      <a href="#download" class="btn-primary">
+        <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download Sattari Hub
+      </a>
+      <a href="#plugins" class="btn-secondary">
+        Browse Plugins →
+      </a>
+    </div>
+  </div>
+
+  <div class="hero-stats">
+    <div class="stat">
+      <div class="stat-num">14</div>
+      <div class="stat-label">Plugins</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">AU+VST3</div>
+      <div class="stat-label">Formats</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">1</div>
+      <div class="stat-label">Master Key Bus</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">Mac</div>
+      <div class="stat-label">Platform</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3 FEATURE CARDS ═══════════════════════════════════════════ -->
+<section id="features">
+  <p class="section-label">Why Sattari Audio</p>
+  <h2>Built different. Works together.</h2>
+  <p class="section-intro">Every plugin in the suite shares context — when Sattari Key detects the song key from your master bus, every other plugin knows it instantly.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🔗</div>
+      <h3>Cross-Plugin Key Bus</h3>
+      <p>Place Sattari Key on your master. It broadcasts the detected key to every plugin in the session — Auto Pitch, Harmony, Maqam, VoxKey, Arp all follow in realtime. No manual key entry.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🎙</div>
+      <h3>Complete Vocal Stack</h3>
+      <p>From raw to radio-ready in one suite: Royal Chain strip → Vocal Master cleanup → Auto Pitch correction → Harmony Engine diatonic voices. All session-aware.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧬</div>
+      <h3>AI Stem Separation</h3>
+      <p>StemDeck's ONNX-powered Demucs pipeline and Vocal Master's AI isolation seam let you pull stems apart in your DAW without leaving your session.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ PLUGINS GRID ══════════════════════════════════════════════ -->
+<section class="plugins-section" id="plugins">
+  <p class="section-label">The Suite</p>
+  <h2>14 plugins. One ecosystem.</h2>
+  <p class="section-intro">Click any category to filter. Every plugin installs via the Sattari Hub — one click, no drag-and-drop.</p>
+
+  <div class="filter-bar" id="filterBar">
+    <button class="filter-btn active" data-cat="all">All</button>
+    <button class="filter-btn" data-cat="Vocal">Vocal</button>
+    <button class="filter-btn" data-cat="MIDI">MIDI</button>
+    <button class="filter-btn" data-cat="Mix">Mix</button>
+    <button class="filter-btn" data-cat="Key">Key</button>
+    <button class="filter-btn" data-cat="Stem">Stem</button>
+  </div>
+
+  <div class="plugins-grid" id="pluginsGrid">
+
+    <div class="plugin-card" data-cats="Vocal Key">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎤</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Auto Pitch</div>
+          <div class="plugin-cat">Vocal tuning</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Realtime pitch correction with Rubber Band engine. Hard-tune to chart-style, or subtle transparent correction. Follows the session key bus automatically.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Key">
+      <div class="plugin-header">
+        <div class="plugin-icon">🔑</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Key</div>
+          <div class="plugin-cat">Key detection</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Place on master bus. Continuously scans the full mix via 24-key Krumhansl–Schmuckler and publishes the detected key to every plugin in the suite.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Vocal MIDI">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎵</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari VoxKey</div>
+          <div class="plugin-cat">Voice-to-MIDI</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Sing into your DAW and get MIDI out. YIN pitch detection feeds a realtime note stream you can route to any synth, sampler, or MIDI track.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Vocal">
+      <div class="plugin-header">
+        <div class="plugin-icon">👑</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Royal Chain</div>
+          <div class="plugin-cat">Vocal chain</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Full vocal signal chain in one plugin: gate, EQ, compression, de-ess, reverb and saturation — with a Portal-inspired cymatic compass visualizer.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Vocal Key">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎼</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Harmony</div>
+          <div class="plugin-cat">Vocal harmony engine</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Four Rubber Band harmony voices voiced diatonically above and below your lead. Choir doubler, humanize scatter, per-voice formant shift. Follows the key bus.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Vocal Key">
+      <div class="plugin-header">
+        <div class="plugin-icon">🌙</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Maqam</div>
+          <div class="plugin-cat">Microtonal tuning</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Quarter-tone pitch correction for Arabic, Persian and Turkish vocal traditions. 8 maqamat with neutral third and custom microtonal degree tables.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Vocal Stem">
+      <div class="plugin-header">
+        <div class="plugin-icon">✨</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Vocal Master</div>
+          <div class="plugin-cat">Vocal cleanup</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Vocal cleanup chain: mid-side isolation, HPF, tilt EQ, air shelf, Linkwitz-Riley de-esser, downward expander gate, auto-leveler, and AI stem-separation seam.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Stem">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎚</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari StemDeck</div>
+          <div class="plugin-cat">Stem performance</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Standalone remix instrument: separate any track into stems with ONNX Demucs, mix them live, and record arrangements. AU plugin for in-DAW stem routing.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="MIDI">
+      <div class="plugin-header">
+        <div class="plugin-icon">🥁</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Rhythm Genie</div>
+          <div class="plugin-cat">MIDI drum generator</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Host-synced MIDI drum pattern generator. Pick groove style, dial density and swing, adjust kick/snare/hat layers independently, and feed any drum sampler.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="MIDI Key">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎹</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Arp</div>
+          <div class="plugin-cat">MIDI arpeggiator</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Diatonic arpeggiator that follows the session key. Rate, octave range, gate, velocity curve and note order — everything tempo-synced to the host.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Mix">
+      <div class="plugin-header">
+        <div class="plugin-icon">📊</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Bus</div>
+          <div class="plugin-cat">Bus / mix</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Glue compressor, 3-band tone, harmonic drive, stereo width, pan and parallel wet blend with an output ceiling. The last thing on every bus.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Mix">
+      <div class="plugin-header">
+        <div class="plugin-icon">🔄</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Side Chain Master</div>
+          <div class="plugin-cat">Mix utility</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Precision sidechain ducking with envelope shaping, hold time, and parallel blend. Optical-style response for musical pumping, or fast attack for tight EDM.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Mix">
+      <div class="plugin-header">
+        <div class="plugin-icon">⚡</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sub Conjurer</div>
+          <div class="plugin-cat">Low-end utility</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Sub bass enhancement and low-end shaping. Harmonic sub generation, high-pass filter blend, and mono low-end focus for club-ready bottom end on any system.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="plugin-card" data-cats="Mix">
+      <div class="plugin-header">
+        <div class="plugin-icon">🎯</div>
+        <div class="plugin-meta">
+          <div class="plugin-name">Sattari Align</div>
+          <div class="plugin-cat">Timing alignment</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <p class="plugin-desc">Onset-envelope cross-correlation aligner. Time-aligns a Main signal to a Guide sidechain — vocal doubles, guitar layers, drum stems. Sample-accurate phase lock.</p>
+      <div class="plugin-footer">
+        <div class="format-tags">
+          <span class="tag mint">AU</span>
+          <span class="tag mint">VST3</span>
+          <span class="tag">Standalone</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ KEY BUS DEEP-DIVE ══════════════════════════════════════════ -->
+<section id="key-bus">
+  <div class="bus-section">
+    <div class="bus-visual">
+      <div class="bus-node-center">
+        <div class="bus-center-ring">SATTARI<br/>KEY</div>
+      </div>
+      <div class="bus-line-up"></div>
+      <div class="bus-spokes">
+        <div class="bus-spoke active">Auto Pitch</div>
+        <div class="bus-spoke active">Harmony</div>
+        <div class="bus-spoke active">Maqam</div>
+        <div class="bus-spoke active">VoxKey</div>
+        <div class="bus-spoke active">Arp</div>
+        <div class="bus-spoke">+ 9 more</div>
+      </div>
+    </div>
+    <div class="bus-copy">
+      <p class="section-label">Cross-Plugin Key Bus</p>
+      <h2>Set the key once. Every plugin follows.</h2>
+      <p>The Sattari cross-plugin session bus is a lock-free shared memory channel that runs across every plugin instance in your session. Sattari Key publishes the detected key every 700 ms — all key-aware plugins subscribe and update immediately.</p>
+      <p>No MIDI routing. No parameter automation. No manual key entry across 10 plugins.</p>
+      <ul class="feature-list">
+        <li>24-key Krumhansl–Schmuckler detection — major <em>and</em> minor</li>
+        <li>Manual override on any plugin without affecting others</li>
+        <li>Works across AU and VST3 in the same session</li>
+        <li>Zero latency: lock-free atomic reads on the audio thread</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══ DOWNLOAD ═══════════════════════════════════════════════════ -->
+<section class="cta-section" id="download">
+  <p class="section-label">Get Started</p>
+  <h2>Download the Sattari Hub</h2>
+  <p>The Hub installer detects which plugins you already have, downloads only what's new, and installs everything to the right Library folders automatically.</p>
+  <div class="hero-actions">
+    <a href="https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json" class="btn-primary">
+      <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Download Hub
+    </a>
+    <a href="https://sattarimusic.com" target="_blank" rel="noopener" class="btn-secondary">
+      sattarimusic.com →
+    </a>
+  </div>
+  <p class="platform-note">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 2C4.69 2 2 4.69 2 8s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10.5A4.5 4.5 0 1 1 8 3.5a4.5 4.5 0 0 1 0 9z" fill="currentColor"/>
+    </svg>
+    macOS 12+ · AU &amp; VST3 · Apple Silicon &amp; Intel
+  </p>
+</section>
+
+<!-- ══ FOOTER ════════════════════════════════════════════════════ -->
+<footer>
+  <div class="footer-logo">
+    <div class="dot"></div>
+    Sattari Audio
+  </div>
+  <div class="footer-links">
+    <a href="#plugins">Plugins</a>
+    <a href="#key-bus">Key Bus</a>
+    <a href="#download">Download</a>
+    <a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a>
+  </div>
+  <div class="footer-copy">© 2025 Sattari Music. All rights reserved.</div>
+</footer>
+
+<script>
+  // ── plugin category filter ────────────────────────────────────
+  const filterBar  = document.getElementById('filterBar');
+  const pluginCards = document.querySelectorAll('.plugin-card');
+
+  filterBar.addEventListener('click', e => {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+
+    filterBar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const cat = btn.dataset.cat;
+    pluginCards.forEach(card => {
+      const cats = card.dataset.cats || '';
+      card.dataset.hidden = (cat !== 'all' && !cats.includes(cat)) ? 'true' : 'false';
+    });
+  });
+
+  // ── smooth scroll offset for fixed nav ───────────────────────
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (!target) return;
+      e.preventDefault();
+      const offset = 72;
+      window.scrollTo({ top: target.getBoundingClientRect().top + scrollY - offset, behavior: 'smooth' });
+    });
+  });
+
+  // ── nav shrink on scroll ──────────────────────────────────────
+  const nav = document.querySelector('nav');
+  window.addEventListener('scroll', () => {
+    nav.style.boxShadow = scrollY > 20
+      ? '0 1px 0 rgba(98,245,200,.08), 0 4px 24px rgba(0,0,0,.5)'
+      : 'none';
+  }, { passive: true });
+
+  // ── staggered card entrance ───────────────────────────────────
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.plugin-card, .feature-card').forEach((card, i) => {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(24px)';
+      card.style.transition = `opacity .45s ease ${i * 40}ms, transform .45s ease ${i * 40}ms`;
+      observer.observe(card);
+    });
+  }
+</script>
+
+</body>
+</html>
