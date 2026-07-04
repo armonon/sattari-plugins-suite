@@ -128,6 +128,9 @@ private:
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
     juce::Label editNotesLabel, detuneLabel, modeLabel;
+    // Live key readout next to the AutoKey / Follow toggles (mirrors Harmony's
+    // keyStatus): shows the key AutoKey is currently detecting / the bus key.
+    juce::Label keyStatusBasic;
     juce::ToggleButton lowLatency { "Low Latency" };
 
     juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;

@@ -254,6 +254,11 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // ----- Basic -----
     basicPanel.addAndMakeVisible (autoKey);
     basicPanel.addAndMakeVisible (followKey);
+    // Live key readout (accent when AutoKey/Follow drives the key, muted for manual).
+    keyStatusBasic.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    keyStatusBasic.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::productAccent ("auto-pitch")));
+    keyStatusBasic.setJustificationType (juce::Justification::centredLeft);
+    basicPanel.addAndMakeVisible (keyStatusBasic);
     basicPanel.addAndMakeVisible (noteDisplay);
     basicPanel.addAndMakeVisible (pillRow);
     // Plain click toggles whether the note is a valid correction target.
@@ -555,15 +560,30 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     keyRoot.setEnabled (manualKey);
     scale.setEnabled (manualKey);
 
+    // Full scale name for the prominent live readout.
+    static const char* scaleFull[] = { "major", "minor", "chromatic" };
+    const juce::String effKeyFull = noteNames[juce::jlimit (0, 11, origin.root)]
+                                  + " " + scaleFull[juce::jlimit (0, 2, origin.scale)];
+
     switch (origin.source)
     {
         case SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus:
-            keyScaleCaption.setText ("FOLLOWING SONG KEY: " + effKeyText, juce::dontSendNotification); break;
+            keyScaleCaption.setText ("FOLLOWING SONG KEY: " + effKeyText, juce::dontSendNotification);
+            keyStatusBasic.setText ("Following Song Key:  " + effKeyFull, juce::dontSendNotification);
+            keyStatusBasic.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::productAccent ("auto-pitch")));
+            break;
         case SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey:
-            keyScaleCaption.setText ("AUTOKEY: " + effKeyText, juce::dontSendNotification); break;
+            keyScaleCaption.setText ("AUTOKEY: " + effKeyText, juce::dontSendNotification);
+            // Live key AutoKey is currently detecting from the audio.
+            keyStatusBasic.setText ("AutoKey scanning:  " + effKeyFull, juce::dontSendNotification);
+            keyStatusBasic.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::productAccent ("auto-pitch")));
+            break;
         case SattariAutoPitchAudioProcessor::KeyOrigin::Source::Manual:
         default:
-            keyScaleCaption.setText ("KEY & SCALE", juce::dontSendNotification); break;
+            keyScaleCaption.setText ("KEY & SCALE", juce::dontSendNotification);
+            keyStatusBasic.setText ("Key:  " + effKeyFull, juce::dontSendNotification);
+            keyStatusBasic.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+            break;
     }
 
     // Pills light for the key actually in use (the followed/detected key when
@@ -662,6 +682,10 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto leftTop = left.removeFromTop (32);
     autoKey.setBounds (leftTop.removeFromLeft (150));
     followKey.setBounds (leftTop.removeFromLeft (210));
+
+    // Live key readout row directly under the toggles.
+    keyStatusBasic.setBounds (left.removeFromTop (18));
+    left.removeFromTop (2);
 
     noteDisplay.setBounds (left.removeFromTop ((int) (left.getHeight() * 0.55f)));
     left.removeFromTop (8);
