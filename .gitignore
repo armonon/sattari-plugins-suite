@@ -52,3 +52,6 @@ third_party/onnxruntime-osx-universal2-*/
 # Python caches
 __pycache__/
 *.pyc
+
+# Hosted download artifacts (deployed, not committed)
+apps/sattari-web/downloads/
