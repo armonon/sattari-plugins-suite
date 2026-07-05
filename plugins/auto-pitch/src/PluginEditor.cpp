@@ -257,6 +257,7 @@ void KeyButton::mouseDown (const juce::MouseEvent&)
         manual.addSubMenu (names[root], sub);
     }
     menu.addSubMenu ("Set key manually", manual);
+    menu.addItem (3, "Chromatic  (correct to nearest semitone)", true, mode == Mode::Manual && scaleIndex == 2);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
         [this] (int id)
@@ -265,6 +266,7 @@ void KeyButton::mouseDown (const juce::MouseEvent&)
             repaint();
             if (id == 1)       { if (onLinkAuto)   onLinkAuto(); }
             else if (id == 2)  { if (onLinkFollow) onLinkFollow(); }
+            else if (id == 3)  { if (onManualKey)  onManualKey (rootIdx, 2); }   // chromatic
             else if (id >= 100){ const int root = (id - 100) / 2, sc = (id - 100) % 2;
                                  if (onManualKey) onManualKey (root, sc); }
         });
@@ -289,15 +291,16 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         "Bass Voice", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano",
         "Instrument: Bass", "Instrument: Mid", "Instrument: High"
     }, 1);
+    // keyRoot / scale are still populated + attached (they hold the manual key),
+    // but the header dropdowns are gone — the single KeyButton is now the only
+    // key control, so we don't add keyRoot/scale/keyScaleCaption to the view.
     keyRoot.addItemList ({ "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
     scale.addItemList ({ "Major", "Minor", "Chromatic" }, 1);
-    for (auto* c : { &vocalRange, &keyRoot, &scale, &factoryPresets, &userPresets })
+    for (auto* c : { &vocalRange, &factoryPresets, &userPresets })
         addAndMakeVisible (*c);
 
     styleCaption (vocalRangeCaption, "SOUND SOURCE");
-    styleCaption (keyScaleCaption, "KEY & SCALE");
     addAndMakeVisible (vocalRangeCaption);
-    addAndMakeVisible (keyScaleCaption);
 
     factoryPresets.setTextWhenNothingSelected ("Factory");
     registerFactoryPresets();
@@ -652,37 +655,14 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     // ~1 Hz inside publishCurrentKeyToBus() so the JSON file never thrashes.
     audioProcessor.publishCurrentKeyToBus();
 
-    // Reflect where the correction key ACTUALLY comes from. When Follow Song Key
-    // or AutoKey is driving it, the manual dropdowns are overridden — so we grey
-    // them out and label the caption with the real key, instead of leaving them
-    // live-looking but silently ignored (the old "menu doesn't work" trap).
+    // Drive the single KeyButton: it shows the live key + how it's driven
+    // (manual / AutoKey / Follow). This is now the only key control.
     const auto origin = audioProcessor.currentKeyOrigin();
-    const bool manualKey = origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::Manual;
-
-    static const char* scaleShort[] = { "maj", "min", "chr" };
-    const juce::String effKeyText = noteNames[juce::jlimit (0, 11, origin.root)]
-                                  + " " + scaleShort[juce::jlimit (0, 2, origin.scale)];
-
-    keyRoot.setEnabled (manualKey);
-    scale.setEnabled (manualKey);
-
-    // Drive the unified key button: it shows the live key + how it's driven.
     using KBMode = KeyButton::Mode;
     const KBMode kbMode = origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus ? KBMode::Follow
                         : origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey  ? KBMode::Auto
                         : KBMode::Manual;
     keyButton.setState (kbMode, origin.root, origin.scale);
-
-    switch (origin.source)
-    {
-        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus:
-            keyScaleCaption.setText ("FOLLOWING SONG KEY: " + effKeyText, juce::dontSendNotification); break;
-        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey:
-            keyScaleCaption.setText ("AUTOKEY: " + effKeyText, juce::dontSendNotification); break;
-        case SattariAutoPitchAudioProcessor::KeyOrigin::Source::Manual:
-        default:
-            keyScaleCaption.setText ("KEY & SCALE", juce::dontSendNotification); break;
-    }
 
     // Pills light for the key actually in use (the followed/detected key when
     // overriding, the manual key otherwise) — not the stale dropdown value.
@@ -737,13 +717,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     vocalRangeCaption.setBounds (vocalBlock.removeFromTop (14));
     vocalRange.setBounds (vocalBlock);
     header.removeFromLeft (10);
-
-    auto keyBlock = header.removeFromLeft (240);
-    keyScaleCaption.setBounds (keyBlock.removeFromTop (14));
-    auto keyRow = keyBlock;
-    keyRoot.setBounds (keyRow.removeFromLeft (66));
-    keyRow.removeFromLeft (6);
-    scale.setBounds (keyRow);
+    // (Key & Scale dropdowns removed from the header — the KeyButton on the Basic
+    //  tab is now the single key control.)
 
     // Preset (right of header)
     auto presetCol = header.removeFromRight (300);

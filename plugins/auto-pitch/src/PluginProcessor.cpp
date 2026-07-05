@@ -193,8 +193,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
 
     // Preserve Vibrato: 0 = full snap (kills vibrato under hard tune), 1 = keep
     // the singer's fast pitch oscillation while still correcting the note centre.
+    // Default OFF: on real input the pitch tracker jitters frame-to-frame, and
+    // re-injecting that jitter (not just musical vibrato) muddies the corrected
+    // tone. Opt in when you want expressive vibrato preserved on sustained notes.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("vibrato", "Preserve Vibrato",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.30f));
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
 
     // --- Antares-class behavioural controls ----------------------------------
     // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
