@@ -85,6 +85,40 @@ double pitchStdCents (const juce::AudioBuffer<float>& buf, double sr)
     var /= (double) midis.size();
     return std::sqrt (var) * 100.0;               // semitones -> cents
 }
+
+const char* noteName12 (int r)
+{
+    static const char* N[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    return N[((r % 12) + 12) % 12];
+}
+
+// A clean monophonic tonal melody in the given key: sustained sine tones on
+// scale degrees, tonic/dominant-weighted and ending on the tonic like real
+// tonal music. Best-case material for probing AutoKey's key detection.
+juce::AudioBuffer<float> makeMelody (double sr, double seconds, int root, bool minor)
+{
+    static const int MAJ[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    static const int MIN[7] = { 0, 2, 3, 5, 7, 8, 10 };
+    const int* deg = minor ? MIN : MAJ;
+    // scale-degree indices (0=tonic .. 6=leading), tonic-heavy, ends on tonic.
+    static const int seq[] = { 0,2,4,2,0, 4,5,4,2,0, 0,2,4,4,2,0, 4,2,0,0 };
+    const int seqN = (int) (sizeof (seq) / sizeof (seq[0]));
+
+    const int n = (int) (sr * seconds);
+    juce::AudioBuffer<float> buf (1, n);
+    float* d = buf.getWritePointer (0);
+    const int noteLen = (int) (sr * 0.26);
+    double phase = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const int noteI = (i / noteLen) % seqN;
+        const int midi = 60 + root + deg[seq[noteI]];
+        const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
+        d[i] = 0.4f * (float) std::sin (phase);
+        phase += 2.0 * M_PI * hz / sr;
+    }
+    return buf;
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -93,10 +127,41 @@ int main (int argc, char** argv)
     const bool smoke    = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
     const bool features = (argc > 1 && std::strcmp (argv[1], "--features") == 0);
     const bool crepeTest= (argc > 1 && std::strcmp (argv[1], "--crepe") == 0);
+    const bool autokey  = (argc > 1 && std::strcmp (argv[1], "--autokey") == 0);
 
     const double sr = 48000.0;
     const int    block = 512;
     const double seconds = 4.0;
+
+    // ---- AutoKey accuracy probe: feed clean tonal melodies in known keys and
+    //      check what key AutoKey detects (reads detectedRoot via the snapshot).
+    //      This is BEST-CASE material (clean monophonic tones); real vocals with
+    //      noise/vibrato/partial phrases are harder.
+    if (autokey)
+    {
+        int correct = 0, total = 0;
+        for (int root : { 0, 2, 4, 5, 7, 9, 11 })
+            for (bool minor : { false, true })
+            {
+                auto mel = makeMelody (sr, 6.0, root, minor);
+                SattariAutoPitchAudioProcessor p;
+                auto& a = p.parameters();
+                setParam (a, "scale", minor ? 1.0f : 0.0f);   // AutoKey finds the root FOR this mode
+                setParam (a, "autoKey", 1.0f);
+                setParam (a, "followSongKey", 0.0f);
+                setParam (a, "enableCorrection", 1.0f);
+                setParam (a, "vibrato", 0.0f);
+                (void) sattari::harness::renderThrough (p, mel, sr, block);
+                const int det = p.getLiveSnapshot().detectedRoot;
+                const bool ok = (det == root);
+                std::printf ("  %-2s %s  ->  detected %-2s  %s\n",
+                             noteName12 (root), minor ? "min" : "maj", noteName12 (det), ok ? "OK" : "MISS");
+                ++total; if (ok) ++correct;
+            }
+        std::printf ("AutoKey accuracy on clean tonal melodies: %d/%d (%.0f%%)\n",
+                     correct, total, 100.0 * correct / total);
+        return 0;
+    }
 
     // ---- CREPE (C++ ONNX) proof: load the real model + track known tones ------
     // Deterministic: drives CrepePitchTracker directly (synchronous analyse, no
