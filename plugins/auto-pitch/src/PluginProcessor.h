@@ -185,6 +185,7 @@ private:
     double smoothedPitchScale = 1.0;
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
+    int detectedAutoScale = 1;   // AutoKey auto-detected mode: 0=major, 1=minor
 
     // --- Note-transition retune modeling (Antares-class "feel") --------------
     // When the correction target jumps to a new note, transitionBoost spikes to

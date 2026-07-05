@@ -152,10 +152,16 @@ int main (int argc, char** argv)
                 setParam (a, "enableCorrection", 1.0f);
                 setParam (a, "vibrato", 0.0f);
                 (void) sattari::harness::renderThrough (p, mel, sr, block);
-                const int det = p.getLiveSnapshot().detectedRoot;
-                const bool ok = (det == root);
-                std::printf ("  %-2s %s  ->  detected %-2s  %s\n",
-                             noteName12 (root), minor ? "min" : "maj", noteName12 (det), ok ? "OK" : "MISS");
+                // currentKeyOrigin() reports the effective AutoKey key: root AND
+                // the auto-detected mode (major/minor).
+                const auto ko = p.currentKeyOrigin();
+                const int  detRoot  = ko.root;
+                const int  detScale = ko.scale;   // 0=major, 1=minor
+                const bool ok = (detRoot == root) && (detScale == (minor ? 1 : 0));
+                std::printf ("  %-2s %s  ->  detected %-2s %s  %s\n",
+                             noteName12 (root), minor ? "min" : "maj",
+                             noteName12 (detRoot), detScale == 1 ? "min" : detScale == 0 ? "maj" : "chr",
+                             ok ? "OK" : "MISS");
                 ++total; if (ok) ++correct;
             }
         std::printf ("AutoKey accuracy on clean tonal melodies: %d/%d (%.0f%%)\n",

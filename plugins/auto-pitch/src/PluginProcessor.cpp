@@ -391,6 +391,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     smoothedPitchScale = 1.0;
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
+    detectedAutoScale = 1;
     lastTargetMidiForTransition = -1000;
     transitionBoost = 0.0;
     flexEngageState = 0.0;
@@ -591,7 +592,14 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
     if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f)
         if (const auto s = sessionReader.current(); s.valid)
             return s.scale == 1 ? 1 : 0;   // bus convention: 0 major, 1 minor
-    return juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+
+    const int userScale = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    // AutoKey auto-detects the mode too (unless the user picked Chromatic, which
+    // means "no scale snapping" and has no major/minor to detect).
+    if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f && userScale != 2)
+        return juce::jlimit (0, 1, detectedAutoScale);
+
+    return userScale;
 }
 
 SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::currentKeyOrigin() const
@@ -613,7 +621,7 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
     {
         o.source = KeyOrigin::Source::AutoKey;
         o.root   = juce::jlimit (0, 11, detectedAutoRoot);
-        o.scale  = juce::jlimit (0, 2, juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
+        o.scale  = juce::jlimit (0, 2, effectiveScaleIndex());   // AutoKey auto-detects the mode
         return o;
     }
 
@@ -646,11 +654,16 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 
     if (scaleName == "major" || scaleName == "minor")
     {
-        // Shared Krumhansl-Schmuckler key detector — de-duplicated from the inline
-        // copy that used to live here, now unit-tested in
-        // core/tests/key_detector_contract.cpp. (sattari::dsp::detectKey() also
-        // offers full 24-key auto major/minor detection for a future AutoKey mode.)
-        bestRoot = sattari::dsp::detectKeyRootForMode (autoKeyHistogram.data(), scaleName == "minor");
+        // Full 24-key Krumhansl-Schmuckler detection: AutoKey picks BOTH the root
+        // AND the mode (major vs minor) from the pitch-class histogram, instead of
+        // only finding the root within the user's chosen mode. detectedAutoScale
+        // then drives the effective scale (see effectiveScaleIndex).
+        const auto kr = sattari::dsp::detectKey (autoKeyHistogram.data());
+        if (kr.valid)
+        {
+            bestRoot = kr.root;
+            detectedAutoScale = kr.minor ? 1 : 0;
+        }
     }
     else
     {
@@ -1296,6 +1309,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         polyPushBlock (scMonoScratch.data(), numSamples);
     }
 
+    // Computed once per block: neural pitch feeds BOTH the correction override
+    // (below) and the AutoKey histogram (in the loop) when a CREPE model is active.
+    const bool neuralOn   = apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f;
+    const bool neuralHist = neuralOn && crepeModelPresent;
+
     for (int i = 0; i < numSamples; ++i)
     {
         float mono = 0.0f;
@@ -1307,19 +1325,35 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         {
             auto detected = analyseCurrentPitchFrame();
             if (! sidechainSeenAudio)
-                updateAutoKeyHistogram (detected);
+            {
+                // Neural-assisted AutoKey: when CREPE is active + confident, feed
+                // its more-accurate pitch class into the histogram instead of YIN's,
+                // so key detection is cleaner on breathy/noisy vocals.
+                PitchFrame forHist = detected;
+                if (neuralHist)
+                {
+                    const float chz = crepeResultHz.load (std::memory_order_relaxed);
+                    if (crepeResultVoiced.load (std::memory_order_relaxed) && chz > 0.0f)
+                    {
+                        forHist.frequencyHz = chz;
+                        forHist.midi        = midiFromHz (chz);
+                        forHist.confidence  = juce::jmax (forHist.confidence,
+                                                          (double) crepeResultConf.load (std::memory_order_relaxed));
+                        forHist.voiced      = true;
+                    }
+                }
+                updateAutoKeyHistogram (forHist);
+            }
             lastPitchFrame = buildCorrectionFrame (detected);
             pitchSamplesUntilAnalysis = pitchHopSize;
         }
     }
 
     // Neural pitch (CREPE) override: when a model is installed and enabled, the
-    // CNN estimate replaces YIN's — it does not octave-jump on breathy/noisy
-    // vocals, which is the main reason correction feels "off". Confidence-gated;
-    // absent a model this whole block is skipped and YIN stands. (Inference is run
-    // here for the alpha; a production build should hop it onto a worker thread.)
-    const bool neuralOn = apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f;
-    if (neuralOn && crepeModelPresent && (int) scMonoScratch.size() >= numSamples)
+    // CNN estimate replaces YIN's for correction too — it does not octave-jump on
+    // breathy/noisy vocals. The heavy ONNX inference runs on crepeThread; here we
+    // only feed the ring and read the worker's result atomics.
+    if (neuralHist && (int) scMonoScratch.size() >= numSamples)
     {
         // Audio thread: only feed the ring (lock-free) — the worker thread runs
         // the ONNX inference and publishes its result into the atomics we read.
