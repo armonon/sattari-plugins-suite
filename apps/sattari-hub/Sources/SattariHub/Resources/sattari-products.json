@@ -454,6 +454,37 @@
           "installSubpath": "Applications/Sattari Warp.app"
         }
       ]
+    },
+    {
+      "id": "tuner",
+      "name": "Sattari Tuner",
+      "category": "Tuning",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Precision instrument & vocal tuner: pass-through analyser that reports the nearest note and cents deviation with a steady strobe needle. Adjustable reference A (415-466 Hz) and transpose.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/AU/Sattari Tuner.component",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Tuner.component"
+        },
+        {
+          "kind": "VST3",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/VST3/Sattari Tuner.vst3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Tuner.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/Standalone/Sattari Tuner.app",
+          "installSubpath": "Applications/Sattari Tuner.app"
+        }
+      ]
     }
   ],
   "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"

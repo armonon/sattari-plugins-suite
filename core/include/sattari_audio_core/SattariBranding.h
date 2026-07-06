@@ -90,6 +90,7 @@ inline const std::vector<Product>& products()
         { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
         { "align",             "Sattari Align",       "Timing alignment", kAccent },
         { "warp",              "Sattari Warp",        "Creative vocal FX",kAccentViolet },
+        { "tuner",             "Sattari Tuner",       "Tuning",           kAccent },
     };
     return registry;
 }

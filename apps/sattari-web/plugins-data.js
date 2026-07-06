@@ -203,7 +203,23 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "align", name: "Sattari Align", icon: "🎯",
+    id: "tuner", name: "Sattari Tuner", icon: "🎯",
+    category: "Tuning", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Precision instrument & vocal tuner — big note readout with a steady strobe needle.",
+    what: "Sattari Tuner is a pass-through tuner: drop it on any track and it shows the nearest note and exactly how many cents sharp or flat you are, without touching the audio. The needle stays steady thanks to smoothing, and it locks to whatever reference you set — from concert 440 to 432 or period tunings — so it fits guitars, voice, brass, strings and synths alike.",
+    how: "It mono-sums the incoming signal and runs the same YIN pitch tracker that powers Auto Pitch, folded to the octave and smoothed with a one-pole so the readout doesn't jitter. Detected frequency is converted to a fractional MIDI note against your chosen Reference A, then split into the nearest note plus a signed cents deviation that drives the needle and the green in-tune zone. A Transpose control handles capos and transposing instruments. The audio path is untouched — pass-through is bit-exact.",
+    features: [
+      "Big note readout + strobe-style cents needle",
+      "±5-cent in-tune zone with green lock glow",
+      "Adjustable Reference A (415–466 Hz: 432, 440, period tunings)",
+      "Transpose ±12 semitones (capo / transposing instruments)",
+      "Adjustable smoothing for a steady vs snappy needle",
+      "Bit-exact pass-through — safe anywhere in the chain"
+    ]
+  },
+  {
+    id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Phase-lock a layer to its guide — doubles, DI/amp, drum stems.",
