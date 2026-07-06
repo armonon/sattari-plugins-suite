@@ -67,6 +67,38 @@ StemProvider::StemProvider()
         if (configFile.existsAsFile())
             separatorCommand = configFile.loadFileAsString().trim();
     }
+
+    // Auto-detect demucs if still not configured
+    if (separatorCommand.trim().isEmpty())
+    {
+        const juce::StringArray candidatePaths {
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.9/bin/demucs",
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.10/bin/demucs",
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.11/bin/demucs",
+            "/usr/local/bin/demucs",
+            "/opt/homebrew/bin/demucs",
+            "/opt/homebrew/opt/demucs/bin/demucs",
+        };
+        for (const auto& path : candidatePaths)
+        {
+            if (juce::File (path).existsAsFile())
+            {
+                separatorCommand = path + " --out {output} {input}";
+                break;
+            }
+        }
+        // Also try `which demucs` via PATH
+        if (separatorCommand.trim().isEmpty())
+        {
+            juce::ChildProcess which;
+            if (which.start ({ "which", "demucs" }))
+            {
+                const auto path = which.readAllProcessOutput().trim().upToFirstOccurrenceOf ("\n", false, false).trim();
+                if (path.isNotEmpty() && juce::File (path).existsAsFile())
+                    separatorCommand = path + " --out {output} {input}";
+            }
+        }
+    }
 }
 
 StemProvider::~StemProvider()
@@ -345,14 +377,41 @@ bool StemProvider::runSeparatorCommand (const juce::String& command,
     }
 
     const std::array<juce::String, 4> expected { "drums.wav", "bass.wav", "music.wav", "vocals.wav" };
-    bool allReady = true;
-    for (const auto& name : expected)
-        allReady = allReady && tempDirectory.getChildFile (name).existsAsFile();
 
-    if (! allReady && tempDirectory.getChildFile ("other.wav").existsAsFile())
+    // Demucs writes to a subdirectory: {output}/{model}/{trackname}/stem.wav
+    // Flatten any such subdirectory structure up to tempDirectory root.
+    {
+        juce::Array<juce::File> topDirs;
+        tempDirectory.findChildFiles (topDirs, juce::File::findDirectories, false);
+        for (auto& modelDir : topDirs)
+        {
+            juce::Array<juce::File> trackDirs;
+            modelDir.findChildFiles (trackDirs, juce::File::findDirectories, false);
+            // Also handle the case where stems are directly inside modelDir (not nested)
+            if (trackDirs.isEmpty())
+                trackDirs.add (modelDir);
+            for (auto& trackDir : trackDirs)
+            {
+                for (const auto& name : expected)
+                {
+                    auto src = trackDir.getChildFile (name);
+                    if (src.existsAsFile() && ! tempDirectory.getChildFile (name).existsAsFile())
+                        src.copyFileTo (tempDirectory.getChildFile (name));
+                }
+                // demucs 4-stem model uses "other.wav" instead of "music.wav"
+                auto other = trackDir.getChildFile ("other.wav");
+                if (other.existsAsFile() && ! tempDirectory.getChildFile ("music.wav").existsAsFile())
+                    other.copyFileTo (tempDirectory.getChildFile ("music.wav"));
+            }
+        }
+    }
+
+    // Also handle other.wav at root level
+    if (! tempDirectory.getChildFile ("music.wav").existsAsFile()
+        && tempDirectory.getChildFile ("other.wav").existsAsFile())
         tempDirectory.getChildFile ("other.wav").copyFileTo (tempDirectory.getChildFile ("music.wav"));
 
-    allReady = true;
+    bool allReady = true;
     for (const auto& name : expected)
         allReady = allReady && tempDirectory.getChildFile (name).existsAsFile();
 

@@ -419,6 +419,7 @@ private:
     juce::TextButton arrLoopButton { "Loop" };
     juce::TextButton launchAllButton { ">> ALL" };
     juce::TextButton playArrButton { "Play Arr" };
+    juce::TextButton arrRecordButton { "Record" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     void toggleArrangementPlayback();

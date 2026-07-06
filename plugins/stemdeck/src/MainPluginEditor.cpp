@@ -2422,6 +2422,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     playArrButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     playArrButton.onClick = [this] { toggleArrangementPlayback(); };
     addAndMakeVisible (playArrButton);
+    setupButton (arrRecordButton);
+    arrRecordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffcc2222));
+    arrRecordButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    arrRecordButton.onClick = [this] { toggleRecording(); };
+    addAndMakeVisible (arrRecordButton);
     setupButton (undoButton);
     undoButton.onClick = [this] { arrangementView.undo(); };
     addAndMakeVisible (undoButton);
@@ -4152,8 +4157,10 @@ void MainPluginEditor::resized()
         zoomBox.removeFromRight (4);
         arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1));
         arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1));
-        // Launch All button — between label and MIDI-learn feedback
+        // Record + Launch All — between label and MIDI-learn feedback
         labelRow.removeFromRight (8);
+        arrRecordButton.setBounds (labelRow.removeFromRight (60).reduced (0, 1));
+        labelRow.removeFromRight (4);
         launchAllButton.setBounds (labelRow.removeFromRight (60).reduced (0, 1));
         labelRow.removeFromRight (6);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
@@ -4221,6 +4228,8 @@ void MainPluginEditor::timerCallback()
     recordButton.setColour (juce::TextButton::textColourOffId,
                             recording ? juce::Colours::white
                                       : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
+    arrRecordButton.setButtonText (recording ? u8 ("\xe2\x97\x8f Stop Rec") : u8 ("\xe2\x97\x8f Record"));
+    arrRecordButton.setToggleState (recording, juce::dontSendNotification);
 
     {
         // Project tempo (MASTER BPM) drives the arrangement grid + the piano roll.
