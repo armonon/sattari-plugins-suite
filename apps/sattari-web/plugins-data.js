@@ -187,6 +187,22 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "warp", name: "Sattari Warp", icon: "🌀",
+    category: "Creative vocal FX", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Vocal transformer — one Dose knob takes you from subtle character to fully mangled.",
+    what: "Warp is a creative vocal transformer built for damage in the best way. Bend the vocal tract, robotise it, dirty it up, and glitch it into stutters — from a subtle character move to a completely mangled, alien performance. One big Dose knob escalates the whole thing so you can automate 'clean → chaos' in a single move.",
+    how: "It's a chain of real DSP blocks scaled together by the Dose macro: a morphable formant filter (two resonators sweeping A-E-I-O-U) for talkbox/vowel warp; ring modulation against a tunable carrier for metallic robot tones; a waveshaper drive plus bit/sample-rate crush for grit and lo-fi; and a tempo-synced beat-repeat stutter that captures a slice and loops it. Dry/wet blend keeps it mixable.",
+    features: [
+      "DOSE macro — one knob from subtle character to full chaos",
+      "Vowel/formant morph (talkbox-style vocal-tract warp)",
+      "Robot ring-mod with a tunable carrier",
+      "Grit: waveshaper drive + bit / sample-rate crush",
+      "Tempo-synced stutter / beat-repeat glitching",
+      "Reactive audio-driven UI; full dry/wet blend"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎯",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],

@@ -18,6 +18,7 @@ add_subdirectory(plugins/song-key)
 add_subdirectory(plugins/voxkey)
 add_subdirectory(plugins/bus)
 add_subdirectory(plugins/align)
+add_subdirectory(plugins/warp)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.
