@@ -72,10 +72,27 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
 
     setupCombo (mode);
     mode.addItemList ({ "Melody", "Bass Follow", "Harmony", "Drum Mouth", "Pad/Soul Layer" }, 1);
-    setupCombo (key);
-    key.addItemList ({ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 1);
-    setupCombo (scale);
-    scale.addItemList ({ "Chromatic", "Major", "Minor", "Pentatonic" }, 1);
+
+    // One tactile control for the whole key story (shared across the suite):
+    // Follow Song Key from the master bus, or set root + scale by hand.
+    {
+        sattari::ui::KeyButton::Config cfg;
+        cfg.accentId   = "voxkey";
+        cfg.showFollow = true;
+        cfg.showAutoKey = false;
+        cfg.rootNames  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        cfg.scaleNames = { "Chromatic", "Major", "Minor", "Pentatonic" };
+        cfg.hint       = "click: follow song key / set by hand";
+        keyButton.setConfig (cfg);
+    }
+    keyButton.onLinkFollow = [this] { setKeyParam ("followKey", 1.0f); };
+    keyButton.onManualKey  = [this] (int root, int scaleIdx)
+    {
+        setKeyParam ("followKey", 0.0f);
+        setKeyParam ("key",   (float) root);
+        setKeyParam ("scale", (float) scaleIdx);
+    };
+    addAndMakeVisible (keyButton);
 
     setupSlider (sensitivity);
     setupSlider (smoothness);
@@ -97,8 +114,6 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     glide.setButtonText ("Glide / Legato");
     setupToggle (bypass);
     bypass.setButtonText ("Bypass");
-    setupToggle (followKey);
-    followKey.setButtonText ("Follow Song Key");
     setupToggle (neuralPitch);
     neuralPitch.setButtonText ("Neural Pitch");
     // Experimental "alpha" features are hidden from the shipping UI so users never
@@ -142,8 +157,6 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
 
     auto& params = audioProcessor.parameters();
     modeAttach = std::make_unique<ComboAttachment> (params, "mode", mode);
-    keyAttach = std::make_unique<ComboAttachment> (params, "key", key);
-    scaleAttach = std::make_unique<ComboAttachment> (params, "scale", scale);
     sensitivityAttach = std::make_unique<SliderAttachment> (params, "sensitivity", sensitivity);
     smoothnessAttach = std::make_unique<SliderAttachment> (params, "smoothness", smoothness);
     confidenceAttach = std::make_unique<SliderAttachment> (params, "confidence", confidence);
@@ -156,7 +169,6 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     glideAttach = std::make_unique<ButtonAttachment> (params, "glide", glide);
     bypassAttach = std::make_unique<ButtonAttachment> (params, "bypass", bypass);
     paraphonicAttach = std::make_unique<ButtonAttachment> (params, "paraphonic", paraphonic);
-    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
     neuralPitchAttach = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
 
     startTimerHz (20);
@@ -206,6 +218,19 @@ void SattariVoxKeyAudioProcessorEditor::setupCombo (juce::ComboBox& combo)
     addAndMakeVisible (combo);
 }
 
+// Set an APVTS parameter by its real value (handles 0..1 conversion + gesture),
+// used by the KeyButton callbacks instead of a live attachment.
+void SattariVoxKeyAudioProcessorEditor::setKeyParam (const juce::String& id, float value)
+{
+    if (auto* p = audioProcessor.parameters().getParameter (id))
+    {
+        const float norm = p->convertTo0to1 (value);
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (norm);
+        p->endChangeGesture();
+    }
+}
+
 void SattariVoxKeyAudioProcessorEditor::setupLabel (juce::Label& label, const juce::String& text, float size)
 {
     label.setText (text, juce::dontSendNotification);
@@ -235,14 +260,16 @@ void SattariVoxKeyAudioProcessorEditor::updateMeters()
     outputLabel.setText ("MIDI Out: " + state.outputName, juce::dontSendNotification);
     confidenceLabel.setText (state.midiActive ? "MIDI activity: sending" : (state.voiced ? "MIDI activity: tracking" : "MIDI activity: idle"), juce::dontSendNotification);
 
-    // Grey the manual Key menu while the bus is driving the key, and show the
-    // followed root in the caption, so the override is never silent.
-    static const char* noteNm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    // Drive the single KeyButton: show the effective key + whether it's followed
+    // from the bus or set manually (the override is never silent).
+    auto& params = audioProcessor.parameters();
     int followedRoot = 0;
     const bool following = audioProcessor.followingBusKey (followedRoot);
-    key.setEnabled (! following);
-    keyLabel.setText (following ? "KEY -> " + juce::String (noteNm[followedRoot]) : "KEY",
-                      juce::dontSendNotification);
+    const int rootIdx  = following ? followedRoot : (int) *params.getRawParameterValue ("key");
+    const int scaleIdx = (int) *params.getRawParameterValue ("scale");
+    keyButton.setState (following ? sattari::ui::KeyButton::Mode::Follow
+                                  : sattari::ui::KeyButton::Mode::Manual,
+                        rootIdx, scaleIdx);
 }
 
 void SattariVoxKeyAudioProcessorEditor::paint (juce::Graphics& g)
@@ -275,15 +302,12 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     auto comboCaptions = left.removeFromTop (13);
     modeLabel.setBounds (comboCaptions.removeFromLeft (160));
     comboCaptions.removeFromLeft (8);
-    keyLabel.setBounds (comboCaptions.removeFromLeft (80));
-    comboCaptions.removeFromLeft (8);
-    scaleLabel.setBounds (comboCaptions.removeFromLeft (130));
-    auto combos = left.removeFromTop (40);
-    mode.setBounds (combos.removeFromLeft (160));
+    keyLabel.setBounds (comboCaptions);                 // "KEY" caption over the KeyButton
+    // scaleLabel is folded into the KeyButton (which shows key + scale together).
+    auto combos = left.removeFromTop (56);
+    mode.setBounds (combos.removeFromLeft (160).withSizeKeepingCentre (160, 30));
     combos.removeFromLeft (8);
-    key.setBounds (combos.removeFromLeft (80));
-    combos.removeFromLeft (8);
-    scale.setBounds (combos.removeFromLeft (130));
+    keyButton.setBounds (combos);                       // key + scale in one control
 
     left.removeFromTop (12);
     auto cap1 = left.removeFromTop (13);
@@ -317,7 +341,7 @@ void SattariVoxKeyAudioProcessorEditor::resized()
     glide.setBounds (toggleRow.removeFromLeft (122));
     bypass.setBounds (toggleRow.removeFromLeft (82));
     panicButton.setBounds (toggleRow.removeFromLeft (66));
-    followKey.setBounds (toggleRow.removeFromLeft (130));
+    // (Follow Song Key moved into the KeyButton above.)
    #if SATTARI_ENABLE_EXPERIMENTAL
     paraphonic.setBounds (toggleRow.removeFromLeft (160));
    #endif
