@@ -129,6 +129,15 @@ public:
     // Hardware MIDI controller mapping (learn + apply).
     MidiMappingManager& getMidiMapping() noexcept { return midiMapping; }
 
+    // Tracktion Engine access — message-thread safe after construction.
+    // Returns nullptr only if TE failed to initialise (should never happen).
+    tracktion::Edit*      getTeEdit()      noexcept { return teWrapper ? teWrapper->edit.get()      : nullptr; }
+    tracktion::Engine*    getTeEngine()    noexcept { return teWrapper ? &teWrapper->engine         : nullptr; }
+    tracktion::TransportControl* getTeTransport() noexcept
+    {
+        return teWrapper && teWrapper->edit ? &teWrapper->edit->getTransport() : nullptr;
+    }
+
     // Arrangement playback — plays the edited multi-clip arrangement back through
     // the master out via a sample-accurate, RT-safe scheduler.
     struct ArrangementClipSpec
