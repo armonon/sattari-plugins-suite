@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariKeyButton.h>
 #include "MaqamProcessor.h"
 
 class SattariMaqamAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -24,6 +25,7 @@ private:
 
     void setupSlider (juce::Slider&);
     void setupCombo  (juce::ComboBox&, const juce::StringArray&);
+    void setKeyParam (const juce::String& id, float value);   // set an APVTS param by real value
     void timerCallback() override;
     void drawLadder (juce::Graphics&, juce::Rectangle<int> area);
     void refreshUserPresets();
@@ -36,13 +38,13 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, keyStatus, inputMeterLabel, outputMeterLabel;
-    juce::ComboBox maqamBox, rootBox, userPresets;
-    juce::ToggleButton followKeyToggle { "Follow Song Key" }, formantToggle { "Preserve Formants" }, lowLatencyToggle { "Low Latency" };
+    juce::ComboBox userPresets;
+    sattari::ui::KeyButton keyButton;   // one control: Follow Song Key / set root+maqam by hand
+    juce::ToggleButton formantToggle { "Preserve Formants" }, lowLatencyToggle { "Low Latency" };
     juce::TextButton savePresetButton { "Save Preset" }, midiLearnButton { "MIDI Learn..." };
     juce::Slider strengthSlider, mixSlider;
 
-    std::unique_ptr<ComboAttachment>  maqamAtt, rootAtt;
-    std::unique_ptr<ButtonAttachment> followAtt, formantAtt, lowLatAtt;
+    std::unique_ptr<ButtonAttachment> formantAtt, lowLatAtt;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAtts;
 
     SattariMaqamAudioProcessor::Snapshot snapshot;

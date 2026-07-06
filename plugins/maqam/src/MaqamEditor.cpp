@@ -32,15 +32,29 @@ SattariMaqamAudioProcessorEditor::SattariMaqamAudioProcessorEditor (SattariMaqam
     addAndMakeVisible (inputMeterLabel);
     addAndMakeVisible (outputMeterLabel);
 
-    setupCombo (maqamBox, SattariMaqamAudioProcessor::maqamChoices());
-    setupCombo (rootBox,  SattariMaqamAudioProcessor::rootChoices());
-    maqamAtt = std::make_unique<ComboAttachment> (processor.parameters(), "maqam", maqamBox);
-    rootAtt  = std::make_unique<ComboAttachment> (processor.parameters(), "root",  rootBox);
+    // One tactile control for the whole key story (shared across the suite):
+    // Follow Song Key from the master bus, or set root + maqam by hand.
+    {
+        sattari::ui::KeyButton::Config cfg;
+        cfg.accentId   = "maqam";
+        cfg.showFollow = true;
+        cfg.showAutoKey = false;
+        cfg.rootNames  = SattariMaqamAudioProcessor::rootChoices();
+        cfg.scaleNames = SattariMaqamAudioProcessor::maqamChoices();   // the maqam list IS the "scale"
+        cfg.hint       = "click: follow song key / set root + maqam";
+        keyButton.setConfig (cfg);
+    }
+    keyButton.onLinkFollow = [this] { setKeyParam ("followKey", 1.0f); };
+    keyButton.onManualKey  = [this] (int root, int maqamIdx)
+    {
+        setKeyParam ("followKey", 0.0f);
+        setKeyParam ("root",  (float) root);
+        setKeyParam ("maqam", (float) maqamIdx);
+    };
+    addAndMakeVisible (keyButton);
 
-    addAndMakeVisible (followKeyToggle);
     addAndMakeVisible (formantToggle);
     addAndMakeVisible (lowLatencyToggle);
-    followAtt  = std::make_unique<ButtonAttachment> (processor.parameters(), "followKey",  followKeyToggle);
     formantAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "formant",    formantToggle);
     lowLatAtt  = std::make_unique<ButtonAttachment> (processor.parameters(), "lowLatency", lowLatencyToggle);
 
@@ -81,6 +95,19 @@ void SattariMaqamAudioProcessorEditor::setupCombo (juce::ComboBox& c, const juce
     addAndMakeVisible (c);
 }
 
+// Set an APVTS parameter by its real value (handles 0..1 conversion + gesture),
+// used by the KeyButton callbacks instead of a live attachment.
+void SattariMaqamAudioProcessorEditor::setKeyParam (const juce::String& id, float value)
+{
+    if (auto* p = processor.parameters().getParameter (id))
+    {
+        const float norm = p->convertTo0to1 (value);
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (norm);
+        p->endChangeGesture();
+    }
+}
+
 void SattariMaqamAudioProcessorEditor::refreshUserPresets()
 {
     userPresets.clear (juce::dontSendNotification);
@@ -105,14 +132,11 @@ void SattariMaqamAudioProcessorEditor::timerCallback()
     inputMeterLabel.setText  ("IN "  + juce::String (juce::Decibels::gainToDecibels (processor.getInputMeter()  + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
     outputMeterLabel.setText ("OUT " + juce::String (juce::Decibels::gainToDecibels (processor.getOutputMeter() + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
 
-    keyStatus.setText ((snapshot.followingBus ? "Following Song Key root:  " : "Root:  ") + noteName (snapshot.rootPc),
-                       juce::dontSendNotification);
-    keyStatus.setColour (juce::Label::textColourId,
-        juce::Colour (snapshot.followingBus ? sattari::brand::kAccent : sattari::brand::kTextMuted));
-    // Grey out the manual Root menu when the bus is driving it, so the override
-    // is never silent (it shows the followed root but can't be edited until
-    // Follow Song Key is turned off).
-    rootBox.setEnabled (! snapshot.followingBus);
+    // Drive the single KeyButton: it shows the effective root + maqam and whether
+    // it's followed from the bus or set manually (the override is never silent).
+    keyButton.setState (snapshot.followingBus ? sattari::ui::KeyButton::Mode::Follow
+                                              : sattari::ui::KeyButton::Mode::Manual,
+                        snapshot.rootPc, snapshot.maqamIndex);
     repaint();
 }
 
@@ -229,14 +253,8 @@ void SattariMaqamAudioProcessorEditor::resized()
     midiLearnButton.setBounds (presetRow.removeFromLeft (110));
     area.removeFromTop (10);
 
-    auto modeRow = area.removeFromTop (30);
-    maqamBox.setBounds (modeRow.removeFromLeft (150));
-    modeRow.removeFromLeft (10);
-    rootBox.setBounds (modeRow.removeFromLeft (70));
-    modeRow.removeFromLeft (12);
-    followKeyToggle.setBounds (modeRow.removeFromLeft (160));
-    modeRow.removeFromLeft (8);
-    keyStatus.setBounds (modeRow);
+    auto modeRow = area.removeFromTop (56);
+    keyButton.setBounds (modeRow.removeFromLeft (juce::jmin (340, modeRow.getWidth())));
     area.removeFromTop (12);
 
     ladderArea = area.removeFromTop (150);
