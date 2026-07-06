@@ -372,6 +372,29 @@ void WaveformDisplay::paint (juce::Graphics& g)
         }
     }
 
+    // ── Intro end / Outro start markers ─────────────────────────────────────
+    if (totalLen > 0.0)
+    {
+        auto drawDJMarker = [&] (double markerSec, juce::Colour col, bool arrowPointsRight)
+        {
+            if (markerSec < 0.0 || markerSec < tStart || markerSec > tEnd) return;
+            const float mx = wave.getX() + wave.getWidth()
+                             * (float) ((markerSec - tStart) / (tEnd - tStart));
+            g.setColour (col.withAlpha (0.92f));
+            g.drawLine (mx, wave.getY(), mx, wave.getBottom(), 2.2f);
+            // Arrow-head at bottom edge indicating direction
+            const float ay = wave.getBottom() - 9.0f;
+            juce::Path head;
+            if (arrowPointsRight)
+                head.addTriangle (mx, ay, mx + 9.0f, ay + 4.5f, mx, ay + 9.0f);
+            else
+                head.addTriangle (mx, ay, mx - 9.0f, ay + 4.5f, mx, ay + 9.0f);
+            g.fillPath (head);
+        };
+        drawDJMarker (introEndSeconds,   juce::Colour (0xFF00CCFF), true);   // cyan  ▶ = intro ends, mix in after
+        drawDJMarker (outroStartSeconds, juce::Colour (0xFFFF9900), false);  // amber ◀ = outro starts, mix out before
+    }
+
     // ── Live playhead + progress shading ────────────────────────────────────
     if (totalLen > 0.0 && playbackTotalSeconds > 0.0)
     {

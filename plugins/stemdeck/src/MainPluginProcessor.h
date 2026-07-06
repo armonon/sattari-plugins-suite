@@ -153,6 +153,30 @@ public:
     void   setArrangementPositionSeconds (double s) noexcept { arrangementPlayer.setPositionSeconds (s); }
     void   setArrangementLoop (double startSec, double endSec, bool enabled) noexcept { arrangementPlayer.setLoop (startSec, endSec, enabled); }
 
+    // Intro/Outro DJ markers — stored as APVTS state properties (like hot cues)
+    void   setIntroEnd     (int deckIndex, double seconds);
+    double getIntroEnd     (int deckIndex) const;
+    void   clearIntroEnd   (int deckIndex);
+    void   setOutroStart   (int deckIndex, double seconds);
+    double getOutroStart   (int deckIndex) const;
+    void   clearOutroStart (int deckIndex);
+
+    // Talkover ducking: auto-attenuates deck output when mic exceeds threshold
+    void setTalkoverEnabled (bool on) noexcept { talkoverEnabled.store (on, std::memory_order_relaxed); }
+    bool isTalkoverEnabled() const noexcept    { return talkoverEnabled.load (std::memory_order_relaxed); }
+    void setTalkoverThresholdDb (float db) noexcept { talkoverThresholdDb.store (juce::jlimit (-80.0f, 0.0f, db), std::memory_order_relaxed); }
+    void setTalkoverDuckDb (float db) noexcept      { talkoverDuckDb.store (juce::jlimit (-60.0f, 0.0f, db), std::memory_order_relaxed); }
+
+    // Crossfader side assignment per deck: 0=A (left), 1=Center, 2=B (right)
+    void setDeckCfSide (int deckIndex, int side);
+    int  getDeckCfSide (int deckIndex) const;
+
+    // Deck slip mode + loop roll — thin pass-throughs to DeckPlayer
+    void setDeckSlipEnabled (int deckIndex, bool on) noexcept;
+    bool isDeckSlipEnabled  (int deckIndex) const noexcept;
+    void beginDeckLoopRoll  (int deckIndex, double lengthSeconds) noexcept;
+    void endDeckLoopRoll    (int deckIndex) noexcept;
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     static juce::String deckPrefix (int deckIndex);
@@ -274,6 +298,13 @@ private:
 
     double currentSampleRate = 44100.0;
     float limiterEnvelope = 1.0f;
+
+    // Talkover ducking state (audio-thread + message-thread atomics)
+    std::atomic<bool>  talkoverEnabled      { false };
+    std::atomic<float> talkoverThresholdDb  { -40.0f };
+    std::atomic<float> talkoverDuckDb       { -12.0f };
+    float talkoverEnvelope = 0.0f;   // audio-thread: smoothed mic level [0,1]
+    float talkoverDuckGain = 1.0f;   // audio-thread: current duck gain [0,1]
     std::array<std::atomic<int>, numDecks> liveKeyPitchClass;
     std::array<std::atomic<int>, numDecks> liveKeyIsMinor;
     std::array<std::atomic<float>, numDecks> liveKeyConfidence;

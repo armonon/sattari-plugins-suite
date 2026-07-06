@@ -37,6 +37,10 @@ public:
     // Zoom: level=1 = full track, level=4 = 4× zoomed in; scroll 0..1
     void setZoom (float level, float scrollFraction);
 
+    // Intro end / Outro start DJ markers (< 0 = unset)
+    void setIntroEnd   (double seconds) noexcept { introEndSeconds   = seconds; repaint(); }
+    void setOutroStart (double seconds) noexcept { outroStartSeconds = seconds; repaint(); }
+
     // Show RTSS badge when real-time separation is active with no offline stems
     void setRtssActive (bool active);
     bool getRtssActive() const noexcept { return rtssActive; }
@@ -75,6 +79,8 @@ private:
     bool   loopActive     = false;
 
     std::vector<double> beatGridSeconds;
+    double introEndSeconds   = -1.0;
+    double outroStartSeconds = -1.0;
 
     float zoomLevel      = 1.0f;
     float scrollFraction = 0.0f;

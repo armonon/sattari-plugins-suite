@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <vector>
+#include "SoftTakeover.h"
 
 /**
  * Hardware-controller MIDI mapping with learn mode.
@@ -27,7 +28,7 @@ class MidiMappingManager
 public:
     enum NoteAction { ActionPlay = 0, ActionCue = 1 };
 
-    struct CcTarget   { juce::String name; juce::RangedAudioParameter* param = nullptr; };
+    struct CcTarget   { juce::String name; juce::RangedAudioParameter* param = nullptr; SoftTakeover softTakeover; };
     struct NoteTarget { juce::String name; int deck = 0; int action = ActionPlay; };
     struct Trigger    { int deck = 0; int action = 0; };
 
@@ -75,7 +76,12 @@ public:
                 {
                     const int tgt = ccMap[(size_t) cc].load (std::memory_order_relaxed);
                     if (tgt >= 0 && tgt < (int) ccTargets.size() && ccTargets[(size_t) tgt].param != nullptr)
-                        ccTargets[(size_t) tgt].param->setValueNotifyingHost ((float) val / 127.0f);
+                    {
+                        auto& ct = ccTargets[(size_t) tgt];
+                        const float hwNorm = (float) val / 127.0f;
+                        if (ct.softTakeover.update (hwNorm, ct.param->getValue()))
+                            ct.param->setValueNotifyingHost (hwNorm);
+                    }
                 }
             }
             else if (m.isNoteOn())

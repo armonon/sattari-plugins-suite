@@ -63,6 +63,16 @@ public:
     double getLoopInSamples()  const noexcept { return loopInRefSamples.load  (std::memory_order_relaxed); }
     double getLoopOutSamples() const noexcept { return loopOutRefSamples.load (std::memory_order_relaxed); }
 
+    // Slip mode: a "shadow" playhead advances at 1× real-time while the main
+    // playhead is free to loop/scratch. Disabling slip snaps back to the shadow.
+    void setSlipEnabled (bool on) noexcept  { slipActive.store (on, std::memory_order_relaxed); }
+    bool isSlipEnabled() const noexcept     { return slipActive.load (std::memory_order_relaxed); }
+
+    // Loop roll: arms a beat-quantized loop + enables slip so playback snaps
+    // back to the real position when the roll is released.
+    void beginLoopRoll (double loopLengthSeconds) noexcept;
+    void endLoopRoll()   noexcept;
+
     void process (juce::AudioBuffer<float>& destination,
                   int startSample,
                   int numSamples,
@@ -116,6 +126,9 @@ private:
     std::atomic<double> loopInRefSamples      { -1.0 };
     std::atomic<double> loopOutRefSamples     { -1.0 };
     std::atomic<bool>   loopActiveFlag        { false };
+    std::atomic<bool>   slipActive            { false };   // slip mode enabled
+    double              slipShadowSamples     = -1.0;      // audio thread only; -1 = inactive
+    bool                slipWasActive         = false;     // audio thread only; tracks edge
     int channels = 2;
     int preparedMaxBlockSize = 512;
     EQProcessor eq;

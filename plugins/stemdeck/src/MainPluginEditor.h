@@ -64,6 +64,18 @@ private:
         juce::TextButton loopHalf { "1/2" };
         juce::TextButton loopDouble { "x2" };
 
+        // ── Intro / Outro DJ markers ──────────────────────────────────────────
+        juce::TextButton introEndBtn   { ">> I-End" };
+        juce::TextButton outroStartBtn { "O-Bgn <<" };
+
+        // ── Slip mode + Loop Roll ─────────────────────────────────────────────
+        juce::TextButton slipButton    { "Slip" };
+        // Beat-size loop roll buttons: 1/4  1/2  1  2  4  8 bars
+        std::array<juce::TextButton, 6> beatRollBtns;
+        static constexpr std::array<double, 6> kBeatRollLengths { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
+        static constexpr std::array<const char*, 6> kBeatRollLabels { "1/4","1/2","1","2","4","8" };
+        bool loopRollActive = false;
+
         // ── Beat jump (back: bars[3]=32 [2]=16 [1]=8 [0]=4, fwd mirror) ──────
         std::array<juce::TextButton, 4> beatJumpBack;
         std::array<juce::TextButton, 4> beatJumpFwd;
@@ -71,6 +83,11 @@ private:
         // ── Built-in FX ───────────────────────────────────────────────────────
         juce::Slider reverbMix, echoMix;
         std::unique_ptr<SliderAttachment> reverbMixAttachment, echoMixAttachment;
+        // Superknob: drives reverb + echo simultaneously (not APVTS-attached)
+        juce::Slider macroKnob;
+
+        // ── Crossfader assign: A / Center / B ────────────────────────────────
+        std::array<juce::TextButton, 3> cfSideBtns;   // [0]=A  [1]=Ctr  [2]=B
 
         // ── Toolbox tabs (declutter): CUE / LOOP / FX / SYNC / SRC ─────────────
         enum ToolTab { TabCue = 0, TabLoop, TabFx, TabSync, TabSrc, NumToolTabs };
@@ -107,6 +124,15 @@ private:
 
         using DeckAutomation = std::vector<AutomationCurve>;
 
+        // Follow actions: what happens when a clip finishes in the clip launcher
+        enum class FollowAction { None, Next, Prev, RandomOther, Stop };
+
+        // Clip-launcher slot state (beat-quantized transitions)
+        enum class SlotState { Idle, WaitingToStart, Running };
+
+        // Overlap resolution when a clip is dragged/dropped onto existing clips
+        enum class OverlapMode { Keep, Push, Replace };
+
         // A clip is a region [trimStartSeconds, trimEndSeconds] of its source file,
         // shown in place on the timeline (timeline position == source region). A
         // lane holds one or more clips; razor-splitting one produces two adjacent
@@ -123,6 +149,11 @@ private:
             bool selected = false;
             juce::String label;          // optional display name (overrides the filename)
             juce::uint32 colourArgb = 0; // 0 = use the lane colour; else an explicit clip colour
+
+            // Clip launcher metadata
+            FollowAction followAction  = FollowAction::None;
+            float        followProbability = 1.0f;   // 0..1
+            bool         locked        = false;      // prevent accidental drag
 
             double lengthSeconds() const noexcept { return juce::jmax (0.0, trimEndSeconds - trimStartSeconds); }
             double timelineEndSeconds() const noexcept { return timelineStartSeconds + lengthSeconds(); }
@@ -162,6 +193,7 @@ private:
         void duplicateClip (int laneIndex, int clipIndex);
         void setClipLabel (int laneIndex, int clipIndex, const juce::String& label);
         void setClipColour (int laneIndex, int clipIndex, juce::uint32 argb);
+        void setClipLocked (int laneIndex, int clipIndex, bool shouldLock);
         void zoomIn();
         void zoomOut();
         void zoomToFit();
@@ -198,6 +230,20 @@ private:
         std::function<void(double,double,bool)> onLoopChanged;   // loop region changed (start, end, enabled)
         void setLoopEnabled (bool shouldLoop);
         bool isLoopEnabled() const noexcept { return loopEnabled; }
+
+        // Clip launcher (beat-quantized slot triggers)
+        void triggerSlot (int lane, int clip) noexcept;
+        void triggerAllSlots() noexcept;    // queues clip[0] of every occupied deck lane
+        void setSlotState (int lane, SlotState state) noexcept;
+        SlotState getSlotState (int lane) const noexcept;
+        int getLauncherClip (int lane) const noexcept;
+
+        // Callback: editor hooks this to show the follow-action popup menu
+        std::function<void(int lane, int clip)> onFollowActionRequest;
+
+        // Overlap resolution mode (public accessor for the editor toolbar button)
+        OverlapMode getOverlapMode() const noexcept { return overlapMode; }
+        void setOverlapMode (OverlapMode m) noexcept { overlapMode = m; }
 
         // Per-lane mute/solo/volume (applied when the arrangement playback schedule is built).
         bool laneAudible (int lane) const noexcept
@@ -314,6 +360,17 @@ private:
 
         std::vector<LaneSnapshot> undoStack;
         std::vector<LaneSnapshot> redoStack;
+
+        // ---- Clip launcher state (beat-quantized transitions) ----
+        std::array<SlotState, numEditableLanes> slotStates {};
+        std::array<int, numLanes> launcherClipPerLane {};   // per-lane queued clip index (-1 = none)
+
+        // ---- Overlap resolution mode ----
+        OverlapMode overlapMode = OverlapMode::Keep;
+
+        // Apply overlap resolution when a clip is placed at a given position on a lane.
+        // Returns true if the operation changed surrounding clips (for undo).
+        void applyOverlapResolution (int laneIndex, const LaneClip& incoming);
     };
 
     MainPluginProcessor& processorRef;
@@ -360,6 +417,7 @@ private:
     juce::TextButton razorButton { "Razor" };
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton arrLoopButton { "Loop" };
+    juce::TextButton launchAllButton { ">> ALL" };
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
@@ -382,9 +440,16 @@ private:
     juce::TextButton mixerButton { "Mixer" };
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
     juce::TextButton metronomeButton { "Click" };
+    juce::TextButton talkoverButton  { "Tover" };    // talkover ducking toggle
+    juce::TextButton overlapModeButton { "Keep" };   // cycles Keep → Push → Replace
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     int    pianoRollLane = -1;                // which lane/clip the piano roll edits
     int    pianoRollClip = -1;
+
+    // Beat-quantized clip launcher
+    double launcherBeatPhase   = 0.0;
+    double launcherBeatOriginMs = -1.0;      // wall-clock ms of first beat reference
+    std::array<double, MainPluginProcessor::numDecks> pendingSlotSeekSec {}; // -1 = no pending
     double arrangementLoopStart = 0.0, arrangementLoopEnd = 0.0;
     bool   arrangementLoopEnabled = false;
     std::array<PadControls, PadBank::numPads> pads;
@@ -440,6 +505,17 @@ private:
     void setupLoopControls (int deckIndex);
     void updateLoopButtonStates (int deckIndex);
     void updateWaveformLoopRegion (int deckIndex);
+
+    // Slip + loop roll helpers
+    void setupSlipAndRoll (int deckIndex);
+    void updateSlipButtonState (int deckIndex);
+
+    // Superknob / FX macro helpers
+    void setupMacroKnob (int deckIndex);
+
+    // Follow action + launcher helpers
+    void showFollowActionMenu (int laneIndex, int clipIndex);
+    void applyFollowAction (int laneIndex, int clipIndex);
 
     // UI helpers
     void showCamelotWheel (int deckIndex);

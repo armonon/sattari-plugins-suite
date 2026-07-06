@@ -96,6 +96,12 @@ public:
                     (float) closeRect.getRight(), (float) closeRect.getY(), 1.6f);
 
         auto keyCol = b.removeFromLeft (keyW);
+
+        // Reserve bottom strip for velocity editor
+        const auto velStrip = b.removeFromBottom (velH);
+        velArea = velStrip.withTrimmedTop (4);
+        b.removeFromBottom (1);   // 1 px gap between grid and velocity panel
+
         gridArea = b;
         const int rowH = juce::jmax (4, gridArea.getHeight() / numRows);
         rowHpx = rowH;
@@ -153,6 +159,47 @@ public:
             g.setColour (juce::Colours::white.withAlpha (0.5f));
             g.drawRoundedRectangle (r, 2.0f, 1.0f);
         }
+
+        // ── Velocity editor panel ────────────────────────────────────────────
+        {
+            g.setColour (juce::Colour (kPanelDeep).darker (0.35f));
+            g.fillRect (velArea);
+            g.setColour (juce::Colour (kHairline).withAlpha (0.6f));
+            g.drawHorizontalLine (velArea.getY(), (float) velArea.getX(), (float) velArea.getRight());
+
+            // "VEL" label on the left keyboard column
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText ("VEL", juce::Rectangle<int> (0, velArea.getY(), keyW, velArea.getHeight()),
+                        juce::Justification::centred);
+
+            // Midline at velocity 64
+            const float midY = velArea.getY() + velArea.getHeight() * (1.0f - 64.0f / 127.0f);
+            g.setColour (juce::Colour (kHairline).withAlpha (0.35f));
+            g.drawHorizontalLine ((int) midY, (float) velArea.getX(), (float) velArea.getRight());
+
+            // One bar per note
+            for (int i = 0; i < (int) notes.size(); ++i)
+            {
+                const auto& n = notes[(size_t) i];
+                const float vel = juce::jlimit (0.0f, 1.0f, (float) n.velocity / 127.0f);
+                const int nx    = gridArea.getX() + (int) std::round (n.startBeats * pxPerBeat);
+                const int barH  = juce::jmax (2, (int) std::round (vel * (float) velArea.getHeight()));
+                const auto barR = juce::Rectangle<int> (nx - 3, velArea.getBottom() - barH, 6, barH);
+                const bool isActive = (i == activeNote && prMode == 3);
+                g.setColour (juce::Colour (kAccent).withAlpha (isActive ? 1.0f : 0.70f));
+                g.fillRoundedRectangle (barR.toFloat(), 2.0f);
+                // Velocity number on taller bars
+                if (barH > 14)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.75f));
+                    g.setFont (juce::FontOptions (7.5f));
+                    g.drawText (juce::String (n.velocity),
+                                barR.withHeight (12).withY (barR.getY() - 1),
+                                juce::Justification::centred);
+                }
+            }
+        }
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -162,6 +209,24 @@ public:
             if (onClose) onClose();
             return;
         }
+
+        // Velocity lane click: drag Y to set velocity for nearest note
+        if (velArea.contains (e.getPosition()))
+        {
+            const int ni = noteAtX (e.getPosition().x);
+            if (ni >= 0)
+            {
+                activeNote   = ni;
+                prMode       = 3;
+                dragStartPos = e.getPosition();
+                const float vel = 1.0f - juce::jlimit (0.0f, 1.0f,
+                    (float) (e.getPosition().y - velArea.getY()) / (float) velArea.getHeight());
+                notes[(size_t) ni].velocity = juce::jlimit (1, 127, (int) std::round (vel * 127.0f));
+                notesEdited();
+            }
+            return;
+        }
+
         if (! gridArea.contains (e.getPosition()))
             return;
 
@@ -206,6 +271,16 @@ public:
         if (activeNote < 0 || activeNote >= (int) notes.size() || pxPerBeatCached <= 0.0)
             return;
         auto& n = notes[(size_t) activeNote];
+
+        if (prMode == 3)   // velocity
+        {
+            const float vel = 1.0f - juce::jlimit (0.0f, 1.0f,
+                (float) (e.getPosition().y - velArea.getY()) / (float) velArea.getHeight());
+            n.velocity = juce::jlimit (1, 127, (int) std::round (vel * 127.0f));
+            repaint();
+            return;
+        }
+
         const double deltaBeats = (double) (e.getPosition().x - dragStartPos.x) / pxPerBeatCached;
         if (prMode == 2)   // resize
         {
@@ -233,6 +308,20 @@ private:
     double beatsAtX (int x) const { return pxPerBeatCached > 0.0 ? (double) (x - gridArea.getX()) / pxPerBeatCached : 0.0; }
     int    pitchAtY (int y) const { return rowHpx > 0 ? highPitch - (y - gridArea.getY()) / rowHpx : 60; }
     double snap (double beats) const { return std::round (beats / snapStep) * snapStep; }
+
+    // Returns index of the note whose bar centre is nearest to pixel x, or -1 if none within 12px
+    int noteAtX (int x) const
+    {
+        if (pxPerBeatCached <= 0.0) return -1;
+        int best = -1; int bestDist = 12;
+        for (int i = 0; i < (int) notes.size(); ++i)
+        {
+            const int nx = gridArea.getX() + (int) std::round (notes[(size_t) i].startBeats * pxPerBeatCached);
+            const int d  = std::abs (x - nx);
+            if (d < bestDist) { bestDist = d; best = i; }
+        }
+        return best;
+    }
 
     int noteAt (juce::Point<int> p, bool& onEdge) const
     {
@@ -262,17 +351,18 @@ private:
 
     static constexpr int titleH = 26;
     static constexpr int keyW   = 46;
+    static constexpr int velH   = 60;
     double bpm  = 120.0;
     int    bars = 8;
     std::vector<Note> notes;
-    juce::Rectangle<int> closeRect, gridArea;
+    juce::Rectangle<int> closeRect, gridArea, velArea;
 
     // Cached layout (set in paint) + edit state for mouse interaction.
     int    rowHpx = 0;
     double pxPerBeatCached = 0.0;
     static constexpr double snapStep = 0.25;   // 1/16-note grid snapping
     int    activeNote = -1;
-    int    prMode = 0;        // 0 none, 1 move, 2 resize
+    int    prMode = 0;        // 0 none, 1 move, 2 resize, 3 velocity
     double dragStartBeats = 0.0, dragStartLen = 0.0;
     int    dragStartPitch = 0;
     juce::Point<int> dragStartPos;

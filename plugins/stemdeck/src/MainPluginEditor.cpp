@@ -389,6 +389,19 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
                 }
                 menu.addSubMenu (u8 ("Copy lane to\xe2\x80\xa6"), copyTo);
             }
+            if (overClip)
+            {
+                const bool isLocked = clips[(size_t) lane][(size_t) clipIdx].locked;
+                menu.addSeparator();
+                menu.addItem (12, isLocked ? u8 ("\xf0\x9f\x94\x93 Unlock clip") : u8 ("\xf0\x9f\x94\x92 Lock clip"));
+                menu.addItem (13, "Follow action...");
+            }
+            if (lane != masterLane)
+            {
+                menu.addSeparator();
+                menu.addItem (10, u8 ("Launch at next beat  \xe2\x96\xb6"), hasClip);
+                menu.addItem (11, "Stop launcher", slotStates[(size_t) lane] != SlotState::Idle);
+            }
             menu.addSeparator();
             menu.addItem (4, "Undo", canUndo());
             menu.addItem (5, "Redo", canRedo());
@@ -426,6 +439,16 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
                         case 3: if (self.onClearDeckRequest) self.onClearDeckRequest (lane); break;
                         case 4: self.undo(); break;
                         case 5: self.redo(); break;
+                        case 10: self.triggerSlot (lane, clipIdx); break;
+                        case 11: self.setSlotState (lane, SlotState::Idle); break;
+                        case 12:
+                            if (juce::isPositiveAndBelow (clipIdx, (int) self.clips[(size_t) lane].size()))
+                                self.setClipLocked (lane, clipIdx, ! self.clips[(size_t) lane][(size_t) clipIdx].locked);
+                            break;
+                        case 13:
+                            if (self.onFollowActionRequest)
+                                self.onFollowActionRequest (lane, clipIdx);
+                            break;
                         default:
                             if      (choice == 128)                       self.setClipColour (lane, clipIdx, 0);
                             else if (choice >= 120 && choice < 128)       self.setClipColour (lane, clipIdx, clipPalette[(size_t) (choice - 120)]);
@@ -443,6 +466,20 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
     {
         splitClipAt (hit.lane, hit.clip, timeAtX (hit.lane, e.getPosition().x));
         activeDrag = {};
+        return;
+    }
+
+    // Locked clip: allow selection but block all drag operations
+    if (hit.clip >= 0
+        && juce::isPositiveAndBelow (hit.clip, (int) clips[(size_t) hit.lane].size())
+        && clips[(size_t) hit.lane][(size_t) hit.clip].locked)
+    {
+        if (selectedLane != hit.lane || selectedClip != hit.clip)
+        {
+            selectedLane = hit.lane;
+            selectedClip = hit.clip;
+            repaint();
+        }
         return;
     }
 
@@ -799,6 +836,11 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             ct.setProperty ("fadeOut",   c.fadeOutSeconds,         nullptr);
             ct.setProperty ("label",     c.label,                  nullptr);
             ct.setProperty ("colour",    (int) c.colourArgb,       nullptr);
+            if (c.locked)      ct.setProperty ("locked",    true,               nullptr);
+            if (c.followAction != FollowAction::None)
+                               ct.setProperty ("followAct", (int) c.followAction, nullptr);
+            if (c.followProbability < 0.999f)
+                               ct.setProperty ("followProb", c.followProbability, nullptr);
             lt.appendChild (ct, nullptr);
         }
         for (const auto& mc : midiClips[(size_t) lane])
@@ -854,6 +896,9 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             c.fadeOutSeconds       = ct.getProperty ("fadeOut",   0.0);
             c.label                = ct.getProperty ("label").toString();
             c.colourArgb           = (juce::uint32) (int) ct.getProperty ("colour", 0);
+            c.locked               = (bool) ct.getProperty ("locked", false);
+            c.followAction         = (FollowAction) (int) ct.getProperty ("followAct",  0);
+            c.followProbability    = (float) ct.getProperty ("followProb", 1.0f);
             ensureClipThumb (c.file);
             clips[(size_t) lane].push_back (c);
             anyClip = true;
@@ -1037,6 +1082,7 @@ void MainPluginEditor::ArrangementRecorderView::filesDropped (const juce::String
         clip.trimStartSeconds     = 0.0;
         clip.trimEndSeconds       = dur;
         clip.timelineStartSeconds = dropTime;
+        applyOverlapResolution (lane, clip);
         clips[(size_t) lane].push_back (clip);
 
         dropTime += dur;   // stack multiple dropped files end-to-end
@@ -1049,6 +1095,48 @@ void MainPluginEditor::ArrangementRecorderView::filesDropped (const juce::String
         commitEdit (std::move (before));
     }
     repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::applyOverlapResolution (int laneIndex, const LaneClip& incoming)
+{
+    if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
+    auto& lane = clips[(size_t) laneIndex];
+    const double iStart = incoming.timelineStartSeconds;
+    const double iEnd   = incoming.timelineEndSeconds();
+
+    if (overlapMode == OverlapMode::Push)
+    {
+        // Shift any clip whose start falls within or after the incoming clip rightward
+        for (auto& c : lane)
+            if (c.timelineStartSeconds >= iStart)
+                c.timelineStartSeconds += incoming.lengthSeconds();
+    }
+    else if (overlapMode == OverlapMode::Replace)
+    {
+        // Remove clips fully covered; trim clips partially overlapping
+        lane.erase (std::remove_if (lane.begin(), lane.end(), [&] (const LaneClip& c)
+        {
+            return c.timelineStartSeconds >= iStart && c.timelineEndSeconds() <= iEnd;
+        }), lane.end());
+
+        for (auto& c : lane)
+        {
+            if (c.timelineStartSeconds < iStart && c.timelineEndSeconds() > iStart)
+            {
+                // Tail overlaps → trim out-point
+                const double excess = c.timelineEndSeconds() - iStart;
+                c.trimEndSeconds = juce::jmax (c.trimStartSeconds, c.trimEndSeconds - excess);
+            }
+            else if (c.timelineStartSeconds >= iStart && c.timelineStartSeconds < iEnd)
+            {
+                // Head overlaps → shift clip start forward
+                const double excess = iEnd - c.timelineStartSeconds;
+                c.timelineStartSeconds = iEnd;
+                c.trimStartSeconds     = juce::jmin (c.trimEndSeconds, c.trimStartSeconds + excess);
+            }
+        }
+    }
+    // OverlapMode::Keep: do nothing — clips stack on top of each other
 }
 
 double MainPluginEditor::ArrangementRecorderView::snapTime (double seconds) const
@@ -1159,6 +1247,45 @@ void MainPluginEditor::ArrangementRecorderView::redo()
     repaint();
 }
 
+// ── Clip launcher (beat-quantized slot triggers) ──────────────────────────────
+
+void MainPluginEditor::ArrangementRecorderView::triggerSlot (int lane, int clip) noexcept
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return;
+    slotStates[(size_t) lane]         = SlotState::WaitingToStart;
+    launcherClipPerLane[(size_t) lane] = clip;
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::triggerAllSlots() noexcept
+{
+    for (int lane = 0; lane < numLanes; ++lane)
+    {
+        if (juce::isPositiveAndBelow (lane, (int) clips.size()) && ! clips[(size_t) lane].empty())
+            triggerSlot (lane, 0);
+    }
+}
+
+void MainPluginEditor::ArrangementRecorderView::setSlotState (int lane, SlotState state) noexcept
+{
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+    slotStates[(size_t) lane] = state;
+    repaint();
+}
+
+MainPluginEditor::ArrangementRecorderView::SlotState
+MainPluginEditor::ArrangementRecorderView::getSlotState (int lane) const noexcept
+{
+    if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return SlotState::Idle;
+    return slotStates[(size_t) lane];
+}
+
+int MainPluginEditor::ArrangementRecorderView::getLauncherClip (int lane) const noexcept
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return -1;
+    return launcherClipPerLane[(size_t) lane];
+}
+
 void MainPluginEditor::ArrangementRecorderView::setRazorMode (bool shouldSplit)
 {
     razorMode = shouldSplit;
@@ -1252,6 +1379,17 @@ void MainPluginEditor::ArrangementRecorderView::setClipColour (int laneIndex, in
     if (! juce::isPositiveAndBelow (clipIndex, (int) vec.size())) return;
     auto before = captureLaneState (laneIndex);
     vec[(size_t) clipIndex].colourArgb = argb;
+    commitEdit (std::move (before));
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setClipLocked (int laneIndex, int clipIndex, bool shouldLock)
+{
+    if (! juce::isPositiveAndBelow (laneIndex, numEditableLanes)) return;
+    auto& vec = clips[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) vec.size())) return;
+    auto before = captureLaneState (laneIndex);
+    vec[(size_t) clipIndex].locked = shouldLock;
     commitEdit (std::move (before));
     repaint();
 }
@@ -1686,6 +1824,17 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                                 juce::Justification::centredLeft, true);
                 }
 
+                // Lock badge — amber "L" chip on the top-right corner
+                if (clip.locked)
+                {
+                    auto lr = patternHeader.removeFromRight (15).withSizeKeepingCentre (13, 11);
+                    g.setColour (juce::Colour (0xFFFFAA00).withAlpha (0.92f));
+                    g.fillRoundedRectangle (lr.toFloat(), 2.0f);
+                    g.setColour (juce::Colours::black.withAlpha (0.9f));
+                    g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+                    g.drawText ("L", lr, juce::Justification::centred);
+                }
+
                 if (patternBody.getHeight() > 4 && clipThumb != nullptr && clipThumb->getTotalLength() > 0.0)
                 {
                     g.setColour (clipColour.withAlpha (0.92f));
@@ -1821,6 +1970,34 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             area.removeFromTop (laneGap);
     }
 
+    // Clip launcher slot-state overlay: WaitingToStart = pulsing amber, Running = solid green.
+    {
+        const bool blink = ((juce::Time::currentTimeMillis() / 220) % 2) == 0;
+        for (int i = 0; i < numLanes; ++i)
+        {
+            const auto st = slotStates[(size_t) i];
+            if (st == SlotState::Idle) continue;
+            const auto lr = laneRects[(size_t) i];
+            const auto trackR = lr.withTrimmedLeft (labelWidth).reduced (2, 1);
+            const juce::Colour col = (st == SlotState::WaitingToStart)
+                ? juce::Colour (0xFFFF9800).withAlpha (blink ? 0.95f : 0.35f)   // amber pulse
+                : juce::Colour (0xFF4CAF50).withAlpha (0.9f);                    // green solid
+            g.setColour (col);
+            g.drawRect (trackR, 2);
+            // Launch-arrow glyph on the left edge of the track area
+            const float cy = (float) lr.getCentreY();
+            const float ax = (float) (lr.getX() + labelWidth + 5);
+            juce::Path arrow;
+            arrow.addTriangle (ax, cy - 5.0f, ax + 8.0f, cy, ax, cy + 5.0f);
+            g.fillPath (arrow);
+            // Small status label
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            const auto stLabel = (st == SlotState::WaitingToStart) ? juce::String ("QUEUED") : juce::String ("LIVE");
+            g.drawText (stLabel, trackR.withTrimmedLeft (14).withHeight (12).withY (lr.getY() + 2),
+                        juce::Justification::centredLeft);
+        }
+    }
+
     // Highlight the lane under an in-progress file drag.
     if (fileDragLane >= 0 && fileDragLane < numEditableLanes)
     {
@@ -1912,6 +2089,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
       processorRef (p),
       presetManager (p.parameters(), "stemdeck")
 {
+    pendingSlotSeekSec.fill (-1.0);
+
     setLookAndFeel (&lookAndFeel);
     thumbnailFormatManager.registerBasicFormats();
 #if JUCE_USE_MP3AUDIOFORMAT
@@ -2131,7 +2310,37 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             addAndMakeVisible (dc.echoMix);
             dc.echoMixAttachment = std::make_unique<SliderAttachment> (
                 processorRef.parameters(), deckPrefix (i) + "EchoMix", dc.echoMix);
+
+            setupMacroKnob (i);
         }
+
+        setupSlipAndRoll (i);
+
+        // ── Crossfader assign buttons: A / Ctr / B ───────────────────────────
+        static const char* const kCfLabels[] = { "A", "Ctr", "B" };
+        auto& dc2 = deckControls[(size_t) i];
+        for (int s = 0; s < 3; ++s)
+        {
+            auto& btn = dc2.cfSideBtns[(size_t) s];
+            btn.setButtonText (kCfLabels[s]);
+            setupButton (btn);
+            btn.setClickingTogglesState (false);
+            const int side = s;
+            const int deckIdx = i;
+            btn.onClick = [this, deckIdx, side]
+            {
+                processorRef.setDeckCfSide (deckIdx, side);
+                // Refresh toggle visuals
+                for (int ss = 0; ss < 3; ++ss)
+                    deckControls[(size_t) deckIdx].cfSideBtns[(size_t) ss]
+                        .setToggleState (ss == side, juce::dontSendNotification);
+            };
+            addAndMakeVisible (btn);
+        }
+        // Set initial toggle state from state
+        const int curSide = processorRef.getDeckCfSide (i);
+        for (int s = 0; s < 3; ++s)
+            dc2.cfSideBtns[(size_t) s].setToggleState (s == curSide, juce::dontSendNotification);
     }
 
     // Tap tempo
@@ -2316,6 +2525,49 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     metronomeButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     metronomeButton.onClick = [this] { processorRef.setMetronomeEnabled (metronomeButton.getToggleState()); };
     addAndMakeVisible (metronomeButton);
+
+    setupButton (talkoverButton);
+    talkoverButton.setClickingTogglesState (true);
+    talkoverButton.setTooltip ("Talkover ducking: auto-reduces deck volume when mic is active");
+    talkoverButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFFE04040).withAlpha (0.65f));
+    talkoverButton.onClick = [this] { processorRef.setTalkoverEnabled (talkoverButton.getToggleState()); };
+    addAndMakeVisible (talkoverButton);
+
+    setupButton (overlapModeButton);
+    overlapModeButton.setTooltip ("Clip overlap mode: Keep / Push / Replace");
+    overlapModeButton.onClick = [this]
+    {
+        // Cycle Keep → Push → Replace → Keep
+        const auto mode = arrangementView.getOverlapMode();
+        if (mode == ArrangementRecorderView::OverlapMode::Keep)
+        {
+            arrangementView.setOverlapMode (ArrangementRecorderView::OverlapMode::Push);
+            overlapModeButton.setButtonText ("Push");
+        }
+        else if (mode == ArrangementRecorderView::OverlapMode::Push)
+        {
+            arrangementView.setOverlapMode (ArrangementRecorderView::OverlapMode::Replace);
+            overlapModeButton.setButtonText ("Repl");
+        }
+        else
+        {
+            arrangementView.setOverlapMode (ArrangementRecorderView::OverlapMode::Keep);
+            overlapModeButton.setButtonText ("Keep");
+        }
+    };
+    addAndMakeVisible (overlapModeButton);
+
+    // Launch-all: queue clip[0] of every occupied deck lane at next beat
+    setupButton (launchAllButton);
+    launchAllButton.setTooltip ("Queue all deck lanes to launch at the next beat");
+    launchAllButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xFF1E6B2E));
+    launchAllButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.92f));
+    launchAllButton.onClick = [this] { arrangementView.triggerAllSlots(); };
+    addAndMakeVisible (launchAllButton);
+
+    // Wire follow-action popup request from ArrangementRecorderView
+    arrangementView.onFollowActionRequest = [this] (int lane, int clip) { showFollowActionMenu (lane, clip); };
+
     arrangementView.onSeek = [this] (double s)
     {
         arrangementCursorSeconds = s;
@@ -3656,7 +3908,11 @@ void MainPluginEditor::resized()
     keyRow.removeFromLeft (6);
     openProjButton.setBounds (keyRow.removeFromLeft (90));
     keyRow.removeFromLeft (12);
-    metronomeButton.setBounds (keyRow.removeFromLeft (64));
+    metronomeButton.setBounds (keyRow.removeFromLeft (54));
+    keyRow.removeFromLeft (6);
+    talkoverButton.setBounds (keyRow.removeFromLeft (54));
+    keyRow.removeFromLeft (6);
+    overlapModeButton.setBounds (keyRow.removeFromLeft (44));
     area.removeFromTop (6);
 
     liveMixerLabel.setBounds (area.removeFromTop (20));
@@ -3721,9 +3977,14 @@ void MainPluginEditor::resized()
         }
         lane.removeFromBottom (6);
 
-        // Transport row — big, clean PLAY + CUE (key toggles moved to SYNC tab).
+        // Transport row — PLAY + CUE + 3 tiny CF-assign buttons on the right
         auto transport = lane.removeFromBottom (28);
         {
+            auto cfCol = transport.removeFromRight (54);
+            transport.removeFromRight (4);
+            const int cfW = cfCol.getWidth() / 3;
+            for (int s = 0; s < 3; ++s)
+                controls.cfSideBtns[(size_t) s].setBounds (cfCol.removeFromLeft (cfW).reduced (1, 3));
             const int w = transport.getWidth();
             controls.play.setBounds (transport.removeFromLeft (w * 58 / 100).reduced (1, 0));
             controls.cue .setBounds (transport.reduced (1, 0));
@@ -3754,32 +4015,47 @@ void MainPluginEditor::resized()
                 const int w = juce::jmax (12, row.getWidth() / 8);
                 for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
                     controls.hotCues[(size_t) c].setBounds (row.removeFromLeft (w).reduced (1, 0));
+                tabContent.removeFromTop (2);
+                auto row2 = tabContent.removeFromTop (18);
+                controls.introEndBtn  .setBounds (row2.removeFromLeft (row2.getWidth() / 2).reduced (1, 0));
+                controls.outroStartBtn.setBounds (row2.reduced (1, 0));
                 break;
             }
             case DeckControls::TabLoop:
             {
-                auto r1 = tabContent.removeFromTop (24);
-                const int bw = juce::jmax (28, r1.getWidth() / 5);
+                // Row 1: IN / OUT / LOOP / 1/2 / x2 / Slip
+                auto r1 = tabContent.removeFromTop (22);
+                const int bw = juce::jmax (24, r1.getWidth() / 6);
                 controls.loopIn    .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopOut   .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopToggle.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopHalf  .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
-                controls.loopDouble.setBounds (r1.reduced (1, 0));
+                controls.loopDouble.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.slipButton.setBounds (r1.reduced (1, 0));
                 tabContent.removeFromTop (2);
-                auto r2 = tabContent.removeFromTop (24);
-                const int jw = juce::jmax (12, r2.getWidth() / 8);
+                // Row 2: beat-roll buttons (1/4 1/2 1 2 4 8)
+                auto r2 = tabContent.removeFromTop (20);
+                const int rw = juce::jmax (12, r2.getWidth() / 6);
+                for (int b = 0; b < 6; ++b)
+                    controls.beatRollBtns[(size_t) b].setBounds (r2.removeFromLeft (rw).reduced (1, 0));
+                tabContent.removeFromTop (2);
+                // Row 3: beat-jump back/fwd
+                auto r3 = tabContent.removeFromTop (16);
+                const int jw = juce::jmax (10, r3.getWidth() / 8);
                 for (int b = 3; b >= 0; --b)
-                    controls.beatJumpBack[(size_t) b].setBounds (r2.removeFromLeft (jw).reduced (1, 0));
+                    controls.beatJumpBack[(size_t) b].setBounds (r3.removeFromLeft (jw).reduced (1, 0));
                 for (int b = 0; b < 4; ++b)
-                    controls.beatJumpFwd[(size_t) b].setBounds (r2.removeFromLeft (jw).reduced (1, 0));
+                    controls.beatJumpFwd[(size_t) b].setBounds (r3.removeFromLeft (jw).reduced (1, 0));
                 break;
             }
             case DeckControls::TabFx:
             {
-                const int knobW = juce::jmin (60, tabContent.getWidth() / 2 - 6);
+                const int knobW = juce::jmin (52, tabContent.getWidth() / 3 - 6);
                 controls.reverbMix.setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
-                tabContent.removeFromLeft (8);
+                tabContent.removeFromLeft (4);
                 controls.echoMix  .setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
+                tabContent.removeFromLeft (4);
+                controls.macroKnob.setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
                 break;
             }
             case DeckControls::TabSync:
@@ -3875,7 +4151,10 @@ void MainPluginEditor::resized()
         zoomBox.removeFromRight (4);
         arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1));
         arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1));
+        // Launch All button — between label and MIDI-learn feedback
         labelRow.removeFromRight (8);
+        launchAllButton.setBounds (labelRow.removeFromRight (60).reduced (0, 1));
+        labelRow.removeFromRight (6);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
     // Performance pads relocate to a compact full-width strip along the bottom,
@@ -3990,6 +4269,18 @@ void MainPluginEditor::timerCallback()
 
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        // Update slip button visual state
+        updateSlipButtonState (i);
+
+        // Beat roll: auto-release after one loop cycle if loopRollActive
+        auto& dc = deckControls[(size_t) i];
+        if (dc.loopRollActive && ! processorRef.isDeckLoopActive (i))
+        {
+            dc.loopRollActive = false;
+            for (auto& b : dc.beatRollBtns)
+                b.setToggleState (false, juce::dontSendNotification);
+        }
+
         deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckTimePitchStatus (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckBeatSyncStatus (i),
                                                    juce::dontSendNotification);
         deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
@@ -4017,7 +4308,83 @@ void MainPluginEditor::timerCallback()
 
         // RTSS badge — illuminates when real-time separation is running
         if (auto* wave = deckWaves[(size_t) i].get())
+        {
             wave->setRtssActive (processorRef.isDeckRtssActive (i));
+            wave->setIntroEnd   (processorRef.getIntroEnd   (i));
+            wave->setOutroStart (processorRef.getOutroStart (i));
+        }
+
+        // Intro/Outro button toggle states
+        deckControls[(size_t) i].introEndBtn  .setToggleState (processorRef.getIntroEnd   (i) >= 0.0, juce::dontSendNotification);
+        deckControls[(size_t) i].outroStartBtn.setToggleState (processorRef.getOutroStart (i) >= 0.0, juce::dontSendNotification);
+    }
+
+    // ── Beat-quantized clip launcher ──────────────────────────────────────────
+    {
+        const double bpm = juce::jlimit (40.0, 240.0,
+            (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+        const double beatLenMs = (60.0 / bpm) * 1000.0;
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+
+        if (launcherBeatOriginMs < 0.0) launcherBeatOriginMs = nowMs;
+        const double elapsedMs  = nowMs - launcherBeatOriginMs;
+        const double beatPhase  = std::fmod (elapsedMs, beatLenMs) / beatLenMs;   // 0..1
+        const bool newBeat = (beatPhase < 0.15 && launcherBeatPhase > 0.75);
+        launcherBeatPhase = beatPhase;
+
+        if (newBeat)
+        {
+            // Fire all lanes waiting for the next beat
+            for (int lane = 0; lane < ArrangementRecorderView::numLanes; ++lane)
+            {
+                if (arrangementView.getSlotState (lane) != ArrangementRecorderView::SlotState::WaitingToStart)
+                    continue;
+
+                const int clipIdx = arrangementView.getLauncherClip (lane);
+                const auto& allClips = arrangementView.getClips();
+
+                if (juce::isPositiveAndBelow (lane, (int) allClips.size())
+                    && juce::isPositiveAndBelow (clipIdx, (int) allClips[(size_t) lane].size()))
+                {
+                    const auto& clip = allClips[(size_t) lane][(size_t) clipIdx];
+                    if (clip.file.existsAsFile())
+                    {
+                        processorRef.loadDeckFileAsync (lane, clip.file);
+                        pendingSlotSeekSec[(size_t) lane] = clip.trimStartSeconds;
+                    }
+                }
+                arrangementView.setSlotState (lane, ArrangementRecorderView::SlotState::Running);
+            }
+        }
+
+        // Complete pending seek+play once the deck has finished loading
+        for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
+        {
+            if (pendingSlotSeekSec[(size_t) lane] >= 0.0
+                && processorRef.getDeckTotalSeconds (lane) > 0.0)
+            {
+                processorRef.seekDeckSeconds (lane, pendingSlotSeekSec[(size_t) lane]);
+                if (auto* param = dynamic_cast<juce::AudioParameterBool*> (
+                        processorRef.parameters().getParameter (deckPrefix (lane) + "Play")))
+                    param->setValueNotifyingHost (1.0f);
+                pendingSlotSeekSec[(size_t) lane] = -1.0;
+            }
+        }
+
+        // Clear Running state when the deck stops; fire follow action if set
+        for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
+        {
+            if (arrangementView.getSlotState (lane) == ArrangementRecorderView::SlotState::Running)
+            {
+                const bool playing = processorRef.parameters()
+                    .getRawParameterValue (deckPrefix (lane) + "Play")->load() > 0.5f;
+                if (! playing)
+                {
+                    const int clipIdx = arrangementView.getLauncherClip (lane);
+                    applyFollowAction (lane, clipIdx);
+                }
+            }
+        }
     }
 }
 
@@ -4060,12 +4427,16 @@ void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
     const bool sync = tab == DeckControls::TabSync;
     const bool src  = tab == DeckControls::TabSrc;
 
-    for (auto& b : dc.hotCues)       b.setVisible (cue);
+    for (auto& b : dc.hotCues)        b.setVisible (cue);
+    dc.introEndBtn.setVisible (cue);
+    dc.outroStartBtn.setVisible (cue);
     dc.loopIn.setVisible (loop); dc.loopOut.setVisible (loop); dc.loopToggle.setVisible (loop);
     dc.loopHalf.setVisible (loop); dc.loopDouble.setVisible (loop);
+    dc.slipButton.setVisible (loop);
+    for (auto& b : dc.beatRollBtns)  b.setVisible (loop);
     for (auto& b : dc.beatJumpBack)  b.setVisible (loop);
     for (auto& b : dc.beatJumpFwd)   b.setVisible (loop);
-    dc.reverbMix.setVisible (fx); dc.echoMix.setVisible (fx);
+    dc.reverbMix.setVisible (fx); dc.echoMix.setVisible (fx); dc.macroKnob.setVisible (fx);
     dc.bpm.setVisible (sync); dc.beatOffset.setVisible (sync); dc.downbeat.setVisible (sync);
     dc.tempoInterpretation.setVisible (sync); dc.syncMode.setVisible (sync); dc.keyTarget.setVisible (sync);
     dc.load.setVisible (src); dc.aiStems.setVisible (src); dc.loadStem.setVisible (src); dc.stemLane.setVisible (src);
@@ -4098,6 +4469,34 @@ void MainPluginEditor::setupHotCueButtons (int deckIndex)
         };
         addAndMakeVisible (btn);
     }
+
+    // Intro end / Outro start buttons (CUE tab, second row)
+    auto setupDJMarker = [&] (juce::TextButton& btn, juce::Colour col, bool isIntro)
+    {
+        setupButton (btn);
+        btn.setClickingTogglesState (true);
+        btn.setColour (juce::TextButton::buttonOnColourId, col.withAlpha (0.65f));
+        btn.setTooltip (isIntro
+            ? "Set Intro End: marks where the intro finishes (click again to clear)"
+            : "Set Outro Start: marks where the outro begins (click again to clear)");
+        btn.onClick = [this, &btn, deckIndex, isIntro]
+        {
+            if (btn.getToggleState())
+            {
+                const double pos = processorRef.getDeckPlayheadSeconds (deckIndex);
+                if (isIntro) processorRef.setIntroEnd   (deckIndex, pos);
+                else         processorRef.setOutroStart (deckIndex, pos);
+            }
+            else
+            {
+                if (isIntro) processorRef.clearIntroEnd   (deckIndex);
+                else         processorRef.clearOutroStart (deckIndex);
+            }
+        };
+        addAndMakeVisible (btn);
+    };
+    setupDJMarker (dc.introEndBtn,   juce::Colour (0xFF00CCFF), true);
+    setupDJMarker (dc.outroStartBtn, juce::Colour (0xFFFF9900), false);
 }
 
 void MainPluginEditor::handleHotCuePress (int deckIndex, int cueIndex, juce::ModifierKeys mods)
@@ -4111,6 +4510,21 @@ void MainPluginEditor::handleHotCuePress (int deckIndex, int cueIndex, juce::Mod
     {
         // Shift+click or unset cue = set at current playhead
         processorRef.setHotCue (deckIndex, cueIndex, processorRef.getDeckPlayheadSeconds (deckIndex));
+    }
+    else if (mods.isCtrlDown() || mods.isCommandDown())
+    {
+        // Ctrl/Cmd+click = Goto+Loop: jump to cue and set a 1-bar loop from there
+        const double cuePos = processorRef.getHotCue (deckIndex, cueIndex);
+        if (cuePos >= 0.0)
+        {
+            const float bpm = *processorRef.parameters().getRawParameterValue (deckPrefix (deckIndex) + "Bpm");
+            const double barSeconds = (60.0 / juce::jmax (1.0f, bpm)) * 4.0;
+            processorRef.jumpToHotCue (deckIndex, cueIndex);
+            processorRef.setDeckLoopSeconds (deckIndex, cuePos, cuePos + barSeconds);
+            processorRef.setDeckLoopActive (deckIndex, true);
+            updateLoopButtonStates (deckIndex);
+            updateWaveformLoopRegion (deckIndex);
+        }
     }
     else
     {
@@ -4225,6 +4639,158 @@ void MainPluginEditor::updateLoopButtonStates (int deckIndex)
 {
     const bool active = processorRef.isDeckLoopActive (deckIndex);
     deckControls[(size_t) deckIndex].loopToggle.setToggleState (active, juce::dontSendNotification);
+}
+
+// ── Slip mode + loop roll ─────────────────────────────────────────────────────
+
+void MainPluginEditor::setupSlipAndRoll (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    const auto accent = deckAccent (deckIndex);
+
+    // Slip button: toggles slip mode on/off
+    setupButton (dc.slipButton);
+    dc.slipButton.setClickingTogglesState (true);
+    dc.slipButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF00CCFF).withAlpha (0.5f));
+    dc.slipButton.setTooltip ("Slip mode: a shadow playhead advances at 1x while you loop/scratch. Disable to snap back.");
+    dc.slipButton.onClick = [this, deckIndex]
+    {
+        processorRef.setDeckSlipEnabled (deckIndex, deckControls[(size_t) deckIndex].slipButton.getToggleState());
+    };
+    addAndMakeVisible (dc.slipButton);
+
+    // Beat roll buttons: hold = loop+slip for that beat-length, release = snap back
+    static constexpr std::array<const char*, 6> kLabels { "1/4","1/2","1","2","4","8" };
+    static constexpr std::array<double, 6>      kLen    { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
+    for (int b = 0; b < 6; ++b)
+    {
+        auto& btn = dc.beatRollBtns[(size_t) b];
+        btn.setButtonText (kLabels[(size_t) b]);
+        setupButton (btn);
+        btn.setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
+        // Use mouseDown/mouseUp via lambda capture to implement hold-to-roll
+        btn.addMouseListener (new juce::MouseListener(), false);
+        btn.onClick = [this, deckIndex, b]
+        {
+            // Single click (no hold tracking in TextButton): just arm a 1-shot loop
+            const float bpm = *processorRef.parameters().getRawParameterValue (deckPrefix (deckIndex) + "Bpm");
+            const double barSeconds = (60.0 / juce::jmax (1.0f, bpm)) * 4.0;
+            const double rollLen = kLen[(size_t) b] * barSeconds;
+            processorRef.beginDeckLoopRoll (deckIndex, rollLen);
+            // Schedule end after rollLen seconds via the timer; set flag
+            deckControls[(size_t) deckIndex].loopRollActive = true;
+            deckControls[(size_t) deckIndex].beatRollBtns[(size_t) b].setToggleState (true, juce::dontSendNotification);
+        };
+        addAndMakeVisible (btn);
+    }
+}
+
+void MainPluginEditor::updateSlipButtonState (int deckIndex)
+{
+    const bool slip = processorRef.isDeckSlipEnabled (deckIndex);
+    deckControls[(size_t) deckIndex].slipButton.setToggleState (slip, juce::dontSendNotification);
+}
+
+// ── Superknob / FX macro ──────────────────────────────────────────────────────
+
+void MainPluginEditor::setupMacroKnob (int deckIndex)
+{
+    auto& dc = deckControls[(size_t) deckIndex];
+    setupSlider (dc.macroKnob, true);
+    dc.macroKnob.setRange (0.0, 1.0);
+    dc.macroKnob.setValue (0.0, juce::dontSendNotification);
+    dc.macroKnob.setTooltip ("FX Macro: drives Reverb + Echo simultaneously");
+    dc.macroKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    dc.macroKnob.setPopupDisplayEnabled (true, true, this);
+    dc.macroKnob.onValueChange = [this, deckIndex]
+    {
+        const float v = (float) deckControls[(size_t) deckIndex].macroKnob.getValue();
+        // Soft-link: macro drives both reverb and echo params
+        if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (
+                processorRef.parameters().getParameter (deckPrefix (deckIndex) + "RevMix")))
+            p->setValueNotifyingHost (v);
+        if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (
+                processorRef.parameters().getParameter (deckPrefix (deckIndex) + "EchoMix")))
+            p->setValueNotifyingHost (v);
+    };
+    addAndMakeVisible (dc.macroKnob);
+}
+
+// ── Follow actions ────────────────────────────────────────────────────────────
+
+void MainPluginEditor::showFollowActionMenu (int laneIndex, int clipIndex)
+{
+    auto& lane = arrangementView.getClips()[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) lane.size())) return;
+
+    juce::PopupMenu m;
+    m.addSectionHeader ("Follow Action");
+    m.addItem (1, "None",        true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::None);
+    m.addItem (2, "Next clip",   true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::Next);
+    m.addItem (3, "Prev clip",   true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::Prev);
+    m.addItem (4, "Random other",true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::RandomOther);
+    m.addItem (5, "Stop",        true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::Stop);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, laneIndex, clipIndex] (int r)
+    {
+        if (r < 1) return;
+        auto snap = arrangementView.captureLaneState (laneIndex);
+        auto& lane2 = const_cast<std::vector<ArrangementRecorderView::LaneClip>&> (arrangementView.getClips()[(size_t) laneIndex]);
+        if (juce::isPositiveAndBelow (clipIndex, (int) lane2.size()))
+        {
+            switch (r)
+            {
+                case 1: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::None; break;
+                case 2: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::Next; break;
+                case 3: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::Prev; break;
+                case 4: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::RandomOther; break;
+                case 5: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::Stop; break;
+                default: break;
+            }
+            arrangementView.commitEdit (snap);
+        }
+    });
+}
+
+void MainPluginEditor::applyFollowAction (int laneIndex, int clipIndex)
+{
+    using FA = ArrangementRecorderView::FollowAction;
+    const auto& allClips = arrangementView.getClips();
+
+    // Always clear running state; follow action may re-queue
+    arrangementView.setSlotState (laneIndex, ArrangementRecorderView::SlotState::Idle);
+
+    if (! juce::isPositiveAndBelow (laneIndex, (int) allClips.size())) return;
+    const auto& lane = allClips[(size_t) laneIndex];
+    if (! juce::isPositiveAndBelow (clipIndex, (int) lane.size())) return;
+
+    const auto fa   = lane[(size_t) clipIndex].followAction;
+    const float prob = lane[(size_t) clipIndex].followProbability;
+    const int numClips = (int) lane.size();
+
+    if (fa == FA::None || fa == FA::Stop) return;
+
+    // Probability gate
+    if (juce::Random::getSystemRandom().nextFloat() > prob) return;
+
+    switch (fa)
+    {
+        case FA::Next:
+            arrangementView.triggerSlot (laneIndex, (clipIndex + 1) % numClips);
+            break;
+        case FA::Prev:
+            arrangementView.triggerSlot (laneIndex, (clipIndex - 1 + numClips) % numClips);
+            break;
+        case FA::RandomOther:
+            if (numClips > 1)
+            {
+                int next;
+                do { next = juce::Random::getSystemRandom().nextInt (numClips); } while (next == clipIndex);
+                arrangementView.triggerSlot (laneIndex, next);
+            }
+            break;
+        default: break;
+    }
 }
 
 void MainPluginEditor::updateWaveformLoopRegion (int deckIndex)

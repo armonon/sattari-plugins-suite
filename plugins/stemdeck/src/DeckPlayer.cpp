@@ -138,6 +138,21 @@ void DeckPlayer::setLoopActive (bool active)
     loopActiveFlag.store (active, std::memory_order_relaxed);
 }
 
+void DeckPlayer::beginLoopRoll (double loopLengthSeconds) noexcept
+{
+    const double pos = publicPlayheadSamples.load (std::memory_order_relaxed);
+    const double loopLenSamples = loopLengthSeconds * currentSampleRate;
+    setLoopRegion (pos, pos + loopLenSamples);
+    setLoopActive (true);
+    setSlipEnabled (true);
+}
+
+void DeckPlayer::endLoopRoll() noexcept
+{
+    setLoopActive (false);
+    setSlipEnabled (false);   // triggers snap-back to shadow position in process()
+}
+
 double DeckPlayer::getPlayheadReferenceSamples() const noexcept
 {
     return publicPlayheadSamples.load (std::memory_order_relaxed);
@@ -456,7 +471,12 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
     {
         const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
         if (seekTarget >= 0.0)
+        {
             playheadSamples = seekTarget;
+            // A seek while slip is active resets the shadow to the new position
+            if (slipShadowSamples >= 0.0)
+                slipShadowSamples = seekTarget;
+        }
     }
 
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
@@ -470,8 +490,34 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
     const bool   hasLoop = loopActiveFlag.load (std::memory_order_relaxed)
                         && loopIn >= 0.0 && loopOut > loopIn + 64.0;
 
+    // Slip mode: shadow playhead advances at 1× real-time regardless of loop state.
+    // On slip-off, queue a seek to the shadow position so playback snaps back.
+    const bool slipNow = slipActive.load (std::memory_order_relaxed);
+    if (slipNow && ! slipWasActive)
+    {
+        // Slip just enabled — initialize shadow at current position (reference SR)
+        slipShadowSamples = playheadSamples;
+        slipWasActive = true;
+    }
+    else if (! slipNow && slipWasActive)
+    {
+        // Slip just disabled — snap main playhead to where we would have been
+        if (slipShadowSamples >= 0.0)
+            pendingSeekSamples.store (slipShadowSamples, std::memory_order_relaxed);
+        slipShadowSamples = -1.0;
+        slipWasActive = false;
+    }
+
     for (int i = 0; i < numSamples; ++i)
     {
+        // Advance shadow playhead at 1× speed (outputToReference = ref/output sample rate)
+        if (slipNow && slipShadowSamples >= 0.0)
+        {
+            slipShadowSamples += outputToReference;
+            if (slipShadowSamples >= sourceLength)
+                slipShadowSamples = wrapPosition (slipShadowSamples, sourceLength);
+        }
+
         if (hasLoop && ! useGranularKeyLock)
         {
             if (playheadSamples >= loopOut)

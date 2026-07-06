@@ -308,7 +308,10 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     for (int i = 0; i < numDecks; ++i)
     {
         const auto deck = deckPrefix (i);
-        const float deckMixGain = (i % 2 == 0) ? leftBusGain : rightBusGain;
+        const int cfSide = getDeckCfSide (i);   // 0=A(left), 1=Center, 2=B(right)
+        const float deckMixGain = (cfSide == 0) ? leftBusGain
+                                : (cfSide == 2) ? rightBusGain
+                                : 1.0f;   // Center: unaffected by crossfader
         const auto deckAudio = decks[(size_t) i].getLoadedAudio();
         const auto analysisForGrid = getDeckAnalysis (i);
         const auto beatGrid = BeatSyncEngine::makeGrid (analysisForGrid,
@@ -421,6 +424,27 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     {
         hostGraph.processChain (HostGraph::Chain::mic, micInput, midi);
         const float micGain = juce::Decibels::decibelsToGain (getFloatParam ("micGain"));
+
+        // Talkover ducking: measure mic peak, smooth it, duck the deck output
+        if (talkoverEnabled.load (std::memory_order_relaxed))
+        {
+            float micPeak = 0.0f;
+            for (int ch = 0; ch < micInput.getNumChannels(); ++ch)
+                for (int s = 0; s < micInput.getNumSamples(); ++s)
+                    micPeak = juce::jmax (micPeak, std::abs (micInput.getSample (ch, s)));
+
+            micPeak *= micGain;
+            const float thresh    = juce::Decibels::decibelsToGain (talkoverThresholdDb.load (std::memory_order_relaxed));
+            const float duckGain  = juce::Decibels::decibelsToGain (talkoverDuckDb.load (std::memory_order_relaxed));
+            const float target    = micPeak > thresh ? duckGain : 1.0f;
+            // Attack 5 ms, release 150 ms at 44.1k (block-rate smoothing)
+            const float n = (float) buffer.getNumSamples();
+            const float alpha = target < talkoverDuckGain ? (1.0f - std::exp (-n / (0.005f * (float) currentSampleRate)))
+                                                           : (1.0f - std::exp (-n / (0.150f * (float) currentSampleRate)));
+            talkoverDuckGain += alpha * (target - talkoverDuckGain);
+            buffer.applyGain (talkoverDuckGain);
+        }
+
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.addFrom (ch, 0, micInput, juce::jmin (ch, micInput.getNumChannels() - 1), 0, buffer.getNumSamples(), micGain);
     }
@@ -730,6 +754,30 @@ void MainPluginProcessor::stopArrangement()
     arrangementPlayer.stop();
 }
 
+// ── Slip mode + loop roll ────────────────────────────────────────────────────
+void MainPluginProcessor::setDeckSlipEnabled (int deckIndex, bool on) noexcept
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        decks[(size_t) deckIndex].setSlipEnabled (on);
+}
+
+bool MainPluginProcessor::isDeckSlipEnabled (int deckIndex) const noexcept
+{
+    return juce::isPositiveAndBelow (deckIndex, numDecks) && decks[(size_t) deckIndex].isSlipEnabled();
+}
+
+void MainPluginProcessor::beginDeckLoopRoll (int deckIndex, double lengthSeconds) noexcept
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        decks[(size_t) deckIndex].beginLoopRoll (lengthSeconds);
+}
+
+void MainPluginProcessor::endDeckLoopRoll (int deckIndex) noexcept
+{
+    if (juce::isPositiveAndBelow (deckIndex, numDecks))
+        decks[(size_t) deckIndex].endLoopRoll();
+}
+
 // ── Seek / beat jump ────────────────────────────────────────────────────────
 void MainPluginProcessor::seekDeckSeconds (int deckIndex, double seconds)
 {
@@ -785,6 +833,44 @@ void MainPluginProcessor::jumpToHotCue (int deckIndex, int cueIndex)
     const double seconds = getHotCue (deckIndex, cueIndex);
     if (seconds >= 0.0)
         seekDeckSeconds (deckIndex, seconds);
+}
+
+// ── Intro / Outro markers ────────────────────────────────────────────────────
+void MainPluginProcessor::setIntroEnd (int d, double s)
+{
+    if (juce::isPositiveAndBelow (d, numDecks))
+        apvts.state.setProperty (deckPrefix (d) + "IntroEnd", s, nullptr);
+}
+double MainPluginProcessor::getIntroEnd (int d) const
+{
+    if (! juce::isPositiveAndBelow (d, numDecks)) return -1.0;
+    return (double) apvts.state.getProperty (deckPrefix (d) + "IntroEnd", -1.0);
+}
+void MainPluginProcessor::clearIntroEnd (int d)   { setIntroEnd (d, -1.0); }
+
+void MainPluginProcessor::setOutroStart (int d, double s)
+{
+    if (juce::isPositiveAndBelow (d, numDecks))
+        apvts.state.setProperty (deckPrefix (d) + "OutroStart", s, nullptr);
+}
+double MainPluginProcessor::getOutroStart (int d) const
+{
+    if (! juce::isPositiveAndBelow (d, numDecks)) return -1.0;
+    return (double) apvts.state.getProperty (deckPrefix (d) + "OutroStart", -1.0);
+}
+void MainPluginProcessor::clearOutroStart (int d) { setOutroStart (d, -1.0); }
+
+// ── Crossfader side assignment ────────────────────────────────────────────────
+void MainPluginProcessor::setDeckCfSide (int d, int side)
+{
+    if (juce::isPositiveAndBelow (d, numDecks))
+        apvts.state.setProperty (deckPrefix (d) + "CfSide", juce::jlimit (0, 2, side), nullptr);
+}
+
+int MainPluginProcessor::getDeckCfSide (int d) const
+{
+    if (! juce::isPositiveAndBelow (d, numDecks)) return d % 2 == 0 ? 0 : 2;
+    return (int) apvts.state.getProperty (deckPrefix (d) + "CfSide", d % 2 == 0 ? 0 : 2);
 }
 
 // ── Loop region ──────────────────────────────────────────────────────────────
