@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_STEMDECK_PLUGIN VERSION 0.4.3)
+project(SATTARI_STEMDECK_PLUGIN VERSION 0.5.0)
 
-set(CMAKE_CXX_STANDARD 17)
+# Tracktion Engine requires C++20
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariTracktionEngine.cmake)
 
 sattari_add_plugin(
     TARGET SattariStemDeck
@@ -52,6 +54,7 @@ target_compile_definitions(SattariStemDeck
         JUCE_PLUGINHOST_VST=0)
 
 sattari_enable_rubberband(SattariStemDeck SATTARI_STEMDECK_HAS_RUBBERBAND)
+sattari_enable_tracktion_engine(SattariStemDeck)
 
 add_executable(StemDeckGranularRenderContract
     EXCLUDE_FROM_ALL
