@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <tracktion_engine/tracktion_engine.h>
 #include <atomic>
 #include "ArrangementPlayer.h"
 #include "MidiClipPlayer.h"
@@ -342,6 +343,33 @@ private:
     float lastCrossfader = 0.5f;
     float lastMasterBpm = 120.0f;
     float lastMicGain = -12.0f;
+
+    // ── Tracktion Engine wrapper ──────────────────────────────────────────────
+    struct PluginEngineBehaviour : public tracktion::EngineBehaviour
+    {
+        bool autoInitialiseDeviceManager() override { return false; }
+        bool addSystemAudioIODeviceTypes() override { return false; }
+    };
+
+    struct TeWrapper
+    {
+        TeWrapper()
+            : audioInterface (engine.getDeviceManager().getHostedAudioDeviceInterface())
+        {
+            jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+            audioInterface.initialise ({});
+            edit->getTransport().ensureContextAllocated (true);
+        }
+
+        tracktion::Engine engine { JucePlugin_Name, nullptr, std::make_unique<PluginEngineBehaviour>() };
+        std::unique_ptr<tracktion::Edit> edit { tracktion::Edit::createSingleTrackEdit (engine) };
+        tracktion::HostedAudioDeviceInterface& audioInterface;
+        tracktion::ExternalPlayheadSynchroniser playheadSync { *edit };
+    };
+
+    std::unique_ptr<TeWrapper> teWrapper;
+
+    void ensureTeWrapperOnMessageThread();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainPluginProcessor)
 };

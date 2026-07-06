@@ -80,6 +80,7 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
     }
     buildMidiTargets();
+    ensureTeWrapperOnMessageThread();
 }
 
 void MainPluginProcessor::buildMidiTargets()
@@ -115,6 +116,30 @@ void MainPluginProcessor::buildMidiTargets()
 MainPluginProcessor::~MainPluginProcessor()
 {
     loadPool.removeAllJobs (true, 1500);
+}
+
+void MainPluginProcessor::ensureTeWrapperOnMessageThread()
+{
+    if (teWrapper != nullptr)
+        return;
+
+    auto create = [this]
+    {
+        if (teWrapper == nullptr)
+            teWrapper = std::make_unique<TeWrapper>();
+    };
+
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        create();
+    }
+    else
+    {
+        jassert (! juce::MessageManager::getInstance()->currentThreadHasLockedMessageManager());
+        juce::WaitableEvent done;
+        juce::MessageManager::callAsync ([&] { create(); done.signal(); });
+        done.wait (-1);
+    }
 }
 
 juce::String MainPluginProcessor::deckPrefix (int deckIndex)
@@ -212,6 +237,17 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     midiClipPlayer.prepare (sampleRate, samplesPerBlock);
     metronome.prepare (sampleRate);
+    ensureTeWrapperOnMessageThread();
+    if (teWrapper != nullptr)
+    {
+        tracktion::HostedAudioDeviceInterface::Parameters teParams;
+        teParams.sampleRate    = sampleRate;
+        teParams.blockSize     = samplesPerBlock;
+        teParams.inputChannels  = getTotalNumInputChannels();
+        teParams.outputChannels = juce::jmax (2, getTotalNumOutputChannels());
+        teWrapper->audioInterface.initialise (teParams);
+        teWrapper->audioInterface.prepareToPlay (sampleRate, samplesPerBlock);
+    }
     for (auto& rtss : deckRTSS)
         rtss.prepare (sampleRate, samplesPerBlock);
     for (int i = 0; i < numDecks; ++i)
@@ -478,6 +514,18 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             midiClipPlayer.allNotesOff();
     }
     arrWasPlaying = arrPlaying;
+
+    // Tracktion Engine tracks (arrangement layer — additive to the main mix)
+    if (teWrapper != nullptr)
+    {
+        teWrapper->playheadSync.synchronise (*this);
+        juce::MidiBuffer teMidi;
+        juce::AudioBuffer<float> teBuf (buffer.getNumChannels(), buffer.getNumSamples());
+        teBuf.clear();
+        teWrapper->audioInterface.processBlock (teBuf, teMidi);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.addFrom (ch, 0, teBuf, ch, 0, buffer.getNumSamples());
+    }
 
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
     buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
