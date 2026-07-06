@@ -157,11 +157,11 @@ public:
     void setMetronomeEnabled (bool e) noexcept { metronome.setEnabled (e); }
     bool isMetronomeEnabled() const noexcept   { return metronome.isEnabled(); }
     void setMetronomeBpm (double b) noexcept    { metronome.setBpm (b); }
-    bool isArrangementPlaying() const noexcept { return arrangementPlayer.isPlaying(); }
+    bool   isArrangementPlaying()         const noexcept { return arrangementPlayer.isPlaying(); }
     double getArrangementPositionSeconds() const noexcept { return arrangementPlayer.getPositionSeconds(); }
     double getArrangementLengthSeconds()   const noexcept { return arrangementPlayer.getLengthSeconds(); }
-    void   setArrangementPositionSeconds (double s) noexcept { arrangementPlayer.setPositionSeconds (s); }
-    void   setArrangementLoop (double startSec, double endSec, bool enabled) noexcept { arrangementPlayer.setLoop (startSec, endSec, enabled); }
+    void   setArrangementPositionSeconds (double s);
+    void   setArrangementLoop (double startSec, double endSec, bool enabled);
 
     // Intro/Outro DJ markers — stored as APVTS state properties (like hot cues)
     void   setIntroEnd     (int deckIndex, double seconds);

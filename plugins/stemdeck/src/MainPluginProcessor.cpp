@@ -513,6 +513,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         if (arrWasPlaying)
             midiClipPlayer.allNotesOff();
     }
+    // When arrangementPlayer auto-stops (reached end), mirror that to TE transport
+    if (arrWasPlaying && ! arrPlaying && teWrapper != nullptr)
+        juce::MessageManager::callAsync ([this] {
+            if (teWrapper != nullptr)
+                teWrapper->edit->getTransport().stop (false, false);
+        });
     arrWasPlaying = arrPlaying;
 
     // Tracktion Engine tracks (arrangement layer — additive to the main mix)
@@ -749,57 +755,107 @@ void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivi
 // ── Arrangement playback ──────────────────────────────────────────────────────
 void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds, double startSeconds)
 {
-    arrangementPlayer.stop();   // immutable-while-playing: stop before re-scheduling
-    const double engineSr = currentSampleRate;
+    // Stop both transports before reconfiguring
+    arrangementPlayer.stop();
+    if (teWrapper != nullptr)
+        teWrapper->edit->getTransport().stop (false, false);
 
-    loadPool.addJob ([this, clips = std::move (clips), engineSr, minLengthSeconds, startSeconds]
+    // Compute total arrangement length
+    double totalLen = minLengthSeconds;
+    for (const auto& spec : clips)
+        totalLen = juce::jmax (totalLen, spec.timelineStartSeconds + spec.lengthSeconds);
+
+    const bool hasContent = ! clips.empty() || totalLen > 0.0;
+    if (! hasContent)
+        return;
+
+    // All TE operations require the message thread; capture by value for async safety.
+    juce::MessageManager::callAsync ([this, clips = std::move (clips), totalLen, startSeconds]
     {
-        auto schedule = std::make_shared<ArrangementPlayer::Schedule>();
-        std::map<juce::String, std::shared_ptr<const DeckPlayer::LoadedAudio>> cache;
+        if (teWrapper == nullptr) return;
+
+        auto& edit = *teWrapper->edit;
+
+        // ── Rebuild TE audio tracks ──────────────────────────────────────────
+        // Clear existing arrangement clips
+        for (auto* t : tracktion::getAudioTracks (edit))
+        {
+            auto tc = t->getClips();
+            for (int i = tc.size(); --i >= 0;)
+                tc.getUnchecked (i)->removeFromParent();
+        }
+
+        // One track per arrangement (multi-lane is a UI concept; audio is mono-timeline)
+        edit.ensureNumberOfAudioTracks (1);
+        auto* track = tracktion::getAudioTracks (edit)[0];
 
         for (const auto& spec : clips)
         {
             if (! spec.file.existsAsFile() || spec.lengthSeconds <= 0.0) continue;
 
-            const auto key = spec.file.getFullPathName();
-            auto it = cache.find (key);
-            std::shared_ptr<const DeckPlayer::LoadedAudio> audio;
-            if (it != cache.end())
-                audio = it->second;
-            else
-            {
-                audio = loadAudioFile (spec.file);
-                cache[key] = audio;
-            }
-            if (audio == nullptr || audio->audio.getNumSamples() <= 1) continue;
+            const auto tStart  = tracktion::TimePosition::fromSeconds (spec.timelineStartSeconds);
+            const auto tEnd    = tracktion::TimePosition::fromSeconds (spec.timelineStartSeconds + spec.lengthSeconds);
+            const auto srcOff  = tracktion::TimeDuration::fromSeconds (spec.sourceStartSeconds);
 
-            ArrangementPlayer::Clip clip;
-            // Aliasing shared_ptr: shares ownership of the LoadedAudio, points at its buffer.
-            clip.audio = std::shared_ptr<const juce::AudioBuffer<float>> (audio, &audio->audio);
-            clip.sourceSampleRate      = audio->sourceSampleRate;
-            clip.timelineStartSamples  = (juce::int64) std::round (spec.timelineStartSeconds * engineSr);
-            clip.sourceStartSamples    = (juce::int64) std::round (spec.sourceStartSeconds * audio->sourceSampleRate);
-            clip.timelineLengthSamples = (juce::int64) std::round (spec.lengthSeconds * engineSr);
-            clip.gain          = spec.gain;
-            clip.fadeInSamples  = (juce::int64) std::round (spec.fadeInSeconds  * engineSr);
-            clip.fadeOutSamples = (juce::int64) std::round (spec.fadeOutSeconds * engineSr);
-            schedule->push_back (std::move (clip));
+            if (auto wclip = track->insertWaveClip (
+                    spec.file.getFileNameWithoutExtension(), spec.file,
+                    tracktion::ClipPosition { tracktion::TimeRange (tStart, tEnd), srcOff },
+                    false))
+            {
+                if (spec.gain != 1.0f)
+                    wclip->setGainDB (juce::Decibels::gainToDecibels (spec.gain));
+                if (spec.fadeInSeconds  > 0.0)
+                    wclip->setFadeIn  (tracktion::TimeDuration::fromSeconds (spec.fadeInSeconds));
+                if (spec.fadeOutSeconds > 0.0)
+                    wclip->setFadeOut (tracktion::TimeDuration::fromSeconds (spec.fadeOutSeconds));
+            }
         }
 
-        juce::MessageManager::callAsync ([this, schedule, minLengthSeconds, startSeconds]
-        {
-            arrangementPlayer.setSchedule (schedule);
-            arrangementPlayer.setLengthSeconds (minLengthSeconds);   // include MIDI past the audio
-            arrangementPlayer.setPositionSeconds (startSeconds);     // start from the play cursor
-            if (! schedule->empty() || minLengthSeconds > 0.0)       // start even if MIDI-only
-                arrangementPlayer.start();
-        });
+        // ── Sync master BPM to TE tempo sequence ────────────────────────────
+        const double bpm = juce::jlimit (40.0, 240.0, (double) getFloatParam ("masterBpm"));
+        if (edit.tempoSequence.getNumTempos() > 0)
+            edit.tempoSequence.getTempoAt (tracktion::TimePosition()).setBpm (bpm);
+
+        // ── Start TE transport ───────────────────────────────────────────────
+        auto& transport = edit.getTransport();
+        transport.setPosition (tracktion::TimePosition::fromSeconds (startSeconds));
+        transport.ensureContextAllocated (true);
+        transport.play (false);
+
+        // ── arrangementPlayer as lightweight position tracker ────────────────
+        // Null schedule → no audio output; it only advances the playhead so
+        // MidiClipPlayer and metronome know where we are in the arrangement.
+        arrangementPlayer.setSchedule (nullptr);
+        arrangementPlayer.setLengthSeconds (totalLen);
+        arrangementPlayer.setPositionSeconds (startSeconds);
+        arrangementPlayer.start();
     });
 }
 
 void MainPluginProcessor::stopArrangement()
 {
     arrangementPlayer.stop();
+    if (teWrapper != nullptr)
+        teWrapper->edit->getTransport().stop (false, false);
+}
+
+void MainPluginProcessor::setArrangementPositionSeconds (double s)
+{
+    arrangementPlayer.setPositionSeconds (s);
+    if (teWrapper != nullptr)
+        teWrapper->edit->getTransport().setPosition (tracktion::TimePosition::fromSeconds (s));
+}
+
+void MainPluginProcessor::setArrangementLoop (double startSec, double endSec, bool enabled)
+{
+    arrangementPlayer.setLoop (startSec, endSec, enabled);
+    if (teWrapper != nullptr)
+    {
+        auto& transport = teWrapper->edit->getTransport();
+        transport.loopPoint1 = tracktion::TimePosition::fromSeconds (startSec);
+        transport.loopPoint2 = tracktion::TimePosition::fromSeconds (endSec);
+        transport.looping    = enabled;
+    }
 }
 
 // ── Slip mode + loop roll ────────────────────────────────────────────────────
