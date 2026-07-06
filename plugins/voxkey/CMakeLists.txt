@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
 
 set(VOXKEY_CORE_SOURCES
     src/PitchDetector.cpp
@@ -23,6 +24,8 @@ sattari_add_plugin(
         ${VOXKEY_CORE_SOURCES}
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
+
+sattari_enable_onnx(SattariVoxKey SATTARI_HAS_ONNX)
 
 # Functional DSP contract test (feeds a 440 Hz sine, asserts YIN -> A4).
 add_executable(VoxKeyCoreContract

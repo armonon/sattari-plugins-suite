@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <chrono>
 
 SattariVoxKeyAudioProcessor::SattariVoxKeyAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -44,7 +45,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor:
     // harmonics. UI marks it 'alpha'.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("paraphonic", "Paraphonic (alpha)", false));
 
+    // Neural Pitch (CREPE): use the optional ONNX pitch model when present. Inert
+    // (falls back to YIN) unless a crepe.onnx is installed AND the build has ONNX.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", false));
+
     return { params.begin(), params.end() };
+}
+
+SattariVoxKeyAudioProcessor::~SattariVoxKeyAudioProcessor()
+{
+    crepeThreadRun.store (false);
+    if (crepeThread.joinable()) crepeThread.join();
+}
+
+void SattariVoxKeyAudioProcessor::crepeWorkerLoop()
+{
+    using namespace std::chrono_literals;
+    while (crepeThreadRun.load (std::memory_order_relaxed))
+    {
+        if (crepeModelPresent && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
+        {
+            const auto r = crepe.analyse (0.5f);
+            crepeResultHz.store (r.frequencyHz, std::memory_order_relaxed);
+            crepeResultConf.store (r.confidence, std::memory_order_relaxed);
+            crepeResultVoiced.store (r.voiced, std::memory_order_relaxed);
+        }
+        std::this_thread::sleep_for (12ms);
+    }
 }
 
 void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -54,6 +81,24 @@ void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     monoScratch.setSize (1, juce::jmax (1, samplesPerBlock), false, false, true);
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
     publishDisplayState ({});
+
+    // Optional CREPE model (shared with Auto Pitch): load from the conventional
+    // models folder; spin up the inference worker only when a model is present.
+    crepe.prepare (sampleRate);
+    crepeModelPresent = false;
+    {
+        auto modelFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                             .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("crepe.onnx");
+        if (modelFile.existsAsFile())
+            crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
+    }
+    crepeThreadRun.store (false);
+    if (crepeThread.joinable()) crepeThread.join();
+    if (crepeModelPresent)
+    {
+        crepeThreadRun.store (true);
+        crepeThread = std::thread ([this] { crepeWorkerLoop(); });
+    }
 
     // Paraphonic detector init (allocation-free after this).
     paraFft = std::make_unique<juce::dsp::FFT> (paraFftOrder);
@@ -259,11 +304,26 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         return;
     }
 
-    const auto frame = pitchDetector.analyseBlock (mono,
-                                                   numSamples,
-                                                   *apvts.getRawParameterValue ("sensitivity"),
-                                                   *apvts.getRawParameterValue ("confidence"),
-                                                   *apvts.getRawParameterValue ("smoothness"));
+    auto frame = pitchDetector.analyseBlock (mono,
+                                             numSamples,
+                                             *apvts.getRawParameterValue ("sensitivity"),
+                                             *apvts.getRawParameterValue ("confidence"),
+                                             *apvts.getRawParameterValue ("smoothness"));
+
+    // Neural pitch: when a CREPE model is active, feed the ring (audio-thread
+    // cheap) and replace the YIN frame with the worker's more-accurate estimate.
+    // This is the big voice->MIDI accuracy win on breathy/noisy vocals.
+    if (crepeModelPresent && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
+    {
+        crepe.pushBlock (mono, numSamples);
+        const float chz = crepeResultHz.load (std::memory_order_relaxed);
+        if (crepeResultVoiced.load (std::memory_order_relaxed) && chz > 0.0f)
+        {
+            frame.frequencyHz = chz;
+            frame.confidence  = juce::jmax (frame.confidence, crepeResultConf.load (std::memory_order_relaxed));
+            frame.voiced      = true;
+        }
+    }
 
     midiMapper.processFrame (frame, readSettings(), midi, 0);
     publishDisplayState (midiMapper.getState());

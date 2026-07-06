@@ -99,6 +99,8 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     bypass.setButtonText ("Bypass");
     setupToggle (followKey);
     followKey.setButtonText ("Follow Song Key");
+    setupToggle (neuralPitch);
+    neuralPitch.setButtonText ("Neural Pitch");
     // Experimental "alpha" features are hidden from the shipping UI so users never
     // see a half-validated toggle. Build with -DSATTARI_ENABLE_EXPERIMENTAL=1 to
     // expose them for development. The param itself stays registered (default off)
@@ -155,6 +157,7 @@ SattariVoxKeyAudioProcessorEditor::SattariVoxKeyAudioProcessorEditor (SattariVox
     bypassAttach = std::make_unique<ButtonAttachment> (params, "bypass", bypass);
     paraphonicAttach = std::make_unique<ButtonAttachment> (params, "paraphonic", paraphonic);
     followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
+    neuralPitchAttach = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
 
     startTimerHz (20);
 }
@@ -318,6 +321,10 @@ void SattariVoxKeyAudioProcessorEditor::resized()
    #if SATTARI_ENABLE_EXPERIMENTAL
     paraphonic.setBounds (toggleRow.removeFromLeft (160));
    #endif
+
+    left.removeFromTop (6);
+    auto toggleRow2 = left.removeFromTop (28);
+    neuralPitch.setBounds (toggleRow2.removeFromLeft (150));
 
     left.removeFromTop (10);
     routingLabel.setBounds (left.removeFromTop (48));

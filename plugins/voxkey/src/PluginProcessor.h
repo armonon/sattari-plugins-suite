@@ -4,19 +4,26 @@
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariCrepePitch.h>
 #include "PitchDetector.h"
 #include "VoiceMidiMapper.h"
 #include <atomic>
 #include <array>
+#include <thread>
 
 class SattariVoxKeyAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariVoxKeyAudioProcessor();
-    ~SattariVoxKeyAudioProcessor() override = default;
+    ~SattariVoxKeyAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override { sessionReader.stop(); }
+    void releaseResources() override
+    {
+        sessionReader.stop();
+        crepeThreadRun.store (false);
+        if (crepeThread.joinable()) crepeThread.join();
+    }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -71,6 +78,21 @@ private:
     sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
     VoxKeyPitchDetector pitchDetector;
     VoxKeyVoiceMidiMapper midiMapper;
+
+    // --- Optional CREPE neural pitch (ONNX, model-optional) ------------------
+    // Voice->MIDI lives on pitch accuracy; when a crepe.onnx model is present and
+    // "Neural Pitch" is on, its estimate replaces YIN's (no octave jumps on
+    // breathy vocals). Inference runs on a worker thread; the audio thread only
+    // writes the lock-free ring and reads result atomics. Absent a model this is
+    // inert and YIN stands — zero new behaviour.
+    sattari::dsp::CrepePitchTracker crepe;
+    bool  crepeModelPresent = false;
+    std::thread        crepeThread;
+    std::atomic<bool>  crepeThreadRun { false };
+    std::atomic<float> crepeResultHz { 0.0f };
+    std::atomic<float> crepeResultConf { 0.0f };
+    std::atomic<bool>  crepeResultVoiced { false };
+    void crepeWorkerLoop();
     juce::AudioBuffer<float> monoScratch;
     std::atomic<bool> panicRequested { false };
 
