@@ -47,12 +47,26 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
     // Key section.
     setupCombo (sourceBox, SattariHarmonyAudioProcessor::sourceChoices());
     sourceAtt = std::make_unique<ComboAttachment> (processor.parameters(), "source", sourceBox);
-    addAndMakeVisible (followKeyToggle);
-    followAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "followKey", followKeyToggle);
-    setupCombo (rootBox,  SattariHarmonyAudioProcessor::rootChoices());
-    setupCombo (scaleBox, SattariHarmonyAudioProcessor::scaleChoices());
-    rootAtt  = std::make_unique<ComboAttachment> (processor.parameters(), "root",  rootBox);
-    scaleAtt = std::make_unique<ComboAttachment> (processor.parameters(), "scale", scaleBox);
+    // One tactile control for the whole key story (shared across the suite):
+    // Follow Song Key from the master bus, or set root+scale by hand.
+    {
+        sattari::ui::KeyButton::Config cfg;
+        cfg.accentId   = "harmony";
+        cfg.showFollow = true;                 // Harmony follows the Sattari Key bus
+        cfg.showAutoKey = false;               // no self-detect here
+        cfg.rootNames  = SattariHarmonyAudioProcessor::rootChoices();
+        cfg.scaleNames = SattariHarmonyAudioProcessor::scaleChoices();
+        cfg.hint       = "click: follow song key / set by hand";
+        keyButton.setConfig (cfg);
+    }
+    keyButton.onLinkFollow = [this] { setKeyParam ("followKey", 1.0f); };
+    keyButton.onManualKey  = [this] (int root, int scaleIdx)
+    {
+        setKeyParam ("followKey", 0.0f);
+        setKeyParam ("root",  (float) root);
+        setKeyParam ("scale", (float) scaleIdx);
+    };
+    addAndMakeVisible (keyButton);
 
     keyStatus.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     keyStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
@@ -126,6 +140,19 @@ void SattariHarmonyAudioProcessorEditor::setupCombo (juce::ComboBox& c, const ju
     addAndMakeVisible (c);
 }
 
+// Set an APVTS parameter by its real value (handles 0..1 conversion + gesture),
+// used by the KeyButton callbacks instead of a live attachment.
+void SattariHarmonyAudioProcessorEditor::setKeyParam (const juce::String& id, float value)
+{
+    if (auto* p = processor.parameters().getParameter (id))
+    {
+        const float norm = p->convertTo0to1 (value);
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (norm);
+        p->endChangeGesture();
+    }
+}
+
 void SattariHarmonyAudioProcessorEditor::refreshUserPresets()
 {
     userPresets.clear (juce::dontSendNotification);
@@ -151,20 +178,11 @@ void SattariHarmonyAudioProcessorEditor::timerCallback()
     inputMeterLabel.setText  ("IN "  + juce::String (juce::Decibels::gainToDecibels (processor.getInputMeter()  + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
     outputMeterLabel.setText ("OUT " + juce::String (juce::Decibels::gainToDecibels (processor.getOutputMeter() + 1.0e-6f), 1) + " dB", juce::dontSendNotification);
 
-    const auto roots  = SattariHarmonyAudioProcessor::rootChoices();
-    const auto scales = SattariHarmonyAudioProcessor::scaleChoices();
-    const auto rootName  = roots[juce::jlimit (0, roots.size() - 1, snapshot.root)];
-    const auto scaleName = scales[juce::jlimit (0, scales.size() - 1, snapshot.scaleChoice)];
-    keyStatus.setText ((snapshot.followingBus ? "Following Song Key:  " : "Manual key:  ") + rootName + " " + scaleName,
-                       juce::dontSendNotification);
-    keyStatus.setColour (juce::Label::textColourId,
-        juce::Colour (snapshot.followingBus ? sattari::brand::kAccent : sattari::brand::kTextMuted));
-
-    // When the bus is driving the key, grey out the manual root/scale menus so the
-    // override is never silent — they show the followed key but can't be edited
-    // until Follow Song Key is turned off.
-    rootBox.setEnabled  (! snapshot.followingBus);
-    scaleBox.setEnabled (! snapshot.followingBus);
+    // Drive the single KeyButton: it shows the effective key + whether it's being
+    // followed from the bus or set manually (the override is never silent).
+    keyButton.setState (snapshot.followingBus ? sattari::ui::KeyButton::Mode::Follow
+                                              : sattari::ui::KeyButton::Mode::Manual,
+                        snapshot.root, snapshot.scaleChoice);
 
     repaint();
 }
@@ -284,16 +302,10 @@ void SattariHarmonyAudioProcessorEditor::resized()
     midiLearnButton.setBounds (presetRow.removeFromLeft (120));
     area.removeFromTop (10);
 
-    auto keyRow = area.removeFromTop (30);
-    sourceBox.setBounds (keyRow.removeFromLeft (130));
+    auto keyRow = area.removeFromTop (56);
+    sourceBox.setBounds (keyRow.removeFromLeft (130).withSizeKeepingCentre (130, 28));
     keyRow.removeFromLeft (12);
-    followKeyToggle.setBounds (keyRow.removeFromLeft (165));
-    keyRow.removeFromLeft (8);
-    rootBox.setBounds (keyRow.removeFromLeft (78));
-    keyRow.removeFromLeft (8);
-    scaleBox.setBounds (keyRow.removeFromLeft (150));
-    keyRow.removeFromLeft (14);
-    keyStatus.setBounds (keyRow);
+    keyButton.setBounds (keyRow.removeFromLeft (juce::jmin (320, keyRow.getWidth())));
     area.removeFromTop (12);
 
     fanArea = area.removeFromTop (130);

@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariKeyButton.h>
 #include "HarmonyProcessor.h"
 #include <array>
 
@@ -26,6 +27,7 @@ private:
 
     void setupSlider (juce::Slider&, const juce::String& suffix = {});
     void setupCombo  (juce::ComboBox&, const juce::StringArray& items);
+    void setKeyParam (const juce::String& id, float value);   // set an APVTS param by real value
     void timerCallback() override;
     void drawVoiceFan (juce::Graphics&, juce::Rectangle<int> area);
     void refreshUserPresets();
@@ -38,9 +40,9 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, keyStatus, inputMeterLabel, outputMeterLabel;
-    juce::ComboBox userPresets, sourceBox, rootBox, scaleBox;
+    juce::ComboBox userPresets, sourceBox;
     juce::TextButton savePresetButton { "Save Preset" }, midiLearnButton { "MIDI Learn..." };
-    juce::ToggleButton followKeyToggle { "Follow Song Key" };
+    sattari::ui::KeyButton keyButton;   // one tactile control: Follow Song Key / set key by hand
 
     juce::Slider inputSlider, outputSlider, mixSlider, tuneSlider, choirSlider, spreadSlider, humanizeSlider;
 
@@ -52,8 +54,7 @@ private:
     };
     std::array<VoiceStrip, kNumVoices> voices;
 
-    std::unique_ptr<ComboAttachment>  sourceAtt, rootAtt, scaleAtt;
-    std::unique_ptr<ButtonAttachment> followAtt;
+    std::unique_ptr<ComboAttachment>  sourceAtt;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAtts;
     std::vector<std::unique_ptr<ComboAttachment>>  comboAtts;
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAtts;
