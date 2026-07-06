@@ -3,8 +3,9 @@
 #  Sattari Audio — Developer ID sign + notarize + staple the suite installer
 # -----------------------------------------------------------------------------
 #  Turns the ad-hoc-signed local .pkg into a Gatekeeper-clean, distributable
-#  installer. This script NEVER sees your Apple password: it uses a notarytool
-#  *keychain profile* that you create once, separately:
+#  installer. Run `scripts/sign_preflight.sh` first — it checks certs/profile and
+#  prints exactly what to fix. This script NEVER sees your Apple password: it uses
+#  a notarytool *keychain profile* that you create once, separately:
 #
 #     xcrun notarytool store-credentials sattari-notary \
 #         --apple-id "you@example.com" --team-id "TEAMID1234"
@@ -29,18 +30,32 @@ cd "$ROOT"
 : "${SATTARI_DEV_INSTALLER_ID:?set SATTARI_DEV_INSTALLER_ID to your 'Developer ID Installer: ...' identity}"
 : "${SATTARI_NOTARY_PROFILE:?set SATTARI_NOTARY_PROFILE to your notarytool keychain profile name}"
 
-ARTROOT="${SATTARI_ARTEFACT_ROOT:-build/all/plugins}"
+# Default to the live build tree (build/all is a dead cache), fall back to it.
+if [ -z "${SATTARI_ARTEFACT_ROOT:-}" ]; then
+  for cand in build/local/plugins build/all/plugins; do
+    [ -d "$cand" ] && SATTARI_ARTEFACT_ROOT="$cand" && break
+  done
+fi
+ARTROOT="${SATTARI_ARTEFACT_ROOT:-build/local/plugins}"
 PKG_IN="${SATTARI_PKG:-build/installer/Sattari-Audio-Suite.pkg}"
 PKG_SIGNED="${PKG_IN%.pkg}-signed.pkg"
-ENTITLEMENTS="${SATTARI_ENTITLEMENTS:-}"
+# Hardened-runtime entitlements are required for our ONNX plugins (they embed a
+# self-contained dylib, which library validation would otherwise reject).
+ENTITLEMENTS="${SATTARI_ENTITLEMENTS:-packaging/sattari-plugin.entitlements}"
+[ -f "$ENTITLEMENTS" ] || { echo "ERROR: entitlements not found at $ENTITLEMENTS"; exit 2; }
 
 echo "== 1) Developer ID sign every code bundle (hardened runtime + timestamp) =="
 sign_one() {
   local bundle="$1"
-  local args=(--force --options runtime --timestamp --sign "$SATTARI_DEV_APP_ID")
-  [ -n "$ENTITLEMENTS" ] && args+=(--entitlements "$ENTITLEMENTS")
-  # Sign nested code first (deep), then the bundle itself.
-  codesign "${args[@]}" --deep "$bundle"
+  local args=(--force --options runtime --timestamp --sign "$SATTARI_DEV_APP_ID"
+              --entitlements "$ENTITLEMENTS")
+  # Sign inside-out: embedded frameworks / dylibs (e.g. libonnxruntime) FIRST,
+  # each with the same identity + timestamp + runtime, then the bundle. --deep is
+  # unreliable for notarization, so we sign nested Mach-O explicitly.
+  while IFS= read -r nested; do
+    codesign "${args[@]}" "$nested"
+  done < <(find "$bundle/Contents/Frameworks" -type f \( -name '*.dylib' -o -name '*.framework' \) 2>/dev/null)
+  codesign "${args[@]}" "$bundle"
   codesign --verify --deep --strict --verbose=2 "$bundle"
   echo "   signed: $bundle"
 }
