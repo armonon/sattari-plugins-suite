@@ -152,6 +152,18 @@ int SattariArpAudioProcessor::snapNoteToScale (int note) const
     return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scaleIndex);
 }
 
+SattariArpAudioProcessor::KeyState SattariArpAudioProcessor::currentKeyState() const
+{
+    KeyState k;
+    k.scale = (int) *apvts.getRawParameterValue ("scale");
+    k.root  = (int) *apvts.getRawParameterValue ("scaleRoot");
+    k.following = apvts.getRawParameterValue ("followKey")->load() > 0.5f;
+    if (k.following)
+        if (auto s = sessionReader.current(); s.valid)
+            k.root = s.root;
+    return k;
+}
+
 double SattariArpAudioProcessor::getStepQuarterNotes() const
 {
     switch ((int) *apvts.getRawParameterValue ("rate"))

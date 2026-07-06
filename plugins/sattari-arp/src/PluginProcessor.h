@@ -67,6 +67,13 @@ private:
     void resetSequence();
     bool hasHeldNotes() const { return ! heldNotes.empty(); }
 
+public:
+    // Effective key for the editor's KeyButton: the scale + root actually in use
+    // (root comes from the bus when Follow Song Key is on and a session is live).
+    struct KeyState { bool following = false; int root = 0; int scale = 0; };
+    KeyState currentKeyState() const;
+private:
+
     juce::AudioProcessorValueTreeState apvts;
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };

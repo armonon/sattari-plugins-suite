@@ -51,10 +51,27 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     pattern.addItemList (juce::StringArray { "Up", "Down", "Up-Down", "Down-Up", "As Played", "Random", "Chord Pulse" }, 1);
     setupCombo (velocityMode);
     velocityMode.addItemList (juce::StringArray { "Input", "Fixed", "Accent" }, 1);
-    setupCombo (scaleRoot);
-    scaleRoot.addItemList (juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
-    setupCombo (scale);
-    scale.addItemList (juce::StringArray { "Off","Major","Minor","Penta Maj","Penta Min","Dorian","Mixolydian","Harm Minor" }, 1);
+    // One tactile control for the whole key story (shared across the suite):
+    // Follow Song Key from the master bus, or set root + scale by hand.
+    {
+        sattari::ui::KeyButton::Config cfg;
+        cfg.accentId   = "sattari-arp";
+        cfg.showFollow = true;
+        cfg.showAutoKey = false;
+        cfg.rootNames  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        cfg.scaleNames = { "Off","Major","Minor","Penta Maj","Penta Min","Dorian","Mixolydian","Harm Minor" };
+        cfg.hint       = "click: follow song key / set root + scale";
+        keyButton.setConfig (cfg);
+    }
+    keyButton.onLinkFollow = [this] { setParameterValue ("followKey", 1.0f); };
+    keyButton.onManualKey  = [this] (int root, int scaleIdx)
+    {
+        setParameterValue ("followKey", 0.0f);
+        setParameterValue ("scaleRoot", (float) root);
+        setParameterValue ("scale",     (float) scaleIdx);
+    };
+    addAndMakeVisible (keyButton);
+
     setupSlider (octaves);
     setupSlider (ratchet);
     setupSlider (gate, "%");
@@ -74,10 +91,6 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     hostSync.setButtonText ("Host sync");
     hostSync.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (hostSync);
-
-    followKey.setButtonText ("Follow Song Key");
-    followKey.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
-    addAndMakeVisible (followKey);
 
     setupLabel (rateLabel, "Time");
     setupLabel (patternLabel, "Pattern");
@@ -101,8 +114,6 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     rateAttach = std::make_unique<ComboAttachment> (params, "rate", rate);
     patternAttach = std::make_unique<ComboAttachment> (params, "pattern", pattern);
     velocityModeAttach = std::make_unique<ComboAttachment> (params, "velocityMode", velocityMode);
-    scaleRootAttach = std::make_unique<ComboAttachment> (params, "scaleRoot", scaleRoot);
-    scaleAttach = std::make_unique<ComboAttachment> (params, "scale", scale);
     octavesAttach = std::make_unique<SliderAttachment> (params, "octaves", octaves);
     ratchetAttach = std::make_unique<SliderAttachment> (params, "ratchet", ratchet);
     gateAttach = std::make_unique<SliderAttachment> (params, "gate", gate);
@@ -113,20 +124,24 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioP
     latchAttach = std::make_unique<ButtonAttachment> (params, "latch", latch);
     inputThruAttach = std::make_unique<ButtonAttachment> (params, "inputThru", inputThru);
     hostSyncAttach = std::make_unique<ButtonAttachment> (params, "hostSync", hostSync);
-    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
-
-    // Grey the manual Root menu while Follow Song Key is engaged so the bus
-    // override is never silent. Reflect the current state now and on every toggle.
-    auto syncRootEnabled = [this] { scaleRoot.setEnabled (! followKey.getToggleState()); };
-    followKey.onStateChange = syncRootEnabled;
-    syncRootEnabled();
 
     gate.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
     swing.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
+
+    startTimerHz (20);   // keep the KeyButton reflecting the effective (bus/manual) key
+}
+
+void SattariArpAudioProcessorEditor::timerCallback()
+{
+    const auto k = audioProcessor.currentKeyState();
+    keyButton.setState (k.following ? sattari::ui::KeyButton::Mode::Follow
+                                    : sattari::ui::KeyButton::Mode::Manual,
+                        k.root, k.scale);
 }
 
 SattariArpAudioProcessorEditor::~SattariArpAudioProcessorEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
 }
 
@@ -260,16 +275,14 @@ void SattariArpAudioProcessorEditor::resized()
     velocityMode.setBounds (top.removeFromLeft (110));
 
     area.removeFromTop (10);
-    auto scaleRow = area.removeFromTop (32);
-    scaleLabel.setBounds (scaleRow.removeFromLeft (52));
-    scaleRoot.setBounds (scaleRow.removeFromLeft (80));
-    scaleRow.removeFromLeft (10);
-    scale.setBounds (scaleRow.removeFromLeft (150));
+    auto scaleRow = area.removeFromTop (56);
+    scaleLabel.setBounds (scaleRow.removeFromLeft (52).withSizeKeepingCentre (52, 24));
+    keyButton.setBounds (scaleRow.removeFromLeft (300));
     scaleRow.removeFromLeft (20);
-    latch.setBounds (scaleRow.removeFromLeft (150));
-    inputThru.setBounds (scaleRow.removeFromLeft (120));
-    hostSync.setBounds (scaleRow.removeFromLeft (110));
-    followKey.setBounds (scaleRow.removeFromLeft (150));
+    auto togs = scaleRow.withSizeKeepingCentre (scaleRow.getWidth(), 28);
+    latch.setBounds (togs.removeFromLeft (150));
+    inputThru.setBounds (togs.removeFromLeft (120));
+    hostSync.setBounds (togs.removeFromLeft (110));
 
     area.removeFromTop (18);
     auto labelRow = area.removeFromTop (22);
