@@ -2988,6 +2988,7 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.gain                 = arrangementView.laneGainLinear (lane);
             spec.fadeInSeconds        = clip.fadeInSeconds;
             spec.fadeOutSeconds       = clip.fadeOutSeconds;
+            spec.lane                 = lane;
             specs.push_back (spec);
         }
     }

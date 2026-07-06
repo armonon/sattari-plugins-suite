@@ -149,10 +149,13 @@ public:
         float  gain = 1.0f;
         double fadeInSeconds  = 0.0;
         double fadeOutSeconds = 0.0;
+        int    lane = 0;   // which TE audio track (0..numDecks-1)
     };
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
-    void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm) { midiClipPlayer.setNotes (notes, bpm); }
+    void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm);
+    // Real-time per-lane volume for TE arrangement tracks (0..numDecks-1).
+    void setTeArrangementLaneGain (int lane, float gainLinear);
     void setMidiLaneGain (int lane, float gainLinear) noexcept { midiClipPlayer.setLaneGain (lane, gainLinear); }
     void setMetronomeEnabled (bool e) noexcept { metronome.setEnabled (e); }
     bool isMetronomeEnabled() const noexcept   { return metronome.isEnabled(); }
@@ -273,6 +276,12 @@ private:
             }
         }
     };
+
+    // MIDI notes staged by setMidiNotes() and consumed inside buildAndStartArrangement()
+    // to populate the TE MIDI+4OSC synth tracks.  Message-thread only.
+    std::vector<MidiClipPlayer::SourceNote> pendingMidiNotes;
+    double pendingMidiBpm = 120.0;
+    std::atomic<bool> usingTeMidi { false };   // processBlock: skip MidiClipPlayer when true
 
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioFormatManager formatManager;
