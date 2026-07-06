@@ -34,6 +34,14 @@ CONTRACTS=(
   "RoyalChainColorAliasingContract|plugins/royal-chain/RoyalChainColorAliasingContract"
   "StemDeckArchitectureContract|plugins/stemdeck/StemDeckArchitectureContract"
   "StemDeckGranularRenderContract|plugins/stemdeck/StemDeckGranularRenderContract"
+  "HarmonyCoreContract|plugins/harmony/HarmonyCoreContract"
+  "MaqamCoreContract|plugins/maqam/MaqamCoreContract"
+  "RhythmGenieCoreContract|plugins/rhythm-genie/RhythmGenieCoreContract"
+  "VocalMasterCoreContract|plugins/vocal-master/VocalMasterCoreContract"
+  "SongKeyRender|plugins/song-key/SongKeyRender"
+  "SubConjurerContract|plugins/sub-conjurer/SubConjurerContract"
+  "WarpContract|plugins/warp/WarpContract"
+  "TunerContract|plugins/tuner/TunerContract"
 )
 
 echo "== configuring $BUILD =="
