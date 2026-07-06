@@ -5,6 +5,8 @@
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 namespace
 {
@@ -335,8 +337,17 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
                         && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
 
     auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
-              | RubberBand::RubberBandStretcher::OptionTransientsMixed
+              // Sustained, pitched vocal material: TransientsSmooth avoids the
+              // phase-reset Rubber Band performs at each detected "transient",
+              // which on a held note fires spuriously and punches an amplitude
+              // dropout / click into the tune. Smooth keeps the phase continuous.
+              | RubberBand::RubberBandStretcher::OptionTransientsSmooth
               | RubberBand::RubberBandStretcher::OptionDetectorSoft
+              // Auto Pitch changes the pitch scale every block; without this,
+              // Rubber Band emits a phase discontinuity (click) at each fast
+              // pitch move (e.g. hard note transitions). HighConsistency uses a
+              // method built for dynamic pitch changes with no discontinuities.
+              | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
               | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
                         : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
 
@@ -348,12 +359,31 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         stretcher->setPitchScale (1.0);
         rubberBand.push_back (std::move (stretcher));
     }
+    // rubberBandOutput doubles as the per-iteration drain chunk buffer, so give
+    // it headroom for one full block of Rubber Band output at a time.
     rubberBandOutput.setSize (numChannels, preparedBlockSize);
     rubberBandScratch.resize ((size_t) preparedBlockSize, 0.0f);
 
-    // Report latency so the host delay-compensates. getStartDelay() is the
-    // Rubber Band pipeline latency at unity pitch.
-    reportedLatencySamples = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
+    // --- Output FIFO ---------------------------------------------------------
+    // We keep a one-block cushion in the ring so Rubber Band's per-call
+    // burstiness never starves the output (which used to be papered over by
+    // splicing dry signal onto the block tail -> crackle). Capacity covers the
+    // cushion, a full host block, the start delay and generous slack.
+    // Cushion has to absorb Rubber Band's transient burstiness during pitch-scale
+    // automation (at a hard note transition it momentarily delivers fewer than N
+    // samples). Sizing the cushion to RB's own start delay gives ample headroom
+    // so the pop path never starves — starvation would zero-pad the block tail
+    // and click. A one-block floor covers the trivial (unity) case.
+    const int startDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
+    rbLatency = startDelay;
+    rbCushion = juce::jmax (preparedBlockSize, startDelay);
+    rbFifoCap = rbCushion + startDelay + 8 * preparedBlockSize + 16384;
+    rbFifo.setSize (numChannels, rbFifoCap);
+    resetRbFifo();
+
+    // Report latency so the host delay-compensates: Rubber Band's own pipeline
+    // delay plus the cushion the FIFO holds before it starts popping.
+    reportedLatencySamples = startDelay + rbCushion;
     setLatencySamples (reportedLatencySamples);
 #else
     reportedLatencySamples = 0;
@@ -389,6 +419,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     pitchSamplesUntilAnalysis = pitchHopSize;
     lastPitchFrame = {};
     smoothedPitchScale = 1.0;
+    lastFedPitchScale = 1.0;
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
     detectedAutoScale = 1;
@@ -397,6 +428,9 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     flexEngageState = 0.0;
     vibratoCenterMidi = -1000.0;
     for (auto& p : psola) p.reset();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    resetRbFifo();
+#endif
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1479,6 +1513,24 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         humanizeSmoothedCents *= 0.95;   // drift back to zero when off
     }
 
+    // Glitch guard: Rubber Band phase-glitches (audible click) when the pitch
+    // ratio steps too hard between blocks. A large target jump (a melodic leap,
+    // or a stray detector octave-blip) combined with fast retune would move the
+    // ratio many semitones in a single block. Cap the per-block change in the
+    // log domain so such jumps ramp over a couple of blocks instead of stepping.
+    // 120 semitones/sec = a full octave in 100 ms (a 2-semitone note-jump in
+    // ~17 ms), so hard-tune still feels instant while the jaggedness that makes
+    // Rubber Band click is smoothed away.
+    {
+        const double maxSemisPerSec   = 120.0;
+        const double blockTime        = (double) numSamples / juce::jmax (1.0, currentSampleRate);
+        const double maxLog2Step      = (maxSemisPerSec * blockTime) / 12.0;
+        const double desiredLog2       = std::log2 (juce::jmax (1.0e-6, smoothedPitchScale / juce::jmax (1.0e-6, lastFedPitchScale)));
+        const double clampedLog2        = juce::jlimit (-maxLog2Step, maxLog2Step, desiredLog2);
+        smoothedPitchScale = juce::jlimit (0.5, 2.0, lastFedPitchScale * std::pow (2.0, clampedLog2));
+        lastFedPitchScale  = smoothedPitchScale;
+    }
+
     const float inputDb = apvts.getRawParameterValue ("inputGain")->load();
     const float outputDb = apvts.getRawParameterValue ("outputGain")->load();
     const float linearGain = juce::Decibels::decibelsToGain (inputDb + outputDb);
@@ -1550,14 +1602,21 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     const bool neutralFormant = (std::abs (combinedFormant - 1.0) < 1.0e-4);
     const double formantScale = neutralFormant ? 0.0 : combinedFormant;
 
+    // If for any reason a channel has no stretcher, fall back to dry passthrough
+    // for the whole block (keeps channels phase-locked; never mid-block spliced).
+    const bool haveAllStretchers =
+        (int) rubberBand.size() >= numChannels
+        && std::all_of (rubberBand.begin(), rubberBand.begin() + numChannels,
+                        [] (const auto& s) { return s != nullptr; });
+    if (! haveAllStretchers)
+    {
+        buffer.applyGain (linearGain);
+        return;
+    }
+
+    // 1. Feed the block to every channel with identical settings.
     for (int channel = 0; channel < numChannels; ++channel)
     {
-        if (channel >= (int) rubberBand.size() || rubberBand[(size_t) channel] == nullptr)
-        {
-            rubberBandOutput.copyFrom (channel, 0, buffer, channel, 0, numSamples);
-            continue;
-        }
-
         auto& stretcher = *rubberBand[(size_t) channel];
         stretcher.setFormantOption (formantPreserve
             ? RubberBand::RubberBandStretcher::OptionFormantPreserved
@@ -1567,26 +1626,106 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
         stretcher.setPitchScale (pitchScale);
         const float* input = buffer.getReadPointer (channel);
         stretcher.process (&input, (size_t) numSamples, false);
-
-        int written = 0;
-        while (written < numSamples && stretcher.available() > 0)
-        {
-            const int count = juce::jmin (numSamples - written, (int) stretcher.available());
-            float* output = rubberBandOutput.getWritePointer (channel, written);
-            stretcher.retrieve (&output, (size_t) count);
-            written += count;
-        }
-
-        if (written < numSamples)
-            rubberBandOutput.copyFrom (channel, written, buffer, channel, written, numSamples - written);
     }
 
-    buffer.makeCopyOf (rubberBandOutput, true);
+    // 2. Drain everything Rubber Band produced into the FIFO. All channels share
+    //    the same settings/schedule, so available() is identical; take the min
+    //    defensively and retrieve equal-length chunks so the ring stays aligned.
+    for (;;)
+    {
+        int avail = std::numeric_limits<int>::max();
+        for (int channel = 0; channel < numChannels; ++channel)
+            avail = juce::jmin (avail, (int) rubberBand[(size_t) channel]->available());
+        if (avail <= 0)
+            break;
+
+        const int chunk = juce::jmin (avail, rubberBandOutput.getNumSamples());
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            float* dst = rubberBandOutput.getWritePointer (channel);
+            rubberBand[(size_t) channel]->retrieve (&dst, (size_t) chunk);
+        }
+        pushRbFifo (rubberBandOutput, 0, chunk);
+    }
+
+    // 3. Pop exactly numSamples from the ring. Hold silence until the one-block
+    //    cushion has filled (this is the reported start-up latency); after that
+    //    the ring always has enough, so output is continuous — no dry splices.
+    if (! rbPrimed && rbFifoCount >= rbCushion)
+        rbPrimed = true;
+
+    if (! rbPrimed)
+    {
+        buffer.clear();
+    }
+    else
+    {
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            float* out = buffer.getWritePointer (channel);
+            const float* ring = rbFifo.getReadPointer (channel);
+            int rd = rbFifoRead;
+            const int avail = juce::jmin (numSamples, rbFifoCount);
+            for (int i = 0; i < avail; ++i)
+            {
+                out[i] = ring[rd];
+                if (++rd >= rbFifoCap) rd = 0;
+            }
+            for (int i = avail; i < numSamples; ++i) // safety pad (shouldn't trigger)
+                out[i] = 0.0f;
+        }
+        const int consumed = juce::jmin (numSamples, rbFifoCount);
+        rbFifoRead = (rbFifoRead + consumed) % rbFifoCap;
+        rbFifoCount -= consumed;
+    }
+
     buffer.applyGain (linearGain);
 #else
     juce::ignoreUnused (buffer, pitchScale, linearGain);
 #endif
 }
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+void SattariAutoPitchAudioProcessor::resetRbFifo()
+{
+    rbFifo.clear();
+    rbFifoRead  = 0;
+    rbFifoCount = 0;
+    rbPrimed    = false;
+}
+
+// Append n samples (per channel) from src[chSrcBase + ch] into the ring. Callers
+// guarantee n <= free space (capacity is generously sized in prepareToPlay);
+// if that ever fails we drop the oldest samples rather than overwrite live data.
+void SattariAutoPitchAudioProcessor::pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n)
+{
+    if (n <= 0 || rbFifoCap <= 0)
+        return;
+
+    n = juce::jmin (n, rbFifoCap);
+    if (rbFifoCount + n > rbFifoCap) // make room (defensive; not expected in practice)
+    {
+        const int drop = rbFifoCount + n - rbFifoCap;
+        rbFifoRead  = (rbFifoRead + drop) % rbFifoCap;
+        rbFifoCount -= drop;
+    }
+
+    const int writePos = (rbFifoRead + rbFifoCount) % rbFifoCap;
+    const int numCh    = juce::jmin (rbFifo.getNumChannels(), src.getNumChannels());
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        const float* in = src.getReadPointer (chSrcBase + ch);
+        float* ring     = rbFifo.getWritePointer (ch);
+        int wp = writePos;
+        for (int i = 0; i < n; ++i)
+        {
+            ring[wp] = in[i];
+            if (++wp >= rbFifoCap) wp = 0;
+        }
+    }
+    rbFifoCount += n;
+}
+#endif
 
 void SattariAutoPitchAudioProcessor::processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
 {

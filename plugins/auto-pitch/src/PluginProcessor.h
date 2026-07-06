@@ -183,6 +183,7 @@ private:
     mutable juce::AudioBuffer<float> formantScratch;
     mutable juce::AudioBuffer<float> harmonyScratch;
     double smoothedPitchScale = 1.0;
+    double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
     int detectedAutoScale = 1;   // AutoKey auto-detected mode: 0=major, 1=minor
@@ -260,6 +261,23 @@ private:
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;
     juce::AudioBuffer<float> rubberBandOutput;
     std::vector<float> rubberBandScratch;
+
+    // --- Output FIFO for the Rubber Band engine ------------------------------
+    // Rubber Band in real-time mode is bursty: after process(N) it may have
+    // fewer than N samples ready (and far fewer during its start-up latency).
+    // We drain everything it produces into this ring and hand the host exactly
+    // N samples per block from the ring. This removes the old behaviour of
+    // back-filling the block tail with DRY input, which spliced un-shifted
+    // signal onto shifted signal every block and caused audible crackle.
+    juce::AudioBuffer<float> rbFifo;   // numCh x rbFifoCap, allocation-free in RT
+    int  rbFifoCap   = 0;              // ring capacity in samples
+    int  rbFifoRead  = 0;              // read cursor (shared across channels)
+    int  rbFifoCount = 0;             // samples currently queued (shared)
+    int  rbCushion   = 0;             // samples buffered before popping begins
+    bool rbPrimed    = false;         // has the cushion filled yet?
+    int  rbLatency   = 0;             // Rubber Band start delay (samples)
+    void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);
+    void resetRbFifo();
 #endif
 
     // --- Live-monitor engine: streaming TD-PSOLA -----------------------------
