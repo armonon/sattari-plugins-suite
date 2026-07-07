@@ -93,6 +93,7 @@ inline const std::vector<Product>& products()
         { "tuner",             "Sattari Tuner",       "Tuning",           kAccent },
         { "double",            "Sattari Double",      "Vocal doubler",    kAccent },
         { "deess",             "Sattari De-Ess",      "Dynamics",         kAccent },
+        { "face",              "Sattari Face",        "Creative vocal FX",kAccentViolet },
     };
     return registry;
 }

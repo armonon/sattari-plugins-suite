@@ -251,6 +251,22 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "face", name: "Sattari Face", icon: "🎭",
+    category: "Creative vocal FX", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Change the voice, not the notes — independent pitch and formant.",
+    what: "Sattari Face reshapes the character of a voice by moving its formants — the vocal-tract resonances that read as big or small, male or female, human or alien — independently of pitch. Push Formant up for a smaller, brighter, more feminine voice; pull it down for a larger, darker one; all while the melody stays exactly where it was. Move Pitch on its own for a formant-corrected transpose with no chipmunk effect, or move both for full transformation.",
+    how: "It runs the suite's vendored Rubber Band R3 engine, which resynthesizes the signal with separate pitch and formant scaling — so the fundamental and the spectral envelope can be shifted by different amounts at the same time. A clean output FIFO (the same fix behind Auto Pitch's crackle) keeps it glitch-free, and the dry side of the Mix is delay-compensated so blends stay phase-aligned. Reported latency lets the host keep everything in time.",
+    features: [
+      "Independent pitch and formant shifting (±12 st each)",
+      "Formant-only = gender / size / character morph, same notes",
+      "Pitch-only = formant-corrected transpose (no chipmunk)",
+      "Rubber Band R3 engine, glitch-free output FIFO",
+      "Delay-compensated dry/wet mix",
+      "Creative transformation when you move both"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
