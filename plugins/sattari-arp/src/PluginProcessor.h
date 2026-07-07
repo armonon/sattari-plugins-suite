@@ -12,7 +12,7 @@ public:
     ~SattariArpAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override { sessionReader.stop(); }
+    void releaseResources() override { sessionReader.stop(); tempoReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -79,6 +79,7 @@ public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:
     sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
+    sattari::xplugin::TempoReader   tempoReader;     // tempo-bus fallback when the host has no tempo
 
     double currentSampleRate = 44100.0;
     double currentBpm = 120.0;

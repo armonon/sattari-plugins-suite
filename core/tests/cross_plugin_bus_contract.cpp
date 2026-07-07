@@ -87,6 +87,30 @@ int main()
         check (snap.transientId == 7, "SessionReader snapshot transientId wrong");
     }
 
+    // 6) Tempo channel is INDEPENDENT of the key bus: publishing tempo does not
+    //    touch the key, and a TempoReader picks it up. Publishing the key does not
+    //    wipe the tempo (separate files).
+    {
+        publishKey ("song-key", /*root*/ 3, /*scale*/ 0);
+        publishTempo ("rhythm-genie", /*bpm*/ 140.0, /*transientId*/ 9);
+
+        auto k = readPublishedKey();
+        check (k.has_value() && k->root == 3, "key lost after tempo publish");
+        auto t = readTempo();
+        check (t.has_value(), "tempo not readable");
+        if (t) { check (std::abs (t->bpm - 140.0) < 1e-6 && t->transientId == 9, "tempo values wrong"); }
+
+        publishKey ("song-key", /*root*/ 8, /*scale*/ 1);   // re-publish key
+        auto t2 = readTempo();
+        check (t2.has_value() && std::abs (t2->bpm - 140.0) < 1e-6, "key re-publish clobbered tempo");
+
+        TempoReader tr; tr.start (40);
+        TempoReader::Snapshot ts;
+        for (int i = 0; i < 40; ++i) { ts = tr.current(); if (ts.valid) break; std::this_thread::sleep_for (std::chrono::milliseconds (20)); }
+        tr.stop();
+        check (ts.valid && std::abs (ts.bpm - 140.0) < 1e-6 && ts.transientId == 9, "TempoReader snapshot wrong");
+    }
+
     if (fails != 0) { std::fprintf (stderr, "Cross-plugin bus contract FAILED (%d)\n", fails); return 1; }
     std::printf ("Cross-plugin session bus contract ok\n");
     return 0;

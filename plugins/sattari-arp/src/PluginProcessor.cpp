@@ -65,6 +65,7 @@ void SattariArpAudioProcessor::prepareToPlay (double sampleRate, int)
     refreshHostTempo();
     resetSequence();
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
+    tempoReader.start();     // poll the tempo bus (fallback when the host has no tempo)
     outputNotes.clear();
     heldNotes.clear();
     wasPlayingNotes = false;
@@ -92,6 +93,8 @@ void SattariArpAudioProcessor::refreshHostTempo()
     const auto t = sattari::host::read (*this);
     if (t.hasHostBpm)
         currentBpm = t.bpm;
+    else if (auto s = tempoReader.current(); s.valid && s.bpm > 1.0)   // tempo-bus fallback
+        currentBpm = s.bpm;
 }
 
 void SattariArpAudioProcessor::resetSequence()

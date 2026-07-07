@@ -201,4 +201,91 @@ private:
     std::atomic<bool>        hasTempo { false }, hasValue { false };
 };
 
+// =============================================================================
+//  Tempo channel — a SEPARATE file from the key bus
+// -----------------------------------------------------------------------------
+//  Tempo + transient pulses live in their own file with their own timestamp, so
+//  a tempo publisher never clobbers the key (and a key that keeps republishing
+//  never keeps a dead tempo alive). A rhythmic plugin (Rhythm Genie) publishes
+//  the session tempo; a transient detector (Side Chain) can bump the pulse id.
+//  Consumers (Arp, Space) read it as a fallback when the host reports no tempo.
+// =============================================================================
+inline juce::File tempoBusFile()
+{
+    auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                    .getChildFile ("Sattari Audio").getChildFile ("cross-plugin");
+    root.createDirectory();
+    return root.getChildFile ("tempo-bus.json");
+}
+
+struct TempoMessage { double bpm = 0.0; juce::int64 transientId = 0; bool hasTempo = false; };
+
+inline void publishTempo (const juce::String& publisherId, double bpm, juce::int64 transientId)
+{
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("bpm", bpm > 0.0 ? bpm : 0.0);
+    obj->setProperty ("transientId", transientId);
+    obj->setProperty ("timestampMs",
+        (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    tempoBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+}
+
+inline std::optional<TempoMessage> readTempo (int maxAgeSeconds = 10)
+{
+    auto file = tempoBusFile();
+    if (! file.existsAsFile()) return std::nullopt;
+    const auto parsed = juce::JSON::parse (file.loadFileAsString());
+    if (! parsed.isObject()) return std::nullopt;
+    const auto ts = (juce::int64) parsed.getProperty ("timestampMs", 0);
+    const juce::int64 now = std::chrono::duration_cast<std::chrono::milliseconds> (
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    if (now - ts > (juce::int64) maxAgeSeconds * 1000) return std::nullopt;
+    TempoMessage t;
+    t.bpm = (double) parsed.getProperty ("bpm", 0.0);
+    t.transientId = (juce::int64) parsed.getProperty ("transientId", 0);
+    t.hasTempo = t.bpm > 0.0;
+    return t;
+}
+
+// Realtime-safe consumer: background thread polls the tempo file into atomics.
+class TempoReader : private juce::Thread
+{
+public:
+    TempoReader() : juce::Thread ("SattariTempoBus") {}
+    ~TempoReader() override { stopThread (1000); }
+    void start (int pollIntervalMs = 300) { intervalMs = juce::jmax (50, pollIntervalMs); if (! isThreadRunning()) startThread(); }
+    void stop() { stopThread (1000); }
+
+    struct Snapshot { bool valid = false; double bpm = 0.0; juce::int64 transientId = 0; };
+    Snapshot current() const noexcept
+    {
+        Snapshot s;
+        s.valid = hasValue.load (std::memory_order_relaxed);
+        s.bpm   = bpm.load (std::memory_order_relaxed);
+        s.transientId = tid.load (std::memory_order_relaxed);
+        return s;
+    }
+private:
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            if (auto m = readTempo())
+            {
+                bpm.store (m->bpm, std::memory_order_relaxed);
+                tid.store (m->transientId, std::memory_order_relaxed);
+                hasValue.store (m->hasTempo, std::memory_order_relaxed);
+            }
+            else hasValue.store (false, std::memory_order_relaxed);
+            wait (intervalMs);
+        }
+    }
+    int intervalMs = 300;
+    std::atomic<double>      bpm { 0.0 };
+    std::atomic<juce::int64> tid { 0 };
+    std::atomic<bool>        hasValue { false };
+};
+
 } // namespace sattari::xplugin

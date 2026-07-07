@@ -27,7 +27,7 @@ SattariSpaceAudioProcessor::SattariSpaceAudioProcessor()
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
 }
-SattariSpaceAudioProcessor::~SattariSpaceAudioProcessor() { sessionReader.stop(); }
+SattariSpaceAudioProcessor::~SattariSpaceAudioProcessor() { tempoReader.stop(); }
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariSpaceAudioProcessor::createParameterLayout()
@@ -50,12 +50,12 @@ void SattariSpaceAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
     sampleRate = sr;
     reverb.setSampleRate (sr);
     dryScratch.setSize (2, juce::jmax (1, samplesPerBlock));
-    sessionReader.start();
+    tempoReader.start();
     delayLen = (int) std::ceil (sr * 3.0) + 8;    // up to a slow whole-note delay
     for (auto& d : delayBuf) d.assign ((size_t) delayLen, 0.0f);
     delayWrite = 0; fbLpState = { 0.0f, 0.0f };
 }
-void SattariSpaceAudioProcessor::releaseResources() { sessionReader.stop(); }
+void SattariSpaceAudioProcessor::releaseResources() { tempoReader.stop(); }
 
 bool SattariSpaceAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
@@ -71,7 +71,7 @@ double SattariSpaceAudioProcessor::resolveBpm()
         if (auto pos = ph->getPosition())
             if (auto bpm = pos->getBpm(); bpm && *bpm > 1.0)
                 return *bpm;
-    if (auto s = sessionReader.current(); s.valid && s.hasTempo && s.bpm > 1.0)   // tempo bus fallback
+    if (auto s = tempoReader.current(); s.valid && s.bpm > 1.0)   // tempo bus fallback
         return s.bpm;
     return 120.0;
 }

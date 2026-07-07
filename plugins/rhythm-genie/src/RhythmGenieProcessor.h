@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include "RhythmPatterns.h"
 #include <atomic>
 #include <vector>
@@ -50,6 +51,11 @@ public:
     int  currentStep() const noexcept { return playStep.load(); }
     bool laneEnabled (int lane) const noexcept;
 
+    // Publish the current tempo + transient-pulse count to the cross-plugin tempo
+    // bus. Called from the editor timer (message thread — file I/O is fine there),
+    // throttled internally, so Rhythm Genie acts as the suite's tempo source.
+    void publishTempoToBus();
+
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 
 private:
@@ -68,6 +74,11 @@ private:
     std::vector<PendingOff> pendingOffs;
     juce::Random rng;
     std::atomic<int> playStep { -1 };  // current 16th-step for the editor grid
+
+    // Tempo-bus publishing (audio thread writes atomics; editor timer publishes).
+    std::atomic<double>      pubBpm { 120.0 };
+    std::atomic<juce::int64> pubPulse { 0 };
+    juce::int64 lastPublishMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariRhythmGenieAudioProcessor)
 };

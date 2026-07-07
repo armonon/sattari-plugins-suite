@@ -99,6 +99,7 @@ void SattariRhythmGenieAudioProcessorEditor::saveCurrentAsUserPreset()
 
 void SattariRhythmGenieAudioProcessorEditor::timerCallback()
 {
+    processor.publishTempoToBus();   // Rhythm Genie is the suite's tempo source
     const int step = processor.currentStep();
     transportStatus.setText (step >= 0 ? "Playing - step " + juce::String (step + 1) + " / 16"
                                        : "Stopped (press play in your DAW)",

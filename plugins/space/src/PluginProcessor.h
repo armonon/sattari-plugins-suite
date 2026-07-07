@@ -59,7 +59,7 @@ private:
 
     juce::Reverb reverb;
     juce::AudioBuffer<float> dryScratch;   // dry(+delay) held for our own reverb mix
-    sattari::xplugin::SessionReader sessionReader;
+    sattari::xplugin::TempoReader tempoReader;   // consumes the cross-plugin tempo bus
 
     // Tempo-synced stereo delay with damped feedback.
     std::array<std::vector<float>, 2> delayBuf;

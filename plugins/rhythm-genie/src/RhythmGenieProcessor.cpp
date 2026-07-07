@@ -98,6 +98,7 @@ void SattariRhythmGenieAudioProcessor::emitStep (int stepIdx, int sampleOffset,
 
         out.addEvent (juce::MidiMessage::noteOn (kDrumChannel, note, (juce::uint8) vel), sampleOffset);
         pendingOffs.push_back ({ note, sampleOffset + gateS });
+        pubPulse.fetch_add (1, std::memory_order_relaxed);   // transient pulse for the bus
     }
 }
 
@@ -113,6 +114,7 @@ void SattariRhythmGenieAudioProcessor::processBlock (juce::AudioBuffer<float>& b
 
     const auto t = sattari::host::read (*this);
     const double bpm = t.bpm > 0.0 ? t.bpm : 120.0;
+    pubBpm.store (bpm, std::memory_order_relaxed);   // shared to the cross-plugin tempo bus
     const double samplesPerBeat = currentSampleRate * 60.0 / bpm;
     const double samplesPerStep = samplesPerBeat / 4.0;
     const bool standalone = (wrapperType == wrapperType_Standalone);
@@ -179,6 +181,16 @@ void SattariRhythmGenieAudioProcessor::setStateInformation (const void* data, in
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+}
+
+void SattariRhythmGenieAudioProcessor::publishTempoToBus()
+{
+    const juce::int64 now = juce::Time::currentTimeMillis();
+    if (now - lastPublishMs < 250) return;   // throttle to ~4 Hz
+    lastPublishMs = now;
+    sattari::xplugin::publishTempo ("rhythm-genie",
+                                    pubBpm.load (std::memory_order_relaxed),
+                                    pubPulse.load (std::memory_order_relaxed));
 }
 
 juce::AudioProcessorEditor* SattariRhythmGenieAudioProcessor::createEditor()
