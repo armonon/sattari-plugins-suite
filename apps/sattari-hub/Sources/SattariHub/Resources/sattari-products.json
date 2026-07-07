@@ -560,6 +560,36 @@
         { "kind": "VST3", "relativeSourcePath": "build/all/plugins/meter/SattariMeter_artefacts/Release/VST3/Sattari Meter.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Meter.vst3" },
         { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/meter/SattariMeter_artefacts/Release/Standalone/Sattari Meter.app", "installSubpath": "Applications/Sattari Meter.app" }
       ]
+    },
+    {
+      "id": "eq",
+      "name": "Sattari EQ",
+      "category": "EQ",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Dynamic parametric EQ: three fully parametric bells (freq/gain/Q) plus HPF and LPF. Each bell can go dynamic — its move engages only when that band is loud (de-harsh / de-mud).",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/AU/Sattari EQ.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari EQ.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/VST3/Sattari EQ.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari EQ.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/Standalone/Sattari EQ.app", "installSubpath": "Applications/Sattari EQ.app" }
+      ]
+    },
+    {
+      "id": "scaler",
+      "name": "Sattari Scaler",
+      "category": "MIDI / creative",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Key-following chord & scale MIDI generator: play single notes, get in-key diatonic triads/sevenths out. Follows the Sattari session key bus; snaps out-of-scale notes.",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/AU/Sattari Scaler.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Scaler.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/VST3/Sattari Scaler.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Scaler.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/Standalone/Sattari Scaler.app", "installSubpath": "Applications/Sattari Scaler.app" }
+      ]
     }
   ],
   "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"

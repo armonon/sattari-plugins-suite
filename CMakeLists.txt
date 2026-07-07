@@ -25,6 +25,8 @@ add_subdirectory(plugins/deess)
 add_subdirectory(plugins/face)
 add_subdirectory(plugins/transient)
 add_subdirectory(plugins/meter)
+add_subdirectory(plugins/scaler)
+add_subdirectory(plugins/eq)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

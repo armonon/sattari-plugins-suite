@@ -297,6 +297,36 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "eq", name: "Sattari EQ", icon: "🎚️",
+    category: "EQ", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Parametric EQ that can go dynamic — shape tone, tame what spikes.",
+    what: "Sattari EQ is a clean parametric equaliser with three fully sweepable bells plus a high-pass and low-pass. What sets it apart is that each bell can go dynamic: turn its Dyn up and the boost or cut only engages when that band is actually loud. That means you can tame a harsh 3 kHz peak or a boomy note only when it jumps out, without dulling the quiet passages — surgical control that reacts to the material.",
+    how: "Each bell is an RBJ peaking filter with independent freq, gain and Q; the HPF and LPF are Butterworth. For dynamic bells, a bandpass detector at the band's frequency feeds an envelope follower, and the band's move is crossfaded in by how loud that band is — so at Dyn 0 it's a normal static EQ and at Dyn 1 the move engages only above the band's level. Coefficients update per block and the dynamic engagement is a per-sample crossfade, so there's no zipper.",
+    features: [
+      "Three parametric bells: freq / gain / Q",
+      "High-pass and low-pass filters",
+      "Per-band Dyn: static EQ or downward-dynamic",
+      "De-harsh / de-mud only when the band jumps out",
+      "Zipper-free dynamic engagement"
+    ]
+  },
+  {
+    id: "scaler", name: "Sattari Scaler", icon: "🎹",
+    category: "MIDI / creative", cats: "MIDI",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "One finger, the right chord — in-key harmony that follows the song.",
+    what: "Sattari Scaler is a MIDI effect that turns single notes into in-key chords. Play one note and get the correct diatonic triad or seventh for the key; out-of-scale notes are snapped in so you can't play a wrong one. Turn on Follow Song Key and it harmonises to whatever key Sattari Key detected on the master, so a whole session stays musically locked together.",
+    how: "Every incoming note is snapped to the chosen scale, then chords are built by stacking scale degrees — a third is two scale steps up, a fifth four, a seventh six — so the chord is always diatonic to the key rather than a fixed shape. It shares the suite's scale tables with Auto Pitch and Harmony, and reads root and scale from the cross-plugin session bus when Follow is on. Note-offs release exactly the chord that was sent. Uses the shared KeyButton control.",
+    features: [
+      "Single notes → in-key triads or sevenths",
+      "Out-of-scale notes snapped into the key",
+      "Follow Song Key from the master bus",
+      "Power and octave modes; ±2 octave transpose",
+      "Shared tactile KeyButton across the suite"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
