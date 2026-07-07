@@ -24,6 +24,18 @@ const juce::StringArray styleChoices { "Natural", "Classic", "Modern Rap", "Robo
 const std::array<int, 7> majorDegrees { 0, 2, 4, 5, 7, 9, 11 };
 const std::array<int, 7> minorDegrees { 0, 2, 3, 5, 7, 8, 10 };
 
+// Output ceiling: identity below the knee, then a tanh soft-knee that asymptotes
+// to just under 0 dBFS. Transparent for normal vocals (peaks < ~-2.5 dBFS), but
+// catches the peak overshoot the phase-vocoder pitch shift (and the loud Style
+// stages) can produce, so a hot input never hard-clips the host output.
+inline float softCeiling (float x) noexcept
+{
+    constexpr float knee = 0.75f, ceiling = 0.988f, range = ceiling - knee;
+    const float a = std::fabs (x);
+    if (a <= knee) return x;
+    return std::copysign (knee + range * std::tanh ((a - knee) / range), x);
+}
+
 juce::String readObjectString (const juce::var& object, const juce::Identifier& key, const juce::String& fallback = {})
 {
     if (auto* dynamicObject = object.getDynamicObject())
@@ -1554,6 +1566,14 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 #endif
     }
     applyModeCharacter (mainBuffer);
+
+    // Final safety ceiling so pitch-shift/Style overshoot never hard-clips the host.
+    for (int ch = 0; ch < mainBuffer.getNumChannels(); ++ch)
+    {
+        float* d = mainBuffer.getWritePointer (ch);
+        for (int i = 0; i < mainBuffer.getNumSamples(); ++i)
+            d[i] = softCeiling (d[i]);
+    }
 }
 
 void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
@@ -1795,7 +1815,7 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
                 const auto sample = buffer.getSample (channel, i);
                 const auto edge = sample - previous;
                 previous = sample;
-                buffer.setSample (channel, i, juce::jlimit (-0.98f, 0.98f, sample * 1.02f + edge * 0.08f));
+                buffer.setSample (channel, i, softCeiling (sample * 1.02f + edge * 0.08f));
             }
         }
         return;
@@ -1819,7 +1839,7 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
                 const auto dry = base.getSample (channel, i);
                 const auto up = readLinearInterpolated (base, channel, upPosition);
                 const auto down = readLinearInterpolated (base, channel, downPosition);
-                buffer.setSample (channel, i, juce::jlimit (-0.98f, 0.98f, dry * 0.68f + up * 0.2f + down * 0.12f));
+                buffer.setSample (channel, i, softCeiling (dry * 0.68f + up * 0.2f + down * 0.12f));
             }
         }
     }

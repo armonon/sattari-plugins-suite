@@ -361,6 +361,29 @@ int main (int argc, char** argv)
         if (! finite)               { std::fprintf (stderr, "FAIL: render produced non-finite samples\n"); return 1; }
         if (fp.rms < 1.0e-3f)       { std::fprintf (stderr, "FAIL: render is silent (rms %.6f)\n", fp.rms); return 1; }
         if (clicks > clickBudget)   { std::fprintf (stderr, "FAIL: %d gross discontinuities (crackle) > budget %d\n", clicks, clickBudget); return 1; }
+
+        // Clipping guard: a HOT input through the loudest Style must not exceed
+        // 0 dBFS. Pitch-shift + Style overshoot used to push peaks past full scale
+        // (no output ceiling); the soft ceiling now catches it.
+        {
+            juce::AudioBuffer<float> loud;
+            sattari::harness::generateVocalLike (loud, sr, 2.0);
+            loud.applyGain (6.0f);   // deliberately over-hot: raw output WOULD exceed 0 dBFS
+            SattariAutoPitchAudioProcessor lp;
+            auto& la = lp.parameters();
+            setParam (la, "keyRoot", 0.0f);        setParam (la, "scale", 0.0f);
+            setParam (la, "followSongKey", 0.0f);  setParam (la, "style", 4.0f);   // Big Harmony (loudest)
+            setParam (la, "amount", 1.0f);         setParam (la, "speed", 0.9f);
+            setParam (la, "enableCorrection", 1.0f); setParam (la, "outputGain", 6.0f);
+            const auto lout = sattari::harness::renderThrough (lp, loud, sr, block);
+            float lpk = 0.0f;
+            for (int ch = 0; ch < lout.getNumChannels(); ++ch)
+                for (int i = 0; i < lout.getNumSamples(); ++i)
+                    lpk = std::max (lpk, std::fabs (lout.getSample (ch, i)));
+            std::printf ("  loud-input peak=%.4f (ceiling must hold it <= 1.0)\n", lpk);
+            if (lpk > 1.0f) { std::fprintf (stderr, "FAIL: hot input clips (peak %.4f > 1.0)\n", lpk); return 1; }
+        }
+
         std::printf ("Auto Pitch render smoke ok\n");
         return 0;
     }
