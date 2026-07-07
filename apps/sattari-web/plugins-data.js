@@ -327,6 +327,36 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "space", name: "Sattari Space", icon: "🌌",
+    category: "Reverb / delay", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Reverb and tempo-synced delay — the suite's sense of place.",
+    what: "Sattari Space adds depth and rhythm: a smooth reverb for room, plate and hall-style tails, fed by a tempo-synced stereo delay whose time is set in note divisions (1/4, 1/8, dotted, triplet). The delay locks to your project tempo, and because feedback is gently damped, repeats fade naturally instead of piling up harshly. It fills the one obvious gap in the suite — time-based effects.",
+    how: "The reverb is a Freeverb-style network (parallel comb filters into series all-passes) with size, damping and width controls. The delay reads the host tempo to compute its time from the chosen note division; when the host reports no tempo — standalone, or a transport-less host — it falls back to the Sattari session-bus tempo (the consumer side of the cross-plugin tempo channel), then to 120 BPM. A one-pole low-pass in the feedback path darkens each repeat.",
+    features: [
+      "Freeverb reverb: size, damping, width, mix",
+      "Tempo-synced stereo delay (note divisions)",
+      "Damped feedback for natural-fading repeats",
+      "Locks to host tempo; falls back to the session bus",
+      "Fills the suite's time-FX gap"
+    ]
+  },
+  {
+    id: "clean", name: "Sattari Clean", icon: "🧼",
+    category: "Restoration", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Learns the noise and pushes it down — hiss, hum and room.",
+    what: "Sattari Clean is an adaptive denoiser for cleaning up vocals, dialogue and noisy recordings. It splits the signal into three bands and, in each, learns the noise floor and pushes down anything sitting near it — hiss up top, hum and rumble down low, room in the mids — while real signal above the floor passes untouched. Amount sets how deep it cleans; Sensitivity sets how far above the noise it has to open.",
+    how: "Linkwitz-Riley crossovers split the signal into low, mid and high bands that recombine flat. Each band tracks its own noise floor with a minimum-follower (it drops instantly to any new low and creeps up slowly, so it sits on the noise, not the signal), then runs a downward expander: when the band's level is within Sensitivity of its floor, it's attenuated by up to Amount; above that, it passes. Detection is stereo-linked and the gain is smoothed to avoid zipper.",
+    features: [
+      "Three-band adaptive downward expansion",
+      "Per-band learned noise floor (min-follower)",
+      "Targets hiss, hum/rumble and room independently",
+      "Amount + Sensitivity; stereo-linked",
+      "Live noise-reduction meter"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],

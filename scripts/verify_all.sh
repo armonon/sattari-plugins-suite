@@ -42,6 +42,15 @@ CONTRACTS=(
   "SubConjurerContract|plugins/sub-conjurer/SubConjurerContract"
   "WarpContract|plugins/warp/WarpContract"
   "TunerContract|plugins/tuner/TunerContract"
+  "DoubleContract|plugins/double/DoubleContract"
+  "DeEssContract|plugins/deess/DeEssContract"
+  "FaceContract|plugins/face/FaceContract"
+  "TransientContract|plugins/transient/TransientContract"
+  "MeterContract|plugins/meter/MeterContract"
+  "EQContract|plugins/eq/EQContract"
+  "ScalerContract|plugins/scaler/ScalerContract"
+  "SpaceContract|plugins/space/SpaceContract"
+  "CleanContract|plugins/clean/CleanContract"
 )
 
 echo "== configuring $BUILD =="

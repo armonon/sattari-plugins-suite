@@ -98,6 +98,8 @@ inline const std::vector<Product>& products()
         { "meter",             "Sattari Meter",       "Metering",         kAccent },
         { "scaler",            "Sattari Scaler",      "MIDI / creative",  kAccent },
         { "eq",                "Sattari EQ",          "EQ",               kAccent },
+        { "space",             "Sattari Space",       "Reverb / delay",   kAccentViolet },
+        { "clean",             "Sattari Clean",       "Restoration",      kAccent },
     };
     return registry;
 }

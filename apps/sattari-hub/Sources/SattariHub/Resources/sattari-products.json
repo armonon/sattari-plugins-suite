@@ -590,6 +590,36 @@
         { "kind": "VST3", "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/VST3/Sattari Scaler.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Scaler.vst3" },
         { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/Standalone/Sattari Scaler.app", "installSubpath": "Applications/Sattari Scaler.app" }
       ]
+    },
+    {
+      "id": "space",
+      "name": "Sattari Space",
+      "category": "Reverb / delay",
+      "accent": "#9b7bff",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Reverb + tempo-synced delay. Freeverb-based reverb (size/damping/width) fed by a note-division stereo delay with damped feedback. Delay locks to host tempo, falling back to the Sattari session bus.",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/AU/Sattari Space.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Space.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/VST3/Sattari Space.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Space.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/Standalone/Sattari Space.app", "installSubpath": "Applications/Sattari Space.app" }
+      ]
+    },
+    {
+      "id": "clean",
+      "name": "Sattari Clean",
+      "category": "Restoration",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Adaptive multiband denoiser: three Linkwitz-Riley bands each run a downward expander against a learned per-band noise floor, so hiss/hum/room gets pushed down while real signal passes. Amount + Sensitivity.",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/AU/Sattari Clean.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Clean.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/VST3/Sattari Clean.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Clean.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/Standalone/Sattari Clean.app", "installSubpath": "Applications/Sattari Clean.app" }
+      ]
     }
   ],
   "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"
