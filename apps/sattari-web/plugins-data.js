@@ -267,6 +267,36 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "transient", name: "Sattari Transient", icon: "⚡",
+    category: "Dynamics", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Add punch or soften the hit — reshape the envelope, not the level.",
+    what: "Sattari Transient reshapes how a sound starts and stops, independently of its volume. Push Attack for more punch and click on drums, plucks and picks; pull it back to tame a spiky onset. Push Sustain to pull up room and body and make things longer; pull it down to tighten and dry them out. It reads the shape of the sound, not a fixed threshold, so it tracks dynamics naturally.",
+    how: "It uses the classic differential-envelope method: two followers with different attack times give an ATTACK envelope that spikes on onsets, and two followers with different release times give a SUSTAIN envelope that rises through the tail. Both are normalised against a stable level estimate so the effect is level-independent, and detection is stereo-linked so the image stays put. The two envelopes drive a single gain applied to both channels.",
+    features: [
+      "Attack: add punch/click or soften the onset",
+      "Sustain: lengthen the tail or tighten and dry",
+      "Level-independent — tracks dynamics, not a threshold",
+      "Stereo-linked detection keeps the image stable",
+      "Great on drums, plucks, room and glue"
+    ]
+  },
+  {
+    id: "meter", name: "Sattari Meter", icon: "📊",
+    category: "Metering", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Loudness, true-peak and correlation — know exactly where your mix sits.",
+    what: "Sattari Meter is a pass-through analyser that tells you how loud your material really is and whether it will survive streaming and playback. It shows ITU-R BS.1770 loudness — momentary (400 ms), short-term (3 s) and an integrated average — alongside 4x-oversampled true-peak and L/R correlation, with a Target line for whatever platform you're mastering to. It never touches the audio.",
+    how: "Each channel is K-weighted (a ~+4 dB high-shelf at 1.68 kHz feeding a 38 Hz high-pass) exactly as the standard specifies, then squared and averaged over sliding windows for momentary and short-term loudness; the integrated value is an absolute-gated running mean. True-peak is estimated by 4x oversampling to catch inter-sample peaks, and correlation is measured over a short window. All figures update on the editor's timer.",
+    features: [
+      "BS.1770 LUFS: momentary, short-term, integrated",
+      "4x-oversampled true-peak (inter-sample peaks)",
+      "L/R correlation meter",
+      "Adjustable target-loudness reference line",
+      "Reset-integrated button; bit-exact pass-through"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
