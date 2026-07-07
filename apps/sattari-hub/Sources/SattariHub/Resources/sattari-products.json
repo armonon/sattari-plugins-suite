@@ -485,6 +485,36 @@
           "installSubpath": "Applications/Sattari Tuner.app"
         }
       ]
+    },
+    {
+      "id": "double",
+      "name": "Sattari Double",
+      "category": "Vocal doubler",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Natural vocal doubler & thickener: two formant-preserving, detuned, time-drifted doubles panned around the dry centre. Detune, timing, drift, width, doubles level.",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/AU/Sattari Double.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Double.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/VST3/Sattari Double.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Double.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/Standalone/Sattari Double.app", "installSubpath": "Applications/Sattari Double.app" }
+      ]
+    },
+    {
+      "id": "deess",
+      "name": "Sattari De-Ess",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "version": "0.1.0-alpha",
+      "status": "internal-alpha",
+      "description": "Dynamic sibilance control: complementary high-band split with stereo-linked detection ducks the 'ess' above threshold. Split or wideband, listen solo, range-limited.",
+      "formats": [ "AU", "VST3", "Standalone" ],
+      "bundles": [
+        { "kind": "AU", "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/AU/Sattari De-Ess.component", "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari De-Ess.component" },
+        { "kind": "VST3", "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/VST3/Sattari De-Ess.vst3", "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari De-Ess.vst3" },
+        { "kind": "Standalone", "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/Standalone/Sattari De-Ess.app", "installSubpath": "Applications/Sattari De-Ess.app" }
+      ]
     }
   ],
   "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"

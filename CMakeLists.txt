@@ -20,6 +20,8 @@ add_subdirectory(plugins/bus)
 add_subdirectory(plugins/align)
 add_subdirectory(plugins/warp)
 add_subdirectory(plugins/tuner)
+add_subdirectory(plugins/double)
+add_subdirectory(plugins/deess)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

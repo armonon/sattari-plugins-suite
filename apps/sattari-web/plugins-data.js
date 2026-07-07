@@ -219,6 +219,38 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
+    id: "double", name: "Sattari Double", icon: "👥",
+    category: "Vocal doubler", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Instant natural doubles — the sound of tracking a part twice, from one take.",
+    what: "Sattari Double turns a single vocal into a convincing double-tracked performance. It generates two independent 'takes' of your voice, detuned a few cents, nudged a few milliseconds apart, and slowly drifting on their own — then pans them left and right around the dry centre. The result is the width and thickness of a real double without the chorus-y whoosh, and without re-recording.",
+    how: "Each double runs through the suite's formant-preserving PSOLA shifter (the same engine behind Auto Pitch), so detuning never turns the voice into a whistle — the vocal-tract character stays intact. A YIN pitch tracker feeds the shifter the right grain spacing; a modulated delay adds the timing offset; and a slow random-walk drift keeps the two takes breathing independently so they never phase-lock. Doubles are added around the dry signal, panned by Width.",
+    features: [
+      "Two formant-preserving detuned doubles (no chorus whistle)",
+      "Timing offset + independent slow drift per double",
+      "Width control for narrow thickening to wide spread",
+      "Doubles level blends around the untouched dry centre",
+      "Works on vocals and instruments alike",
+      "Reuses the Auto Pitch PSOLA + YIN engines"
+    ]
+  },
+  {
+    id: "deess", name: "Sattari De-Ess", icon: "🫧",
+    category: "Dynamics", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Tame harsh 'ess' sounds without dulling the whole vocal.",
+    what: "Sattari De-Ess controls sibilance — the harsh 's', 'sh' and 't' sounds that spit and fatigue the ear — dynamically, only when they actually happen. Split mode reduces just the sibilant band so the rest of the vocal stays bright and open; Wideband mode ducks the whole signal for a classic broadband de-ess. A Listen switch solos the detection band so you can dial the frequency in by ear.",
+    how: "It splits a high sibilance band out of the signal with a complementary high-pass, so the low band plus the sibilance band reconstruct the input exactly with no coloration when nothing is happening. A fast stereo-linked envelope follower watches that band; when it crosses the threshold, the band is ducked by up to the Range amount (in split mode) or the whole signal is ducked (wideband). Stereo-linked detection keeps the image from wandering.",
+    features: [
+      "Split mode — reduces only the sibilant band, stays bright",
+      "Wideband mode — classic broadband ducking",
+      "Stereo-linked detection keeps the image stable",
+      "Range control caps how much it can pull down",
+      "Listen solos the detection band for easy tuning",
+      "Live gain-reduction meter"
+    ]
+  },
+  {
     id: "align", name: "Sattari Align", icon: "🎼",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
