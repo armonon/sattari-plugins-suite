@@ -85,6 +85,9 @@ case "$MODE" in
   --smoke) run "AutoPitchRender(smoke)" "$RENDER" --smoke ;;
   *)       run "AutoPitchRender(null)"  "$RENDER" ;;
 esac
+# Input-drive / output-trim split guard: output gain must be a clean post-Style
+# trim, never folded into the saturator drive (portable — no golden compare).
+run "AutoPitchRender(gainstage)" "$RENDER" --gainstage
 
 echo "-------------------------------------------"
 echo "  $pass passed, $fail failed"

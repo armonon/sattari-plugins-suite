@@ -1543,9 +1543,16 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         lastFedPitchScale  = smoothedPitchScale;
     }
 
-    const float inputDb = apvts.getRawParameterValue ("inputGain")->load();
-    const float outputDb = apvts.getRawParameterValue ("outputGain")->load();
-    const float linearGain = juce::Decibels::decibelsToGain (inputDb + outputDb);
+    // Input drive and output trim are kept SEPARATE. Input gain feeds the pitch
+    // engine and the Style stage — turning it up is meant to push the Classic/Robot
+    // saturators and the harmony blend harder (it is a drive control). Output gain
+    // is a clean level trim applied AFTER the Style stage (below), so raising output
+    // level never drives the saturators/harmony into extra distortion — it just sets
+    // how hot the block leaves the plugin, bounded by the final soft ceiling.
+    const float inputDb   = apvts.getRawParameterValue ("inputGain")->load();
+    const float outputDb  = apvts.getRawParameterValue ("outputGain")->load();
+    const float inputGain  = juce::Decibels::decibelsToGain (inputDb);
+    const float outputGain = juce::Decibels::decibelsToGain (outputDb);
 
     // Engine select. Live Engine (PSOLA) is the near-zero-latency monitor path;
     // Rubber Band is the default higher-fidelity "print" engine. PSOLA's own
@@ -1555,17 +1562,23 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
     if (liveEngine)
     {
-        processWithPsola (mainBuffer, smoothedPitchScale, linearGain);
+        processWithPsola (mainBuffer, smoothedPitchScale, inputGain);
     }
     else
     {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        processWithRubberBand (mainBuffer, smoothedPitchScale, linearGain);
+        processWithRubberBand (mainBuffer, smoothedPitchScale, inputGain);
 #else
-        processFallbackFormantGuide (mainBuffer, smoothedPitchScale, linearGain);
+        processFallbackFormantGuide (mainBuffer, smoothedPitchScale, inputGain);
 #endif
     }
     applyModeCharacter (mainBuffer);
+
+    // Output trim: a pure post-Style level change. Applied here (not folded into the
+    // engine drive) so pushing output level cannot deepen the Style saturation — it
+    // only scales the finished signal, which the soft ceiling below then bounds.
+    if (std::abs (outputGain - 1.0f) > 1.0e-6f)
+        mainBuffer.applyGain (outputGain);
 
     // Final safety ceiling so pitch-shift/Style overshoot never hard-clips the host.
     for (int ch = 0; ch < mainBuffer.getNumChannels(); ++ch)

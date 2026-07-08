@@ -128,10 +128,77 @@ int main (int argc, char** argv)
     const bool features = (argc > 1 && std::strcmp (argv[1], "--features") == 0);
     const bool crepeTest= (argc > 1 && std::strcmp (argv[1], "--crepe") == 0);
     const bool autokey  = (argc > 1 && std::strcmp (argv[1], "--autokey") == 0);
+    const bool gainstage= (argc > 1 && std::strcmp (argv[1], "--gainstage") == 0);
 
     const double sr = 48000.0;
     const int    block = 512;
     const double seconds = 4.0;
+
+    // --gainstage: guard the input-drive / output-trim split. Input gain must drive
+    // the Style saturator (Classic tanh); output gain must be a clean post-Style
+    // level trim that does NOT add distortion. Before the split these were summed,
+    // so +6 dB of output was bit-identical to +6 dB of input — this proves that
+    // regression cannot return.
+    if (gainstage)
+    {
+        auto peakNorm = [] (juce::AudioBuffer<float>& b, float target)
+        {
+            float pk = 0.0f;
+            for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (0, i)));
+            if (pk > 1.0e-9f) b.applyGain (target / pk);
+        };
+        auto renderCfg = [&] (const juce::AudioBuffer<float>& src, float inDb, float outDb)
+        {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "keyRoot", 0.0f);        setParam (a, "scale", 0.0f);
+            setParam (a, "followSongKey", 0.0f);  setParam (a, "style", 1.0f); // Classic (pure tanh saturator)
+            setParam (a, "amount", 1.0f);         setParam (a, "speed", 0.9f);
+            setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "inputGain", inDb);      setParam (a, "outputGain", outDb);
+            return sattari::harness::renderThrough (p, src, sr, block);
+        };
+        const float g6 = juce::Decibels::decibelsToGain (6.0f);
+
+        // [A] Output gain is a transparent linear trim. Keep the signal well below the
+        //     soft-ceiling knee (0.75) so +6 dB out is a pure scale: qOut == g6 * qBase.
+        juce::AudioBuffer<float> q;
+        sattari::harness::generateVocalLike (q, sr, 2.0);
+        peakNorm (q, 0.10f);
+        const auto qBase = renderCfg (q, 0.0f, 0.0f);
+        const auto qOut  = renderCfg (q, 0.0f, 6.0f);
+        float aErr = 0.0f, aPk = 0.0f;
+        for (int i = 0; i < qBase.getNumSamples(); ++i)
+        {
+            const float b = qBase.getSample (0, i);
+            aPk  = std::max (aPk, std::fabs (b));
+            aErr = std::max (aErr, std::fabs (qOut.getSample (0, i) - b * g6));
+        }
+        const float aRel = aPk > 0.0f ? aErr / (aPk * g6) : 1.0f;
+
+        // [B] Input drive and output trim are no longer interchangeable. At a hot level,
+        //     +6 dB via INPUT drives the tanh (extra harmonics) while +6 dB via OUTPUT is
+        //     a post-Style scale — they MUST diverge (pre-split they were identical).
+        juce::AudioBuffer<float> h;
+        sattari::harness::generateVocalLike (h, sr, 2.0);
+        peakNorm (h, 0.50f);
+        const auto hOut = renderCfg (h, 0.0f, 6.0f);
+        const auto hIn  = renderCfg (h, 6.0f, 0.0f);
+        float bDiff = 0.0f, bPk = 0.0f;
+        for (int i = 0; i < hOut.getNumSamples(); ++i)
+        {
+            bPk   = std::max (bPk, std::fabs (hOut.getSample (0, i)));
+            bDiff = std::max (bDiff, std::fabs (hOut.getSample (0, i) - hIn.getSample (0, i)));
+        }
+        const float bRel = bPk > 0.0f ? bDiff / bPk : 0.0f;
+
+        std::printf ("  [A] output-gain linearity rel-err = %.5f (want < 0.01: +6dB out == %.3fx dry)\n", aRel, g6);
+        std::printf ("  [B] input-vs-output 6dB divergence = %.5f (want > 0.05: must NOT be identical)\n", bRel);
+        if (aRel >= 0.01f) { std::fprintf (stderr, "FAIL: output gain is not a clean post-Style trim (rel-err %.4f) — it is driving the Style stage\n", aRel); return 1; }
+        if (bRel <= 0.05f) { std::fprintf (stderr, "FAIL: input & output gain still interchangeable (div %.4f) — the drive/trim split is broken\n", bRel); return 1; }
+        std::printf ("Auto Pitch gain-stage ok\n");
+        return 0;
+    }
 
     // ---- AutoKey accuracy probe: feed clean tonal melodies in known keys and
     //      check what key AutoKey detects (reads detectedRoot via the snapshot).
