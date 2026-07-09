@@ -34,23 +34,27 @@ WaveformView::~WaveformView()
 // =============================================================================
 void WaveformView::refreshFromSource()
 {
-    auto src = audioProcessor.currentSource();
+    const int layerInt = (int) audioProcessor.selectedLayer();
+    auto src = audioProcessor.currentSource (audioProcessor.selectedLayer());
     if (src == nullptr || src->lengthSamples <= 0)
     {
         haveSource = false;
         thumbnail.clear();
         transientMarks.clear();
         lastSourceVersion = 0xFFFFFFFFu;
+        lastLayer = layerInt;
         thumbLengthSecs = 0.0;
         repaint();
         return;
     }
 
-    // Only rebuild when the immutable source actually changed (version bump).
-    if (haveSource && src->version == lastSourceVersion)
+    // Rebuild when the immutable source changed (version bump) OR the editor
+    // flipped the selected layer (so we show the new layer's buffer).
+    if (haveSource && src->version == lastSourceVersion && layerInt == lastLayer)
         return;
 
     lastSourceVersion = src->version;
+    lastLayer = layerInt;
     haveSource = true;
 
     const int   ch  = juce::jmax (1, src->audio.getNumChannels());
@@ -123,15 +127,17 @@ float WaveformView::posForX (float x) const
 // =============================================================================
 //  Param helpers
 // =============================================================================
-float WaveformView::paramValue (const char* id) const
+float WaveformView::paramValue (const char* baseId) const
 {
+    const auto id = SattariGranulatorAudioProcessor::layerParamId (audioProcessor.selectedLayer(), baseId);
     if (auto* p = audioProcessor.parameters().getRawParameterValue (id))
         return p->load();
     return 0.0f;
 }
 
-void WaveformView::setParamNormalising (const char* id, float value)
+void WaveformView::setParamNormalising (const char* baseId, float value)
 {
+    const auto id = SattariGranulatorAudioProcessor::layerParamId (audioProcessor.selectedLayer(), baseId);
     if (auto* p = audioProcessor.parameters().getParameter (id))
     {
         p->beginChangeGesture();
@@ -263,8 +269,8 @@ void WaveformView::resized() {}
 // =============================================================================
 void WaveformView::timerCallback()
 {
-    refreshFromSource();                 // cheap no-op unless the version changed
-    viz = audioProcessor.vizFrame();     // lock-free snapshot load
+    refreshFromSource();                 // cheap no-op unless the version/layer changed
+    viz = audioProcessor.vizFrame (audioProcessor.selectedLayer());   // lock-free snapshot
     repaint();
 }
 
@@ -299,7 +305,8 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
 {
     fileHovering = false;
     if (! files.isEmpty())
-        audioProcessor.loadFile (juce::File (files[0]));   // atomic swap on the msg thread
+        audioProcessor.loadFile (audioProcessor.selectedLayer(),
+                                 juce::File (files[0]));   // atomic swap on the msg thread
     refreshFromSource();
     repaint();
 }

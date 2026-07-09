@@ -68,9 +68,10 @@ private:
     float xForPos (float pos01) const;
     float posForX (float x) const;
 
-    // Cheap param helpers.
-    float paramValue (const char* id) const;
-    void  setParamNormalising (const char* id, float value);
+    // Cheap PER-LAYER param helpers: `id` is a base id (e.g. "srcStart") and the
+    // A_/B_ prefix for the processor's currently-selected layer is applied here.
+    float paramValue (const char* baseId) const;
+    void  setParamNormalising (const char* baseId, float value);
 
     // Which draggable element (if any) is under a point.
     enum class Handle { None, Start, End };
@@ -82,7 +83,9 @@ private:
     juce::AudioThumbnail      thumbnail;
 
     // Source-version bookkeeping so we only rebuild the thumbnail on real change.
+    // We also track the selected layer so flipping A<->B rebuilds the thumbnail.
     juce::uint32 lastSourceVersion = 0xFFFFFFFFu;
+    int          lastLayer         = -1;   // SattariGranulatorAudioProcessor::Layer as int
     bool         haveSource        = false;
     double       thumbLengthSecs   = 0.0;
 

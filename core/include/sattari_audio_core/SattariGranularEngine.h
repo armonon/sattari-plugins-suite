@@ -303,6 +303,12 @@ public:
         int   window = (int) Window::Hann;
         float grainPan = 0.2f;
 
+        // unison / stacked detune (per grain-spawn). unisonVoices == 1 is the
+        // default and is BIT-IDENTICAL to no unison (no extra grains, unity gain).
+        int   unisonVoices = 1;          // 1..4 stacked copies per spawn
+        float unisonDetuneCents = 0.0f;  // 0..50 total pitch spread across the stack
+        float unisonWidth = 0.5f;        // 0..1 stereo spread of the stack
+
         // pitch
         int   tuneCoarse = 0;
         float tuneFine = 0.0f, pitchSpreadCents = 0.0f;
@@ -977,12 +983,9 @@ private:
                      float voiceAmp, float pitchEnvV, float pitchLfoV,
                      float posLfoV, float modEnvV) noexcept
     {
-        const int idx = popFreeGrain();
-        if (idx < 0) return;                 // pool exhausted -> drop, never allocate
-
-        Grain& g = grains[(size_t) idx];
-
         // --- per-spawn random draws (spray, pan, pitch spread) ----------------
+        // Drawn ONCE per spawn, before any pool pop, so the RNG stream is
+        // independent of the unison count — unison never perturbs the base grain.
         const float sprayRand  = randBipolar (v);    // -1..+1
         const float panRand    = randBipolar (v);    // -1..+1
         const float spreadRand = randBipolar (v);    // -1..+1
@@ -1001,6 +1004,9 @@ private:
         startPos = juce::jlimit (regionLo, regionHi, startPos);
 
         // --- PITCH CHAIN (multiplicative, ratio domain) -----------------------
+        // Everything EXCEPT the per-unison detune offset, which is folded in per
+        // copy below. For unison==1 the offset is exactly 2^0 == 1.0f, so `ratio`
+        // and the resulting `srcInc` are bit-identical to the pre-unison engine.
         float ratio = v.basePitchRatio;
         ratio *= std::pow (2.0f, (float) juce::jlimit (-24, 24, p.tuneCoarse) / 12.0f);
         ratio *= std::pow (2.0f, juce::jlimit (-100.0f, 100.0f, p.tuneFine) / 1200.0f);
@@ -1008,27 +1014,63 @@ private:
         ratio *= std::pow (2.0f, (pitchLfoV * p.pitchLfoCents) / 1200.0f);
         ratio *= v.glideCurrentRatio;
         ratio *= std::pow (2.0f, (spreadRand * juce::jlimit (0.0f, 100.0f, p.pitchSpreadCents)) / 1200.0f);
-        ratio = juce::jlimit (0.03125f, 32.0f, ratio);   // +-5 octaves clamp
 
-        float inc = ratio * srcSrRatio;
-        if (p.srcReverse) inc = -inc;                    // read backwards toward loStart
-
-        // --- equal-power pan (grainPan = random spread) -----------------------
+        // --- base equal-power pan (grainPan = random spread) ------------------
         const float panAmt = juce::jlimit (0.0f, 1.0f, p.grainPan);
-        const float pan01  = 0.5f + 0.5f * panRand * panAmt;       // 0..1
-        const float theta  = pan01 * juce::MathConstants<float>::halfPi;
-        g.panL = std::cos (theta);
-        g.panR = std::sin (theta);
+        const float basePan01 = 0.5f + 0.5f * panRand * panAmt;   // 0..1
 
-        g.active   = true;
-        g.srcPos   = startPos;   // both directions start at the sprayed read head
-        g.srcInc   = inc;
-        g.winPhase = 0.0f;
-        g.winInc   = winInc;
-        g.loStart  = regionLo;
-        g.hiEnd    = regionHi;
-        g.gain     = overlapNormGain * voiceAmp;
-        g.voiceIndex = vi;
+        // --- unison stack config ----------------------------------------------
+        const int   uVoices = juce::jlimit (1, 4, p.unisonVoices);
+        const float uDetune = juce::jlimit (0.0f, 50.0f, p.unisonDetuneCents);
+        const float uWidth  = juce::jlimit (0.0f, 1.0f, p.unisonWidth);
+        // Constant-power gain compensation: unison==1 -> exactly 1.0f (bit-exact).
+        const float uGain   = (uVoices <= 1) ? 1.0f : 1.0f / std::sqrt ((float) uVoices);
+
+        // Spawn each stacked copy. Copy 0 is the centre voice (detune/pan offset
+        // exactly zero); the remaining copies fan out symmetrically. A pool that
+        // cannot supply a slot simply DROPS that unison copy — never allocates.
+        for (int u = 0; u < uVoices; ++u)
+        {
+            const int idx = popFreeGrain();
+            if (idx < 0) return;             // pool exhausted -> drop remaining copies
+
+            // Symmetric detune/pan factor in [-1, +1]. Single voice -> 0.
+            // With N voices the copies sit at evenly-spaced points spanning [-1,+1]
+            // ( {0}, {-1,+1}, {-1,0,+1}, {-1,-1/3,+1/3,+1} ), so ±(uDetune/2) at
+            // the edges gives a total spread of uDetune cents across the stack.
+            const float spread = (uVoices <= 1)
+                ? 0.0f
+                : ((float) u / (float) (uVoices - 1)) * 2.0f - 1.0f;
+
+            float uRatio = ratio;
+            if (uVoices > 1)
+                uRatio *= std::pow (2.0f, (spread * (uDetune * 0.5f)) / 1200.0f);
+            uRatio = juce::jlimit (0.03125f, 32.0f, uRatio);   // +-5 octaves clamp
+
+            float inc = uRatio * srcSrRatio;
+            if (p.srcReverse) inc = -inc;    // read backwards toward loStart
+
+            // Pan: base random pan, then push the copy by ±unisonWidth (0.5 span
+            // each side at full width). unison==1 leaves basePan01 untouched.
+            float pan01 = basePan01;
+            if (uVoices > 1)
+                pan01 += spread * uWidth * 0.5f;
+            pan01 = juce::jlimit (0.0f, 1.0f, pan01);
+            const float theta = pan01 * juce::MathConstants<float>::halfPi;
+
+            Grain& g = grains[(size_t) idx];
+            g.panL = std::cos (theta);
+            g.panR = std::sin (theta);
+            g.active   = true;
+            g.srcPos   = startPos;   // both directions start at the sprayed read head
+            g.srcInc   = inc;
+            g.winPhase = 0.0f;
+            g.winInc   = winInc;
+            g.loStart  = regionLo;
+            g.hiEnd    = regionHi;
+            g.gain     = overlapNormGain * voiceAmp * uGain;
+            g.voiceIndex = vi;
+        }
     }
 
     // Cheap per-voice xorshift; returns -1..+1.

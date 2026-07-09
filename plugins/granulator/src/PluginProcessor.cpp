@@ -8,13 +8,18 @@ using Engine = sattari::dsp::SattariGranularEngine;
 using EngineParams = Engine::EngineParams;
 using GranSource = sattari::granulator::SourceSample;
 using DspSource = sattari::dsp::SourceSample;
+using Layer = SattariGranulatorAudioProcessor::Layer;
 
 // =============================================================================
 //  Construction / parameter layout
 // =============================================================================
 SattariGranulatorAudioProcessor::SattariGranulatorAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
-          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+          // Optional discrete audio INPUT bus so a DAW can feed Live Capture.
+          // Declared with isActiveByDefault = false so the plugin still loads as
+          // a pure synth in hosts that never route audio in.
+          .withInput  ("Capture In", juce::AudioChannelSet::stereo(), false)
+          .withOutput ("Output",     juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
     formats.registerBasicFormats();   // wav / aiff / flac / ogg / mp3 (platform dependent)
@@ -66,6 +71,43 @@ sattari::dsp::ScaleId SattariGranulatorAudioProcessor::scaleIdFromBus (int busSc
     return busScale == 1 ? sattari::dsp::ScaleId::Minor : sattari::dsp::ScaleId::Major;
 }
 
+// -----------------------------------------------------------------------------
+//  Per-layer parameter id table (base ids, editor order). Each of these is
+//  duplicated with an "A_" / "B_" prefix in the layout below.
+// -----------------------------------------------------------------------------
+const std::vector<juce::String>& SattariGranulatorAudioProcessor::perLayerParamIds()
+{
+    static const std::vector<juce::String> ids {
+        // source region / edit-op state
+        "srcStart", "srcEnd", "srcReverse", "srcLoopMode", "srcGain", "srcMono",
+        // File Position
+        "posBase", "posScanRate", "posScanSync", "posScanDiv", "posEnvAmt", "posLfoAmt",
+        // grain cloud
+        "grainSize", "spray", "density", "densityMode", "window", "grainPan",
+        // unison
+        "unisonVoices", "unisonDetune", "unisonWidth",
+        // pitch (per-layer offsets)
+        "tuneCoarse", "tuneFine", "pitchSpread",
+        // per-layer mix
+        "level", "pan"
+    };
+    return ids;
+}
+
+float SattariGranulatorAudioProcessor::layerParam (Layer layer, const char* baseId) const noexcept
+{
+    // Build the prefixed id on the stack (no heap alloc): "A_"/"B_" + baseId.
+    char buf[64];
+    const char* pre = layerPrefix (layer);   // 2-char prefix ("A_" / "B_")
+    buf[0] = pre[0];
+    buf[1] = pre[1];
+    int n = 2;
+    for (int k = 0; baseId[k] != '\0' && n < 63; ++k, ++n)
+        buf[n] = baseId[k];
+    buf[n] = '\0';
+    return apvts.getRawParameterValue (buf)->load();
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariGranulatorAudioProcessor::createParameterLayout()
 {
@@ -83,37 +125,84 @@ SattariGranulatorAudioProcessor::createParameterLayout()
         return r;
     };
 
-    // --- Source region / edit-op state ---------------------------------------
-    p.push_back (std::make_unique<FP> ("srcStart", "Start", R (0.0f, 1.0f, 1.0e-5f), 0.0f));
-    p.push_back (std::make_unique<FP> ("srcEnd",   "End",   R (0.0f, 1.0f, 1.0e-5f), 1.0f));
-    p.push_back (std::make_unique<BP> ("srcReverse", "Reverse Grains", false));
-    p.push_back (std::make_unique<CP> ("srcLoopMode", "Loop", juce::StringArray { "Off", "Loop" }, 0));
-    p.push_back (std::make_unique<FP> ("srcGain", "Source Gain", R (-24.0f, 24.0f, 0.1f), 0.0f));
-    p.push_back (std::make_unique<CP> ("srcMono", "Channels",
-        juce::StringArray { "Stereo", "Mono", "Left", "Right" }, 0));
+    // -------------------------------------------------------------------------
+    //  PER-LAYER parameters — emitted twice, once per layer with an A_/B_ prefix.
+    //  A helper lambda takes the prefix + a friendly-name prefix ("A " / "B ").
+    // -------------------------------------------------------------------------
+    auto addLayer = [&] (const juce::String& pre, const juce::String& nm)
+    {
+        auto id   = [&] (const char* base) { return pre + base; };
+        auto name = [&] (const juce::String& base) { return nm + base; };
 
-    // --- File Position --------------------------------------------------------
-    p.push_back (std::make_unique<FP> ("posBase", "File Position", R (0.0f, 1.0f, 1.0e-5f), 0.0f));
-    p.push_back (std::make_unique<FP> ("posScanRate", "Scan Rate", R (-2.0f, 2.0f, 0.001f), 0.0f));
-    p.push_back (std::make_unique<BP> ("posScanSync", "Scan Sync", false));
-    p.push_back (std::make_unique<CP> ("posScanDiv", "Scan Division", divisionChoices(), 2));   // 1 bar
-    p.push_back (std::make_unique<FP> ("posEnvAmt", "Position Env", R (-1.0f, 1.0f, 0.001f), 0.0f));
-    p.push_back (std::make_unique<FP> ("posLfoAmt", "Position LFO", R (0.0f, 1.0f, 0.001f), 0.0f));
+        // --- Source region / edit-op state ------------------------------------
+        p.push_back (std::make_unique<FP> (id ("srcStart"), name ("Start"), R (0.0f, 1.0f, 1.0e-5f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("srcEnd"),   name ("End"),   R (0.0f, 1.0f, 1.0e-5f), 1.0f));
+        p.push_back (std::make_unique<BP> (id ("srcReverse"), name ("Reverse Grains"), false));
+        p.push_back (std::make_unique<CP> (id ("srcLoopMode"), name ("Loop"), juce::StringArray { "Off", "Loop" }, 0));
+        p.push_back (std::make_unique<FP> (id ("srcGain"), name ("Source Gain"), R (-24.0f, 24.0f, 0.1f), 0.0f));
+        p.push_back (std::make_unique<CP> (id ("srcMono"), name ("Channels"),
+            juce::StringArray { "Stereo", "Mono", "Left", "Right" }, 0));
 
-    // --- Grain cloud ----------------------------------------------------------
-    p.push_back (std::make_unique<FP> ("grainSize", "Grain Size", skewRange (1.0f, 500.0f, 0.1f, 80.0f), 60.0f));
-    p.push_back (std::make_unique<FP> ("spray", "Spray", R (0.0f, 1.0f, 0.001f), 0.1f));
-    p.push_back (std::make_unique<FP> ("density", "Density", skewRange (0.1f, 100.0f, 0.01f, 20.0f), 20.0f));
-    p.push_back (std::make_unique<CP> ("densityMode", "Density Mode",
-        juce::StringArray { "Rate", "Overlap" }, 1));   // Overlap
-    p.push_back (std::make_unique<CP> ("window", "Window",
-        juce::StringArray { "Hann", "Gauss", "Tukey" }, 0));
-    p.push_back (std::make_unique<FP> ("grainPan", "Grain Pan", R (0.0f, 1.0f, 0.001f), 0.2f));
+        // --- File Position ----------------------------------------------------
+        p.push_back (std::make_unique<FP> (id ("posBase"), name ("File Position"), R (0.0f, 1.0f, 1.0e-5f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("posScanRate"), name ("Scan Rate"), R (-2.0f, 2.0f, 0.001f), 0.0f));
+        p.push_back (std::make_unique<BP> (id ("posScanSync"), name ("Scan Sync"), false));
+        p.push_back (std::make_unique<CP> (id ("posScanDiv"), name ("Scan Division"), divisionChoices(), 2));   // 1 bar
+        p.push_back (std::make_unique<FP> (id ("posEnvAmt"), name ("Position Env"), R (-1.0f, 1.0f, 0.001f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("posLfoAmt"), name ("Position LFO"), R (0.0f, 1.0f, 0.001f), 0.0f));
 
-    // --- Pitch ----------------------------------------------------------------
-    p.push_back (std::make_unique<IP> ("tuneCoarse", "Coarse", -24, 24, 0));
-    p.push_back (std::make_unique<FP> ("tuneFine", "Fine", R (-100.0f, 100.0f, 0.1f), 0.0f));
-    p.push_back (std::make_unique<FP> ("pitchSpread", "Pitch Spread", R (0.0f, 100.0f, 0.1f), 0.0f));
+        // --- Grain cloud ------------------------------------------------------
+        p.push_back (std::make_unique<FP> (id ("grainSize"), name ("Grain Size"), skewRange (1.0f, 500.0f, 0.1f, 80.0f), 60.0f));
+        p.push_back (std::make_unique<FP> (id ("spray"), name ("Spray"), R (0.0f, 1.0f, 0.001f), 0.1f));
+        p.push_back (std::make_unique<FP> (id ("density"), name ("Density"), skewRange (0.1f, 100.0f, 0.01f, 20.0f), 20.0f));
+        p.push_back (std::make_unique<CP> (id ("densityMode"), name ("Density Mode"),
+            juce::StringArray { "Rate", "Overlap" }, 1));   // Overlap
+        p.push_back (std::make_unique<CP> (id ("window"), name ("Window"),
+            juce::StringArray { "Hann", "Gauss", "Tukey" }, 0));
+        p.push_back (std::make_unique<FP> (id ("grainPan"), name ("Grain Pan"), R (0.0f, 1.0f, 0.001f), 0.2f));
+
+        // --- Unison (per-grain stacked detune) --------------------------------
+        p.push_back (std::make_unique<IP> (id ("unisonVoices"), name ("Unison Voices"), 1, 4, 1));
+        p.push_back (std::make_unique<FP> (id ("unisonDetune"), name ("Unison Detune"), R (0.0f, 50.0f, 0.1f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("unisonWidth"), name ("Unison Width"), R (0.0f, 1.0f, 0.001f), 0.5f));
+
+        // --- Pitch (per-layer offsets) ----------------------------------------
+        p.push_back (std::make_unique<IP> (id ("tuneCoarse"), name ("Coarse"), -24, 24, 0));
+        p.push_back (std::make_unique<FP> (id ("tuneFine"), name ("Fine"), R (-100.0f, 100.0f, 0.1f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("pitchSpread"), name ("Pitch Spread"), R (0.0f, 100.0f, 0.1f), 0.0f));
+
+        // --- Per-layer mix ----------------------------------------------------
+        p.push_back (std::make_unique<FP> (id ("level"), name ("Level"), R (-60.0f, 6.0f, 0.1f), 0.0f));
+        p.push_back (std::make_unique<FP> (id ("pan"), name ("Pan"), R (-1.0f, 1.0f, 0.001f), 0.0f));
+    };
+
+    addLayer ("A_", "A ");
+    addLayer ("B_", "B ");
+
+    // -------------------------------------------------------------------------
+    //  TWO-LAYER blend + capture (top-level, non-per-layer).
+    // -------------------------------------------------------------------------
+    // Morph 0 = A only, 1 = B only, 0.5 = equal blend. Default 0 (A only) so a
+    // freshly-inserted instance behaves like the classic single-layer patch.
+    p.push_back (std::make_unique<FP> ("layerMorph", "Layer Morph", R (0.0f, 1.0f, 0.001f), 0.0f));
+    // layerSel is UI-ONLY (which layer the editor edits / capture targets by
+    // default). It is intentionally NON-automatable so hosts don't sweep it.
+    p.push_back (std::make_unique<CP> ("layerSel", "Layer Select",
+        juce::StringArray { "A", "B" }, 0,
+        juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
+    // Live Capture.
+    p.push_back (std::make_unique<BP> ("captureArm", "Capture Arm", false,
+        juce::AudioParameterBoolAttributes().withAutomatable (false)));
+    p.push_back (std::make_unique<FP> ("captureSecs", "Capture Length", R (0.5f, 8.0f, 0.1f), 2.0f));
+    p.push_back (std::make_unique<CP> ("captureTarget", "Capture Target",
+        juce::StringArray { "A", "B" }, 0,
+        juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
+    // -------------------------------------------------------------------------
+    //  GLOBAL (shared) parameters — single id, pushed to BOTH engines.
+    // -------------------------------------------------------------------------
+    // --- Pitch env / LFO / glide (shared) ------------------------------------
     p.push_back (std::make_unique<FP> ("glide", "Glide", R (0.0f, 1.0f, 0.001f), 0.0f));
     p.push_back (std::make_unique<CP> ("glideMode", "Glide Mode",
         juce::StringArray { "Always", "Legato" }, 1));   // Legato
@@ -123,22 +212,22 @@ SattariGranulatorAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FP> ("pitchLfoAmt", "Vibrato Depth", R (0.0f, 1200.0f, 0.1f), 0.0f));
     p.push_back (std::make_unique<FP> ("pitchLfoRate", "Vibrato Rate", skewRange (0.05f, 20.0f, 0.01f, 5.0f), 5.0f));
 
-    // --- Key snap -------------------------------------------------------------
+    // --- Key snap (shared) ----------------------------------------------------
     p.push_back (std::make_unique<BP> ("keySnap", "Key Snap", false));
     p.push_back (std::make_unique<CP> ("keyRoot", "Key Root", keyRootChoices(), 0));
     p.push_back (std::make_unique<CP> ("keyScale", "Key Scale", keyScaleChoices(), 0));
-    // Follow Song Key defaults OFF per suite MEMORY policy; the header KeyButton
-    // menu is authoritative.
+    // Follow Song Key defaults OFF per suite MEMORY policy; header KeyButton menu
+    // is authoritative.
     p.push_back (std::make_unique<BP> ("followKey", "Follow Song Key", false));
 
-    // --- Sub oscillator -------------------------------------------------------
+    // --- Sub oscillator (shared) ---------------------------------------------
     p.push_back (std::make_unique<BP> ("subOsc", "Sub Osc", false));
     p.push_back (std::make_unique<FP> ("subLevel", "Sub Level", R (0.0f, 1.0f, 0.001f), 0.0f));
     p.push_back (std::make_unique<CP> ("subWave", "Sub Wave",
         juce::StringArray { "Sine", "Triangle" }, 0));
     p.push_back (std::make_unique<IP> ("subOct", "Sub Octave", -2, 0, -1));
 
-    // --- Filter ---------------------------------------------------------------
+    // --- Filter (shared) ------------------------------------------------------
     p.push_back (std::make_unique<CP> ("filterType", "Filter Type",
         juce::StringArray { "LP24", "HP12", "BP" }, 0));
     p.push_back (std::make_unique<FP> ("cutoff", "Cutoff", skewRange (20.0f, 20000.0f, 0.1f, 1000.0f), 20000.0f));
@@ -146,7 +235,7 @@ SattariGranulatorAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FP> ("filterKeyTrack", "Key Track", R (0.0f, 1.0f, 0.001f), 0.0f));
     p.push_back (std::make_unique<FP> ("filterEnvAmt", "Filter Env", R (-100.0f, 100.0f, 0.1f), 0.0f));
 
-    // --- Envelopes ------------------------------------------------------------
+    // --- Envelopes (shared) ---------------------------------------------------
     p.push_back (std::make_unique<FP> ("ampAttack", "Amp Attack", skewRange (0.0f, 5000.0f, 0.1f, 100.0f), 5.0f));
     p.push_back (std::make_unique<FP> ("ampDecay", "Amp Decay", skewRange (1.0f, 8000.0f, 0.1f, 400.0f), 400.0f));
     p.push_back (std::make_unique<FP> ("ampSustain", "Amp Sustain", R (0.0f, 1.0f, 0.001f), 1.0f));
@@ -157,7 +246,7 @@ SattariGranulatorAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FP> ("fltRelease", "Filter Release", skewRange (1.0f, 10000.0f, 0.1f, 300.0f), 300.0f));
     p.push_back (std::make_unique<FP> ("envVelSens", "Velocity Sens", R (0.0f, 1.0f, 0.001f), 0.5f));
 
-    // --- LFOs -----------------------------------------------------------------
+    // --- LFOs (shared) --------------------------------------------------------
     p.push_back (std::make_unique<FP> ("lfo1Rate", "LFO1 Rate", skewRange (0.01f, 30.0f, 0.01f, 2.0f), 1.0f));
     p.push_back (std::make_unique<CP> ("lfo1Shape", "LFO1 Shape",
         juce::StringArray { "Sine", "Tri", "Saw", "Square", "S&H", "Random" }, 0));
@@ -196,11 +285,30 @@ SattariGranulatorAudioProcessor::createParameterLayout()
 void SattariGranulatorAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
     sampleRate = sr;
-    engine.prepare (sr, samplesPerBlock, 2);
 
-    // Re-hand the current source to the engine (prepare() reset its pools).
-    if (auto s = std::atomic_load (&sourceDsp))
-        engine.setSource (s);
+    for (int i = 0; i < kNumLayers; ++i)
+    {
+        auto& ls = layers[(size_t) i];
+        ls.engine.prepare (sr, samplesPerBlock, 2);
+        // Re-hand the current source to the engine (prepare() reset its pools).
+        if (auto s = std::atomic_load (&ls.sourceDsp))
+            ls.engine.setSource (s);
+    }
+
+    // Preallocate the per-layer render scratch (2 ch, max block) so processBlock
+    // never allocates when rendering + blending the two layers.
+    layerScratch.setSize (2, juce::jmax (1, samplesPerBlock), false, false, true);
+    layerScratch.clear();
+
+    // Preallocate the capture ring for the max capture length (8 s) at this sr.
+    capture.captureSr = sr;
+    capture.capacity  = (int) std::ceil (8.5 * sr);   // headroom over the 8 s max
+    capture.data.assign ((size_t) capture.capacity, 0.0f);
+    capture.armed.store (false, std::memory_order_relaxed);
+    capture.done.store (false, std::memory_order_relaxed);
+    capture.filled.store (0, std::memory_order_relaxed);
+    capture.writePos.store (0, std::memory_order_relaxed);
+    lastArmParam = false;
 
     sessionReader.start();
     tempoReader.start();
@@ -215,39 +323,54 @@ void SattariGranulatorAudioProcessor::releaseResources()
 bool SattariGranulatorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    // Optional input bus: allow it DISABLED (pure synth) OR mono/stereo (capture).
+    const auto& in = layouts.getMainInputChannelSet();
+    if (in.isDisabled())
+        return true;
+    return in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo();
 }
 
 // =============================================================================
 //  EngineParams gathering (audio thread; no allocation)
+//  Per-layer fields come from the A_/B_ params; the rest are the shared globals.
 // =============================================================================
-EngineParams SattariGranulatorAudioProcessor::gatherParams() const noexcept
+EngineParams SattariGranulatorAudioProcessor::gatherParams (Layer layer) const noexcept
 {
     EngineParams e;
 
-    e.srcStart    = param ("srcStart");
-    e.srcEnd      = param ("srcEnd");
-    e.srcReverse  = param ("srcReverse") > 0.5f;
-    e.srcLoopMode = (int) std::lround (param ("srcLoopMode"));
-    e.srcGainDb   = param ("srcGain");
+    // ---- PER-LAYER ----------------------------------------------------------
+    e.srcStart    = layerParam (layer, "srcStart");
+    e.srcEnd      = layerParam (layer, "srcEnd");
+    e.srcReverse  = layerParam (layer, "srcReverse") > 0.5f;
+    e.srcLoopMode = (int) std::lround (layerParam (layer, "srcLoopMode"));
+    e.srcGainDb   = layerParam (layer, "srcGain");
 
-    e.posBase     = param ("posBase");
-    e.posScanRate = param ("posScanRate");
-    e.posScanSync = param ("posScanSync") > 0.5f;
-    e.posScanDiv  = (int) std::lround (param ("posScanDiv"));
-    e.posEnvAmt   = param ("posEnvAmt");
-    e.posLfoAmt   = param ("posLfoAmt");
+    e.posBase     = layerParam (layer, "posBase");
+    e.posScanRate = layerParam (layer, "posScanRate");
+    e.posScanSync = layerParam (layer, "posScanSync") > 0.5f;
+    e.posScanDiv  = (int) std::lround (layerParam (layer, "posScanDiv"));
+    e.posEnvAmt   = layerParam (layer, "posEnvAmt");
+    e.posLfoAmt   = layerParam (layer, "posLfoAmt");
 
-    e.grainSizeMs = param ("grainSize");
-    e.spray       = param ("spray");
-    e.density     = param ("density");
-    e.densityMode = (int) std::lround (param ("densityMode"));
-    e.window      = (int) std::lround (param ("window"));
-    e.grainPan    = param ("grainPan");
+    e.grainSizeMs = layerParam (layer, "grainSize");
+    e.spray       = layerParam (layer, "spray");
+    e.density     = layerParam (layer, "density");
+    e.densityMode = (int) std::lround (layerParam (layer, "densityMode"));
+    e.window      = (int) std::lround (layerParam (layer, "window"));
+    e.grainPan    = layerParam (layer, "grainPan");
 
-    e.tuneCoarse      = (int) std::lround (param ("tuneCoarse"));
-    e.tuneFine        = param ("tuneFine");
-    e.pitchSpreadCents = param ("pitchSpread");
+    e.unisonVoices      = (int) std::lround (layerParam (layer, "unisonVoices"));
+    e.unisonDetuneCents = layerParam (layer, "unisonDetune");
+    e.unisonWidth       = layerParam (layer, "unisonWidth");
+
+    e.tuneCoarse       = (int) std::lround (layerParam (layer, "tuneCoarse"));
+    e.tuneFine         = layerParam (layer, "tuneFine");
+    e.pitchSpreadCents = layerParam (layer, "pitchSpread");
+
+    // ---- GLOBAL (shared) ----------------------------------------------------
     e.glide           = param ("glide");
     e.glideMode       = (int) std::lround (param ("glideMode"));
     e.pitchEnvSemis   = param ("pitchEnvAmt");
@@ -291,31 +414,65 @@ EngineParams SattariGranulatorAudioProcessor::gatherParams() const noexcept
     e.voiceMode = (int) std::lround (param ("voiceMode"));
     e.width     = param ("width");
     e.tone      = param ("tone");
-    e.volumeDb  = param ("volume");
+    // Master volume is applied ONCE to the blended mix (below), not per engine.
+    // Each engine outputs at unity so the morph blend is clean; we push 0 dB.
+    e.volumeDb  = 0.0f;
 
     return e;
 }
 
 // =============================================================================
-//  processBlock — sample-accurate MIDI walk + grain render
+//  processBlock — render BOTH layers, blend by morph + per-layer trims
 // =============================================================================
 void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                                     juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
-    buffer.clear();   // instrument: start from silence, render on top
 
-    // --- Push parameters + source into the engine (once per block) -----------
-    EngineParams eParams = gatherParams();
-    engine.setParams (eParams);
+    // --- Live Capture: record the INPUT bus BEFORE we overwrite the buffer ----
+    // Ring write only (lock-free); message-thread serviceCapture() decodes it.
+    if (capture.armed.load (std::memory_order_acquire)
+        && ! capture.done.load (std::memory_order_acquire)
+        && capture.capacity > 0)
+    {
+        auto inBus = getBus (true, 0);
+        const bool haveInput = inBus != nullptr && inBus->isEnabled();
+        if (haveInput)
+        {
+            const auto inBuffer = getBusBuffer (buffer, true, 0);
+            const int inCh = inBuffer.getNumChannels();
+            int wp     = capture.writePos.load (std::memory_order_relaxed);
+            int filled = capture.filled.load (std::memory_order_relaxed);
+            const int target = capture.target.load (std::memory_order_relaxed);
+            for (int i = 0; i < n && filled < target; ++i)
+            {
+                float m = 0.0f;
+                for (int ch = 0; ch < inCh; ++ch)
+                    m += inBuffer.getReadPointer (ch)[i];
+                m = (inCh > 0) ? m / (float) inCh : 0.0f;
+                capture.data[(size_t) wp] = m;
+                wp = (wp + 1) % capture.capacity;
+                ++filled;
+            }
+            capture.writePos.store (wp, std::memory_order_relaxed);
+            capture.filled.store (filled, std::memory_order_release);
+            if (filled >= target)
+                capture.done.store (true, std::memory_order_release);
+        }
+    }
 
-    // Block-local ref-hold of the source so a message-thread swap can't free the
-    // buffer under in-flight grains this block.
-    std::shared_ptr<const DspSource> src = std::atomic_load (&sourceDsp);
-    engine.setSource (src);
+    // Instrument: start the OUTPUT from silence; both layers render on top. We
+    // drive the MAIN OUTPUT bus view (not raw channel 0/1) so a discrete input
+    // bus that does NOT alias the output can never be mistaken for the output.
+    auto outBus = getBusBuffer (buffer, false, 0);
+    outBus.clear();
+    const int outCh = juce::jmin (2, outBus.getNumChannels());
+    float* outL = (outCh > 0) ? outBus.getWritePointer (0) : nullptr;
+    float* outR = (outCh > 1) ? outBus.getWritePointer (1) : nullptr;
+    if (outL == nullptr) return;   // no output bus (should never happen)
 
-    // --- Resolve tempo + key bus, feed the engine ----------------------------
+    // --- Resolve tempo + key bus ONCE (shared by both engines) ---------------
     double bpm = 120.0;
     double ppq = 0.0;
     bool   playing = false;
@@ -329,63 +486,150 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
             playing = pos->getIsPlaying();
         }
     }
-    // Tempo-bus fallback (Space-style) when the host reports no tempo.
     if (! haveHostBpm)
         if (auto t = tempoReader.current(); t.valid && t.bpm > 1.0)
             bpm = t.bpm;
 
-    // Resolve the KEY bus into a ScaleId ordinal (processor maps bus 0/1/2).
-    int busRoot = eParams.keyRoot;
-    int busScaleOrdinal = eParams.keyScaleId;
+    // Key snap/follow is a SHARED global — resolve it once from layer A's gather
+    // (the key fields are identical across layers).
+    const EngineParams sharedKey = gatherParams (Layer::A);
+    int  busRoot = sharedKey.keyRoot;
+    int  busScaleOrdinal = sharedKey.keyScaleId;
     bool following = false;
     {
         const auto s = sessionReader.current();
-        if (eParams.followKey && s.valid)
+        if (sharedKey.followKey && s.valid)
         {
             busRoot = s.root;
             busScaleOrdinal = (int) scaleIdFromBus (s.scale);
             following = true;
         }
     }
-    engine.setBusState (busRoot, busScaleOrdinal, bpm, ppq, playing);
 
     // Mirror the effective key + follow state for the editor.
     followingBus.store (following, std::memory_order_relaxed);
-    effKeyRoot.store (following ? busRoot : eParams.keyRoot, std::memory_order_relaxed);
+    effKeyRoot.store (following ? busRoot : sharedKey.keyRoot, std::memory_order_relaxed);
     if (following)
         effKeyScale.store (busScaleOrdinal == (int) sattari::dsp::ScaleId::Minor ? 1 : 0,
                            std::memory_order_relaxed);
     else
         effKeyScale.store ((int) std::lround (param ("keyScale")), std::memory_order_relaxed);
 
-    // --- Walk the MidiBuffer, rendering each sub-slice between events ---------
-    int cursor = 0;
-    for (const auto meta : midi)
+    // --- Morph + per-layer trims (equal-power morph so 0.5 is a true blend) ---
+    const float morph = juce::jlimit (0.0f, 1.0f, param ("layerMorph"));
+    const float gMorphA = std::cos (morph * juce::MathConstants<float>::halfPi); // 1 -> 0
+    const float gMorphB = std::sin (morph * juce::MathConstants<float>::halfPi); // 0 -> 1
+
+    // Per-layer render scratch. Grow ONCE (never on the audio thread in steady
+    // state) if the host block exceeds what prepareToPlay reserved, then keep it.
+    if (layerScratch.getNumSamples() < n || layerScratch.getNumChannels() < 2)
+        layerScratch.setSize (2, juce::jmax (n, layerScratch.getNumSamples()), false, false, true);
+    // A view of exactly n samples over the persistent scratch (no allocation).
+    juce::AudioBuffer<float> layerBuf (layerScratch.getArrayOfWritePointers(), 2, n);
+
+    for (int li = 0; li < kNumLayers; ++li)
     {
-        const int pos = juce::jlimit (0, n, meta.samplePosition);
-        if (pos > cursor)
+        const Layer layer = (Layer) li;
+        LayerState& ls = L (layer);
+
+        // Per-layer level (dB) folded with the equal-power morph gain.
+        const float trimDb   = layerParam (layer, "level");
+        const float trimGain = juce::Decibels::decibelsToGain (trimDb);
+        const float morphGain = (layer == Layer::A) ? gMorphA : gMorphB;
+        const float layerGain = trimGain * morphGain;
+
+        // Per-layer pan (-1..+1) as an equal-power L/R split.
+        const float pan01 = juce::jlimit (0.0f, 1.0f, 0.5f + 0.5f * layerParam (layer, "pan"));
+        const float panTheta = pan01 * juce::MathConstants<float>::halfPi;
+        const float panL = std::cos (panTheta);
+        const float panR = std::sin (panTheta);
+
+        // Push params + source into this engine.
+        EngineParams eParams = gatherParams (layer);
+        ls.engine.setParams (eParams);
+
+        std::shared_ptr<const DspSource> src = std::atomic_load (&ls.sourceDsp);
+        ls.engine.setSource (src);
+        ls.engine.setBusState (busRoot, busScaleOrdinal, bpm, ppq, playing);
+
+        // Render this layer into the scratch buffer with a sample-accurate MIDI
+        // walk (both engines see the SAME MIDI stream).
+        layerBuf.clear();
+        int cursor = 0;
+        for (const auto meta : midi)
         {
-            engine.render (buffer, cursor, pos - cursor);
-            cursor = pos;
+            const int pos = juce::jlimit (0, n, meta.samplePosition);
+            if (pos > cursor)
+            {
+                ls.engine.render (layerBuf, cursor, pos - cursor);
+                cursor = pos;
+            }
+            const auto msg = meta.getMessage();
+            if (msg.isNoteOn())
+                ls.engine.noteOn (msg.getNoteNumber(), msg.getFloatVelocity());
+            else if (msg.isNoteOff())
+                ls.engine.noteOff (msg.getNoteNumber());
+            else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+                ls.engine.allNotesOff();
+        }
+        if (n > cursor)
+            ls.engine.render (layerBuf, cursor, n - cursor);
+
+        // Blend into the output with layer gain + pan (equal-power). The engine
+        // wrote L/R; we fold pan across them so a mono/centre layer is unchanged
+        // (panL == panR == 0.707 at centre keeps energy constant).
+        const float* lyL = layerBuf.getReadPointer (0);
+        const float* lyR = (layerBuf.getNumChannels() > 1) ? layerBuf.getReadPointer (1) : lyL;
+        const float panScale = juce::MathConstants<float>::sqrt2; // renormalise centre to unity
+        for (int i = 0; i < n; ++i)
+        {
+            const float l = lyL[i] * layerGain;
+            const float r = lyR[i] * layerGain;
+            // equal-power pan of the stereo layer signal
+            outL[i] += (l * panL) * panScale;
+            if (outR) outR[i] += (r * panR) * panScale;
         }
 
-        const auto msg = meta.getMessage();
-        if (msg.isNoteOn())
-            engine.noteOn (msg.getNoteNumber(), msg.getFloatVelocity());
-        else if (msg.isNoteOff())
-            engine.noteOff (msg.getNoteNumber());
-        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-            engine.allNotesOff();
+        // Publish this layer's viz frame.
+        viz[(size_t) li].store (ls.engine.getDebugFrame());
     }
-    if (n > cursor)
-        engine.render (buffer, cursor, n - cursor);
 
-    // --- Publish the viz frame for the editor --------------------------------
-    viz.store (engine.getDebugFrame());
+    // --- Master volume + soft ceiling on the blended mix ---------------------
+    const float outGain = juce::Decibels::decibelsToGain (param ("volume"));
+    for (int i = 0; i < n; ++i)
+    {
+        float l = outL[i] * outGain;
+        l = softCeiling (l);
+        if (! std::isfinite (l)) l = 0.0f;
+        outL[i] = l;
+        if (outR)
+        {
+            float r = outR[i] * outGain;
+            r = softCeiling (r);
+            if (! std::isfinite (r)) r = 0.0f;
+            outR[i] = r;
+        }
+    }
+    // Zero any output-bus channels beyond the two we drive (outBus was already
+    // cleared above, so this is belt-and-braces for >2ch output layouts).
+    for (int ch = 2; ch < outBus.getNumChannels(); ++ch)
+        outBus.clear (ch, 0, n);
+}
+
+// -----------------------------------------------------------------------------
+//  tanh soft-ceiling limiter (mirrors the engine's, applied to the blended mix
+//  so the two layers summed can never leave the plugin hot).
+// -----------------------------------------------------------------------------
+float SattariGranulatorAudioProcessor::softCeiling (float x) noexcept
+{
+    constexpr float knee = 0.75f, ceiling = 0.988f, range = ceiling - knee;
+    const float a = std::fabs (x);
+    if (a <= knee) return x;
+    return std::copysign (knee + range * std::tanh ((a - knee) / range), x);
 }
 
 // =============================================================================
-//  Source load / swap (message thread)
+//  Source build / swap (message thread) — now per layer.
 // =============================================================================
 std::shared_ptr<const DspSource>
 SattariGranulatorAudioProcessor::toDspSource (const std::shared_ptr<const GranSource>& s)
@@ -400,24 +644,27 @@ SattariGranulatorAudioProcessor::toDspSource (const std::shared_ptr<const GranSo
     return d;
 }
 
-void SattariGranulatorAudioProcessor::publishSource (std::shared_ptr<const GranSource> next,
+void SattariGranulatorAudioProcessor::publishSource (Layer layer,
+                                                     std::shared_ptr<const GranSource> next,
                                                      bool pushUndo)
 {
+    LayerState& ls = L (layer);
+
     // Bounded undo of the outgoing source (message thread only).
     if (pushUndo)
     {
-        if (auto prev = std::atomic_load (&sourceMsg))
+        if (auto prev = std::atomic_load (&ls.sourceMsg))
         {
-            undoStack.push_back (prev);
-            while ((int) undoStack.size() > kMaxUndo)
-                undoStack.erase (undoStack.begin());
+            ls.undoStack.push_back (prev);
+            while ((int) ls.undoStack.size() > kMaxUndo)
+                ls.undoStack.erase (ls.undoStack.begin());
         }
     }
 
     auto dsp = toDspSource (next);
-    std::atomic_store (&sourceMsg, next);
-    std::atomic_store (&sourceDsp, dsp);
-    engine.setSource (dsp);   // engine keeps the shared_ptr alive
+    std::atomic_store (&ls.sourceMsg, next);
+    std::atomic_store (&ls.sourceDsp, dsp);
+    ls.engine.setSource (dsp);   // engine keeps the shared_ptr alive
 }
 
 std::shared_ptr<const GranSource>
@@ -454,7 +701,7 @@ SattariGranulatorAudioProcessor::applyChannelMode (const std::shared_ptr<const G
     return out;
 }
 
-bool SattariGranulatorAudioProcessor::loadFile (const juce::File& file)
+bool SattariGranulatorAudioProcessor::loadFile (Layer layer, const juce::File& file)
 {
     if (! file.existsAsFile())
         return false;
@@ -476,26 +723,32 @@ bool SattariGranulatorAudioProcessor::loadFile (const juce::File& file)
     built->rootNote         = 60;   // C4 default; retune via Coarse/Fine
     built->version          = 1;
 
-    // Apply the current channel-mode downmix at build time.
-    const int monoMode = (int) std::lround (param ("srcMono"));
+    // Apply the layer's current channel-mode downmix at build time.
+    const int monoMode = (int) std::lround (layerParam (layer, "srcMono"));
     auto shaped = applyChannelMode (built, monoMode);
 
-    publishSource (shaped, /*pushUndo=*/true);
+    publishSource (layer, shaped, /*pushUndo=*/true);
 
-    sourcePath = file.getFullPathName();
-    sourceHash = juce::String (file.hashCode64());
+    LayerState& ls = L (layer);
+    ls.sourcePath = file.getFullPathName();
+    ls.sourceHash = juce::String (file.hashCode64());
     return true;
 }
 
-std::shared_ptr<const GranSource> SattariGranulatorAudioProcessor::currentSource() const
+std::shared_ptr<const GranSource>
+SattariGranulatorAudioProcessor::currentSource (Layer layer) const
 {
-    return std::atomic_load (&sourceMsg);
+    return std::atomic_load (&L (layer).sourceMsg);
 }
 
-juce::String SattariGranulatorAudioProcessor::currentSourceName() const
+juce::String SattariGranulatorAudioProcessor::currentSourceName (Layer layer) const
 {
-    if (sourcePath.isNotEmpty())
-        return juce::File (sourcePath).getFileNameWithoutExtension();
+    const auto& ls = L (layer);
+    if (ls.sourcePath.isNotEmpty())
+        return juce::File (ls.sourcePath).getFileNameWithoutExtension();
+    // A captured (non-file) buffer has no path but a live source: label it.
+    if (std::atomic_load (&ls.sourceMsg) != nullptr)
+        return "(captured)";
     return {};
 }
 
@@ -580,56 +833,167 @@ SattariGranulatorAudioProcessor::makeMonoFold (const GranSource& src)
 }
 
 // =============================================================================
-//  Destructive edit ops (message thread; each rebuild + swap)
+//  Destructive edit ops (message thread; each rebuild + swap) — per layer.
 // =============================================================================
-void SattariGranulatorAudioProcessor::editReverse()
+void SattariGranulatorAudioProcessor::editReverse (Layer layer)
 {
-    if (auto s = std::atomic_load (&sourceMsg)) publishSource (makeReversed (*s), true);
+    if (auto s = std::atomic_load (&L (layer).sourceMsg)) publishSource (layer, makeReversed (*s), true);
 }
 
-void SattariGranulatorAudioProcessor::editNormalize()
+void SattariGranulatorAudioProcessor::editNormalize (Layer layer)
 {
-    if (auto s = std::atomic_load (&sourceMsg)) publishSource (makeNormalized (*s), true);
+    if (auto s = std::atomic_load (&L (layer).sourceMsg)) publishSource (layer, makeNormalized (*s), true);
 }
 
-void SattariGranulatorAudioProcessor::editTrimToSelection()
+void SattariGranulatorAudioProcessor::editTrimToSelection (Layer layer)
 {
-    if (auto s = std::atomic_load (&sourceMsg))
+    if (auto s = std::atomic_load (&L (layer).sourceMsg))
     {
-        publishSource (makeTrimmed (*s, param ("srcStart"), param ("srcEnd")), true);
+        const auto startId = layerParamId (layer, "srcStart");
+        const auto endId   = layerParamId (layer, "srcEnd");
+        publishSource (layer, makeTrimmed (*s, layerParam (layer, "srcStart"),
+                                              layerParam (layer, "srcEnd")), true);
         // Trim resets the region back to the whole (new) buffer.
-        if (auto* ps = apvts.getParameter ("srcStart")) ps->setValueNotifyingHost (0.0f);
-        if (auto* pe = apvts.getParameter ("srcEnd"))   pe->setValueNotifyingHost (1.0f);
+        if (auto* ps = apvts.getParameter (startId)) ps->setValueNotifyingHost (0.0f);
+        if (auto* pe = apvts.getParameter (endId))   pe->setValueNotifyingHost (1.0f);
     }
 }
 
-void SattariGranulatorAudioProcessor::editMonoFold()
+void SattariGranulatorAudioProcessor::editMonoFold (Layer layer)
 {
-    if (auto s = std::atomic_load (&sourceMsg)) publishSource (makeMonoFold (*s), true);
+    if (auto s = std::atomic_load (&L (layer).sourceMsg)) publishSource (layer, makeMonoFold (*s), true);
 }
 
-void SattariGranulatorAudioProcessor::editUndo()
+void SattariGranulatorAudioProcessor::editUndo (Layer layer)
 {
-    if (undoStack.empty()) return;
-    auto prev = undoStack.back();
-    undoStack.pop_back();
-    publishSource (prev, /*pushUndo=*/false);
+    LayerState& ls = L (layer);
+    if (ls.undoStack.empty()) return;
+    auto prev = ls.undoStack.back();
+    ls.undoStack.pop_back();
+    publishSource (layer, prev, /*pushUndo=*/false);
 }
 
-bool SattariGranulatorAudioProcessor::canUndo() const noexcept
+bool SattariGranulatorAudioProcessor::canUndo (Layer layer) const noexcept
 {
-    return ! undoStack.empty();
+    return ! L (layer).undoStack.empty();
 }
 
 // =============================================================================
-//  State (path + hash; graceful "sample missing" fallback)
+//  Live Capture (message thread build; audio thread only ring-writes)
+// =============================================================================
+void SattariGranulatorAudioProcessor::armCapture (bool arm) noexcept
+{
+    if (arm)
+    {
+        // Latch length + target layer, reset the ring, then arm.
+        const double secs = (double) juce::jlimit (0.5f, 8.0f, param ("captureSecs"));
+        const int target  = juce::jlimit (1, capture.capacity,
+                                          (int) std::round (secs * capture.captureSr));
+        capture.target.store (target, std::memory_order_relaxed);
+        capture.targetLayer.store ((int) std::lround (param ("captureTarget")), std::memory_order_relaxed);
+        capture.writePos.store (0, std::memory_order_relaxed);
+        capture.filled.store (0, std::memory_order_relaxed);
+        capture.done.store (false, std::memory_order_release);
+        capture.armed.store (true, std::memory_order_release);
+    }
+    else
+    {
+        // Disarm: stop writing. serviceCapture() will drain whatever we have.
+        capture.armed.store (false, std::memory_order_release);
+    }
+}
+
+float SattariGranulatorAudioProcessor::captureProgress() const noexcept
+{
+    const int target = capture.target.load (std::memory_order_relaxed);
+    if (target <= 0 || ! capture.armed.load (std::memory_order_relaxed)) return 0.0f;
+    const int filled = capture.filled.load (std::memory_order_relaxed);
+    return juce::jlimit (0.0f, 1.0f, (float) filled / (float) target);
+}
+
+std::shared_ptr<const GranSource>
+SattariGranulatorAudioProcessor::buildCaptureSource (const std::vector<float>& mono,
+                                                     int lengthSamples, double captureSr) const
+{
+    auto out = std::make_shared<GranSource>();
+    const int len = juce::jmax (0, lengthSamples);
+    out->audio.setSize (1, juce::jmax (1, len));
+    out->audio.clear();
+    if (len > 0)
+    {
+        float* d = out->audio.getWritePointer (0);
+        for (int i = 0; i < len; ++i) d[i] = mono[(size_t) i];
+    }
+    out->sourceSampleRate = captureSr > 0.0 ? captureSr : sampleRate;
+    out->lengthSamples    = len;
+    out->rootNote         = 60;
+    out->version          = 1;
+    return out;
+}
+
+bool SattariGranulatorAudioProcessor::serviceCapture()
+{
+    // React to the momentary captureArm param edge (editor pulses it).
+    const bool armParam = param ("captureArm") > 0.5f;
+    if (armParam != lastArmParam)
+    {
+        lastArmParam = armParam;
+        armCapture (armParam);
+        // On a rising edge we just armed; nothing to drain yet.
+        if (armParam)
+            return false;
+    }
+
+    // If the audio thread reports a completed (or the user disarmed a partial)
+    // capture, drain it into a fresh SourceSample on THIS (message) thread.
+    const bool done       = capture.done.load (std::memory_order_acquire);
+    const bool stillArmed = capture.armed.load (std::memory_order_acquire);
+    const int  filled     = capture.filled.load (std::memory_order_acquire);
+
+    if (done || (! stillArmed && filled > 0))
+    {
+        // Copy the ring (it was written from index 0 forward until target/disarm).
+        const int len = juce::jmin (filled, capture.capacity);
+        std::vector<float> mono ((size_t) juce::jmax (1, len), 0.0f);
+        for (int i = 0; i < len; ++i) mono[(size_t) i] = capture.data[(size_t) i];
+
+        const int targetLayerIdx = capture.targetLayer.load (std::memory_order_relaxed);
+        const Layer target = (targetLayerIdx == 1) ? Layer::B : Layer::A;
+
+        auto src = buildCaptureSource (mono, len, capture.captureSr);
+        publishSource (target, src, /*pushUndo=*/true);
+
+        // Clear the loaded-file path (this layer now holds a captured buffer).
+        L (target).sourcePath.clear();
+        L (target).sourceHash.clear();
+
+        // Fully disarm + reset so we don't re-drain.
+        capture.armed.store (false, std::memory_order_release);
+        capture.done.store (false, std::memory_order_release);
+        capture.filled.store (0, std::memory_order_release);
+        capture.writePos.store (0, std::memory_order_release);
+
+        // Reset the momentary param so the UI toggle returns to off.
+        if (auto* pa = apvts.getParameter ("captureArm"))
+            if (pa->getValue() > 0.5f) pa->setValueNotifyingHost (0.0f);
+        lastArmParam = false;
+        return true;
+    }
+    return false;
+}
+
+// =============================================================================
+//  State (per-layer path + hash + version tag; graceful "sample missing")
 // =============================================================================
 void SattariGranulatorAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    // Stash the source file path + content hash so presets recall the file.
-    state.setProperty ("srcFilePath", sourcePath, nullptr);
-    state.setProperty ("srcFileHash", sourceHash, nullptr);
+    state.setProperty ("granulatorStateVersion", kStateVersion, nullptr);
+    // Per-layer source file paths + content hashes.
+    state.setProperty ("srcFilePathA", L (Layer::A).sourcePath, nullptr);
+    state.setProperty ("srcFileHashA", L (Layer::A).sourceHash, nullptr);
+    state.setProperty ("srcFilePathB", L (Layer::B).sourcePath, nullptr);
+    state.setProperty ("srcFileHashB", L (Layer::B).sourceHash, nullptr);
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -644,28 +1008,52 @@ void SattariGranulatorAudioProcessor::setStateInformation (const void* data, int
     if (! tree.isValid())
         return;
 
-    const juce::String savedPath = tree.getProperty ("srcFilePath", juce::String()).toString();
-    const juce::String savedHash = tree.getProperty ("srcFileHash", juce::String()).toString();
+    const int version = (int) tree.getProperty ("granulatorStateVersion", 1);
+
+    // Legacy (v1) single-layer presets store `srcFilePath` / `srcFileHash` and
+    // un-prefixed per-layer params. Migrate every legacy per-layer PARAM value
+    // into its A_<base> node so a recalled patch sounds like it did (Layer B is
+    // left at defaults). APVTS stores params as "PARAM" nodes with id/value.
+    if (version < 2)
+    {
+        for (const auto& base : perLayerParamIds())
+        {
+            if (base == "level" || base == "pan")   // new params: no legacy source
+                continue;
+            auto legacyNode = tree.getChildWithProperty ("id", base);
+            auto aNode      = tree.getChildWithProperty ("id", "A_" + base);
+            if (legacyNode.isValid() && aNode.isValid())
+                aNode.setProperty ("value", legacyNode.getProperty ("value"), nullptr);
+        }
+    }
+
+    juce::String pathA = tree.getProperty ("srcFilePathA", juce::String()).toString();
+    juce::String hashA = tree.getProperty ("srcFileHashA", juce::String()).toString();
+    juce::String pathB = tree.getProperty ("srcFilePathB", juce::String()).toString();
+    juce::String hashB = tree.getProperty ("srcFileHashB", juce::String()).toString();
+    if (version < 2)   // legacy single path lands in A
+    {
+        pathA = tree.getProperty ("srcFilePath", pathA).toString();
+        hashA = tree.getProperty ("srcFileHash", hashA).toString();
+    }
 
     apvts.replaceState (tree);
 
-    // Try to re-load the sample referenced by the preset; a missing file simply
-    // leaves the engine source-less (the editor shows an empty "drop audio" state).
-    if (savedPath.isNotEmpty())
+    auto recall = [this] (Layer layer, const juce::String& path, const juce::String& hash)
     {
-        const juce::File f (savedPath);
-        if (f.existsAsFile() && loadFile (f))
-        {
-            // loadFile stamps a fresh path/hash; keep the recalled hash so a
-            // moved-but-identical file still reports "matched".
-            sourceHash = savedHash.isNotEmpty() ? savedHash : sourceHash;
-        }
+        LayerState& ls = L (layer);
+        if (path.isEmpty()) return;
+        const juce::File f (path);
+        if (f.existsAsFile() && loadFile (layer, f))
+            ls.sourceHash = hash.isNotEmpty() ? hash : ls.sourceHash;
         else
         {
-            sourcePath = savedPath;   // remember the intended file for the UI label
-            sourceHash = savedHash;
+            ls.sourcePath = path;   // remember the intended file for the UI label
+            ls.sourceHash = hash;
         }
-    }
+    };
+    recall (Layer::A, pathA, hashA);
+    recall (Layer::B, pathB, hashB);
 }
 
 // =============================================================================

@@ -8,15 +8,15 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
       presetManager (p.parameters(), "granulator")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (980, 640);
+    setSize (980, 680);
     setWantsKeyboardFocus (true);
+
+    selectedLayer = audioProcessor.selectedLayer();
 
     // ----- Header --------------------------------------------------------------
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Granulator");
     addAndMakeVisible (title);
 
-    // Shared KeyButton: MANUAL / FOLLOW SONG KEY, driving keyRoot / keyScale /
-    // followKey exactly like Arp / Harmony / Maqam / VoxKey.
     {
         sattari::ui::KeyButton::Config cfg;
         cfg.accentId    = "granulator";
@@ -36,7 +36,7 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     };
     addAndMakeVisible (keyButton);
 
-    // Preset row: user presets + Save + A/B.
+    // Preset row: user presets + Save + A/B (preset compare, not the layers).
     styleCombo (userPresets);
     userPresets.setTextWhenNothingSelected ("User presets...");
     userPresets.onChange = [this]
@@ -51,13 +51,58 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     addAndMakeVisible (abRow);
     refreshUserPresets();
 
-    // Master output knob (header, right side).
     styleKnob (outputKnob, true);
     outputKnob.setTextValueSuffix (" dB");
     styleCaption (outputCaption, "OUTPUT");
     addAndMakeVisible (outputKnob);
     addAndMakeVisible (outputCaption);
     outputAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), "volume", outputKnob);
+
+    // ----- Layer / morph / capture bar -----------------------------------------
+    styleCaption (layerCaption, "LAYER");
+    addAndMakeVisible (layerCaption);
+    for (auto* b : { &layerAButton, &layerBButton })
+    {
+        b->setClickingTogglesState (true);
+        b->setRadioGroupId (0x6C41);   // "lA"
+        b->setColour (juce::TextButton::buttonOnColourId,
+                      juce::Colour (sattari::brand::productAccent ("granulator")));
+        addAndMakeVisible (*b);
+    }
+    layerAButton.onClick = [this] { selectLayer (Layer::A); };
+    layerBButton.onClick = [this] { selectLayer (Layer::B); };
+
+    styleKnob (morphKnob, true);
+    styleCaption (morphCaption, "MORPH");
+    addAndMakeVisible (morphKnob);
+    addAndMakeVisible (morphCaption);
+    morphAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), "layerMorph", morphKnob);
+
+    // Per-layer LEVEL / PAN — attachments are (re)built in rebindLayer().
+    addLayerKnob (*this, layerLevel, layerLevelCap, "LEVEL", "level");
+    layerLevel.setTextValueSuffix (" dB");
+    addLayerKnob (*this, layerPan, layerPanCap, "PAN", "pan");
+
+    // Capture cluster.
+    styleCaption (captureCaption, "CAPTURE");
+    addAndMakeVisible (captureCaption);
+    styleToggle (captureArmButton, "Arm");
+    addAndMakeVisible (captureArmButton);
+    captureArmAttach = std::make_unique<ButtonAttachment> (audioProcessor.parameters(), "captureArm", captureArmButton);
+    styleKnob (captureSecs);
+    captureSecs.setTextValueSuffix (" s");
+    styleCaption (captureSecsCap, "LEN");
+    addAndMakeVisible (captureSecs);
+    addAndMakeVisible (captureSecsCap);
+    captureSecsAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), "captureSecs", captureSecs);
+    for (auto* b : { &captureTargetA, &captureTargetB })
+    {
+        b->setClickingTogglesState (true);
+        b->setRadioGroupId (0x6354);   // "cT"
+        addAndMakeVisible (*b);
+    }
+    captureTargetA.onClick = [this] { setKeyParam ("captureTarget", 0.0f); };
+    captureTargetB.onClick = [this] { setKeyParam ("captureTarget", 1.0f); };
 
     // ----- Source strip --------------------------------------------------------
     addAndMakeVisible (waveform);
@@ -68,35 +113,32 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     addAndMakeVisible (sourceNameLabel);
 
     loadButton.onClick      = [this] { openFileChooser(); };
-    reverseButton.onClick   = [this] { audioProcessor.editReverse(); };
-    normalizeButton.onClick = [this] { audioProcessor.editNormalize(); };
-    trimButton.onClick      = [this] { audioProcessor.editTrimToSelection(); };
-    monoFoldButton.onClick  = [this] { audioProcessor.editMonoFold(); };
-    undoButton.onClick      = [this] { audioProcessor.editUndo(); };
+    reverseButton.onClick   = [this] { audioProcessor.editReverse (selectedLayer); };
+    normalizeButton.onClick = [this] { audioProcessor.editNormalize (selectedLayer); };
+    trimButton.onClick      = [this] { audioProcessor.editTrimToSelection (selectedLayer); };
+    monoFoldButton.onClick  = [this] { audioProcessor.editMonoFold (selectedLayer); };
+    undoButton.onClick      = [this] { audioProcessor.editUndo (selectedLayer); };
     for (auto* b : { &loadButton, &reverseButton, &normalizeButton, &trimButton,
                      &monoFoldButton, &undoButton })
         addAndMakeVisible (*b);
 
     styleToggle (reverseGrainsToggle, "Reverse Grains");
     addAndMakeVisible (reverseGrainsToggle);
-    reverseGrainsAttach = std::make_unique<ButtonAttachment> (audioProcessor.parameters(),
-                                                              "srcReverse", reverseGrainsToggle);
+    addLayerToggle (*this, reverseGrainsToggle, "Reverse Grains", "srcReverse");
 
     styleCombo (loopModeCombo);
     loopModeCombo.addItemList (juce::StringArray { "Off", "Loop" }, 1);
     styleCaption (loopCaption, "LOOP");
     addAndMakeVisible (loopModeCombo);
     addAndMakeVisible (loopCaption);
-    loopModeAttach = std::make_unique<ComboAttachment> (audioProcessor.parameters(),
-                                                        "srcLoopMode", loopModeCombo);
+    layerComboBinds.push_back ({ &loopModeCombo, "srcLoopMode" });
 
     styleCombo (channelsCombo);
     channelsCombo.addItemList (juce::StringArray { "Stereo", "Mono", "Left", "Right" }, 1);
     styleCaption (channelsCaption, "CHANNELS");
     addAndMakeVisible (channelsCombo);
     addAndMakeVisible (channelsCaption);
-    channelsAttach = std::make_unique<ComboAttachment> (audioProcessor.parameters(),
-                                                        "srcMono", channelsCombo);
+    layerComboBinds.push_back ({ &channelsCombo, "srcMono" });
 
     // ----- Tab strip -----------------------------------------------------------
     for (int i = 0; i < kNumTabs; ++i)
@@ -112,38 +154,39 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     for (auto* panel : panels)
         addAndMakeVisible (*panel);
 
-    // ===== GRAIN tab ==========================================================
-    addKnob  (grainPanel, grainSize, grainSizeCap, "SIZE",     "grainSize",   sliderAttachments);
+    // ===== GRAIN tab (PER-LAYER) ==============================================
+    addLayerKnob  (grainPanel, grainSize, grainSizeCap, "SIZE", "grainSize");
     grainSize.setTextValueSuffix (" ms");
-    addKnob  (grainPanel, density, densityCap,     "DENSITY",  "density",     sliderAttachments);
-    addCombo (grainPanel, densityMode, densityModeCap, "MODE", { "Rate", "Overlap" }, "densityMode", comboAttachments);
-    addKnob  (grainPanel, spray, sprayCap,         "SPRAY",    "spray",       sliderAttachments);
-    addKnob  (grainPanel, posBase, posBaseCap,     "POSITION", "posBase",     sliderAttachments);
-    addKnob  (grainPanel, posScanRate, posScanRateCap, "SCAN", "posScanRate", sliderAttachments);
-    addToggle (grainPanel, posScanSync, "Scan Sync", "posScanSync", buttonAttachments);
-    addCombo (grainPanel, posScanDiv, posScanDivCap, "DIV",
-              SattariGranulatorAudioProcessor::divisionChoices(), "posScanDiv", comboAttachments);
-    addKnob  (grainPanel, grainPan, grainPanCap,   "PAN",      "grainPan",    sliderAttachments);
-    addCombo (grainPanel, window, windowCap,       "WINDOW",   { "Hann", "Gauss", "Tukey" }, "window", comboAttachments);
-    addToggle (grainPanel, subOsc, "Sub Osc",      "subOsc",   buttonAttachments);
-    addKnob  (grainPanel, subLevel, subLevelCap,   "SUB LVL",  "subLevel",    sliderAttachments);
-    addCombo (grainPanel, subWave, subWaveCap,     "SUB WAVE", { "Sine", "Triangle" }, "subWave", comboAttachments);
-    addKnob  (grainPanel, subOct, subOctCap,       "SUB OCT",  "subOct",      sliderAttachments);
+    addLayerKnob  (grainPanel, density, densityCap, "DENSITY", "density");
+    addLayerCombo (grainPanel, densityMode, densityModeCap, "MODE", { "Rate", "Overlap" }, "densityMode");
+    addLayerKnob  (grainPanel, spray, sprayCap, "SPRAY", "spray");
+    addLayerKnob  (grainPanel, posBase, posBaseCap, "POSITION", "posBase");
+    addLayerKnob  (grainPanel, posScanRate, posScanRateCap, "SCAN", "posScanRate");
+    addLayerToggle (grainPanel, posScanSync, "Scan Sync", "posScanSync");
+    addLayerCombo (grainPanel, posScanDiv, posScanDivCap, "DIV",
+                   SattariGranulatorAudioProcessor::divisionChoices(), "posScanDiv");
+    addLayerKnob  (grainPanel, grainPan, grainPanCap, "PAN", "grainPan");
+    addLayerCombo (grainPanel, window, windowCap, "WINDOW", { "Hann", "Gauss", "Tukey" }, "window");
 
-    // ===== PITCH tab ==========================================================
-    addKnob  (pitchPanel, tuneCoarse, tuneCoarseCap, "COARSE",  "tuneCoarse", sliderAttachments);
+    // ===== PITCH tab (per-layer offsets + UNISON + GLOBAL shaping) ============
+    addLayerKnob  (pitchPanel, tuneCoarse, tuneCoarseCap, "COARSE", "tuneCoarse");
     tuneCoarse.setTextValueSuffix (" st");
-    addKnob  (pitchPanel, tuneFine, tuneFineCap,     "FINE",    "tuneFine",   sliderAttachments);
+    addLayerKnob  (pitchPanel, tuneFine, tuneFineCap, "FINE", "tuneFine");
     tuneFine.setTextValueSuffix (" ct");
-    addKnob  (pitchPanel, pitchSpread, pitchSpreadCap, "SPREAD", "pitchSpread", sliderAttachments);
+    addLayerKnob  (pitchPanel, pitchSpread, pitchSpreadCap, "SPREAD", "pitchSpread");
     pitchSpread.setTextValueSuffix (" ct");
-    addKnob  (pitchPanel, glide, glideCap,           "GLIDE",   "glide",      sliderAttachments);
-    addCombo (pitchPanel, glideMode, glideModeCap,   "GLIDE MODE", { "Always", "Legato" }, "glideMode", comboAttachments);
-    addKnob  (pitchPanel, pitchEnvAmt, pitchEnvAmtCap, "P.ENV",  "pitchEnvAmt", sliderAttachments);
+    // Unison (per-layer, pitch-domain: stacked detuned grain copies).
+    addLayerKnob  (pitchPanel, unisonVoices, unisonVoicesCap, "UNI VC", "unisonVoices");
+    addLayerKnob  (pitchPanel, unisonDetune, unisonDetuneCap, "UNI DET", "unisonDetune");
+    unisonDetune.setTextValueSuffix (" ct");
+    addLayerKnob  (pitchPanel, unisonWidth, unisonWidthCap, "UNI WD", "unisonWidth");
+    addKnob  (pitchPanel, glide, glideCap, "GLIDE", "glide", sliderAttachments);
+    addCombo (pitchPanel, glideMode, glideModeCap, "GLIDE MODE", { "Always", "Legato" }, "glideMode", comboAttachments);
+    addKnob  (pitchPanel, pitchEnvAmt, pitchEnvAmtCap, "P.ENV", "pitchEnvAmt", sliderAttachments);
     pitchEnvAmt.setTextValueSuffix (" st");
     addKnob  (pitchPanel, pitchEnvAttack, pitchEnvAttackCap, "P.ATK", "pitchEnvAttack", sliderAttachments);
     pitchEnvAttack.setTextValueSuffix (" ms");
-    addKnob  (pitchPanel, pitchEnvDecay, pitchEnvDecayCap, "P.DEC",  "pitchEnvDecay", sliderAttachments);
+    addKnob  (pitchPanel, pitchEnvDecay, pitchEnvDecayCap, "P.DEC", "pitchEnvDecay", sliderAttachments);
     pitchEnvDecay.setTextValueSuffix (" ms");
     addKnob  (pitchPanel, pitchLfoAmt, pitchLfoAmtCap, "VIB DEPTH", "pitchLfoAmt", sliderAttachments);
     pitchLfoAmt.setTextValueSuffix (" ct");
@@ -151,7 +194,7 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     pitchLfoRate.setTextValueSuffix (" Hz");
     addToggle (pitchPanel, keySnap, "Key Snap", "keySnap", buttonAttachments);
 
-    // ===== FILTER tab =========================================================
+    // ===== FILTER tab (GLOBAL) ================================================
     addKnob  (filterPanel, cutoff, cutoffCap, "CUTOFF", "cutoff", sliderAttachments);
     cutoff.setTextValueSuffix (" Hz");
     addKnob  (filterPanel, reso, resoCap, "RESO", "reso", sliderAttachments);
@@ -159,7 +202,7 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     addKnob  (filterPanel, filterKeyTrack, filterKeyTrackCap, "KEY TRK", "filterKeyTrack", sliderAttachments);
     addKnob  (filterPanel, filterEnvAmt, filterEnvAmtCap, "ENV AMT", "filterEnvAmt", sliderAttachments);
 
-    // ===== ENV tab ============================================================
+    // ===== ENV tab (GLOBAL) ===================================================
     addKnob (envPanel, ampAttack,  ampAttackCap,  "AMP A", "ampAttack",  sliderAttachments); ampAttack.setTextValueSuffix (" ms");
     addKnob (envPanel, ampDecay,   ampDecayCap,   "AMP D", "ampDecay",   sliderAttachments); ampDecay.setTextValueSuffix (" ms");
     addKnob (envPanel, ampSustain, ampSustainCap, "AMP S", "ampSustain", sliderAttachments);
@@ -172,7 +215,7 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     addKnob (envPanel, modEnvAttack, modEnvAttackCap, "MOD A", "modEnvAttack", sliderAttachments); modEnvAttack.setTextValueSuffix (" ms");
     addKnob (envPanel, modEnvDecay,  modEnvDecayCap,  "MOD D", "modEnvDecay",  sliderAttachments); modEnvDecay.setTextValueSuffix (" ms");
 
-    // ===== LFO tab ============================================================
+    // ===== LFO tab (GLOBAL) ===================================================
     addKnob  (lfoPanel, lfo1Rate, lfo1RateCap, "LFO1 RATE", "lfo1Rate", sliderAttachments); lfo1Rate.setTextValueSuffix (" Hz");
     addCombo (lfoPanel, lfo1Shape, lfo1ShapeCap, "LFO1 SHAPE", { "Sine", "Tri", "Saw", "Square", "S&H", "Random" }, "lfo1Shape", comboAttachments);
     addToggle (lfoPanel, lfo1Sync, "LFO1 Sync", "lfo1Sync", buttonAttachments);
@@ -188,10 +231,11 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
               { "Off", "File Position", "Cutoff", "Pitch", "Grain Size", "Density", "Pan", "Amp" }, "lfo2Dest", comboAttachments);
     addKnob  (lfoPanel, lfo2Amt, lfo2AmtCap, "LFO2 AMT", "lfo2Amt", sliderAttachments);
 
-    // ===== MOD tab (fixed routing view in v1) =================================
-    addKnob  (modPanel, posEnvAmt, posEnvAmtCap, "POS ENV", "posEnvAmt", sliderAttachments);
-    addKnob  (modPanel, posLfoAmt, posLfoAmtCap, "POS LFO", "posLfoAmt", sliderAttachments);
-    addKnob  (modPanel, srcGain, srcGainCap, "SRC GAIN", "srcGain", sliderAttachments); srcGain.setTextValueSuffix (" dB");
+    // ===== MOD tab (GLOBAL: sub + width/tone + voices) ========================
+    addToggle (modPanel, subOsc, "Sub Osc", "subOsc", buttonAttachments);
+    addKnob  (modPanel, subLevel, subLevelCap, "SUB LVL", "subLevel", sliderAttachments);
+    addCombo (modPanel, subWave, subWaveCap, "SUB WAVE", { "Sine", "Triangle" }, "subWave", comboAttachments);
+    addKnob  (modPanel, subOct, subOctCap, "SUB OCT", "subOct", sliderAttachments);
     addKnob  (modPanel, width, widthCap, "WIDTH", "width", sliderAttachments);
     addKnob  (modPanel, tone, toneCap, "TONE", "tone", sliderAttachments);
     addKnob  (modPanel, voices, voicesCap, "VOICES", "voices", sliderAttachments);
@@ -205,6 +249,16 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     keyboard.setColour (juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId,
                         juce::Colour (sattari::brand::productAccent ("granulator")).withAlpha (0.25f));
     addAndMakeVisible (keyboard);
+
+    // Bind the per-layer widgets to the selected layer + reflect the toggle/target.
+    rebindLayer (selectedLayer);
+    layerAButton.setToggleState (selectedLayer == Layer::A, juce::dontSendNotification);
+    layerBButton.setToggleState (selectedLayer == Layer::B, juce::dontSendNotification);
+    {
+        const bool targetB = audioProcessor.parameters().getRawParameterValue ("captureTarget")->load() > 0.5f;
+        captureTargetA.setToggleState (! targetB, juce::dontSendNotification);
+        captureTargetB.setToggleState (targetB, juce::dontSendNotification);
+    }
 
     showTab (0);
     startTimerHz (24);
@@ -247,7 +301,7 @@ void SattariGranulatorAudioProcessorEditor::styleToggle (juce::ToggleButton& t, 
 }
 
 // =============================================================================
-//  Widget builders (bind + add to a panel)
+//  GLOBAL widget builders (persistent attachments)
 // =============================================================================
 void SattariGranulatorAudioProcessorEditor::addKnob (juce::Component& panel, juce::Slider& s,
                                                      juce::Label& cap, const juce::String& text,
@@ -284,6 +338,80 @@ void SattariGranulatorAudioProcessorEditor::addToggle (juce::Component& panel, j
 }
 
 // =============================================================================
+//  PER-LAYER widget builders (attachment (re)built in rebindLayer)
+// =============================================================================
+void SattariGranulatorAudioProcessorEditor::addLayerKnob (juce::Component& panel, juce::Slider& s,
+                                                          juce::Label& cap, const juce::String& text,
+                                                          const char* baseId)
+{
+    styleKnob (s);
+    styleCaption (cap, text);
+    panel.addAndMakeVisible (s);
+    panel.addAndMakeVisible (cap);
+    layerSliderBinds.push_back ({ &s, baseId });
+}
+
+void SattariGranulatorAudioProcessorEditor::addLayerCombo (juce::Component& panel, juce::ComboBox& c,
+                                                           juce::Label& cap, const juce::String& text,
+                                                           const juce::StringArray& items, const char* baseId)
+{
+    styleCombo (c);
+    c.addItemList (items, 1);
+    styleCaption (cap, text);
+    panel.addAndMakeVisible (c);
+    panel.addAndMakeVisible (cap);
+    layerComboBinds.push_back ({ &c, baseId });
+}
+
+void SattariGranulatorAudioProcessorEditor::addLayerToggle (juce::Component& panel, juce::ToggleButton& t,
+                                                            const juce::String& text, const char* baseId)
+{
+    styleToggle (t, text);
+    panel.addAndMakeVisible (t);
+    layerToggleBinds.push_back ({ &t, baseId });
+}
+
+// =============================================================================
+//  Rebind all per-layer widgets to `layer`'s A_/B_ parameters.
+// =============================================================================
+void SattariGranulatorAudioProcessorEditor::rebindLayer (Layer layer)
+{
+    // Tear down existing per-layer attachments first (frees the old bindings).
+    layerSliderAttachments.clear();
+    layerComboAttachments.clear();
+    layerToggleAttachments.clear();
+
+    auto& apvts = audioProcessor.parameters();
+    for (const auto& bind : layerSliderBinds)
+    {
+        const auto id = SattariGranulatorAudioProcessor::layerParamId (layer, bind.baseId.toRawUTF8());
+        layerSliderAttachments.push_back (std::make_unique<SliderAttachment> (apvts, id, *bind.w));
+    }
+    for (const auto& bind : layerComboBinds)
+    {
+        const auto id = SattariGranulatorAudioProcessor::layerParamId (layer, bind.baseId.toRawUTF8());
+        layerComboAttachments.push_back (std::make_unique<ComboAttachment> (apvts, id, *bind.w));
+    }
+    for (const auto& bind : layerToggleBinds)
+    {
+        const auto id = SattariGranulatorAudioProcessor::layerParamId (layer, bind.baseId.toRawUTF8());
+        layerToggleAttachments.push_back (std::make_unique<ButtonAttachment> (apvts, id, *bind.w));
+    }
+}
+
+void SattariGranulatorAudioProcessorEditor::selectLayer (Layer layer)
+{
+    selectedLayer = layer;
+    // Mirror into the UI-only layerSel param so state recall remembers it.
+    setKeyParam ("layerSel", layer == Layer::B ? 1.0f : 0.0f);
+    rebindLayer (layer);
+    layerAButton.setToggleState (layer == Layer::A, juce::dontSendNotification);
+    layerBButton.setToggleState (layer == Layer::B, juce::dontSendNotification);
+    waveform.repaint();   // WaveformView reads selectedLayer via the processor
+    repaint();
+}
+
+// =============================================================================
 //  Preset / file helpers
 // =============================================================================
 void SattariGranulatorAudioProcessorEditor::refreshUserPresets()
@@ -312,11 +440,12 @@ void SattariGranulatorAudioProcessorEditor::openFileChooser()
         "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
     const auto flags = juce::FileBrowserComponent::openMode
                      | juce::FileBrowserComponent::canSelectFiles;
-    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+    const Layer target = selectedLayer;
+    fileChooser->launchAsync (flags, [this, target] (const juce::FileChooser& fc)
     {
         const auto file = fc.getResult();
         if (file.existsAsFile())
-            audioProcessor.loadFile (file);
+            audioProcessor.loadFile (target, file);
     });
 }
 
@@ -339,7 +468,7 @@ void SattariGranulatorAudioProcessorEditor::showTab (int idx)
 }
 
 // =============================================================================
-//  Timer — reflect the effective key + source name / undo state
+//  Timer — key sync, selected-layer source name / undo, capture drain
 // =============================================================================
 void SattariGranulatorAudioProcessorEditor::timerCallback()
 {
@@ -349,14 +478,38 @@ void SattariGranulatorAudioProcessorEditor::timerCallback()
                         audioProcessor.effectiveKeyRoot(),
                         audioProcessor.effectiveKeyScale());
 
-    const auto name = audioProcessor.currentSourceName();
-    sourceNameLabel.setText (name.isNotEmpty() ? name : "(no sample loaded)",
+    // Reconcile the A|B selector with the (UI-only) layerSel param in case a
+    // preset recall / host changed it out from under us — this re-points every
+    // per-layer attachment + the WaveformView at the newly selected layer.
+    if (const auto lyr = audioProcessor.selectedLayer(); lyr != selectedLayer)
+        selectLayer (lyr);
+
+    // Keep the capture-target A|B toggles in sync with the captureTarget param
+    // (radio buttons only push to the param on click; a preset can change it).
+    {
+        const bool targetB = audioProcessor.parameters()
+                                 .getRawParameterValue ("captureTarget")->load() > 0.5f;
+        if (captureTargetB.getToggleState() != targetB)
+        {
+            captureTargetA.setToggleState (! targetB, juce::dontSendNotification);
+            captureTargetB.setToggleState (targetB, juce::dontSendNotification);
+        }
+    }
+
+    // Drain any completed Live Capture (publishes into the target layer).
+    audioProcessor.serviceCapture();
+    captureProgress = (double) audioProcessor.captureProgress();
+
+    const auto name = audioProcessor.currentSourceName (selectedLayer);
+    sourceNameLabel.setText (name.isNotEmpty()
+                                 ? (juce::String (selectedLayer == Layer::A ? "A: " : "B: ") + name)
+                                 : (juce::String (selectedLayer == Layer::A ? "A: " : "B: ") + "(no sample loaded)"),
                              juce::dontSendNotification);
 
-    undoButton.setEnabled (audioProcessor.canUndo());
+    undoButton.setEnabled (audioProcessor.canUndo (selectedLayer));
 
-    // Repaint the header region so the follow-status dot tracks the bus.
-    repaint (0, 0, getWidth(), 60);
+    // Repaint the header + layer/capture bar so the follow dot + capture meter track.
+    repaint (0, 0, getWidth(), 120);
 }
 
 // =============================================================================
@@ -366,13 +519,25 @@ void SattariGranulatorAudioProcessorEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
 
-    // Follow-status dot next to the KeyButton: lit accent while a fresh bus key
-    // is driving us, faint otherwise.
     const auto accent = juce::Colour (sattari::brand::productAccent ("granulator"));
+
+    // Follow-status dot next to the KeyButton.
     const auto dot = keyButton.getBounds().toFloat();
     juce::Rectangle<float> dotR (dot.getRight() + 8.0f, dot.getCentreY() - 4.0f, 8.0f, 8.0f);
     g.setColour (followingBus ? accent : juce::Colour (sattari::brand::kTextFaint).withAlpha (0.5f));
     g.fillEllipse (dotR);
+
+    // Capture progress bar under the capture cluster.
+    if (captureProgress > 0.0)
+    {
+        auto barBounds = captureArmButton.getBounds().withY (captureArmButton.getBottom() + 2)
+                             .withHeight (4).withWidth (captureSecs.getRight() - captureArmButton.getX());
+        g.setColour (juce::Colour (sattari::brand::kHairline));
+        g.fillRoundedRectangle (barBounds.toFloat(), 2.0f);
+        auto fill = barBounds.withWidth ((int) (barBounds.getWidth() * captureProgress));
+        g.setColour (accent);
+        g.fillRoundedRectangle (fill.toFloat(), 2.0f);
+    }
 }
 
 // =============================================================================
@@ -387,13 +552,11 @@ void SattariGranulatorAudioProcessorEditor::resized()
     title.setBounds (header.removeFromLeft (200));
     header.removeFromLeft (8);
 
-    // Master output on the far right of the header.
     auto outCol = header.removeFromRight (70);
     outputCaption.setBounds (outCol.removeFromTop (13));
     outputKnob.setBounds (outCol);
     header.removeFromRight (14);
 
-    // Preset cluster right of centre.
     auto presetCol = header.removeFromRight (330);
     auto presetRow = presetCol.removeFromTop (26);
     abRow.setBounds (presetRow.removeFromRight (84));
@@ -402,14 +565,52 @@ void SattariGranulatorAudioProcessorEditor::resized()
     presetRow.removeFromRight (6);
     userPresets.setBounds (presetRow);
 
-    // KeyButton fills what remains between title and presets (leave room for dot).
     header.removeFromLeft (12);
     header.removeFromRight (18);   // status dot gutter
     keyButton.setBounds (header.withSizeKeepingCentre (juce::jmin (300, header.getWidth()), 44));
 
     area.removeFromTop (8);
 
-    // ----- Source strip: edit-op buttons + source controls above the waveform --
+    // ----- Layer / morph / capture bar -----------------------------------------
+    auto layerBar = area.removeFromTop (54);
+    {
+        // Layer select (A|B) on the far left.
+        auto selCol = layerBar.removeFromLeft (96);
+        layerCaption.setBounds (selCol.removeFromTop (12));
+        layerAButton.setBounds (selCol.removeFromLeft (46).reduced (2));
+        layerBButton.setBounds (selCol.reduced (2));
+        layerBar.removeFromLeft (10);
+
+        // Morph knob.
+        auto morphCol = layerBar.removeFromLeft (70);
+        morphCaption.setBounds (morphCol.removeFromTop (12));
+        morphKnob.setBounds (morphCol);
+        layerBar.removeFromLeft (6);
+
+        // Per-layer LEVEL / PAN.
+        auto lvlCol = layerBar.removeFromLeft (66);
+        layerLevelCap.setBounds (lvlCol.removeFromTop (12));
+        layerLevel.setBounds (lvlCol);
+        auto panCol = layerBar.removeFromLeft (66);
+        layerPanCap.setBounds (panCol.removeFromTop (12));
+        layerPan.setBounds (panCol);
+        layerBar.removeFromLeft (16);
+
+        // Capture cluster on the right.
+        captureCaption.setBounds (layerBar.removeFromTop (12));
+        auto armCol = layerBar.removeFromLeft (60);
+        captureArmButton.setBounds (armCol.withHeight (24));
+        auto lenCol = layerBar.removeFromLeft (64);
+        captureSecsCap.setBounds (lenCol.removeFromTop (12));
+        captureSecs.setBounds (lenCol);
+        auto tgtCol = layerBar.removeFromLeft (80);
+        captureTargetA.setBounds (tgtCol.removeFromLeft (40).withHeight (24).reduced (2));
+        captureTargetB.setBounds (tgtCol.withHeight (24).reduced (2));
+    }
+
+    area.removeFromTop (6);
+
+    // ----- Source strip --------------------------------------------------------
     auto sourceBar = area.removeFromTop (30);
     loadButton.setBounds     (sourceBar.removeFromLeft (94));
     sourceBar.removeFromLeft (6);
@@ -423,7 +624,6 @@ void SattariGranulatorAudioProcessorEditor::resized()
     sourceBar.removeFromLeft (4);
     undoButton.setBounds     (sourceBar.removeFromLeft (56));
     sourceBar.removeFromLeft (12);
-    // Source-shaping controls on the right of the strip.
     reverseGrainsToggle.setBounds (sourceBar.removeFromLeft (140).withSizeKeepingCentre (140, 22));
     {
         auto chCol = sourceBar.removeFromRight (90);
@@ -438,7 +638,7 @@ void SattariGranulatorAudioProcessorEditor::resized()
     area.removeFromTop (4);
 
     // ----- Waveform (always visible) ------------------------------------------
-    auto waveRow = area.removeFromTop (218);
+    auto waveRow = area.removeFromTop (196);
     sourceNameLabel.setBounds (waveRow.removeFromBottom (16));
     waveform.setBounds (waveRow);
 
@@ -459,7 +659,6 @@ void SattariGranulatorAudioProcessorEditor::resized()
 
     area.removeFromTop (8);
 
-    // ----- Rack body: all panels share the same rect --------------------------
     for (auto* panel : panels)
         panel->setBounds (area);
 
@@ -468,8 +667,6 @@ void SattariGranulatorAudioProcessorEditor::resized()
     const int comboH = 44;
     const int toggleH = 26;
 
-    // Simple flow layouter: place a list of (widget, caption, height) cells,
-    // wrapping to a new row when the current row runs out of width.
     struct Cell { juce::Component* w; juce::Label* cap; int height; };
     auto flow = [&] (juce::Component& panel, std::vector<Cell> cells)
     {
@@ -479,7 +676,7 @@ void SattariGranulatorAudioProcessorEditor::resized()
         int rowH = 0;
         for (auto& c : cells)
         {
-            if (x + cellW > body.getRight())   // wrap
+            if (x + cellW > body.getRight())
             {
                 x = body.getX();
                 y += rowH + 8;
@@ -499,13 +696,14 @@ void SattariGranulatorAudioProcessorEditor::resized()
         { &densityMode, &densityModeCap, comboH }, { &spray, &sprayCap, knobH },
         { &posBase, &posBaseCap, knobH }, { &posScanRate, &posScanRateCap, knobH },
         { &posScanSync, nullptr, toggleH }, { &posScanDiv, &posScanDivCap, comboH },
-        { &grainPan, &grainPanCap, knobH }, { &window, &windowCap, comboH },
-        { &subOsc, nullptr, toggleH }, { &subLevel, &subLevelCap, knobH },
-        { &subWave, &subWaveCap, comboH }, { &subOct, &subOctCap, knobH } });
+        { &grainPan, &grainPanCap, knobH }, { &window, &windowCap, comboH } });
 
     flow (pitchPanel, {
         { &tuneCoarse, &tuneCoarseCap, knobH }, { &tuneFine, &tuneFineCap, knobH },
-        { &pitchSpread, &pitchSpreadCap, knobH }, { &glide, &glideCap, knobH },
+        { &pitchSpread, &pitchSpreadCap, knobH },
+        { &unisonVoices, &unisonVoicesCap, knobH }, { &unisonDetune, &unisonDetuneCap, knobH },
+        { &unisonWidth, &unisonWidthCap, knobH },
+        { &glide, &glideCap, knobH },
         { &glideMode, &glideModeCap, comboH }, { &pitchEnvAmt, &pitchEnvAmtCap, knobH },
         { &pitchEnvAttack, &pitchEnvAttackCap, knobH }, { &pitchEnvDecay, &pitchEnvDecayCap, knobH },
         { &pitchLfoAmt, &pitchLfoAmtCap, knobH }, { &pitchLfoRate, &pitchLfoRateCap, knobH },
@@ -533,8 +731,8 @@ void SattariGranulatorAudioProcessorEditor::resized()
         { &lfo2Dest, &lfo2DestCap, comboH }, { &lfo2Amt, &lfo2AmtCap, knobH } });
 
     flow (modPanel, {
-        { &posEnvAmt, &posEnvAmtCap, knobH }, { &posLfoAmt, &posLfoAmtCap, knobH },
-        { &srcGain, &srcGainCap, knobH }, { &width, &widthCap, knobH },
-        { &tone, &toneCap, knobH }, { &voices, &voicesCap, knobH },
-        { &voiceMode, &voiceModeCap, comboH } });
+        { &subOsc, nullptr, toggleH }, { &subLevel, &subLevelCap, knobH },
+        { &subWave, &subWaveCap, comboH }, { &subOct, &subOctCap, knobH },
+        { &width, &widthCap, knobH }, { &tone, &toneCap, knobH },
+        { &voices, &voicesCap, knobH }, { &voiceMode, &voiceModeCap, comboH } });
 }
