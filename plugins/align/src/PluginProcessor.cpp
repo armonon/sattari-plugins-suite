@@ -69,6 +69,13 @@ void SattariAlignAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     // Report half of the worst-case search range as our base latency so the
     // detected lag can swing both negative and positive without ever requiring
     // a negative delay. The host delay-compensates around this stable number.
+    // Preallocate the DTW scratch to its worst case (radius <= envWindowSize/2, so
+    // W <= envWindowSize + 1) so computeDtwWarp() never allocates on the audio thread.
+    dtwCost.assign ((size_t) envWindowSize * (size_t) (envWindowSize + 1), 0.0);
+    dtwRev.clear();
+    dtwRev.reserve ((size_t) envWindowSize + 4);
+    resetDspState();
+
     baseLatencySamples = (int) std::ceil (0.150 * currentSampleRate);
     setLatencySamples (baseLatencySamples);
 
@@ -178,7 +185,10 @@ int SattariAlignAudioProcessor::computeDtwWarp()
 
     // 1-D arrays held as flat (i,j) -> cost[(i*(2*radius+1)) + (j-i+radius)].
     const int W = 2 * radius + 1;
-    std::vector<double> cost ((size_t) N * (size_t) W, std::numeric_limits<double>::infinity());
+    // Reuse the preallocated scratch (sized for the worst-case W in prepareToPlay);
+    // only the first N*W entries are used this call. No audio-thread allocation.
+    auto& cost = dtwCost;
+    std::fill (cost.begin(), cost.begin() + (size_t) N * (size_t) W, std::numeric_limits<double>::infinity());
     auto idx = [W, radius] (int i, int j) -> int { return i * W + (j - i + radius); };
 
     cost[(size_t) idx (0, 0)] = 0.0;
@@ -218,8 +228,8 @@ int SattariAlignAudioProcessor::computeDtwWarp()
 
     // Walk back; sample every ~50 ms of guide-time so the path is compact.
     const int stride = juce::jmax (1, (int) (envSampleRate * 0.05));
-    std::vector<WarpAnchor> rev;
-    rev.reserve ((size_t) (N / stride) + 4);
+    auto& rev = dtwRev;   // preallocated; reused each call (no audio-thread alloc)
+    rev.clear();
     while (i > 0 && j > 0)
     {
         if ((N - 1 - i) % stride == 0)
@@ -334,12 +344,16 @@ void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (auto* sc = getBus (true, 1); sc != nullptr && sc->isEnabled())
             guideBuffer = getBusBuffer (buffer, true, 1);
 
-    if (apvts.getRawParameterValue ("bypass")->load() > 0.5f)
+    // True bypass: skip all alignment work but keep the reported base latency so the
+    // host's PDC chain stays sample-aligned. Slew the alignment lag back to zero so
+    // toggling bypass doesn't click, then fall through to the shared delay-output loop.
+    const bool bypassed = apvts.getRawParameterValue ("bypass")->load() > 0.5f;
+    if (bypassed)
     {
-        // Even in bypass we still report latency; copy main->out with delay so
-        // the host's PDC chain stays sample-aligned.
+        smoothedLagSamples += 0.02f * (0.0f - smoothedLagSamples);
     }
-
+    else
+    {
     const bool autoAlign     = apvts.getRawParameterValue ("autoAlign")->load() > 0.5f;
     const bool lockOn        = apvts.getRawParameterValue ("lock")->load() > 0.5f;
     const float manualMs     = apvts.getRawParameterValue ("manualOffsetMs")->load();
@@ -417,6 +431,7 @@ void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     publishedOffsetMs.store ((float) (smoothedLagSamples / currentSampleRate * 1000.0));
+    } // end alignment work (skipped when bypassed)
 
     // Apply the smoothed delay to the Main output. Total delay = baseLatency +
     // smoothedLagSamples (clamped to the line size).

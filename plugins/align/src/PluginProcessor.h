@@ -112,6 +112,12 @@ private:
     double dtwClockSec = 0.0;       // monotonic audio-thread clock (s)
     int    computeDtwWarp();        // returns 0 if path updated, non-zero on skip
 
+    // Preallocated DTW scratch (sized in prepareToPlay) so computeDtwWarp() never
+    // allocates on the audio thread. cost is the flat (i,j) cost matrix; rev holds
+    // the backtracked anchors before they are reversed into warpPath.
+    std::vector<double>     dtwCost;
+    std::vector<WarpAnchor> dtwRev;
+
     // --- Detection cadence + output state ------------------------------------
     int samplesUntilSearch = 0;
     std::atomic<float> publishedOffsetMs { 0.0f };
