@@ -4,15 +4,16 @@
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 
 class SideChainMasterAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SideChainMasterAudioProcessor();
-    ~SideChainMasterAudioProcessor() override = default;
+    ~SideChainMasterAudioProcessor() override { tempoReader.stop(); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { tempoReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -43,6 +44,8 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    sattari::xplugin::TempoReader tempoReader;   // cross-plugin tempo bus (sync-duck fallback)
 
     float getFloatParam (const char* id) const;
     int getChoiceParam (const char* id) const;

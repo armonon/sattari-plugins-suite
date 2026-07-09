@@ -68,6 +68,7 @@ void SideChainMasterAudioProcessor::prepareToPlay (double sampleRate, int sample
     // smoother uses the user attack/release, set per-block below.
     detectorFollower.prepare (currentSampleRate, 1.5f, 45.0f);
     grSmoother.prepare (currentSampleRate);
+    tempoReader.start();   // sync-duck tempo fallback when the host reports none
     hpX1 = 0.0f;
     hpY1 = 0.0f;
     syncPhase = 0.0;
@@ -205,10 +206,18 @@ void SideChainMasterAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     }
 
     // Tempo-synced duck phase: lock to host PPQ while playing, else free-run on BPM.
+    // When the host reports no usable tempo (e.g. a transport-less/standalone host),
+    // fall back to the cross-plugin tempo bus so the sync-duck still runs in time.
     const auto t = sattari::host::read (*this);
+    double effectiveBpm = t.bpm;
+    if (! (effectiveBpm > 1.0))
+        if (auto s = tempoReader.current(); s.valid && s.bpm > 1.0)
+            effectiveBpm = s.bpm;
+    if (! (effectiveBpm > 1.0))
+        effectiveBpm = 120.0;
     static const double rateQuarters[] = { 4.0, 2.0, 1.0, 0.5, 1.0 / 3.0, 0.25 };
     const double cycleQuarters = rateQuarters[juce::jlimit (0, 5, syncRate)];
-    const double cyclesPerSample = (t.bpm / 60.0) / currentSampleRate / cycleQuarters;
+    const double cyclesPerSample = (effectiveBpm / 60.0) / currentSampleRate / cycleQuarters;
     if (syncDuck && t.isPlaying && t.hasPpq)
         syncPhase = std::fmod (t.ppqPosition / cycleQuarters, 1.0);
     const float syncDepthGain = dbToGain (-depthDb);
