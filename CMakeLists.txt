@@ -33,6 +33,16 @@ add_subdirectory(plugins/comp)
 add_subdirectory(plugins/peak)
 add_subdirectory(plugins/vocoder)
 add_subdirectory(plugins/shimmer)
+add_subdirectory(plugins/echo)
+add_subdirectory(plugins/heat)
+add_subdirectory(plugins/multiband)
+add_subdirectory(plugins/gate)
+add_subdirectory(plugins/riser)
+add_subdirectory(plugins/pulse)
+add_subdirectory(plugins/eightoheight)
+add_subdirectory(plugins/imager)
+add_subdirectory(plugins/warble)
+add_subdirectory(plugins/scope)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

@@ -75,16 +75,37 @@ inline KeyResult detectKey (const double chroma[12]) noexcept
     if (tot <= 1.0e-9) return r;   // silence / no energy -> invalid
 
     double best = -2.0, second = -2.0;
-    int  bestRoot = 0; bool bestMinor = false;
+    int  bestRoot = 0;   bool bestMinor = false;
+    int  secondRoot = 0; bool secondMinor = false;
     auto consider = [&] (double s, int root, bool minor)
     {
-        if (s > best)        { second = best; best = s; bestRoot = root; bestMinor = minor; }
-        else if (s > second) { second = s; }
+        if (s > best)        { second = best; secondRoot = bestRoot; secondMinor = bestMinor;
+                               best = s; bestRoot = root; bestMinor = minor; }
+        else if (s > second) { second = s; secondRoot = root; secondMinor = minor; }
     };
     for (int root = 0; root < 12; ++root)
     {
         consider (detail::pearson (chroma, detail::kKrumhanslMajor, root), root, false);
         consider (detail::pearson (chroma, detail::kKrumhanslMinor, root), root, true);
+    }
+
+    // Relative-key tiebreak. A major key and its relative minor (major tonic a
+    // minor third above the minor tonic, i.e. major root == (minor root + 3) % 12)
+    // share all seven pitch classes, so the K-S profiles score them almost equally
+    // and the winner is often the wrong one of the pair. When the top two ARE a
+    // relative pair and nearly tied, prefer the mode whose tonic pitch class carries
+    // more energy — in real music the tonic is the most-emphasised scale degree, so
+    // it disambiguates the pair far better than the raw profile margin.
+    const bool topsAreRelative =
+        (bestMinor != secondMinor)
+        && ((! bestMinor && bestRoot   == (secondRoot + 3) % 12)   // best major, second its relative minor
+            || ( bestMinor && secondRoot == (bestRoot  + 3) % 12)); // best minor, second its relative major
+    if (topsAreRelative && (best - second) < 0.06
+        && chroma[secondRoot] > chroma[bestRoot] * 1.05)
+    {
+        const double tb = best; best = second; second = tb;
+        const int    tr = bestRoot; bestRoot = secondRoot; secondRoot = tr;
+        const bool   tm = bestMinor; bestMinor = secondMinor; secondMinor = tm;
     }
 
     r.valid = true;

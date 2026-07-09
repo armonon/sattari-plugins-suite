@@ -26,6 +26,14 @@ target_link_libraries(SattariAudioCorePitchContract
     PRIVATE
         SattariAudioCore)
 
+# Shared 24-key Krumhansl-Schmuckler detector contract (pure-std; no JUCE needed).
+add_executable(SattariAudioCoreKeyContract
+    tests/key_detector_contract.cpp)
+
+target_link_libraries(SattariAudioCoreKeyContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)

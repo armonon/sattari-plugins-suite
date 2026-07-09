@@ -90,7 +90,12 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 void SattariSongKeyAudioProcessor::analyseNow()
 {
     if (! fft || ring.empty()) return;
-    if (rescan.exchange (false)) std::fill (running, running + 12, 0.0);
+    if (rescan.exchange (false))
+    {
+        std::fill (running, running + 12, 0.0);
+        runningDetune = 0.0;
+        pubRoot = -1; candCount = 0;   // let a fresh scan re-commit the key
+    }
 
     const int wp = writePos.load (std::memory_order_relaxed);
     for (int i = 0; i < fftSize; ++i)
@@ -101,6 +106,40 @@ void SattariSongKeyAudioProcessor::analyseNow()
     double frame[12] = { 0 };
     sattari::dsp::accumulateChroma (scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize, frame);
     sattari::dsp::blendChroma (running, frame, 0.4);
+
+    // Tuning-reference estimate (detune vs A440). For each strong spectral peak in
+    // the musical range, measure how far it sits from the nearest equal-tempered
+    // semitone; combine them as a magnitude-weighted circular mean (circular so a
+    // detune near +/-50 cents doesn't cancel), then exponentially blend for a stable
+    // readout. referenceA = 440 * 2^(cents/1200).
+    {
+        const double binHz = currentSampleRate / (double) fftSize;
+        const int loBin = (int) std::max (2.0, 80.0 / binHz);
+        const int hiBin = (int) std::min ((double) (fftSize / 2 - 2), 2000.0 / binHz);
+        const double toRad = juce::MathConstants<double>::pi / 50.0;
+        double sx = 0.0, sy = 0.0, wsum = 0.0;
+        for (int b = loBin; b <= hiBin; ++b)
+        {
+            const double m0 = scratch[(size_t) b];
+            const double a = scratch[(size_t) (b - 1)], c = scratch[(size_t) (b + 1)];
+            if (m0 <= a || m0 < c || m0 < 1.0e-6) continue;             // local maxima only
+            const double den = a - 2.0 * m0 + c;
+            const double delta = den != 0.0 ? 0.5 * (a - c) / den : 0.0; // sub-bin peak
+            const double freq = ((double) b + delta) * binHz;
+            if (freq <= 0.0) continue;
+            const double semis = 12.0 * std::log2 (freq / 440.0);
+            const double cents = 100.0 * (semis - std::round (semis));  // [-50, 50]
+            sx += m0 * std::cos (cents * toRad);
+            sy += m0 * std::sin (cents * toRad);
+            wsum += m0;
+        }
+        if (wsum > 1.0e-9 && (sx * sx + sy * sy) > 1.0e-12)
+        {
+            const double est = std::atan2 (sy, sx) / toRad;             // back to cents
+            runningDetune += 0.2 * (est - runningDetune);
+            detDetuneCents.store (runningDetune);
+        }
+    }
 
     const auto k = sattari::dsp::detectKey (running);
     if (k.valid)
@@ -127,8 +166,38 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     else
     {
         if (! detValid.load()) return;
-        root  = detRoot.load();
-        scale = detMinor.load() ? 1 : 0;
+        const int    dRoot  = detRoot.load();
+        const int    dScale = detMinor.load() ? 1 : 0;
+        const double conf   = detConf.load();
+
+        // Confidence gate: an ambiguous detection (tiny winner-vs-runner-up margin,
+        // e.g. flat/atonal material) neither commits nor disturbs the held key —
+        // this is what stops "confidently publish a wrong key".
+        if (conf >= kMinPublishConfidence)
+        {
+            if (pubRoot < 0)
+            {
+                pubRoot = dRoot; pubScale = dScale;              // bootstrap: first confident reading
+                candRoot = dRoot; candScale = dScale; candCount = 1;
+            }
+            else if (dRoot == pubRoot && dScale == pubScale)
+            {
+                candRoot = dRoot; candScale = dScale; candCount = 1;   // agrees with held key
+            }
+            else
+            {
+                // Hysteresis: a different candidate must win kStableAnalyses cycles
+                // in a row before it can replace the held key, so one odd frame
+                // can't flip the whole suite.
+                if (dRoot == candRoot && dScale == candScale) ++candCount;
+                else { candRoot = dRoot; candScale = dScale; candCount = 1; }
+                if (candCount >= kStableAnalyses) { pubRoot = dRoot; pubScale = dScale; }
+            }
+        }
+
+        if (pubRoot < 0) return;   // nothing confident committed yet — hold silence
+        root  = pubRoot;
+        scale = pubScale;
     }
     sattari::xplugin::publishSession ("song-key", root, scale, hostBpm.load(), ++transientId);
 }
@@ -152,6 +221,7 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
     d.minor = detMinor.load();
     d.confidence = detConf.load();
     d.publishing = publishingNow.load();
+    d.detuneCents = detDetuneCents.load();
     return d;
 }
 

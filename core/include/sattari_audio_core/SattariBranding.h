@@ -104,6 +104,16 @@ inline const std::vector<Product>& products()
         { "peak",              "Sattari Peak",        "Mastering",        kAccent },
         { "vocoder",           "Sattari Vocoder",     "Creative vocal FX",kAccentViolet },
         { "shimmer",           "Sattari Shimmer",     "Reverb / delay",   kAccentViolet },
+        { "echo",              "Sattari Echo",        "Reverb / delay",   kAccentViolet },
+        { "heat",              "Sattari Heat",        "Saturation",       kAccent },
+        { "multiband",         "Sattari Multiband",   "Dynamics",         kAccent },
+        { "gate",              "Sattari Gate",        "Dynamics",         kAccent },
+        { "riser",             "Sattari Riser",       "Creative FX",      kAccentViolet },
+        { "pulse",             "Sattari Pulse",       "Creative FX",      kAccentViolet },
+        { "eightoheight",      "Sattari 808",         "Low-end",          kAccent },
+        { "imager",            "Sattari Image",       "Stereo / imaging", kAccent },
+        { "warble",            "Sattari Warble",      "Lo-fi / tape",     kAccentViolet },
+        { "scope",             "Sattari Scope",       "Analysis",         kAccent },
     };
     return registry;
 }

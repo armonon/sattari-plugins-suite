@@ -61,7 +61,7 @@ public:
     void requestRescan() noexcept { rescan.store (true); }
 
     // Live readout for the editor.
-    struct Detected { bool valid=false; int root=0; bool minor=false; double confidence=0.0; bool publishing=false; };
+    struct Detected { bool valid=false; int root=0; bool minor=false; double confidence=0.0; bool publishing=false; double detuneCents=0.0; };
     Detected detected() const noexcept;
 
     sattari::midi::SattariMidiLearn midiLearn { apvts };
@@ -80,12 +80,23 @@ private:
     std::vector<float> ring, scratch, hann;
     std::atomic<int> writePos { 0 };
     double running[12] = { 0 };                    // background-thread-only
+    double runningDetune = 0.0;                    // background-thread-only (cents)
 
     std::atomic<int>   detRoot { 0 };
     std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
     std::atomic<double> detConf { 0.0 };
+    std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
     std::atomic<double> hostBpm { 0.0 };
     juce::int64 transientId = 0;
+
+    // Confidence-gated + hysteresis publish state (worker thread only). The key we
+    // actually broadcast (pub*) only changes when a new candidate is confident AND
+    // stays the winner for kStableAnalyses cycles, so a single ambiguous frame can't
+    // flip the whole suite's key.
+    int  pubRoot = -1, pubScale = 0;
+    int  candRoot = -1, candScale = 0, candCount = 0;
+    static constexpr double kMinPublishConfidence = 0.02;
+    static constexpr int    kStableAnalyses = 2;
 
     std::thread worker;
     std::atomic<bool> workerRunning { false };
