@@ -100,6 +100,10 @@ inline const std::vector<Product>& products()
         { "eq",                "Sattari EQ",          "EQ",               kAccent },
         { "space",             "Sattari Space",       "Reverb / delay",   kAccentViolet },
         { "clean",             "Sattari Clean",       "Restoration",      kAccent },
+        { "comp",              "Sattari Comp",        "Dynamics",         kAccent },
+        { "peak",              "Sattari Peak",        "Mastering",        kAccent },
+        { "vocoder",           "Sattari Vocoder",     "Creative vocal FX",kAccentViolet },
+        { "shimmer",           "Sattari Shimmer",     "Reverb / delay",   kAccentViolet },
     };
     return registry;
 }

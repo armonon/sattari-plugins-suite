@@ -369,5 +369,68 @@ window.SATTARI_PLUGINS = [
       "Works on vocals, guitars, drum stems",
       "Fixes smeary doubles and multi-mic phase"
     ]
+  },
+  {
+    id: "comp", name: "Sattari Comp", icon: "🎛",
+    category: "Dynamics", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "A vocal-voiced compressor with a release that locks to your tempo.",
+    what: "Sattari Comp is a clean, musical compressor for vocals and the mix bus. Set threshold, ratio and knee and it controls dynamics without pumping; blend it in parallel for punch that keeps the life in the take. Switch on Tempo Release and its recovery locks to a note division of the session tempo so it always breathes in time.",
+    how: "A feed-forward peak detector with a sidechain high-pass (and a listen solo) drives a soft-knee gain computer; the gain-reduction envelope is smoothed by the suite's shared attack/release follower. Auto-release adds program-dependent recovery, auto-gain restores level, and Mix crossfades back to the dry signal for parallel compression. Tempo Release reads the cross-plugin tempo bus so the release time follows the song.",
+    features: [
+      "Soft-knee feed-forward compression",
+      "Parallel Mix (dry/wet) blend",
+      "Sidechain HP filter + listen solo",
+      "Auto-release + auto-gain",
+      "Tempo-bus-synced release",
+      "Live gain-reduction meter"
+    ]
+  },
+  {
+    id: "peak", name: "Sattari Peak", icon: "🧱",
+    category: "Mastering", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "True-peak brickwall limiter with a one-knob Target LUFS.",
+    what: "Sattari Peak is the finish line: a transparent brickwall limiter and maximizer that makes a mix loud and keeps it safe. Push into it for loudness, set a true-peak ceiling for clean delivery, or flip on Target LUFS and let it drive itself to your streaming target.",
+    how: "A lookahead limiter measures each sample's (optionally 4x-oversampled inter-sample) peak and applies exactly enough gain — fully in place before the peak arrives — to hold the output under your dBTP ceiling, recovering with a program-dependent release. Target LUFS measures BS.1770 loudness with the same engine as Sattari Meter and nudges the drive to land on target while the ceiling still holds.",
+    features: [
+      "True-peak (4x oversampled) limiting",
+      "dBTP output ceiling for safe delivery",
+      "One-knob Target LUFS loudness mode",
+      "Lookahead + program-dependent release",
+      "Powered by the Sattari Meter loudness engine",
+      "Live GR / true-peak / LUFS readout"
+    ]
+  },
+  {
+    id: "vocoder", name: "Sattari Vocoder", icon: "🤖",
+    category: "Vocal FX", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Sing chords in your key — the carrier voices itself from the key bus, no MIDI.",
+    what: "Sattari Vocoder imprints your voice onto a synth for classic robot-choir, talkbox and vocoder textures. The twist: its internal carrier already knows your song's key, so it auto-voices an in-key chord under your vocal with zero MIDI routing — or play it live from your keyboard.",
+    how: "Your voice (the modulator) and an internal band-limited synth (the carrier) are each split into up to 32 matched filter bands; each vocal band's level is tracked and imprinted on the matching carrier band, then summed, with an unvoiced path for consonant clarity. Carrier notes come from held MIDI or an auto-voiced chord built from the key read off the cross-plugin bus.",
+    features: [
+      "8-32 band carrier-synthesis vocoder",
+      "Carrier auto-voices in-key from the key bus",
+      "Play from MIDI or hands-free",
+      "Voicings: root, octaves, fifths, triad, seventh",
+      "Formant shift + unvoiced/sibilance path",
+      "Saw/pulse carrier, dry/wet blend"
+    ]
+  },
+  {
+    id: "shimmer", name: "Sattari Shimmer", icon: "✨",
+    category: "Reverb", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "A reverb that blooms upward into a crystalline pad — and stays in key.",
+    what: "Sattari Shimmer is the ethereal ambient/worship reverb: its tail feeds back through a pitch shifter so the sound blooms upward into a shining octave pad. Turn on Key Snap and every shimmer voice locks to your song's key, so the bloom never clashes with the track.",
+    how: "A reverb tank is taken as pure wet with its own dry/wet mix (bit-exact bypass at Mix 0). The wet tail is pitch-shifted a formant-preserving +12/+7/+5 and fed back into the tank so it blooms with each pass — damped and throttled so it always decays and never runs away. Key Snap reads the cross-plugin key bus and quantizes the shimmer interval to in-key scale tones.",
+    features: [
+      "Pitch-shifted shimmer reverb (+12/+7/+5)",
+      "Key Snap keeps the bloom in-key",
+      "Size, damping, pre-delay, width, mix",
+      "Formant-preserving feedback shifter",
+      "Guaranteed-stable — never runs away"
+    ]
   }
 ];

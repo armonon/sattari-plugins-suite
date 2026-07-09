@@ -29,6 +29,10 @@ add_subdirectory(plugins/scaler)
 add_subdirectory(plugins/eq)
 add_subdirectory(plugins/space)
 add_subdirectory(plugins/clean)
+add_subdirectory(plugins/comp)
+add_subdirectory(plugins/peak)
+add_subdirectory(plugins/vocoder)
+add_subdirectory(plugins/shimmer)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

@@ -51,6 +51,10 @@ CONTRACTS=(
   "ScalerContract|plugins/scaler/ScalerContract"
   "SpaceContract|plugins/space/SpaceContract"
   "CleanContract|plugins/clean/CleanContract"
+  "CompContract|plugins/comp/CompContract"
+  "PeakContract|plugins/peak/PeakContract"
+  "VocoderContract|plugins/vocoder/VocoderContract"
+  "ShimmerContract|plugins/shimmer/ShimmerContract"
 )
 
 echo "== configuring $BUILD =="
