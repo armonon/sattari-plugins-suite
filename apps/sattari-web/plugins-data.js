@@ -432,5 +432,162 @@ window.SATTARI_PLUGINS = [
       "Formant-preserving feedback shifter",
       "Guaranteed-stable — never runs away"
     ]
+  },
+  {
+    id: "echo", name: "Sattari Echo", icon: "🔊",
+    category: "Delay / echo", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Tempo-locked ping-pong delay with tape smear and ducking.",
+    what: "Sattari Echo is a rhythmic delay that locks to your song. Dotted, triplet and straight divisions, ping-pong bounce, per-repeat tone shaping and a tape-smear diffusion stage — plus ducking so the repeats sit under the dry signal instead of washing it out.",
+    how: "Stereo fractional delay lines read at a glide-smoothed, tempo-synced time (host, else the cross-plugin tempo bus, else 120). The feedback path is tone-filtered, optionally cross-fed for ping-pong, and smeared by a short all-pass; an input-driven follower ducks the wet. Feedback is bounded so it never runs away.",
+    features: [
+      "Tempo-synced divisions (dotted/triplet) or free ms",
+      "Ping-pong cross-feedback",
+      "Per-repeat tone + tape-smear diffusion",
+      "Ducking under the dry signal",
+      "Follows the cross-plugin tempo bus"
+    ]
+  },
+  {
+    id: "heat", name: "Sattari Heat", icon: "🔥",
+    category: "Saturation", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Four flavours of analog warmth — tube, tape, transformer, transistor.",
+    what: "Sattari Heat adds the colour a mix is missing: gentle tube glow, tape thickness, transformer iron or transistor bite. Drive for harmonics, tilt the tone, and blend in parallel for weight without losing clarity.",
+    how: "Each model is an anti-aliased waveshaper driven and trimmed so turning up Drive adds harmonics rather than level. A tone-tilt shelf pair shapes the balance, a parallel Mix keeps the dry intact, and a soft ceiling keeps the output bounded.",
+    features: [
+      "Tube / Tape / Transformer / Transistor models",
+      "Drive that adds harmonics, not just level",
+      "Tone tilt + parallel Mix",
+      "Anti-aliased, bounded output"
+    ]
+  },
+  {
+    id: "multiband", name: "Sattari Multiband", icon: "📊",
+    category: "Dynamics", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Three-band compression that recombines phase-flat.",
+    what: "Sattari Multiband splits your signal into lows, mids and highs and compresses each independently — tame a boomy low end, control harsh mids, or gently glue the top, all without the bands fighting each other.",
+    how: "Linkwitz-Riley crossovers split the signal into three phase-coherent bands that recombine flat when untouched. Each band runs the same soft-knee feed-forward compressor as Sattari Comp, with per-band threshold/ratio/attack/release/makeup and solo, then sums with a global mix.",
+    features: [
+      "3 bands, Linkwitz-Riley crossovers (recombine flat)",
+      "Per-band threshold/ratio/attack/release/makeup",
+      "Per-band solo + global parallel mix",
+      "Vocal-tuned defaults"
+    ]
+  },
+  {
+    id: "gate", name: "Sattari Gate", icon: "🚪",
+    category: "Dynamics", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "A gate/expander with hysteresis that won't chatter — plus a trance-gate mode.",
+    what: "Sattari Gate cleans up bleed and breaths between phrases, or expands quiet passages down. Dual-threshold hysteresis stops the chatter cheap gates suffer from, and a tempo-locked mode turns it into a rhythmic trance gate.",
+    how: "A sidechain-filtered detector drives a hysteresis state machine (separate open/close thresholds + hold) with a lookahead so it opens just before transients. Range sets the closed floor; expander mode scales attenuation by depth below threshold. The tempo-gate locks its open window to the tempo bus.",
+    features: [
+      "Gate + downward expander",
+      "Dual-threshold hysteresis (no chatter)",
+      "Lookahead + sidechain HP/LP with listen",
+      "Tempo-locked trance-gate mode"
+    ]
+  },
+  {
+    id: "riser", name: "Sattari Riser", icon: "🚀",
+    category: "Creative FX", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "One-knob risers, downlifters and impacts that land on the drop.",
+    what: "Sattari Riser builds tension automatically. Arm it, pick a bar length, and it synthesizes a rising noise sweep, opening filter, pitch-rise and accelerating stutter that resolve exactly on the downbeat — riser, downlifter or impact.",
+    how: "A progress counter runs over your chosen bar length, derived from host tempo or the cross-plugin tempo bus. It drives a resonant sweeping filter on synthesized noise, a rising tone, an accelerating amplitude curve and a pitch-rise on the input — bounded and always resolving.",
+    features: [
+      "Riser / Downlifter / Impact modes",
+      "Tempo-synced build (½–8 bars)",
+      "Filter sweep + pitch rise + stutter",
+      "Lands on the downbeat"
+    ]
+  },
+  {
+    id: "pulse", name: "Sattari Pulse", icon: "🌗",
+    category: "Creative FX", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Sidechain-style pumping with no routing.",
+    what: "Sattari Pulse gives you that rhythmic sidechain pump on any track without wiring a compressor to a kick. Pick a shape and rate and it ducks the signal in time — subtle groove or full four-on-the-floor pump.",
+    how: "A tempo phase (host or the cross-plugin tempo bus) indexes a selectable curve — sine, saw, square or spike — into a smoothed ducking gain, with an optional curve-driven filter sweep. It can only ever attenuate, so it stays clean.",
+    features: [
+      "Selectable pump shapes",
+      "Tempo-locked rate (note divisions)",
+      "Depth + smoothing + filter movement",
+      "No sidechain routing needed"
+    ]
+  },
+  {
+    id: "eightoheight", name: "Sattari 808", icon: "🥁",
+    category: "Low-end", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Turn any bass or vocal into a tuned, key-snapped 808.",
+    what: "Sattari 808 tracks the pitch of an incoming bassline or vocal and re-synthesizes a fat, tuned 808 body beneath it, snapped to your song's key — instant sub weight that stays in tune with the track.",
+    how: "A YIN pitch tracker follows the fundamental, snaps it to the key from the cross-plugin bus, and drives a tuned sine/triangle body with pitch-glide, amp decay, drive/click and a sub-harmonic fold, blended with the dry input.",
+    features: [
+      "Audio-follow: tracks and re-synthesizes the sub",
+      "Tune-to-key snap via the key bus",
+      "Glide, decay, drive/click, sub-fold",
+      "Sine / triangle body"
+    ]
+  },
+  {
+    id: "imager", name: "Sattari Image", icon: "🔀",
+    category: "Stereo / imaging", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Widen safely — bass stays mono, the mix stays compatible.",
+    what: "Sattari Image widens your stereo field where it counts and keeps it mono-safe where it matters. Per-band width, elliptical low-mono to keep bass centered and solid, a mono-audition check and a live correlation readout.",
+    how: "The signal is encoded to mid/side; the mid is never touched (so the mono sum is preserved by construction), and the side is split into bands whose width scales independently. An elliptical filter folds low frequencies to mono; a correlation meter watches phase.",
+    features: [
+      "Per-band stereo width",
+      "Elliptical low-mono (solid bass)",
+      "Mono-compatibility audition",
+      "Live L/R correlation meter"
+    ]
+  },
+  {
+    id: "warble", name: "Sattari Warble", icon: "📼",
+    category: "Lo-fi / tape", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Wow, flutter and tape character under one Age knob.",
+    what: "Sattari Warble ages a sound like old tape or vinyl — pitch wobble, tape saturation, hiss, head bump and a touch of crackle. One Age macro takes it from subtle warmth to full lo-fi degradation.",
+    how: "A modulated fractional delay line adds slow wow and faster flutter, a tape saturator compresses peaks, filtered noise adds hiss and sparse crackle, and a low-shelf adds the head bump. Age scales it all; at zero it's a clean bypass.",
+    features: [
+      "Wow & flutter pitch wobble",
+      "Tape saturation + head bump",
+      "Hiss + vinyl crackle",
+      "One-knob Age macro"
+    ]
+  },
+  {
+    id: "scope", name: "Sattari Scope", icon: "📈",
+    category: "Analysis", cats: "Mix",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "See your sound — spectrum, vectorscope and correlation, audio untouched.",
+    what: "Sattari Scope is a pass-through analyzer: a real-time spectrum, a goniometer/vectorscope for stereo image, and a correlation meter — with an optional pitch-class overlay that ties spectrum peaks to the song key on the bus. It never alters your audio.",
+    how: "The input is passed through bit-exact; on a lock-free path it runs a windowed FFT and a stereo reduction, published to the display so the audio thread never blocks. The pitch-class overlay reads the key from the cross-plugin bus.",
+    features: [
+      "Real-time spectrum analyzer",
+      "Goniometer / vectorscope",
+      "Stereo correlation meter",
+      "Bit-exact pass-through (analysis only)"
+    ]
+  },
+  {
+    id: "granulator", name: "Sattari Granulator", icon: "✳️",
+    category: "Granular instrument", cats: "MIDI",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Turn any sound into a playable instrument — then sculpt it.",
+    what: "Sattari Granulator makes an instrument out of any sample. Load a sound, play it across the keyboard, and shape it into pads, textures, basses or leads with clouds of grains. It goes beyond the classics with a deep pitch section and real source editing — plus it can snap every note to your song's key.",
+    how: "Grains are read from a movable file position with size, spray, density and window controls, played polyphonically over MIDI. The pitch layer stacks coarse/fine tune, a dedicated pitch envelope, a pitch LFO, per-grain detune spread and glide — with optional scale-snap from the cross-plugin key bus. A waveform editor lets you set start/end/loop, reverse and normalize the source, and the file position can scan in time with the tempo bus. Per-voice filter, amp/filter envelopes and two LFOs finish the synth.",
+    features: [
+      "Granular synthesis instrument (load any sample)",
+      "Deep pitch: envelope, LFO, per-grain spread, glide",
+      "Snap notes to the song key (key bus)",
+      "Waveform editor: start/end/loop, reverse, normalize",
+      "Tempo-synced position scanning",
+      "Filter, amp/filter envelopes, 2 LFOs, sub osc"
+    ]
   }
 ];

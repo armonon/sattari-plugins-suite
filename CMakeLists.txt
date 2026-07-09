@@ -43,6 +43,7 @@ add_subdirectory(plugins/eightoheight)
 add_subdirectory(plugins/imager)
 add_subdirectory(plugins/warble)
 add_subdirectory(plugins/scope)
+add_subdirectory(plugins/granulator)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

@@ -66,6 +66,7 @@ CONTRACTS=(
   "ImagerContract|plugins/imager/ImagerContract"
   "WarbleContract|plugins/warble/WarbleContract"
   "ScopeContract|plugins/scope/ScopeContract"
+  "GranulatorContract|plugins/granulator/GranulatorContract"
 )
 
 echo "== configuring $BUILD =="
