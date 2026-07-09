@@ -303,6 +303,35 @@ public:
         int   window = (int) Window::Hann;
         float grainPan = 0.2f;
 
+        // --- SMOOTH / TEXTURE MODE -------------------------------------------
+        // interp: source-read interpolation. 0 = Linear (the classic path),
+        // 1 = Cubic (Catmull-Rom). Default Cubic — cleaner high-pitch reads.
+        int   interp = (int) Interp::Cubic;
+        // smoothness (0..1): a musical MACRO that fuses a chunky cloud into a
+        // glassy pad WITHOUT touching the user's density param. Internally it
+        // (a) boosts the effective spawn density (more overlap -> crossfade the
+        // grains together) and (b) biases the window toward a longer raised-
+        // cosine/Gauss so grain edges taper gently. smoothness == 0 is BIT-
+        // IDENTICAL to the pre-smoothness engine (no density boost, no window
+        // bias). The extra overlap still obeys the fixed 256-grain pool — a full
+        // pool DROPS the extra spawns, it never allocates.
+        float smoothness = 0.0f;
+
+        // --- RHYTHMIC GRAINS (tempo-synced density / grain size) -------------
+        // When densitySync, grains fire on a tempo grid: spawnInterval =
+        // samples-per-division from the bpm fed via setBusState (quarter = 1.0,
+        // matching Space). When grainSizeSync, grain length == the synced
+        // division. Both index the standard 10-entry divisionBeats() table.
+        // Free-run from the engine's bpm when the host isn't playing.
+        bool  densitySync = false;   int densityDiv = 6;    // default 1/8
+        bool  grainSizeSync = false; int grainSizeDiv = 6;  // default 1/8
+
+        // --- VELOCITY ROUTING (per voice, at note level / per spawn) ---------
+        // The note's stored velocity (0..1) offsets File Position, grain size
+        // and filter cutoff by these signed amounts, so harder hits scrub /
+        // brighten. Each is -1..+1; 0 (default) is a no-op (bit-identical).
+        float velToPos = 0.0f, velToSize = 0.0f, velToCutoff = 0.0f;
+
         // unison / stacked detune (per grain-spawn). unisonVoices == 1 is the
         // default and is BIT-IDENTICAL to no unison (no extra grains, unity gain).
         int   unisonVoices = 1;          // 1..4 stacked copies per spawn
@@ -485,26 +514,56 @@ public:
         const float outGain = juce::Decibels::decibelsToGain (p.volumeDb);
         const float ceilingGain = 1.0f;
 
-        // Grain length in samples (only sets winInc).
-        const float grainLenSamples =
-            juce::jmax (2.0f, (p.grainSizeMs * 0.001f) * (float) sr);
-        const float winInc = 1.0f / grainLenSamples;
+        // --- SMOOTH / TEXTURE MODE: pick the source-read interpolation --------
+        // Actually USED by readSource() (Linear stays the classic path).
+        interp = (Interp) juce::jlimit (0, 1, p.interp);
+        // A musical macro: fuse the cloud into a glassy pad. smoothness == 0 is a
+        // strict no-op (densBoost == 1, no window bias). At full smoothness the
+        // effective spawn density is raised ~4x for a dense crossfade — the fixed
+        // pool still caps it (extra spawns DROP), never allocating.
+        const float smooth = juce::jlimit (0.0f, 1.0f, p.smoothness);
+        const float densBoost = 1.0f + smooth * 3.0f;   // 1..4 x effective density
 
-        // Grains-per-second (density) depends on mode.
+        // Grain length in samples. Free-run from grainSizeMs, OR tempo-synced to a
+        // division when grainSizeSync (bpm from setBusState; host or engine
+        // free-run). This is the BASE length; per-voice velocity (velToSize) nudges
+        // it at spawn, so winInc is finalised there.
+        float baseGrainMs = p.grainSizeMs;
+        if (p.grainSizeSync)
+        {
+            const double beats = divisionBeats (p.grainSizeDiv);
+            const double bpm   = hostBpm > 1.0 ? hostBpm : 120.0;
+            if (beats > 0.0 && bpm > 1.0)
+                baseGrainMs = (float) (beats * (60.0 / bpm) * 1000.0);
+        }
+        baseGrainMs = juce::jlimit (0.05f, 8000.0f, baseGrainMs);
+        const float baseGrainSamples = juce::jmax (2.0f, (baseGrainMs * 0.001f) * (float) sr);
+
+        // Grains-per-second (density). Rate / Overlap free-run, OR tempo-synced to
+        // a division when densitySync (grains fire on the grid). smoothness boosts
+        // whichever path is active without touching the user's density param.
         float grainsPerSec;
-        if ((DensityMode) p.densityMode == DensityMode::Overlap)
+        if (p.densitySync)
+        {
+            const double beats = divisionBeats (p.densityDiv);
+            const double bpm   = hostBpm > 1.0 ? hostBpm : 120.0;
+            const double cycleSeconds = (beats > 0.0 && bpm > 1.0) ? beats * (60.0 / bpm) : 0.0;
+            grainsPerSec = (cycleSeconds > 1.0e-6) ? (float) (1.0 / cycleSeconds) : 1.0f;
+        }
+        else if ((DensityMode) p.densityMode == DensityMode::Overlap)
         {
             const float overlap = juce::jmax (0.1f, p.density);          // 0.1..8 x
-            grainsPerSec = overlap / juce::jmax (1.0e-4f, p.grainSizeMs * 0.001f);
+            grainsPerSec = overlap / juce::jmax (1.0e-4f, baseGrainMs * 0.001f);
         }
         else
         {
             grainsPerSec = juce::jlimit (0.1f, 200.0f, p.density);       // 1..100 grains/s
         }
+        grainsPerSec *= densBoost;   // smoothness overlap boost (no-op at smooth==0)
         const float spawnInterval = juce::jmax (1.0f, (float) sr / juce::jmax (0.01f, grainsPerSec));
 
         // Overlap for gain normalisation = grains overlapping at once.
-        const float overlapCount = juce::jmax (1.0f, grainsPerSec * (grainLenSamples / (float) sr));
+        const float overlapCount = juce::jmax (1.0f, grainsPerSec * (baseGrainSamples / (float) sr));
         const float overlapNormGain = 1.0f / std::sqrt (overlapCount);
 
         // Source window [loStart, hiEnd] in samples, honouring start/end (+reverse).
@@ -623,7 +682,7 @@ public:
                         v.spawnAccumulator -= v.spawnInterval;
                         if (haveSrc && v.held && voiceAmp > 1.0e-4f)
                             spawnGrain (v, vi, p, regionLo, regionHi, srcLen,
-                                        srcSrRatio, winInc, overlapNormGain, voiceAmp,
+                                        srcSrRatio, baseGrainSamples, overlapNormGain, voiceAmp,
                                         pitchEnvV, pitchLfoV, posLfoV, modEnvV);
                     }
                 }
@@ -647,6 +706,15 @@ public:
                 }
                 if (std::fabs (cutoffLfoOct) > 1.0e-6f)
                     cutoff *= std::pow (2.0f, cutoffLfoOct);   // LFO -> Cutoff destination
+                // VELOCITY ROUTING -> Cutoff: harder hits brighten (per voice).
+                // velToCutoff in [-1,+1] maps velocity (0..1) to +-4 octaves of
+                // cutoff shift. 0 (default) is a strict no-op.
+                if (std::fabs (p.velToCutoff) > 1.0e-6f)
+                {
+                    const float velOct = juce::jlimit (-1.0f, 1.0f, p.velToCutoff)
+                                       * juce::jlimit (0.0f, 1.0f, v.velocity) * 4.0f;
+                    cutoff *= std::pow (2.0f, velOct);
+                }
                 cutoff = juce::jlimit (20.0f, (float) (0.49 * sr), cutoff);
 
                 // ---- render this voice's grains for the current sample -----
@@ -657,7 +725,10 @@ public:
                     if (! g.active || g.voiceIndex != vi) continue;
 
                     const float sample = readSource (*src, g);
-                    const float w = windowValue (p.window, g.winPhase);
+                    // SMOOTH / TEXTURE MODE: bias the window toward a longer
+                    // raised-cosine/Gauss as smoothness rises (glassier fuse).
+                    // smoothness == 0 -> exactly windowValue (p.window, ...).
+                    const float w = windowValueSmooth (p.window, g.winPhase, p.smoothness);
                     const float sN = sample * w * g.gain;
 
                     vL += sN * g.panL;
@@ -826,6 +897,19 @@ private:
         return lut[(size_t) i0] + frac * (lut[(size_t) i1] - lut[(size_t) i0]);
     }
 
+    // SMOOTH / TEXTURE MODE window: crossfade the chosen window toward the
+    // rounder raised-cosine/Gauss shape as smoothness rises, so grain edges taper
+    // gently and dense grains fuse into a glassy pad. smoothness == 0 returns the
+    // chosen window byte-for-byte (identical to the classic path).
+    float windowValueSmooth (int windowChoice, float phase01, float smoothness) const noexcept
+    {
+        const float base = windowValue (windowChoice, phase01);
+        const float s = juce::jlimit (0.0f, 1.0f, smoothness);
+        if (s <= 0.0f) return base;   // strict no-op — bit-identical to today
+        const float rounder = windowValue ((int) Window::Gauss, phase01);
+        return base + s * (rounder - base);
+    }
+
     // =========================================================================
     //  Grain pool + free-list ring
     // =========================================================================
@@ -979,7 +1063,7 @@ private:
     // =========================================================================
     void spawnGrain (Voice& v, int vi, const EngineParams& p,
                      float regionLo, float regionHi, int /*srcLen*/,
-                     float srcSrRatio, float winInc, float overlapNormGain,
+                     float srcSrRatio, float baseGrainSamples, float overlapNormGain,
                      float voiceAmp, float pitchEnvV, float pitchLfoV,
                      float posLfoV, float modEnvV) noexcept
     {
@@ -990,12 +1074,29 @@ private:
         const float panRand    = randBipolar (v);    // -1..+1
         const float spreadRand = randBipolar (v);    // -1..+1
 
-        // File Position (normalised) with the shared mod AD env + position LFO.
-        // (Both were ticked ONCE this sample and passed in; never re-tick here.)
+        // VELOCITY ROUTING (per spawn): the note's stored velocity nudges File
+        // Position and grain size. Each amount is 0 by default => no-op.
+        const float vel = juce::jlimit (0.0f, 1.0f, v.velocity);
+
+        // File Position (normalised) with the shared mod AD env + position LFO +
+        // the velocity->position scrub. (Env/LFO were ticked ONCE this sample and
+        // passed in; never re-tick here.)
         float posN = v.posBase
-                   + p.posEnvAmt * modEnvV       // shared AD mod env sweep
-                   + p.posLfoAmt * posLfoV;      // cyclic scrub
+                   + p.posEnvAmt * modEnvV                          // shared AD mod env sweep
+                   + p.posLfoAmt * posLfoV                          // cyclic scrub
+                   + juce::jlimit (-1.0f, 1.0f, p.velToPos) * vel;  // velocity -> scrub
         posN = juce::jlimit (0.0f, 1.0f, posN);
+
+        // Per-spawn grain length: base length nudged by velocity (velToSize) and
+        // lengthened by smoothness so dense grains crossfade into a glassy pad.
+        // velToSize in [-1,+1] scales length by up to +-1 octave (0.5x..2x).
+        // smoothness biases toward LONGER grains (up to +75%) for softer edges.
+        float grainSamples = baseGrainSamples;
+        if (std::fabs (p.velToSize) > 1.0e-6f)
+            grainSamples *= std::pow (2.0f, juce::jlimit (-1.0f, 1.0f, p.velToSize) * vel);
+        grainSamples *= 1.0f + juce::jlimit (0.0f, 1.0f, p.smoothness) * 0.75f;
+        grainSamples = juce::jlimit (2.0f, 8.0f * (float) sr, grainSamples);
+        const float winInc = 1.0f / grainSamples;
 
         // Spray jitter (0..1 -> up to ~250 ms each side), clamped to the region.
         const float regionSpan = juce::jmax (1.0f, regionHi - regionLo);

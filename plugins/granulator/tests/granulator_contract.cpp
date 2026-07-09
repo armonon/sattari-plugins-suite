@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <utility>
 
 namespace
 {
@@ -571,6 +572,133 @@ int main()
             if (peak <= 1.0e-3) { std::printf ("  FAIL captured Layer B is silent under morph=1\n"); ++fails; }
             if (peak > 1.0001)  { std::printf ("  FAIL captured Layer B playback unbounded\n"); ++fails; }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // (9) SMOOTHNESS macro. smoothness=0 is the documented BIT-IDENTICAL no-op:
+    //     it must match the classic (no-smoothness) cloud peak exactly. Full
+    //     smoothness (=1) boosts overlap + rounds the window but stays BOUNDED,
+    //     FINITE and NON-SILENT (the fixed 256-grain pool caps the extra spawns).
+    // -------------------------------------------------------------------------
+    {
+        auto renderSmooth = [&] (float smoothness, int interpChoice) -> std::pair<double, bool>
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            setLayerParam (a, Layer::A, "interp", (float) interpChoice);
+            setLayerParam (a, Layer::A, "smoothness", smoothness);
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+            const int blocks = 40;
+            juce::AudioBuffer<float> out (1, blocks * kBlock);
+            double peak = 0.0; bool finite = true;
+            render (p, blocks, /*on=*/true, 60, /*off=*/false, out, peak, finite);
+            return { peak, finite };
+        };
+
+        // Classic path: Linear interp, smoothness 0 (the pre-smoothness engine).
+        const auto classic = renderSmooth (0.0f, 0);   // Interp::Linear
+        // Same but through the smoothness=0 code path (must be identical).
+        const auto noop     = renderSmooth (0.0f, 0);
+        // Full smoothness (still Linear interp so only the macro varies).
+        const auto smoothed = renderSmooth (1.0f, 0);
+        std::printf ("smoothness: classic peak=%.6f  s0 peak=%.6f  s1 peak=%.6f\n",
+                     classic.first, noop.first, smoothed.first);
+
+        if (! classic.second || ! noop.second || ! smoothed.second)
+            { std::printf ("  FAIL non-finite in smoothness render\n"); ++fails; }
+        // smoothness==0 is a strict no-op: byte-for-byte the classic peak.
+        if (std::fabs (classic.first - noop.first) > 1.0e-9)
+            { std::printf ("  FAIL smoothness=0 is not bit-identical to the classic cloud\n"); ++fails; }
+        if (classic.first <= 1.0e-3)
+            { std::printf ("  FAIL smoothness baseline is silent\n"); ++fails; }
+        if (smoothed.first > 1.0001)
+            { std::printf ("  FAIL smoothness=1 escapes the soft ceiling (peak=%.4f)\n", smoothed.first); ++fails; }
+        if (smoothed.first <= 1.0e-3)
+            { std::printf ("  FAIL smoothness=1 is silent\n"); ++fails; }
+    }
+
+    // -------------------------------------------------------------------------
+    // (10) RHYTHMIC GRAINS: densitySync on (no host playhead -> 120 BPM fallback)
+    //      fires grains on a tempo grid and must stay BOUNDED, FINITE, NON-SILENT.
+    //      grainSizeSync is exercised alongside to cover both synced paths.
+    // -------------------------------------------------------------------------
+    {
+        SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+        baseConfig (a);
+        setLayerParam (a, Layer::A, "densitySync", 1.0f);
+        setLayerParam (a, Layer::A, "densityDiv", 6.0f);      // 1/8 (index 6)
+        setLayerParam (a, Layer::A, "grainSizeSync", 1.0f);
+        setLayerParam (a, Layer::A, "grainSizeDiv", 9.0f);    // 1/16 (index 9)
+        p.prepareToPlay (kSr, kBlock);
+        p.loadFile (Layer::A, stereoSineA);
+        const int blocks = 60;
+        juce::AudioBuffer<float> out (1, blocks * kBlock);
+        double peak = 0.0; bool finite = true;
+        render (p, blocks, /*on=*/true, 60, /*off=*/false, out, peak, finite);
+        std::printf ("densitySync@120: peak=%.4f rms=%.4f finite=%d\n",
+                     peak, rms (out), finite ? 1 : 0);
+        if (! finite)       { std::printf ("  FAIL densitySync render non-finite\n"); ++fails; }
+        if (peak > 1.0001)  { std::printf ("  FAIL densitySync escapes the soft ceiling (peak=%.4f)\n", peak); ++fails; }
+        if (peak <= 1.0e-3) { std::printf ("  FAIL densitySync grain grid is silent\n"); ++fails; }
+    }
+
+    // -------------------------------------------------------------------------
+    // (11) VELOCITY ROUTING -> Cutoff. With velToCutoff>0 and a low base cutoff,
+    //      a HARD note (vel 127) opens the filter far more than a SOFT note (vel
+    //      1), so the hard hit is measurably BRIGHTER/LOUDER. Both must stay
+    //      finite + bounded; and the loud-vs-soft level must differ measurably.
+    // -------------------------------------------------------------------------
+    {
+        auto renderVel = [&] (int velocity) -> std::pair<double, bool>
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            // A low LP cutoff so the filter is well below the source tone; the
+            // velocity->cutoff routing then decides how much energy passes.
+            setParam (a, "filterType", 0.0f);       // LP24
+            setParam (a, "cutoff", 200.0f);
+            setParam (a, "reso", 0.0f);
+            setParam (a, "envVelSens", 0.0f);       // isolate velocity->cutoff from amp-vel
+            setParam (a, "velToCutoff", 1.0f);      // full positive routing
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+            const int blocks = 40;
+            juce::AudioBuffer<float> out (1, blocks * kBlock);
+            double peak = 0.0; bool finite = true;
+            {
+                juce::AudioBuffer<float> buf (2, kBlock);
+                for (int b = 0; b < blocks; ++b)
+                {
+                    buf.clear();
+                    juce::MidiBuffer midi;
+                    if (b == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) velocity), 8);
+                    p.processBlock (buf, midi);
+                    for (int i = 0; i < kBlock; ++i)
+                    {
+                        const float v = buf.getSample (0, i);
+                        if (! std::isfinite (v)) finite = false;
+                        peak = std::max (peak, (double) std::fabs (v));
+                        out.setSample (0, b * kBlock + i, v);
+                    }
+                }
+            }
+            return { rms (out), finite };
+        };
+
+        const auto soft = renderVel (1);     // pp: filter stays near 200 Hz
+        const auto hard = renderVel (127);   // ff: velToCutoff lifts cutoff ~+4 oct
+        std::printf ("velToCutoff: soft rms=%.6f (finite=%d)  hard rms=%.6f (finite=%d)\n",
+                     soft.first, soft.second ? 1 : 0, hard.first, hard.second ? 1 : 0);
+        if (! soft.second || ! hard.second)
+            { std::printf ("  FAIL non-finite in velocity->cutoff render\n"); ++fails; }
+        if (soft.first > 1.0001 || hard.first > 1.0001)
+            { std::printf ("  FAIL velocity->cutoff output unbounded\n"); ++fails; }
+        // The hard hit opens the filter -> more energy passes than the soft hit.
+        if (! (hard.first > soft.first * 1.1))
+            { std::printf ("  FAIL velToCutoff did not brighten the hard note (soft=%.6f hard=%.6f)\n",
+                           soft.first, hard.first); ++fails; }
     }
 
     // Clean up temp files.

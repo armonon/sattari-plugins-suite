@@ -84,6 +84,9 @@ const std::vector<juce::String>& SattariGranulatorAudioProcessor::perLayerParamI
         "posBase", "posScanRate", "posScanSync", "posScanDiv", "posEnvAmt", "posLfoAmt",
         // grain cloud
         "grainSize", "spray", "density", "densityMode", "window", "grainPan",
+        // smooth / texture + rhythmic (tempo-synced) grains
+        "interp", "smoothness",
+        "densitySync", "densityDiv", "grainSizeSync", "grainSizeDiv",
         // unison
         "unisonVoices", "unisonDetune", "unisonWidth",
         // pitch (per-layer offsets)
@@ -161,6 +164,20 @@ SattariGranulatorAudioProcessor::createParameterLayout()
             juce::StringArray { "Hann", "Gauss", "Tukey" }, 0));
         p.push_back (std::make_unique<FP> (id ("grainPan"), name ("Grain Pan"), R (0.0f, 1.0f, 0.001f), 0.2f));
 
+        // --- Smooth / Texture mode --------------------------------------------
+        // Interp: source-read interpolation. Default Cubic (cleaner high reads).
+        p.push_back (std::make_unique<CP> (id ("interp"), name ("Interp"),
+            juce::StringArray { "Linear", "Cubic" }, 1));   // Cubic
+        // Smoothness: musical macro that fuses the cloud into a glassy pad without
+        // touching Density. 0 (default) is bit-identical to the classic cloud.
+        p.push_back (std::make_unique<FP> (id ("smoothness"), name ("Smoothness"), R (0.0f, 1.0f, 0.001f), 0.0f));
+
+        // --- Rhythmic (tempo-synced) grains -----------------------------------
+        p.push_back (std::make_unique<BP> (id ("densitySync"), name ("Density Sync"), false));
+        p.push_back (std::make_unique<CP> (id ("densityDiv"), name ("Density Division"), divisionChoices(), 6));   // 1/8
+        p.push_back (std::make_unique<BP> (id ("grainSizeSync"), name ("Grain Size Sync"), false));
+        p.push_back (std::make_unique<CP> (id ("grainSizeDiv"), name ("Grain Size Division"), divisionChoices(), 6)); // 1/8
+
         // --- Unison (per-grain stacked detune) --------------------------------
         p.push_back (std::make_unique<IP> (id ("unisonVoices"), name ("Unison Voices"), 1, 4, 1));
         p.push_back (std::make_unique<FP> (id ("unisonDetune"), name ("Unison Detune"), R (0.0f, 50.0f, 0.1f), 0.0f));
@@ -234,6 +251,13 @@ SattariGranulatorAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FP> ("reso", "Resonance", R (0.0f, 1.0f, 0.001f), 0.1f));
     p.push_back (std::make_unique<FP> ("filterKeyTrack", "Key Track", R (0.0f, 1.0f, 0.001f), 0.0f));
     p.push_back (std::make_unique<FP> ("filterEnvAmt", "Filter Env", R (-100.0f, 100.0f, 0.1f), 0.0f));
+
+    // --- Velocity routing (shared; per-voice at note level / per spawn) -------
+    // Each -1..+1; the note velocity offsets File Position, grain size and filter
+    // cutoff by these amounts so harder hits scrub / brighten. 0 = no-op.
+    p.push_back (std::make_unique<FP> ("velToPos", "Vel -> Position", R (-1.0f, 1.0f, 0.001f), 0.0f));
+    p.push_back (std::make_unique<FP> ("velToSize", "Vel -> Grain Size", R (-1.0f, 1.0f, 0.001f), 0.0f));
+    p.push_back (std::make_unique<FP> ("velToCutoff", "Vel -> Cutoff", R (-1.0f, 1.0f, 0.001f), 0.0f));
 
     // --- Envelopes (shared) ---------------------------------------------------
     p.push_back (std::make_unique<FP> ("ampAttack", "Amp Attack", skewRange (0.0f, 5000.0f, 0.1f, 100.0f), 5.0f));
@@ -362,6 +386,14 @@ EngineParams SattariGranulatorAudioProcessor::gatherParams (Layer layer) const n
     e.window      = (int) std::lround (layerParam (layer, "window"));
     e.grainPan    = layerParam (layer, "grainPan");
 
+    // smooth / texture + rhythmic (tempo-synced) grains
+    e.interp        = (int) std::lround (layerParam (layer, "interp"));
+    e.smoothness    = layerParam (layer, "smoothness");
+    e.densitySync   = layerParam (layer, "densitySync") > 0.5f;
+    e.densityDiv    = (int) std::lround (layerParam (layer, "densityDiv"));
+    e.grainSizeSync = layerParam (layer, "grainSizeSync") > 0.5f;
+    e.grainSizeDiv  = (int) std::lround (layerParam (layer, "grainSizeDiv"));
+
     e.unisonVoices      = (int) std::lround (layerParam (layer, "unisonVoices"));
     e.unisonDetuneCents = layerParam (layer, "unisonDetune");
     e.unisonWidth       = layerParam (layer, "unisonWidth");
@@ -394,6 +426,11 @@ EngineParams SattariGranulatorAudioProcessor::gatherParams (Layer layer) const n
     e.reso           = param ("reso");
     e.filterKeyTrack = param ("filterKeyTrack");
     e.filterEnvAmt   = param ("filterEnvAmt");
+
+    // Velocity routing (shared; applied per voice inside each engine).
+    e.velToPos    = param ("velToPos");
+    e.velToSize   = param ("velToSize");
+    e.velToCutoff = param ("velToCutoff");
 
     e.ampA = param ("ampAttack"); e.ampD = param ("ampDecay");
     e.ampS = param ("ampSustain"); e.ampR = param ("ampRelease");

@@ -163,11 +163,12 @@ private:
         &grainPanel, &pitchPanel, &filterPanel, &envPanel, &lfoPanel, &modPanel };
 
     // --- GRAIN tab (PER-LAYER) ------------------------------------------------
-    juce::Slider grainSize, density, spray, posBase, posScanRate, grainPan;
-    juce::Label  grainSizeCap, densityCap, sprayCap, posBaseCap, posScanRateCap, grainPanCap;
-    juce::ComboBox densityMode, window, posScanDiv;
-    juce::Label  densityModeCap, windowCap, posScanDivCap;
-    juce::ToggleButton posScanSync;
+    juce::Slider grainSize, density, spray, posBase, posScanRate, grainPan, smoothness;
+    juce::Label  grainSizeCap, densityCap, sprayCap, posBaseCap, posScanRateCap, grainPanCap,
+                 smoothnessCap;
+    juce::ComboBox densityMode, window, posScanDiv, interp, densityDiv, grainSizeDiv;
+    juce::Label  densityModeCap, windowCap, posScanDivCap, interpCap, densityDivCap, grainSizeDivCap;
+    juce::ToggleButton posScanSync, densitySync, grainSizeSync;
 
     // --- PITCH tab (per-layer offsets + UNISON + GLOBAL pitch shaping) --------
     // Per-layer: coarse / fine / spread + unison (voices/detune/width).
@@ -206,9 +207,10 @@ private:
     juce::ToggleButton lfo1Sync, lfo2Sync;
 
     // --- MOD tab (GLOBAL) -----------------------------------------------------
-    //  Sub oscillator + width/tone + voices live here (shared).
-    juce::Slider subLevel, subOct, width, tone, voices;
-    juce::Label  subLevelCap, subOctCap, widthCap, toneCap, voicesCap;
+    //  Sub oscillator + width/tone + voices + velocity routing live here (shared).
+    juce::Slider subLevel, subOct, width, tone, voices, velToPos, velToSize, velToCutoff;
+    juce::Label  subLevelCap, subOctCap, widthCap, toneCap, voicesCap,
+                 velToPosCap, velToSizeCap, velToCutoffCap;
     juce::ComboBox subWave, voiceMode;
     juce::Label  subWaveCap, voiceModeCap;
     juce::ToggleButton subOsc;

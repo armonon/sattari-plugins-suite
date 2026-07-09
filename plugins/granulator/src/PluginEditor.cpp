@@ -167,6 +167,16 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
                    SattariGranulatorAudioProcessor::divisionChoices(), "posScanDiv");
     addLayerKnob  (grainPanel, grainPan, grainPanCap, "PAN", "grainPan");
     addLayerCombo (grainPanel, window, windowCap, "WINDOW", { "Hann", "Gauss", "Tukey" }, "window");
+    // Smooth / texture (per-layer): interpolation + smoothness macro.
+    addLayerCombo (grainPanel, interp, interpCap, "INTERP", { "Linear", "Cubic" }, "interp");
+    addLayerKnob  (grainPanel, smoothness, smoothnessCap, "SMOOTH", "smoothness");
+    // Rhythmic (tempo-synced) grains (per-layer): density + grain-size sync.
+    addLayerToggle (grainPanel, densitySync, "Density Sync", "densitySync");
+    addLayerCombo (grainPanel, densityDiv, densityDivCap, "DENS DIV",
+                   SattariGranulatorAudioProcessor::divisionChoices(), "densityDiv");
+    addLayerToggle (grainPanel, grainSizeSync, "Grain Sync", "grainSizeSync");
+    addLayerCombo (grainPanel, grainSizeDiv, grainSizeDivCap, "SIZE DIV",
+                   SattariGranulatorAudioProcessor::divisionChoices(), "grainSizeDiv");
 
     // ===== PITCH tab (per-layer offsets + UNISON + GLOBAL shaping) ============
     addLayerKnob  (pitchPanel, tuneCoarse, tuneCoarseCap, "COARSE", "tuneCoarse");
@@ -240,6 +250,11 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
     addKnob  (modPanel, tone, toneCap, "TONE", "tone", sliderAttachments);
     addKnob  (modPanel, voices, voicesCap, "VOICES", "voices", sliderAttachments);
     addCombo (modPanel, voiceMode, voiceModeCap, "VOICE MODE", { "Poly", "Mono", "Legato" }, "voiceMode", comboAttachments);
+    // Velocity routing (GLOBAL, bipolar -1..+1): how note velocity modulates
+    // File Position, Grain Size and filter Cutoff.
+    addKnob  (modPanel, velToPos, velToPosCap, "VEL>POS", "velToPos", sliderAttachments);
+    addKnob  (modPanel, velToSize, velToSizeCap, "VEL>SIZE", "velToSize", sliderAttachments);
+    addKnob  (modPanel, velToCutoff, velToCutoffCap, "VEL>CUT", "velToCutoff", sliderAttachments);
 
     // ----- Bottom keyboard -----------------------------------------------------
     keyboard.setAvailableRange (36, 96);   // C2..C7 fits the strip
@@ -696,7 +711,10 @@ void SattariGranulatorAudioProcessorEditor::resized()
         { &densityMode, &densityModeCap, comboH }, { &spray, &sprayCap, knobH },
         { &posBase, &posBaseCap, knobH }, { &posScanRate, &posScanRateCap, knobH },
         { &posScanSync, nullptr, toggleH }, { &posScanDiv, &posScanDivCap, comboH },
-        { &grainPan, &grainPanCap, knobH }, { &window, &windowCap, comboH } });
+        { &grainPan, &grainPanCap, knobH }, { &window, &windowCap, comboH },
+        { &interp, &interpCap, comboH }, { &smoothness, &smoothnessCap, knobH },
+        { &densitySync, nullptr, toggleH }, { &densityDiv, &densityDivCap, comboH },
+        { &grainSizeSync, nullptr, toggleH }, { &grainSizeDiv, &grainSizeDivCap, comboH } });
 
     flow (pitchPanel, {
         { &tuneCoarse, &tuneCoarseCap, knobH }, { &tuneFine, &tuneFineCap, knobH },
@@ -734,5 +752,7 @@ void SattariGranulatorAudioProcessorEditor::resized()
         { &subOsc, nullptr, toggleH }, { &subLevel, &subLevelCap, knobH },
         { &subWave, &subWaveCap, comboH }, { &subOct, &subOctCap, knobH },
         { &width, &widthCap, knobH }, { &tone, &toneCap, knobH },
-        { &voices, &voicesCap, knobH }, { &voiceMode, &voiceModeCap, comboH } });
+        { &voices, &voicesCap, knobH }, { &voiceMode, &voiceModeCap, comboH },
+        { &velToPos, &velToPosCap, knobH }, { &velToSize, &velToSizeCap, knobH },
+        { &velToCutoff, &velToCutoffCap, knobH } });
 }
