@@ -103,6 +103,17 @@ public:
     enum class LfoDest       { Off = 0, Position, Cutoff, Pitch, GrainSize, Density, Pan, Amp };
     enum class Interp        { Linear = 0, Cubic };
 
+    // --- MOD MATRIX (fixed 4 slots) ------------------------------------------
+    // A compact modulation router that runs ALONGSIDE the fixed LFO destinations
+    // (it never removes them; the matrix ADDS onto the same targets). Every slot
+    // reads one source, scales it by a signed amount, and accumulates onto one
+    // destination. A source or destination of Off, or amount == 0, is a strict
+    // no-op — so a default-constructed EngineParams (all slots Off) is BIT-
+    // IDENTICAL to the pre-matrix engine.
+    enum class ModSource { Off = 0, Lfo1, Lfo2, ModEnv, Velocity, KeyTrack, Pressure, Random };
+    enum class ModDest   { Off = 0, Position, Cutoff, Pitch, GrainSize, Density,
+                           Pan, Amp, Morph /*ignored in-engine*/, FormantReserved };
+
     // =========================================================================
     //  PODs
     // =========================================================================
@@ -252,6 +263,17 @@ public:
         bool  held     = false;
         uint64_t age   = 0;   // spawn order, for deterministic oldest-note stealing
 
+        // --- PER-NOTE EXPRESSION (MPE) ---------------------------------------
+        // noteBend: pitch-bend in SEMITONES around the note (0 = none). Folded
+        // multiplicatively into the pitch chain as 2^(noteBend/12) at each spawn.
+        // notePressure: 0..1 channel/poly pressure. Routed to a fixed useful
+        // destination (cutoff lift + a small amp lift) and available as a mod
+        // source. Both default 0 -> the voice sounds exactly as it did with no
+        // expression (bit-identical). The processor drives these from MPE via
+        // setVoiceBend / setVoicePressure (keyed by the sounding MIDI note).
+        float noteBend     = 0.0f;   // semitones
+        float notePressure = 0.0f;   // 0..1
+
         float basePitchRatio = 1.0f;   // 2^((noteForRatio - rootNote)/12), key-snapped note
 
         HandRolledADSR amp, filterEnv;
@@ -376,6 +398,27 @@ public:
         // global / output
         int   voices = 8; int voiceMode = (int) VoiceMode::Poly;
         float width = 1.0f, tone = 0.0f, volumeDb = -6.0f;
+
+        // --- PER-NOTE PRESSURE ROUTING (MPE) ---------------------------------
+        // How far a voice's notePressure (0..1) pushes its fixed destinations.
+        // pressureToCutoff: octaves of cutoff lift at full pressure (default 2 —
+        // pressure only matters once the processor actually sets a voice's
+        // notePressure > 0, which no-expression playback never does, so the
+        // default is still bit-identical to today). pressureToAmp: extra voice
+        // amp gain at full pressure (default a gentle +25%). 0 disables either.
+        float pressureToCutoff = 2.0f;   // octaves at pressure == 1
+        float pressureToAmp    = 0.25f;  // added gain fraction at pressure == 1
+
+        // --- MOD MATRIX (fixed 4 slots; see ModSource / ModDest) -------------
+        // Each slot: source -> dest scaled by a signed amount (-1..+1 typical).
+        // All-Off (the default) is a strict no-op / bit-identical to today.
+        struct ModSlot
+        {
+            int   source = (int) ModSource::Off;
+            int   dest   = (int) ModDest::Off;
+            float amount = 0.0f;
+        };
+        ModSlot mods[4] {};
     };
 
     // -------------------------------------------------------------------------
@@ -428,7 +471,19 @@ public:
     //  MIDI (called on the audio thread while walking the MidiBuffer)
     // =========================================================================
 
+    // Optional initial per-note expression a MIDI note-on can carry (MPE note-on
+    // often bundles an initial bend / pressure). Defaults leave the note with no
+    // expression, so noteOn(note,vel) behaves exactly as before.
+    struct NoteExpression { float bendSemis = 0.0f; float pressure = 0.0f; };
+
+    // Classic note-on (no per-note expression) — bit-identical to the old engine.
     void noteOn (int midiNote, float velocity) noexcept
+    {
+        noteOn (midiNote, velocity, NoteExpression{});
+    }
+
+    // Note-on with an initial MPE expression state (bend semitones + pressure).
+    void noteOn (int midiNote, float velocity, const NoteExpression& initial) noexcept
     {
         const auto& p = params;
 
@@ -442,6 +497,8 @@ public:
             const bool wasHeld = v.held && ! v.amp.idle();
             startVoice (v, midiNote, velocity, /*legatoGlide=*/wasHeld
                         && (VoiceMode) p.voiceMode == VoiceMode::Legato);
+            v.noteBend     = initial.bendSemis;
+            v.notePressure = juce::jlimit (0.0f, 1.0f, initial.pressure);
             return;
         }
 
@@ -460,6 +517,8 @@ public:
 
         Voice& v = voices[(size_t) slot];
         startVoice (v, midiNote, velocity, /*legatoGlide=*/false);
+        v.noteBend     = initial.bendSemis;
+        v.notePressure = juce::jlimit (0.0f, 1.0f, initial.pressure);
     }
 
     void noteOff (int midiNote) noexcept
@@ -486,6 +545,92 @@ public:
             v.amp.noteOff();
             v.filterEnv.noteOff();
             v.midiNote = -1;
+        }
+    }
+
+    // =========================================================================
+    //  PER-NOTE EXPRESSION (MPE): drive a held voice's live bend / pressure.
+    // -------------------------------------------------------------------------
+    //  The processor calls these while walking the MidiBuffer (channel/poly
+    //  pitch-bend + aftertouch), keyed by the sounding MIDI note. They only touch
+    //  voices that still MATCH the note (held, midiNote >= 0), so a released voice
+    //  finishing its tail is never re-bent. All-notes with bend 0 / pressure 0
+    //  keep the engine bit-identical to no-expression playback.
+    // =========================================================================
+
+    // Set the live pitch-bend (in SEMITONES) for every held voice on `midiNote`.
+    void setVoiceBend (int midiNote, float semitones) noexcept
+    {
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            Voice& v = voices[(size_t) i];
+            if (v.held && v.midiNote == midiNote)
+                v.noteBend = semitones;
+        }
+    }
+
+    // Set the live pressure (0..1) for every held voice on `midiNote`.
+    void setVoicePressure (int midiNote, float pressure) noexcept
+    {
+        const float p01 = juce::jlimit (0.0f, 1.0f, pressure);
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            Voice& v = voices[(size_t) i];
+            if (v.held && v.midiNote == midiNote)
+                v.notePressure = p01;
+        }
+    }
+
+    // Channel-wide variants for CLASSIC (non-MPE) pitch-bend / channel-pressure,
+    // where one wheel bends every held note at once. (MPE, which spreads notes
+    // across channels, drives the per-note variants above instead.) Applies to
+    // all currently-held voices; a released voice finishing its tail is skipped.
+    void setBendAllHeld (float semitones) noexcept
+    {
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            Voice& v = voices[(size_t) i];
+            if (v.held && v.midiNote >= 0) v.noteBend = semitones;
+        }
+    }
+
+    void setPressureAllHeld (float pressure) noexcept
+    {
+        const float p01 = juce::jlimit (0.0f, 1.0f, pressure);
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            Voice& v = voices[(size_t) i];
+            if (v.held && v.midiNote >= 0) v.notePressure = p01;
+        }
+    }
+
+    // =========================================================================
+    //  TRANSIENT TRIGGER: re-fire the grain cloud on an external rhythmic pulse.
+    // -------------------------------------------------------------------------
+    //  Called (audio thread) when an external transient pulse fires (e.g. the
+    //  cross-plugin tempo/transient bus: Rhythm Genie / Side Chain publish, the
+    //  processor edge-detects the transientId and calls this). It nudges every
+    //  active, held voice's spawn accumulator so a fresh grain fires at the very
+    //  next render sample — an immediate accented burst locked to the pulse.
+    //  `strength` (0..1) scales HOW MANY spawn-intervals we jump: a hard hit can
+    //  fire a short cluster, a soft hit a single grain. Bounded + pool-safe: the
+    //  actual spawn still happens in render() through the normal fixed-pool path,
+    //  so a full 256-grain pool simply DROPS the extra grains (never allocates).
+    //  No-op when no voice is active (nothing to re-fire).
+    // =========================================================================
+    void triggerAccent (float strength) noexcept
+    {
+        const float s = juce::jlimit (0.0f, 1.0f, strength);
+        for (int vi = 0; vi < kMaxVoices; ++vi)
+        {
+            Voice& v = voices[(size_t) vi];
+            if (! v.held || ! v.active()) continue;
+            // Push the accumulator up to (but never past) one spawn interval so
+            // the next sample's scheduler crosses the threshold and spawns. A
+            // harder hit adds a little extra so a couple of grains cluster; the
+            // while-loop in render() stays bounded because spawnInterval >= 1.
+            const float si = juce::jmax (1.0f, v.spawnInterval);
+            v.spawnAccumulator += si * (1.0f + s);   // 1..2 intervals of catch-up
         }
     }
 
@@ -631,6 +776,11 @@ public:
                 const float dt = invSr;
 
                 float filtEnv = 0.0f, voiceAmp = 0.0f;
+                // MOD MATRIX accumulator for this voice/sample. Stays at defaults
+                // (all-zero / ampMul 1) unless the voice is live AND a slot fires,
+                // so a non-live (tail) voice and an all-Off matrix are no-ops. It
+                // is read below at the cutoff site (Cutoff dest) and at spawn.
+                ModAccum mod;
                 if (voiceLive)
                 {
                     // ---- envelopes (per sample) ----------------------------
@@ -666,6 +816,30 @@ public:
                     v.posLfo.inc = lfo1Inc;   // File-Position scrub LFO (LFO1 rate)
                     const float posLfoV = v.posLfo.tick();      // -1..+1
 
+                    // ---- MOD MATRIX (per voice, per sample) ----------------
+                    // Sources are read from values already computed this sample;
+                    // the accumulator ADDS onto the fixed LFO destinations at each
+                    // use site. All-Off is a strict no-op (mod stays at defaults).
+                    // KeyTrack source: note distance from C4 in octaves (-1..+1
+                    // over ±1 octave). Random source: a fresh per-sample latch,
+                    // only drawn when a slot actually uses it (keeps the spawn RNG
+                    // stream — and thus spray/pan — untouched when unused).
+                    if (anyModActive (p))
+                    {
+                        const float keyTrack01 = juce::jlimit (-1.0f, 1.0f,
+                            (float) (lastNoteFor (v) - 60) / 12.0f);
+                        const float randBi = modUsesRandom (p) ? randBipolar (v) : 0.0f;
+                        mod = evalModMatrix (p, lfo1V, lfo2V, modEnvV, v.velocity,
+                                             keyTrack01, v.notePressure, randBi);
+                    }
+
+                    // ---- PER-NOTE PRESSURE -> Amp (fixed destination) ------
+                    // A small amp lift with pressure (0 pressure -> unity, no-op).
+                    if (v.notePressure > 0.0f && p.pressureToAmp > 0.0f)
+                        voiceAmp *= 1.0f + juce::jlimit (0.0f, 4.0f, p.pressureToAmp) * v.notePressure;
+                    // MOD MATRIX -> Amp (multiplicative; 1.0 when no Amp slot).
+                    voiceAmp *= mod.ampMul;
+
                     // ---- File-Position free-scan / tempo-sync phase advance
                     v.posScanPhase += scanInc;
                     v.posScanPhase -= std::floor (v.posScanPhase);
@@ -675,15 +849,20 @@ public:
                     // cloud stops regenerating; the in-flight grains finish their
                     // windows and die, so teardown is deterministic (the free ring
                     // is fully restored once the last grain's window completes).
+                    // MOD MATRIX -> Density scales the accumulator step (2^densExp),
+                    // so a positive Density mod fires grains faster. densExp == 0
+                    // (default / no Density slot) leaves the step exactly 1.0f.
                     v.spawnInterval = spawnInterval;
-                    v.spawnAccumulator += 1.0f;
+                    const float densStep = (std::fabs (mod.densExp) > 1.0e-9f)
+                        ? std::pow (2.0f, juce::jlimit (-3.0f, 3.0f, mod.densExp)) : 1.0f;
+                    v.spawnAccumulator += densStep;
                     while (v.spawnAccumulator >= v.spawnInterval)
                     {
                         v.spawnAccumulator -= v.spawnInterval;
                         if (haveSrc && v.held && voiceAmp > 1.0e-4f)
                             spawnGrain (v, vi, p, regionLo, regionHi, srcLen,
                                         srcSrRatio, baseGrainSamples, overlapNormGain, voiceAmp,
-                                        pitchEnvV, pitchLfoV, posLfoV, modEnvV);
+                                        pitchEnvV, pitchLfoV, posLfoV, modEnvV, mod);
                     }
                 }
 
@@ -715,6 +894,13 @@ public:
                                        * juce::jlimit (0.0f, 1.0f, v.velocity) * 4.0f;
                     cutoff *= std::pow (2.0f, velOct);
                 }
+                // PER-NOTE PRESSURE -> Cutoff (fixed destination): pressure lifts
+                // the filter open (0 pressure -> unity, no-op).
+                if (v.notePressure > 0.0f && std::fabs (p.pressureToCutoff) > 1.0e-6f)
+                    cutoff *= std::pow (2.0f, juce::jlimit (-8.0f, 8.0f, p.pressureToCutoff) * v.notePressure);
+                // MOD MATRIX -> Cutoff (octaves; 0 when no Cutoff slot fired).
+                if (std::fabs (mod.cutoffOct) > 1.0e-6f)
+                    cutoff *= std::pow (2.0f, mod.cutoffOct);
                 cutoff = juce::jlimit (20.0f, (float) (0.49 * sr), cutoff);
 
                 // ---- render this voice's grains for the current sample -----
@@ -1059,13 +1245,118 @@ private:
     }
 
     // =========================================================================
+    //  MOD MATRIX evaluation (per voice, per sample)
+    // -------------------------------------------------------------------------
+    //  Accumulates every non-Off slot onto per-destination totals in the SAME
+    //  units the fixed LFO destinations already use, so the matrix ADDS onto
+    //  them at each use site. All zero when every slot is Off (bit-identical).
+    // =========================================================================
+    struct ModAccum
+    {
+        float posAdd    = 0.0f;   // additive normalised File-Position offset
+        float cutoffOct = 0.0f;   // octaves of cutoff shift (adds to cutoffLfoOct)
+        float pitchSemis = 0.0f;  // semitones (folded into the pitch chain)
+        float sizeExp   = 0.0f;   // grain-size factor exponent (mul = 2^sizeExp)
+        float densExp   = 0.0f;   // density factor exponent (spawn-rate mul = 2^densExp)
+        float panAdd    = 0.0f;   // additive 0..1 pan push
+        float ampMul    = 1.0f;   // multiplicative voice-amp gain
+    };
+
+    // Resolve one source's -1..+1 (or 0..1) value from the values already
+    // computed for this voice/sample. LFO/env/pressure are never re-ticked here.
+    static float modSourceValue (ModSource src, float lfo1V, float lfo2V,
+                                 float modEnvV, float velocity, float keyTrack01,
+                                 float pressure, float randBi) noexcept
+    {
+        switch (src)
+        {
+            case ModSource::Lfo1:     return lfo1V;              // -1..+1
+            case ModSource::Lfo2:     return lfo2V;              // -1..+1
+            case ModSource::ModEnv:   return modEnvV;            // 0..1
+            case ModSource::Velocity: return velocity;          // 0..1
+            case ModSource::KeyTrack: return keyTrack01;        // -1..+1 (centred at C4)
+            case ModSource::Pressure: return pressure;          // 0..1
+            case ModSource::Random:   return randBi;            // -1..+1 (per-sample latch)
+            case ModSource::Off:
+            default:                  return 0.0f;
+        }
+    }
+
+    // True if ANY slot could contribute (a non-Off source AND dest AND non-zero
+    // amount). When false the whole matrix is skipped — a strict no-op path.
+    static bool anyModActive (const EngineParams& p) noexcept
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto& s = p.mods[(size_t) i];
+            if (s.source != (int) ModSource::Off && s.dest != (int) ModDest::Off
+                && std::fabs (s.amount) > 1.0e-9f)
+                return true;
+        }
+        return false;
+    }
+
+    // True if any active slot reads the Random source (so we only draw the
+    // per-sample random when it is actually consumed — keeps the spawn RNG
+    // stream, and thus spray/pan bit-identity, untouched when Random is unused).
+    static bool modUsesRandom (const EngineParams& p) noexcept
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto& s = p.mods[(size_t) i];
+            if (s.source == (int) ModSource::Random && s.dest != (int) ModDest::Off
+                && std::fabs (s.amount) > 1.0e-9f)
+                return true;
+        }
+        return false;
+    }
+
+    ModAccum evalModMatrix (const EngineParams& p, float lfo1V, float lfo2V,
+                            float modEnvV, float velocity, float keyTrack01,
+                            float pressure, float randBi) const noexcept
+    {
+        ModAccum m;
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto& slot = p.mods[(size_t) i];
+            const ModSource src = (ModSource) slot.source;
+            const ModDest   dst = (ModDest)   slot.dest;
+            if (src == ModSource::Off || dst == ModDest::Off) continue;
+            const float amt = slot.amount;
+            if (std::fabs (amt) < 1.0e-9f) continue;   // amount 0 -> no-op
+
+            const float sv = modSourceValue (src, lfo1V, lfo2V, modEnvV,
+                                             velocity, keyTrack01, pressure, randBi);
+            const float x = sv * amt;                  // scaled source contribution
+
+            switch (dst)
+            {
+                case ModDest::Position:  m.posAdd    += x;              break;  // normalised
+                case ModDest::Cutoff:    m.cutoffOct += x * 4.0f;       break;  // +-4 oct at |x|=1
+                case ModDest::Pitch:     m.pitchSemis += x * 12.0f;     break;  // +-1 oct at |x|=1
+                case ModDest::GrainSize: m.sizeExp   += x;              break;  // 2^x size mul
+                case ModDest::Density:   m.densExp   += x;              break;  // 2^x rate mul
+                case ModDest::Pan:       m.panAdd    += x * 0.5f;       break;  // +-0.5 pan
+                case ModDest::Amp:       m.ampMul    *= 1.0f + x;       break;  // scale voice amp
+                case ModDest::Morph:                                            // engine-ignored
+                case ModDest::FormantReserved:                                  // reserved
+                case ModDest::Off:
+                default:                                               break;
+            }
+        }
+        // Keep the amp multiplier sane if several slots stack negatively.
+        m.ampMul = juce::jmax (0.0f, m.ampMul);
+        return m;
+    }
+
+    // =========================================================================
     //  Grain spawn (PER-GRAIN-SPAWN modulation + full pitch chain)
     // =========================================================================
     void spawnGrain (Voice& v, int vi, const EngineParams& p,
                      float regionLo, float regionHi, int /*srcLen*/,
                      float srcSrRatio, float baseGrainSamples, float overlapNormGain,
                      float voiceAmp, float pitchEnvV, float pitchLfoV,
-                     float posLfoV, float modEnvV) noexcept
+                     float posLfoV, float modEnvV, const ModAccum& mod) noexcept
     {
         // --- per-spawn random draws (spray, pan, pitch spread) ----------------
         // Drawn ONCE per spawn, before any pool pop, so the RNG stream is
@@ -1084,7 +1375,8 @@ private:
         float posN = v.posBase
                    + p.posEnvAmt * modEnvV                          // shared AD mod env sweep
                    + p.posLfoAmt * posLfoV                          // cyclic scrub
-                   + juce::jlimit (-1.0f, 1.0f, p.velToPos) * vel;  // velocity -> scrub
+                   + juce::jlimit (-1.0f, 1.0f, p.velToPos) * vel   // velocity -> scrub
+                   + mod.posAdd;                                    // MOD MATRIX -> Position
         posN = juce::jlimit (0.0f, 1.0f, posN);
 
         // Per-spawn grain length: base length nudged by velocity (velToSize) and
@@ -1095,6 +1387,8 @@ private:
         if (std::fabs (p.velToSize) > 1.0e-6f)
             grainSamples *= std::pow (2.0f, juce::jlimit (-1.0f, 1.0f, p.velToSize) * vel);
         grainSamples *= 1.0f + juce::jlimit (0.0f, 1.0f, p.smoothness) * 0.75f;
+        if (std::fabs (mod.sizeExp) > 1.0e-9f)                       // MOD MATRIX -> Grain Size
+            grainSamples *= std::pow (2.0f, juce::jlimit (-3.0f, 3.0f, mod.sizeExp));
         grainSamples = juce::jlimit (2.0f, 8.0f * (float) sr, grainSamples);
         const float winInc = 1.0f / grainSamples;
 
@@ -1115,10 +1409,17 @@ private:
         ratio *= std::pow (2.0f, (pitchLfoV * p.pitchLfoCents) / 1200.0f);
         ratio *= v.glideCurrentRatio;
         ratio *= std::pow (2.0f, (spreadRand * juce::jlimit (0.0f, 100.0f, p.pitchSpreadCents)) / 1200.0f);
+        // PER-NOTE EXPRESSION: MPE pitch-bend in semitones (0 -> unity, no-op).
+        if (std::fabs (v.noteBend) > 1.0e-9f)
+            ratio *= std::pow (2.0f, juce::jlimit (-48.0f, 48.0f, v.noteBend) / 12.0f);
+        // MOD MATRIX -> Pitch (semitones -> ratio; 0 -> unity).
+        if (std::fabs (mod.pitchSemis) > 1.0e-9f)
+            ratio *= std::pow (2.0f, juce::jlimit (-48.0f, 48.0f, mod.pitchSemis) / 12.0f);
 
         // --- base equal-power pan (grainPan = random spread) ------------------
         const float panAmt = juce::jlimit (0.0f, 1.0f, p.grainPan);
-        const float basePan01 = 0.5f + 0.5f * panRand * panAmt;   // 0..1
+        const float basePan01 = juce::jlimit (0.0f, 1.0f,
+            0.5f + 0.5f * panRand * panAmt + mod.panAdd);   // 0..1, +MOD MATRIX -> Pan
 
         // --- unison stack config ----------------------------------------------
         const int   uVoices = juce::jlimit (1, 4, p.unisonVoices);

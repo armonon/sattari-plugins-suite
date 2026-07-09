@@ -515,6 +515,11 @@ void SattariGranulatorAudioProcessorEditor::timerCallback()
     audioProcessor.serviceCapture();
     captureProgress = (double) audioProcessor.captureProgress();
 
+    // Publish-to-key-bus: when Broadcast Key is on, push the currently-played key
+    // to the cross-plugin bus so the granulator drives the suite (throttled +
+    // change-gated inside; a no-op when off / following).
+    audioProcessor.serviceKeyBroadcast();
+
     const auto name = audioProcessor.currentSourceName (selectedLayer);
     sourceNameLabel.setText (name.isNotEmpty()
                                  ? (juce::String (selectedLayer == Layer::A ? "A: " : "B: ") + name)

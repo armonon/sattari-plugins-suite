@@ -9,6 +9,7 @@
 
 #include "SourceSample.h"
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -151,6 +152,14 @@ public:
     // timer). Returns true if a new source was published this call.
     bool serviceCapture();
 
+    // Publish-to-key-bus (message thread; call from the editor timer). When
+    // broadcastKey is on, a note is sounding, and we are NOT following, this
+    // publishes the currently-played (key-snapped) root + scale to the cross-
+    // plugin key/session bus so playing the granulator DRIVES the suite's key.
+    // Throttled + change-gated so it never thrashes the bus file. Returns true if
+    // it published this call. Safe to call every timer tick.
+    bool serviceKeyBroadcast();
+
     // --- Live grain visualisation --------------------------------------------
     // Lock-free snapshot published by the audio thread every block. `A`/`B` give
     // each layer's frame; the editor draws the selected layer's sparks.
@@ -269,6 +278,16 @@ private:
     // thread never allocates). Each layer renders here, then blends into `buffer`.
     juce::AudioBuffer<float> layerScratch;   // 2 x maxBlockSize
 
+    // --- Built-in reverb on the BLENDED two-layer output ---------------------
+    // A global Freeverb-based reverb applied AFTER the morph blend and BEFORE the
+    // master volume. juce::Reverb scales dry *2 and wet *3 internally, so its
+    // dry/wet is not a clean crossfade — we take a PURE wet from it (dryLevel 0)
+    // and do our own dry/wet against a saved dry copy, mirroring plugins/space.
+    // reverbMix == 0 is then an EXACT pass-through. `reverbDry` holds the pre-verb
+    // signal; both are sized in prepareToPlay so the audio thread never allocates.
+    juce::Reverb             reverb;
+    juce::AudioBuffer<float> reverbDry;      // 2 x maxBlockSize (pre-reverb copy)
+
     juce::AudioFormatManager formats;
 
     // Cross-plugin buses + host transport.
@@ -287,6 +306,44 @@ private:
     // captureArm edge detection (message thread reads the param; audio thread
     // never allocates). The editor pulses captureArm; serviceCapture() reacts.
     bool lastArmParam = false;
+
+    // --- Per-note expression (MPE) drive state (audio thread only) -----------
+    // Latest pitch-bend wheel value per MIDI channel, stored as the WHEEL fraction
+    // (-1..+1) so the semitone amount is (fraction * bendRange) resolved per block
+    // from the `bendRange` param. MPE spreads notes across channels 2..16, so a
+    // per-channel bend maps to per-note bend; classic MIDI uses channel 1 only.
+    // `mpeMode` (param) selects the default bend range convention: classic 2 st
+    // vs. the MPE ±48 st spec — but the actual range comes from the `bendRange`
+    // param (default 2 st) so a plain host with the wheel behaves musically.
+    // Channel pressure / poly aftertouch map to per-note pressure via
+    // setVoicePressure / setPressureAllHeld.
+    static constexpr float kMpeBendRangeSemis = 48.0f;   // MPE full-spec range
+    std::array<float, 16> channelBendFrac {};            // per-channel wheel -1..+1
+
+    // --- Publish-to-key-bus (broadcastKey) — audio -> message hand-off -------
+    // When broadcastKey is on (and NOT following), playing the granulator DRIVES
+    // the suite's key: the AUDIO thread resolves the current (key-snapped) root +
+    // scale that a note-on would produce and stashes it in these lock-free atomics
+    // (NO file I/O on the audio thread). The MESSAGE thread (editor timer, via
+    // serviceKeyBroadcast()) reads them, throttles, and calls publishSession so
+    // other Sattari plugins follow. broadcastWant* carry the intended pair;
+    // broadcastActive gates publishing on "broadcastKey on AND a note is sounding
+    // AND not following" (feedback guard). lastBroadcast* / broadcastId live on the
+    // message thread and only re-publish when the pair actually changes.
+    std::atomic<int>  broadcastWantRoot  { -1 };
+    std::atomic<int>  broadcastWantScale { -1 };   // 0=major,1=minor bus code
+    std::atomic<bool> broadcastActive    { false };
+    int         lastBroadcastRoot  = -1;   // message thread
+    int         lastBroadcastScale = -1;   // message thread
+    juce::int64 lastBroadcastMs    = 0;    // message thread throttle
+    juce::int64 broadcastId = 0;           // monotonically-increasing session id
+
+    // --- Transient bus edge detection (audio thread) -------------------------
+    // We poll tempoReader.current().transientId each block; when it advances AND
+    // the `transientTrigger` param is on, an external onset fired (Rhythm Genie /
+    // Side Chain published) — re-fire the grain cloud on both engines via
+    // triggerAccent (strength from `transientSens`) so grains lock to the pulse.
+    juce::int64 lastTransientId = 0;
 
     // Version tag written into saved state so future format changes stay safe.
     static constexpr int kStateVersion = 2;   // 1 == legacy single-layer

@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 
 #include <cmath>
+#include <cstdio>
 #include <memory>
 
 using Engine = sattari::dsp::SattariGranularEngine;
@@ -292,6 +293,64 @@ SattariGranulatorAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<FP> ("modEnvAttack", "Mod Env Attack", skewRange (0.0f, 2000.0f, 0.1f, 100.0f), 5.0f));
     p.push_back (std::make_unique<FP> ("modEnvDecay", "Mod Env Decay", skewRange (1.0f, 4000.0f, 0.1f, 300.0f), 300.0f));
 
+    // --- MOD MATRIX (shared; fixed 4 slots) ----------------------------------
+    // Each slot: Source -> Dest scaled by a signed Amount. Choice lists MUST match
+    // SattariGranularEngine::ModSource / ModDest ordinals. Default slot = Off/Off/
+    // amount 0 -> a strict no-op (the engine is bit-identical when every slot is
+    // Off). The matrix ADDS onto the fixed LFO destinations inside the engine.
+    for (int i = 1; i <= 4; ++i)
+    {
+        const juce::String sid = "mod" + juce::String (i) + "Src";
+        const juce::String did = "mod" + juce::String (i) + "Dst";
+        const juce::String aid = "mod" + juce::String (i) + "Amt";
+        const juce::String nm  = "Mod " + juce::String (i) + " ";
+        p.push_back (std::make_unique<CP> (sid, nm + "Source",
+            juce::StringArray { "Off", "LFO1", "LFO2", "Mod Env", "Velocity",
+                                "Key Track", "Pressure", "Random" }, 0));
+        p.push_back (std::make_unique<CP> (did, nm + "Dest",
+            juce::StringArray { "Off", "File Position", "Cutoff", "Pitch", "Grain Size",
+                                "Density", "Pan", "Amp", "Morph", "Formant" }, 0));
+        p.push_back (std::make_unique<FP> (aid, nm + "Amount", R (-1.0f, 1.0f, 0.001f), 0.0f));
+    }
+
+    // --- Per-note pressure routing (shared) ----------------------------------
+    // How far a voice's MPE pressure (0..1) pushes its fixed destinations. These
+    // only take effect once the host actually sends pressure, so leaving them at
+    // their defaults keeps no-expression playback bit-identical.
+    p.push_back (std::make_unique<FP> ("pressToCutoff", "Pressure -> Cutoff", R (-8.0f, 8.0f, 0.1f), 2.0f));
+    p.push_back (std::make_unique<FP> ("pressToAmp", "Pressure -> Amp", R (0.0f, 4.0f, 0.01f), 0.25f));
+
+    // --- MPE / pitch-bend (shared) -------------------------------------------
+    // mpeMode: Classic (global wheel bends every held note; bendRange defaults to
+    // the classic 2 st) vs. MPE (per-channel wheel bends the one note on that
+    // channel; the spec default is ±48 st but bendRange is still authoritative).
+    // bendRange: semitones at full wheel throw, default 2 st so a plain host with
+    // the wheel behaves musically. No pitch-bend received == no expression == the
+    // engine stays bit-identical to today.
+    p.push_back (std::make_unique<CP> ("mpeMode", "Bend Mode",
+        juce::StringArray { "Classic", "MPE" }, 0));
+    p.push_back (std::make_unique<FP> ("bendRange", "Bend Range", R (1.0f, 48.0f, 1.0f), 2.0f));
+
+    // --- Built-in reverb (global, on the blended output) ---------------------
+    // reverbMix 0 (default) is an EXACT pass-through — the reverb is skipped
+    // entirely so a fresh instance sounds identical to today. Size / damp shape
+    // the Freeverb tail; the wet is taken pure and crossfaded by reverbMix.
+    p.push_back (std::make_unique<FP> ("reverbMix", "Reverb Mix", R (0.0f, 1.0f, 0.001f), 0.0f));
+    p.push_back (std::make_unique<FP> ("reverbSize", "Reverb Size", R (0.0f, 1.0f, 0.001f), 0.5f));
+    p.push_back (std::make_unique<FP> ("reverbDamp", "Reverb Damp", R (0.0f, 1.0f, 0.001f), 0.5f));
+
+    // --- Cross-plugin bus drive (shared) -------------------------------------
+    // broadcastKey (default OFF): when on, playing the granulator PUBLISHES the
+    // currently-played (key-snapped) root + scale to the cross-plugin key bus so
+    // the suite follows the granulator's key. Guarded against feedback — never
+    // broadcasts while followKey is on. transientTrigger (default OFF): when on,
+    // an external transient pulse (Rhythm Genie / Side Chain) re-fires the grain
+    // cloud in time; transientSens scales the accent strength.
+    p.push_back (std::make_unique<BP> ("broadcastKey", "Broadcast Key", false,
+        juce::AudioParameterBoolAttributes().withAutomatable (false)));
+    p.push_back (std::make_unique<BP> ("transientTrigger", "Transient Trigger", false));
+    p.push_back (std::make_unique<FP> ("transientSens", "Transient Sens", R (0.0f, 1.0f, 0.001f), 1.0f));
+
     // --- Global / output ------------------------------------------------------
     p.push_back (std::make_unique<IP> ("voices", "Voices", 1, 16, 8));
     p.push_back (std::make_unique<CP> ("voiceMode", "Voice Mode",
@@ -323,6 +382,20 @@ void SattariGranulatorAudioProcessor::prepareToPlay (double sr, int samplesPerBl
     // never allocates when rendering + blending the two layers.
     layerScratch.setSize (2, juce::jmax (1, samplesPerBlock), false, false, true);
     layerScratch.clear();
+
+    // Built-in reverb: set its sample rate and preallocate the dry-hold scratch so
+    // the audio thread never allocates. reset() clears the comb/allpass tails.
+    reverb.setSampleRate (sr);
+    reverb.reset();
+    reverbDry.setSize (2, juce::jmax (1, samplesPerBlock), false, false, true);
+    reverbDry.clear();
+    // Reset the per-channel wheel + key-broadcast hand-off so a fresh transport
+    // start never replays a stale bend or re-publishes a stale key.
+    channelBendFrac.fill (0.0f);
+    broadcastActive.store (false, std::memory_order_relaxed);
+    broadcastWantRoot.store (-1, std::memory_order_relaxed);
+    broadcastWantScale.store (-1, std::memory_order_relaxed);
+    lastBroadcastRoot = lastBroadcastScale = -1;
 
     // Preallocate the capture ring for the max capture length (8 s) at this sr.
     capture.captureSr = sr;
@@ -447,6 +520,24 @@ EngineParams SattariGranulatorAudioProcessor::gatherParams (Layer layer) const n
 
     e.modEnvA = param ("modEnvAttack"); e.modEnvD = param ("modEnvDecay");
 
+    // MOD MATRIX (shared 4 slots). Choice ordinals map straight onto the engine's
+    // ModSource / ModDest enums (the layout choice lists mirror them). All-Off is
+    // the default -> a strict no-op inside the engine.
+    for (int i = 0; i < 4; ++i)
+    {
+        char sid[12], did[12], aid[12];
+        std::snprintf (sid, sizeof sid, "mod%dSrc", i + 1);
+        std::snprintf (did, sizeof did, "mod%dDst", i + 1);
+        std::snprintf (aid, sizeof aid, "mod%dAmt", i + 1);
+        e.mods[i].source = (int) std::lround (param (sid));
+        e.mods[i].dest   = (int) std::lround (param (did));
+        e.mods[i].amount = param (aid);
+    }
+
+    // Per-note pressure routing (shared).
+    e.pressureToCutoff = param ("pressToCutoff");
+    e.pressureToAmp    = param ("pressToAmp");
+
     e.voices    = (int) std::lround (param ("voices"));
     e.voiceMode = (int) std::lround (param ("voiceMode"));
     e.width     = param ("width");
@@ -527,6 +618,25 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
         if (auto t = tempoReader.current(); t.valid && t.bpm > 1.0)
             bpm = t.bpm;
 
+    // --- Transient bus edge -> accent burst ----------------------------------
+    // When the tempo/transient bus's transientId advances AND transientTrigger is
+    // on, an external onset was published (Rhythm Genie / Side Chain). Re-fire the
+    // grain cloud on both engines so grains lock to the pulse; transientSens scales
+    // the accent strength. First-ever id just latches (no accent). We ALWAYS track
+    // the id so toggling the param on mid-session doesn't fire on a stale advance.
+    const bool  transientOn    = param ("transientTrigger") > 0.5f;
+    const float transientStren = juce::jlimit (0.0f, 1.0f, param ("transientSens"));
+    bool fireAccent = false;
+    {
+        const auto t = tempoReader.current();
+        if (t.transientId != lastTransientId)
+        {
+            if (lastTransientId != 0 && transientOn)   // skip first latch; gated
+                fireAccent = true;
+            lastTransientId = t.transientId;
+        }
+    }
+
     // Key snap/follow is a SHARED global — resolve it once from layer A's gather
     // (the key fields are identical across layers).
     const EngineParams sharedKey = gatherParams (Layer::A);
@@ -546,16 +656,58 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
     // Mirror the effective key + follow state for the editor.
     followingBus.store (following, std::memory_order_relaxed);
     effKeyRoot.store (following ? busRoot : sharedKey.keyRoot, std::memory_order_relaxed);
-    if (following)
-        effKeyScale.store (busScaleOrdinal == (int) sattari::dsp::ScaleId::Minor ? 1 : 0,
-                           std::memory_order_relaxed);
+    const int effScaleCode = following
+        ? (busScaleOrdinal == (int) sattari::dsp::ScaleId::Minor ? 1 : 0)
+        : (int) std::lround (param ("keyScale"));
+    effKeyScale.store (effScaleCode, std::memory_order_relaxed);
+
+    // --- Publish-to-key-bus hand-off (audio -> message) ----------------------
+    // When broadcastKey is on and we are NOT following (feedback guard), a note
+    // sounding this session means the granulator should DRIVE the suite's key. We
+    // stash the intended (root, scale) — the key a note-on snaps to — into lock-
+    // free atomics; the message thread (serviceKeyBroadcast) does the file I/O.
+    // "Sounding" is true when a note-on arrives this block OR a voice is still
+    // active (from the last published viz frame across both layers). The scale is
+    // published in the BUS convention (0=major, 1=minor); the granulator's own
+    // key root (0..11) is the broadcast root. Off/following -> inactive (no
+    // publish), so a passive instance never stomps the bus.
+    const bool broadcastOn = param ("broadcastKey") > 0.5f && ! following;
+    if (broadcastOn)
+    {
+        bool noteThisBlock = false;
+        for (const auto meta : midi)
+            if (meta.getMessage().isNoteOn()) { noteThisBlock = true; break; }
+        const bool voiceLive = viz[0].load().nActiveVoices > 0
+                            || viz[1].load().nActiveVoices > 0;
+        const bool sounding = noteThisBlock || voiceLive;
+        broadcastActive.store (sounding, std::memory_order_relaxed);
+        if (sounding)
+        {
+            // The root we would key-snap to (bus root when snapping is on, else
+            // the plugin's chosen key root) and the scale as a bus code.
+            broadcastWantRoot.store (juce::jlimit (0, 11, sharedKey.keyRoot),
+                                     std::memory_order_relaxed);
+            broadcastWantScale.store (effScaleCode == 1 ? 1 : 0,
+                                      std::memory_order_relaxed);
+        }
+    }
     else
-        effKeyScale.store ((int) std::lround (param ("keyScale")), std::memory_order_relaxed);
+    {
+        broadcastActive.store (false, std::memory_order_relaxed);
+    }
 
     // --- Morph + per-layer trims (equal-power morph so 0.5 is a true blend) ---
     const float morph = juce::jlimit (0.0f, 1.0f, param ("layerMorph"));
     const float gMorphA = std::cos (morph * juce::MathConstants<float>::halfPi); // 1 -> 0
     const float gMorphB = std::sin (morph * juce::MathConstants<float>::halfPi); // 0 -> 1
+
+    // --- Pitch-bend range (semitones at full wheel) --------------------------
+    // Resolved ONCE per block from the bendRange param. mpeMode is informational
+    // for the UI (Classic vs. MPE convention); the wheel is applied identically in
+    // both — a Classic host holds one note on channel 1, an MPE host spreads notes
+    // across channels, and "bend every held note on this channel" is correct for
+    // both. No wheel data -> channelBendFrac stays 0 -> engine bit-identical.
+    const float bendRangeSemis = juce::jlimit (1.0f, kMpeBendRangeSemis, param ("bendRange"));
 
     // Per-layer render scratch. Grow ONCE (never on the audio thread in steady
     // state) if the host block exceeds what prepareToPlay reserved, then keep it.
@@ -589,8 +741,19 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
         ls.engine.setSource (src);
         ls.engine.setBusState (busRoot, busScaleOrdinal, bpm, ppq, playing);
 
+        // Transient bus accent: re-fire the cloud at block start (gated + scaled).
+        if (fireAccent)
+            ls.engine.triggerAccent (transientStren);
+
         // Render this layer into the scratch buffer with a sample-accurate MIDI
-        // walk (both engines see the SAME MIDI stream).
+        // walk (both engines see the SAME MIDI stream + the SAME MPE expression
+        // replay). Pitch-bend is per-MIDI-channel (MPE spreads notes across
+        // channels), stored as the wheel FRACTION and mapped to per-note bend in
+        // SEMITONES via bendRangeSemis; channel-pressure and poly-aftertouch map to
+        // per-note pressure. Both layers must replay the identical bend sequence,
+        // so we seed a local per-channel wheel from the persistent member and only
+        // write it back after the LAST layer.
+        std::array<float, 16> chanFrac = channelBendFrac;
         layerBuf.clear();
         int cursor = 0;
         for (const auto meta : midi)
@@ -602,15 +765,43 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
                 cursor = pos;
             }
             const auto msg = meta.getMessage();
+            const int  chIdx = juce::jlimit (0, 15, msg.getChannel() - 1);
             if (msg.isNoteOn())
-                ls.engine.noteOn (msg.getNoteNumber(), msg.getFloatVelocity());
+            {
+                // Carry the channel's current bend so an MPE note that arrives
+                // already bent starts in tune (0 on channel 1 for classic MIDI).
+                Engine::NoteExpression ex;
+                ex.bendSemis = chanFrac[(size_t) chIdx] * bendRangeSemis;
+                ls.engine.noteOn (msg.getNoteNumber(), msg.getFloatVelocity(), ex);
+            }
             else if (msg.isNoteOff())
                 ls.engine.noteOff (msg.getNoteNumber());
+            else if (msg.isPitchWheel())
+            {
+                // 14-bit wheel (0..16383, centre 8192) -> fraction -1..+1, scaled
+                // to semitones by the resolved bend range.
+                const float frac  = (float) (msg.getPitchWheelValue() - 8192) / 8192.0f;
+                chanFrac[(size_t) chIdx] = frac;
+                // Classic (channel-1, all notes) OR MPE (one note per channel):
+                // bending every held note is correct for both — an MPE channel
+                // holds a single note, so "all held" is exactly that note.
+                ls.engine.setBendAllHeld (frac * bendRangeSemis);
+            }
+            else if (msg.isChannelPressure())
+                ls.engine.setPressureAllHeld ((float) msg.getChannelPressureValue() / 127.0f);
+            else if (msg.isAftertouch())      // poly aftertouch keys by note number
+                ls.engine.setVoicePressure (msg.getNoteNumber(),
+                                            (float) msg.getAfterTouchValue() / 127.0f);
             else if (msg.isAllNotesOff() || msg.isAllSoundOff())
                 ls.engine.allNotesOff();
         }
         if (n > cursor)
             ls.engine.render (layerBuf, cursor, n - cursor);
+
+        // Persist the per-channel wheel only after the LAST layer so both layers
+        // replayed the identical sequence this block.
+        if (li == kNumLayers - 1)
+            channelBendFrac = chanFrac;
 
         // Blend into the output with layer gain + pan (equal-power). The engine
         // wrote L/R; we fold pan across them so a mono/centre layer is unchanged
@@ -629,6 +820,44 @@ void SattariGranulatorAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
 
         // Publish this layer's viz frame.
         viz[(size_t) li].store (ls.engine.getDebugFrame());
+    }
+
+    // --- Built-in reverb on the blended mix (before master volume) -----------
+    // juce::Reverb scales dry *2 and wet *3 internally, so its own dry/wet is not
+    // a clean crossfade. We take a PURE wet (dryLevel 0, wetLevel 1/3 -> ~unity)
+    // and do our own dry/wet against a saved dry copy — mirroring plugins/space so
+    // reverbMix == 0 is an EXACT pass-through. mix==0 skips the reverb entirely
+    // (no processing, no tail state advance beyond a cheap reset-free no-op), so a
+    // fresh instance is bit-identical to today. We still advance the reverb state
+    // whenever mix>0 so its comb/allpass tails are continuous.
+    const float reverbMix = juce::jlimit (0.0f, 1.0f, param ("reverbMix"));
+    if (reverbMix > 0.0f)
+    {
+        // Hold the dry (pre-reverb) blend so our crossfade is exact.
+        reverbDry.copyFrom (0, 0, outL, n);
+        if (outR) reverbDry.copyFrom (1, 0, outR, n);
+
+        juce::Reverb::Parameters rp;
+        rp.roomSize   = juce::jlimit (0.0f, 1.0f, param ("reverbSize"));
+        rp.damping    = juce::jlimit (0.0f, 1.0f, param ("reverbDamp"));
+        rp.wetLevel   = 1.0f / 3.0f;   // wet is *3 internally -> ~unity pure wet
+        rp.dryLevel   = 0.0f;          // pure wet; we mix the dry ourselves
+        rp.width      = 1.0f;
+        rp.freezeMode = 0.0f;
+        reverb.setParameters (rp);
+
+        if (outR)
+            reverb.processStereo (outL, outR, n);   // outL/outR now hold pure wet
+        else
+            reverb.processMono (outL, n);
+
+        const float* dryL = reverbDry.getReadPointer (0);
+        const float* dryR = (outR ? reverbDry.getReadPointer (1) : nullptr);
+        for (int i = 0; i < n; ++i)
+        {
+            outL[i] = dryL[i] * (1.0f - reverbMix) + outL[i] * reverbMix;
+            if (outR) outR[i] = dryR[i] * (1.0f - reverbMix) + outR[i] * reverbMix;
+        }
     }
 
     // --- Master volume + soft ceiling on the blended mix ---------------------
@@ -1017,6 +1246,43 @@ bool SattariGranulatorAudioProcessor::serviceCapture()
         return true;
     }
     return false;
+}
+
+// =============================================================================
+//  Publish-to-key-bus (message thread; call from the editor timer)
+// -----------------------------------------------------------------------------
+//  The audio thread stashed the intended broadcast (root, scale) + active flag in
+//  atomics (broadcastActive / broadcastWant*). Here — off the audio thread — we
+//  read them, throttle to ~1 Hz, and only re-publish when the pair CHANGES so the
+//  bus file never thrashes. When broadcastKey turns off (or no note is sounding)
+//  we simply stop publishing; we never clear the bus (a stale entry ages out via
+//  the 30 s window). The feedback guard (never broadcast while following) is
+//  enforced on the audio side (broadcastActive is false when following).
+// =============================================================================
+bool SattariGranulatorAudioProcessor::serviceKeyBroadcast()
+{
+    if (! broadcastActive.load (std::memory_order_relaxed))
+        return false;
+
+    const int root  = juce::jlimit (0, 11, broadcastWantRoot.load  (std::memory_order_relaxed));
+    const int scale = juce::jlimit (0, 1,  broadcastWantScale.load (std::memory_order_relaxed));
+
+    const juce::int64 now = juce::Time::currentTimeMillis();
+    const bool changed = (root != lastBroadcastRoot) || (scale != lastBroadcastScale);
+    // Republish on change immediately; otherwise refresh at most ~1 Hz so a held
+    // note keeps the bus entry alive without thrashing the file.
+    if (! changed && (now - lastBroadcastMs) < 1000)
+        return false;
+
+    lastBroadcastRoot  = root;
+    lastBroadcastScale = scale;
+    lastBroadcastMs    = now;
+
+    // Publish the full session (key + tempo + transient id). We don't own a tempo
+    // source, so publish bpm 0 (readers keep their own tempo); the ++id keeps the
+    // session message fresh for followers.
+    sattari::xplugin::publishSession ("granulator", root, scale, 0.0, ++broadcastId);
+    return true;
 }
 
 // =============================================================================

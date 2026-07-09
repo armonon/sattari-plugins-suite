@@ -701,6 +701,202 @@ int main()
                            soft.first, hard.first); ++fails; }
     }
 
+    // -------------------------------------------------------------------------
+    // (12) GLOBAL PITCH-BEND shifts the played pitch. With the default 2 st bend
+    //      range, a full-up wheel (+2 st) held under a sounding note must raise the
+    //      dominant frequency measurably above the un-bent pitch. Bounded + finite.
+    // -------------------------------------------------------------------------
+    {
+        auto measureBend = [&] (bool bendUp) -> std::pair<double, bool>
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            setLayerParam (a, Layer::A, "grainSize", 120.0f);   // long grains -> clean read
+            setLayerParam (a, Layer::A, "density", 2.0f);
+            setParam (a, "bendRange", 2.0f);                    // classic 2 st
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+
+            const int blocks = 60;
+            juce::AudioBuffer<float> out (1, blocks * kBlock);
+            double peak = 0.0; bool finite = true;
+            juce::AudioBuffer<float> buf (2, kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                juce::MidiBuffer midi;
+                if (b == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 4);
+                if (b == 0 && bendUp)   // full-up wheel on channel 1 (classic bend)
+                    midi.addEvent (juce::MidiMessage::pitchWheel (1, 16383), 8);
+                p.processBlock (buf, midi);
+                for (int i = 0; i < kBlock; ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    if (! std::isfinite (v)) finite = false;
+                    peak = std::max (peak, (double) std::fabs (v));
+                    out.setSample (0, b * kBlock + i, v);
+                }
+            }
+            if (peak > 1.0001) { std::printf ("  FAIL pitch-bend output unbounded (peak=%.4f)\n", peak); ++fails; }
+            return { dominantHz (out), finite };
+        };
+
+        const auto flat = measureBend (false);
+        const auto bent = measureBend (true);
+        std::printf ("pitch-bend: flat domHz=%.1f (finite=%d)  +2st domHz=%.1f (finite=%d)\n",
+                     flat.first, flat.second ? 1 : 0, bent.first, bent.second ? 1 : 0);
+        if (! flat.second || ! bent.second)
+            { std::printf ("  FAIL non-finite in pitch-bend render\n"); ++fails; }
+        // +2 st is ~+12.2%; require a clear upward shift (well above measurement noise).
+        if (! (bent.first > flat.first * 1.05))
+            { std::printf ("  FAIL global pitch-bend did not raise the played pitch (flat=%.1f bent=%.1f)\n",
+                           flat.first, bent.first); ++fails; }
+    }
+
+    // -------------------------------------------------------------------------
+    // (13) BUILT-IN REVERB. reverbMix=0 is an EXACT pass-through (byte-for-byte
+    //      identical to the no-reverb render). reverbMix>0 adds a decaying tail:
+    //      after the note is released the reverb render rings on measurably longer
+    //      than the dry render. Both bounded + finite.
+    // -------------------------------------------------------------------------
+    {
+        // Render a note-on then release, capturing the whole buffer; return the
+        // per-sample max-diff vs a reference and the post-release tail RMS.
+        auto renderReverb = [&] (float mix, juce::AudioBuffer<float>& out) -> bool
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            setParam (a, "reverbMix", mix);
+            setParam (a, "reverbSize", 0.8f);
+            setParam (a, "reverbDamp", 0.3f);
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+            const int blocks = 120;   // note on early, released, then tail
+            bool finite = true;
+            juce::AudioBuffer<float> buf (2, kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                juce::MidiBuffer midi;
+                if (b == 0)  midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 8);
+                if (b == 30) midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+                p.processBlock (buf, midi);
+                for (int i = 0; i < kBlock; ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    if (! std::isfinite (v)) finite = false;
+                    out.setSample (0, b * kBlock + i, v);
+                }
+            }
+            return finite;
+        };
+
+        const int total = 120 * kBlock;
+        juce::AudioBuffer<float> dry (1, total), dry2 (1, total), wet (1, total);
+        const bool f0  = renderReverb (0.0f, dry);
+        const bool f0b = renderReverb (0.0f, dry2);
+        const bool fw  = renderReverb (0.6f, wet);
+
+        // (13a) mix=0 is bit-identical across two runs AND bounded/finite.
+        double maxDiff0 = 0.0, peakDry = 0.0, peakWet = 0.0;
+        for (int i = 0; i < total; ++i)
+        {
+            maxDiff0 = std::max (maxDiff0, (double) std::fabs (dry.getSample (0, i) - dry2.getSample (0, i)));
+            peakDry  = std::max (peakDry,  (double) std::fabs (dry.getSample (0, i)));
+            peakWet  = std::max (peakWet,  (double) std::fabs (wet.getSample (0, i)));
+        }
+
+        // Tail window: last ~0.2 s, well after the note released (~0.32 s in).
+        const int tailFrom = total - (int) (0.2 * kSr);
+        juce::AudioBuffer<float> dryTail (1, total - tailFrom), wetTail (1, total - tailFrom);
+        for (int i = 0; i < dryTail.getNumSamples(); ++i)
+        {
+            dryTail.setSample (0, i, dry.getSample (0, tailFrom + i));
+            wetTail.setSample (0, i, wet.getSample (0, tailFrom + i));
+        }
+        const double dryTailRms = rms (dryTail), wetTailRms = rms (wetTail);
+        std::printf ("reverb: mix0 maxDiff=%.3e peakDry=%.4f peakWet=%.4f  tailRMS dry=%.6f wet=%.6f\n",
+                     maxDiff0, peakDry, peakWet, dryTailRms, wetTailRms);
+
+        if (! f0 || ! f0b || ! fw)
+            { std::printf ("  FAIL non-finite in reverb render\n"); ++fails; }
+        if (maxDiff0 > 1.0e-9)
+            { std::printf ("  FAIL reverbMix=0 is not an exact pass-through (maxDiff=%.3e)\n", maxDiff0); ++fails; }
+        if (peakDry > 1.0001 || peakWet > 1.0001)
+            { std::printf ("  FAIL reverb output unbounded (dry=%.4f wet=%.4f)\n", peakDry, peakWet); ++fails; }
+        // mix>0 rings on after release -> a clearly louder tail than the dry render.
+        if (! (wetTailRms > dryTailRms * 2.0 + 1.0e-6))
+            { std::printf ("  FAIL reverbMix>0 did not add a decaying tail (dry=%.6f wet=%.6f)\n",
+                           dryTailRms, wetTailRms); ++fails; }
+    }
+
+    // -------------------------------------------------------------------------
+    // (14) MOD MATRIX: a single slot (LFO1 -> Cutoff, amount 1) makes the output
+    //      differ from the all-Off matrix. With a low base cutoff the LFO sweeps
+    //      the filter open/closed, so the modulated render is measurably different
+    //      from the static one. Both bounded + finite.
+    // -------------------------------------------------------------------------
+    {
+        auto renderMod = [&] (bool modOn, juce::AudioBuffer<float>& out) -> std::pair<double, bool>
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            // Low LP cutoff so a Cutoff modulation clearly changes the passed energy.
+            setParam (a, "filterType", 0.0f);       // LP24
+            setParam (a, "cutoff", 400.0f);
+            setParam (a, "reso", 0.0f);
+            // A fast, deep LFO1 (Sine) so the sweep is obvious across the window.
+            setParam (a, "lfo1Rate", 8.0f);
+            setParam (a, "lfo1Shape", 0.0f);        // Sine
+            setParam (a, "lfo1Dest", 0.0f);         // Off — the matrix (not the fixed dest) drives it
+            setParam (a, "lfo1Amt", 0.0f);
+            if (modOn)
+            {
+                setParam (a, "mod1Src", 1.0f);      // LFO1
+                setParam (a, "mod1Dst", 2.0f);      // Cutoff
+                setParam (a, "mod1Amt", 1.0f);      // full positive
+            }
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+            const int blocks = 40;
+            double peak = 0.0; bool finite = true;
+            juce::AudioBuffer<float> buf (2, kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                juce::MidiBuffer midi;
+                if (b == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 8);
+                p.processBlock (buf, midi);
+                for (int i = 0; i < kBlock; ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    if (! std::isfinite (v)) finite = false;
+                    peak = std::max (peak, (double) std::fabs (v));
+                    out.setSample (0, b * kBlock + i, v);
+                }
+            }
+            return { peak, finite };
+        };
+
+        const int total = 40 * kBlock;
+        juce::AudioBuffer<float> off (1, total), on (1, total);
+        const auto rOff = renderMod (false, off);
+        const auto rOn  = renderMod (true,  on);
+        double maxDiff = 0.0;
+        for (int i = 0; i < total; ++i)
+            maxDiff = std::max (maxDiff, (double) std::fabs (off.getSample (0, i) - on.getSample (0, i)));
+        std::printf ("modmatrix: off peak=%.4f (finite=%d)  on peak=%.4f (finite=%d)  maxDiff=%.4e\n",
+                     rOff.first, rOff.second ? 1 : 0, rOn.first, rOn.second ? 1 : 0, maxDiff);
+        if (! rOff.second || ! rOn.second)
+            { std::printf ("  FAIL non-finite in mod-matrix render\n"); ++fails; }
+        if (rOff.first > 1.0001 || rOn.first > 1.0001)
+            { std::printf ("  FAIL mod-matrix output unbounded\n"); ++fails; }
+        // The active LFO1->Cutoff slot must audibly change the output.
+        if (! (maxDiff > 1.0e-4))
+            { std::printf ("  FAIL mod slot (LFO1->Cutoff) did not change the output (maxDiff=%.4e)\n", maxDiff); ++fails; }
+    }
+
     // Clean up temp files.
     stereoSineA.deleteFile();
     monoSineA.deleteFile();
