@@ -52,6 +52,16 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     };
     addAndMakeVisible (searchBox);
 
+    promptBox.setTextToShowWhenEmpty (u8 ("AI set: e.g. \"dark 124 bpm set in A minor\"\xe2\x80\xa6"),
+                                      juce::Colour (sattari::brand::kTextMuted));
+    promptBox.setColour (juce::TextEditor::backgroundColourId, juce::Colour (sattari::brand::kPanel));
+    promptBox.setColour (juce::TextEditor::textColourId, juce::Colour (sattari::brand::kTextPrimary));
+    promptBox.onReturnKey = [this] { buildSetFromPrompt (promptBox.getText()); };
+    addAndMakeVisible (promptBox);
+
+    buildSetButton.onClick = [this] { buildSetFromPrompt (promptBox.getText()); };
+    addAndMakeVisible (buildSetButton);
+
     addFolderButton.onClick = [this] { addFolderInteractive(); };
     addAndMakeVisible (addFolderButton);
 
@@ -267,6 +277,144 @@ void MusicLibraryView::rebuildView()
                         juce::dontSendNotification);
 }
 
+// ── Generative set builder ────────────────────────────────────────────────────
+// Deterministic "AI" — parses BPM / key / mood from the prompt and ranks the
+// analyzed library by tempo proximity (incl. half/double time), Camelot-wheel
+// harmonic compatibility, and a minor/major mood bias. No external service.
+
+void MusicLibraryView::buildSetFromPrompt (const juce::String& promptRaw)
+{
+    const auto prompt = promptRaw.trim().toLowerCase();
+    if (prompt.isEmpty())
+        return;
+
+    // ── Parse target BPM: first standalone number in 60..200 ────────────────
+    float targetBpm = 0.0f;
+    auto tokens = juce::StringArray::fromTokens (prompt, " ,;-/", "");
+    for (const auto& t : tokens)
+    {
+        const float v = t.removeCharacters ("bpm").getFloatValue();
+        if (v >= 60.0f && v <= 200.0f) { targetBpm = v; break; }
+    }
+
+    // ── Parse target key: Camelot code ("8a") or note name + quality ────────
+    int targetPc = -1;
+    bool targetMinor = false, haveKey = false;
+    static const std::pair<const char*, int> noteNames[] = {
+        { "c#", 1 }, { "db", 1 }, { "d#", 3 }, { "eb", 3 }, { "f#", 6 }, { "gb", 6 },
+        { "g#", 8 }, { "ab", 8 }, { "a#", 10 }, { "bb", 10 },
+        { "c", 0 }, { "d", 2 }, { "e", 4 }, { "f", 5 }, { "g", 7 }, { "a", 9 }, { "b", 11 } };
+    for (int ti = 0; ti < tokens.size() && ! haveKey; ++ti)
+    {
+        const auto& tok = tokens[ti];
+        // Camelot form: 1..12 followed by a/b
+        if (tok.length() >= 2 && tok.length() <= 3
+            && (tok.endsWithChar ('a') || tok.endsWithChar ('b')))
+        {
+            const int num = tok.dropLastCharacters (1).getIntValue();
+            if (num >= 1 && num <= 12 && tok.dropLastCharacters (1).containsOnly ("0123456789"))
+            {
+                const bool minor = tok.endsWithChar ('a');
+                for (int pc = 0; pc < 12; ++pc)
+                    if ((minor ? kMinorCamelot[pc] : kMajorCamelot[pc]) == num)
+                    { targetPc = pc; targetMinor = minor; haveKey = true; break; }
+            }
+        }
+        // Note-name form: "a minor", "f# maj", "c min"
+        if (! haveKey && ti + 1 < tokens.size())
+        {
+            for (const auto& [name, pc] : noteNames)
+            {
+                if (tok != name) continue;
+                const auto& q = tokens[ti + 1];
+                if (q.startsWith ("min") || q == "m") { targetPc = pc; targetMinor = true;  haveKey = true; }
+                else if (q.startsWith ("maj"))        { targetPc = pc; targetMinor = false; haveKey = true; }
+                break;
+            }
+        }
+    }
+
+    // ── Mood bias: dark/heavy → prefer minor; chill/warm → prefer major ─────
+    int moodBias = 0;
+    for (const char* w : { "dark", "heavy", "hard", "aggressive", "banger", "peak" })
+        if (prompt.contains (w)) { moodBias = 1; break; }
+    if (moodBias == 0)
+        for (const char* w : { "chill", "mellow", "deep", "soft", "ambient", "warm", "sunset" })
+            if (prompt.contains (w)) { moodBias = -1; break; }
+
+    // ── Score every analyzed track ───────────────────────────────────────────
+    struct Scored { int idx; float score; };
+    std::vector<Scored> scored;
+    for (int i = 0; i < (int) entries.size(); ++i)
+    {
+        const auto& e = entries[(size_t) i];
+        if (! e.analyzed || e.bpm <= 0.0f)
+            continue;
+
+        float bpmScore = 0.5f;
+        if (targetBpm > 0.0f)
+        {
+            float best = 1.0e9f;   // half/double-time counts as compatible
+            for (const float b : { e.bpm, e.bpm * 2.0f, e.bpm * 0.5f })
+                best = juce::jmin (best, std::abs (b - targetBpm) / targetBpm);
+            bpmScore = juce::jmax (0.0f, 1.0f - best / 0.08f);   // 8% window
+        }
+
+        float keyScore = 0.5f;
+        if (haveKey && e.keyPitchClass >= 0)
+        {
+            const int tn = targetMinor ? kMinorCamelot[targetPc] : kMajorCamelot[targetPc];
+            const int en = e.keyMinor  ? kMinorCamelot[e.keyPitchClass] : kMajorCamelot[e.keyPitchClass];
+            const int dist = juce::jmin (std::abs (tn - en), 12 - std::abs (tn - en));
+            const bool sameWheel = e.keyMinor == targetMinor;
+            keyScore = (dist == 0 && sameWheel) ? 1.0f
+                     : (dist == 0)              ? 0.85f    // relative major/minor
+                     : (dist == 1 && sameWheel) ? 0.75f    // adjacent on the wheel
+                     : (dist == 2 && sameWheel) ? 0.35f
+                                                : 0.10f;
+        }
+
+        float moodScore = 0.8f;
+        if (moodBias > 0) moodScore = e.keyMinor ? 1.0f : 0.55f;
+        if (moodBias < 0) moodScore = e.keyMinor ? 0.60f : 1.0f;
+
+        const float total = 0.5f * bpmScore + 0.35f * keyScore + 0.15f * moodScore;
+        if (total > 0.15f)
+            scored.push_back ({ i, total });
+    }
+    std::stable_sort (scored.begin(), scored.end(),
+                      [] (const Scored& a, const Scored& b) { return a.score > b.score; });
+
+    // ── Show the ranked set in the table + hand the top 4 to the decks ──────
+    view.clear();
+    for (size_t k = 0; k < scored.size() && k < 24; ++k)
+        view.push_back (scored[k].idx);
+    table.updateContent();
+    table.repaint();
+    countLabel.setText (view.empty()
+                          ? juce::String ("AI SET: no analyzed tracks matched \"" + promptRaw.trim() + "\"")
+                          : "AI SET: " + juce::String ((int) view.size()) + " picks for \"" + promptRaw.trim() + "\"",
+                        juce::dontSendNotification);
+
+    if (onLoadSet != nullptr && ! view.empty())
+    {
+        std::array<juce::File, 4> set {};
+        for (int d = 0; d < 4 && d < (int) view.size(); ++d)
+            set[(size_t) d] = entries[(size_t) view[(size_t) d]].file;
+        onLoadSet (set);
+    }
+}
+
+std::vector<MusicLibraryView::ExportEntry> MusicLibraryView::getAnalyzedEntries() const
+{
+    std::vector<ExportEntry> out;
+    out.reserve (entries.size());
+    for (const auto& e : entries)
+        if (e.analyzed)
+            out.push_back ({ e.file, e.bpm, e.keyPitchClass, e.keyMinor });
+    return out;
+}
+
 int MusicLibraryView::getNumRows() { return (int) view.size(); }
 
 void MusicLibraryView::paintRowBackground (juce::Graphics& g, int row, int, int, bool selected)
@@ -416,6 +564,12 @@ void MusicLibraryView::resized()
     clearButton.setBounds (top.removeFromLeft (52));
     top.removeFromLeft (6);
     searchBox.setBounds (top);
+    area.removeFromTop (4);
+    // AI set builder row: free-text prompt + Build Set.
+    auto promptRow = area.removeFromTop (24);
+    buildSetButton.setBounds (promptRow.removeFromRight (74));
+    promptRow.removeFromRight (4);
+    promptBox.setBounds (promptRow);
     area.removeFromTop (4);
     countLabel.setBounds (area.removeFromBottom (16));
     table.setBounds (area);

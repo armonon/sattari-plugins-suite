@@ -16,6 +16,8 @@
 #include "RealTimeStemSeparator.h"
 #include "TransportSync.h"
 #include "WarpEngine.h"
+#include "MasterFx.h"
+#include "SmartMaster.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor
 {
@@ -35,7 +37,7 @@ public:
 
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }   // motorized-fader feedback out
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
@@ -122,8 +124,22 @@ public:
     juce::StringArray getSupportedAudioExtensions() const;
     TransportSync::Snapshot getTransportSnapshot() const { return sync.getSnapshot(); }
 
+    // Master output peak (post-limiter) for the UI meters; ch 0=L, 1=R.
+    float getMasterPeak (int ch) const noexcept { return masterPeak[(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed); }
+    // Per-deck output peak (pre-crossfader) for the console channel meters.
+    float getDeckPeak (int deckIndex, int ch) const noexcept
+    { return deckPeak[(size_t) juce::jlimit (0, numDecks - 1, deckIndex)][(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed); }
+    // Beat-grid positions (source seconds) for drawing the grid on a deck waveform.
+    std::vector<double> getDeckBeatGridSeconds (int deckIndex) const;
+
+    // Smart mastering readouts for the MASTER OUTPUT panel.
+    float getSmartMasterLufs() const noexcept { return smartMaster.getShortTermLufs(); }
+    float getSmartMasterGr() const noexcept   { return smartMaster.getGainReductionDb(); }
+
     // True when no offline stems are loaded and real-time separation is active.
     bool isDeckRtssActive (int deckIndex) const;
+    // True when neural (demucs-cached) stem files are loaded on this deck.
+    bool deckHasNeuralStems (int deckIndex) const;
     void setDeckRtssSensitivity (int deckIndex, float sensitivity);   // 0..1
 
     // Hardware MIDI controller mapping (learn + apply).
@@ -205,8 +221,10 @@ private:
     void restoreFileAssignmentsFromState();
     void setStatePathProperty (const juce::Identifier& property, const juce::String& path);
     void applyPremiumStemMix (int deckIndex);
-    float getFloatParam (const juce::String& id) const;
-    bool getBoolParam (const juce::String& id) const;
+    // StringRef (not String) so literal-id reads on the audio thread don't heap-
+    // allocate a juce::String on every call.
+    float getFloatParam (juce::StringRef id) const;
+    bool getBoolParam (juce::StringRef id) const;
     TrackAnalysis getDeckLiveAnalysisFromAtomics (int deckIndex) const;
     void applyLimiter (juce::AudioBuffer<float>& buffer, float ceilingDb);
     void initialisePerformanceCaptureState();
@@ -223,8 +241,9 @@ private:
         juce::Reverb reverb;
         std::vector<float> echoL, echoR;
         int echoWritePos = 0;
+        juce::AudioBuffer<float> wetScratch;   // pre-allocated reverb wet path
 
-        void prepare (double sampleRate)
+        void prepare (double sampleRate, int blockSize = 0)
         {
             juce::Reverb::Parameters p;
             p.roomSize = 0.6f;  p.damping = 0.5f;  p.wetLevel = 1.0f;
@@ -235,6 +254,7 @@ private:
             echoL.assign ((size_t) echoLen, 0.0f);
             echoR.assign ((size_t) echoLen, 0.0f);
             echoWritePos = 0;
+            wetScratch.setSize (2, juce::jmax (1, blockSize));
         }
 
         void process (juce::AudioBuffer<float>& buf, float reverbWet, float echoWet)
@@ -262,17 +282,18 @@ private:
                 }
             }
 
-            // Reverb
+            // Reverb (wet path reuses the pre-allocated scratch — no RT alloc)
             if (reverbWet > 0.001f)
             {
-                juce::AudioBuffer<float> wet (buf.getNumChannels(), n);
-                for (int ch = 0; ch < buf.getNumChannels(); ++ch)
-                    wet.copyFrom (ch, 0, buf, ch, 0, n);
-                reverb.processStereo (wet.getWritePointer (0),
-                                      wet.getNumChannels() > 1 ? wet.getWritePointer (1) : wet.getWritePointer (0),
+                const int wetCh = juce::jmin (2, buf.getNumChannels());
+                wetScratch.setSize (juce::jmax (1, wetCh), n, false, false, true);
+                for (int ch = 0; ch < wetCh; ++ch)
+                    wetScratch.copyFrom (ch, 0, buf, ch, 0, n);
+                reverb.processStereo (wetScratch.getWritePointer (0),
+                                      wetCh > 1 ? wetScratch.getWritePointer (1) : wetScratch.getWritePointer (0),
                                       n);
                 for (int ch = 0; ch < buf.getNumChannels(); ++ch)
-                    buf.addFrom (ch, 0, wet, ch, 0, n, reverbWet);
+                    buf.addFrom (ch, 0, wetScratch, juce::jmin (ch, wetCh - 1), 0, n, reverbWet);
             }
         }
     };
@@ -282,6 +303,13 @@ private:
     std::vector<MidiClipPlayer::SourceNote> pendingMidiNotes;
     double pendingMidiBpm = 120.0;
     std::atomic<bool> usingTeMidi { false };   // processBlock: skip MidiClipPlayer when true
+    std::atomic<bool> teStopRequested { false }; // audio→message: defer TE transport stop (RT-safe)
+
+public:
+    // Message thread: services deferred audio-thread requests (e.g. stopping the TE
+    // transport when the arrangement auto-stops). Called from the editor timer.
+    void serviceDeferredActions();
+private:
 
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioFormatManager formatManager;
@@ -313,6 +341,14 @@ private:
     TransportSync sync;
     WarpEngine warpEngine;
     HostGraph hostGraph;
+    MasterFx masterFx;
+    SmartMaster smartMaster;
+    // Per-stem FX (RTSS path): [deck][stemIndex 0..3 = drums/bass/music/vocals].
+    std::array<std::array<MasterFx, 4>, numDecks> stemFx;
+    // Post-limiter master peaks for UI metering (decayed on the audio thread).
+    std::array<std::atomic<float>, 2> masterPeak { 0.0f, 0.0f };
+    // Per-deck peaks (pre-crossfader) for the console channel meters.
+    std::array<std::array<std::atomic<float>, 2>, numDecks> deckPeak {};
     StemProvider stemProvider;
 
     double currentSampleRate = 44100.0;
@@ -334,6 +370,39 @@ private:
     juce::File lastArrangementFile;
     std::array<juce::File, numDecks> lastDeckRecordingTargets;
     std::array<juce::AudioBuffer<float>, numDecks> deckScratchBuffers;
+    // Pre-allocated audio-thread scratch (sized in prepareToPlay) — avoids per-block
+    // heap allocation in the mic-capture and Tracktion-mix paths.
+    juce::AudioBuffer<float> micScratch;
+    juce::AudioBuffer<float> teScratch;
+    juce::MidiBuffer teMidiScratch;
+
+    // Per-deck beat-grid cache. makeGrid copies two vectors + sorts, so rebuild it
+    // only when its inputs change (audio reload or a grid-param edit) rather than
+    // every audio block. Audio-thread only.
+    struct GridCacheKey
+    {
+        const void* analysisId = nullptr;
+        float bpm = -1.0f, beatOffset = -1.0f, downbeat = -1.0f;
+        int   interp = -1, syncMode = -1;
+        bool operator!= (const GridCacheKey& o) const noexcept
+        {
+            return analysisId != o.analysisId || bpm != o.bpm || beatOffset != o.beatOffset
+                || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode;
+        }
+    };
+    std::array<BeatSyncEngine::TrackBeatGrid, numDecks> cachedBeatGrid;
+    std::array<GridCacheKey, numDecks> cachedGridKey;
+
+    // Pre-concatenated APVTS parameter ids per deck. "deck + \"...\"" heap-allocates
+    // a juce::String; caching keeps processBlock's per-deck reads allocation-free.
+    struct DeckParamIds
+    {
+        juce::String bpm, beatOffset, downbeat, tempoInterp, syncMode, keyTarget, pitch,
+                     play, liveKey, keyLock, volume, fader, low, mid, high, filter, revMix, echoMix;
+        std::array<juce::String, DeckPlayer::numStemLanes> stemGain, stemPitch, stemFilt, stemSend;
+    };
+    std::array<DeckParamIds, numDecks> deckIds;
+    void cacheDeckParamIds();
 
     struct DeckPerformanceState
     {

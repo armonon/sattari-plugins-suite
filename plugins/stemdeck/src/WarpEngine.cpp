@@ -101,7 +101,8 @@ WarpEngine::Plan WarpEngine::makePlan (const TransportSync::Snapshot& transport,
                                        double sourceLengthSamples,
                                        float pitchSemitones,
                                        bool wantsPitchPreservation,
-                                       bool beatSyncEnabled) const
+                                       bool beatSyncEnabled,
+                                       bool wantStatus) const
 {
     Plan plan;
     plan.masterBpm = transport.bpm > 1.0 ? transport.bpm : 120.0;
@@ -109,10 +110,14 @@ WarpEngine::Plan WarpEngine::makePlan (const TransportSync::Snapshot& transport,
                                                        grid,
                                                        sourceSampleRate > 0.0 ? sourceSampleRate : 44100.0,
                                                        juce::jmax (0.0, sourceLengthSamples),
-                                                       beatSyncEnabled);
+                                                       beatSyncEnabled,
+                                                       wantStatus);
 
     plan.deck.sourceBpm = plan.beatSync.sourceBpm;
-    plan.deck.beatGrid = grid;
+    // deck.beatGrid is UI/status-only (the audio path uses plan.beatSync). Copying
+    // the grid's vectors every block is wasteful, so only do it when wantStatus.
+    if (wantStatus)
+        plan.deck.beatGrid = grid;
     plan.deck.pitchSemitones = juce::jlimit (-24.0f, 24.0f, pitchSemitones);
     plan.deck.tempoRatio = juce::jlimit (0.25f, 4.0f, plan.beatSync.tempoRatio);
     plan.deck.syncMode = grid.syncMode;
@@ -124,12 +129,14 @@ WarpEngine::Plan WarpEngine::makePlan (const TransportSync::Snapshot& transport,
     plan.timePitch = TimePitchEngine::decide ({ plan.deck.tempoRatio,
                                                 plan.deck.pitchSemitones,
                                                 wantsPitchPreservation });
-    plan.backend = getSelectedBackend();
-
-    plan.statusLabel = "Warp: " + plan.beatSync.statusLabel
-                     + u8 (" \xe2\x80\xa2 tempo x") + juce::String (plan.timePitch.tempoRatio, 3)
-                     + u8 (" \xe2\x80\xa2 pitch ") + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
-                     + u8 (" \xe2\x80\xa2 ") + plan.timePitch.statusLabel
-                     + u8 (" \xe2\x80\xa2 backend: ") + plan.backend.name;
+    if (wantStatus)
+    {
+        plan.backend = getSelectedBackend();
+        plan.statusLabel = "Warp: " + plan.beatSync.statusLabel
+                         + u8 (" \xe2\x80\xa2 tempo x") + juce::String (plan.timePitch.tempoRatio, 3)
+                         + u8 (" \xe2\x80\xa2 pitch ") + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
+                         + u8 (" \xe2\x80\xa2 ") + plan.timePitch.statusLabel
+                         + u8 (" \xe2\x80\xa2 backend: ") + plan.backend.name;
+    }
     return plan;
 }

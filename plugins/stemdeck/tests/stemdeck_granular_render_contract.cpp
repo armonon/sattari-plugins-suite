@@ -92,7 +92,7 @@ juce::AudioBuffer<float> renderDeck (const TimePitchDecision& decision, int numS
 
     juce::AudioBuffer<float> output (2, numSamples);
     output.clear();
-    deck.process (output, 0, numSamples, true, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, decision, stemGains, {});
+    deck.process (output, 0, numSamples, true, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, decision, stemGains, {}, {});
     return output;
 }
 
@@ -117,7 +117,7 @@ void expectBeatSyncUsesPerDeckSourceBpmAndOffset()
     grid.syncMode = BeatSyncEngine::SyncMode::strict;
     const auto plan = BeatSyncEngine::makePlaybackPlan ({ 120.0, true, 1.0 }, grid, sampleRate, sampleRate * 2.0, true);
     deck.process (output, 0, output.getNumSamples(), true, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-                  TimePitchEngine::decide ({ 1.0f, 0.0f, false }), stemGains, plan);
+                  TimePitchEngine::decide ({ 1.0f, 0.0f, false }), stemGains, {}, plan);
 
     const float first = output.getSample (0, 0);
     if (std::abs (first - 0.25f) > 0.07f)

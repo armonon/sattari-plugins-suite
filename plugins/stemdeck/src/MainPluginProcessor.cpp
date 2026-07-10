@@ -79,8 +79,33 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyIsMinor[(size_t) i].store (0, std::memory_order_relaxed);
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
     }
+    cacheDeckParamIds();
     buildMidiTargets();
     ensureTeWrapperOnMessageThread();
+}
+
+void MainPluginProcessor::cacheDeckParamIds()
+{
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto d = deckPrefix (i);
+        auto& p = deckIds[(size_t) i];
+        p.bpm = d + "Bpm";  p.beatOffset = d + "BeatOffset";  p.downbeat = d + "Downbeat";
+        p.tempoInterp = d + "TempoInterpretation";  p.syncMode = d + "SyncMode";
+        p.keyTarget = d + "KeyTarget";  p.pitch = d + "Pitch";
+        p.play = d + "Play";  p.liveKey = d + "LiveKey";  p.keyLock = d + "KeyLock";
+        p.volume = d + "Volume";  p.fader = d + "Fader";
+        p.low = d + "Low";  p.mid = d + "Mid";  p.high = d + "High";  p.filter = d + "Filter";
+        p.revMix = d + "RevMix";  p.echoMix = d + "EchoMix";
+        for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        {
+            const auto s = d + "Stem" + DeckPlayer::stemLaneId (lane);
+            p.stemGain [(size_t) lane] = s + "Gain";
+            p.stemPitch[(size_t) lane] = s + "Pitch";
+            p.stemFilt [(size_t) lane] = s + "Filt";
+            p.stemSend [(size_t) lane] = s + "Send";
+        }
+    }
 }
 
 void MainPluginProcessor::buildMidiTargets()
@@ -101,6 +126,11 @@ void MainPluginProcessor::buildMidiTargets()
         addCc (label + " Filter", deckPrefix (i) + "Filter");
         addCc (label + " Low",    deckPrefix (i) + "Low");
         addCc (label + " High",   deckPrefix (i) + "High");
+        // Per-stem faders (drums/bass/music/vocals) so an MPK-style controller can
+        // ride individual stems.
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            addCc (label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem",
+                   deckPrefix (i) + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain");
     }
 
     std::vector<MidiMappingManager::NoteTarget> notes;
@@ -109,6 +139,8 @@ void MainPluginProcessor::buildMidiTargets()
         notes.push_back ({ deckLabel (i) + " Play", i, MidiMappingManager::ActionPlay });
         notes.push_back ({ deckLabel (i) + " Cue",  i, MidiMappingManager::ActionCue  });
     }
+    for (int pad = 0; pad < PadBank::numPads; ++pad)   // pad triggers -> hardware pads
+        notes.push_back ({ "Pad " + juce::String (pad + 1), pad, MidiMappingManager::ActionPad });
 
     midiMapping.setTargets (std::move (cc), std::move (notes));
 }
@@ -195,6 +227,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
                                           label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem Gain",
                                           -60.0f, 12.0f, lane == DeckPlayer::fullMixStem ? 0.0f : 0.0f, "dB"));
 
+        // Independent per-stem pitch (semitones) — pitch e.g. the vocal acapella while
+        // the instrumental stays in key. Only the 4 separated stems, not the full mix.
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            params.push_back (floatParam (deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Pitch",
+                                          label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem Pitch",
+                                          -12.0f, 12.0f, 0.0f, " st"));
+
+        // Per-stem FX (real-time separation path): independent filter + space/echo
+        // send for each of the four stems. Filt 0.5 = neutral, Send 0 = dry.
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+        {
+            const auto id = DeckPlayer::stemLaneId (lane);
+            const auto lbl = DeckPlayer::stemLaneLabel (lane);
+            params.push_back (floatParam (deck + "Stem" + id + "Filt", label + " " + lbl + " Stem Filter", 0.0f, 1.0f, 0.5f));
+            params.push_back (floatParam (deck + "Stem" + id + "Send", label + " " + lbl + " Stem Space/Echo", 0.0f, 1.0f, 0.0f));
+        }
+
         params.push_back (floatParam (deck + "RevMix",  label + " Reverb Mix",   0.0f, 1.0f, 0.0f));
         params.push_back (floatParam (deck + "EchoMix", label + " Echo Mix",     0.0f, 1.0f, 0.0f));
     }
@@ -207,6 +256,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("beatSync", 1), "Host Beat/Grid Sync", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("micMonitor", 1), "Mic/Input Monitor", false));
     params.push_back (floatParam ("micGain", "Mic/Input Gain", -60.0f, 6.0f, -12.0f, "dB"));
+    // Global Master Effects XY pad: X = bipolar filter, Y = space/echo send.
+    params.push_back (floatParam ("masterFxX", "Master FX Filter", 0.0f, 1.0f, 0.5f));
+    params.push_back (floatParam ("masterFxY", "Master FX Space/Echo", 0.0f, 1.0f, 0.0f));
+    // Smart mastering assistant: auto EQ tilt + bus dynamics + LUFS targeting.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("smartMasterOn", 1), "AI Master", false));
+    params.push_back (choiceParam ("smartMasterMode", "AI Master Mode",
+                                   { "Streaming -14", "Club -9", "Warm -16" }, 0));
+    params.push_back (floatParam ("smartMasterAmount", "AI Master Amount", 0.0f, 1.0f, 0.8f));
     params.push_back (choiceParam ("masterKey", "Master Key Target", keyTargetChoices(), 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("stemLink", 1), "Link Stem Gains Across Decks", false));
 
@@ -224,16 +281,24 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     for (auto& deck : decks)
         deck.prepare (sampleRate, samplesPerBlock, outputChannels);
     padBank.prepare (sampleRate);
-    masterRecorder.prepare (sampleRate, outputChannels);
-    micRecorder.prepare (sampleRate, getTotalNumInputChannels() > 0 ? getTotalNumInputChannels() : outputChannels);
+    masterRecorder.prepare (sampleRate, outputChannels, samplesPerBlock);
+    micRecorder.prepare (sampleRate, getTotalNumInputChannels() > 0 ? getTotalNumInputChannels() : outputChannels, samplesPerBlock);
     for (auto& recorder : deckRecorders)
-        recorder.prepare (sampleRate, outputChannels);
+        recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     for (auto& scratch : deckScratchBuffers)
         scratch.setSize (outputChannels, samplesPerBlock);
+    micScratch.setSize (juce::jmax (outputChannels, getTotalNumInputChannels()), samplesPerBlock);
+    teScratch.setSize (juce::jmax (2, outputChannels), samplesPerBlock);
+    teMidiScratch.ensureSize (256);
     warpEngine.prepare (sampleRate, samplesPerBlock, outputChannels);
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
+    masterFx.prepare (sampleRate, samplesPerBlock, outputChannels);
+    smartMaster.prepare (sampleRate);
+    for (auto& deckStemFx : stemFx)
+        for (auto& fx : deckStemFx)
+            fx.prepare (sampleRate, samplesPerBlock, outputChannels);
     for (auto& fx : deckFX)
-        fx.prepare (sampleRate);
+        fx.prepare (sampleRate, samplesPerBlock);
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     midiClipPlayer.prepare (sampleRate, samplesPerBlock);
     metronome.prepare (sampleRate);
@@ -276,14 +341,14 @@ juce::AudioProcessorEditor* MainPluginProcessor::createEditor()
     return new MainPluginEditor (*this);
 }
 
-float MainPluginProcessor::getFloatParam (const juce::String& id) const
+float MainPluginProcessor::getFloatParam (juce::StringRef id) const
 {
     if (auto* value = apvts.getRawParameterValue (id))
         return value->load();
     return 0.0f;
 }
 
-bool MainPluginProcessor::getBoolParam (const juce::String& id) const
+bool MainPluginProcessor::getBoolParam (juce::StringRef id) const
 {
     if (auto* value = apvts.getRawParameterValue (id))
         return value->load() > 0.5f;
@@ -302,6 +367,14 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         for (int t = 0; t < nTriggers; ++t)
         {
             const auto tr = midiMapping.triggered (t);
+
+            if (tr.action == MidiMappingManager::ActionPad)   // tr.deck holds the pad index
+            {
+                if (juce::isPositiveAndBelow (tr.deck, PadBank::numPads))
+                    padBank.triggerPad (tr.deck);             // RT-safe primitive (no logging)
+                continue;
+            }
+
             if (! juce::isPositiveAndBelow (tr.deck, numDecks)) continue;
 
             if (tr.action == MidiMappingManager::ActionPlay)
@@ -316,10 +389,18 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
     }
 
-    juce::AudioBuffer<float> micInput;
+    // Mic capture reuses the pre-allocated micScratch (no RT alloc). micCaptured
+    // marks whether it holds this block's input (replaces the old getNumSamples check).
+    juce::AudioBuffer<float>& micInput = micScratch;
+    bool micCaptured = false;
     const bool isCapturingPerformance = masterRecorder.isRecording();
     if ((getBoolParam ("micMonitor") || isCapturingPerformance) && getTotalNumInputChannels() > 0)
-        micInput.makeCopyOf (buffer, true);
+    {
+        micInput.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            micInput.copyFrom (ch, 0, buffer, ch, 0, buffer.getNumSamples());
+        micCaptured = true;
+    }
 
     buffer.clear();
 
@@ -343,49 +424,77 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     for (int i = 0; i < numDecks; ++i)
     {
-        const auto deck = deckPrefix (i);
+        const auto& ids = deckIds[(size_t) i];   // pre-concatenated param ids (no RT alloc)
         const int cfSide = getDeckCfSide (i);   // 0=A(left), 1=Center, 2=B(right)
         const float deckMixGain = (cfSide == 0) ? leftBusGain
                                 : (cfSide == 2) ? rightBusGain
                                 : 1.0f;   // Center: unaffected by crossfader
         const auto deckAudio = decks[(size_t) i].getLoadedAudio();
-        const auto analysisForGrid = getDeckAnalysis (i);
-        const auto beatGrid = BeatSyncEngine::makeGrid (analysisForGrid,
-                                                        getFloatParam (deck + "Bpm"),
-                                                        getFloatParam (deck + "BeatOffset"),
-                                                        getFloatParam (deck + "Downbeat"),
-                                                        BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
-                                                        BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+
+        // Rebuild the beat grid only when its inputs change — makeGrid copies two
+        // vectors and sorts, which must not run every block on the audio thread.
+        const float deckBpm      = getFloatParam (ids.bpm);
+        const float deckBeatOff  = getFloatParam (ids.beatOffset);
+        const float deckDownbeat = getFloatParam (ids.downbeat);
+        const int   deckInterp   = (int) std::round (getFloatParam (ids.tempoInterp));
+        const int   deckSyncMode = (int) std::round (getFloatParam (ids.syncMode));
+        const GridCacheKey gridKey { deckAudio.get(), deckBpm, deckBeatOff, deckDownbeat, deckInterp, deckSyncMode };
+        if (gridKey != cachedGridKey[(size_t) i])
+        {
+            cachedBeatGrid[(size_t) i] = BeatSyncEngine::makeGrid (getDeckAnalysis (i), deckBpm, deckBeatOff, deckDownbeat,
+                                                                   BeatSyncEngine::tempoInterpretationFromChoice (deckInterp),
+                                                                   BeatSyncEngine::syncModeFromChoice (deckSyncMode));
+            cachedGridKey[(size_t) i] = gridKey;
+        }
+        const auto& beatGrid = cachedBeatGrid[(size_t) i];
         const bool hostTempoSync = getBoolParam ("hostSync") && syncSnapshot.bpm > 1.0;
 
-        auto analysis = getBoolParam (deck + "LiveKey") ? getDeckLiveAnalysisFromAtomics (i) : getDeckAnalysis (i);
-        if (! analysis.hasKey())
-            analysis = getDeckAnalysis (i);
+        // Harmonic-match key: read the two scalars directly instead of copying the
+        // whole TrackAnalysis (which carries beat-grid vectors) every block.
+        int  keyPc = -1;
+        bool keyHas = false;
+        if (getBoolParam (ids.liveKey))
+        {
+            const int   pc   = liveKeyPitchClass[(size_t) i].load (std::memory_order_relaxed);
+            const float conf = liveKeyConfidence[(size_t) i].load (std::memory_order_relaxed);
+            if (pc >= 0 && pc < 12 && conf > 0.0f) { keyHas = true; keyPc = pc; }
+        }
+        if (! keyHas && deckAudio && deckAudio->analysis.hasKey())
+        {
+            keyHas = true;
+            keyPc  = deckAudio->analysis.keyPitchClass;
+        }
         const int masterKeyChoice = (int) std::round (getFloatParam ("masterKey"));
-        const int deckKeyChoice = (int) std::round (getFloatParam (deck + "KeyTarget"));
+        const int deckKeyChoice = (int) std::round (getFloatParam (ids.keyTarget));
         const int targetKey = keyTargetChoiceToPitchClass (masterKeyChoice > 0 ? masterKeyChoice : deckKeyChoice);
-        const float matchShift = analysis.hasKey() && targetKey >= 0
-                               ? (float) TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey)
+        const float matchShift = keyHas && targetKey >= 0
+                               ? (float) TrackAnalyzer::nearestSemitoneDelta (keyPc, targetKey)
                                : 0.0f;
         const auto warpPlan = warpEngine.makePlan (syncSnapshot,
                                                    beatGrid,
                                                    deckAudio ? deckAudio->sourceSampleRate : currentSampleRate,
                                                    deckAudio ? (double) deckAudio->audio.getNumSamples() : 0.0,
-                                                   getFloatParam (deck + "Pitch") + matchShift,
-                                                   getBoolParam (deck + "KeyLock"),
-                                                   hostTempoSync && getBoolParam ("beatSync"));
+                                                   getFloatParam (ids.pitch) + matchShift,
+                                                   getBoolParam (ids.keyLock),
+                                                   hostTempoSync && getBoolParam ("beatSync"),
+                                                   /*wantStatus*/ false);
 
         std::array<float, DeckPlayer::numStemLanes> stemGains {};
+        std::array<float, DeckPlayer::numStemLanes> stemPitch {};
         for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
-            stemGains[(size_t) lane] = getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain");
+        {
+            stemGains[(size_t) lane] = getFloatParam (ids.stemGain[(size_t) lane]);
+            stemPitch[(size_t) lane] = (lane >= DeckPlayer::drumsStem && lane <= DeckPlayer::vocalsStem)
+                                     ? getFloatParam (ids.stemPitch[(size_t) lane]) : 0.0f;
+        }
 
         auto& deckBuffer = deckScratchBuffers[(size_t) i];
         deckBuffer.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
         deckBuffer.clear();
-        decks[(size_t) i].process (deckBuffer, 0, buffer.getNumSamples(), getBoolParam (deck + "Play"), getFloatParam (deck + "Volume"),
-                                   getFloatParam (deck + "Fader"),
-                                   getFloatParam (deck + "Low"), getFloatParam (deck + "Mid"), getFloatParam (deck + "High"),
-                                   getFloatParam (deck + "Filter"), 1.0f, warpPlan.timePitch, stemGains,
+        decks[(size_t) i].process (deckBuffer, 0, buffer.getNumSamples(), getBoolParam (ids.play), getFloatParam (ids.volume),
+                                   getFloatParam (ids.fader),
+                                   getFloatParam (ids.low), getFloatParam (ids.mid), getFloatParam (ids.high),
+                                   getFloatParam (ids.filter), 1.0f, warpPlan.timePitch, stemGains, stemPitch,
                                    warpPlan.beatSync);
         // ── Real-time stem separation ──────────────────────────────────────────
         // Active when none of the four stem lanes (drums/bass/music/vocals)
@@ -420,11 +529,29 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                     vocals.getWritePointer (0), vocals.getWritePointer (ch > 1 ? 1 : 0));
 
                 // Gain from stem knobs (same param ids as the loaded-file path)
-                const float gDrums  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem)  + "Gain")));
-                const float gBass   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::bassStem)   + "Gain")));
-                const float gMusic  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::musicStem)  + "Gain")));
-                const float gVocals = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::vocalsStem) + "Gain")));
-                const float gFull   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::fullMixStem)+ "Gain")));
+                const float gDrums  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (ids.stemGain[(size_t) DeckPlayer::drumsStem])));
+                const float gBass   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (ids.stemGain[(size_t) DeckPlayer::bassStem])));
+                const float gMusic  = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (ids.stemGain[(size_t) DeckPlayer::musicStem])));
+                const float gVocals = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (ids.stemGain[(size_t) DeckPlayer::vocalsStem])));
+                const float gFull   = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, getFloatParam (ids.stemGain[(size_t) DeckPlayer::fullMixStem])));
+
+                // Per-stem FX: independent filter + space/echo send per stem.
+                // stemFx index 0..3 maps to drums/bass/music/vocals (lanes 1..4).
+                juce::AudioBuffer<float>* stemBufs[4] = { &drums, &bass, &music, &vocals };
+                bool anyStemFx = false;
+                for (int s = 0; s < 4; ++s)
+                {
+                    const int lane = DeckPlayer::drumsStem + s;
+                    const float filt = getFloatParam (ids.stemFilt[(size_t) lane]);
+                    const float send = getFloatParam (ids.stemSend[(size_t) lane]);
+                    if (std::abs (filt - 0.5f) > 0.005f || send > 0.0005f)
+                    {
+                        anyStemFx = true;
+                        // Wrap the stem's used region so the FX processes exactly n samples.
+                        juce::AudioBuffer<float> view (stemBufs[s]->getArrayOfWritePointers(), ch, n);
+                        stemFx[(size_t) i][(size_t) s].process (view, filt, send);
+                    }
+                }
 
                 // Any stem knob differs from 0 dB? → remix separated stems
                 const bool anyStemMoved = (gDrums  < 0.999f || gDrums  > 1.001f)
@@ -432,7 +559,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                                        || (gMusic  < 0.999f || gMusic  > 1.001f)
                                        || (gVocals < 0.999f || gVocals > 1.001f);
 
-                if (anyStemMoved)
+                if (anyStemMoved || anyStemFx)
                 {
                     deckBuffer.clear (0, n);
                     for (int c = 0; c < ch; ++c)
@@ -448,15 +575,24 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         // Apply built-in FX before plugin chain
         deckFX[(size_t) i].process (deckBuffer,
-                                    getFloatParam (deck + "RevMix"),
-                                    getFloatParam (deck + "EchoMix"));
+                                    getFloatParam (ids.revMix),
+                                    getFloatParam (ids.echoMix));
         hostGraph.processChain ((HostGraph::Chain) i, deckBuffer, midi);
         deckRecorders[(size_t) i].captureBlock (deckBuffer);
+
+        // Per-deck peak (pre-crossfader) for the console channel meters.
+        for (int ch = 0; ch < 2 && ch < deckBuffer.getNumChannels(); ++ch)
+        {
+            const float blockPeak = deckBuffer.getMagnitude (ch, 0, deckBuffer.getNumSamples());
+            const float previous  = deckPeak[(size_t) i][(size_t) ch].load (std::memory_order_relaxed);
+            deckPeak[(size_t) i][(size_t) ch].store (juce::jmax (blockPeak, previous * 0.86f), std::memory_order_relaxed);
+        }
+
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             buffer.addFrom (ch, 0, deckBuffer, ch, 0, buffer.getNumSamples(), deckMixGain);
     }
 
-    if (micInput.getNumSamples() == buffer.getNumSamples())
+    if (micCaptured)
     {
         hostGraph.processChain (HostGraph::Chain::mic, micInput, midi);
         const float micGain = juce::Decibels::decibelsToGain (getFloatParam ("micGain"));
@@ -486,8 +622,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     }
     else if (isCapturingPerformance && getTotalNumInputChannels() == 0)
     {
-        micInput.setSize (juce::jmax (1, getTotalNumOutputChannels()), buffer.getNumSamples());
+        micInput.setSize (juce::jmax (1, getTotalNumOutputChannels()), buffer.getNumSamples(), false, false, true);
         micInput.clear();
+        micCaptured = true;   // capture silence so the mic recorder stays in sync
     }
 
     std::array<float, PadBank::numPads> padGains {};
@@ -519,34 +656,50 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     {
         usingTeMidi.store (false, std::memory_order_relaxed);
         if (teWrapper != nullptr)
-            juce::MessageManager::callAsync ([this] {
-                if (teWrapper != nullptr)
-                    teWrapper->edit->getTransport().stop (false, false);
-            });
+            teStopRequested.store (true, std::memory_order_relaxed);  // serviced on the message thread
     }
     arrWasPlaying = arrPlaying;
 
-    // Tracktion Engine tracks (arrangement layer — additive to the main mix)
+    // Tracktion Engine tracks (arrangement layer — additive to the main mix).
+    // Reuses pre-allocated scratch buffers — no per-block heap allocation.
     if (teWrapper != nullptr)
     {
         teWrapper->playheadSync.synchronise (*this);
-        juce::MidiBuffer teMidi;
-        juce::AudioBuffer<float> teBuf (buffer.getNumChannels(), buffer.getNumSamples());
-        teBuf.clear();
-        teWrapper->audioInterface.processBlock (teBuf, teMidi);
+        teMidiScratch.clear();
+        teScratch.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
+        teScratch.clear();
+        teWrapper->audioInterface.processBlock (teScratch, teMidiScratch);
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.addFrom (ch, 0, teBuf, ch, 0, buffer.getNumSamples());
+            buffer.addFrom (ch, 0, teScratch, ch, 0, buffer.getNumSamples());
     }
 
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
+    masterFx.process (buffer, getFloatParam ("masterFxX"), getFloatParam ("masterFxY"));
     buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
+    // AI mastering assistant sits after user trim, before the safety limiter.
+    smartMaster.process (buffer,
+                         (int) std::round (getFloatParam ("smartMasterMode")),
+                         getBoolParam ("smartMasterOn") ? getFloatParam ("smartMasterAmount") : 0.0f);
     applyLimiter (buffer, getFloatParam ("limiterCeiling"));
+
+    // Master peak meters (block peak with fall-back decay).
+    for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
+    {
+        const float blockPeak = buffer.getMagnitude (ch, 0, buffer.getNumSamples());
+        const float previous  = masterPeak[(size_t) ch].load (std::memory_order_relaxed);
+        masterPeak[(size_t) ch].store (juce::jmax (blockPeak, previous * 0.86f), std::memory_order_relaxed);
+    }
+
     masterRecorder.captureBlock (buffer);
-    if (micInput.getNumSamples() == buffer.getNumSamples())
+    if (micCaptured)
         micRecorder.captureBlock (micInput);
     if (isCapturingPerformance)
         recordingSampleCounter.fetch_add (buffer.getNumSamples(), std::memory_order_relaxed);
     transportSampleCounter += buffer.getNumSamples();
+
+    // Motorized-fader feedback: emit CC out for mapped faders whose value changed
+    // (so hardware/LED controllers track the UI). Change-detection avoids loops.
+    midiMapping.writeFeedback (midi, 0);
 }
 
 void MainPluginProcessor::applyLimiter (juce::AudioBuffer<float>& buffer, float ceilingDb)
@@ -751,6 +904,15 @@ bool MainPluginProcessor::isDeckRtssActive (int deckIndex) const
     return decks[(size_t) deckIndex].getLoadedAudio() != nullptr;
 }
 
+bool MainPluginProcessor::deckHasNeuralStems (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return false;
+    for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+        if (decks[(size_t) deckIndex].getStemAudio (lane) != nullptr)
+            return true;
+    return false;
+}
+
 void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivity)
 {
     if (juce::isPositiveAndBelow (deckIndex, numDecks))
@@ -933,6 +1095,15 @@ void MainPluginProcessor::stopArrangement()
     arrangementPlayer.stop();
     if (teWrapper != nullptr)
         teWrapper->edit->getTransport().stop (false, false);
+}
+
+void MainPluginProcessor::serviceDeferredActions()
+{
+    // Message thread only. The audio thread requests a TE transport stop via an
+    // atomic (instead of allocating a callAsync closure in processBlock).
+    if (teStopRequested.exchange (false, std::memory_order_relaxed))
+        if (teWrapper != nullptr)
+            teWrapper->edit->getTransport().stop (false, false);
 }
 
 void MainPluginProcessor::setArrangementPositionSeconds (double s)
@@ -1412,6 +1583,30 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
     return text;
 }
 
+std::vector<double> MainPluginProcessor::getDeckBeatGridSeconds (int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return {};
+
+    const auto audio = decks[(size_t) deckIndex].getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0)
+        return {};
+
+    const auto deck = deckPrefix (deckIndex);
+    const auto grid = BeatSyncEngine::makeGrid (audio->analysis,
+                                                getFloatParam (deck + "Bpm"),
+                                                getFloatParam (deck + "BeatOffset"),
+                                                getFloatParam (deck + "Downbeat"),
+                                                BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
+                                                BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+
+    std::vector<double> seconds;
+    seconds.reserve (grid.beatGridSamples.size());
+    for (const auto s : grid.beatGridSamples)
+        seconds.push_back (s / audio->sourceSampleRate);
+    return seconds;
+}
+
 juce::String MainPluginProcessor::getWarpEngineStatus() const
 {
     return warpEngine.getStatusSummary();
@@ -1674,12 +1869,12 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
 
     for (int i = 0; i < numDecks; ++i)
     {
-        const auto prefix = deckPrefix (i);
+        const auto& ids = deckIds[(size_t) i];   // pre-concatenated ids — no RT alloc
         auto& state = lastDeckPerformanceState[(size_t) i];
         const auto deckName = deckNameFor (i);
         const auto path = getDeckPath (i);
 
-        auto logFloat = [&] (const juce::String& parameter, float value, float& previous, float threshold)
+        auto logFloat = [&] (juce::StringRef parameter, float value, float& previous, float threshold)
         {
             if (changedFloat (value, previous, threshold))
             {
@@ -1688,46 +1883,46 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
             }
         };
 
-        const bool play = getBoolParam (prefix + "Play");
+        const bool play = getBoolParam (ids.play);
         if (play != state.play)
         {
             state.play = play;
             logPerformanceEvent (blockStartSample, play ? "play_start" : "play_stop", deckName, "play", play ? "on" : "off", path);
         }
 
-        logFloat ("bpm", getFloatParam (prefix + "Bpm"), state.bpm, 0.01f);
-        logFloat ("volume", getFloatParam (prefix + "Volume"), state.volume, 0.05f);
-        logFloat ("fader", getFloatParam (prefix + "Fader"), state.fader, 0.002f);
-        logFloat ("pitch", getFloatParam (prefix + "Pitch"), state.pitch, 0.01f);
-        logFloat ("beat_offset", getFloatParam (prefix + "BeatOffset"), state.beatOffset, 0.01f);
-        logFloat ("downbeat", getFloatParam (prefix + "Downbeat"), state.downbeat, 0.01f);
-        logFloat ("eq_low", getFloatParam (prefix + "Low"), state.low, 0.05f);
-        logFloat ("eq_mid", getFloatParam (prefix + "Mid"), state.mid, 0.05f);
-        logFloat ("eq_high", getFloatParam (prefix + "High"), state.high, 0.05f);
-        logFloat ("filter", getFloatParam (prefix + "Filter"), state.filter, 0.002f);
+        logFloat ("bpm", getFloatParam (ids.bpm), state.bpm, 0.01f);
+        logFloat ("volume", getFloatParam (ids.volume), state.volume, 0.05f);
+        logFloat ("fader", getFloatParam (ids.fader), state.fader, 0.002f);
+        logFloat ("pitch", getFloatParam (ids.pitch), state.pitch, 0.01f);
+        logFloat ("beat_offset", getFloatParam (ids.beatOffset), state.beatOffset, 0.01f);
+        logFloat ("downbeat", getFloatParam (ids.downbeat), state.downbeat, 0.01f);
+        logFloat ("eq_low", getFloatParam (ids.low), state.low, 0.05f);
+        logFloat ("eq_mid", getFloatParam (ids.mid), state.mid, 0.05f);
+        logFloat ("eq_high", getFloatParam (ids.high), state.high, 0.05f);
+        logFloat ("filter", getFloatParam (ids.filter), state.filter, 0.002f);
 
-        const bool keyLock = getBoolParam (prefix + "KeyLock");
+        const bool keyLock = getBoolParam (ids.keyLock);
         if (keyLock != state.keyLock)
         {
             state.keyLock = keyLock;
             logPerformanceEvent (blockStartSample, "effect_toggle", deckName, "key_lock", keyLock ? "on" : "off");
         }
 
-        const bool liveKey = getBoolParam (prefix + "LiveKey");
+        const bool liveKey = getBoolParam (ids.liveKey);
         if (liveKey != state.liveKey)
         {
             state.liveKey = liveKey;
             logPerformanceEvent (blockStartSample, "effect_toggle", deckName, "live_key", liveKey ? "on" : "off");
         }
 
-        const int tempoInterpretation = (int) std::round (getFloatParam (prefix + "TempoInterpretation"));
+        const int tempoInterpretation = (int) std::round (getFloatParam (ids.tempoInterp));
         if (tempoInterpretation != state.tempoInterpretation)
         {
             state.tempoInterpretation = tempoInterpretation;
             logPerformanceEvent (blockStartSample, "sync_change", deckName, "tempo_interpretation", juce::String (tempoInterpretation));
         }
 
-        const int syncMode = (int) std::round (getFloatParam (prefix + "SyncMode"));
+        const int syncMode = (int) std::round (getFloatParam (ids.syncMode));
         if (syncMode != state.syncMode)
         {
             state.syncMode = syncMode;

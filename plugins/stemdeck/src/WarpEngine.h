@@ -75,7 +75,8 @@ public:
                    double sourceLengthSamples,
                    float pitchSemitones,
                    bool wantsPitchPreservation,
-                   bool beatSyncEnabled) const;
+                   bool beatSyncEnabled,
+                   bool wantStatus = true) const;   // false on the audio thread
 
 private:
     std::unique_ptr<TimeStretchBackend> backend;

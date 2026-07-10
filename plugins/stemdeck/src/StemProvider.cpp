@@ -26,8 +26,18 @@ public:
         if (! result.allCoreStemsReady)
         {
             juce::String message;
-            const auto command = provider.getSeparatorCommand();
-            if (StemProvider::runSeparatorCommand (command, sourceFile, result.cacheDirectory, message))
+            // Prefer in-process on-device neural (ONNX/CoreML) when a model is loaded
+            // — faster, no subprocess; else fall back to the demucs CLI.
+            bool done = provider.neuralAvailable()
+                     && provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
+            if (! done)
+            {
+                juce::String cliMsg;
+                if (StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), sourceFile, result.cacheDirectory, cliMsg))
+                    done = true;
+                message = message.isNotEmpty() ? message + u8 (" \xe2\x80\xa2 ") + cliMsg : cliMsg;
+            }
+            if (done)
                 result = provider.inspectCache (sourceFile);
 
             if (message.isNotEmpty())
@@ -68,9 +78,24 @@ StemProvider::StemProvider()
             separatorCommand = configFile.loadFileAsString().trim();
     }
 
-    // Auto-detect demucs if still not configured
+    // Auto-detect demucs if still not configured. An optional model override
+    // (e.g. "htdemucs_ft" — the fine-tuned, higher-quality model) is read from
+    // StemProvider/separator-model.txt and passed via demucs' -n flag.
     if (separatorCommand.trim().isEmpty())
     {
+        juce::String modelArgs;
+        {
+            auto modelFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                               .getChildFile ("Sattari").getChildFile ("StemDeck")
+                               .getChildFile ("StemProvider").getChildFile ("separator-model.txt");
+            if (modelFile.existsAsFile())
+            {
+                const auto model = modelFile.loadFileAsString().trim();
+                if (model.isNotEmpty() && ! model.containsAnyOf (" \t\r\n\"'"))
+                    modelArgs = " -n " + model;
+            }
+        }
+
         const juce::StringArray candidatePaths {
             "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.9/bin/demucs",
             "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.10/bin/demucs",
@@ -83,7 +108,7 @@ StemProvider::StemProvider()
         {
             if (juce::File (path).existsAsFile())
             {
-                separatorCommand = path + " --out {output} {input}";
+                separatorCommand = path + modelArgs + " --out {output} {input}";
                 break;
             }
         }
@@ -95,8 +120,20 @@ StemProvider::StemProvider()
             {
                 const auto path = which.readAllProcessOutput().trim().upToFirstOccurrenceOf ("\n", false, false).trim();
                 if (path.isNotEmpty() && juce::File (path).existsAsFile())
-                    separatorCommand = path + " --out {output} {input}";
+                    separatorCommand = path + modelArgs + " --out {output} {input}";
             }
+        }
+    }
+
+    // On-device neural model (ONNX/CoreML), if the build has ONNX support and a
+    // model file is present. When loaded, it is preferred over the demucs CLI.
+    if (NeuralStemEngine::isCompiledIn())
+    {
+        const auto modelFile = NeuralStemEngine::defaultModelFile();
+        if (modelFile.existsAsFile())
+        {
+            juce::String msg;
+            neuralEngine.loadModel (modelFile, msg);
         }
     }
 }
@@ -104,6 +141,44 @@ StemProvider::StemProvider()
 StemProvider::~StemProvider()
 {
     pool.removeAllJobs (true, 3000);
+}
+
+bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message)
+{
+    if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (sourceFile));
+    if (reader == nullptr) { message = "could not read source for neural separation"; return false; }
+
+    const int len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 600.0));
+    juce::AudioBuffer<float> input (2, juce::jmax (1, len));
+    reader->read (&input, 0, len, 0, true, true);
+    const double sr = reader->sampleRate;
+
+    juce::AudioBuffer<float> d, b, m, v;
+    if (! neuralEngine.separate (input, sr, d, b, m, v, nullptr, message))
+        return false;
+
+    cacheDirectory.createDirectory();
+    auto writeWav = [&] (const juce::AudioBuffer<float>& buf, const juce::String& name) -> bool
+    {
+        auto outFile = cacheDirectory.getChildFile (name);
+        outFile.deleteFile();
+        std::unique_ptr<juce::FileOutputStream> os (outFile.createOutputStream());
+        if (os == nullptr) return false;
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (os.get(), sr, 2, 24, {}, 0));
+        if (writer == nullptr) return false;
+        os.release();   // writer takes ownership of the stream
+        return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+    };
+
+    const bool ok = writeWav (d, "drums.wav") && writeWav (b, "bass.wav")
+                 && writeWav (m, "music.wav") && writeWav (v, "vocals.wav");
+    message = ok ? "on-device neural separation complete" : "neural stem write failed";
+    return ok;
 }
 
 void StemProvider::setCacheRoot (const juce::File& root)
@@ -155,6 +230,17 @@ void StemProvider::requestStemsAsync (const juce::File& sourceFile, Callback cal
 {
     if (! sourceFile.existsAsFile())
         return;
+
+    // Dedupe: if a job for this exact source is already queued or running, drop the
+    // duplicate. Two jobs share the same cache + "-separating" temp dir and would
+    // race on deleteRecursively/moveFileTo. A completed job clears both flags, so
+    // re-requests after completion still work.
+    {
+        const juce::ScopedLock lock (statusLock);
+        auto it = statusByHash.find (hashForFile (sourceFile));
+        if (it != statusByHash.end() && (it->second.jobQueued || it->second.jobRunning))
+            return;
+    }
 
     const auto result = inspectCache (sourceFile);
     updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),

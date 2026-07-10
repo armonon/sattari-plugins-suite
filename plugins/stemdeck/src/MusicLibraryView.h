@@ -22,10 +22,19 @@ public:
     ~MusicLibraryView() override;
 
     std::function<void(const juce::File&)> onLoadFile;
+    std::function<void(const std::array<juce::File, 4>&)> onLoadSet;   // AI set builder → decks A-D
 
     void addFolderInteractive();             // opens a chooser, then scans
     void addFolder (const juce::File& folder, bool persist = true);
     void restorePersistedCrates();           // reload saved crates on launch
+
+    // Generative set builder: parse BPM / key / mood from a free-text prompt and
+    // rank the analyzed library by BPM proximity + Camelot harmony + mood bias.
+    void buildSetFromPrompt (const juce::String& prompt);
+
+    // Read access for Rekordbox export (analyzed tracks only).
+    struct ExportEntry { juce::File file; float bpm = 0.0f; int keyPitchClass = -1; bool keyMinor = false; };
+    std::vector<ExportEntry> getAnalyzedEntries() const;
 
     void resized() override;
     void paint (juce::Graphics&) override;
@@ -71,6 +80,8 @@ private:
 
     juce::TableListBox table { "library", this };
     juce::TextEditor    searchBox;
+    juce::TextEditor    promptBox;                       // AI set builder prompt
+    juce::TextButton    buildSetButton { "Build Set" };
     juce::TextButton    addFolderButton { "+ Folder" };
     juce::TextButton    clearButton     { "Clear" };
     juce::Label         countLabel;

@@ -31,8 +31,13 @@ public:
     void setLoopRegion (double inSeconds, double outSeconds, bool active);
     void clearLoopRegion();
 
-    // Beat grid — draw subtle tick marks for beat positions
+    // Beat grid — draw beat lines for beat positions (downbeats emphasised)
     void setBeatGridSeconds (std::vector<double> beatSeconds);
+
+    // Beat-match state: when locked, the grid renders in the sync-lock colour so
+    // the beat alignment is visible directly on the waveform. downbeatIndex marks
+    // which grid entry is the first downbeat (bar boundaries = every 4 beats from it).
+    void setBeatSyncState (bool locked, int downbeatIndex = 0);
 
     // Zoom: level=1 = full track, level=4 = 4× zoomed in; scroll 0..1
     void setZoom (float level, float scrollFraction);
@@ -44,6 +49,15 @@ public:
     // Show RTSS badge when real-time separation is active with no offline stems
     void setRtssActive (bool active);
     bool getRtssActive() const noexcept { return rtssActive; }
+
+    // When false, the empty-state placeholder shows its waveform bars without the
+    // "DROX AUDIO" drop hint (used to make a deck read as active in the showcase).
+    void setShowDropHint (bool shouldShow) { showDropHint = shouldShow; repaint(); }
+
+    // Showcase: render a jagged coloured demo waveform regardless of real audio
+    // (so a deck reads as "active" in the mockup look). Real audio overrides once
+    // a valid thumbnail is present.
+    void setDemoWaveform (bool shouldShow) { demoWaveform = shouldShow; repaint(); }
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -79,12 +93,16 @@ private:
     bool   loopActive     = false;
 
     std::vector<double> beatGridSeconds;
+    bool  beatSyncLocked   = false;
+    int   beatDownbeatIndex = 0;
     double introEndSeconds   = -1.0;
     double outroStartSeconds = -1.0;
 
     float zoomLevel      = 1.0f;
     float scrollFraction = 0.0f;
     bool  rtssActive     = false;
+    bool  showDropHint   = true;
+    bool  demoWaveform   = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformDisplay)
 };

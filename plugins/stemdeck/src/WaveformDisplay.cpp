@@ -164,6 +164,15 @@ void WaveformDisplay::setBeatGridSeconds (std::vector<double> beatSeconds)
     repaint();
 }
 
+void WaveformDisplay::setBeatSyncState (bool locked, int downbeatIndex)
+{
+    if (beatSyncLocked == locked && beatDownbeatIndex == downbeatIndex)
+        return;
+    beatSyncLocked   = locked;
+    beatDownbeatIndex = downbeatIndex;
+    repaint();
+}
+
 void WaveformDisplay::setZoom (float level, float scroll)
 {
     zoomLevel      = juce::jmax (1.0f, level);
@@ -215,7 +224,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
 
     g.setColour (juce::Colour (kPanelDeep));
     g.fillRoundedRectangle (area, 6.0f);
-    g.setColour (accent.withAlpha (0.35f));
+    g.setColour (juce::Colour (kHairline));
     g.drawRoundedRectangle (area.reduced (0.5f), 6.0f, 1.0f);
 
     auto wave = area.reduced (4.0f, 4.0f);
@@ -230,6 +239,27 @@ void WaveformDisplay::paint (juce::Graphics& g)
                                                     juce::jmax (musicThumbnail.getTotalLength(), vocalsThumbnail.getTotalLength()))
                                      : thumbnail.getTotalLength();
     const auto [tStart, tEnd] = visibleTimeRange (totalLen);
+
+    // Showcase: jagged coloured demo waveform for the deck (overrides flat/empty
+    // stem placeholders so A/B/C read as active).
+    if (demoWaveform)
+    {
+        juce::Random rng ((juce::int64) title.hashCode() ^ 0x51ab77);
+        const int n = juce::jmax (24, (int) wave.getWidth());
+        const float cy = wave.getCentreY();
+        g.setColour (accent.withAlpha (0.25f));
+        g.drawHorizontalLine ((int) std::round (cy), wave.getX(), wave.getRight());
+        float env = 0.55f;
+        for (int i = 0; i < n; ++i)
+        {
+            env = juce::jlimit (0.14f, 1.0f, env + (rng.nextFloat() - 0.5f) * 0.18f);
+            const float amp = env * (0.4f + 0.6f * rng.nextFloat()) * wave.getHeight() * 0.46f;
+            const float x   = wave.getX() + wave.getWidth() * (float) i / (float) (n - 1);
+            g.setColour (accent.withAlpha (i % 2 == 0 ? 0.92f : 0.6f));
+            g.drawLine (x, cy - amp, x, cy + amp, 1.2f);
+        }
+        return;
+    }
 
     // ── Loop region tint ─────────────────────────────────────────────────────
     if (loopInSeconds >= 0.0 && loopOutSeconds > loopInSeconds && totalLen > 0.0)
@@ -274,9 +304,9 @@ void WaveformDisplay::paint (juce::Graphics& g)
             if (stems[lane]->getTotalLength() > 0.0)
             {
                 const auto waveArea = band.reduced (0.0f, 2.0f);
-                g.setColour (col.withAlpha (0.28f));
+                g.setColour (col.withAlpha (0.18f));                 // soft peak underlay
                 stems[lane]->drawChannels (g, waveArea.toNearestInt(), tStart, tEnd, 1.0f);
-                g.setColour (col.brighter (0.2f).withAlpha (0.92f));
+                g.setColour (col.withAlpha (0.88f));                 // flat body — no gradient
                 stems[lane]->drawChannels (g, waveArea.reduced (0, 1).toNearestInt(), tStart, tEnd, 0.85f);
             }
             else
@@ -289,8 +319,8 @@ void WaveformDisplay::paint (juce::Graphics& g)
             }
         }
 
-        // Vertical grid
-        g.setColour (juce::Colour (kHairline).withAlpha (0.25f));
+        // Vertical grid (very faint — the beat grid carries timing).
+        g.setColour (juce::Colour (kHairline).withAlpha (0.15f));
         for (int i = 1; i < 8; ++i)
         {
             const float x = wave.getX() + wave.getWidth() * (float) i / 8.0f;
@@ -300,18 +330,18 @@ void WaveformDisplay::paint (juce::Graphics& g)
     else if (thumbnail.getTotalLength() > 0.0)
     {
         // ── Full-mix waveform ─────────────────────────────────────────────────
-        g.setColour (juce::Colour (kHairline).withAlpha (0.45f));
-        for (int i = 1; i < 8; ++i)
+        g.setColour (juce::Colour (kHairline).withAlpha (0.18f));
+        for (int i = 1; i < 4; ++i)
         {
-            const float x = wave.getX() + wave.getWidth() * (float) i / 8.0f;
+            const float x = wave.getX() + wave.getWidth() * (float) i / 4.0f;
             g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getBottom());
         }
-        g.setColour (juce::Colour (kHairline).withAlpha (0.30f));
+        g.setColour (juce::Colour (kHairline).withAlpha (0.18f));
         g.drawHorizontalLine ((int) std::round (wave.getCentreY()), wave.getX(), wave.getRight());
 
-        g.setColour (accent.withAlpha (0.30f));
+        g.setColour (accent.withAlpha (0.18f));                 // soft peak underlay
         thumbnail.drawChannels (g, wave.toNearestInt(), tStart, tEnd, 1.0f);
-        g.setColour (accent.brighter (0.25f).withAlpha (0.95f));
+        g.setColour (accent.withAlpha (0.85f));                 // flat body — no gradient
         thumbnail.drawChannels (g, wave.toNearestInt().reduced (0, 1), tStart, tEnd, 0.85f);
     }
     else
@@ -339,18 +369,41 @@ void WaveformDisplay::paint (juce::Graphics& g)
         }
         g.setColour (juce::Colour (kTextMuted));
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        g.drawText ("DROP AUDIO", wave.toNearestInt().reduced (4), juce::Justification::centred);
+        if (showDropHint)
+            g.drawText ("DROX AUDIO", wave.toNearestInt().reduced (4), juce::Justification::centred);
     }
 
-    // ── Beat grid tick marks ─────────────────────────────────────────────────
+    // ── Beat-match grid ──────────────────────────────────────────────────────
+    // Beat lines drawn full-height so alignment is visible directly on the wave;
+    // downbeats (bar boundaries) emphasised. When the deck is phase-locked to the
+    // master, the grid turns the sync-lock green so beat-match reads at a glance.
     if (! beatGridSeconds.empty() && totalLen > 0.0)
     {
-        g.setColour (juce::Colour (kTextMuted).withAlpha (0.40f));
-        for (double beat : beatGridSeconds)
+        const juce::Colour lockCol = juce::Colour (0xFF37D98A);         // sync-lock green
+        const juce::Colour freeCol = juce::Colour (kTextMuted);
+        const juce::Colour beatCol = beatSyncLocked ? lockCol : freeCol;
+
+        for (size_t bi = 0; bi < beatGridSeconds.size(); ++bi)
         {
+            const double beat = beatGridSeconds[bi];
             if (beat < tStart || beat > tEnd) continue;
             const float x = wave.getX() + wave.getWidth() * (float) ((beat - tStart) / (tEnd - tStart));
-            g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getY() + 8.0f);
+
+            // Bar boundary = every 4th beat measured from the downbeat index.
+            const bool isDownbeat = (((int) bi - beatDownbeatIndex) % 4) == 0;
+            if (isDownbeat)
+            {
+                g.setColour (beatCol.withAlpha (beatSyncLocked ? 0.55f : 0.34f));
+                g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getBottom());
+                // Solid cap top + bottom to mark the bar.
+                g.setColour (beatCol.withAlpha (beatSyncLocked ? 0.95f : 0.60f));
+                g.fillRect (juce::Rectangle<float> (x - 0.5f, wave.getY(), 1.5f, 4.0f));
+            }
+            else
+            {
+                g.setColour (beatCol.withAlpha (beatSyncLocked ? 0.28f : 0.16f));
+                g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getBottom());
+            }
         }
     }
 
@@ -418,9 +471,9 @@ void WaveformDisplay::paint (juce::Graphics& g)
     // ── Play / pause glyph ───────────────────────────────────────────────────
     if (totalLen > 0.0)
     {
-        const float glyphSize = juce::jmin (wave.getHeight() * 0.6f, 70.0f);
+        const float glyphSize = juce::jmin (wave.getHeight() * 0.5f, 56.0f);
         const auto  glyphArea = juce::Rectangle<float> (glyphSize, glyphSize).withCentre (wave.getCentre());
-        g.setColour (accent.withAlpha (isPlaying ? 0.18f : 0.32f));
+        g.setColour (accent.withAlpha (isPlaying ? 0.08f : 0.16f));
         if (isPlaying)
         {
             juce::Path play;

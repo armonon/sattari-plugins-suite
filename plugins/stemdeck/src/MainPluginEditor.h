@@ -11,8 +11,13 @@
 #include "MixerView.h"
 #include "MusicLibraryView.h"
 #include "PianoRollView.h"
+#include "DrumExtractor.h"
+#include "MelodyExtractor.h"
+#include "NeuralTranscriber.h"
+#include "RekordboxIO.h"
 #include "StemDeckLookAndFeel.h"
 #include "WaveformDisplay.h"
+#include "XYPad.h"
 
 class MainPluginEditor final : public juce::AudioProcessorEditor,
                                private juce::Timer,
@@ -38,6 +43,8 @@ private:
         juce::ComboBox stemLane;
         juce::TextButton loadStem { "Stem" };
         juce::TextButton aiStems { "AI Split" };
+        juce::TextButton extractMidi;   // audio→MIDI melody extraction (SRC tab)
+        juce::TextButton extractDrums;  // beatbox/percussion→drum pattern (SRC tab)
         juce::ToggleButton play;
         juce::TextButton cue { "Cue" };
         juce::ComboBox tempoInterpretation;
@@ -85,6 +92,10 @@ private:
         std::unique_ptr<SliderAttachment> reverbMixAttachment, echoMixAttachment;
         // Superknob: drives reverb + echo simultaneously (not APVTS-attached)
         juce::Slider macroKnob;
+
+        // ── Per-stem FX (drums/bass/music/vocals): filter + space/echo send ────
+        std::array<juce::Slider, 4> stemFilt, stemSend, stemPitch;
+        std::array<std::unique_ptr<SliderAttachment>, 4> stemFiltAttachments, stemSendAttachments, stemPitchAttachments;
 
         // ── Crossfader assign: A / Center / B ────────────────────────────────
         std::array<juce::TextButton, 3> cfSideBtns;   // [0]=A  [1]=Ctr  [2]=B
@@ -260,6 +271,21 @@ private:
         }
         float getLaneGainDb (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? laneGainDb[(size_t) lane] : 0.0f; }
         void  setLaneGainDb (int lane, float db) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneGainDb[(size_t) lane] = juce::jlimit (-60.0f, 6.0f, db); repaint(); } }
+        // ---- Editable automation: one draggable breakpoint curve per deck lane ----
+        // Targets: 0 = channel fader, 1 = filter, 2 = pitch, 3 = vocals FX send.
+        static constexpr int numAutoTargets = 4;
+        struct EditAutomation
+        {
+            bool visible = false;
+            int  target  = 0;
+            std::vector<std::pair<double, float>> points;   // (seconds, normalized 0..1)
+        };
+        void  setShowDemoBlocks (bool on) { showDemoBlocks = on; repaint(); }   // showcase placeholder clips
+        bool  isAutomationVisible (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numLanes) && editAuto[(size_t) lane].visible; }
+        // Interpolated value at a play position; returns -1 when the lane's curve
+        // is hidden or empty. targetOut receives the curve's parameter target.
+        float automationValueAt (int lane, double seconds, int& targetOut) const;
+
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
         bool  isLaneSoloed (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneSoloed[(size_t) lane]; }
         void  toggleLaneMute (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneMuted[(size_t) lane]  = ! laneMuted[(size_t) lane];  repaint(); } }
@@ -304,6 +330,10 @@ private:
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
         std::array<float, numEditableLanes> laneGainDb {};   // 0 dB default
         std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
+        std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
+        std::array<EditAutomation, numLanes> editAuto;
+        int dragAutoLane = -1, dragAutoPointIdx = -1;
+        bool showDemoBlocks = true;   // showcase placeholder timeline clips
         std::array<std::vector<MidiClipData>, numEditableLanes> midiClips {};
         MidiRef activeMidiDrag;
         double  dragStartMidiStart = 0.0;
@@ -398,10 +428,26 @@ private:
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStemBounds {};
-    juce::Rectangle<int> recordModuleBounds {};
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStemFxBounds {};
+    juce::Rectangle<int> masterOutBounds {};    // MASTER OUTPUT panel (meters/gain/tempo)
+    juce::Rectangle<int> masterMeterBounds {};  // stereo meter zone inside it
+    juce::Rectangle<int> masterTempoBounds {};  // painted GLOBAL TEMPO box
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckMeterBounds {};  // console per-deck meters
+    juce::TextButton keyLockAllButton { "Key Lock" };
+    juce::TextButton aiMasterButton { "AI Master" };
+    juce::ComboBox aiMasterMode;
+    juce::TextButton rbxExportButton { "RBX Save" };
+    juce::TextButton rbxImportButton { "RBX Load" };
+    std::unique_ptr<juce::FileChooser> rbxChooser;
+    RekordboxIO::CueMap importedCues;   // path → cues, persisted; applied on deck load
+    std::array<juce::String, MainPluginProcessor::numDecks> lastCuePaths;
+    void applyImportedCues (int deckIndex);
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> aiMasterAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aiMasterModeAttachment;
     juce::Rectangle<int> headerBarBounds {};
     juce::Rectangle<int> tempoChipBounds {};
     MixerSection mixerPanel;
+    XYPad masterFxPad;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton recordButton { "Record WAV" };
@@ -417,7 +463,7 @@ private:
     juce::TextButton razorButton { "Razor" };
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton arrLoopButton { "Loop" };
-    juce::TextButton launchAllButton { ">> ALL" };
+    juce::TextButton launchAllButton { ">>>" };
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton arrRecordButton { "Record" };
     juce::TextButton undoButton { "Undo" };
@@ -464,15 +510,52 @@ private:
     std::array<juce::String, MainPluginProcessor::numDecks> deckPaths;
     std::array<std::array<juce::String, DeckPlayer::numStemLanes>, MainPluginProcessor::numDecks> deckStemPaths {};
     std::array<bool, MainPluginProcessor::numDecks> lastDeckPlayingUI {};
+    std::array<juce::String, MainPluginProcessor::numDecks> lastBeatGridKey {};
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };
     juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3", "*", "Audio files" };
     juce::DirectoryContentsList browserContents { &browserFilter, browserThread };
     std::unique_ptr<juce::FileTreeComponent> fileBrowser;
     std::unique_ptr<MusicLibraryView> libraryView;
-    juce::TextButton toggleLibraryButton { "Library" };
+    juce::TextButton toggleLibraryButton { "LIBRARY" };
+    juce::TextButton navDecksButton { "DECKS" };
+    std::array<juce::TextButton, 4> viewSwitchBtns;   // mini icon strip under the title
+    // Nav bar: icon-above-label cells (matches the mockup header).
+    std::array<juce::Rectangle<int>, 5> navRects {};
+    void drawNavIcon (juce::Graphics&, int which, juce::Rectangle<float> box, juce::Colour) const;
+    // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
+    // limiter/mic/utility chips) are hidden by default for the clean mockup view.
+    bool advancedVisible = false;
+    juce::TextButton advancedToggle { "TOOLS" };
+    // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline blocks).
+    // A real Settings gear toggles this back to live-loaded-audio behavior.
+    bool showcaseMode = true;
+    void setShowcaseMode (bool on);
+    juce::TextButton settingsButton;   // gear — discoverable preferences (text set in ctor)
+    void showSettingsMenu();
+    void mouseDoubleClick (const juce::MouseEvent&) override;   // dbl-click title = reveal advanced
+    void mouseDown (const juce::MouseEvent&) override;          // header BPM/Key chips
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp   (const juce::MouseEvent&) override;          // disarms BPM-chip drag
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    // Interactive deck header chips + all-deck sync.
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckBpmChipBounds {}, deckKeyChipBounds {};
+    int    bpmDragDeck = -1;
+    int    bpmDragStartY = 0;
+    double bpmDragStartVal = 120.0;
+    void setDeckBpm (int deckIndex, double bpm);
+    void showKeyMenuForDeck (int deckIndex);
+    void syncBpmAll();   // warp all decks to the master deck's tempo (hotkey B)
+    void syncKeyAll();   // harmonically match all decks to the master deck (hotkey K)
+    juce::TextButton syncBpmButton { "BPM SYNC" };
+    juce::TextButton syncKeyButton { "KEY SYNC" };
+    // Master deck = sync reference. Auto-follows the last deck to start playing;
+    // click a deck's letter badge to override.
+    int masterDeckIndex = 0;
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckBadgeBounds {};
+    void setMasterDeck (int deckIndex);
     bool libraryVisible = false;
-    juce::TextButton toggleBrowserButton { "Files" };
+    juce::TextButton toggleBrowserButton { "PERFORMANCE" };
     juce::TextButton browserUpButton { "Up" };
     juce::TextButton browserHomeButton { "Home" };
     juce::Label browserPathLabel;
@@ -489,6 +572,8 @@ private:
     void setupComboBox (juce::ComboBox& comboBox);
     void openDeckChooser (int deckIndex);
     void openDeckStemChooser (int deckIndex, int stemLaneIndex);
+    void applyExtractedMelody (int deckIndex, const std::vector<MelodyExtractor::Note>& notes, bool neural = false);
+    void applyExtractedDrums (int deckIndex, const std::vector<MelodyExtractor::Note>& hits);
     void openPadChooser (int padIndex);
 
     // Toolbox tab helpers

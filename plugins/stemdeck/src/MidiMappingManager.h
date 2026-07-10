@@ -26,7 +26,7 @@
 class MidiMappingManager
 {
 public:
-    enum NoteAction { ActionPlay = 0, ActionCue = 1 };
+    enum NoteAction { ActionPlay = 0, ActionCue = 1, ActionPad = 2 };
 
     struct CcTarget   { juce::String name; juce::RangedAudioParameter* param = nullptr; SoftTakeover softTakeover; };
     struct NoteTarget { juce::String name; int deck = 0; int action = ActionPlay; };
@@ -34,8 +34,9 @@ public:
 
     MidiMappingManager()
     {
-        for (auto& a : ccMap)   a.store (-1, std::memory_order_relaxed);
-        for (auto& a : noteMap) a.store (-1, std::memory_order_relaxed);
+        for (auto& a : ccMap)      a.store (-1, std::memory_order_relaxed);
+        for (auto& a : noteMap)    a.store (-1, std::memory_order_relaxed);
+        for (auto& a : lastSentCc) a.store (-1, std::memory_order_relaxed);
     }
 
     // Call once before audio starts (message thread).
@@ -113,6 +114,29 @@ public:
     }
 
     Trigger triggered (int i) const noexcept { return noteTriggers[(size_t) i]; }
+
+    // ── audio thread: motorized-fader MIDI feedback ─────────────────────────────
+    // Emits a CC for every mapped fader whose value changed since the last call,
+    // so motorized/LED controllers track the UI. Change-detection also prevents
+    // MIDI loops: an incoming CC leaves the param at that value, so the feedback
+    // value matches and is suppressed. Call resyncFeedback() to force a full resend
+    // (e.g. after a preset/deck switch).
+    void writeFeedback (juce::MidiBuffer& out, int sampleOffset = 0)
+    {
+        const bool force = forceFeedback.exchange (false, std::memory_order_relaxed);
+        for (int cc = 0; cc < 128; ++cc)
+        {
+            const int tgt = ccMap[(size_t) cc].load (std::memory_order_relaxed);
+            if (tgt < 0 || tgt >= (int) ccTargets.size() || ccTargets[(size_t) tgt].param == nullptr) continue;
+            const int val = juce::jlimit (0, 127, (int) std::round (ccTargets[(size_t) tgt].param->getValue() * 127.0f));
+            if (force || val != lastSentCc[(size_t) cc].load (std::memory_order_relaxed))
+            {
+                lastSentCc[(size_t) cc].store (val, std::memory_order_relaxed);
+                out.addEvent (juce::MidiMessage::controllerEvent (1, cc, val), sampleOffset);
+            }
+        }
+    }
+    void resyncFeedback() noexcept { forceFeedback.store (true, std::memory_order_relaxed); }
 
     // ── message thread queries ─────────────────────────────────────────────────
     int numCc()   const noexcept { return (int) ccTargets.size(); }
@@ -224,6 +248,8 @@ private:
 
     std::array<std::atomic<int>, 128> ccMap;
     std::array<std::atomic<int>, 128> noteMap;
+    std::array<std::atomic<int>, 128> lastSentCc {};   // motorized-fader feedback (-1 = unsent)
+    std::atomic<bool> forceFeedback { true };          // resend all CCs on next writeFeedback
 
     std::atomic<int> learnType   { -1 };   // -1 none, 0 cc, 1 note
     std::atomic<int> learnTarget { -1 };

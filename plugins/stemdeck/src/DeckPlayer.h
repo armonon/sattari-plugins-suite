@@ -86,6 +86,7 @@ public:
                   float deckMixGain,
                   const TimePitchDecision& timePitch,
                   const std::array<float, numStemLanes>& stemLaneGains,
+                  const std::array<float, numStemLanes>& stemPitchSemitones,   // independent per-stem pitch
                   const BeatSyncEngine::PlaybackPlan& beatSyncPlan);
 
 private:

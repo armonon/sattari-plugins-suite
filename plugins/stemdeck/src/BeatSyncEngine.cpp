@@ -193,7 +193,8 @@ BeatSyncEngine::PlaybackPlan BeatSyncEngine::makePlaybackPlan (const TransportSy
                                                                const TrackBeatGrid& grid,
                                                                double referenceSampleRate,
                                                                double sourceLengthSamples,
-                                                               bool globalBeatSyncEnabled)
+                                                               bool globalBeatSyncEnabled,
+                                                               bool wantStatus)
 {
     PlaybackPlan plan;
     plan.syncMode = grid.syncMode;
@@ -236,22 +237,27 @@ BeatSyncEngine::PlaybackPlan BeatSyncEngine::makePlaybackPlan (const TransportSy
         }
     }
 
-    juce::String mode;
-    switch (grid.syncMode)
+    // The status label is UI-only and allocates several juce::Strings; the audio
+    // thread passes wantStatus=false so processBlock stays allocation-free.
+    if (wantStatus)
     {
-        case SyncMode::groove:    mode = "Groove Sync"; break;
-        case SyncMode::anchor:    mode = "Anchor Sync"; break;
-        case SyncMode::freeDrift: mode = "Free Drift"; break;
-        case SyncMode::strict:    mode = "Strict Sync"; break;
-    }
+        juce::String mode;
+        switch (grid.syncMode)
+        {
+            case SyncMode::groove:    mode = "Groove Sync"; break;
+            case SyncMode::anchor:    mode = "Anchor Sync"; break;
+            case SyncMode::freeDrift: mode = "Free Drift"; break;
+            case SyncMode::strict:    mode = "Strict Sync"; break;
+        }
 
-    plan.statusLabel = mode + u8 (" \xe2\x80\xa2 ") + juce::String (plan.sourceBpm, 1) + u8 ("\xe2\x86\x92") + juce::String (plan.masterBpm, 1) + u8 (" BPM \xe2\x80\xa2 ") + grid.interpretationLabel();
-    if (! plan.syncEnabled)
-        plan.statusLabel += u8 (" \xe2\x80\xa2 armed");
-    else if (plan.hasLockedSourcePosition)
-        plan.statusLabel += u8 (" \xe2\x80\xa2 grid-locked");
-    else
-        plan.statusLabel += u8 (" \xe2\x80\xa2 tempo drift");
+        plan.statusLabel = mode + u8 (" \xe2\x80\xa2 ") + juce::String (plan.sourceBpm, 1) + u8 ("\xe2\x86\x92") + juce::String (plan.masterBpm, 1) + u8 (" BPM \xe2\x80\xa2 ") + grid.interpretationLabel();
+        if (! plan.syncEnabled)
+            plan.statusLabel += u8 (" \xe2\x80\xa2 armed");
+        else if (plan.hasLockedSourcePosition)
+            plan.statusLabel += u8 (" \xe2\x80\xa2 grid-locked");
+        else
+            plan.statusLabel += u8 (" \xe2\x80\xa2 tempo drift");
+    }
 
     return plan;
 }

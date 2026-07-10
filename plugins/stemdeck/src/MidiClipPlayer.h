@@ -83,18 +83,24 @@ public:
         const int outCh = out.getNumChannels();
         const int scrCh = scratch.getNumChannels();
 
+        // Discontinuity guard: on any transport jump (loop wrap / manual seek) the
+        // note windows shift, so kill sounding notes to avoid stuck/skipped-off notes.
+        if (pos != expectedPos)
+            for (auto& s : synths) s.allNotesOff (1, false);
+        expectedPos = pos + n;
+
         for (int lane = 0; lane < numLanes; ++lane)
         {
-            juce::MidiBuffer mb;
+            laneMidi.clear();   // reuse — MidiBuffer::clear keeps capacity (no RT alloc)
             if (sched[(size_t) lane] != nullptr)
                 for (const auto& e : *sched[(size_t) lane])
                 {
-                    if (e.on  >= pos && e.on  < pos + n) mb.addEvent (juce::MidiMessage::noteOn  (1, e.pitch, (juce::uint8) e.velocity), (int) (e.on  - pos));
-                    if (e.off >= pos && e.off < pos + n) mb.addEvent (juce::MidiMessage::noteOff (1, e.pitch), (int) (e.off - pos));
+                    if (e.on  >= pos && e.on  < pos + n) laneMidi.addEvent (juce::MidiMessage::noteOn  (1, e.pitch, (juce::uint8) e.velocity), (int) (e.on  - pos));
+                    if (e.off >= pos && e.off < pos + n) laneMidi.addEvent (juce::MidiMessage::noteOff (1, e.pitch), (int) (e.off - pos));
                 }
 
             for (int ch = 0; ch < scrCh; ++ch) scratch.clear (ch, 0, n);
-            synths[(size_t) lane].renderNextBlock (scratch, mb, 0, n);
+            synths[(size_t) lane].renderNextBlock (scratch, laneMidi, 0, n);
 
             const float g = laneGain[(size_t) lane].load (std::memory_order_relaxed);
             for (int ch = 0; ch < outCh; ++ch)
@@ -168,5 +174,7 @@ private:
     std::array<std::atomic<float>, numLanes> laneGain;
     std::array<std::shared_ptr<const std::vector<Evt>>, numLanes> active;
     juce::AudioBuffer<float> scratch;
+    juce::MidiBuffer laneMidi;            // reused per lane/block — no RT alloc
+    juce::int64 expectedPos = -1;         // detects transport jumps for note-off
     juce::SpinLock lock;
 };

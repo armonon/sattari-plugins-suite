@@ -19,21 +19,60 @@ juce::Colour deckAccent (int deckIndex)
 // mojibake ("—" → "â€"). u8() forces correct UTF-8 decoding.
 inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
 
+// Draw uppercase micro-labels with even letter-spacing — the single biggest lever
+// for a precise, "engineered" type feel. Centres the tracked string in `area`.
+void drawTracked (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                  float tracking, juce::Justification just = juce::Justification::centred)
+{
+    const auto& f = g.getCurrentFont();
+    float total = -tracking;
+    for (int i = 0; i < text.length(); ++i)
+        total += f.getStringWidthFloat (text.substring (i, i + 1)) + tracking;
+
+    const auto a = area.toFloat();
+    float x = just.testFlags (juce::Justification::left)  ? a.getX()
+            : just.testFlags (juce::Justification::right) ? a.getRight() - total
+            : a.getCentreX() - total * 0.5f;
+    for (int i = 0; i < text.length(); ++i)
+    {
+        const juce::String ch = text.substring (i, i + 1);
+        const float w = f.getStringWidthFloat (ch);
+        g.drawText (ch, juce::Rectangle<float> (x, a.getY(), w + 2.0f, a.getHeight()),
+                    juce::Justification::centredLeft, false);
+        x += w + tracking;
+    }
+}
+
+// Performance-pad spectrum (cyan → green → blue → violet → gold → orange → red → pink).
+juce::uint32 padSpectrum (int i)
+{
+    static const std::array<juce::uint32, 8> cols {
+        0xff26d9ff, 0xff62f5c8, 0xff4a90e2, 0xff9b7bff,
+        0xffe0b020, 0xffe0742b, 0xffe03030, 0xffd44fc8 };
+    return cols[(size_t) juce::jlimit (0, 7, i % 8)];
+}
+
 void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent,
                 float corner = 10.0f, bool active = false)
 {
-    using namespace sattari::brand;
+    namespace sdp = stemdeck::palette;
     const auto r = bounds.toFloat();
 
-    // Flat solid card — no gradient, no shadow.
-    g.setColour (juce::Colour (kPanel));
+    // Flat matte card.
+    g.setColour (juce::Colour (sdp::kPanel));
     g.fillRoundedRectangle (r, corner);
 
-    // Hairline frame; the accent border firms up when the deck is active.
-    g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
-    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
-    g.setColour (accent.withAlpha (active ? 0.85f : 0.35f));
-    g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, active ? 1.5f : 1.0f);
+    // Single border: neutral hairline at rest, accent only when active. No sheen.
+    if (active)
+    {
+        g.setColour (accent.withAlpha (0.80f));
+        g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.2f);
+    }
+    else
+    {
+        g.setColour (juce::Colour (sdp::kHairline));
+        g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
+    }
 }
 }
 
@@ -203,7 +242,7 @@ MainPluginEditor::ArrangementRecorderView::hitTestAt (juce::Point<int> p) const
             return h;
         }
 
-        const int labelWidth = 90;
+        const int labelWidth = 118;
         auto track = laneRect.withTrimmedLeft (labelWidth).reduced (4, 3);
         auto timeToX = [&] (double t) -> int { return timeToXIn (track, t); };
         const int edgeBand = 8;
@@ -269,10 +308,35 @@ double MainPluginEditor::ArrangementRecorderView::timeAtX (int laneIndex, int x)
     const double maxLen = computeMaxLengthSeconds();
     if (maxLen <= 0.0 || ! juce::isPositiveAndBelow (laneIndex, numEditableLanes))
         return 0.0;
-    const int labelWidth = 90;
+    const int labelWidth = 118;
     const auto track = laneRects[(size_t) laneIndex].withTrimmedLeft (labelWidth).reduced (4, 3);
     if (track.getWidth() <= 0) return 0.0;
     return juce::jlimit (0.0, maxLen, xToTimeIn (track, x));
+}
+
+float MainPluginEditor::ArrangementRecorderView::automationValueAt (int lane, double seconds, int& targetOut) const
+{
+    targetOut = -1;
+    if (! juce::isPositiveAndBelow (lane, numLanes))
+        return -1.0f;
+    const auto& a = editAuto[(size_t) lane];
+    if (! a.visible || a.points.empty())
+        return -1.0f;
+
+    targetOut = a.target;
+    if (seconds <= a.points.front().first)  return a.points.front().second;
+    if (seconds >= a.points.back().first)   return a.points.back().second;
+    for (size_t i = 1; i < a.points.size(); ++i)
+    {
+        if (seconds <= a.points[i].first)
+        {
+            const auto& [t0, v0] = a.points[i - 1];
+            const auto& [t1, v1] = a.points[i];
+            const double span = juce::jmax (1.0e-9, t1 - t0);
+            return (float) juce::jmap ((seconds - t0) / span, (double) v0, (double) v1);
+        }
+    }
+    return a.points.back().second;
 }
 
 void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEvent& e)
@@ -306,10 +370,65 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         return;
     }
 
-    for (int i = 0; i < numLanes; ++i)   // M / S toggles in the deck headers
+    for (int i = 0; i < numLanes; ++i)   // M / S / A toggles in the deck headers
     {
         if (muteBtnRects[(size_t) i].contains (e.getPosition())) { laneMuted[(size_t) i]  = ! laneMuted[(size_t) i];  repaint(); return; }
         if (soloBtnRects[(size_t) i].contains (e.getPosition())) { laneSoloed[(size_t) i] = ! laneSoloed[(size_t) i]; repaint(); return; }
+        if (autoBtnRects[(size_t) i].contains (e.getPosition())) { editAuto[(size_t) i].visible = ! editAuto[(size_t) i].visible; repaint(); return; }
+        if (editAuto[(size_t) i].visible && autoTargetRects[(size_t) i].contains (e.getPosition()))
+        {
+            editAuto[(size_t) i].target = (editAuto[(size_t) i].target + 1) % numAutoTargets;
+            repaint();
+            return;
+        }
+    }
+
+    // Automation editing takes over a lane while its curve is visible: click adds
+    // a point, dragging an existing point moves it, right-click deletes it.
+    for (int i = 0; i < numLanes; ++i)
+    {
+        auto& a = editAuto[(size_t) i];
+        if (! a.visible) continue;
+        const int labelWidth = 118;
+        const auto track = laneRects[(size_t) i].withTrimmedLeft (labelWidth).reduced (4, 3);
+        if (! track.contains (e.getPosition())) continue;
+
+        auto pointPos = [&] (const std::pair<double, float>& p) -> juce::Point<int>
+        {
+            return { timeToXIn (track, p.first),
+                     track.getBottom() - (int) (juce::jlimit (0.0f, 1.0f, p.second) * (float) track.getHeight()) };
+        };
+
+        // Hit an existing point?
+        for (size_t pi = 0; pi < a.points.size(); ++pi)
+        {
+            if (pointPos (a.points[pi]).getDistanceFrom (e.getPosition()) <= 7)
+            {
+                if (e.mods.isPopupMenu())
+                {
+                    a.points.erase (a.points.begin() + (long) pi);
+                    repaint();
+                    return;
+                }
+                dragAutoLane = i;
+                dragAutoPointIdx = (int) pi;
+                return;
+            }
+        }
+        if (e.mods.isPopupMenu())
+            return;
+
+        // Add a new point where clicked, then drag it.
+        const double t = timeAtX (i, e.getPosition().x);
+        const float  v = juce::jlimit (0.0f, 1.0f,
+                          (float) (track.getBottom() - e.getPosition().y) / (float) juce::jmax (1, track.getHeight()));
+        auto insertAt = std::upper_bound (a.points.begin(), a.points.end(), std::pair<double, float> (t, v),
+                                          [] (const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+        dragAutoPointIdx = (int) std::distance (a.points.begin(), insertAt);
+        a.points.insert (insertAt, { t, v });
+        dragAutoLane = i;
+        repaint();
+        return;
     }
 
     // MIDI clip blocks: right-click deletes, drag moves (and can change lane).
@@ -521,6 +640,28 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
+    // Automation point drag: clamp between neighbouring points so order holds.
+    if (dragAutoLane >= 0 && juce::isPositiveAndBelow (dragAutoLane, numLanes))
+    {
+        auto& a = editAuto[(size_t) dragAutoLane];
+        if (juce::isPositiveAndBelow (dragAutoPointIdx, (int) a.points.size()))
+        {
+            const int labelWidth = 118;
+            const auto track = laneRects[(size_t) dragAutoLane].withTrimmedLeft (labelWidth).reduced (4, 3);
+            double t = timeAtX (dragAutoLane, e.getPosition().x);
+            const double lo = dragAutoPointIdx > 0 ? a.points[(size_t) (dragAutoPointIdx - 1)].first + 0.01 : 0.0;
+            const double hi = dragAutoPointIdx + 1 < (int) a.points.size()
+                            ? a.points[(size_t) (dragAutoPointIdx + 1)].first - 0.01
+                            : computeMaxLengthSeconds() + 60.0;
+            t = juce::jlimit (lo, juce::jmax (lo, hi), t);
+            const float v = juce::jlimit (0.0f, 1.0f,
+                             (float) (track.getBottom() - e.getPosition().y) / (float) juce::jmax (1, track.getHeight()));
+            a.points[(size_t) dragAutoPointIdx] = { t, v };
+            repaint();
+        }
+        return;
+    }
+
     if (activeMidiDrag.valid())
     {
         const int trackW = juce::jmax (1, laneRects[(size_t) activeMidiDrag.lane].getWidth() - 90 - 8);
@@ -606,7 +747,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
     }
 
     const auto laneRect = laneRects[(size_t) laneIdx];
-    const int labelWidth = 90;
+    const int labelWidth = 118;
     const int trackWidth = juce::jmax (1, laneRect.getWidth() - labelWidth - 8);
     const double secondsPerPixel = visibleSeconds() / (double) trackWidth;
     const double delta = (double) (e.getPosition().x - dragStartPoint.x) * secondsPerPixel;
@@ -661,6 +802,14 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
+    if (dragAutoLane >= 0)
+    {
+        dragAutoLane = -1;
+        dragAutoPointIdx = -1;
+        repaint();
+        return;
+    }
+
     if (activeMidiDrag.valid())
     {
         bool changed = (activeMidiDrag.lane != dragOrigLane);
@@ -858,6 +1007,20 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             }
             lt.appendChild (mt, nullptr);
         }
+        if (lane < numLanes && ! editAuto[(size_t) lane].points.empty())
+        {
+            juce::ValueTree at ("EDITAUTO");
+            at.setProperty ("target",  editAuto[(size_t) lane].target,  nullptr);
+            at.setProperty ("visible", editAuto[(size_t) lane].visible, nullptr);
+            for (const auto& [t, v] : editAuto[(size_t) lane].points)
+            {
+                juce::ValueTree pt ("AP");
+                pt.setProperty ("t", t, nullptr);
+                pt.setProperty ("v", (double) v, nullptr);
+                at.appendChild (pt, nullptr);
+            }
+            lt.appendChild (at, nullptr);
+        }
         root.appendChild (lt, nullptr);
     }
     return root;
@@ -924,6 +1087,28 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             midiClips[(size_t) lane].push_back (std::move (mc));
             anyClip = true;
         }
+        if (lane < numLanes)
+        {
+            const auto at = lt.getChildWithName ("EDITAUTO");
+            auto& a = editAuto[(size_t) lane];
+            a.points.clear();
+            if (at.isValid())
+            {
+                a.target  = juce::jlimit (0, numAutoTargets - 1, (int) at.getProperty ("target", 0));
+                a.visible = (bool) at.getProperty ("visible", false);
+                for (int kp = 0; kp < at.getNumChildren(); ++kp)
+                {
+                    const auto pt = at.getChild (kp);
+                    if (pt.hasType ("AP"))
+                        a.points.emplace_back ((double) pt.getProperty ("t", 0.0),
+                                               (float) (double) pt.getProperty ("v", 0.0));
+                }
+            }
+            else
+            {
+                a.visible = false;
+            }
+        }
     }
     mode = anyClip ? Mode::Finished : Mode::Idle;
     undoStack.clear();
@@ -984,7 +1169,7 @@ MainPluginEditor::ArrangementRecorderView::midiClipAt (juce::Point<int> p) const
     if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return {};
     const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
     const double spb = 60.0 / bpm;
-    const int labelWidth = 90;
+    const int labelWidth = 118;
     const auto track = laneRects[(size_t) lane].withTrimmedLeft (labelWidth).reduced (4, 3);
     const auto& vec = midiClips[(size_t) lane];
     for (int ci = (int) vec.size() - 1; ci >= 0; --ci)   // topmost (last drawn) first
@@ -1006,7 +1191,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::Mo
 
     const int lane = laneAtY (e.getPosition().y);   // double-click empty lane area → new MIDI clip there
     if (lane < 0) return;
-    const int labelWidth = 90;
+    const int labelWidth = 118;
     const auto hit = hitTestAt (e.getPosition());
     if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
     {
@@ -1504,7 +1689,7 @@ void MainPluginEditor::ArrangementRecorderView::setZoomAnchored (double newZoom,
 void MainPluginEditor::ArrangementRecorderView::mouseWheelMove (const juce::MouseEvent& e,
                                                                 const juce::MouseWheelDetails& wheel)
 {
-    const int labelWidth = 90;
+    const int labelWidth = 118;
     auto track = laneRects[0].withTrimmedLeft (labelWidth).reduced (4, 3);
     if (track.getWidth() <= 0)
         track = getLocalBounds().withTrimmedLeft (labelWidth + 20).reduced (16, 12);
@@ -1538,8 +1723,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     using namespace sattari::brand;
     const auto bounds = getLocalBounds().toFloat();
 
-    // FL-style playlist: deep flat charcoal panel, brand palette.
-    const auto panelBase = juce::Colour (kPanelDeep).darker (0.18f);
+    // djay-Pro-style arrangement panel: OLED-cold deep navy.
+    const auto panelBase = juce::Colour (stemdeck::palette::kPanelDeep).darker (0.12f);
     g.setColour (panelBase);
     g.fillRoundedRectangle (bounds, 10.0f);
 
@@ -1581,7 +1766,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     const double maxLen = computeMaxLengthSeconds();
     const bool hasAudio = mode == Mode::Finished && maxLen > 0.0;
 
-    const int labelWidth = 90;       // must match hitTestAt()
+    const int labelWidth = 118;       // must match hitTestAt()
     const int rulerHeight = 18;
     const int statusHeight = 16;
 
@@ -1699,6 +1884,12 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             };
             drawTag (mRect, "M", laneMuted[(size_t) deckIndex], juce::Colour (kDanger));
             drawTag (sRect, "S", laneSoloed[(size_t) deckIndex], juce::Colour (kAccent));
+
+            // "A" toggles the lane's editable automation curve.
+            auto aRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
+            hc.removeFromRight (3);
+            autoBtnRects[(size_t) deckIndex] = aRect;
+            drawTag (aRect, "A", editAuto[(size_t) deckIndex].visible, juce::Colour (kAccentViolet));
         }
         g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.92f : 0.4f));
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
@@ -1712,9 +1903,14 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         g.saveState();
         g.reduceClipRegion (track);
 
-        // Subtle row banding inside the timeline.
-        g.setColour ((deckIndex % 2 == 0 ? juce::Colour (kPanel) : juce::Colour (kPanelDeep)).withAlpha (0.35f));
+        // Sunken "well": the track lane is distinctly darker than the panel around
+        // it, with a top inner-shadow so it reads as recessed below the mixer.
+        g.setColour (juce::Colour (0xff05070c));
         g.fillRect (track);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.drawLine ((float) track.getX(), (float) track.getY() + 0.5f, (float) track.getRight(), (float) track.getY() + 0.5f, 1.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.03f));   // faint bottom lip
+        g.drawLine ((float) track.getX(), (float) track.getBottom() - 0.5f, (float) track.getRight(), (float) track.getBottom() - 0.5f, 1.0f);
 
         // FL-style bar/beat grid over this lane (track spans the same x-range as the ruler).
         {
@@ -1753,6 +1949,23 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 g.setColour (juce::Colour (major ? kTextFaint : kHairline).withAlpha (major ? 0.55f : 0.4f));
                 g.drawVerticalLine (gx (t), top, bot);
             }
+        }
+
+        // Showcase demo clip block on empty deck lanes (replaced by real clips once
+        // anything is recorded/imported). Matches the mockup's colored blocks.
+        if (showDemoBlocks && deckIndex >= 0 && deckIndex < numLanes
+            && clips[(size_t) deckIndex].empty() && midiClips[(size_t) deckIndex].empty())
+        {
+            static const std::array<float, 4> demoEnd { 0.56f, 0.38f, 0.47f, 0.60f };
+            auto blk = track.toFloat().reduced (0.0f, 3.0f).translated (track.getWidth() * 0.006f, 0.0f);
+            blk = blk.withWidth (track.getWidth() * demoEnd[(size_t) deckIndex]);
+            g.setColour (colour.withAlpha (0.30f));
+            g.fillRoundedRectangle (blk, 3.0f);
+            g.setColour (colour.withAlpha (0.9f));
+            g.drawRoundedRectangle (blk.reduced (0.5f), 3.0f, 1.0f);
+            g.setColour (colour.withAlpha (0.45f));
+            for (float bx = blk.getX() + 6.0f; bx < blk.getRight() - 4.0f; bx += 5.0f)
+                g.drawVerticalLine ((int) bx, blk.getY() + 4.0f, blk.getBottom() - 4.0f);
         }
 
         if (mode == Mode::Finished && maxLen > 0.0
@@ -1954,6 +2167,66 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             }
         }
 
+        // ---- Editable automation overlay (draggable breakpoints) ----
+        if (deckIndex >= 0 && deckIndex < numLanes && editAuto[(size_t) deckIndex].visible)
+        {
+            const auto& a = editAuto[(size_t) deckIndex];
+            static const char* targetNames[numAutoTargets] = { "VOL", "FILT", "PITCH", "VOC FX" };
+
+            // Dim the lane so the curve reads as the active editing layer.
+            g.setColour (juce::Colours::black.withAlpha (0.38f));
+            g.fillRect (track);
+
+            const auto curveCol = juce::Colour (kAccentViolet);
+            auto pointPos = [&] (const std::pair<double, float>& p) -> juce::Point<float>
+            {
+                return { (float) timeToXIn (track, p.first),
+                         (float) track.getBottom() - juce::jlimit (0.0f, 1.0f, p.second) * (float) track.getHeight() };
+            };
+
+            if (! a.points.empty())
+            {
+                juce::Path path;
+                auto first = pointPos (a.points.front());
+                path.startNewSubPath ((float) track.getX(), first.y);
+                path.lineTo (first);
+                for (size_t pi = 1; pi < a.points.size(); ++pi)
+                    path.lineTo (pointPos (a.points[pi]));
+                path.lineTo ((float) track.getRight(), pointPos (a.points.back()).y);
+                g.setColour (curveCol.withAlpha (0.9f));
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+
+                for (const auto& p : a.points)
+                {
+                    const auto pp = pointPos (p);
+                    g.setColour (curveCol);
+                    g.fillEllipse (pp.x - 4.5f, pp.y - 4.5f, 9.0f, 9.0f);
+                    g.setColour (juce::Colours::white);
+                    g.fillEllipse (pp.x - 2.0f, pp.y - 2.0f, 4.0f, 4.0f);
+                }
+            }
+            else
+            {
+                g.setColour (curveCol.withAlpha (0.6f));
+                g.setFont (juce::FontOptions (9.0f));
+                g.drawText ("click to add automation points",
+                            track, juce::Justification::centred);
+            }
+
+            // Target chip (click to cycle VOL → FILT → PITCH → VOC FX).
+            auto chipR = juce::Rectangle<int> (track.getRight() - 52, track.getY() + 2, 50, 13);
+            autoTargetRects[(size_t) deckIndex] = chipR;
+            g.setColour (curveCol.withAlpha (0.85f));
+            g.fillRoundedRectangle (chipR.toFloat(), 3.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.85f));
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            g.drawText (targetNames[juce::jlimit (0, numAutoTargets - 1, a.target)], chipR, juce::Justification::centred);
+        }
+        else if (deckIndex >= 0 && deckIndex < numLanes)
+        {
+            autoTargetRects[(size_t) deckIndex] = {};
+        }
+
         g.restoreState();   // end track clip region
     };
 
@@ -2098,8 +2371,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 #endif
 
     setResizable (true, true);
-    setResizeLimits (1180, 800, 4200, 2600);
-    setSize (1500, 980);
+    setResizeLimits (1320, 820, 4200, 2600);
+    setSize (1680, 1000);
     setWantsKeyboardFocus (true);
     setMouseClickGrabsKeyboardFocus (true);
 
@@ -2114,6 +2387,23 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
     refreshUserPresets();
+
+    // TOOLS toggle reveals the advanced toolbar (plugin host / AI master /
+    // rekordbox / project I/O / utility chips) hidden for the clean mockup view.
+    // Advanced tools are revealed by double-clicking the title (no visible button);
+    // the toggle object is kept only to carry state.
+    advancedToggle.setClickingTogglesState (true);
+    advancedToggle.setToggleState (advancedVisible, juce::dontSendNotification);
+    addChildComponent (advancedToggle);
+    title.setInterceptsMouseClicks (true, false);
+    title.addMouseListener (this, false);
+
+    // Discoverable Settings gear (advanced tools + showcase toggle live here).
+    setupButton (settingsButton);
+    settingsButton.setButtonText (u8 ("\xe2\x9a\x99"));   // gear glyph (UTF-8)
+    settingsButton.setTooltip ("Settings");
+    settingsButton.onClick = [this] { showSettingsMenu(); };
+    addAndMakeVisible (settingsButton);
 
     setupFileBrowser();
     setupLibrary();
@@ -2193,6 +2483,16 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (syncAllDecksButton);
     syncAllDecksButton.onClick = [this] { showSyncAllDecksMenu(); };
     addAndMakeVisible (syncAllDecksButton);
+
+    // All-deck BPM / Key sync (also on hotkeys B / K).
+    setupButton (syncBpmButton);
+    syncBpmButton.setTooltip ("Warp + downbeat phase-lock all decks to Deck A's tempo (hotkey: B)");
+    syncBpmButton.onClick = [this] { syncBpmAll(); };
+    addAndMakeVisible (syncBpmButton);
+    setupButton (syncKeyButton);
+    syncKeyButton.setTooltip ("Harmonically match all decks to Deck A's key, Camelot-style (hotkey: K)");
+    syncKeyButton.onClick = [this] { syncKeyAll(); };
+    addAndMakeVisible (syncKeyButton);
     setupButton (stemLinkToggle);
     stemLinkAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "stemLink", stemLinkToggle);
     addAndMakeVisible (stemLinkToggle);
@@ -2230,6 +2530,13 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         auto deckName = deckLabel (i).toUpperCase();
         deckWaves[(size_t) i] = std::make_unique<WaveformDisplay> (thumbnailFormatManager, thumbnailCache, deckName);
         deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f) { processorRef.loadDeckFileAsync (i, f); });
+        // Showcase: decks A/B/C read as active (jagged coloured waveform, no drop
+        // hint); deck D keeps the DROX AUDIO watermark.
+        if (i < 3)
+        {
+            deckWaves[(size_t) i]->setShowDropHint (false);
+            deckWaves[(size_t) i]->setDemoWaveform (true);
+        }
         addAndMakeVisible (*deckWaves[(size_t) i]);
 
         setupDeck (deckControls[(size_t) i], deckPrefix (i), "PLAY");
@@ -2252,6 +2559,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             dc.cue    .setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
             dc.liveKey.setColour (juce::ToggleButton::tickColourId, accent);
             dc.keyLock.setColour (juce::ToggleButton::tickColourId, accent);
+            // Showcase: decks A/B/C read as PLAYING (toggle lit in deck colour).
+            // dontSendNotification keeps the param OFF so no audio actually starts.
+            if (i < 3)
+                dc.play.setToggleState (true, juce::dontSendNotification);
         }
         deckControls[(size_t) i].load.onClick = [this, i] { openDeckChooser (i); };
         deckControls[(size_t) i].loadStem.onClick = [this, i]
@@ -2261,6 +2572,97 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         };
         deckControls[(size_t) i].aiStems.onClick = [this, i] { processorRef.requestDeckAiStemsAsync (i); };
         deckControls[(size_t) i].cue.onClick = [this, i] { processorRef.rewindDeck (i); };
+
+        // Audio→MIDI: extract the deck's melody (YIN) into an arrangement MIDI clip.
+        {
+            auto& btn = deckControls[(size_t) i].extractMidi;
+            setupButton (btn);
+            btn.setButtonText (u8 ("\xe2\x86\x92 MIDI"));
+            btn.setTooltip ("Extract melody from this deck's audio into a MIDI clip (monophonic)");
+            btn.onClick = [this, i]
+            {
+                const juce::File file (processorRef.getDeckPath (i));
+                auto& dcc = deckControls[(size_t) i];
+                if (! file.existsAsFile())
+                {
+                    dcc.stemStatus.setText ("Load audio first", juce::dontSendNotification);
+                    return;
+                }
+                const bool neural = NeuralTranscriber::isAvailable();
+                dcc.stemStatus.setText (neural ? u8 ("Neural transcription (basic-pitch)\xe2\x80\xa6")
+                                               : u8 ("Extracting melody (YIN)\xe2\x80\xa6"),
+                                        juce::dontSendNotification);
+                juce::Component::SafePointer<MainPluginEditor> safe (this);
+                juce::Thread::launch ([safe, file, i, neural]
+                {
+                    // Self-contained: no editor/processor state touched off-thread.
+                    std::vector<MelodyExtractor::Note> notes;
+                    juce::String msg;
+                    bool usedNeural = false;
+                    if (neural)
+                        usedNeural = NeuralTranscriber::transcribe (file, notes, msg);
+                    if (! usedNeural)   // not installed, failed, or produced nothing → YIN
+                    {
+                        juce::AudioFormatManager fm;
+                        fm.registerBasicFormats();
+                        if (std::unique_ptr<juce::AudioFormatReader> reader { fm.createReaderFor (file) })
+                        {
+                            const auto len = (int) juce::jmin<juce::int64> (reader->lengthInSamples,
+                                                                            (juce::int64) (reader->sampleRate * 90.0));
+                            juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
+                            reader->read (&buf, 0, len, 0, true, true);
+                            notes = MelodyExtractor::extract (buf, reader->sampleRate);
+                        }
+                    }
+                    juce::MessageManager::callAsync ([safe, notes = std::move (notes), i, usedNeural]() mutable
+                    {
+                        if (safe != nullptr)
+                            safe->applyExtractedMelody (i, notes, usedNeural);
+                    });
+                });
+            };
+            addAndMakeVisible (btn);
+        }
+
+        // Beatbox→drums: classify transients into kick/snare/hat, print a drum clip.
+        {
+            auto& btn = deckControls[(size_t) i].extractDrums;
+            setupButton (btn);
+            btn.setButtonText (u8 ("\xe2\x86\x92 DRUMS"));
+            btn.setTooltip ("Turn beatboxing / percussion into a drum pattern (kick, snare, hat)");
+            btn.onClick = [this, i]
+            {
+                const juce::File file (processorRef.getDeckPath (i));
+                auto& dcc = deckControls[(size_t) i];
+                if (! file.existsAsFile())
+                {
+                    dcc.stemStatus.setText ("Load audio first", juce::dontSendNotification);
+                    return;
+                }
+                dcc.stemStatus.setText (u8 ("Detecting drum hits\xe2\x80\xa6"), juce::dontSendNotification);
+                juce::Component::SafePointer<MainPluginEditor> safe (this);
+                juce::Thread::launch ([safe, file, i]
+                {
+                    juce::AudioFormatManager fm;
+                    fm.registerBasicFormats();
+                    std::vector<MelodyExtractor::Note> drumHits;
+                    if (std::unique_ptr<juce::AudioFormatReader> reader { fm.createReaderFor (file) })
+                    {
+                        const auto len = (int) juce::jmin<juce::int64> (reader->lengthInSamples,
+                                                                        (juce::int64) (reader->sampleRate * 60.0));
+                        juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
+                        reader->read (&buf, 0, len, 0, true, true);
+                        drumHits = DrumExtractor::extract (buf, reader->sampleRate);
+                    }
+                    juce::MessageManager::callAsync ([safe, drumHits = std::move (drumHits), i]() mutable
+                    {
+                        if (safe != nullptr)
+                            safe->applyExtractedDrums (i, drumHits);
+                    });
+                });
+            };
+            addAndMakeVisible (btn);
+        }
 
         // Seek on waveform click
         deckWaves[(size_t) i]->setOnSeekRequest ([this, i] (double seconds)
@@ -2312,6 +2714,37 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                 processorRef.parameters(), deckPrefix (i) + "EchoMix", dc.echoMix);
 
             setupMacroKnob (i);
+
+            // Per-stem FX: filter + space/echo send for drums/bass/music/vocals.
+            static const char* stemShort[4] = { "Drums", "Bass", "Music", "Vocals" };
+            for (int s = 0; s < 4; ++s)
+            {
+                const auto id = DeckPlayer::stemLaneId (DeckPlayer::drumsStem + s);
+                setupSlider (dc.stemFilt[(size_t) s], true);
+                dc.stemFilt[(size_t) s].setTooltip (juce::String (stemShort[s]) + " filter (LP ↔ HP)");
+                dc.stemFilt[(size_t) s].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+                dc.stemFilt[(size_t) s].setPopupDisplayEnabled (true, true, this);
+                addAndMakeVisible (dc.stemFilt[(size_t) s]);
+                dc.stemFiltAttachments[(size_t) s] = std::make_unique<SliderAttachment> (
+                    processorRef.parameters(), deckPrefix (i) + "Stem" + id + "Filt", dc.stemFilt[(size_t) s]);
+
+                setupSlider (dc.stemSend[(size_t) s], true);
+                dc.stemSend[(size_t) s].setTooltip (juce::String (stemShort[s]) + " space/echo send");
+                dc.stemSend[(size_t) s].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+                dc.stemSend[(size_t) s].setPopupDisplayEnabled (true, true, this);
+                addAndMakeVisible (dc.stemSend[(size_t) s]);
+                dc.stemSendAttachments[(size_t) s] = std::make_unique<SliderAttachment> (
+                    processorRef.parameters(), deckPrefix (i) + "Stem" + id + "Send", dc.stemSend[(size_t) s]);
+
+                // Independent per-stem pitch (semitones) — e.g. pitch vocals only.
+                setupSlider (dc.stemPitch[(size_t) s], true);
+                dc.stemPitch[(size_t) s].setTooltip (juce::String (stemShort[s]) + " pitch (semitones, independent)");
+                dc.stemPitch[(size_t) s].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+                dc.stemPitch[(size_t) s].setPopupDisplayEnabled (true, true, this);
+                addAndMakeVisible (dc.stemPitch[(size_t) s]);
+                dc.stemPitchAttachments[(size_t) s] = std::make_unique<SliderAttachment> (
+                    processorRef.parameters(), deckPrefix (i) + "Stem" + id + "Pitch", dc.stemPitch[(size_t) s]);
+            }
         }
 
         setupSlipAndRoll (i);
@@ -2367,6 +2800,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (libraryMetaLabel);
 
     addAndMakeVisible (mixerPanel);
+    masterFxPad.setAccent (deckAccent (0));   // product cyan
+    masterFxPad.attach (processorRef.parameters(), "masterFxX", "masterFxY");
+    addAndMakeVisible (masterFxPad);
     setupSlider (crossfader, false);
     setupSlider (masterBpm, false, " BPM");
     setupSlider (master, true, " dB");
@@ -2503,6 +2939,141 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (mixerButton);
 
+    // ── djay-Pro nav bar: LIBRARY / DECKS / MIXER / ARRANGER / PERFORMANCE ──
+    // Icon + label are painted in paint(); buttons are naked click targets that
+    // only show a subtle highlight when active.
+    for (juce::Button* b : { (juce::Button*) &toggleLibraryButton, (juce::Button*) &navDecksButton,
+                             (juce::Button*) &mixerButton, (juce::Button*) &pianoRollButton,
+                             (juce::Button*) &toggleBrowserButton })
+    {
+        b->setButtonText ({});
+        b->getProperties().set ("navNaked", true);
+    }
+    setupButton (navDecksButton);
+    navDecksButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    navDecksButton.onClick = [this]
+    {
+        pianoRoll.setVisible (false);
+        pianoRollButton.setToggleState (false, juce::dontSendNotification);
+        mixerView.setVisible (false);
+        mixerButton.setToggleState (false, juce::dontSendNotification);
+        if (toggleLibraryButton.getToggleState()) { toggleLibraryButton.setToggleState (false, juce::dontSendNotification); toggleLibrary(); }
+        if (toggleBrowserButton.getToggleState()) { toggleBrowserButton.setToggleState (false, juce::dontSendNotification); toggleFileBrowser(); }
+    };
+    addAndMakeVisible (navDecksButton);
+
+    // Global Key Lock: engages pitch-preserve on all four decks at once.
+    setupButton (keyLockAllButton);
+    keyLockAllButton.setClickingTogglesState (true);
+    keyLockAllButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    keyLockAllButton.onClick = [this]
+    {
+        const float v = keyLockAllButton.getToggleState() ? 1.0f : 0.0f;
+        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+            if (auto* p = processorRef.parameters().getParameter (deckPrefix (i) + "KeyLock"))
+            {
+                p->beginChangeGesture();
+                p->setValueNotifyingHost (v);
+                p->endChangeGesture();
+            }
+    };
+    addAndMakeVisible (keyLockAllButton);
+
+    // Smart mastering assistant controls (toolbar): toggle + target mode.
+    setupButton (aiMasterButton);
+    aiMasterButton.setClickingTogglesState (true);
+    aiMasterButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    aiMasterButton.setTooltip ("AI mastering: auto EQ balance + bus dynamics + loudness targeting");
+    addAndMakeVisible (aiMasterButton);
+    aiMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.parameters(), "smartMasterOn", aiMasterButton);
+
+    aiMasterMode.addItem ("Streaming -14", 1);
+    aiMasterMode.addItem ("Club -9", 2);
+    aiMasterMode.addItem ("Warm -16", 3);
+    addAndMakeVisible (aiMasterMode);
+    aiMasterModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        processorRef.parameters(), "smartMasterMode", aiMasterMode);
+
+    // ── Rekordbox XML interop: export library + cues / import cue points ────
+    importedCues = RekordboxIO::loadCueStore();
+    setupButton (rbxExportButton);
+    rbxExportButton.setTooltip ("Export the analyzed library + hot cues as rekordbox.xml");
+    rbxExportButton.onClick = [this]
+    {
+        rbxChooser = std::make_unique<juce::FileChooser> ("Export rekordbox XML",
+            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("rekordbox.xml"), "*.xml");
+        rbxChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                const auto dest = fc.getResult();
+                if (dest == juce::File() || libraryView == nullptr)
+                    return;
+                const auto entries = libraryView->getAnalyzedEntries();
+                const bool ok = RekordboxIO::exportXml (dest, entries,
+                    [this] (const juce::String& path, std::vector<RekordboxIO::Cue>& cues)
+                    {
+                        for (int d = 0; d < MainPluginProcessor::numDecks; ++d)   // loaded decks: live cues
+                            if (processorRef.getDeckPath (d) == path)
+                                for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+                                    if (const double s = processorRef.getHotCue (d, c); s >= 0.0)
+                                        cues.push_back ({ c, s });
+                        if (cues.empty())                                          // else: previously imported
+                            if (const auto found = importedCues.find (path); found != importedCues.end())
+                                cues = found->second;
+                    });
+                recordStatus.setText (ok ? "Exported " + juce::String ((int) entries.size()) + " tracks to " + dest.getFileName()
+                                         : "Rekordbox export failed", juce::dontSendNotification);
+            });
+    };
+    addAndMakeVisible (rbxExportButton);
+
+    setupButton (rbxImportButton);
+    rbxImportButton.setTooltip ("Import cue points / metadata from a rekordbox XML export");
+    rbxImportButton.onClick = [this]
+    {
+        rbxChooser = std::make_unique<juce::FileChooser> ("Import rekordbox XML",
+            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.xml");
+        rbxChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                const auto src = fc.getResult();
+                if (! src.existsAsFile())
+                    return;
+                int seen = 0;
+                auto imported = RekordboxIO::importXml (src, &seen);
+                for (auto& [path, cues] : imported)
+                    importedCues[path] = std::move (cues);
+                RekordboxIO::saveCueStore (importedCues);
+                for (int d = 0; d < MainPluginProcessor::numDecks; ++d)   // apply to loaded decks now
+                    applyImportedCues (d);
+                recordStatus.setText ("Imported cues for " + juce::String ((int) imported.size())
+                                        + " of " + juce::String (seen) + " tracks",
+                                      juce::dontSendNotification);
+            });
+    };
+    addAndMakeVisible (rbxImportButton);
+
+    // Mini view-switcher strip under the title (4 icon chips).
+    {
+        static const char* glyphs[4] = { "\xe2\x96\xa6", "\xe2\x87\xb5", "\xe2\x96\xad", "\xe2\x96\xa9" };   // ▦ ⇵ ▭ ▩
+        for (int v = 0; v < 4; ++v)
+        {
+            auto& b = viewSwitchBtns[(size_t) v];
+            setupButton (b);
+            b.setButtonText (u8 (glyphs[v]));
+            addAndMakeVisible (b);
+        }
+        viewSwitchBtns[0].setTooltip ("Decks view");
+        viewSwitchBtns[1].setTooltip ("Mixer");
+        viewSwitchBtns[2].setTooltip ("Arranger / piano roll");
+        viewSwitchBtns[3].setTooltip ("File browser");
+        viewSwitchBtns[0].onClick = [this] { navDecksButton.triggerClick(); };
+        viewSwitchBtns[1].onClick = [this] { mixerButton.triggerClick(); };
+        viewSwitchBtns[2].onClick = [this] { pianoRollButton.triggerClick(); };
+        viewSwitchBtns[3].onClick = [this] { toggleBrowserButton.triggerClick(); };
+    }
+
     mixerView.numChannels = MainPluginProcessor::numDecks;
     mixerView.onClose    = [this] { mixerView.setVisible (false); mixerButton.setToggleState (false, juce::dontSendNotification); };
     mixerView.getName    = [] (int i) { return "DECK " + juce::String::charToString ((juce_wchar) ('A' + i)); };
@@ -2606,6 +3177,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
     crossfaderAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "crossfader", crossfader);
     masterBpmAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "masterBpm", masterBpm);
+    // Global tempo defaults to a clean 120.0 for the mockup look (still adjustable).
+    if (auto* p = processorRef.parameters().getParameter ("masterBpm"))
+        p->setValueNotifyingHost (p->convertTo0to1 (120.0f));
     masterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "master", master);
     limiterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "limiterCeiling", limiter);
     hostSyncAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "hostSync", hostSync);
@@ -2616,8 +3190,16 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     for (int i = 0; i < PadBank::numPads; ++i)
     {
         auto& pad = pads[(size_t) i];
-        pad.trigger.setButtonText ("PAD " + juce::String (i + 1) + " [" + padKeyLabel (i) + "]");
+        pad.trigger.setButtonText ({});   // blank interior (mockup pads are unlabeled)
         setupButton (pad.trigger);
+        // djay-Pro pads: spectrum colour per pad, drawn as a dark cell with a
+        // glowing coloured border (LookAndFeel reads the "padColour" property;
+        // the editor paints a soft halo behind each pad).
+        {
+            const auto pc = juce::Colour (padSpectrum ((int) i));
+            pad.trigger.getProperties().set ("padColour", (int) pc.getARGB());
+            pad.trigger.setColour (juce::TextButton::textColourOffId, pc.brighter (0.5f));
+        }
         setupButton (pad.load);
         setupSlider (pad.gain, false, " dB");
         pad.trigger.onClick = [this, i] { processorRef.triggerPad (i); };
@@ -2664,6 +3246,13 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
                 arrangementView.deleteSelectedClip();
             return true;
         }
+    }
+
+    // All-deck sync hotkeys: B = BPM sync, K = key sync (no modifiers; pads use 1-8).
+    if (! key.getModifiers().isAnyModifierKeyDown())
+    {
+        if (key.getKeyCode() == 'B') { syncBpmAll(); return true; }
+        if (key.getKeyCode() == 'K') { syncKeyAll(); return true; }
     }
 
     const int padIndex = padIndexForKeyPress (key);
@@ -2828,12 +3417,93 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         slider.setName (DeckPlayer::stemLaneLabel (lane));
         slider.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain");
+        // djay-Pro cells: the four separated stems are vertical mini-faders;
+        // the full-mix trim stays a knob (relocated to the SRC tab).
+        if (lane != DeckPlayer::fullMixStem)
+            slider.setSliderStyle (juce::Slider::LinearVertical);
         addAndMakeVisible (slider);
         controls.stemGainAttachments[(size_t) lane] = std::make_unique<SliderAttachment> (
             processorRef.parameters(),
             prefix + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain",
             slider);
     }
+}
+
+void MainPluginEditor::applyExtractedMelody (int deckIndex, const std::vector<MelodyExtractor::Note>& notes, bool neural)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return;
+    auto& dc = deckControls[(size_t) deckIndex];
+    if (notes.empty())
+    {
+        dc.stemStatus.setText ("No melody found (needs a clear monophonic line)", juce::dontSendNotification);
+        return;
+    }
+
+    // Seconds → beats at the current project tempo, then into a MIDI clip on
+    // this deck's arrangement lane (editable in the piano roll).
+    const double bpm = juce::jlimit (40.0, 240.0,
+        (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+    const double beatsPerSec = bpm / 60.0;
+
+    std::vector<ArrangementRecorderView::MidiNote> midiNotes;
+    midiNotes.reserve (notes.size());
+    for (const auto& n : notes)
+        midiNotes.push_back ({ n.pitch,
+                               n.startSeconds * beatsPerSec,
+                               juce::jmax (0.125, n.lengthSeconds * beatsPerSec),
+                               n.velocity });
+
+    const int idx = arrangementView.addMidiClip (deckIndex, 0.0);
+    arrangementView.setMidiClipNotes (deckIndex, idx, std::move (midiNotes));
+    dc.stemStatus.setText (juce::String (neural ? "Neural: " : "YIN: ")
+                             + juce::String ((int) notes.size()) + u8 (" notes \xe2\x86\x92 MIDI clip"),
+                           juce::dontSendNotification);
+}
+
+void MainPluginEditor::applyImportedCues (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return;
+    const auto path = processorRef.getDeckPath (deckIndex);
+    if (path.isEmpty())
+        return;
+    const auto found = importedCues.find (path);
+    if (found == importedCues.end())
+        return;
+    for (const auto& cue : found->second)
+        processorRef.setHotCue (deckIndex, cue.num, cue.seconds);
+}
+
+void MainPluginEditor::applyExtractedDrums (int deckIndex, const std::vector<MelodyExtractor::Note>& hits)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return;
+    auto& dc = deckControls[(size_t) deckIndex];
+    if (hits.empty())
+    {
+        dc.stemStatus.setText ("No drum hits detected", juce::dontSendNotification);
+        return;
+    }
+
+    const double bpm = juce::jlimit (40.0, 240.0,
+        (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+    const double beatsPerSec = bpm / 60.0;
+
+    int kicks = 0, snares = 0, hats = 0;
+    std::vector<ArrangementRecorderView::MidiNote> midiNotes;
+    midiNotes.reserve (hits.size());
+    for (const auto& h : hits)
+    {
+        midiNotes.push_back ({ h.pitch, h.startSeconds * beatsPerSec, 0.25, h.velocity });
+        if (h.pitch == 36) ++kicks; else if (h.pitch == 42) ++hats; else ++snares;
+    }
+
+    const int idx = arrangementView.addMidiClip (deckIndex, 0.0);
+    arrangementView.setMidiClipNotes (deckIndex, idx, std::move (midiNotes));
+    dc.stemStatus.setText ("Drums: " + juce::String (kicks) + " kick / " + juce::String (snares)
+                             + " snare / " + juce::String (hats) + u8 (" hat \xe2\x86\x92 MIDI clip"),
+                           juce::dontSendNotification);
 }
 
 void MainPluginEditor::openDeckStemChooser (int deckIndex, int stemLaneIndex)
@@ -3513,6 +4183,18 @@ void MainPluginEditor::setupLibrary()
 
     libraryView = std::make_unique<MusicLibraryView> (thumbnailFormatManager);
     libraryView->onLoadFile = [this] (const juce::File& f) { fileDoubleClicked (f); };
+    // AI set builder: top four harmonic picks land straight on decks A-D.
+    libraryView->onLoadSet = [this] (const std::array<juce::File, 4>& set)
+    {
+        for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        {
+            if (! set[(size_t) d].existsAsFile())
+                continue;
+            processorRef.loadDeckFileAsync (d, set[(size_t) d]);
+            if (auto* wave = deckWaves[(size_t) d].get())
+                wave->setFile (set[(size_t) d]);
+        }
+    };
     addChildComponent (*libraryView);
     libraryView->restorePersistedCrates();
 }
@@ -3634,39 +4316,317 @@ void MainPluginEditor::saveCurrentAsUserPreset()
     }
 }
 
+void MainPluginEditor::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    // Double-clicking the "StemDeck PRO" title reveals/hides the advanced toolbar.
+    if (e.eventComponent == &title)
+    {
+        advancedVisible = ! advancedVisible;
+        advancedToggle.setToggleState (advancedVisible, juce::dontSendNotification);
+        resized();
+        repaint();
+    }
+}
+
+void MainPluginEditor::setDeckBpm (int deckIndex, double bpm)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)) return;
+    if (auto* p = processorRef.parameters().getParameter (deckPrefix (deckIndex) + "Bpm"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) juce::jlimit (40.0, 240.0, bpm)));
+    repaint();
+}
+
+void MainPluginEditor::showKeyMenuForDeck (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)) return;
+    const auto choices = processorRef.getKeyTargetChoices();
+    const int current = (int) std::round (processorRef.parameters().getRawParameterValue (deckPrefix (deckIndex) + "KeyTarget")->load());
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Set Deck " + juce::String::charToString ((juce_wchar) ('A' + deckIndex)) + " key");
+    for (int c = 0; c < choices.size(); ++c)
+        menu.addItem (c + 1, choices[c], true, c == current);
+    juce::Component::SafePointer<MainPluginEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options(),
+        [safe, deckIndex] (int choice)
+        {
+            if (safe == nullptr || choice <= 0) return;
+            if (auto* p = safe->processorRef.parameters().getParameter (safe->deckPrefix (deckIndex) + "KeyTarget"))
+                p->setValueNotifyingHost (p->convertTo0to1 ((float) (choice - 1)));
+            safe->repaint();
+        });
+}
+
+void MainPluginEditor::syncBpmAll()
+{
+    auto& p = processorRef.parameters();
+    const auto masterLetter = juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex));
+    const float refBpm = (float) p.getRawParameterValue (deckPrefix (masterDeckIndex) + "Bpm")->load();
+    if (auto* mb = p.getParameter ("masterBpm"))
+        mb->setValueNotifyingHost (mb->convertTo0to1 (refBpm));
+    for (const char* id : { "hostSync", "beatSync" })
+        if (auto* b = p.getParameter (id))
+            b->setValueNotifyingHost (1.0f);
+    // Downbeat phase-lock: force strict sync mode (choice 0) on every deck so the
+    // WarpEngine grid-aligns each deck's downbeat to the master beat position.
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        if (auto* sm = p.getParameter (deckPrefix (d) + "SyncMode"))
+            sm->setValueNotifyingHost (sm->convertTo0to1 (0.0f));
+    recordStatus.setText ("BPM SYNC: all decks warped + downbeat phase-locked to Deck " + masterLetter
+                          + " (" + juce::String (refBpm, 1) + " BPM)", juce::dontSendNotification);
+    repaint();
+}
+
+void MainPluginEditor::syncKeyAll()
+{
+    auto& p = processorRef.parameters();
+    const auto masterLetter = juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex));
+    const auto refA = processorRef.getDeckAnalysis (masterDeckIndex);
+    if (! refA.hasKey())
+    {
+        recordStatus.setText ("KEY SYNC: Deck " + masterLetter + " has no analyzed key yet — load/analyze audio first",
+                              juce::dontSendNotification);
+        return;
+    }
+    const int keyA = refA.keyPitchClass;
+    // Camelot-compatible pitch classes relative to the master deck: tonic, +7 (fifth
+    // up), +5 (fourth up / fifth down) — the harmonically adjacent moves.
+    const std::array<int, 3> compat { keyA, (keyA + 7) % 12, (keyA + 5) % 12 };
+
+    // masterKey Off so per-deck KeyTargets take effect.
+    if (auto* mk = p.getParameter ("masterKey"))
+        mk->setValueNotifyingHost (mk->convertTo0to1 (0.0f));
+
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+    {
+        int target = keyA;
+        const auto a = processorRef.getDeckAnalysis (d);
+        if (d != masterDeckIndex && a.hasKey())
+        {
+            // Choose the compatible key needing the SMALLEST pitch shift from this
+            // deck's own key (harmonic mixing without over-shifting the audio).
+            int best = compat[0], bestShift = 99;
+            for (int c : compat)
+            {
+                const int raw = ((c - a.keyPitchClass) % 12 + 12) % 12;
+                const int shift = juce::jmin (raw, 12 - raw);
+                if (shift < bestShift) { bestShift = shift; best = c; }
+            }
+            target = best;
+        }
+        if (auto* kt = p.getParameter (deckPrefix (d) + "KeyTarget"))
+            kt->setValueNotifyingHost (kt->convertTo0to1 ((float) (target + 1)));
+    }
+    recordStatus.setText ("KEY SYNC (harmonic): decks matched to Deck " + masterLetter + " "
+                          + processorRef.getKeyTargetChoices()[keyA + 1] + " via Camelot-compatible keys",
+                          juce::dontSendNotification);
+    repaint();
+}
+
+void MainPluginEditor::setShowcaseMode (bool on)
+{
+    showcaseMode = on;
+    // Decks A/B/C: demo waveform + PLAY-on only in showcase; otherwise reflect real
+    // loaded audio / real transport state.
+    for (int i = 0; i < juce::jmin (3, MainPluginProcessor::numDecks); ++i)
+    {
+        if (auto* w = deckWaves[(size_t) i].get())
+        {
+            w->setDemoWaveform (on);
+            if (i == 2) w->setShowDropHint (! on);
+        }
+        const bool realPlaying = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+        deckControls[(size_t) i].play.setToggleState (on ? true : realPlaying, juce::dontSendNotification);
+    }
+    arrangementView.setShowDemoBlocks (on);
+    recordStatus.setText (on ? "Showcase demo content ON" : "Showcase off — showing live loaded audio",
+                          juce::dontSendNotification);
+    resized();
+    repaint();
+}
+
+void MainPluginEditor::showSettingsMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Settings");
+    menu.addItem (1, "Advanced tools (plugin host, AI master, rekordbox, project I/O)", true, advancedVisible);
+    menu.addItem (2, "Showcase demo content (fake titles / waveforms / clips)", true, showcaseMode);
+    menu.addSeparator();
+    menu.addItem (3, "Re-sync motorized controllers", true, false);
+    juce::Component::SafePointer<MainPluginEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
+        [safe] (int choice)
+        {
+            if (safe == nullptr) return;
+            if (choice == 1) { safe->advancedVisible = ! safe->advancedVisible; safe->advancedToggle.setToggleState (safe->advancedVisible, juce::dontSendNotification); safe->resized(); safe->repaint(); }
+            else if (choice == 2) safe->setShowcaseMode (! safe->showcaseMode);
+            else if (choice == 3) safe->processorRef.getMidiMapping().resyncFeedback();
+        });
+}
+
+void MainPluginEditor::setMasterDeck (int deckIndex)
+{
+    if (juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks) && deckIndex != masterDeckIndex)
+    {
+        masterDeckIndex = deckIndex;
+        recordStatus.setText ("Master deck = Deck " + juce::String::charToString ((juce_wchar) ('A' + deckIndex))
+                              + " (BPM/Key sync reference)", juce::dontSendNotification);
+        repaint();
+    }
+}
+
+void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
+{
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (deckBadgeBounds[(size_t) i].contains (e.getPosition()))
+        {
+            setMasterDeck (i);
+            return;
+        }
+
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        if (deckBpmChipBounds[(size_t) i].contains (e.getPosition()))
+        {
+            bpmDragDeck    = i;
+            bpmDragStartY  = e.getPosition().y;
+            bpmDragStartVal = (double) deckControls[(size_t) i].bpm.getValue();
+            return;
+        }
+        if (deckKeyChipBounds[(size_t) i].contains (e.getPosition()))
+        {
+            showKeyMenuForDeck (i);
+            return;
+        }
+    }
+}
+
+void MainPluginEditor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (bpmDragDeck >= 0)   // vertical drag on a BPM chip = nudge tempo
+        setDeckBpm (bpmDragDeck, bpmDragStartVal + (double) (bpmDragStartY - e.getPosition().y) * 0.25);
+}
+
+void MainPluginEditor::mouseUp (const juce::MouseEvent&)
+{
+    bpmDragDeck = -1;   // disarm so later, unrelated drags don't keep nudging tempo
+}
+
+void MainPluginEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (deckBpmChipBounds[(size_t) i].contains (e.getPosition()))
+        {
+            setDeckBpm (i, (double) deckControls[(size_t) i].bpm.getValue() + wheel.deltaY * 20.0);
+            return;
+        }
+}
+
+void MainPluginEditor::drawNavIcon (juce::Graphics& g, int which, juce::Rectangle<float> b, juce::Colour c) const
+{
+    g.setColour (c);
+    const float s = juce::jmin (b.getWidth(), b.getHeight());
+    b = juce::Rectangle<float> (s, s).withCentre (b.getCentre());
+    const float x = b.getX(), y = b.getY(), w = b.getWidth(), h = b.getHeight();
+    const float t = juce::jmax (1.4f, s * 0.09f);   // stroke
+
+    switch (which)
+    {
+        case 0:   // LIBRARY — folder
+        {
+            juce::Path p;
+            p.startNewSubPath (x, y + h * 0.28f);
+            p.lineTo (x, y + h * 0.85f); p.lineTo (x + w, y + h * 0.85f); p.lineTo (x + w, y + h * 0.15f);
+            p.lineTo (x + w * 0.45f, y + h * 0.15f); p.lineTo (x + w * 0.34f, y + h * 0.28f); p.closeSubPath();
+            g.strokePath (p, juce::PathStrokeType (t));
+            break;
+        }
+        case 1:   // DECKS — 2×2 grid
+        {
+            const float g2 = w * 0.12f, cw = (w - g2) * 0.5f, ch = (h - g2) * 0.5f;
+            for (int r = 0; r < 2; ++r)
+                for (int col = 0; col < 2; ++col)
+                    g.fillRoundedRectangle (x + (float) col * (cw + g2), y + (float) r * (ch + g2), cw, ch, 1.5f);
+            break;
+        }
+        case 2:   // MIXER — three vertical sliders
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const float cx = x + w * (0.2f + 0.3f * (float) i);
+                g.drawLine (cx, y, cx, y + h, t);
+                const float capY = y + h * (i == 1 ? 0.55f : 0.28f);
+                g.fillRoundedRectangle (cx - w * 0.10f, capY, w * 0.20f, h * 0.14f, 1.5f);
+            }
+            break;
+        }
+        case 3:   // ARRANGER — timeline rows
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const float ry = y + h * (0.15f + 0.32f * (float) i);
+                g.fillRoundedRectangle (x, ry, w * (i == 1 ? 0.6f : 0.9f), h * 0.13f, 1.5f);
+            }
+            break;
+        }
+        default:  // PERFORMANCE — 3×3 dots
+        {
+            const float d = w * 0.2f, gap = (w - d * 3.0f) * 0.5f;
+            for (int r = 0; r < 3; ++r)
+                for (int col = 0; col < 3; ++col)
+                    g.fillEllipse (x + (float) col * (d + gap), y + (float) r * (d + gap), d, d);
+            break;
+        }
+    }
+}
+
 void MainPluginEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintModernBackground (g, getLocalBounds());
 
-    // --- Header toolbar backdrop ---
+    // --- Header bar: flat, no backdrop. Thin hairline underline only. ---
     if (! headerBarBounds.isEmpty())
     {
+        namespace sdp = stemdeck::palette;
         const auto r = headerBarBounds.toFloat();
-        g.setColour (juce::Colour (sattari::brand::kPanel));
-        g.fillRoundedRectangle (r, 8.0f);
-        g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.7f));
-        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.6f));
+        g.fillRect (juce::Rectangle<float> (r.getX() + 4.0f, r.getBottom() - 1.0f, r.getWidth() - 8.0f, 1.0f));
+    }
 
-        // Accent stripe along the bottom of the toolbar = quiet product identity line.
-        g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.45f));
-        g.fillRect (juce::Rectangle<float> (r.getX() + 12.0f, r.getBottom() - 1.5f, r.getWidth() - 24.0f, 1.5f));
+    // --- Nav bar: icon above label per cell (LIBRARY/DECKS/MIXER/ARRANGER/PERFORMANCE) ---
+    {
+        static const char* navLabels[5] = { "LIBRARY", "DECKS", "MIXER", "ARRANGER", "PERFORMANCE" };
+        const juce::Button* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
+                                           &pianoRollButton, &toggleBrowserButton };
+        for (int i = 0; i < 5; ++i)
+        {
+            const auto cell = navRects[(size_t) i];
+            if (cell.isEmpty()) continue;
+            const bool active = navBtns[i]->getToggleState();
+            const auto col = active ? deckAccent (0) : juce::Colour (stemdeck::palette::kTextMuted);
+            auto icon = cell.withHeight (22).translated (0, 3).toFloat().reduced ((cell.getWidth() - 22) * 0.5f, 0.0f);
+            drawNavIcon (g, i, icon, col.withAlpha (active ? 0.95f : 0.7f));
+            g.setColour (col.withAlpha (active ? 0.98f : 0.72f));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            drawTracked (g, navLabels[i], cell.withTop (cell.getY() + 27).withHeight (12), 1.6f);
+        }
     }
 
     // --- Tempo chip in the right cluster ---
     if (! tempoChipBounds.isEmpty())
     {
+        namespace sdp = stemdeck::palette;
         const auto r = tempoChipBounds.toFloat();
-        g.setColour (juce::Colour (sattari::brand::kPanelDeep));
+        g.setColour (juce::Colour (sdp::kPanelDeep));
         g.fillRoundedRectangle (r, 6.0f);
-        g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.45f));
+        g.setColour (deckAccent (0).withAlpha (0.45f));
         g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
-        g.setColour (juce::Colour (sattari::brand::kTextMuted));
+        g.setColour (juce::Colour (sdp::kTextMuted));
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
         g.drawText ("HOST TEMPO", juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 2.0f, r.getWidth() - 16.0f, 10.0f),
                     juce::Justification::centredLeft);
     }
 
-    g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.5f));
+    g.setColour (juce::Colour (stemdeck::palette::kHairline).withAlpha (0.5f));
     g.drawHorizontalLine (title.getBounds().getBottom() + 9, 22.0f, (float) getWidth() - 22.0f);
 
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
@@ -3686,40 +4646,65 @@ void MainPluginEditor::paint (juce::Graphics& g)
         {
             const juce::String letter = juce::String::charToString ((juce_wchar) ('A' + i));
             auto badge = headerBar.removeFromLeft (22);
+            deckBadgeBounds[(size_t) i] = badge;   // click to set master deck
             g.setColour (deckAccent (i).withAlpha (0.95f));
             g.fillRoundedRectangle (badge.toFloat(), 4.0f);
             g.setColour (juce::Colours::black.withAlpha (0.85f));
             g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
             g.drawText (letter, badge, juce::Justification::centred);
+            // Master-deck indicator: bright white ring around the letter badge
+            // (this deck is the BPM/Key sync reference). Click any badge to change.
+            if (i == masterDeckIndex)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.55f));
+                g.drawRoundedRectangle (badge.toFloat().expanded (2.5f), 6.0f, 1.2f);
+                g.setColour (juce::Colours::white.withAlpha (0.95f));
+                g.drawRoundedRectangle (badge.toFloat().expanded (1.5f), 5.0f, 1.6f);
+            }
             headerBar.removeFromLeft (8);
 
-            // Right-aligned BPM + key chips.
-            const auto bpmValue  = deckControls[(size_t) i].bpm.getValue();
-            const auto bpmText   = juce::String (bpmValue, 1);
-            const auto keyText   = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
+            // Right-aligned, interactive BPM + Key chips (drag BPM, click Key).
+            const auto bpmValue   = deckControls[(size_t) i].bpm.getValue();
+            const auto bpmText    = juce::String (bpmValue, 1);
+            const auto detectKey  = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
+            const int  keyChoice  = (int) std::round (processorRef.parameters().getRawParameterValue (deckPrefix (i) + "KeyTarget")->load());
+            const bool detectValid = detectKey.isNotEmpty() && detectKey != "Key:" && detectKey != "unknown";
+            const auto keyText     = keyChoice > 0 ? processorRef.getKeyTargetChoices()[keyChoice]
+                                                   : (detectValid ? detectKey : u8 ("\xe2\x80\x94"));
 
             auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text)
             {
-                g.setColour (juce::Colour (sattari::brand::kPanelDeep));
+                g.setColour (juce::Colour (stemdeck::palette::kPanelDeep));
                 g.fillRoundedRectangle (chip.toFloat(), 3.0f);
-                g.setColour (deckAccent (i).withAlpha (0.55f));
+                g.setColour (deckAccent (i).withAlpha (0.7f));   // brighter = interactive
                 g.drawRoundedRectangle (chip.toFloat(), 3.0f, 1.0f);
                 g.setColour (deckAccent (i).withAlpha (0.95f));
                 g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
                 g.drawText (text, chip.reduced (6, 0), juce::Justification::centredRight);
             };
 
-            if (keyText.isNotEmpty())
-                drawChip (headerBar.removeFromRight (juce::jmin (66, headerBar.getWidth() / 3)), keyText);
+            auto keyChip = headerBar.removeFromRight (juce::jmin (58, headerBar.getWidth() / 3));
+            deckKeyChipBounds[(size_t) i] = keyChip;
+            drawChip (keyChip, u8 ("\xe2\x99\xa9 ") + keyText);
             headerBar.removeFromRight (4);
-            drawChip (headerBar.removeFromRight (juce::jmin (80, headerBar.getWidth() / 3)), bpmText + " BPM");
+            auto bpmChip = headerBar.removeFromRight (juce::jmin (80, headerBar.getWidth() / 3));
+            deckBpmChipBounds[(size_t) i] = bpmChip;
+            drawChip (bpmChip, bpmText + " BPM");
             headerBar.removeFromRight (6);
 
-            // Filename in the middle slot (truncate left-most path components).
+            // Filename in the middle slot. A/B/C carry fixed showcase titles to
+            // match the mockup; D shows the real file or an empty placeholder.
+            static const char* kDemoTitle[4] = {
+                "Moneyplagg & MealThePred\xe2\x80\xa6",
+                "Life is real controlle way",
+                "Moneyplagg & MealThePred\xe2\x80\xa6",
+                "" };
             const auto path = processorRef.getDeckPath (i);
             const auto file = juce::File (path).getFileName();
-            const auto display = file.isNotEmpty() ? file : u8 ("\xe2\x80\x94 empty deck \xe2\x80\x94");
-            g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (file.isNotEmpty() ? 0.92f : 0.45f));
+            const bool useDemo = showcaseMode && i < 4 && kDemoTitle[i][0] != '\0';
+            const auto display = useDemo ? u8 (kDemoTitle[i])
+                                         : (file.isNotEmpty() ? file : u8 ("\xe2\x80\x94 empty deck \xe2\x80\x94"));
+            g.setColour (juce::Colour (stemdeck::palette::kTextPrimary).withAlpha ((useDemo || file.isNotEmpty()) ? 0.92f : 0.45f));
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
         }
@@ -3728,32 +4713,49 @@ void MainPluginEditor::paint (juce::Graphics& g)
         auto stemBox = deckStemBounds[(size_t) i];
         if (! stemBox.isEmpty())
         {
-            g.setColour (deckAccent (i).withAlpha (0.09f));
-            g.fillRoundedRectangle (stemBox.toFloat(), 6.0f);
-            g.setColour (deckAccent (i).withAlpha (0.30f));
-            g.drawRoundedRectangle (stemBox.toFloat().reduced (0.5f), 6.0f, 1.0f);
-
-            auto labelRow = stemBox.removeFromTop (13);
-
-            // RTSS "LIVE" badge tucked at the far right of the stem label row.
-            if (processorRef.isDeckRtssActive (i))
+            // djay-Pro stem cells: DRUMS | BASS | MUSIC | VOCALS | FX — each a
+            // rounded box with a header; matches the fader layout in resized().
+            static constexpr std::array<const char*, 5> cellNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "FX" };
+            const int cellW = juce::jmax (28, stemBox.getWidth() / 5);
+            auto cells = stemBox;
+            for (int s = 0; s < 5; ++s)
             {
-                auto badge = labelRow.removeFromRight (30);
-                g.setColour (deckAccent (i).withAlpha (0.85f));
+                const auto cell = (s < 4 ? cells.removeFromLeft (cellW) : cells).reduced (3, 2);
+                g.setColour (deckAccent (i).withAlpha (0.08f));
+                g.fillRoundedRectangle (cell.toFloat(), 5.0f);
+                g.setColour (deckAccent (i).withAlpha (0.30f));
+                g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 5.0f, 1.0f);
+
+                g.setColour (deckAccent (i).withAlpha (0.92f));
                 g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
-                g.drawText ("LIVE", badge, juce::Justification::centredRight);
+                g.drawText (cellNames[(size_t) s], cell.withHeight (12).translated (0, 2),
+                            juce::Justification::centred);
+
+                if (s == 4)   // FX cell caption under the reverb knob (C = Delay, per mockup)
+                {
+                    g.setColour (juce::Colour (stemdeck::palette::kTextMuted));
+                    g.setFont (juce::FontOptions (7.5f));
+                    g.drawText (i == 2 ? "Delay" : "Reverb", cell.withTop (cell.getBottom() - 11).translated (0, -1),
+                                juce::Justification::centred);
+                }
             }
 
-            // Per-stem labels aligned to the 5 knob columns (FULL/DRUMS/BASS/MUSIC/VOX).
-            static constexpr std::array<const char*, 5> stemNames { "FULL", "DRUMS", "BASS", "MUSIC", "VOX" };
-            const int n = DeckPlayer::numStemLanes;
-            const int colW = juce::jmax (1, stemBox.getWidth() / n);
-            g.setColour (deckAccent (i).withAlpha (0.92f));
-            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
-            for (int s = 0; s < juce::jmin (n, 5); ++s)
-                g.drawText (stemNames[(size_t) s],
-                            juce::Rectangle<int> (stemBox.getX() + s * colW, labelRow.getY(), colW, 12),
-                            juce::Justification::centred);
+            // Honest separation badge: NEURAL (demucs cache) vs DSP (real-time
+            // heuristic), on the VOCALS cell corner.
+            {
+                const bool neural = processorRef.deckHasNeuralStems (i);
+                const bool dsp    = processorRef.isDeckRtssActive (i);
+                if (neural || dsp)
+                {
+                    const auto badgeCol = neural ? juce::Colour (0xff62f5c8) : deckAccent (i);
+                    g.setColour (badgeCol.withAlpha (0.9f));
+                    g.setFont (juce::FontOptions (7.0f, juce::Font::bold));
+                    g.drawText (neural ? "NEURAL" : "DSP",
+                                juce::Rectangle<int> (stemBox.getX() + cellW * 4 - 40,
+                                                      stemBox.getY() + 3, 36, 9),
+                                juce::Justification::centredRight);
+                }
+            }
         }
     }
 
@@ -3770,7 +4772,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         };
 
         g.setColour (deckAccent (i).withAlpha (0.92f));
-        drawAbove ("VOL",   controls.volume);
+        drawAbove ("YGC",   controls.volume);
         drawAbove ("XF",    controls.fader);
         drawAbove ("PITCH", controls.pitch);
         drawAbove ("LOW",   controls.low);
@@ -3783,6 +4785,23 @@ void MainPluginEditor::paint (juce::Graphics& g)
     }
 
     using namespace sattari::brand;
+
+    // Per-stem FX grid headers (only when a deck's FX tab is active): column
+    // labels DR/BA/MU/VO over the filter row, and F/S markers on the far left.
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        auto& dc = deckControls[(size_t) i];
+        if (dc.activeToolTab != DeckControls::TabFx) continue;
+        auto box = deckStemFxBounds[(size_t) i];
+        if (box.isEmpty()) continue;
+        static const char* cols[4] = { "DR", "BA", "MU", "VO" };
+        auto header = box.removeFromTop (9);
+        g.setColour (deckAccent (i).withAlpha (0.8f));
+        g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+        const int colW = juce::jmax (18, header.getWidth() / 4);
+        for (int s = 0; s < 4; ++s)
+            g.drawText (cols[s], header.removeFromLeft (colW), juce::Justification::centred);
+    }
 
     // Mixer panel box (left band).
     if (! mixerPanel.getBounds().isEmpty() && ! redoButton.getBounds().isEmpty())
@@ -3800,29 +4819,135 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.drawText (t, c.getBounds().withHeight (12).translated (0, -13), juce::Justification::centred);
     };
     sliderLabel (u8 ("CROSSFADER A/C \xe2\x86\x94 B/D"), crossfader);
-    sliderLabel ("MASTER BPM", masterBpm);
-    sliderLabel ("MASTER",     master);
-    sliderLabel ("LIMIT",      limiter);
-    sliderLabel ("MIC GAIN",   micGain);
+    sliderLabel ("GLOBAL TEMPO", masterBpm);
+    sliderLabel ("MASTER GAIN",  master);
+    sliderLabel ("LIMIT",        limiter);
+    sliderLabel ("MIC GAIN",     micGain);
 
-    // --- Recording module: defined panel with a clear, prominent title ---
-    if (! recordModuleBounds.isEmpty())
+    // Per-deck channel meters flanking the crossfader — see which deck is hot and
+    // how the mix balances left (A/C) vs right (B/D) at a glance.
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
-        const bool recording = processorRef.isMasterRecording();
-        const auto accent = recording ? juce::Colour (kDanger) : juce::Colour (kAccent);
-        const auto r = recordModuleBounds.toFloat();
-        g.setColour (juce::Colour (kPanel));
-        g.fillRoundedRectangle (r, 10.0f);
-        g.setColour (juce::Colour (kHairline).withAlpha (0.9f));
-        g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
-        g.setColour (accent.withAlpha (recording ? 0.95f : 0.6f));
-        g.drawRoundedRectangle (r.reduced (1.5f), 9.0f, recording ? 2.0f : 1.5f);
+        const auto mb = deckMeterBounds[(size_t) d];
+        if (mb.isEmpty()) continue;
+        const auto r = mb.toFloat();
+        g.setColour (juce::Colour (stemdeck::palette::kPanelDeep));
+        g.fillRoundedRectangle (r, 3.0f);
 
-        g.setColour (accent);
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        const auto dot = recording ? juce::String (juce::CharPointer_UTF8 ("\xe2\x97\x8f ")) : juce::String();
-        g.drawText (dot + "RECORDING", recordModuleBounds.reduced (12, 6).withHeight (14),
+        auto barZone = r.reduced (2.0f).withTrimmedBottom (11.0f);   // reserve bottom for the letter
+        const float peak = juce::jmax (processorRef.getDeckPeak (d, 0), processorRef.getDeckPeak (d, 1));
+        const float db   = juce::Decibels::gainToDecibels (peak, -40.0f);
+        const float norm = juce::jmap (juce::jlimit (-40.0f, 0.0f, db), -40.0f, 0.0f, 0.0f, 1.0f);
+        const int   nSeg = 9;
+        const int   lit  = (int) std::round (norm * (float) nSeg);
+        const float segGap = 1.5f;
+        const float segH = (barZone.getHeight() - segGap * (nSeg - 1)) / (float) nSeg;
+        const auto accent = deckAccent (d);
+        for (int seg = 0; seg < nSeg; ++seg)
+        {
+            const float frac = (float) (seg + 1) / (float) nSeg;
+            juce::Colour c = frac > 0.9f ? juce::Colour (kDanger)
+                           : frac > 0.7f ? juce::Colour (0xffe0b020) : accent;
+            g.setColour (seg < lit ? c : c.withAlpha (0.12f));
+            const float y = barZone.getBottom() - (float) (seg + 1) * segH - (float) seg * segGap;
+            g.fillRoundedRectangle (barZone.getX(), y, barZone.getWidth(), segH, 1.0f);
+        }
+        g.setColour (accent.withAlpha (lit > 0 ? 0.95f : 0.5f));
+        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + d)),
+                    r.withTop (r.getBottom() - 11.0f), juce::Justification::centred);
+    }
+
+    // --- MASTER OUTPUT panel: title, stereo segment meters + dB scale ---
+    if (! masterOutBounds.isEmpty())
+    {
+        namespace sdp = stemdeck::palette;
+        const auto r = masterOutBounds.toFloat();
+        g.setColour (juce::Colour (sdp::kPanel));
+        g.fillRoundedRectangle (r, 10.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
+        g.fillRoundedRectangle (r.withHeight (r.getHeight() * 0.35f).reduced (3.0f, 2.0f), 8.0f);
+        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.9f));
+        g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
+
+        g.setColour (juce::Colour (kAccent));
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText ("MASTER OUTPUT", masterOutBounds.reduced (12, 6).withHeight (14),
                     juce::Justification::centredLeft);
+
+        // GLOBAL TEMPO box: label, value (120.0), and a small green "synced" square.
+        if (! masterTempoBounds.isEmpty())
+        {
+            const auto tb = masterTempoBounds.toFloat();
+            g.setColour (juce::Colour (sdp::kPanelDeep));
+            g.fillRoundedRectangle (tb, 5.0f);
+            g.setColour (juce::Colour (sdp::kHairline));
+            g.drawRoundedRectangle (tb.reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+            g.drawText ("GLOBAL TEMPO", tb.withHeight (11.0f).translated (0.0f, 3.0f), juce::Justification::centred);
+            const float bpm = (float) processorRef.parameters().getRawParameterValue ("masterBpm")->load();
+            auto valRow = tb.withTrimmedTop (13.0f);
+            g.setColour (juce::Colour (sdp::kTextPrimary));
+            g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+            g.drawText (juce::String (bpm, 1), valRow.translated (6.0f, -2.0f), juce::Justification::centred);
+            g.setColour (juce::Colour (0xff30d158));
+            g.fillRoundedRectangle (valRow.getRight() - 15.0f, valRow.getCentreY() - 6.0f, 8.0f, 8.0f, 1.5f);
+        }
+
+        if (! masterMeterBounds.isEmpty())
+        {
+            auto meterArea = masterMeterBounds;
+            auto scaleCol = meterArea.removeFromRight (22);
+            const int nSeg = 14;
+            const float segGap = 2.0f;
+            const float segH = ((float) meterArea.getHeight() - segGap * (nSeg - 1)) / (float) nSeg;
+            const int barW = juce::jmax (6, (meterArea.getWidth() - 6) / 2);
+
+            for (int chIdx = 0; chIdx < 2; ++chIdx)
+            {
+                const float db   = juce::Decibels::gainToDecibels (processorRef.getMasterPeak (chIdx), -40.0f);
+                const float norm = juce::jmap (juce::jlimit (-40.0f, 0.0f, db), -40.0f, 0.0f, 0.0f, 1.0f);
+                const int   lit  = (int) std::round (norm * (float) nSeg);
+                const float x    = (float) meterArea.getX() + (float) chIdx * (float) (barW + 6);
+
+                for (int seg = 0; seg < nSeg; ++seg)
+                {
+                    const float frac = (float) (seg + 1) / (float) nSeg;   // 0..1 bottom→top
+                    juce::Colour c = frac > 0.92f ? juce::Colour (kDanger)
+                                   : frac > 0.72f ? juce::Colour (0xffe0b020)
+                                                  : juce::Colour (0xff30c050);
+                    const bool on = seg < lit;
+                    g.setColour (on ? c : c.withAlpha (0.13f));
+                    const float y = (float) meterArea.getBottom() - (float) (seg + 1) * segH - (float) seg * segGap;
+                    g.fillRoundedRectangle (x, y, (float) barW, segH, 1.0f);
+                }
+            }
+
+            // dB scale ticks (matches the mockup's 0 / -6 / -16 / -20 readout).
+            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setFont (juce::FontOptions (7.0f));
+            for (const float tickDb : { 0.0f, -6.0f, -16.0f, -20.0f })
+            {
+                const float tn = juce::jmap (tickDb, -40.0f, 0.0f, 0.0f, 1.0f);
+                const int y = meterArea.getBottom() - (int) (tn * (float) meterArea.getHeight()) - 4;
+                g.drawText (juce::String ((int) tickDb), scaleCol.getX(), y, scaleCol.getWidth(), 8,
+                            juce::Justification::centredLeft);
+            }
+        }
+
+        // Smart-master readout: short-term loudness + gain reduction when engaged.
+        if (aiMasterButton.getToggleState())
+        {
+            const float lufs = processorRef.getSmartMasterLufs();
+            const float gr   = processorRef.getSmartMasterGr();
+            juce::String txt = lufs > -69.0f ? juce::String (lufs, 1) + " LUFS" : juce::String ("-- LUFS");
+            if (gr > 0.1f) txt += "  GR " + juce::String (gr, 1);
+            g.setColour (juce::Colour (kAccent).withAlpha (0.9f));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText (txt, masterOutBounds.reduced (12, 4).withTop (masterOutBounds.getBottom() - 16),
+                        juce::Justification::bottomLeft);
+        }
     }
 }
 
@@ -3832,15 +4957,28 @@ void MainPluginEditor::resized()
     auto header = area.removeFromTop (50);
     headerBarBounds = header;
 
-    // Left cluster: Library + Files toggles + subtitle (mode line).
-    toggleLibraryButton.setBounds (header.removeFromLeft (72).withSizeKeepingCentre (72, 30));
-    header.removeFromLeft (6);
-    toggleBrowserButton.setBounds (header.removeFromLeft (58).withSizeKeepingCentre (58, 30));
-    header.removeFromLeft (10);
-    auto leftSlot = header.removeFromLeft (220);
-    subtitle.setBounds (leftSlot.withSizeKeepingCentre (220, 18));
+    // Left cluster: djay-Pro nav — icon-above-label cells (icon + text painted
+    // in paint(); the button itself is a naked click target).
+    {
+        juce::Component* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
+                                        &pianoRollButton, &toggleBrowserButton };
+        const int widths[5] = { 66, 58, 56, 66, 92 };
+        for (int i = 0; i < 5; ++i)
+        {
+            auto cell = header.removeFromLeft (widths[i]).withSizeKeepingCentre (widths[i], 46);
+            navRects[(size_t) i] = cell;
+            navBtns[i]->setBounds (cell);
+            header.removeFromLeft (4);
+        }
+    }
+    subtitle.setBounds ({});   // mode line retired from the header (mockup layout)
+    header.removeFromLeft (8);
 
-    // Right cluster: save / user presets / tempo chip — built right-to-left.
+    // Right cluster: settings gear / save / user presets / tempo chip (right-to-left).
+    advancedToggle.setVisible (false);
+    advancedToggle.setBounds ({});
+    settingsButton.setBounds (header.removeFromRight (32).withSizeKeepingCentre (32, 30));
+    header.removeFromRight (6);
     savePresetButton.setBounds (header.removeFromRight (108).withSizeKeepingCentre (108, 30));
     header.removeFromRight (8);
     userPresets.setBounds (header.removeFromRight (160).withSizeKeepingCentre (160, 28));
@@ -3851,6 +4989,9 @@ void MainPluginEditor::resized()
 
     // Centre: title fills whatever remains.
     title.setBounds (header);
+
+    // View-switcher strip removed (the mockup has no transport row under the title).
+    for (auto& b : viewSwitchBtns) { b.setVisible (false); b.setBounds ({}); }
 
     if (browserVisible)
     {
@@ -3875,53 +5016,56 @@ void MainPluginEditor::resized()
         libraryView->setBounds (libraryCol);
     }
 
-    // Compact info strip: workflow guide + host status sharing one row, FX
-    // management collapsed into a tight 22px strip so live use isn't crowded by
-    // setup chrome that should already be configured before the gig.
-    auto infoRow = area.removeFromTop (16);
-    standaloneWorkflowGuide.setBounds (infoRow.removeFromLeft (infoRow.getWidth() * 2 / 3));
-    pluginHostStatus.setBounds (infoRow);
-    area.removeFromTop (4);
+    // Advanced tools toolbar (plugin host / master key / AI master / rekordbox /
+    // project I/O) — hidden by default for the clean 1:1 view, revealed via TOOLS.
+    juce::Component* advancedComps[] = {
+        &standaloneWorkflowGuide, &pluginHostStatus,
+        &pluginChainSelector, &pluginSelector, &loadPluginButton, &clearChainButton,
+        &scanPluginsButton, &reloadPluginCacheButton, &pluginHostMessage,
+        &masterKeyLabel, &masterKey, &syncAllDecksButton,
+        &rbxExportButton, &rbxImportButton, &saveProjButton, &openProjButton,
+        &metronomeButton, &talkoverButton, &overlapModeButton };
 
-    auto fxRow = area.removeFromTop (22);
-    pluginChainSelector.setBounds (fxRow.removeFromLeft (130));
-    fxRow.removeFromLeft (4);
-    pluginSelector.setBounds (fxRow.removeFromLeft (260));
-    fxRow.removeFromLeft (4);
-    loadPluginButton.setBounds (fxRow.removeFromLeft (66));
-    fxRow.removeFromLeft (3);
-    clearChainButton.setBounds (fxRow.removeFromLeft (66));
-    fxRow.removeFromLeft (3);
-    scanPluginsButton.setBounds (fxRow.removeFromLeft (60));
-    fxRow.removeFromLeft (3);
-    reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (80));
-    fxRow.removeFromLeft (8);
-    pluginHostMessage.setBounds (fxRow);
-    area.removeFromTop (6);
+    if (advancedVisible)
+    {
+        for (auto* c : advancedComps) c->setVisible (true);
 
-    auto keyRow = area.removeFromTop (28);
-    masterKeyLabel.setBounds (keyRow.removeFromLeft (108));
-    keyRow.removeFromLeft (4);
-    masterKey.setBounds (keyRow.removeFromLeft (110));
-    keyRow.removeFromLeft (10);
-    syncAllDecksButton.setBounds (keyRow.removeFromLeft (140));
-    keyRow.removeFromLeft (10);
-    pianoRollButton.setBounds (keyRow.removeFromLeft (100));
-    keyRow.removeFromLeft (8);
-    mixerButton.setBounds (keyRow.removeFromLeft (80));
-    keyRow.removeFromLeft (16);
-    saveProjButton.setBounds (keyRow.removeFromLeft (90));
-    keyRow.removeFromLeft (6);
-    openProjButton.setBounds (keyRow.removeFromLeft (90));
-    keyRow.removeFromLeft (12);
-    metronomeButton.setBounds (keyRow.removeFromLeft (54));
-    keyRow.removeFromLeft (6);
-    talkoverButton.setBounds (keyRow.removeFromLeft (54));
-    keyRow.removeFromLeft (6);
-    overlapModeButton.setBounds (keyRow.removeFromLeft (44));
-    area.removeFromTop (6);
+        auto infoRow = area.removeFromTop (16);
+        standaloneWorkflowGuide.setBounds (infoRow.removeFromLeft (infoRow.getWidth() * 2 / 3));
+        pluginHostStatus.setBounds (infoRow);
+        area.removeFromTop (4);
 
-    liveMixerLabel.setBounds (area.removeFromTop (20));
+        auto fxRow = area.removeFromTop (22);
+        pluginChainSelector.setBounds (fxRow.removeFromLeft (130));   fxRow.removeFromLeft (4);
+        pluginSelector.setBounds (fxRow.removeFromLeft (260));        fxRow.removeFromLeft (4);
+        loadPluginButton.setBounds (fxRow.removeFromLeft (66));       fxRow.removeFromLeft (3);
+        clearChainButton.setBounds (fxRow.removeFromLeft (66));       fxRow.removeFromLeft (3);
+        scanPluginsButton.setBounds (fxRow.removeFromLeft (60));      fxRow.removeFromLeft (3);
+        reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (80)); fxRow.removeFromLeft (8);
+        pluginHostMessage.setBounds (fxRow);
+        area.removeFromTop (6);
+
+        auto keyRow = area.removeFromTop (28);
+        masterKeyLabel.setBounds (keyRow.removeFromLeft (108));       keyRow.removeFromLeft (4);
+        masterKey.setBounds (keyRow.removeFromLeft (110));            keyRow.removeFromLeft (10);
+        syncAllDecksButton.setBounds (keyRow.removeFromLeft (128));   keyRow.removeFromLeft (10);
+        rbxExportButton.setBounds (keyRow.removeFromLeft (72));       keyRow.removeFromLeft (4);
+        rbxImportButton.setBounds (keyRow.removeFromLeft (72));       keyRow.removeFromLeft (16);
+        saveProjButton.setBounds (keyRow.removeFromLeft (90));        keyRow.removeFromLeft (6);
+        openProjButton.setBounds (keyRow.removeFromLeft (90));        keyRow.removeFromLeft (12);
+        metronomeButton.setBounds (keyRow.removeFromLeft (54));       keyRow.removeFromLeft (6);
+        talkoverButton.setBounds (keyRow.removeFromLeft (54));        keyRow.removeFromLeft (6);
+        overlapModeButton.setBounds (keyRow.removeFromLeft (44));
+        area.removeFromTop (6);
+    }
+    else
+    {
+        for (auto* c : advancedComps) { c->setVisible (false); c->setBounds ({}); }
+    }
+
+    // "LIVE MIXER / STEM DECKS" section title removed (mockup has no such label).
+    liveMixerLabel.setBounds ({});
+    liveMixerLabel.setVisible (false);
     area.removeFromTop (2);
 
     // Deck row gets a fixed band; the arrangement below takes ALL remaining height
@@ -3946,9 +5090,19 @@ void MainPluginEditor::resized()
         // ---- Bottom-up fixed sections; the waveform claims the flexible middle ----
 
         // Status row (key / stem provider status).
-        auto statusRow = lane.removeFromBottom (13);
-        controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
-        controls.stemStatus.setBounds (statusRow);
+        // Deck footer status text removed for the clean 1:1 view (advanced only).
+        auto statusRow = lane.removeFromBottom (advancedVisible ? 13 : 0);
+        if (advancedVisible)
+        {
+            controls.keyInfo.setVisible (true); controls.stemStatus.setVisible (true);
+            controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
+            controls.stemStatus.setBounds (statusRow);
+        }
+        else
+        {
+            controls.keyInfo.setVisible (false);   controls.keyInfo.setBounds ({});
+            controls.stemStatus.setVisible (false); controls.stemStatus.setBounds ({});
+        }
         lane.removeFromBottom (4);
 
         // Toolbox content (the active tab's controls render here).
@@ -3971,10 +5125,12 @@ void MainPluginEditor::resized()
             auto fadersCol = mixBand.removeFromRight (faderColW * 3 + fgap * 2);
             auto eqArea = mixBand.withTrimmedRight (8);
             const int eqW = juce::jmax (26, eqArea.getWidth() / 4);
-            controls.low   .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
-            controls.mid   .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
-            controls.high  .setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
-            controls.filter.setBounds (eqArea.removeFromLeft (eqW).reduced (3, 2));
+            // Smaller knobs (was reduced(3,2)) so the rings read light and the
+            // LOW/MID/HIGH/FILT labels above have room.
+            controls.low   .setBounds (eqArea.removeFromLeft (eqW).reduced (5, 9));
+            controls.mid   .setBounds (eqArea.removeFromLeft (eqW).reduced (5, 9));
+            controls.high  .setBounds (eqArea.removeFromLeft (eqW).reduced (5, 9));
+            controls.filter.setBounds (eqArea.removeFromLeft (eqW).reduced (5, 9));
             controls.volume.setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 2));
             fadersCol.removeFromLeft (fgap);
             controls.fader .setBounds (fadersCol.removeFromLeft (faderColW).reduced (3, 2));
@@ -3997,14 +5153,23 @@ void MainPluginEditor::resized()
         }
         lane.removeFromBottom (6);
 
-        // STEM SEPARATION — the centerpiece: label band + 5 colour-coded knobs.
-        auto stemKnobRow = lane.removeFromBottom (54);
-        auto stemLabelRow = lane.removeFromBottom (14);
-        deckStemBounds[(size_t) deckIndex] = stemLabelRow.getUnion (stemKnobRow);
+        // STEM SEPARATION — djay-Pro cells: DRUMS/BASS/MUSIC/VOCALS vertical
+        // mini-faders + an FX cell (reverb knob). Painted cell boxes in paint().
+        auto stemStrip = lane.removeFromBottom (72);
+        deckStemBounds[(size_t) deckIndex] = stemStrip;
         {
-            const int stemW = juce::jmax (28, stemKnobRow.getWidth() / DeckPlayer::numStemLanes);
-            for (int s = 0; s < DeckPlayer::numStemLanes; ++s)
-                controls.stemGains[(size_t) s].setBounds (stemKnobRow.removeFromLeft (stemW).reduced (3, 3));
+            const int cellW = juce::jmax (28, stemStrip.getWidth() / 5);
+            auto cells = stemStrip;
+            for (int s = 0; s < 4; ++s)   // drums..vocals faders
+            {
+                auto cell = cells.removeFromLeft (cellW).reduced (3, 2);
+                cell.removeFromTop (13);   // painted header
+                controls.stemGains[(size_t) (DeckPlayer::drumsStem + s)].setBounds (cell.reduced (2, 0));
+            }
+            auto fxCell = cells.reduced (3, 2);
+            fxCell.removeFromTop (13);
+            fxCell.removeFromBottom (10);  // painted "Reverb" caption
+            controls.reverbMix.setBounds (fxCell.reduced (2, 0));
         }
         lane.removeFromBottom (6);
 
@@ -4056,12 +5221,29 @@ void MainPluginEditor::resized()
             }
             case DeckControls::TabFx:
             {
-                const int knobW = juce::jmin (52, tabContent.getWidth() / 3 - 6);
-                controls.reverbMix.setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
-                tabContent.removeFromLeft (4);
-                controls.echoMix  .setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
-                tabContent.removeFromLeft (4);
-                controls.macroKnob.setBounds (tabContent.removeFromLeft (knobW).reduced (4, 2));
+                // Deck-wide FX knobs on the left (echo / macro); reverb lives in
+                // the stem strip's FX cell now.
+                const int knobW = juce::jmin (46, tabContent.getWidth() / 6);
+                controls.echoMix  .setBounds (tabContent.removeFromLeft (knobW).reduced (3, 2));
+                tabContent.removeFromLeft (3);
+                controls.macroKnob.setBounds (tabContent.removeFromLeft (knobW).reduced (3, 2));
+                tabContent.removeFromLeft (6);
+
+                // Per-stem FX grid: 4 columns (drums/bass/music/vocals) × 3 rows
+                // (Filt / Send / Pitch). Column headers + row labels painted in paint().
+                deckStemFxBounds[(size_t) deckIndex] = tabContent;
+                auto grid = tabContent.reduced (0, 1);
+                grid.removeFromTop (9);   // column-header strip (painted)
+                const int colW = juce::jmax (18, grid.getWidth() / 4);
+                auto filtRow  = grid.removeFromTop (grid.getHeight() / 3);
+                auto sendRow  = grid.removeFromTop (grid.getHeight() / 2);
+                auto pitchRow = grid;
+                for (int s = 0; s < 4; ++s)
+                {
+                    controls.stemFilt[(size_t) s] .setBounds (filtRow.removeFromLeft (colW).reduced (2, 0));
+                    controls.stemSend[(size_t) s] .setBounds (sendRow.removeFromLeft (colW).reduced (2, 0));
+                    controls.stemPitch[(size_t) s].setBounds (pitchRow.removeFromLeft (colW).reduced (2, 0));
+                }
                 break;
             }
             case DeckControls::TabSync:
@@ -4090,6 +5272,14 @@ void MainPluginEditor::resized()
                 controls.aiStems .setBounds (row.removeFromLeft (juce::jmax (60, row.getWidth() * 36 / 100)).reduced (1, 0));
                 controls.loadStem.setBounds (row.removeFromLeft (juce::jmax (44, row.getWidth() * 38 / 100)).reduced (1, 0));
                 controls.stemLane.setBounds (row.reduced (1, 0));
+                tabContent.removeFromTop (2);
+                // Full-mix trim knob (relocated from the old stem knob row) + audio→MIDI.
+                controls.stemGains[(size_t) DeckPlayer::fullMixStem]
+                    .setBounds (tabContent.removeFromLeft (46).reduced (2, 1));
+                tabContent.removeFromLeft (4);
+                controls.extractMidi.setBounds (tabContent.removeFromLeft (72).withHeight (22).translated (0, 4));
+                tabContent.removeFromLeft (4);
+                controls.extractDrums.setBounds (tabContent.removeFromLeft (80).withHeight (22).translated (0, 4));
                 break;
             }
             default: break;
@@ -4100,69 +5290,125 @@ void MainPluginEditor::resized()
 
     area.removeFromTop (8);
 
-    // ---- Mixer + defined recording module band ----
-    auto mixerStrip = area.removeFromTop (100);
-    recordModuleBounds = mixerStrip.removeFromRight (juce::jmax (320, mixerStrip.getWidth() * 30 / 100));
+    // ---- Mixer + GLOBAL MASTER EFFECTS + MASTER OUTPUT band ----
+    auto mixerStrip = area.removeFromTop (150);
+    masterOutBounds = mixerStrip.removeFromRight (juce::jmax (300, mixerStrip.getWidth() * 22 / 100));
     mixerStrip.removeFromRight (10);
+    // Frosted-glass XY hero panel (full band height) between mix controls and recorder.
+    masterFxPad.setBounds (mixerStrip.removeFromRight (juce::jmax (240, mixerStrip.getWidth() * 24 / 100)).reduced (2, 6));
+    mixerStrip.removeFromRight (12);
 
+    // MIXER block: master scope + surfaced power controls + crossfader flanked by
+    // per-deck channel meters. Rarely-used utilities stay advanced-only.
+    juce::Component* mixExtras[] = { &micGain, &hostSync, &beatSync, &micMonitor,
+                                     &camelotButton, &midiLearnButton, &snapToggleButton,
+                                     &razorButton, &bounceEditsButton, &undoButton, &redoButton };
     auto mixer = mixerStrip.reduced (2, 5);
     mixerPanel.setBounds (mixer.removeFromLeft (140));
-    auto mixControls = mixer.reduced (10, 10);
-    auto mcTop = mixControls.removeFromTop (mixControls.getHeight() / 2);
-    auto mcBot = mixControls;
-    // Top row: crossfader + master bpm + master + limiter + mic gain.
-    crossfader.setBounds (mcTop.removeFromLeft (juce::jmax (180, mcTop.getWidth() * 32 / 100)));
-    mcTop.removeFromLeft (12);
-    masterBpm.setBounds (mcTop.removeFromLeft (110));
-    master.setBounds   (mcTop.removeFromLeft (80));
-    limiter.setBounds  (mcTop.removeFromLeft (80));
-    micGain.setBounds  (mcTop.removeFromLeft (84));
-    // Bottom row: sync toggles + utility buttons + edit/transport buttons.
-    auto chip = [&mcBot] (juce::Component& c, int w) { c.setBounds (mcBot.removeFromLeft (w).withHeight (30)); mcBot.removeFromLeft (3); };
-    hostSync.setBounds (mcBot.removeFromLeft (96).withTrimmedTop (8)); mcBot.removeFromLeft (3);
-    beatSync.setBounds (mcBot.removeFromLeft (96).withTrimmedTop (8)); mcBot.removeFromLeft (3);
-    micMonitor.setBounds (mcBot.removeFromLeft (104).withTrimmedTop (8)); mcBot.removeFromLeft (6);
-    chip (tapTempoButton, 48);
-    chip (camelotButton, 44);
-    chip (midiLearnButton, 48);
-    chip (snapToggleButton, 48);
-    chip (razorButton, 50);
-    chip (playArrButton, 60);
-    chip (bounceEditsButton, 64);
-    chip (undoButton, 46);
-    chip (redoButton, 46);
+    auto mixControls = mixer.reduced (10, 8);
 
-    // Recording module (painted bordered panel in paint()): big record button + status.
+    // Always-visible power row: BPM SYNC · KEY SYNC · AI MASTER (+mode) · LIMIT.
     {
-        auto rec = recordModuleBounds.reduced (12, 10);
-        rec.removeFromTop (16);   // room for the painted "RECORDING" title
-        auto recRow = rec.removeFromTop (34);
-        recordButton.setBounds (recRow.removeFromLeft (juce::jmax (96, recRow.getWidth() * 36 / 100)));
-        recRow.removeFromLeft (6);
-        revealRecordingButton.setBounds (recRow.removeFromLeft (64));
-        recRow.removeFromLeft (6);
-        reloadIntoDecksButton.setBounds (recRow);
-        rec.removeFromTop (6);
-        recordStatus.setBounds (rec.removeFromTop (16));
+        for (juce::Component* c : { (juce::Component*) &syncBpmButton, (juce::Component*) &syncKeyButton,
+                                    (juce::Component*) &aiMasterButton, (juce::Component*) &aiMasterMode,
+                                    (juce::Component*) &limiter })
+            c->setVisible (true);
+        auto powerRow = mixControls.removeFromTop (26);
+        syncBpmButton.setBounds (powerRow.removeFromLeft (78));   powerRow.removeFromLeft (4);
+        syncKeyButton.setBounds (powerRow.removeFromLeft (78));   powerRow.removeFromLeft (10);
+        aiMasterButton.setBounds (powerRow.removeFromLeft (80));  powerRow.removeFromLeft (4);
+        aiMasterMode.setBounds (powerRow.removeFromLeft (110));   powerRow.removeFromLeft (10);
+        limiter.setBounds (powerRow);   // LIMIT ceiling — label painted alongside
+    }
+    mixControls.removeFromTop (6);
+
+    // Crossfader flanked by per-deck meters: A/C feed the left, B/D the right.
+    {
+        auto xfRow = mixControls;
+        auto leftMeters  = xfRow.removeFromLeft (40);
+        auto rightMeters = xfRow.removeFromRight (40);
+        deckMeterBounds[0] = leftMeters.removeFromTop (leftMeters.getHeight() / 2).reduced (3, 2);   // A
+        deckMeterBounds[2] = leftMeters.reduced (3, 2);                                               // C
+        deckMeterBounds[1] = rightMeters.removeFromTop (rightMeters.getHeight() / 2).reduced (3, 2);  // B
+        deckMeterBounds[3] = rightMeters.reduced (3, 2);                                              // D
+        crossfader.setBounds (xfRow.reduced (8, 0).withSizeKeepingCentre (xfRow.getWidth() - 16, 40));
+    }
+
+    if (advancedVisible)
+    {
+        for (auto* c : mixExtras) c->setVisible (true);
+        // Advanced utility chips live on the transport/keyRow area, not the mixer.
+        auto util = area.removeFromTop (28);
+        auto chip = [&util] (juce::Component& c, int w) { c.setBounds (util.removeFromLeft (w).withHeight (26)); util.removeFromLeft (3); };
+        hostSync.setBounds (util.removeFromLeft (96)); util.removeFromLeft (3);
+        beatSync.setBounds (util.removeFromLeft (96)); util.removeFromLeft (3);
+        micMonitor.setBounds (util.removeFromLeft (104)); util.removeFromLeft (6);
+        micGain.setBounds (util.removeFromLeft (84)); util.removeFromLeft (6);
+        chip (camelotButton, 44); chip (midiLearnButton, 48); chip (snapToggleButton, 48);
+        chip (razorButton, 50); chip (bounceEditsButton, 64); chip (undoButton, 46); chip (redoButton, 46);
+        area.removeFromTop (6);
+    }
+    else
+    {
+        for (auto* c : mixExtras) { c->setVisible (false); c->setBounds ({}); }
+    }
+
+    // MASTER OUTPUT panel internals: meters | MASTER GAIN | GLOBAL TEMPO/TAP/KeyLock.
+    {
+        auto mo = masterOutBounds.reduced (12, 8);
+        mo.removeFromTop (16);   // painted "MASTER OUTPUT" title
+        masterMeterBounds = mo.removeFromLeft (76).reduced (0, 4);
+        mo.removeFromLeft (8);
+        master.setBounds (mo.removeFromLeft (66).withTrimmedTop (10));
+        mo.removeFromLeft (8);
+        auto tempoCol = mo;
+        // GLOBAL TEMPO is a painted box (label + 120.0 + green square); the slider
+        // itself is hidden but kept for automation/state.
+        masterTempoBounds = tempoCol.removeFromTop (42);
+        masterBpm.setVisible (false);
+        masterBpm.setBounds ({});
+        tempoCol.removeFromTop (6);
+        auto tapRow = tempoCol.removeFromTop (26);
+        tapTempoButton.setBounds (tapRow.removeFromLeft (juce::jmax (44, tapRow.getWidth() / 2 - 3)));
+        tapRow.removeFromLeft (6);
+        keyLockAllButton.setBounds (tapRow);
+        // Reveal / Reload are advanced-only (not in the mockup master panel).
+        if (advancedVisible)
+        {
+            revealRecordingButton.setVisible (true); reloadIntoDecksButton.setVisible (true);
+            auto recRow = tempoCol.withTrimmedTop (4).withHeight (20);
+            revealRecordingButton.setBounds (recRow.removeFromLeft (juce::jmax (44, recRow.getWidth() / 2 - 3)));
+            recRow.removeFromLeft (6);
+            reloadIntoDecksButton.setBounds (recRow);
+        }
+        else
+        {
+            revealRecordingButton.setVisible (false); revealRecordingButton.setBounds ({});
+            reloadIntoDecksButton.setVisible (false); reloadIntoDecksButton.setBounds ({});
+        }
+        recordButton.setBounds ({});   // superseded by the transport ● button
+        // recordStatus is placed in the pads strip (Recording chip) further down.
     }
 
     area.removeFromTop (8);
     {
-        auto labelRow = area.removeFromTop (22);
-        arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() / 2));
-        auto zoomBox = labelRow.removeFromRight (170);
-        arrLoopButton.setBounds (zoomBox.removeFromRight (46).reduced (1));
-        zoomBox.removeFromRight (6);
-        arrZoomFitButton.setBounds (zoomBox.removeFromRight (40).reduced (1));
+        // djay-Pro transport: label left, centred >>> ▶ ● Loop cluster, zoom right.
+        auto labelRow = area.removeFromTop (28);
+        arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() * 28 / 100));
+        auto zoomBox = labelRow.removeFromRight (128);
+        arrZoomFitButton.setBounds (zoomBox.removeFromRight (40).reduced (1, 2));
         zoomBox.removeFromRight (4);
-        arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1));
-        arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1));
-        // Record + Launch All — between label and MIDI-learn feedback
+        arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
+        arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
+
+        auto cluster = labelRow.withSizeKeepingCentre (44 * 4 + 6 * 3, 26);
+        auto tbtn = [&cluster] (juce::Component& c) { c.setBounds (cluster.removeFromLeft (44)); cluster.removeFromLeft (6); };
+        tbtn (launchAllButton);
+        tbtn (playArrButton);
+        tbtn (arrRecordButton);
+        tbtn (arrLoopButton);
+
         labelRow.removeFromRight (8);
-        arrRecordButton.setBounds (labelRow.removeFromRight (60).reduced (0, 1));
-        labelRow.removeFromRight (4);
-        launchAllButton.setBounds (labelRow.removeFromRight (60).reduced (0, 1));
-        labelRow.removeFromRight (6);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
     // Performance pads relocate to a compact full-width strip along the bottom,
@@ -4174,6 +5420,9 @@ void MainPluginEditor::resized()
 
     samplerLabel.setBounds (samplerStrip.removeFromLeft (150));
     samplerStrip.removeFromLeft (6);
+    // Recording status chip anchors the right end of the pads strip.
+    recordStatus.setBounds (samplerStrip.removeFromRight (170).reduced (2, 14));
+    samplerStrip.removeFromRight (6);
     const int padGap = 6;
     const int padW = juce::jmax (96,
         (samplerStrip.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
@@ -4199,6 +5448,9 @@ void MainPluginEditor::resized()
 
 void MainPluginEditor::timerCallback()
 {
+    // Service deferred audio-thread requests (e.g. TE transport auto-stop).
+    processorRef.serviceDeferredActions();
+
     // MIDI learn feedback — reflect bindings as they happen.
     {
         auto& midi = processorRef.getMidiMapping();
@@ -4228,8 +5480,34 @@ void MainPluginEditor::timerCallback()
     recordButton.setColour (juce::TextButton::textColourOffId,
                             recording ? juce::Colours::white
                                       : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
-    arrRecordButton.setButtonText (recording ? u8 ("\xe2\x97\x8f Stop Rec") : u8 ("\xe2\x97\x8f Record"));
+    arrRecordButton.setButtonText (u8 ("\xe2\x97\x8f"));
     arrRecordButton.setToggleState (recording, juce::dontSendNotification);
+
+    // Meters live in the MASTER OUTPUT panel — refresh continuously.
+    if (! masterOutBounds.isEmpty())
+        repaint (masterOutBounds);
+
+    // Feed the live master-output scope + refresh the console channel meters.
+    mixerPanel.pushLevel (processorRef.getMasterPeak (0), processorRef.getMasterPeak (1));
+    for (const auto& mb : deckMeterBounds)
+        if (! mb.isEmpty())
+            repaint (mb);
+
+    // DECKS nav chip reads active when no overlay view is open.
+    navDecksButton.setToggleState (! pianoRoll.isVisible() && ! mixerView.isVisible()
+                                     && ! libraryVisible && ! browserVisible,
+                                   juce::dontSendNotification);
+
+    // Newly-loaded deck files pick up imported Rekordbox cues automatically.
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+    {
+        const auto path = processorRef.getDeckPath (d);
+        if (path != lastCuePaths[(size_t) d])
+        {
+            lastCuePaths[(size_t) d] = path;
+            applyImportedCues (d);
+        }
+    }
 
     {
         // Project tempo (MASTER BPM) drives the arrangement grid + the piano roll.
@@ -4250,6 +5528,9 @@ void MainPluginEditor::timerCallback()
                                     playing);
         if (playing != lastDeckPlayingUI[(size_t) i])
         {
+            // Auto-follow: the last deck to START playing becomes the sync master.
+            if (playing)
+                setMasterDeck (i);
             lastDeckPlayingUI[(size_t) i] = playing;
             deckPlayChanged = true;
         }
@@ -4263,8 +5544,32 @@ void MainPluginEditor::timerCallback()
     // Arrangement transport feedback: moving playhead + button state.
     const bool arrPlaying = processorRef.isArrangementPlaying();
     arrangementView.setPlaybackPosition (processorRef.getArrangementPositionSeconds(), arrPlaying);
+
+    // Apply editable automation curves to their target parameters while playing.
+    if (arrPlaying)
+    {
+        const double arrPos = processorRef.getArrangementPositionSeconds();
+        for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
+        {
+            int target = -1;
+            const float v = arrangementView.automationValueAt (lane, arrPos, target);
+            if (v < 0.0f || target < 0)
+                continue;
+            juce::String pid;
+            switch (target)
+            {
+                case 0: pid = deckPrefix (lane) + "Fader";  break;
+                case 1: pid = deckPrefix (lane) + "Filter"; break;
+                case 2: pid = deckPrefix (lane) + "Pitch";  break;
+                case 3: pid = deckPrefix (lane) + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::vocalsStem) + "Send"; break;
+                default: break;
+            }
+            if (auto* p = processorRef.parameters().getParameter (pid))
+                p->setValueNotifyingHost (v);   // curve stores the normalized 0..1 value
+        }
+    }
     playArrButton.setToggleState (arrPlaying, juce::dontSendNotification);
-    playArrButton.setButtonText (arrPlaying ? "Stop Arr" : "Play Arr");
+    playArrButton.setButtonText (arrPlaying ? u8 ("\xe2\x96\xa0") : u8 ("\xe2\x96\xb6"));   // ■ / ▶
     if (recording)
     {
         const auto samples = processorRef.getRecordedSamples();
@@ -4322,6 +5627,30 @@ void MainPluginEditor::timerCallback()
             wave->setRtssActive (processorRef.isDeckRtssActive (i));
             wave->setIntroEnd   (processorRef.getIntroEnd   (i));
             wave->setOutroStart (processorRef.getOutroStart (i));
+
+            // Beat-match grid: recompute the grid only when a grid-defining
+            // parameter (file / BPM / offset / downbeat) actually changes.
+            const auto pfx = deckPrefix (i);
+            auto pval = [&] (const char* id) { return processorRef.parameters().getRawParameterValue (pfx + id)->load(); };
+            const juce::String gridKey = deckPaths[(size_t) i]
+                + "|" + juce::String (pval ("Bpm"), 2)
+                + "|" + juce::String (pval ("BeatOffset"), 3)
+                + "|" + juce::String (pval ("Downbeat"), 3);
+            if (gridKey != lastBeatGridKey[(size_t) i])
+            {
+                lastBeatGridKey[(size_t) i] = gridKey;
+                wave->setBeatGridSeconds (processorRef.getDeckBeatGridSeconds (i));
+            }
+
+            // Locked (green grid) when this deck's tempo matches the sync master's
+            // — i.e. it is beat-matched. The master deck is always its own reference.
+            const double myBpm      = (double) pval ("Bpm");
+            const double masterDeckBpm = juce::isPositiveAndBelow (masterDeckIndex, MainPluginProcessor::numDecks)
+                ? (double) processorRef.parameters().getRawParameterValue (deckPrefix (masterDeckIndex) + "Bpm")->load()
+                : 0.0;
+            const bool matched = myBpm > 1.0 && masterDeckBpm > 1.0
+                && (i == masterDeckIndex || std::abs (myBpm - masterDeckBpm) < 0.15);
+            wave->setBeatSyncState (matched, 0);
         }
 
         // Intro/Outro button toggle states
@@ -4446,7 +5775,14 @@ void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
     for (auto& b : dc.beatRollBtns)  b.setVisible (loop);
     for (auto& b : dc.beatJumpBack)  b.setVisible (loop);
     for (auto& b : dc.beatJumpFwd)   b.setVisible (loop);
-    dc.reverbMix.setVisible (fx); dc.echoMix.setVisible (fx); dc.macroKnob.setVisible (fx);
+    dc.reverbMix.setVisible (true);   // lives in the stem strip's FX cell now
+    dc.echoMix.setVisible (fx); dc.macroKnob.setVisible (fx);
+    for (auto& k : dc.stemFilt)  k.setVisible (fx);
+    for (auto& k : dc.stemSend)  k.setVisible (fx);
+    for (auto& k : dc.stemPitch) k.setVisible (fx);
+    dc.stemGains[(size_t) DeckPlayer::fullMixStem].setVisible (src);   // FULL trim in SRC tab
+    dc.extractMidi.setVisible (src);
+    dc.extractDrums.setVisible (src);
     dc.bpm.setVisible (sync); dc.beatOffset.setVisible (sync); dc.downbeat.setVisible (sync);
     dc.tempoInterpretation.setVisible (sync); dc.syncMode.setVisible (sync); dc.keyTarget.setVisible (sync);
     dc.load.setVisible (src); dc.aiStems.setVisible (src); dc.loadStem.setVisible (src); dc.stemLane.setVisible (src);
@@ -4678,8 +6014,6 @@ void MainPluginEditor::setupSlipAndRoll (int deckIndex)
         btn.setButtonText (kLabels[(size_t) b]);
         setupButton (btn);
         btn.setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
-        // Use mouseDown/mouseUp via lambda capture to implement hold-to-roll
-        btn.addMouseListener (new juce::MouseListener(), false);
         btn.onClick = [this, deckIndex, b]
         {
             // Single click (no hold tracking in TextButton): just arm a 1-shot loop
