@@ -18,7 +18,9 @@
  #include <rubberband/RubberBandStretcher.h>
 #endif
 
-class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor
+class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
+                                             private juce::AudioProcessorValueTreeState::Listener,
+                                             private juce::AsyncUpdater
 {
 public:
     SattariAutoPitchAudioProcessor();
@@ -26,6 +28,10 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    // Transport relocate / loop: flush all streaming state (RB FIFO, PSOLA rings,
+    // smoothers, Rubber Band stretchers) so the engine never replays stale audio
+    // or splices across a discontinuity. Allocation-free (RT-safe).
+    void reset() override;
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -102,7 +108,7 @@ public:
     // is on the bus; otherwise it falls through to AutoKey or Manual.
     struct KeyOrigin
     {
-        enum class Source { Manual, AutoKey, FollowBus };
+        enum class Source { Manual, AutoKey, FollowBus, KeyMap };
         Source source = Source::Manual;
         int    root  = 9;   // 0..11, effective correction root
         int    scale = 1;   // 0=major, 1=minor, 2=chromatic (effective)
@@ -144,10 +150,15 @@ private:
 
     void resetPitchState (int maxBlockSize);
     void pushPitchSample (float sample);
+    // Voiced pitch range (Hz) for the selected Sound Source. Shared by the YIN
+    // gate (analyseCurrentPitchFrame) and the CREPE override so both reject the
+    // same out-of-range estimates.
+    void voicedRangeHzForSource (double& minHz, double& maxHz) const;
     PitchFrame analyseCurrentPitchFrame() const;
     PitchFrame buildCorrectionFrame (PitchFrame detected) const;
     int currentCorrectionRootIndex() const;
     int effectiveScaleIndex() const;     // bus scale when Follow Song Key is on, else the param
+    bool keyMapDriving() const;
     void updateAutoKeyHistogram (const PitchFrame& frame);
     // Polyphonic AutoKey path: spectral chroma of the sidechain (master) audio
     // feeds the histogram instead of the monophonic vocal pitch. Both paths share
@@ -162,6 +173,15 @@ private:
     void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
+
+    // Reported latency of whichever engine is active right now: the streaming
+    // PSOLA path (Low Latency / Live Engine) has a small fixed delay; the Rubber
+    // Band print path adds its pipeline delay plus the FIFO cushion. Called on
+    // prepare and, when the engine toggles, from handleAsyncUpdate() on the
+    // message thread (setLatencySamples must never run on the audio thread).
+    int  activeEngineLatencySamples() const;
+    void parameterChanged (const juce::String& parameterID, float newValue) override;
+    void handleAsyncUpdate() override;
 
     juce::AudioProcessorValueTreeState apvts;
 public:
@@ -201,6 +221,11 @@ private:
     // Reported processing latency (Rubber Band start delay). Recomputed in
     // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.
     int reportedLatencySamples = 0;
+
+    // Which engine ran last block (liveEngine || lowLatency). processBlock compares
+    // against this to detect a runtime engine swap and flush/prime both paths so
+    // the switch has no ~28 ms dropout, stale-FIFO replay, or phase-click.
+    bool lastUseLiveEngine = false;
 
     // Cross-plugin session bus: host tempo + a transient pulse counter, cached
     // on the audio thread and published off it (editor timer). Lets other
@@ -243,12 +268,27 @@ private:
     void   polyPushBlock (const float* mono, int n);
     double polyAnalyseAndComputeScale();       // returns target pitch scale, or 1.0 if no correction
 
+    // Preallocated scratch for polyAnalyseAndComputeScale() so the ~50 ms HPS hop
+    // never allocates on the audio thread. Sized in prepareToPlay; the analysis
+    // clears/refills (no construction) and stays within reserved capacity.
+    struct PolyPeak     { float val = 0.0f; int bin = 0; };
+    struct PolyDetected { double freq = 0.0; int midi = 0; float weight = 0.0f; };
+    std::vector<float>        polyHps;
+    std::vector<PolyPeak>     polyPeaks;
+    std::vector<PolyDetected> polyNotes;
+
     // Track Key Map state. The vector is built on a background thread, then
     // swapped under `keyMapLock`. The audio thread reads with a try-lock and
     // skips lookup if the writer holds it (the writer's hold is microseconds).
     juce::CriticalSection keyMapLock;
     std::vector<KeyMapEntry> keyMap;
     std::atomic<bool> keyMapScanning { false };
+    // Set by setStateInformation() (and teardown) to ask an in-progress background
+    // scan to stop before it publishes, so a restored/cleared map isn't clobbered
+    // by a scan that started earlier. The scan loop polls it every window, making
+    // the subsequent join return almost immediately (setStateInformation stays
+    // effectively non-blocking). Reset to false in startKeyMapScan().
+    std::atomic<bool> keyMapScanCancel { false };
     std::atomic<int>  keyMapProgress { -1 };
     std::atomic<int>  keyMapCurrentSegment { -1 };
     juce::String keyMapFileName;

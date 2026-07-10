@@ -125,10 +125,22 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
           .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    // Engine-select params change the reported latency (PSOLA vs Rubber Band + FIFO
+    // cushion). Listen so a runtime toggle refreshes the host delay-comp figure via
+    // handleAsyncUpdate() on the message thread (setLatencySamples must not run on
+    // the audio thread).
+    apvts.addParameterListener ("liveEngine", this);
+    apvts.addParameterListener ("lowLatency", this);
 }
 
 SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
 {
+    apvts.removeParameterListener ("liveEngine", this);
+    apvts.removeParameterListener ("lowLatency", this);
+    // A latency-refresh may be queued on the message thread; cancel it before we
+    // start tearing members down.
+    cancelPendingUpdate();
+
     // Stop the CREPE inference worker before any members it touches are destroyed.
     crepeThreadRun.store (false);
     if (crepeThread.joinable())
@@ -136,7 +148,8 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
 
     // Stop and join the offline scan thread cleanly so we never leak a worker
     // across plugin unloads (the worker holds a juce::AudioFormatReader that
-    // owns a file handle).
+    // owns a file handle). Signal cancel first so the join returns promptly.
+    keyMapScanCancel.store (true);
     if (keyMapScanThread && keyMapScanThread->joinable())
         keyMapScanThread->join();
 }
@@ -194,6 +207,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             "Bass Voice", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano",
             "Instrument: Bass", "Instrument: Mid", "Instrument: High"
         }, 4));
+    // Low Latency: engage the near-zero-latency monitor path. It shares the Live
+    // Engine's streaming PSOLA shifter — turning it ON swaps the Rubber Band print
+    // engine for PSOLA at runtime so monitoring latency drops immediately, and the
+    // reported latency (prepareToPlay) tracks the active engine. (It is effectively
+    // an alias for Live Engine's low-latency path; kept as its own control because
+    // the editor exposes both. See processBlock's engine select + prepareToPlay's
+    // reported-latency block.)
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
 
     // Live Engine (PSOLA): swap the Rubber Band phase vocoder for a streaming
@@ -282,16 +302,38 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     sessionReader.start();   // Follow Song Key reads the bus published by Sattari Key
     resetPitchState (preparedBlockSize);
 
-    // Live-monitor PSOLA engine, one shifter per output channel. Min pitch 70 Hz
-    // keeps the fixed latency (~2 periods of the lowest note) to ~28 ms worst case.
+    // Live-monitor PSOLA engine, one shifter per output channel. Prepare it with a
+    // min-Hz that matches the SELECTED Sound Source's low bound so it stays
+    // pitch-synchronous down to that source's floor (Instrument: Bass -> ~40 Hz)
+    // instead of the old fixed 70 Hz, which mis-tracked bass fundamentals. PSOLA's
+    // fixed latency is ~2 periods of min-Hz, so a lower floor buys correct bass
+    // tracking at the cost of more latency (~50 ms at 40 Hz vs ~28 ms at 70 Hz).
+    // The floor is clamped to [40,70] Hz to keep the ring + latency bounded, so a
+    // voice source is unchanged (70 Hz). This is sampled at prepare; a runtime
+    // Sound Source change is picked up on the next prepareToPlay (re-preparing the
+    // shifter allocates, so it can't be done from the audio thread).
     {
+        double srcMinHz = minVoiceHz, srcMaxHz = maxVoiceHz;
+        voicedRangeHzForSource (srcMinHz, srcMaxHz);
+        const double psolaMinHz = juce::jlimit (40.0, 70.0, srcMinHz);
+        const double psolaMaxHz = juce::jmax (1000.0, srcMaxHz);   // voice stays 1000 Hz; instruments extend up
         const int numCh = juce::jmax (1, getTotalNumOutputChannels());
         psola.assign ((size_t) numCh, sattari::dsp::PsolaShifter());
-        for (auto& p : psola) p.prepare (currentSampleRate, 70.0, 1000.0);
+        for (auto& p : psola) p.prepare (currentSampleRate, psolaMinHz, psolaMaxHz);
     }
 
     // Optional CREPE model: look in the suite's conventional models folder. Absent
     // a model (or an ONNX-less build) this is a no-op and YIN is used.
+    //
+    // Stop + JOIN the inference worker BEFORE touching the tracker: crepe.prepare()
+    // and crepe.loadModel() reconfigure model/buffer state that the worker's
+    // analyse() reads, so a worker still running from a previous prepareToPlay would
+    // race the reload (torn reads of the model being swapped, use of half-resized
+    // buffers). Joining first guarantees no analyse() overlaps the reconfigure; the
+    // worker is then restarted below only if a model is present.
+    crepeThreadRun.store (false);
+    if (crepeThread.joinable()) crepeThread.join();
+
     crepe.prepare (currentSampleRate);
     crepeModelPresent = false;
     {
@@ -301,9 +343,8 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
             crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
     }
     // Spin up the inference worker only when there's actually a model to run. It
-    // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here.
-    crepeThreadRun.store (false);
-    if (crepeThread.joinable()) crepeThread.join();
+    // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
+    // that the model + buffers are fully configured.
     if (crepeModelPresent)
     {
         crepeThreadRun.store (true);
@@ -335,19 +376,25 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     polySamplesSinceFft = 0;
     polyAveragePitchScale = 1.0;
     polyLastNotes.fill (-1);
+    // Preallocate the poly-detection scratch so the audio-thread HPS hop never
+    // allocates. hps is indexed up to lastBin, which is capped at chromaFftSize/10;
+    // peaks can be one per bin in that band. reserve() to those bounds so the
+    // per-hop clear()/push_back() never reallocate.
+    polyHps.assign ((size_t) (chromaFftSize / 10 + 1), 0.0f);
+    polyPeaks.clear();
+    polyPeaks.reserve ((size_t) (chromaFftSize / 10 + 1));
+    polyNotes.clear();
+    polyNotes.reserve (3);
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
 
-    // Low Latency mode: trade a little pitch-shift fidelity for a noticeably
-    // shorter window so the plugin is usable while tracking/monitoring. The
-    // standard path uses the high-quality (longer) window for the best printed
-    // sound. Either way we report Rubber Band's real start delay to the host so
-    // delay-compensation keeps the project phase-tight.
-    const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
-                        && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
-
+    // Rubber Band is the high-fidelity PRINT engine and always uses the
+    // high-quality window. Low latency is no longer bought by degrading Rubber
+    // Band's window (a prepare-only switch with no runtime effect); it is a
+    // runtime engine swap to the streaming PSOLA shifter — see the Low Latency /
+    // Live Engine handling in processBlock and the reported-latency block below.
     auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
               // Sustained, pitched vocal material: TransientsSmooth avoids the
               // phase-reset Rubber Band performs at each detected "transient",
@@ -360,8 +407,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
               // pitch move (e.g. hard note transitions). HighConsistency uses a
               // method built for dynamic pitch changes with no discontinuities.
               | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
-              | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
-                        : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
+              | RubberBand::RubberBandStretcher::OptionPitchHighQuality;
 
     for (int channel = 0; channel < numChannels; ++channel)
     {
@@ -392,14 +438,63 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     rbFifoCap = rbCushion + startDelay + 8 * preparedBlockSize + 16384;
     rbFifo.setSize (numChannels, rbFifoCap);
     resetRbFifo();
-
-    // Report latency so the host delay-compensates: Rubber Band's own pipeline
-    // delay plus the cushion the FIFO holds before it starts popping.
-    reportedLatencySamples = startDelay + rbCushion;
-    setLatencySamples (reportedLatencySamples);
-#else
-    reportedLatencySamples = 0;
 #endif
+
+    // Report latency so the host delay-compensates. The figure tracks whichever
+    // engine is active (activeEngineLatencySamples()): the streaming PSOLA path
+    // (Low Latency / Live Engine) has a small fixed delay; the Rubber Band print
+    // path adds its pipeline delay plus the FIFO cushion. This makes Low Latency an
+    // HONEST control instead of a dead toggle. The engine can also be swapped live,
+    // in which case parameterChanged() -> handleAsyncUpdate() re-reports the new
+    // latency on the message thread (setLatencySamples must not run on the audio
+    // thread). Computed here AFTER the PSOLA (min-Hz) and Rubber Band FIFO setup, so
+    // it reflects the actual prepared engines.
+    reportedLatencySamples = activeEngineLatencySamples();
+    setLatencySamples (reportedLatencySamples);
+
+    // Seed the engine-swap detector with the engine that will run first, so the
+    // first processBlock after prepare doesn't spuriously flush both paths (they
+    // are already freshly primed here).
+    lastUseLiveEngine = (apvts.getRawParameterValue ("liveEngine") != nullptr
+                         && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f)
+                     || (apvts.getRawParameterValue ("lowLatency") != nullptr
+                         && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f);
+}
+
+// Active engine's reported latency (samples). PSOLA (Low Latency / Live Engine)
+// reports its small fixed delay; otherwise the Rubber Band pipeline delay plus the
+// FIFO cushion. Const + allocation-free so it is safe to call from prepareToPlay
+// and from handleAsyncUpdate() (message thread).
+int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
+{
+    const bool lowLatOn  = apvts.getRawParameterValue ("lowLatency") != nullptr
+                           && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+    const bool liveEngOn = apvts.getRawParameterValue ("liveEngine") != nullptr
+                           && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
+    const int psolaLatency = psola.empty() ? 0 : psola.front().getLatencySamples();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    return (lowLatOn || liveEngOn) ? psolaLatency : (rbLatency + rbCushion);
+#else
+    // No Rubber Band: the formant-guide fallback is block-local (~0 latency).
+    return (lowLatOn || liveEngOn) ? psolaLatency : 0;
+#endif
+}
+
+void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float)
+{
+    // Engine toggle: the reported latency must change to match the now-active
+    // engine. setLatencySamples() -> updateHostDisplay() must run on the message
+    // thread, and parameterChanged may be called from the audio thread (host
+    // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
+    // never per block.
+    if (parameterID == "liveEngine" || parameterID == "lowLatency")
+        triggerAsyncUpdate();
+}
+
+void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
+{
+    reportedLatencySamples = activeEngineLatencySamples();
+    setLatencySamples (reportedLatencySamples);
 }
 
 void SattariAutoPitchAudioProcessor::releaseResources()
@@ -424,6 +519,25 @@ double SattariAutoPitchAudioProcessor::getTailLengthSeconds() const
 #endif
 }
 
+// Host transport relocate / loop point. Without this, only prepareToPlay flushed
+// the streaming state, so after a loop wrap or a playhead jump the Rubber Band FIFO
+// and PSOLA rings would replay ~one pipeline's worth of stale audio and the
+// smoothers would carry the pre-jump pitch scale (an audible click/dropout at the
+// seam). resetPitchState() clears the smoothers + PSOLA rings + RB FIFO (and
+// re-primes); we additionally reset the Rubber Band stretchers so their internal
+// phase state starts clean. Allocation-free (resetPitchState reuses same-size
+// storage; the stretcher reset() does not allocate), so this is RT-safe even when a
+// host calls reset() from the audio thread.
+void SattariAutoPitchAudioProcessor::reset()
+{
+    resetPitchState (preparedBlockSize);
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    for (auto& s : rubberBand)
+        if (s != nullptr)
+            s->reset();
+#endif
+}
+
 void SattariAutoPitchAudioProcessor::resetPitchState (int)
 {
     pitchFrameBuffer.assign ((size_t) pitchFrameSize, 0.0f);
@@ -439,6 +553,11 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     transitionBoost = 0.0;
     flexEngageState = 0.0;
     vibratoCenterMidi = -1000.0;
+    // Humanize random-walk state: clear so a stale bias from a previous prepare
+    // can't leak into the first blocks after re-prepare.
+    humanizeSmoothedCents = 0.0;
+    humanizeTargetCents = 0.0;
+    humanizeBlocksUntilNewTarget = 0;
     for (auto& p : psola) p.reset();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     resetRbFifo();
@@ -466,6 +585,24 @@ void SattariAutoPitchAudioProcessor::pushPitchSample (float sample)
 {
     pitchFrameBuffer[(size_t) pitchWriteIndex] = sample;
     pitchWriteIndex = (pitchWriteIndex + 1) % pitchFrameSize;
+}
+
+// Source-aware voiced pitch range (Hz). Voice ranges keep the vocal-tuned
+// [70..950 Hz] window; instrument ranges widen low (40 Hz for bass) or high
+// (2.2 kHz for whistles / brass tops). One source of truth so the YIN gate and
+// the CREPE override reject exactly the same out-of-range pitches.
+void SattariAutoPitchAudioProcessor::voicedRangeHzForSource (double& minHz, double& maxHz) const
+{
+    const int sourceIdx = juce::roundToInt (apvts.getRawParameterValue ("vocalRange")->load());
+    minHz = minVoiceHz;
+    maxHz = maxVoiceHz;
+    switch (sourceIdx)
+    {
+        case 7: minHz =  40.0; maxHz =  500.0; break;   // Instrument: Bass
+        case 8: minHz =  60.0; maxHz = 1500.0; break;   // Instrument: Mid
+        case 9: minHz = 110.0; maxHz = 2200.0; break;   // Instrument: High
+        default: break;                                  // voice ranges -> unchanged
+    }
 }
 
 // Auto Pitch's pitch follower uses YIN (de Cheveigné & Kawahara 2002) with a
@@ -509,15 +646,8 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
     // [70..950 Hz] window; instrument ranges widen low (40 Hz for bass) or
     // high (2 kHz for whistles / brass tops). The shapes are conservative —
     // wider than typical fundamentals so vibrato + bends stay inside.
-    const int sourceIdx = juce::roundToInt (apvts.getRawParameterValue ("vocalRange")->load());
     double rangeMinHz = minVoiceHz, rangeMaxHz = maxVoiceHz;
-    switch (sourceIdx)
-    {
-        case 7: rangeMinHz =  40.0; rangeMaxHz =  500.0; break;   // Instrument: Bass
-        case 8: rangeMinHz =  60.0; rangeMaxHz = 1500.0; break;   // Instrument: Mid
-        case 9: rangeMinHz = 110.0; rangeMaxHz = 2200.0; break;   // Instrument: High
-        default: break;                                            // voice ranges -> unchanged
-    }
+    voicedRangeHzForSource (rangeMinHz, rangeMaxHz);
     const int minLag = juce::jlimit (1, pitchFrameSize - 2, (int) std::floor (currentSampleRate / rangeMaxHz));
     const int maxLag = juce::jlimit (minLag + 1, pitchFrameSize - 2, (int) std::ceil (currentSampleRate / rangeMinHz));
 
@@ -627,6 +757,13 @@ int SattariAutoPitchAudioProcessor::currentCorrectionRootIndex() const
         if (const auto s = sessionReader.current(); s.valid)
             return juce::jlimit (0, 11, s.root);
 
+    // Track Key Map: an offline scan can drive the correction key by host
+    // playhead position. This must work independently of AutoKey; the previous
+    // path only wrote detectedAutoRoot, which currentCorrectionRootIndex ignored
+    // unless AutoKey was also on, so Use Key Map looked alive but did nothing.
+    if (keyMapDriving())
+        return juce::jlimit (0, 11, detectedAutoRoot);
+
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f)
         return juce::jlimit (0, 11, detectedAutoRoot);
 
@@ -637,7 +774,15 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
 {
     if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f)
         if (const auto s = sessionReader.current(); s.valid)
-            return s.scale == 1 ? 1 : 0;   // bus convention: 0 major, 1 minor
+            // Bus convention: 0 major, 1 minor, 2 chromatic. Honour chromatic as a
+            // real "snap to nearest semitone / all 12 pitch classes" scale instead
+            // of collapsing it to major (which used to force diatonic snapping and
+            // disagree with the UI, which reports chromatic — see currentKeyOrigin).
+            // buildCorrectionFrame maps index 2 -> "chromatic" -> nearest-semitone.
+            return s.scale == 1 ? 1 : (s.scale == 2 ? 2 : 0);
+
+    if (keyMapDriving())
+        return juce::jlimit (0, 2, detectedAutoScale);
 
     const int userScale = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     // AutoKey auto-detects the mode too (unless the user picked Chromatic, which
@@ -646,6 +791,12 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
         return juce::jlimit (0, 1, detectedAutoScale);
 
     return userScale;
+}
+
+bool SattariAutoPitchAudioProcessor::keyMapDriving() const
+{
+    return apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f
+        && keyMapCurrentSegment.load (std::memory_order_relaxed) >= 0;
 }
 
 SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::currentKeyOrigin() const
@@ -662,6 +813,14 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
             o.scale  = s.scale == 1 ? 1 : (s.scale == 2 ? 2 : 0);
             return o;
         }
+
+    if (keyMapDriving())
+    {
+        o.source = KeyOrigin::Source::KeyMap;
+        o.root   = juce::jlimit (0, 11, detectedAutoRoot);
+        o.scale  = juce::jlimit (0, 2, detectedAutoScale);
+        return o;
+    }
 
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f)
     {
@@ -745,15 +904,16 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     // it would stomp Sattari Key (or another detector) on the single bus slot, and
     // a lone instance would end up following its own echo. So: detector → source,
     // manual → passive.
-    if (apvts.getRawParameterValue ("autoKey")->load() < 0.5f) return;
+    const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
+    const bool mapOn = keyMapDriving();
+    if (! autoKeyOn && ! mapOn) return;
 
     const auto now = juce::Time::currentTimeMillis();
     if (now - lastBusPublishMs < 1000) return;
     lastBusPublishMs = now;
 
     const int root  = currentCorrectionRootIndex();
-    const int scale = juce::jlimit (0, 11,
-        juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
+    const int scale = juce::jlimit (0, 2, effectiveScaleIndex());
     // Publish the full session (key + host tempo + transient pulse) so other
     // Sattari plugins can follow the key AND lock to tempo / react to onsets.
     // Backward-compatible: key-only readers still parse this fine.
@@ -845,7 +1005,7 @@ void SattariAutoPitchAudioProcessor::polyPushBlock (const float* mono, int n)
 
 double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
 {
-    if (chromaFft == nullptr || chromaFftScratch.empty() || polyRing.empty())
+    if (chromaFft == nullptr || chromaFftScratch.empty() || polyRing.empty() || polyHps.empty())
         return polyAveragePitchScale;
 
     // Re-detect every ~50 ms; in between we keep the smoothed target.
@@ -865,7 +1025,10 @@ double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
     const double binHz = currentSampleRate / (double) chromaFftSize;
     const int firstBin = juce::jmax (2, (int) std::ceil (70.0   / binHz));
     const int lastBin  = juce::jmin (chromaFftSize / 10, (int) std::floor (2200.0 / binHz));
-    std::vector<float> hps ((size_t) (lastBin + 1), 0.0f);
+    // Reuse the preallocated member (sized chromaFftSize/10+1 >= lastBin+1 in
+    // prepareToPlay): every index in [firstBin,lastBin] is written below before it
+    // is read, so no clear is needed and no allocation happens on the audio thread.
+    auto& hps = polyHps;
     for (int k = firstBin; k <= lastBin; ++k)
     {
         float prod = chromaFftScratch[(size_t) k];
@@ -879,8 +1042,8 @@ double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
     if (globalMax < 1.0e-6f) return polyAveragePitchScale;
     const float threshold = globalMax * 0.30f;
 
-    struct Peak { float val; int bin; };
-    std::vector<Peak> peaks;
+    auto& peaks = polyPeaks;   // preallocated member; cleared + refilled, no realloc
+    peaks.clear();
     for (int k = firstBin + 1; k < lastBin; ++k)
     {
         if (hps[(size_t) k] >= threshold
@@ -888,11 +1051,11 @@ double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
             && hps[(size_t) k] >= hps[(size_t) (k + 1)])
             peaks.push_back ({ hps[(size_t) k], k });
     }
-    std::sort (peaks.begin(), peaks.end(), [] (const Peak& a, const Peak& b) { return a.val > b.val; });
+    std::sort (peaks.begin(), peaks.end(), [] (const PolyPeak& a, const PolyPeak& b) { return a.val > b.val; });
 
     // Pick up to 3 peaks, dedupe near-duplicates within 2 semis.
-    struct Detected { double freq; int midi; float weight; };
-    std::vector<Detected> notes;
+    auto& notes = polyNotes;   // preallocated member; cleared + refilled, no realloc
+    notes.clear();
     for (const auto& p : peaks)
     {
         const double f    = (double) p.bin * binHz;
@@ -910,7 +1073,7 @@ double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
     // Snap each detected note to the nearest in-scale + enabled tone, compute
     // weighted-mean cent correction.
     const int rootIndex   = currentCorrectionRootIndex();
-    const int scaleIndex  = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    const int scaleIndex  = effectiveScaleIndex();
     const auto scaleName  = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
     auto pcEnabled = [enabledMask] (int midi) { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
@@ -956,6 +1119,7 @@ bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFil
         keyMapScanThread->join();
     keyMapScanThread.reset();
 
+    keyMapScanCancel.store (false);   // fresh scan: clear any pending cancel request
     keyMapScanning.store (true);
     keyMapProgress.store (0);
     keyMapLastError.clear();
@@ -965,9 +1129,11 @@ bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFil
 
 void SattariAutoPitchAudioProcessor::clearKeyMap()
 {
+    keyMapScanCancel.store (true);   // stop an in-progress scan promptly before join
     if (keyMapScanThread && keyMapScanThread->joinable())
         keyMapScanThread->join();
     keyMapScanThread.reset();
+    keyMapScanCancel.store (false);
     const juce::ScopedLock l (keyMapLock);
     keyMap.clear();
     keyMapFileName.clear();
@@ -1005,7 +1171,6 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 
     const double sr = reader->sampleRate;
     const juce::int64 totalLen = reader->lengthInSamples;
-    const double durationSec = (double) totalLen / sr;
 
     // Window the scan: ~3.5 second analysis windows hop every ~1 second so the
     // map captures mid-song key changes without spamming segments.
@@ -1051,6 +1216,12 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 
     while (pos + windowSamples <= totalLen)
     {
+        // setStateInformation() (or teardown/clear) can ask us to stop so a scan
+        // that started before the host restored state doesn't clobber the restored
+        // map. Poll every window and bail before publishing.
+        if (keyMapScanCancel.load (std::memory_order_relaxed))
+            break;
+
         reader->read (&readBuf, 0, windowSamples, pos, true, true);
         // Mono-sum the window.
         for (int i = 0; i < windowSamples; ++i)
@@ -1113,6 +1284,16 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         keyMapProgress.store (juce::jlimit (0, 100, pct));
     }
 
+    // Cancelled mid-scan (e.g. by setStateInformation restoring a map): do NOT
+    // publish `built`, or it would clobber the just-restored/cleared timeline.
+    // Leave keyMap untouched and mark the scan idle.
+    if (keyMapScanCancel.load (std::memory_order_relaxed))
+    {
+        keyMapProgress.store (-1);
+        keyMapScanning.store (false);
+        return;
+    }
+
     // Publish.
     {
         const juce::ScopedLock l (keyMapLock);
@@ -1148,6 +1329,7 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
 
     const auto& e = keyMap[(size_t) idx];
     detectedAutoRoot = juce::jlimit (0, 11, e.rootIdx);
+    detectedAutoScale = juce::jlimit (0, 2, e.scaleIdx);
     keyMapCurrentSegment.store (idx);
 }
 
@@ -1323,10 +1505,15 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             const int scCh = scBuffer.getNumChannels();
             if (scCh > 0)
             {
-                if ((int) scMonoScratch.size() < numSamples)
-                    scMonoScratch.assign ((size_t) numSamples, 0.0f);
+                // scMonoScratch is sized to preparedBlockSize in prepareToPlay. If a
+                // host ever hands us a block larger than it declared, clamp to the
+                // scratch capacity instead of reallocating on the audio thread (the
+                // old assign() here was a real-time allocation). An oversized block's
+                // tail is dropped from the SLOW chroma analysis only — inaudible; the
+                // poly/crepe paths below already guard on the same capacity.
+                const int scN = juce::jmin (numSamples, (int) scMonoScratch.size());
                 float energy = 0.0f;
-                for (int i = 0; i < numSamples; ++i)
+                for (int i = 0; i < scN; ++i)
                 {
                     float m = 0.0f;
                     for (int ch = 0; ch < scCh; ++ch)
@@ -1337,7 +1524,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 }
                 if (energy > 1.0e-6f)
                     sidechainSeenAudio = true;
-                pushSidechainBlock (scMonoScratch.data(), numSamples);
+                pushSidechainBlock (scMonoScratch.data(), scN);
             }
         }
     }
@@ -1417,11 +1604,27 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         lastCrepeConfidence = crConf;
         if (crepeResultVoiced.load (std::memory_order_relaxed) && crHz > 0.0f && lastPitchFrame.voiced)
         {
-            PitchFrame nf = lastPitchFrame;
-            nf.frequencyHz = crHz;
-            nf.midi        = midiFromHz (crHz);
-            nf.confidence  = juce::jmax (nf.confidence, (double) crConf);
-            lastPitchFrame = buildCorrectionFrame (nf);
+            // Range-gate the CREPE estimate to the selected Sound Source, exactly
+            // like the YIN gate (analyseCurrentPitchFrame -> result.voiced). An
+            // out-of-range neural estimate (an octave error, sub-bass rumble, a
+            // high harmonic) is NOT a valid correction basis: treat it as unvoiced
+            // so the signal passes through untouched rather than being retuned to a
+            // wrong note. Without this the CREPE override bypassed the voiced-range
+            // gate that YIN honours.
+            double rMinHz = minVoiceHz, rMaxHz = maxVoiceHz;
+            voicedRangeHzForSource (rMinHz, rMaxHz);
+            if ((double) crHz >= rMinHz && (double) crHz <= rMaxHz)
+            {
+                PitchFrame nf = lastPitchFrame;
+                nf.frequencyHz = crHz;
+                nf.midi        = midiFromHz (crHz);
+                nf.confidence  = juce::jmax (nf.confidence, (double) crConf);
+                lastPitchFrame = buildCorrectionFrame (nf);
+            }
+            else
+            {
+                lastPitchFrame.voiced = false;   // out-of-range neural pitch -> no correction
+            }
         }
     }
 
@@ -1430,8 +1633,22 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // downstream in pitchScaleForFrame -> we apply the override only when the
     // user has correction enabled. polyAnalyseAndComputeScale() is the new
     // override; pitchScaleForFrame stays untouched for v1 (monophonic) path.
-    double targetPitchScale = polyOn ? polyAnalyseAndComputeScale()
-                                     : pitchScaleForFrame (lastPitchFrame);
+    const bool correctionOn = apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f;
+    double targetPitchScale = 1.0;
+    if (correctionOn)
+    {
+        targetPitchScale = polyOn ? polyAnalyseAndComputeScale()
+                                  : pitchScaleForFrame (lastPitchFrame);
+    }
+    else
+    {
+        // A user-facing Correction Off switch should be immediate, including the
+        // polyphonic alpha path (which bypasses pitchScaleForFrame). Reset both
+        // smoothers so no stale correction ratio coasts through after the toggle.
+        smoothedPitchScale = 1.0;
+        lastFedPitchScale = 1.0;
+        polyAveragePitchScale = 1.0;
+    }
 
     // --- Note-transition retune modeling -------------------------------------
     // Detect a target-note change. On a change, spike transitionBoost so the
@@ -1495,7 +1712,22 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         : sustainRetune + transition * transitionBoost * (onsetRetune - sustainRetune);
     retune = juce::jlimit (0.01, 0.98, retune);
 
-    smoothedPitchScale += (targetPitchScale - smoothedPitchScale) * retune;
+    // Time-normalize the retune blend, like the sibling smoothers (transition /
+    // vibrato / humanize all use 1 - exp(-blockTime/tau)). `retune` is calibrated
+    // as the per-block blend fraction AT the reference block: 512 samples @ the
+    // 48 kHz golden SR. We convert it to a time constant tau and re-derive the
+    // per-block coefficient from the ACTUAL blockTime, so the correction speed is
+    // both buffer- and SR-independent. Previously the raw fraction was applied
+    // once per block, so the effective time-constant swung ~30x with host buffer
+    // size (a 64-sample block corrected ~8x faster than a 512-sample block).
+    //   tau : 1 - exp(-refBlockTime/tau) == retune  =>  tau = -refBlockTime / ln(1-retune)
+    // At 512@48k, blockTime == refBlockTime, so the coefficient is exactly `retune`
+    // again — the golden render (512@48k) is bit-for-bit unchanged.
+    const double refBlockTime   = 512.0 / 48000.0;
+    const double blockTime      = (double) numSamples / juce::jmax (1.0, currentSampleRate);
+    const double retuneTau      = -refBlockTime / std::log (juce::jmax (1.0e-6, 1.0 - retune));
+    const double retunePerBlock = 1.0 - std::exp (-blockTime / retuneTau);
+    smoothedPitchScale += (targetPitchScale - smoothedPitchScale) * retunePerBlock;
     smoothedPitchScale = juce::jlimit (0.5, 2.0, smoothedPitchScale);
 
     // Humanize: slow random walk between fresh target cent-offsets, low-pass
@@ -1513,8 +1745,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             humanizeBlocksUntilNewTarget = juce::jmax (1, (int) std::round (blocksPer200ms));
         }
         // One-pole toward the target, time constant ~80 ms.
-        const double blockTime = (double) numSamples / currentSampleRate;
-        const double alpha = 1.0 - std::exp (-blockTime / 0.080);
+        const double humanizeBlockTime = (double) numSamples / currentSampleRate;
+        const double alpha = 1.0 - std::exp (-humanizeBlockTime / 0.080);
         humanizeSmoothedCents += alpha * (humanizeTargetCents - humanizeSmoothedCents);
         const double centsApplied = humanizeSmoothedCents * (double) humanize;
         smoothedPitchScale *= std::pow (2.0, centsApplied / 1200.0);
@@ -1535,8 +1767,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Rubber Band click is smoothed away.
     {
         const double maxSemisPerSec   = 120.0;
-        const double blockTime        = (double) numSamples / juce::jmax (1.0, currentSampleRate);
-        const double maxLog2Step      = (maxSemisPerSec * blockTime) / 12.0;
+        const double glitchBlockTime  = (double) numSamples / juce::jmax (1.0, currentSampleRate);
+        const double maxLog2Step      = (maxSemisPerSec * glitchBlockTime) / 12.0;
         const double desiredLog2       = std::log2 (juce::jmax (1.0e-6, smoothedPitchScale / juce::jmax (1.0e-6, lastFedPitchScale)));
         const double clampedLog2        = juce::jlimit (-maxLog2Step, maxLog2Step, desiredLog2);
         smoothedPitchScale = juce::jlimit (0.5, 2.0, lastFedPitchScale * std::pow (2.0, clampedLog2));
@@ -1555,12 +1787,34 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const float outputGain = juce::Decibels::decibelsToGain (outputDb);
 
     // Engine select. Live Engine (PSOLA) is the near-zero-latency monitor path;
-    // Rubber Band is the default higher-fidelity "print" engine. PSOLA's own
-    // internal delay (~2 pitch periods) is deliberately NOT added to reported
-    // latency — Live Engine is for real-time monitoring where a few ms of
-    // uncompensated delay is fine and you print with Rubber Band.
+    // Rubber Band is the default higher-fidelity "print" engine. Low Latency is an
+    // alias for the same low-latency PSOLA path — turning EITHER on swaps to PSOLA
+    // at runtime, which is the honest runtime effect that makes Low Latency more
+    // than a dead prepare-only toggle. The reported latency (prepareToPlay) tracks
+    // the active engine, so the delay-comp figure matches the audible latency.
     const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
-    if (liveEngine)
+    const bool lowLatency = apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+    const bool useLiveEngine = liveEngine || lowLatency;
+
+    // Engine swapped since last block: flush BOTH paths so the switch is clean. The
+    // OUTGOING engine still holds ~one pipeline of already-processed audio (the RB
+    // FIFO ~= the start-delay + cushion, or the PSOLA output ring) — without a flush
+    // that stale audio would either be replayed on a later switch back or leave the
+    // INCOMING engine to re-prime while the block seam splices across a phase
+    // discontinuity (an audible ~28 ms dropout / click). Resetting both makes the
+    // incoming engine re-prime cleanly from silence (its reported start-up latency)
+    // and guarantees the outgoing engine is empty for its next turn. Allocation-free.
+    if (useLiveEngine != lastUseLiveEngine)
+    {
+        for (auto& p : psola) p.reset();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        for (auto& s : rubberBand) if (s != nullptr) s->reset();
+        resetRbFifo();
+#endif
+        lastUseLiveEngine = useLiveEngine;
+    }
+
+    if (useLiveEngine)
     {
         processWithPsola (mainBuffer, smoothedPitchScale, inputGain);
     }
@@ -1616,6 +1870,28 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
+
+    // Oversized-block guard. Rubber Band was configured with
+    // setMaxProcessSize(preparedBlockSize) and rubberBandOutput / rbFifo are sized
+    // for that. If a host ever delivers a block larger than it declared in
+    // prepareToPlay, feeding it whole would (a) overrun Rubber Band's max process
+    // size (contract violation) and (b) reallocate rubberBandOutput mid-callback.
+    // Instead, process the block in <=preparedBlockSize sub-chunks that alias the
+    // buffer's channels (no allocation — AudioBuffer's referencing ctor uses inline
+    // channel-pointer storage for <=32 channels). Each sub-chunk recurses exactly
+    // once (its length is already within the cap).
+    const int maxChunk = juce::jmax (1, preparedBlockSize);
+    if (numSamples > maxChunk)
+    {
+        for (int offset = 0; offset < numSamples; offset += maxChunk)
+        {
+            const int chunk = juce::jmin (maxChunk, numSamples - offset);
+            juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), numChannels, offset, chunk);
+            processWithRubberBand (sub, pitchScale, linearGain);
+        }
+        return;
+    }
+
     rubberBandOutput.setSize (numChannels, numSamples, false, false, true);
     rubberBandOutput.clear();
 
@@ -1871,20 +2147,26 @@ juce::String SattariAutoPitchAudioProcessor::midiNoteName (double midi)
 
 juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 {
-    const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, currentCorrectionRootIndex())];
-    const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, juce::roundToInt (apvts.getRawParameterValue ("scale")->load()))];
-    const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
+    const auto origin = currentKeyOrigin();
+    const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
+    const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
+    const auto source = origin.source == KeyOrigin::Source::FollowBus ? juce::String ("Follow ")
+                      : origin.source == KeyOrigin::Source::KeyMap    ? juce::String ("Key Map ")
+                      : origin.source == KeyOrigin::Source::AutoKey   ? juce::String ("AutoKey ")
+                                                                       : juce::String ("key ");
+    const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f
+                         || apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
     const juce::String engine =
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        "Rubber Band realtime";
+        liveEngine ? "PSOLA live" : "Rubber Band realtime";
 #else
-        "fallback guide";
+        liveEngine ? "PSOLA live" : "fallback guide";
 #endif
 
     if (! lastPitchFrame.voiced)
-        return engine + " engine, " + (autoKeyOn ? "AutoKey " : "key ") + root + " " + scale + " - waiting for voiced input";
+        return engine + " engine, " + source + root + " " + scale + " - waiting for voiced input";
 
-    return engine + (autoKeyOn ? " - AutoKey " : " - key ") + root + " " + scale
+    return engine + " - " + source + root + " " + scale
         + ", mode " + currentStyleChoice()
         + ", in " + midiNoteName (lastPitchFrame.midi)
         + " -> " + midiNoteName (lastPitchFrame.targetMidi)
@@ -1921,7 +2203,7 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
 {
     const auto key = currentKeySignature();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, key.tonicPitchClass)];
-    const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, juce::roundToInt (apvts.getRawParameterValue ("scale")->load()))];
+    const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex())];
     const auto wheelCode = currentSattariWheelCode();
     const int confidence = juce::roundToInt (key.confidence * 100.0);
 
@@ -2093,6 +2375,17 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     {
         auto restored = juce::ValueTree::fromXml (*xml);
         lastTraceSummary = restored.getProperty ("lastTraceSummary", "No trace loaded").toString();
+
+        // A background key-map scan may already be running (started before the host
+        // pushed this state). Cancel + join it BEFORE we overwrite keyMap, otherwise
+        // it would finish later and clobber the timeline we're about to restore. The
+        // scan loop polls keyMapScanCancel every window, so the join returns almost
+        // immediately — setStateInformation stays effectively non-blocking.
+        keyMapScanCancel.store (true);
+        if (keyMapScanThread && keyMapScanThread->joinable())
+            keyMapScanThread->join();
+        keyMapScanThread.reset();
+        keyMapScanCancel.store (false);
 
         // Pull any persisted Key Map back into memory.
         auto km = restored.getChildWithName ("KeyMap");
