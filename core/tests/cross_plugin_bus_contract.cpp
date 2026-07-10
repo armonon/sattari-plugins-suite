@@ -111,6 +111,40 @@ int main()
         check (ts.valid && std::abs (ts.bpm - 140.0) < 1e-6 && ts.transientId == 9, "TempoReader snapshot wrong");
     }
 
+    // 7) SessionState v2: publishSessionState round-trips the full Brain context
+    //    (chord/timeSig/swing/section/energy/maqam/reference), AND a plain v1
+    //    publishSession leaves the v2 fields at safe defaults (backward compat).
+    {
+        SessionMessage full;
+        full.root = 2; full.scale = 1; full.bpm = 100.0; full.transientId = 3;
+        full.chordRoot = 9; full.chordQuality = 4; full.timeSigNum = 6; full.timeSigDen = 8;
+        full.swing = 0.6f; full.sectionId = 4; full.energy = 0.8f; full.maqamId = 5;
+        full.referenceHz = 432.0; full.progression = "2,9,5,7";
+        publishSessionState ("brain", full);
+        auto r = readSession();
+        check (r.has_value(), "SessionState not readable");
+        if (r)
+        {
+            check (r->chordRoot == 9 && r->chordQuality == 4, "chord round-trip wrong");
+            check (r->timeSigNum == 6 && r->timeSigDen == 8, "timeSig round-trip wrong");
+            check (std::abs (r->swing - 0.6f) < 1e-4 && std::abs (r->energy - 0.8f) < 1e-4, "swing/energy wrong");
+            check (r->sectionId == 4 && r->maqamId == 5, "section/maqam wrong");
+            check (std::abs (r->referenceHz - 432.0) < 1e-6, "referenceHz wrong");
+            check (r->progression == "2,9,5,7", "progression wrong");
+        }
+
+        // A v1 key+tempo-only publish must leave the v2 fields at defaults.
+        publishSession ("auto-pitch", 0, 0, 120.0, 1);
+        auto d = readSession();
+        check (d.has_value(), "v1 session not readable");
+        if (d)
+        {
+            check (d->chordRoot == -1 && d->chordQuality == 0, "v1 default chord wrong");
+            check (d->timeSigNum == 4 && d->timeSigDen == 4, "v1 default timeSig wrong");
+            check (std::abs (d->referenceHz - 440.0) < 1e-6, "v1 default reference wrong");
+        }
+    }
+
     if (fails != 0) { std::fprintf (stderr, "Cross-plugin bus contract FAILED (%d)\n", fails); return 1; }
     std::printf ("Cross-plugin session bus contract ok\n");
     return 0;
