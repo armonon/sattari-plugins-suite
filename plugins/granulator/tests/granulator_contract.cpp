@@ -897,6 +897,59 @@ int main()
             { std::printf ("  FAIL mod slot (LFO1->Cutoff) did not change the output (maxDiff=%.4e)\n", maxDiff); ++fails; }
     }
 
+    // -------------------------------------------------------------------------
+    // (15) FORMANT (spectral shaping / anti-chipmunk). formantShift=0 with Lock
+    //      off is the strict no-op path; a non-zero shift engages the per-voice
+    //      resonator bank so the output audibly changes. Both must stay finite +
+    //      bounded, and the shifted render must differ measurably from the no-op.
+    // -------------------------------------------------------------------------
+    {
+        auto renderFormant = [&] (float shiftSemis, bool lock, juce::AudioBuffer<float>& out) -> std::pair<double, bool>
+        {
+            SattariGranulatorAudioProcessor p; auto& a = p.parameters();
+            baseConfig (a);
+            setParam (a, "A_formantShift", shiftSemis);
+            setParam (a, "A_formantLock", lock ? 1.0f : 0.0f);
+            p.prepareToPlay (kSr, kBlock);
+            p.loadFile (Layer::A, stereoSineA);
+            const int blocks = 40;
+            out.setSize (1, blocks * kBlock);
+            double peak = 0.0; bool finite = true;
+            juce::AudioBuffer<float> buf (2, kBlock);
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                juce::MidiBuffer midi;
+                if (b == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 8);
+                p.processBlock (buf, midi);
+                for (int i = 0; i < kBlock; ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    if (! std::isfinite (v)) finite = false;
+                    peak = std::max (peak, (double) std::fabs (v));
+                    out.setSample (0, b * kBlock + i, v);
+                }
+            }
+            return { peak, finite };
+        };
+
+        juce::AudioBuffer<float> off, on;
+        const auto rOff = renderFormant (0.0f, false, off);   // strict no-op path
+        const auto rOn  = renderFormant (12.0f, true, on);    // resonators engaged + lock
+        const int total = off.getNumSamples();
+        double maxDiff = 0.0;
+        for (int i = 0; i < total; ++i)
+            maxDiff = std::max (maxDiff, (double) std::fabs (off.getSample (0, i) - on.getSample (0, i)));
+        std::printf ("formant: off peak=%.4f (finite=%d)  shifted peak=%.4f (finite=%d)  maxDiff=%.4e\n",
+                     rOff.first, rOff.second ? 1 : 0, rOn.first, rOn.second ? 1 : 0, maxDiff);
+        if (! rOff.second || ! rOn.second)
+            { std::printf ("  FAIL non-finite in formant render\n"); ++fails; }
+        if (rOff.first > 1.0001 || rOn.first > 1.0001)
+            { std::printf ("  FAIL formant output unbounded\n"); ++fails; }
+        if (! (maxDiff > 1.0e-4))
+            { std::printf ("  FAIL formant shift did not change the output (maxDiff=%.4e)\n", maxDiff); ++fails; }
+    }
+
     // Clean up temp files.
     stereoSineA.deleteFile();
     monoSineA.deleteFile();

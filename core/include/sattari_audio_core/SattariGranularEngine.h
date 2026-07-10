@@ -253,6 +253,24 @@ public:
     // TPT / Zavalishin state-variable filter state, one per channel.
     struct SvfState { float ic1eq = 0.0f, ic2eq = 0.0f; };
 
+    // --- FORMANT resonator bank (approach B: spectral SHAPING, not preservation) -
+    // A fixed set of band-pass resonators tuned to vowel-like formant frequencies.
+    // Their bandpass outputs are summed back onto the dry voice signal so a chosen
+    // vocal-resonance region is re-emphasised, and the whole set can be swept up or
+    // down with formantShiftSemis (2^(semis/12)) — independently of the pitch, which
+    // is set by the grain read rate. This gives less "chipmunk" when a resonance is
+    // held (formantLock) against a transposed note. It is NOT true TD-PSOLA formant
+    // preservation (that needs pitch-synchronous grains; see the class docs).
+    static constexpr int kFormantBands = 3;
+    // Base (un-shifted) formant centres in Hz — a neutral "ah"-ish vowel set, a
+    // reasonable default resonance region for vocal material.
+    static constexpr float kFormantBaseHz[kFormantBands] = { 700.0f, 1220.0f, 2600.0f };
+    // Relative weight of each band in the summed resonance (F1 loudest).
+    static constexpr float kFormantWeight[kFormantBands] = { 1.0f, 0.65f, 0.35f };
+
+    // Per-channel TPT band-pass state for the whole bank (one SvfState per band).
+    struct FormantBank { SvfState band[kFormantBands]; };
+
     // -------------------------------------------------------------------------
     //  A polyphonic voice: everything a held MIDI note owns.
     // -------------------------------------------------------------------------
@@ -287,6 +305,10 @@ public:
         float posScanPhase  = 0.0f;   // FreeScan / tempo-sync accumulator (0..1)
 
         SvfState fL, fR;
+
+        // Per-voice formant resonator bank state (one bank per output channel). Only
+        // touched when formantShiftSemis != 0, and reset trivially with the voice.
+        FormantBank formantL, formantR;
 
         float subPhase = 0.0f;
         float subRatio = 1.0f;        // sub oscillator freq ratio vs. played fundamental
@@ -380,6 +402,19 @@ public:
         // filter
         int   filterType = (int) FilterType::LP24;
         float cutoff = 20000.0f, reso = 0.1f, filterKeyTrack = 0.0f, filterEnvAmt = 0.0f;
+
+        // --- FORMANT (spectral-envelope shaping; approach B — see class docs) ----
+        // formantShiftSemis: shifts the voice's fixed formant resonator bank up/down
+        // by 2^(semis/12). 0 (default) is a strict no-op — the bank is bypassed and
+        // the voice is BIT-IDENTICAL to the pre-formant engine. formantLock: when
+        // on, the bank's centres are additionally scaled INVERSELY to the note's
+        // play-pitch (basePitchRatio) so vocal resonances hold roughly in place as
+        // you transpose — the chipmunk-reduction path. HONEST LIMIT: this is a
+        // resonant SHAPING filter, NOT true formant preservation; it re-emphasises a
+        // fixed vowel-like resonance set rather than decoupling the source's own
+        // spectral envelope from pitch. See the class-level FORMANT note.
+        float formantShiftSemis = 0.0f;   // -12..+12
+        bool  formantLock = false;
 
         // envelopes (ms except sustain 0..1)
         float ampA = 5.0f, ampD = 400.0f, ampS = 1.0f, ampR = 300.0f;
@@ -965,6 +1000,29 @@ public:
                     vR += subOut;
                 }
 
+                // ---- FORMANT resonator bank (spectral shaping; approach B) --
+                // Runs on the grain-cloud voice sum BEFORE the user filter, so the
+                // player's cutoff/tone still shapes the result. A strict no-op when
+                // formantShiftSemis == 0 (skipped entirely -> bit-identical). The
+                // band centres are scaled by 2^(shift/12); under formantLock they
+                // are ALSO scaled by 1/basePitchRatio so the resonance region holds
+                // roughly in place as the note transposes (chipmunk reduction).
+                if (std::fabs (p.formantShiftSemis) > 1.0e-6f || p.formantLock)
+                {
+                    float centreScale = std::pow (2.0f,
+                        juce::jlimit (-12.0f, 12.0f, p.formantShiftSemis) / 12.0f);
+                    if (p.formantLock)
+                        centreScale /= juce::jlimit (0.03125f, 32.0f, v.basePitchRatio);
+                    centreScale = juce::jlimit (0.03125f, 32.0f, centreScale);
+                    // Resonance mix: full at ±12 st, and always some emphasis when
+                    // locked (so the hold is audible even at 0 shift). Bounded 0..1.
+                    const float wet = juce::jlimit (0.0f, 1.0f,
+                        (p.formantLock ? 0.5f : 0.0f)
+                        + 0.5f * std::fabs (juce::jlimit (-12.0f, 12.0f, p.formantShiftSemis)) / 12.0f);
+                    vL = formantChannel (v.formantL, vL, centreScale, wet);
+                    if (outCh > 1) vR = formantChannel (v.formantR, vR, centreScale, wet);
+                }
+
                 // ---- per-voice TPT SVF filter ------------------------------
                 filterSample (v, p, cutoff, resoQ, vL, vR);
 
@@ -1225,6 +1283,7 @@ private:
             v.pitchLfo.phase = 0.0f;
             v.posLfo.phase   = 0.0f;
             v.fL = SvfState{}; v.fR = SvfState{};
+            v.formantL = FormantBank{}; v.formantR = FormantBank{};
         }
         v.sourceVersion = source ? source->version : 0;
     }
@@ -1561,6 +1620,61 @@ private:
             outR = proc (v.fR, outR);
         }
         l = outL; r = outR;
+    }
+
+    // =========================================================================
+    //  FORMANT resonator bank (approach B: spectral SHAPING, not preservation)
+    // -------------------------------------------------------------------------
+    //  Runs one TPT band-pass per formant band on each channel and adds a weighted
+    //  sum of the resonances back onto the dry signal, re-emphasising a vowel-like
+    //  resonance region. The band centres are scaled by `centreScale` (already
+    //  resolved from formantShiftSemis and, under formantLock, the inverse of the
+    //  note pitch) so the resonance region can be moved INDEPENDENTLY of the grain
+    //  read pitch. A gentle wet/dry crossfade keeps it bounded and, crucially, the
+    //  CALLER skips this entirely when formantShiftSemis == 0, so the default path
+    //  is bit-identical to the pre-formant engine.
+    //
+    //  HONEST LIMIT: this shapes the spectrum with fixed resonators; it does not
+    //  extract and independently move the SOURCE's own spectral envelope (that is
+    //  true formant preservation, which this free-running / non-pitch-synchronous
+    //  grain model cannot do cleanly — see the class-level FORMANT note). It reduces
+    //  "chipmunk" by holding a chosen resonance region against transposition, not by
+    //  preserving the original formants sample-for-sample.
+    // =========================================================================
+    static float formantBandpass (SvfState& st, float x, float g, float k) noexcept
+    {
+        // TPT SVF band-pass (v1 tap), matching filterSample's topology.
+        const float a1 = 1.0f / (1.0f + g * (g + k));
+        const float a2 = g * a1;
+        const float a3 = g * a2;
+        const float v3 = x - st.ic2eq;
+        const float v1 = a1 * st.ic1eq + a2 * v3;
+        const float v2 = st.ic2eq + a2 * st.ic1eq + a3 * v3;
+        st.ic1eq = 2.0f * v1 - st.ic1eq;
+        st.ic2eq = 2.0f * v2 - st.ic2eq;
+        return v1;   // band-pass output
+    }
+
+    // Process one channel through the formant bank. `centreScale` moves every band
+    // centre (2^(shift/12) * lock factor); `wet` is the resonance mix (0..1).
+    float formantChannel (FormantBank& bank, float x, float centreScale, float wet) const noexcept
+    {
+        // Resonator Q — narrow enough to sound like formant peaks, not a wash.
+        constexpr float kFormantK = 1.0f / 6.0f;   // Q ~ 6
+        float reson = 0.0f;
+        for (int b = 0; b < kFormantBands; ++b)
+        {
+            const float fc = juce::jlimit (40.0f, (float) (0.49 * sr),
+                                           kFormantBaseHz[b] * centreScale);
+            const float wd = juce::MathConstants<float>::pi * (fc / (float) sr);
+            const float g  = std::tan (juce::jlimit (0.0001f, 1.55f, wd));
+            reson += kFormantWeight[b] * formantBandpass (bank.band[b], x, g, kFormantK);
+        }
+        // Normalise by the total band weight so the summed resonance is ~unity-
+        // scaled regardless of band count, then crossfade onto the dry signal.
+        constexpr float kWeightSum = 1.0f + 0.65f + 0.35f;   // == sum(kFormantWeight)
+        reson *= (1.0f / kWeightSum);
+        return x + wet * reson;   // dry + emphasised resonance (bounded by wet)
     }
 
     // =========================================================================

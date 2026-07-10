@@ -92,6 +92,8 @@ const std::vector<juce::String>& SattariGranulatorAudioProcessor::perLayerParamI
         "unisonVoices", "unisonDetune", "unisonWidth",
         // pitch (per-layer offsets)
         "tuneCoarse", "tuneFine", "pitchSpread",
+        // formant (spectral shaping / anti-chipmunk)
+        "formantShift", "formantLock",
         // per-layer mix
         "level", "pan"
     };
@@ -188,6 +190,10 @@ SattariGranulatorAudioProcessor::createParameterLayout()
         p.push_back (std::make_unique<IP> (id ("tuneCoarse"), name ("Coarse"), -24, 24, 0));
         p.push_back (std::make_unique<FP> (id ("tuneFine"), name ("Fine"), R (-100.0f, 100.0f, 0.1f), 0.0f));
         p.push_back (std::make_unique<FP> (id ("pitchSpread"), name ("Pitch Spread"), R (0.0f, 100.0f, 0.1f), 0.0f));
+
+        // --- Formant (spectral shaping; +/-12 st, Lock = anti-chipmunk hold) ---
+        p.push_back (std::make_unique<FP> (id ("formantShift"), name ("Formant"), R (-12.0f, 12.0f, 0.1f), 0.0f));
+        p.push_back (std::make_unique<BP> (id ("formantLock"), name ("Formant Lock"), false));
 
         // --- Per-layer mix ----------------------------------------------------
         p.push_back (std::make_unique<FP> (id ("level"), name ("Level"), R (-60.0f, 6.0f, 0.1f), 0.0f));
@@ -474,6 +480,9 @@ EngineParams SattariGranulatorAudioProcessor::gatherParams (Layer layer) const n
     e.tuneCoarse       = (int) std::lround (layerParam (layer, "tuneCoarse"));
     e.tuneFine         = layerParam (layer, "tuneFine");
     e.pitchSpreadCents = layerParam (layer, "pitchSpread");
+
+    e.formantShiftSemis = layerParam (layer, "formantShift");
+    e.formantLock       = layerParam (layer, "formantLock") > 0.5f;
 
     // ---- GLOBAL (shared) ----------------------------------------------------
     e.glide           = param ("glide");
