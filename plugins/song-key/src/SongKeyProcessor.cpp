@@ -199,7 +199,17 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         root  = pubRoot;
         scale = pubScale;
     }
-    sattari::xplugin::publishSession ("song-key", root, scale, hostBpm.load(), ++transientId);
+    // Publish the full SessionState (Brain foundation): key + host tempo + the
+    // reference tuning we already estimate from the spectrum. referenceHz rides the
+    // bus so any plugin can follow the song's actual A, not just its key. The other
+    // SessionState fields stay at safe defaults until a dedicated Brain sets them.
+    sattari::xplugin::SessionMessage msg;
+    msg.root        = root;
+    msg.scale       = scale;
+    msg.bpm         = hostBpm.load();
+    msg.transientId = ++transientId;
+    msg.referenceHz = 440.0 * std::pow (2.0, detDetuneCents.load() / 1200.0);
+    sattari::xplugin::publishSessionState ("song-key", msg);
 }
 
 void SattariSongKeyAudioProcessor::workerLoop()
