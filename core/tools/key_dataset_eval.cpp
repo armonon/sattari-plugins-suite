@@ -37,6 +37,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <sattari_audio_core/SattariChromagram.h>
+#include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
 
 #include <array>
@@ -250,6 +251,35 @@ void fileChroma (juce::dsp::FFT& fft, const std::array<float, kFftSize>& hann,
         if (start + kFftSize > n) break;   // short-file single-frame guard
     }
 }
+
+// Same frame loop, but feed each magnitude spectrum to the HPCP chromagram
+// (tuning-corrected + harmonic-summed + peak/whitened), then finish() to 12 bins.
+void fileChromaHpcp (juce::dsp::FFT& fft, const std::array<float, kFftSize>& hann,
+                     const std::vector<float>& mono, double sampleRate, double outChroma[12])
+{
+    const double binHz = sampleRate / (double) kFftSize;
+    sattari::dsp::HpcpChromagram hpcp;
+    hpcp.reset();
+
+    std::array<float, kFftSize * 2> scratch {};
+    const int hop = kFftSize / 2;
+    const juce::int64 n = (juce::int64) mono.size();
+
+    for (juce::int64 start = 0; start == 0 || start + kFftSize <= n; start += hop)
+    {
+        for (int i = 0; i < kFftSize; ++i)
+        {
+            const juce::int64 idx = start + i;
+            const float s = (idx < n) ? mono[(size_t) idx] : 0.0f;
+            scratch[(size_t) i] = s * hann[(size_t) i];
+        }
+        std::fill (scratch.begin() + kFftSize, scratch.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (scratch.data());
+        hpcp.accumulate (scratch.data(), kFftSize / 2 + 1, binHz);
+        if (start + kFftSize > n) break;
+    }
+    hpcp.finish (outChroma);
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -298,8 +328,13 @@ int main (int argc, char** argv)
         { "Temperley/Kostka-Payne", detail::kTemperleyMajor, detail::kTemperleyMinor },
         { "Aarden-Essen",           detail::kAardenMajor,    detail::kAardenMinor    },
     };
-    ProfileScore scores[3];
-    for (int i = 0; i < 3; ++i) scores[i].name = profiles[i].name;
+    ProfileScore scores[3];       // current linear-FFT chroma
+    ProfileScore scoresHpcp[3];   // new HPCP chroma (tuning-corrected + harmonic-summed)
+    for (int i = 0; i < 3; ++i)
+    {
+        scores[i].name     = profiles[i].name;
+        scoresHpcp[i].name = profiles[i].name;
+    }
 
     int nTracks = 0, nSkipped = 0, nMissingAudio = 0;
 
@@ -328,19 +363,17 @@ int main (int argc, char** argv)
             continue;
         }
 
-        double chroma[12];
-        fileChroma (fft, hann, mono, sampleRate, chroma);
+        double chroma[12], chromaHpcp[12];
+        fileChroma     (fft, hann, mono, sampleRate, chroma);
+        fileChromaHpcp (fft, hann, mono, sampleRate, chromaHpcp);
 
         ++nTracks;
         for (int p = 0; p < 3; ++p)
         {
-            const KeyResult k = detail::detectKeyWithProfiles (chroma, profiles[p].maj, profiles[p].min);
-            if (! k.valid)                       // silent/degenerate -> count as wrong
-            {
-                scores[p].add (Cat::Wrong);
-                continue;
-            }
-            scores[p].add (categorise (k.root, k.minor, truth.root, truth.minor));
+            const KeyResult k  = detail::detectKeyWithProfiles (chroma,     profiles[p].maj, profiles[p].min);
+            const KeyResult kh = detail::detectKeyWithProfiles (chromaHpcp, profiles[p].maj, profiles[p].min);
+            scores[p].add     (k.valid  ? categorise (k.root,  k.minor,  truth.root, truth.minor) : Cat::Wrong);
+            scoresHpcp[p].add (kh.valid ? categorise (kh.root, kh.minor, truth.root, truth.minor) : Cat::Wrong);
         }
     }
 
@@ -354,27 +387,41 @@ int main (int argc, char** argv)
 
     std::printf ("Scored %d tracks  (skipped %d unparseable/silence/modal, %d missing audio)\n\n",
                  nTracks, nSkipped, nMissingAudio);
-    std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
-                 "Profile set", "N", "RawAcc", "MIREXx100", "exact/fifth/rel/par/wrong");
-    std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
-                 "------------------------", "------", "--------", "---------",
-                 "-------------------------");
 
-    int bestIdx = 0;
+    auto printBlock = [] (const char* title, const ProfileScore s[3])
+    {
+        std::printf ("== %s ==\n", title);
+        std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
+                     "Profile set", "N", "RawAcc", "MIREXx100", "exact/fifth/rel/par/wrong");
+        std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
+                     "------------------------", "------", "--------", "---------",
+                     "-------------------------");
+        for (int p = 0; p < 3; ++p)
+        {
+            const double rawAcc = 100.0 * (double) s[p].exact / (double) s[p].scored;
+            const double mirex  = 100.0 * s[p].weightSum / (double) s[p].scored;
+            std::printf ("  %-24s  %6d  %6.1f %%  %9.2f   %d/%d/%d/%d/%d\n",
+                         s[p].name, s[p].scored, rawAcc, mirex,
+                         s[p].exact, s[p].fifth, s[p].relative, s[p].parallel, s[p].wrong);
+        }
+        std::printf ("\n");
+    };
+
+    printBlock ("CURRENT chroma (linear FFT)",  scores);
+    printBlock ("HPCP chroma (tuning-corrected + harmonic sum)", scoresHpcp);
+
+    // Overall winner across all 6 (chroma, profile) combos.
+    const char* bestName = scores[0].name; const char* bestChroma = "current";
+    double bestMirex = -1.0;
     for (int p = 0; p < 3; ++p)
     {
-        const ProfileScore& s = scores[p];
-        const double rawAcc = 100.0 * (double) s.exact / (double) s.scored;
-        const double mirex  = 100.0 * s.weightSum / (double) s.scored;
-        std::printf ("  %-24s  %6d  %6.1f %%  %9.2f   %d/%d/%d/%d/%d\n",
-                     s.name, s.scored, rawAcc, mirex,
-                     s.exact, s.fifth, s.relative, s.parallel, s.wrong);
-        if (s.weightSum > scores[bestIdx].weightSum) bestIdx = p;
+        const double m  = 100.0 * scores[p].weightSum     / (double) scores[p].scored;
+        const double mh = 100.0 * scoresHpcp[p].weightSum / (double) scoresHpcp[p].scored;
+        if (m  > bestMirex) { bestMirex = m;  bestName = scores[p].name;     bestChroma = "current"; }
+        if (mh > bestMirex) { bestMirex = mh; bestName = scoresHpcp[p].name; bestChroma = "HPCP"; }
     }
-
-    const double bestMirex = 100.0 * scores[bestIdx].weightSum / (double) scores[bestIdx].scored;
-    std::printf ("\n  BEST MIREX: %s  (%.2f / 100 over %d tracks)\n",
-                 scores[bestIdx].name, bestMirex, scores[bestIdx].scored);
+    std::printf ("  BEST MIREX: %s chroma + %s  (%.2f / 100 over %d tracks)\n",
+                 bestChroma, bestName, bestMirex, nTracks);
     (void) kNoteNames;
     return 0;
 }
