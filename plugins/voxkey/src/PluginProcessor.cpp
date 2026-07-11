@@ -231,10 +231,15 @@ VoxKeyVoiceMidiMapper::Settings SattariVoxKeyAudioProcessor::readSettings() cons
     VoxKeyVoiceMidiMapper::Settings s;
     s.mode = (VoxKeyVoiceMidiMapper::Mode) (int) *apvts.getRawParameterValue ("mode");
     s.keyRoot = (int) *apvts.getRawParameterValue ("key");
+    s.scale = (VoxKeyVoiceMidiMapper::Scale) (int) *apvts.getRawParameterValue ("scale");
     if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
         if (auto sess = sessionReader.current(); sess.valid)
+        {
             s.keyRoot = sess.root;
-    s.scale = (VoxKeyVoiceMidiMapper::Scale) (int) *apvts.getRawParameterValue ("scale");
+            if (sess.scale == 0) s.scale = VoxKeyVoiceMidiMapper::Scale::major;
+            else if (sess.scale == 1) s.scale = VoxKeyVoiceMidiMapper::Scale::minor;
+            else s.scale = VoxKeyVoiceMidiMapper::Scale::chromatic;
+        }
     s.octaveShift = (int) *apvts.getRawParameterValue ("octave");
     s.holdMs = *apvts.getRawParameterValue ("hold");
     s.releaseMs = *apvts.getRawParameterValue ("release");

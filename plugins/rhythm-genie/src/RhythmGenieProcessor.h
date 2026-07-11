@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include "RhythmPatterns.h"
+#include <array>
 #include <atomic>
 #include <vector>
 
@@ -71,7 +72,11 @@ private:
     bool   wasGenerating = false;
 
     struct PendingOff { int note; int samplesRemaining; };
-    std::vector<PendingOff> pendingOffs;
+    static constexpr int kMaxPendingOffs = 256;
+    std::array<PendingOff, kMaxPendingOffs> pendingOffs {};
+    std::array<PendingOff, kMaxPendingOffs> pendingOffScratch {};
+    int pendingOffCount = 0;
+    int pendingOffScratchCount = 0;
     juce::Random rng;
     std::atomic<int> playStep { -1 };  // current 16th-step for the editor grid
 

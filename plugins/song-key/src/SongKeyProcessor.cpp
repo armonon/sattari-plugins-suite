@@ -30,30 +30,33 @@ SattariSongKeyAudioProcessor::SattariSongKeyAudioProcessor()
 
 SattariSongKeyAudioProcessor::~SattariSongKeyAudioProcessor()
 {
-    workerRunning.store (false);
-    if (worker.joinable()) worker.join();
+    stopWorker();
 }
 
 void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
 {
+    stopWorker();
+
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    fft = std::make_unique<juce::dsp::FFT> (fftOrder);
-    ring.assign ((size_t) fftSize, 0.0f);
-    scratch.assign ((size_t) fftSize * 2, 0.0f);
-    hann.assign ((size_t) fftSize, 0.0f);
+    if (! fft)
+        fft = std::make_unique<juce::dsp::FFT> (fftOrder);
+
+    for (auto& sample : ring)
+        sample.store (0.0f, std::memory_order_relaxed);
+    scratch.fill (0.0f);
+
     for (int i = 0; i < fftSize; ++i)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (fftSize - 1));
     writePos.store (0);
     std::fill (running, running + 12, 0.0);
 
-    if (! workerRunning.exchange (true))
-        worker = std::thread ([this] { workerLoop(); });
+    workerRunning.store (true, std::memory_order_release);
+    worker = std::thread ([this] { workerLoop(); });
 }
 
 void SattariSongKeyAudioProcessor::releaseResources()
 {
-    workerRunning.store (false);
-    if (worker.joinable()) worker.join();
+    stopWorker();
 }
 
 bool SattariSongKeyAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -81,15 +84,15 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     {
         float m = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch) m += buffer.getSample (ch, i);
-        ring[(size_t) wp] = m / (float) nc;
+        ring[(size_t) wp].store (m / (float) nc, std::memory_order_relaxed);
         wp = (wp + 1) % fftSize;
     }
-    writePos.store (wp, std::memory_order_relaxed);
+    writePos.store (wp, std::memory_order_release);
 }
 
 void SattariSongKeyAudioProcessor::analyseNow()
 {
-    if (! fft || ring.empty()) return;
+    if (! fft) return;
     if (rescan.exchange (false))
     {
         std::fill (running, running + 12, 0.0);
@@ -97,9 +100,9 @@ void SattariSongKeyAudioProcessor::analyseNow()
         pubRoot = -1; candCount = 0;   // let a fresh scan re-commit the key
     }
 
-    const int wp = writePos.load (std::memory_order_relaxed);
+    const int wp = writePos.load (std::memory_order_acquire);
     for (int i = 0; i < fftSize; ++i)
-        scratch[(size_t) i] = ring[(size_t) ((wp + i) % fftSize)] * hann[(size_t) i];
+        scratch[(size_t) i] = ring[(size_t) ((wp + i) % fftSize)].load (std::memory_order_relaxed) * hann[(size_t) i];
     std::fill (scratch.begin() + fftSize, scratch.end(), 0.0f);
     fft->performFrequencyOnlyForwardTransform (scratch.data());
 
@@ -212,12 +215,19 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     sattari::xplugin::publishSessionState ("song-key", msg);
 }
 
+void SattariSongKeyAudioProcessor::stopWorker()
+{
+    workerRunning.store (false, std::memory_order_release);
+    if (worker.joinable())
+        worker.join();
+}
+
 void SattariSongKeyAudioProcessor::workerLoop()
 {
-    while (workerRunning.load())
+    while (workerRunning.load (std::memory_order_acquire))
     {
         std::this_thread::sleep_for (std::chrono::milliseconds (700));
-        if (! workerRunning.load()) break;
+        if (! workerRunning.load (std::memory_order_acquire)) break;
         analyseNow();
         publishCurrent();
     }

@@ -199,6 +199,8 @@ double rms (const juce::AudioBuffer<float>& b)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     int fails = 0;
 
     // Two distinct tones so B is audibly different from A. A source = C5 tuned to

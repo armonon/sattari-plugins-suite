@@ -2,7 +2,15 @@
 #include "PluginEditor.h"
 #include <cmath>
 
-namespace { inline double clampF (double f, double sr) { return juce::jlimit (20.0, sr * 0.45, f); } }
+namespace
+{
+inline double clampF (double f, double sr) { return juce::jlimit (20.0, sr * 0.45, f); }
+
+constexpr const char* kFreqIds[SattariEQAudioProcessor::kBands] = { "f1", "f2", "f3" };
+constexpr const char* kGainIds[SattariEQAudioProcessor::kBands] = { "g1", "g2", "g3" };
+constexpr const char* kQIds[SattariEQAudioProcessor::kBands]    = { "q1", "q2", "q3" };
+constexpr const char* kDynIds[SattariEQAudioProcessor::kBands]  = { "d1", "d2", "d3" };
+}
 
 void SattariEQAudioProcessor::Biquad::setPeaking (double f, double gainDb, double Q, double sr)
 {
@@ -104,9 +112,8 @@ void SattariEQAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     float f[kBands], g[kBands], q[kBands], dyn[kBands];
     for (int i = 0; i < kBands; ++i)
     {
-        const juce::String b (i + 1);
-        f[i] = param (("f" + b).toRawUTF8()); g[i] = param (("g" + b).toRawUTF8());
-        q[i] = param (("q" + b).toRawUTF8()); dyn[i] = param (("d" + b).toRawUTF8());
+        f[i] = param (kFreqIds[(size_t) i]); g[i] = param (kGainIds[(size_t) i]);
+        q[i] = param (kQIds[(size_t) i]); dyn[i] = param (kDynIds[(size_t) i]);
         for (auto& ch : bell[(size_t) i]) ch.setPeaking (f[i], g[i], q[i], sampleRate);
         detBP[(size_t) i].setBandpass (f[i], 2.0, sampleRate);
     }

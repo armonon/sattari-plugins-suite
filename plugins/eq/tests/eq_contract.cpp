@@ -46,6 +46,8 @@ double run (double freq, float amp, std::function<void(juce::AudioProcessorValue
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     int fails = 0;
     auto flat = [] (juce::AudioProcessorValueTreeState&) {};
 

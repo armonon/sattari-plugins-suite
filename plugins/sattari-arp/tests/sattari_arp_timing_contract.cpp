@@ -12,6 +12,8 @@
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     SattariArpAudioProcessor proc;
     const double sr    = 48000.0;
     const int    block = 512;

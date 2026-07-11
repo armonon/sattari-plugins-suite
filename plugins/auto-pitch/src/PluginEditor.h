@@ -88,7 +88,7 @@ private:
 class KeyButton final : public juce::Component
 {
 public:
-    enum class Mode { Manual, Auto, Follow };
+    enum class Mode { Manual, Auto, Follow, Map };
 
     KeyButton() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
 

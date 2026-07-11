@@ -17,6 +17,14 @@ std::unique_ptr<juce::AudioParameterFloat> floatParam (const juce::String& id,
 
 float dbToGain (float db) { return juce::Decibels::decibelsToGain (db, -120.0f); }
 
+constexpr const char* kThrIds[SattariMultibandAudioProcessor::kBands]   = { "thr1", "thr2", "thr3" };
+constexpr const char* kRatioIds[SattariMultibandAudioProcessor::kBands] = { "ratio1", "ratio2", "ratio3" };
+constexpr const char* kKneeIds[SattariMultibandAudioProcessor::kBands]  = { "knee1", "knee2", "knee3" };
+constexpr const char* kAtkIds[SattariMultibandAudioProcessor::kBands]   = { "atk1", "atk2", "atk3" };
+constexpr const char* kRelIds[SattariMultibandAudioProcessor::kBands]   = { "rel1", "rel2", "rel3" };
+constexpr const char* kMakeupIds[SattariMultibandAudioProcessor::kBands]= { "mk1", "mk2", "mk3" };
+constexpr const char* kSoloIds[SattariMultibandAudioProcessor::kBands]  = { "solo1", "solo2", "solo3" };
+
 // Band-scoped parameter id, e.g. "thr" + band 1 -> "thr2".
 juce::String bid (const char* base, int band) { return juce::String (base) + juce::String (band + 1); }
 } // namespace
@@ -108,16 +116,16 @@ void SattariMultibandAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     bool  solo[kBands];
     for (int b = 0; b < kBands; ++b)
     {
-        thr[b]      = param (bid ("thr",   b).toRawUTF8());
-        const float ratio = juce::jmax (1.0f, param (bid ("ratio", b).toRawUTF8()));
+        thr[b]      = param (kThrIds[(size_t) b]);
+        const float ratio = juce::jmax (1.0f, param (kRatioIds[(size_t) b]));
         invRatio[b] = 1.0f / ratio;
-        kneeW[b]    = juce::jmax (0.0f, param (bid ("knee", b).toRawUTF8()));
+        kneeW[b]    = juce::jmax (0.0f, param (kKneeIds[(size_t) b]));
         halfKnee[b] = 0.5f * kneeW[b];
-        const float atkMs = param (bid ("atk", b).toRawUTF8());
-        const float relMs = param (bid ("rel", b).toRawUTF8());
+        const float atkMs = param (kAtkIds[(size_t) b]);
+        const float relMs = param (kRelIds[(size_t) b]);
         grSmoother[(size_t) b].setTimes (atkMs, relMs);
-        makeup[b]   = dbToGain (param (bid ("mk", b).toRawUTF8()));
-        solo[b]     = boolParam (bid ("solo", b).toRawUTF8());
+        makeup[b]   = dbToGain (param (kMakeupIds[(size_t) b]));
+        solo[b]     = boolParam (kSoloIds[(size_t) b]);
         anySolo     = anySolo || solo[b];
     }
 

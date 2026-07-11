@@ -67,9 +67,10 @@ sattari::dsp::ScaleId SattariGranulatorAudioProcessor::scaleIdFromChoice (int ch
 
 sattari::dsp::ScaleId SattariGranulatorAudioProcessor::scaleIdFromBus (int busScale) noexcept
 {
-    // Bus scale codes: 0=major, 1=minor, 2=chromatic. Chromatic falls back to
-    // Major so a key-snap still lands somewhere musical (matches Harmony).
-    return busScale == 1 ? sattari::dsp::ScaleId::Minor : sattari::dsp::ScaleId::Major;
+    // Bus scale codes: 0=major, 1=minor, 2=chromatic. Chromatic disables snap.
+    if (busScale == 1) return sattari::dsp::ScaleId::Minor;
+    if (busScale == 2) return sattari::dsp::ScaleId::ChromaticOff;
+    return sattari::dsp::ScaleId::Major;
 }
 
 // -----------------------------------------------------------------------------

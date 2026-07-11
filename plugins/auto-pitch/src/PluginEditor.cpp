@@ -211,9 +211,10 @@ void KeyButton::paint (juce::Graphics& g)
 
     auto inner = r.reduced (12.0f, 9.0f);
 
-    // Mode chip (top): a link glyph + AUTO / FOLLOW / MANUAL.
+    // Mode chip (top): a link glyph + AUTO / FOLLOW / MAP / MANUAL.
     const char* chip = mode == Mode::Auto ? "AUTO-DETECT"
-                     : mode == Mode::Follow ? "FOLLOWING SONG KEY" : "MANUAL KEY";
+                     : mode == Mode::Follow ? "FOLLOWING SONG KEY"
+                     : mode == Mode::Map ? "KEY MAP" : "MANUAL KEY";
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     g.setColour (linked ? accent : juce::Colour (sattari::brand::kTextMuted));
     const juce::String chipText = (linked ? juce::String::fromUTF8 ("\xe2\x9b\x93  ") : juce::String())
@@ -362,23 +363,23 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     basicPanel.addAndMakeVisible (pillRow);
     // Plain click toggles whether the note is a valid correction target.
     pillRow.onPillClicked = [this] (int pc) {
-        if (auto* p = audioProcessor.parameters().getParameter ("enabledNotes"))
+        if (auto* param = audioProcessor.parameters().getParameter ("enabledNotes"))
         {
-            const auto& range = p->getNormalisableRange();
-            const int current = (int) std::round (range.convertFrom0to1 (p->getValue()));
+            const auto& range = param->getNormalisableRange();
+            const int current = (int) std::round (range.convertFrom0to1 (param->getValue()));
             const int flipped = current ^ (1 << pc);
-            p->beginChangeGesture();
-            p->setValueNotifyingHost (range.convertTo0to1 ((float) flipped));
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (range.convertTo0to1 ((float) flipped));
+            param->endChangeGesture();
         }
     };
     // Shift-click sets the key root (the previous behaviour).
     pillRow.onPillShiftClicked = [this] (int pc) {
-        if (auto* p = audioProcessor.parameters().getParameter ("keyRoot"))
+        if (auto* param = audioProcessor.parameters().getParameter ("keyRoot"))
         {
-            p->beginChangeGesture();
-            p->setValueNotifyingHost (p->convertTo0to1 ((float) pc));
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) pc));
+            param->endChangeGesture();
         }
     };
     styleCaption (editNotesLabel, "EDIT NOTES");
@@ -515,11 +516,11 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // of those two is currently active.
     style.onClick = [this] {
         const int idx = style.getToggleState() ? 1 : 2;
-        if (auto* p = audioProcessor.parameters().getParameter ("style"))
+        if (auto* param = audioProcessor.parameters().getParameter ("style"))
         {
-            p->beginChangeGesture();
-            p->setValueNotifyingHost (p->convertTo0to1 ((float) idx));
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) idx));
+            param->endChangeGesture();
         }
     };
 
@@ -660,6 +661,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     const auto origin = audioProcessor.currentKeyOrigin();
     using KBMode = KeyButton::Mode;
     const KBMode kbMode = origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus ? KBMode::Follow
+                        : origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::KeyMap    ? KBMode::Map
                         : origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey  ? KBMode::Auto
                         : KBMode::Manual;
     keyButton.setState (kbMode, origin.root, origin.scale);
@@ -697,6 +699,13 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         s << "No key map loaded.\nScan a track to build a per-section key timeline that\n"
              "the live correction follows via the host playhead.";
     keyMapStatusLabel.setText (s, juce::dontSendNotification);
+
+    // Honest Neural Pitch label: the toggle silently falls back to YIN when no
+    // crepe.onnx model is installed — say so instead of looking functional.
+    const juce::String wantedNeuralText = audioProcessor.neuralModelPresent()
+        ? "Neural Pitch" : "Neural Pitch (no model installed)";
+    if (neuralPitch.getButtonText() != wantedNeuralText)
+        neuralPitch.setButtonText (wantedNeuralText);
 }
 
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)

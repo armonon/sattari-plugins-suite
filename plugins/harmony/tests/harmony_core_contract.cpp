@@ -34,9 +34,10 @@ int main()
     // In A minor (root 9), a third above A is C (minor third).
     check ("3rd above A (Am)",   diatonicShift (69, 9, ScaleId::Minor, 2), 72); // A4 -> C5
 
-    // Bus-scale mapping: 1 => minor, anything else => major fallback.
+    // Bus-scale mapping: 0 => major, 1 => minor, 2 => chromatic/off.
     check ("bus scale minor", (int) (scaleIdFromBus (1) == ScaleId::Minor), 1);
     check ("bus scale major", (int) (scaleIdFromBus (0) == ScaleId::Major), 1);
+    check ("bus scale chromatic", (int) (scaleIdFromBus (2) == ScaleId::ChromaticOff), 1);
 
     // Chord-follow voicing: snap a desired note onto the nearest chord tone.
     const std::vector<int> CmajTriad { 0, 4, 7 };     // C major triad: C E G

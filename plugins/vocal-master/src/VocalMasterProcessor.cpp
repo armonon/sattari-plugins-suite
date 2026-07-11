@@ -3,6 +3,7 @@
 
 using APVTS = juce::AudioProcessorValueTreeState;
 namespace IIR = juce::dsp::IIR;
+using ArrayCoeffs = juce::dsp::IIR::ArrayCoefficients<float>;
 
 APVTS::ParameterLayout SattariVocalMasterAudioProcessor::createParameterLayout()
 {
@@ -43,6 +44,9 @@ void SattariVocalMasterAudioProcessor::prepareToPlay (double sampleRate, int sam
         tiltHigh[(size_t) ch].prepare (mono);
         airShelf[(size_t) ch].prepare (mono);
         hpf[(size_t) ch].coefficients = IIR::Coefficients<float>::makeHighPass (currentSampleRate, 85.0f);
+        tiltLow[(size_t) ch].coefficients = IIR::Coefficients<float>::makeLowShelf (currentSampleRate, 250.0f, 0.7f, 1.0f);
+        tiltHigh[(size_t) ch].coefficients = IIR::Coefficients<float>::makeHighShelf (currentSampleRate, 4000.0f, 0.7f, 1.0f);
+        airShelf[(size_t) ch].coefficients = IIR::Coefficients<float>::makeHighShelf (currentSampleRate, 11000.0f, 0.7f, 1.0f);
         deessEnv[(size_t) ch].prepare (currentSampleRate, 1.0f, 60.0f);
     }
 
@@ -83,16 +87,16 @@ void SattariVocalMasterAudioProcessor::processBlock (juce::AudioBuffer<float>& b
     const float levelAmt= param ("level");
     const float mix     = param ("mix");
 
-    // Per-block filter coefficients (cheap).
+    // Per-block filter coefficients, written into existing coefficient objects.
     float lowDb, highDb; sattari::vocal::tiltGainsDb (param ("tone"), lowDb, highDb);
-    const auto loC  = IIR::Coefficients<float>::makeLowShelf  (currentSampleRate, 250.0f,   0.7f, juce::Decibels::decibelsToGain (lowDb));
-    const auto hiC  = IIR::Coefficients<float>::makeHighShelf (currentSampleRate, 4000.0f,  0.7f, juce::Decibels::decibelsToGain (highDb));
-    const auto airC = IIR::Coefficients<float>::makeHighShelf (currentSampleRate, 11000.0f, 0.7f, juce::Decibels::decibelsToGain (airAmt * 6.0f));
+    const auto loC  = ArrayCoeffs::makeLowShelf  (currentSampleRate, 250.0f,   0.7f, juce::Decibels::decibelsToGain (lowDb));
+    const auto hiC  = ArrayCoeffs::makeHighShelf (currentSampleRate, 4000.0f,  0.7f, juce::Decibels::decibelsToGain (highDb));
+    const auto airC = ArrayCoeffs::makeHighShelf (currentSampleRate, 11000.0f, 0.7f, juce::Decibels::decibelsToGain (airAmt * 6.0f));
     for (int ch = 0; ch < 2; ++ch)
     {
-        tiltLow[(size_t) ch].coefficients  = loC;
-        tiltHigh[(size_t) ch].coefficients = hiC;
-        airShelf[(size_t) ch].coefficients = airC;
+        *tiltLow[(size_t) ch].coefficients  = loC;
+        *tiltHigh[(size_t) ch].coefficients = hiC;
+        *airShelf[(size_t) ch].coefficients = airC;
     }
 
     const float gateThr   = juce::Decibels::decibelsToGain (-60.0f + denoise * 40.0f);

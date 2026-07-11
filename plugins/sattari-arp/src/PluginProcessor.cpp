@@ -56,6 +56,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterBool> ("inputThru", "Input Thru", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("hostSync", "Host Sync", true));
 
+    // Cross-plugin session follows (Brain bus), appended at the END of the layout
+    // so existing parameter indices/automation stay stable. Both default OFF so
+    // the arp is bit-identical to previous versions until the user opts in.
+    //  * followSwing: the published session swing (0..1) is applied as classic
+    //    off-beat delay scaled to the arp's division — every 2nd step lands late
+    //    by up to ~2/3 of a step at swing = 1.
+    //  * followEnergy: the published arrangement energy (0..1) drives dynamics —
+    //    velocity scales by (0.5 + 0.5*energy), and above 0.75 the pattern range
+    //    gains +1 octave and the hits get an accent lift (audible chorus/drop).
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSwing", "Follow Swing", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followEnergy", "Follow Energy", false));
+
     return { params.begin(), params.end() };
 }
 
@@ -149,10 +161,14 @@ int SattariArpAudioProcessor::snapNoteToScale (int note) const
 {
     const int scaleIndex = (int) *apvts.getRawParameterValue ("scale");
     int root = (int) *apvts.getRawParameterValue ("scaleRoot");
+    int scale = scaleIndex;
     if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
         if (auto s = sessionReader.current(); s.valid)
+        {
             root = s.root;
-    return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scaleIndex);
+            scale = s.scale == 0 ? 1 : (s.scale == 1 ? 2 : 0);
+        }
+    return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scale);
 }
 
 SattariArpAudioProcessor::KeyState SattariArpAudioProcessor::currentKeyState() const
@@ -163,7 +179,10 @@ SattariArpAudioProcessor::KeyState SattariArpAudioProcessor::currentKeyState() c
     k.following = apvts.getRawParameterValue ("followKey")->load() > 0.5f;
     if (k.following)
         if (auto s = sessionReader.current(); s.valid)
+        {
             k.root = s.root;
+            k.scale = s.scale == 0 ? 1 : (s.scale == 1 ? 2 : 0);
+        }
     return k;
 }
 

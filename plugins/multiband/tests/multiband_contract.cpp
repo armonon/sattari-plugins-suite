@@ -87,6 +87,8 @@ double gainToDb (double g) { return 20.0 * std::log10 (g + 1e-12); }
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     const double sr = 48000.0;
     const int block = 512;
     int fails = 0;

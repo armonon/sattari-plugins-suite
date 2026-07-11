@@ -95,9 +95,13 @@ private:
     double currentSampleRate = 44100.0;
     int    preparedBlockSize = 512;
 
+    static constexpr int kSafetyBlockSize = 16384;
+    static constexpr int kMaxHeldChordNotes = 32;
     std::vector<float> monoScratch;
-    std::vector<int>   heldNotes;      // MIDI notes currently held (the chord, for Chord mode)
-    std::vector<int>   chordPcs;       // their pitch classes, rebuilt per block
+    std::array<int, kMaxHeldChordNotes> heldNotes {};      // MIDI notes currently held (the chord, for Chord mode)
+    std::array<int, kMaxHeldChordNotes> chordPcs {};       // their pitch classes, rebuilt per block
+    int heldNoteCount = 0;
+    int chordPcCount = 0;
     int   analysisHop = 0, analysisCounter = 0;
     int   leadMidiLive = -1;
     bool  voicedLive = false;

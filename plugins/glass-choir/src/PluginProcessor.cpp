@@ -50,6 +50,10 @@ namespace
         const float f = (float) (pos - i0);
         return ring[(size_t) i0] * (1.0f - f) + ring[(size_t) i1] * f;
     }
+
+    constexpr const char* kHarmonyOnIds[SattariGlassChoirAudioProcessor::kNumHarmony]       = { "h1on", "h2on", "h3on", "h4on" };
+    constexpr const char* kHarmonyIntervalIds[SattariGlassChoirAudioProcessor::kNumHarmony] = { "h1int", "h2int", "h3int", "h4int" };
+    constexpr const char* kHarmonyLevelIds[SattariGlassChoirAudioProcessor::kNumHarmony]    = { "h1level", "h2level", "h3level", "h4level" };
 }
 
 // -- Biquad coefficient setters -----------------------------------------------
@@ -564,10 +568,9 @@ void SattariGlassChoirAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
     {
         for (int v = 0; v < kNumHarmony; ++v)
         {
-            const auto s = juce::String (v + 1);
-            if (param (("h" + s + "on").toRawUTF8()) <= 0.5f) continue;
+            if (param (kHarmonyOnIds[(size_t) v]) <= 0.5f) continue;
 
-            const int deg = intervalDegrees ((int) std::round (param (("h" + s + "int").toRawUTF8())));
+            const int deg = intervalDegrees ((int) std::round (param (kHarmonyIntervalIds[(size_t) v])));
             const int harmonyMidi = sattari::harmony::diatonicShift (leadMidiLive, root, scaleId, deg);
 
             // pitchTighten blends transpose (keeps expression) -> hard-tune (exact note).
@@ -585,7 +588,7 @@ void SattariGlassChoirAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
             ratio *= std::pow (2.0, hv.humanizeCents / 1200.0);
             hv.smoothedRatio += (ratio - hv.smoothedRatio) * 0.2;
 
-            const float hGain = juce::Decibels::decibelsToGain (param (("h" + s + "level").toRawUTF8())) * harmonyMix;
+            const float hGain = juce::Decibels::decibelsToGain (param (kHarmonyLevelIds[(size_t) v])) * harmonyMix;
             const float pan = juce::jmap ((float) v, 0.0f, (float) (kNumHarmony - 1), -0.7f, 0.7f);
             float gl, gr; panGains (pan, gl, gr);
 

@@ -123,6 +123,8 @@ juce::AudioBuffer<float> makeMelody (double sr, double seconds, int root, bool m
 
 int main (int argc, char** argv)
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     const bool bless    = (argc > 1 && std::strcmp (argv[1], "--bless") == 0);
     const bool smoke    = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
     const bool features = (argc > 1 && std::strcmp (argv[1], "--features") == 0);

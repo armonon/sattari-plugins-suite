@@ -3,6 +3,15 @@
 
 using APVTS = juce::AudioProcessorValueTreeState;
 
+namespace
+{
+constexpr const char* kVoiceOnIds[SattariHarmonyAudioProcessor::kNumVoices]      = { "v1on", "v2on", "v3on", "v4on" };
+constexpr const char* kVoiceIntervalIds[SattariHarmonyAudioProcessor::kNumVoices]= { "v1int", "v2int", "v3int", "v4int" };
+constexpr const char* kVoiceLevelIds[SattariHarmonyAudioProcessor::kNumVoices]   = { "v1level", "v2level", "v3level", "v4level" };
+constexpr const char* kVoicePanIds[SattariHarmonyAudioProcessor::kNumVoices]     = { "v1pan", "v2pan", "v3pan", "v4pan" };
+constexpr const char* kVoiceFormantIds[SattariHarmonyAudioProcessor::kNumVoices] = { "v1formant", "v2formant", "v3formant", "v4formant" };
+}
+
 // ---- shared choice lists ----------------------------------------------------
 juce::StringArray SattariHarmonyAudioProcessor::rootChoices()
 {
@@ -98,7 +107,7 @@ SattariHarmonyAudioProcessor::SattariHarmonyAudioProcessor()
 void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    preparedBlockSize = juce::jmax (32, samplesPerBlock);
+    preparedBlockSize = juce::jmax (kSafetyBlockSize, juce::jmax (32, samplesPerBlock));
 
     pitchDetector.prepare (currentSampleRate, 70.0f, 1200.0f);
     analysisHop = juce::jmax (256, (int) (currentSampleRate * 0.011));  // ~11 ms hops
@@ -210,13 +219,31 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         if (m.isNoteOn())
         {
             const int n = m.getNoteNumber();
-            if (std::find (heldNotes.begin(), heldNotes.end(), n) == heldNotes.end())
-                heldNotes.push_back (n);
+            bool alreadyHeld = false;
+            for (int i = 0; i < heldNoteCount; ++i)
+                alreadyHeld = alreadyHeld || heldNotes[(size_t) i] == n;
+            if (! alreadyHeld && heldNoteCount < kMaxHeldChordNotes)
+                heldNotes[(size_t) heldNoteCount++] = n;
         }
         else if (m.isNoteOff())
-            heldNotes.erase (std::remove (heldNotes.begin(), heldNotes.end(), m.getNoteNumber()), heldNotes.end());
+        {
+            const int note = m.getNoteNumber();
+            for (int i = 0; i < heldNoteCount;)
+            {
+                if (heldNotes[(size_t) i] == note)
+                {
+                    for (int j = i; j + 1 < heldNoteCount; ++j)
+                        heldNotes[(size_t) j] = heldNotes[(size_t) (j + 1)];
+                    --heldNoteCount;
+                }
+                else
+                {
+                    ++i;
+                }
+            }
+        }
         else if (m.isAllNotesOff() || m.isAllSoundOff())
-            heldNotes.clear();
+            heldNoteCount = 0;
     }
 
     const int numSamples  = buffer.getNumSamples();
@@ -224,12 +251,21 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     if (numSamples <= 0) return;
 
     const float inGain = juce::Decibels::decibelsToGain (param ("input"));
+    const float outGain = juce::Decibels::decibelsToGain (param ("output"));
+    if (numSamples > preparedBlockSize)
+    {
+        buffer.applyGain (inGain * outGain);
+        const float mag = buffer.getMagnitude (0, numSamples);
+        inputMeter.store (mag);
+        outputMeter.store (mag);
+        return;
+    }
+
     buffer.applyGain (inGain);
 
     inputMeter.store (buffer.getMagnitude (0, numSamples));
 
     // Mono sum of the (input-gained) signal for detection + shifting.
-    if ((int) monoScratch.size() < numSamples) monoScratch.resize ((size_t) numSamples);
     std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -271,31 +307,33 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     const bool  haveLead  = voicedLive && leadMidiLive >= 0 && leadHzSmoothed > 0.0f;
 
     // Chord mode: voice each harmony to the nearest tone of the held chord.
-    const bool chordMode = ((int) std::round (param ("source")) == 1) && ! heldNotes.empty();
-    chordPcs.clear();
+    const bool chordMode = ((int) std::round (param ("source")) == 1) && heldNoteCount > 0;
+    chordPcCount = 0;
     if (chordMode)
-        for (int n : heldNotes) chordPcs.push_back (((n % 12) + 12) % 12);
+    {
+        for (int i = 0; i < heldNoteCount; ++i)
+            chordPcs[(size_t) chordPcCount++] = ((heldNotes[(size_t) i] % 12) + 12) % 12;
+    }
 
     // Voiced gate: fast in, slow out, so harmonies bloom on the note and tail off.
     const double gateTarget = haveLead ? 1.0 : 0.0;
     voicedGain += (gateTarget - voicedGain) * (gateTarget > voicedGain ? 0.4 : 0.05);
 
-    harmonyAccum.setSize (2, numSamples, false, false, true);
-    harmonyAccum.clear();
+    harmonyAccum.clear (0, 0, numSamples);
+    harmonyAccum.clear (1, 0, numSamples);
 
     for (int v = 0; v < kNumVoices; ++v)
     {
-        const auto s = juce::String (v + 1);
-        const bool on = param (("v" + s + "on").toRawUTF8()) > 0.5f;
+        const bool on = param (kVoiceOnIds[(size_t) v]) > 0.5f;
         snapVoiceOn[v].store (on);
 
         // Target pitch ratio for this voice (only re-aimed when we have a lead).
         if (haveLead)
         {
-            const int deg = intervalDegrees ((int) std::round (param (("v" + s + "int").toRawUTF8())));
+            const int deg = intervalDegrees ((int) std::round (param (kVoiceIntervalIds[(size_t) v])));
             int harmonyMidi = sattari::harmony::diatonicShift (leadMidiLive, root, scale, deg);
             if (chordMode)
-                harmonyMidi = sattari::harmony::nearestChordTone (harmonyMidi, chordPcs);
+                harmonyMidi = sattari::harmony::nearestChordTone (harmonyMidi, chordPcs.data(), chordPcCount);
             snapVoiceMidi[v].store (harmonyMidi);
 
             // Two ways to place the voice, blended by Auto-Tune amount:
@@ -324,14 +362,13 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         auto* st = stretchers[(size_t) v].get();
         if (st == nullptr) continue;
 
-        const double formantSemis = (double) param (("v" + s + "formant").toRawUTF8());
+        const double formantSemis = (double) param (kVoiceFormantIds[(size_t) v]);
         const double formantScale = std::abs (formantSemis) < 1.0e-3 ? 0.0 : std::pow (2.0, formantSemis / 12.0);
         st->setFormantOption (RubberBand::RubberBandStretcher::OptionFormantPreserved);
         st->setFormantScale (formantScale);
         st->setPitchScale (juce::jlimit (0.25, 4.0, smoothedRatio[(size_t) v]));
 
-        voiceBuffer.setSize (1, numSamples, false, false, true);
-        voiceBuffer.clear();
+        voiceBuffer.clear (0, 0, numSamples);
         const float* in = monoScratch.data();
         st->process (&in, (size_t) numSamples, false);
         int written = 0;
@@ -344,9 +381,9 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         }
 
         // Place the voice in the stereo field (pan widened by Spread).
-        const float basePan = juce::jlimit (-1.0f, 1.0f, param (("v" + s + "pan").toRawUTF8()) * (0.4f + 0.6f * spread));
+        const float basePan = juce::jlimit (-1.0f, 1.0f, param (kVoicePanIds[(size_t) v]) * (0.4f + 0.6f * spread));
         float gL, gR; panGains (basePan, gL, gR);
-        const float lvl = juce::Decibels::decibelsToGain (param (("v" + s + "level").toRawUTF8())) * (float) voicedGain;
+        const float lvl = juce::Decibels::decibelsToGain (param (kVoiceLevelIds[(size_t) v])) * (float) voicedGain;
         const float* vb = voiceBuffer.getReadPointer (0);
         harmonyAccum.addFrom (0, 0, vb, numSamples, gL * lvl);
         harmonyAccum.addFrom (1, 0, vb, numSamples, gR * lvl);
@@ -404,7 +441,7 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         buffer.addFrom (0, 0, harmonyAccum, 1, 0, numSamples, harmGain * 0.5f);
     }
 
-    buffer.applyGain (juce::Decibels::decibelsToGain (param ("output")));
+    buffer.applyGain (outGain);
     outputMeter.store (buffer.getMagnitude (0, numSamples));
 
     // Publish live readout for the editor.

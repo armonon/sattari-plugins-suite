@@ -50,6 +50,8 @@ double fillInput (SattariGlassChoirAudioProcessor& p, juce::AudioBuffer<float>& 
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     int fails = 0;
     using P = SattariGlassChoirAudioProcessor;
 

@@ -43,14 +43,14 @@ SattariRhythmGenieAudioProcessor::SattariRhythmGenieAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
-    pendingOffs.reserve (64);
 }
 
 void SattariRhythmGenieAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     internalPpq = 0.0;
-    pendingOffs.clear();
+    pendingOffCount = 0;
+    pendingOffScratchCount = 0;
     wasGenerating = false;
     playStep.store (-1);
 }
@@ -70,9 +70,13 @@ bool SattariRhythmGenieAudioProcessor::laneEnabled (int lane) const noexcept
 
 void SattariRhythmGenieAudioProcessor::allNotesOff (juce::MidiBuffer& out)
 {
-    for (const auto& po : pendingOffs)
+    for (int i = 0; i < pendingOffCount; ++i)
+    {
+        const auto& po = pendingOffs[(size_t) i];
         out.addEvent (juce::MidiMessage::noteOff (kDrumChannel, po.note), 0);
-    pendingOffs.clear();
+    }
+    pendingOffCount = 0;
+    pendingOffScratchCount = 0;
 }
 
 void SattariRhythmGenieAudioProcessor::emitStep (int stepIdx, int sampleOffset,
@@ -97,7 +101,10 @@ void SattariRhythmGenieAudioProcessor::emitStep (int stepIdx, int sampleOffset,
         const int note = laneNote (lane);
 
         out.addEvent (juce::MidiMessage::noteOn (kDrumChannel, note, (juce::uint8) vel), sampleOffset);
-        pendingOffs.push_back ({ note, sampleOffset + gateS });
+        if (pendingOffCount < kMaxPendingOffs)
+            pendingOffs[(size_t) pendingOffCount++] = { note, sampleOffset + gateS };
+        else
+            out.addEvent (juce::MidiMessage::noteOff (kDrumChannel, note), sampleOffset);
         pubPulse.fetch_add (1, std::memory_order_relaxed);   // transient pulse for the bus
     }
 }
@@ -150,19 +157,22 @@ void SattariRhythmGenieAudioProcessor::processBlock (juce::AudioBuffer<float>& b
     }
 
     // Resolve note-offs (existing + the ones just scheduled) against this block.
-    std::vector<PendingOff> keep;
-    keep.reserve (pendingOffs.size());
-    for (auto& po : pendingOffs)
+    pendingOffScratchCount = 0;
+    for (int i = 0; i < pendingOffCount; ++i)
     {
+        auto po = pendingOffs[(size_t) i];
         if (po.samplesRemaining < numSamples)
             generated.addEvent (juce::MidiMessage::noteOff (kDrumChannel, po.note), po.samplesRemaining);
         else
         {
             po.samplesRemaining -= numSamples;
-            keep.push_back (po);
+            if (pendingOffScratchCount < kMaxPendingOffs)
+                pendingOffScratch[(size_t) pendingOffScratchCount++] = po;
         }
     }
-    pendingOffs.swap (keep);
+    for (int i = 0; i < pendingOffScratchCount; ++i)
+        pendingOffs[(size_t) i] = pendingOffScratch[(size_t) i];
+    pendingOffCount = pendingOffScratchCount;
 
     midi.swapWith (generated);
 

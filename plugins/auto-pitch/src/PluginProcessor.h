@@ -59,6 +59,9 @@ public:
     juce::String getLastTraceSummary() const { return lastTraceSummary; }
     juce::String getLiveStatusSummary() const;
     juce::String getKeyDetectionTabSummary() const;
+    // Whether a crepe.onnx model was found + loaded at prepare time — lets the UI
+    // label the Neural Pitch toggle honestly instead of silently doing nothing.
+    bool neuralModelPresent() const noexcept { return crepeModelPresent; }
 
     // --- Track Key Map -------------------------------------------------------
     //  Offline scan of an audio file -> timeline of (timeSec, rootIdx, scaleIdx)

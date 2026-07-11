@@ -7,9 +7,9 @@
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariChromagram.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <array>
 #include <atomic>
 #include <thread>
-#include <vector>
 
 // =============================================================================
 //  Sattari Key — master-track key scanner + suite key publisher
@@ -77,7 +77,9 @@ private:
     static constexpr int fftOrder = 12;            // 4096-point
     static constexpr int fftSize  = 1 << fftOrder;
     std::unique_ptr<juce::dsp::FFT> fft;
-    std::vector<float> ring, scratch, hann;
+    std::array<std::atomic<float>, fftSize> ring;
+    std::array<float, fftSize * 2> scratch {};
+    std::array<float, fftSize> hann {};
     std::atomic<int> writePos { 0 };
     double running[12] = { 0 };                    // background-thread-only
     double runningDetune = 0.0;                    // background-thread-only (cents)
@@ -100,6 +102,7 @@ private:
 
     std::thread worker;
     std::atomic<bool> workerRunning { false };
+    void stopWorker();
     void workerLoop();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariSongKeyAudioProcessor)

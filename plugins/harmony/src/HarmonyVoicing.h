@@ -11,6 +11,7 @@
 // =============================================================================
 
 #include <sattari_audio_core/SattariPitchDetector.h>   // ScaleId, scaleIntervals, snapMidiToScale
+#include <vector>
 
 namespace sattari::harmony
 {
@@ -35,10 +36,12 @@ inline ScaleId scaleIdFromChoice (int choice) noexcept
 }
 
 // Map the cross-plugin bus scale code (0=major, 1=minor, 2=chromatic) to a
-// ScaleId. Chromatic falls back to Major so harmonies still stay musical.
+// ScaleId. Chromatic means no scale snap; don't silently force a major key.
 inline ScaleId scaleIdFromBus (int busScale) noexcept
 {
-    return busScale == 1 ? ScaleId::Minor : ScaleId::Major;
+    if (busScale == 1) return ScaleId::Minor;
+    if (busScale == 2) return ScaleId::ChromaticOff;
+    return ScaleId::Major;
 }
 
 namespace detail
@@ -82,14 +85,15 @@ inline int diatonicShift (int leadMidi, int root, ScaleId scale, int degrees) no
 // chord (a set of 0-11 pitch classes, e.g. the notes held on a chord track).
 // This is what lets the harmony follow the *chords*, not just the scale — each
 // voice lands on the closest real chord tone to where the scale would send it.
-inline int nearestChordTone (int desiredMidi, const std::vector<int>& pitchClasses) noexcept
+inline int nearestChordTone (int desiredMidi, const int* pitchClasses, int numPitchClasses) noexcept
 {
-    if (pitchClasses.empty())
+    if (pitchClasses == nullptr || numPitchClasses <= 0)
         return detail::clampMidi (desiredMidi);
 
     int best = desiredMidi, bestDist = 1 << 30;
-    for (int raw : pitchClasses)
+    for (int i = 0; i < numPitchClasses; ++i)
     {
+        const int raw = pitchClasses[i];
         const int pc = ((raw % 12) + 12) % 12;
         const int k = (int) std::lround ((double) (desiredMidi - pc) / 12.0);
         const int cand = pc + 12 * k;                     // nearest octave of pc to desired
@@ -97,6 +101,11 @@ inline int nearestChordTone (int desiredMidi, const std::vector<int>& pitchClass
         if (d < bestDist) { bestDist = d; best = cand; }
     }
     return detail::clampMidi (best);
+}
+
+inline int nearestChordTone (int desiredMidi, const std::vector<int>& pitchClasses) noexcept
+{
+    return nearestChordTone (desiredMidi, pitchClasses.data(), (int) pitchClasses.size());
 }
 
 } // namespace sattari::harmony

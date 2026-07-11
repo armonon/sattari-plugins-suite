@@ -34,6 +34,8 @@ double rmsDifference (const juce::AudioBuffer<float>& a, const juce::AudioBuffer
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     SattariAutoPitchAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
 
