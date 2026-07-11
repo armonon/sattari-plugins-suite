@@ -86,6 +86,64 @@ double pitchStdCents (const juce::AudioBuffer<float>& buf, double sr)
     return std::sqrt (var) * 100.0;               // semitones -> cents
 }
 
+// Extract a detected-pitch track (MIDI values, one per hop) over the tail of a
+// buffer. Used by --vibtest to measure the synthetic vibrato modulation.
+std::vector<double> pitchTrackMidi (const juce::AudioBuffer<float>& buf, double sr, int hop = 256)
+{
+    sattari::dsp::PitchDetector det;
+    det.prepare (sr, 80.0f, 800.0f, 0.045f);
+    const int n = buf.getNumSamples();
+    const int start = n / 3;                      // skip attack/priming + vocoder latency
+    std::vector<double> midis;
+    for (int s = start; s + hop <= n; s += hop)
+    {
+        det.pushBlock (buf.getReadPointer (0) + s, hop);
+        const auto r = det.analyse (0.2f);
+        if (r.voiced) midis.push_back (12.0 * std::log2 (r.frequencyHz / 440.0) + 69.0);
+    }
+    return midis;
+}
+
+// Dominant modulation frequency (Hz) of a pitch track, via autocorrelation of the
+// de-meaned series. `hop` samples per track step at sample rate `sr`.
+double dominantModHz (const std::vector<double>& track, double sr, int hop)
+{
+    const int N = (int) track.size();
+    if (N < 8) return 0.0;
+    double mean = 0.0; for (double v : track) mean += v; mean /= (double) N;
+    std::vector<double> x ((size_t) N);
+    for (int i = 0; i < N; ++i) x[(size_t) i] = track[(size_t) i] - mean;
+    // Search lags corresponding to 1..12 Hz.
+    const double stepHz = sr / (double) hop;      // track sample rate
+    const int minLag = juce::jmax (1, (int) std::floor (stepHz / 12.0));
+    const int maxLag = juce::jmin (N - 1, (int) std::ceil (stepHz / 1.0));
+    double best = -1.0e30; int bestLag = 0;
+    for (int lag = minLag; lag <= maxLag; ++lag)
+    {
+        double acc = 0.0;
+        for (int i = 0; i + lag < N; ++i) acc += x[(size_t) i] * x[(size_t) (i + lag)];
+        if (acc > best) { best = acc; bestLag = lag; }
+    }
+    return bestLag > 0 ? stepHz / (double) bestLag : 0.0;
+}
+
+// Goertzel-style magnitude of a single frequency over the tail of a buffer.
+double toneMag (const juce::AudioBuffer<float>& buf, double sr, double freq)
+{
+    const int n = buf.getNumSamples();
+    const int start = n / 2;                       // tail only (past vocoder latency + settle)
+    double re = 0.0, im = 0.0;
+    const double w = 2.0 * M_PI * freq / sr;
+    for (int i = start; i < n; ++i)
+    {
+        const double s = (double) buf.getReadPointer (0)[i];
+        re += s * std::cos (w * (double) i);
+        im += s * std::sin (w * (double) i);
+    }
+    const double cnt = (double) juce::jmax (1, n - start);
+    return std::sqrt (re * re + im * im) / cnt;
+}
+
 const char* noteName12 (int r)
 {
     static const char* N[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
@@ -131,6 +189,8 @@ int main (int argc, char** argv)
     const bool crepeTest= (argc > 1 && std::strcmp (argv[1], "--crepe") == 0);
     const bool autokey  = (argc > 1 && std::strcmp (argv[1], "--autokey") == 0);
     const bool gainstage= (argc > 1 && std::strcmp (argv[1], "--gainstage") == 0);
+    const bool vibtest  = (argc > 1 && std::strcmp (argv[1], "--vibtest") == 0);
+    const bool polytest = (argc > 1 && std::strcmp (argv[1], "--polytest") == 0);
 
     const double sr = 48000.0;
     const int    block = 512;
@@ -200,6 +260,160 @@ int main (int argc, char** argv)
         if (bRel <= 0.05f) { std::fprintf (stderr, "FAIL: input & output gain still interchangeable (div %.4f) — the drive/trim split is broken\n", bRel); return 1; }
         std::printf ("Auto Pitch gain-stage ok\n");
         return 0;
+    }
+
+    // --vibtest: prove the SYNTHETIC vibrato generator (addVibrato) adds a real,
+    // periodic ~5.5 Hz pitch modulation on a sustained in-tune note — and that
+    // depth 0 is a strict no-op (bit-identical to no vibrato). Rendered through
+    // the PSOLA live engine (clean fast retune, no Rubber Band phase jitter to
+    // contaminate the pitch-track measurement).
+    if (vibtest)
+    {
+        // A sustained, in-tune A4 (440 Hz) in A major: correction is ~0, so any
+        // pitch movement in the output is the ADDED vibrato, nothing else.
+        juce::AudioBuffer<float> tone;
+        {
+            const double seconds3 = 3.0;
+            const int nn = (int) (sr * seconds3);
+            tone.setSize (1, nn);
+            float* d = tone.getWritePointer (0);
+            double ph = 0.0;
+            for (int i = 0; i < nn; ++i) { d[i] = 0.5f * (float) std::sin (ph); ph += 2.0 * M_PI * 440.0 / sr; }
+        }
+
+        auto render = [&] (float depthCents) {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "keyRoot", 9.0f);          // A
+            setParam (a, "scale", 0.0f);            // major (A4 in scale)
+            setParam (a, "followSongKey", 0.0f);
+            setParam (a, "style", 2.0f);            // Modern Rap: strong + fast retune
+            setParam (a, "amount", 1.0f);           setParam (a, "speed", 0.95f);
+            setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
+            setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
+            setParam (a, "vibrato", 0.0f);          // preserve OFF (isolate the generator)
+            setParam (a, "liveEngine", 1.0f);       // PSOLA
+            setParam (a, "addVibrato", depthCents);
+            setParam (a, "vibratoRate", 5.5f);
+            setParam (a, "vibratoOnset", 300.0f);
+            return sattari::harness::renderThrough (p, tone, sr, block);
+        };
+
+        const auto off0 = render (0.0f);
+        const auto off1 = render (0.0f);            // determinism / no-op proof
+        const auto vib  = render (60.0f);
+
+        // (1) depth 0 must be a strict no-op: two depth-0 renders bit-identical.
+        double noopResidual = 0.0;
+        for (int i = 0; i < off0.getNumSamples(); ++i)
+            noopResidual = std::max (noopResidual, std::fabs ((double) off0.getSample (0, i) - (double) off1.getSample (0, i)));
+
+        // (2) depth 60 must add clearly MORE pitch movement than depth 0.
+        const double sOff = pitchStdCents (off0, sr);
+        const double sVib = pitchStdCents (vib, sr);
+
+        // (3) the modulation must be periodic near the requested 5.5 Hz.
+        const int hop = 256;
+        const auto track = pitchTrackMidi (vib, sr, hop);
+        const double modHz = dominantModHz (track, sr, hop);
+
+        // (4) finite + bounded.
+        bool finite = true; float peak = 0.0f;
+        for (int i = 0; i < vib.getNumSamples(); ++i)
+        {
+            const float v = vib.getSample (0, i);
+            if (! std::isfinite (v)) finite = false;
+            peak = std::max (peak, std::fabs (v));
+        }
+
+        std::printf ("vibtest: noopResidual=%.3g  pitchStd off=%.1f ct vib=%.1f ct  modHz=%.2f (want ~5.5)  peak=%.3f finite=%d\n",
+                     noopResidual, sOff, sVib, modHz, peak, (int) finite);
+
+        int fails = 0;
+        if (noopResidual > 1.0e-6)       { std::fprintf (stderr, "FAIL: addVibrato=0 is not a no-op (residual %.3g)\n", noopResidual); ++fails; }
+        if (sVib <= sOff * 1.8 + 5.0)    { std::fprintf (stderr, "FAIL: addVibrato=60 did not add clear pitch modulation (%.1f vs %.1f ct)\n", sVib, sOff); ++fails; }
+        if (modHz < 4.0 || modHz > 7.5)  { std::fprintf (stderr, "FAIL: vibrato rate %.2f Hz not near 5.5 Hz\n", modHz); ++fails; }
+        if (! finite)                    { std::fprintf (stderr, "FAIL: non-finite output\n"); ++fails; }
+        if (peak > 1.0f)                 { std::fprintf (stderr, "FAIL: output exceeds 0 dBFS (peak %.3f)\n", peak); ++fails; }
+
+        std::printf (fails == 0 ? "Auto Pitch synthetic-vibrato proof ok\n" : "Auto Pitch synthetic-vibrato proof FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
+    }
+
+    // --polytest: prove the REAL polyphonic path retunes TWO simultaneous notes
+    // INDEPENDENTLY (not one global ratio). A C4+E4 chord, each detuned +40
+    // cents, is rendered with Polyphonic ON in C major; BOTH partials must move
+    // measurably toward their in-tune targets (energy shifts from the detuned to
+    // the in-scale frequency for each note). Bounded, finite, no NaNs.
+    if (polytest)
+    {
+        const double c4 = 261.63, e4 = 329.63;
+        const double detune = std::pow (2.0, 40.0 / 1200.0);   // +40 cents
+        const double c4d = c4 * detune, e4d = e4 * detune;
+
+        // Two-note chord, each partial detuned +40 cents.
+        juce::AudioBuffer<float> chord;
+        {
+            const double seconds3 = 3.0;
+            const int nn = (int) (sr * seconds3);
+            chord.setSize (1, nn);
+            float* d = chord.getWritePointer (0);
+            double pc = 0.0, pe = 0.0;
+            for (int i = 0; i < nn; ++i)
+            {
+                d[i] = 0.4f * (float) std::sin (pc) + 0.4f * (float) std::sin (pe);
+                pc += 2.0 * M_PI * c4d / sr;
+                pe += 2.0 * M_PI * e4d / sr;
+            }
+        }
+
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "keyRoot", 0.0f);          // C
+        setParam (a, "scale", 0.0f);            // major (C and E in scale)
+        setParam (a, "followSongKey", 0.0f);
+        setParam (a, "style", 0.0f);            // Natural: no saturation to colour the spectrum
+        setParam (a, "amount", 1.0f);           setParam (a, "speed", 0.9f);
+        setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "polyphonic", 1.0f);       // <-- the real per-peak vocoder
+        const auto out = sattari::harness::renderThrough (p, chord, sr, block);
+
+        // Per note: fraction of energy at the in-tune target vs the detuned input
+        // frequency. Correction should RAISE this fraction (energy moves home).
+        auto fracToward = [&] (const juce::AudioBuffer<float>& b, double fTarget, double fDetuned) {
+            const double mt = toneMag (b, sr, fTarget);
+            const double md = toneMag (b, sr, fDetuned);
+            return (mt + md) > 1.0e-12 ? mt / (mt + md) : 0.0;
+        };
+
+        const double cIn  = fracToward (chord, c4, c4d);
+        const double cOut = fracToward (out,   c4, c4d);
+        const double eIn  = fracToward (chord, e4, e4d);
+        const double eOut = fracToward (out,   e4, e4d);
+
+        bool finite = true; float peak = 0.0f;
+        for (int i = 0; i < out.getNumSamples(); ++i)
+            for (int ch = 0; ch < out.getNumChannels(); ++ch)
+            {
+                const float v = out.getSample (ch, i);
+                if (! std::isfinite (v)) finite = false;
+                peak = std::max (peak, std::fabs (v));
+            }
+
+        std::printf ("polytest: C4 toward-target %.3f -> %.3f   E4 toward-target %.3f -> %.3f   peak=%.3f finite=%d\n",
+                     cIn, cOut, eIn, eOut, peak, (int) finite);
+
+        int fails = 0;
+        // BOTH notes must move measurably toward their in-scale targets — the
+        // proof that peaks are shifted independently, not by one shared ratio.
+        if (cOut <= cIn + 0.05) { std::fprintf (stderr, "FAIL: C4 partial not corrected toward target (%.3f -> %.3f)\n", cIn, cOut); ++fails; }
+        if (eOut <= eIn + 0.05) { std::fprintf (stderr, "FAIL: E4 partial not corrected toward target (%.3f -> %.3f)\n", eIn, eOut); ++fails; }
+        if (! finite)           { std::fprintf (stderr, "FAIL: non-finite output (NaN/Inf)\n"); ++fails; }
+        if (peak > 1.0f)        { std::fprintf (stderr, "FAIL: output exceeds 0 dBFS (peak %.3f)\n", peak); ++fails; }
+        if (peak < 1.0e-3f)     { std::fprintf (stderr, "FAIL: output silent (peak %.3g)\n", peak); ++fails; }
+
+        std::printf (fails == 0 ? "Auto Pitch real-polyphonic proof ok\n" : "Auto Pitch real-polyphonic proof FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
     }
 
     // ---- AutoKey accuracy probe: feed clean tonal melodies in known keys and

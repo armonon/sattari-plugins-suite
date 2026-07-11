@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <complex>
+#include <cstring>
 #include <limits>
 
 namespace
@@ -131,12 +133,16 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // the audio thread).
     apvts.addParameterListener ("liveEngine", this);
     apvts.addParameterListener ("lowLatency", this);
+    // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
+    // the mono engines — listen so a toggle refreshes the host delay-comp figure.
+    apvts.addParameterListener ("polyphonic", this);
 }
 
 SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
 {
     apvts.removeParameterListener ("liveEngine", this);
     apvts.removeParameterListener ("lowLatency", this);
+    apvts.removeParameterListener ("polyphonic", this);
     // A latency-refresh may be queued on the message thread; cancel it before we
     // start tearing members down.
     cancelPendingUpdate();
@@ -232,6 +238,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // tone. Opt in when you want expressive vibrato preserved on sustained notes.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("vibrato", "Preserve Vibrato",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+
+    // Synthetic vibrato (ADD, not preserve). Separate from "Preserve Vibrato"
+    // above: this GENERATES a pitch LFO on the corrected note, like a singer's
+    // natural vibrato, fading in over the onset time from each new note. Default
+    // depth 0 => strictly inert (the golden null render is bit-identical).
+    //   addVibrato   : depth in cents (0..100), 0 = off
+    //   vibratoRate  : LFO rate in Hz (0.1..12)
+    //   vibratoOnset : fade-in time in ms (0..2000), measured from each note onset
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("addVibrato", "Add Vibrato",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("vibratoRate", "Vibrato Rate",
+        juce::NormalisableRange<float> (0.1f, 12.0f, 0.01f), 5.5f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("vibratoOnset", "Vibrato Onset",
+        juce::NormalisableRange<float> (0.0f, 2000.0f, 1.0f), 300.0f));
 
     // --- Antares-class behavioural controls ----------------------------------
     // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
@@ -386,6 +406,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     polyNotes.clear();
     polyNotes.reserve (3);
 
+    // Real polyphonic phase-vocoder: preallocate all STFT buffers so the audio
+    // thread never allocates when Polyphonic is engaged. Sized for the output
+    // channel count (matches the mono engines' channel handling).
+    preparePolyVocoder (juce::jmax (1, getTotalNumOutputChannels()));
+    lastPolyActive = (apvts.getRawParameterValue ("polyphonic") != nullptr
+                      && apvts.getRawParameterValue ("polyphonic")->load() > 0.5f)
+                  && (apvts.getRawParameterValue ("enableCorrection") == nullptr
+                      || apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f);
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
@@ -471,6 +500,14 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
                            && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
     const bool liveEngOn = apvts.getRawParameterValue ("liveEngine") != nullptr
                            && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
+    const bool polyOn    = apvts.getRawParameterValue ("polyphonic") != nullptr
+                           && apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
+    const bool corrOn    = apvts.getRawParameterValue ("enableCorrection") == nullptr
+                           || apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f;
+    // Polyphonic replaces the mono engine entirely with the phase vocoder, so its
+    // STFT delay (pvFrameSize - pvHop) is the whole reported latency when active.
+    if (polyOn && corrOn)
+        return pvInFifoLatency;
     const int psolaLatency = psola.empty() ? 0 : psola.front().getLatencySamples();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     return (lowLatOn || liveEngOn) ? psolaLatency : (rbLatency + rbCushion);
@@ -487,7 +524,7 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // thread, and parameterChanged may be called from the audio thread (host
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
-    if (parameterID == "liveEngine" || parameterID == "lowLatency")
+    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic")
         triggerAsyncUpdate();
 }
 
@@ -553,6 +590,10 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     transitionBoost = 0.0;
     flexEngageState = 0.0;
     vibratoCenterMidi = -1000.0;
+    // Synthetic vibrato generator: clear phase + onset ramp.
+    addVibratoPhase = 0.0;
+    addVibratoRampSamples = 0.0;
+    resetPolyVocoder();
     // Humanize random-walk state: clear so a stale bias from a previous prepare
     // can't leak into the first blocks after re-prepare.
     humanizeSmoothedCents = 0.0;
@@ -1107,6 +1148,277 @@ double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
 }
 
 // ============================================================================
+// Real polyphonic retune — per-peak phase-locked phase vocoder
+// ============================================================================
+// Standard analysis/synthesis STFT with 4x-overlap Hann overlap-add (the smb /
+// Bernsee streaming FIFO layout), extended so that EACH spectral peak carries
+// its OWN pitch-shift ratio (snapped to its nearest enabled in-scale tone) and
+// its region of influence is translated independently. Peaks use phase-vocoder
+// phase accumulation across frames (horizontal coherence); their neighbouring
+// bins are identity-phase-locked to the peak (vertical coherence) — the classic
+// Laroche-Dolson phase-locked vocoder. Everything runs from preallocated
+// buffers; no allocation or locking on the audio thread.
+void SattariAutoPitchAudioProcessor::preparePolyVocoder (int numChannels)
+{
+    const int N = pvFrameSize;
+    const int half = N / 2;
+    pvInFifoLatency = N - pvHop;
+
+    pvFft = std::make_unique<juce::dsp::FFT> (pvFftOrder);
+
+    // Hann window (period N, so it is COLA at the 4x hop). Applied on BOTH
+    // analysis and synthesis; the OLA gain is the sum of w^2 at the hop offsets.
+    pvWindow.assign ((size_t) N, 0.0f);
+    for (int k = 0; k < N; ++k)
+        pvWindow[(size_t) k] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
+                                                       * (float) k / (float) N);
+    double acc = 0.0;
+    for (int m = 0; m < pvOverlap; ++m)
+    {
+        const double w = (double) pvWindow[(size_t) (m * pvHop)];
+        acc += w * w;
+    }
+    pvOlaNorm = (float) juce::jmax (1.0e-6, acc);
+
+    const int nc = juce::jmax (1, numChannels);
+    pvInFifo.assign   ((size_t) nc, std::vector<float> ((size_t) N, 0.0f));
+    pvOutFifo.assign  ((size_t) nc, std::vector<float> ((size_t) N, 0.0f));
+    pvOutAccum.assign ((size_t) nc, std::vector<float> ((size_t) N, 0.0f));
+    pvLastPhase.assign((size_t) nc, std::vector<float> ((size_t) (half + 1), 0.0f));
+    pvSumPhase.assign ((size_t) nc, std::vector<float> ((size_t) (half + 1), 0.0f));
+
+    pvFftIn.assign  ((size_t) N, std::complex<float> {});
+    pvFftOut.assign ((size_t) N, std::complex<float> {});
+    pvMag.assign     ((size_t) (half + 1), 0.0f);
+    pvPhase.assign   ((size_t) (half + 1), 0.0f);
+    pvFreq.assign    ((size_t) (half + 1), 0.0f);
+    pvSynMag.assign  ((size_t) (half + 1), 0.0f);
+    pvSynPhase.assign((size_t) (half + 1), 0.0f);
+    pvBinPeak.assign ((size_t) (half + 1), -1);
+    pvPeakBins.clear();  pvPeakBins.reserve  ((size_t) (half + 1));
+    pvPeakRatio.clear(); pvPeakRatio.reserve ((size_t) (half + 1));
+
+    pvRover = pvInFifoLatency;
+}
+
+void SattariAutoPitchAudioProcessor::resetPolyVocoder()
+{
+    for (auto& v : pvInFifo)    std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& v : pvOutFifo)   std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& v : pvOutAccum)  std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& v : pvLastPhase) std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& v : pvSumPhase)  std::fill (v.begin(), v.end(), 0.0f);
+    pvRover = pvInFifoLatency;
+}
+
+// Analyse + synthesise ONE overlap-add frame for a single channel. Reads the
+// channel's input FIFO, writes pvHop finished samples to its output FIFO, and
+// advances both the OLA accumulator and the per-channel phase memory. Uses the
+// shared per-frame scratch (safe because channels are processed sequentially).
+void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
+{
+    if (pvFft == nullptr || pvInFifo.empty() || channel >= (int) pvInFifo.size())
+        return;
+
+    const int    N    = pvFrameSize;
+    const int    half = N / 2;
+    const double sr   = juce::jmax (1.0, currentSampleRate);
+    const double freqPerBin = sr / (double) N;
+    const double expct = juce::MathConstants<double>::twoPi * (double) pvHop / (double) N;
+
+    auto& inF    = pvInFifo[(size_t) channel];
+    auto& lastPh = pvLastPhase[(size_t) channel];
+    auto& sumPh  = pvSumPhase[(size_t) channel];
+
+    // --- Forward transform of the windowed frame ---------------------------
+    for (int k = 0; k < N; ++k)
+        pvFftIn[(size_t) k] = std::complex<float> (inF[(size_t) k] * pvWindow[(size_t) k], 0.0f);
+    pvFft->perform (pvFftIn.data(), pvFftOut.data(), false);
+
+    // --- Analysis: magnitude, phase, phase-vocoder true frequency ----------
+    for (int k = 0; k <= half; ++k)
+    {
+        const float re = pvFftOut[(size_t) k].real();
+        const float im = pvFftOut[(size_t) k].imag();
+        const float mag = std::sqrt (re * re + im * im);
+        const float ph  = std::atan2 (im, re);
+        pvMag[(size_t) k]   = mag;
+        pvPhase[(size_t) k] = ph;
+
+        // Phase advance since last frame, minus the expected advance for bin k,
+        // wrapped to (-pi, pi] -> instantaneous-frequency deviation (in bins).
+        double tmp = (double) ph - (double) lastPh[(size_t) k];
+        lastPh[(size_t) k] = ph;
+        tmp -= (double) k * expct;
+        long qpd = (long) (tmp / juce::MathConstants<double>::pi);
+        if (qpd >= 0) qpd += qpd & 1; else qpd -= qpd & 1;
+        tmp -= juce::MathConstants<double>::pi * (double) qpd;
+        tmp = (double) pvOverlap * tmp / juce::MathConstants<double>::twoPi;   // bins
+        pvFreq[(size_t) k] = (float) (((double) k + tmp) * freqPerBin);        // Hz
+    }
+
+    // --- Peak picking in the correctable band ------------------------------
+    const int firstBin = juce::jmax (2, (int) std::ceil (60.0   / freqPerBin));
+    const int lastBin  = juce::jmin (half - 2, (int) std::floor (2500.0 / freqPerBin));
+    float gmax = 0.0f;
+    for (int k = firstBin; k <= lastBin; ++k) gmax = juce::jmax (gmax, pvMag[(size_t) k]);
+
+    pvPeakBins.clear();
+    if (gmax > 1.0e-6f)
+    {
+        const float floorMag = gmax * 0.02f;   // ignore peaks > ~34 dB below the loudest
+        for (int k = firstBin; k <= lastBin; ++k)
+        {
+            const float m = pvMag[(size_t) k];
+            if (m > floorMag
+                && m >= pvMag[(size_t) (k - 1)] && m >= pvMag[(size_t) (k - 2)]
+                && m >= pvMag[(size_t) (k + 1)] && m >= pvMag[(size_t) (k + 2)])
+                pvPeakBins.push_back (k);
+        }
+    }
+
+    // --- Per-peak retune ratio (snap the peak's freq to nearest scale tone) -
+    const int  rootIndex   = currentCorrectionRootIndex();
+    const int  scaleIndex  = effectiveScaleIndex();
+    const auto scaleName   = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
+    const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
+    const double amount    = (double) apvts.getRawParameterValue ("amount")->load();
+    auto pcEnabled = [enabledMask] (int midi)
+        { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
+
+    pvPeakRatio.clear();
+    for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
+    {
+        const int kp = pvPeakBins[(size_t) pi];
+        const double f = juce::jmax (1.0, (double) pvFreq[(size_t) kp]);
+        const double srcMidi = 69.0 + 12.0 * std::log2 (f / 440.0);
+        int target = nearestScaleMidi (srcMidi, rootIndex, scaleName);   // honours chromatic
+        if (! pcEnabled (target))
+            for (int r = 1; r <= 12; ++r)
+            {
+                if (pcEnabled (target - r)) { target = target - r; break; }
+                if (pcEnabled (target + r)) { target = target + r; break; }
+            }
+        const double targetFreq = 440.0 * std::pow (2.0, ((double) target - 69.0) / 12.0);
+        // Amount scales the correction in the log domain (1 = full snap, 0 = none).
+        double ratio = std::pow (targetFreq / f, amount);
+        ratio = juce::jlimit (0.5, 2.0, ratio);
+        pvPeakRatio.push_back ((float) ratio);
+    }
+
+    // Assign every bin to the peak whose region of influence contains it (the
+    // bins between a peak and the midpoints to its neighbours). Bins outside the
+    // correctable band get -1 (identity: passed through unshifted, clean).
+    for (int k = 0; k <= half; ++k) pvBinPeak[(size_t) k] = -1;
+    for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
+    {
+        const int kp = pvPeakBins[(size_t) pi];
+        int lo = (pi == 0) ? firstBin : (pvPeakBins[(size_t) (pi - 1)] + kp) / 2 + 1;
+        int hi = (pi == (int) pvPeakBins.size() - 1) ? lastBin : (pvPeakBins[(size_t) (pi + 1)] + kp) / 2;
+        lo = juce::jlimit (0, half, lo);
+        hi = juce::jlimit (0, half, hi);
+        for (int k = lo; k <= hi; ++k) pvBinPeak[(size_t) k] = pi;
+    }
+
+    // --- Synthesis ---------------------------------------------------------
+    for (int b = 0; b <= half; ++b) pvSynMag[(size_t) b] = 0.0f;
+
+    // (a) Identity bins (no owning peak): standard phase-vocoder accumulation at
+    //     ratio 1, so the low end / air / inter-peak energy passes through clean.
+    for (int k = 0; k <= half; ++k)
+    {
+        if (pvBinPeak[(size_t) k] != -1) continue;
+        double tmp = ((double) pvFreq[(size_t) k] - (double) k * freqPerBin) / freqPerBin; // bins dev
+        tmp *= juce::MathConstants<double>::twoPi / (double) pvOverlap;
+        tmp += (double) k * expct;
+        sumPh[(size_t) k] += (float) tmp;
+        pvSynMag[(size_t) k]   += pvMag[(size_t) k];
+        pvSynPhase[(size_t) k]  = sumPh[(size_t) k];
+    }
+
+    // (b) Peak-owned bins: translate each region by its peak ratio; accumulate
+    //     the peak channel's synthesis phase, then identity-phase-lock the region
+    //     bins to it (neighbour synth phase = peak synth phase + analysis-phase
+    //     difference). This keeps each shifted partial phase-coherent.
+    for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
+    {
+        const int    kp    = pvPeakBins[(size_t) pi];
+        const double ratio = (double) pvPeakRatio[(size_t) pi];
+        const int    nkp   = juce::jlimit (0, half, (int) std::lround ((double) kp * ratio));
+
+        const double fSyn = (double) pvFreq[(size_t) kp] * ratio;   // scaled true freq (Hz)
+        double tmp = (fSyn - (double) nkp * freqPerBin) / freqPerBin;
+        tmp *= juce::MathConstants<double>::twoPi / (double) pvOverlap;
+        tmp += (double) nkp * expct;
+        sumPh[(size_t) nkp] += (float) tmp;
+        const double peakSyn = (double) sumPh[(size_t) nkp];
+        const double phPeak  = (double) pvPhase[(size_t) kp];
+
+        int lo = (pi == 0) ? firstBin : (pvPeakBins[(size_t) (pi - 1)] + kp) / 2 + 1;
+        int hi = (pi == (int) pvPeakBins.size() - 1) ? lastBin : (pvPeakBins[(size_t) (pi + 1)] + kp) / 2;
+        lo = juce::jlimit (0, half, lo);
+        hi = juce::jlimit (0, half, hi);
+        for (int k = lo; k <= hi; ++k)
+        {
+            const int nb = juce::jlimit (0, half, (int) std::lround ((double) k * ratio));
+            pvSynMag[(size_t) nb] += pvMag[(size_t) k];
+            const double locked = peakSyn + ((double) pvPhase[(size_t) k] - phPeak);
+            pvSynPhase[(size_t) nb] = (float) locked;
+            sumPh[(size_t) nb]      = (float) locked;   // seed next frame's accumulation
+        }
+    }
+
+    // Build the Hermitian-symmetric complex spectrum and inverse-transform.
+    for (int b = 0; b <= half; ++b)
+    {
+        const float m  = pvSynMag[(size_t) b];
+        const float ph = pvSynPhase[(size_t) b];
+        pvFftIn[(size_t) b] = std::complex<float> (m * std::cos (ph), m * std::sin (ph));
+    }
+    for (int b = half + 1; b < N; ++b)
+        pvFftIn[(size_t) b] = std::conj (pvFftIn[(size_t) (N - b)]);
+    pvFft->perform (pvFftIn.data(), pvFftOut.data(), true);   // inverse (JUCE scales by 1/N)
+
+    // Windowed overlap-add into this channel's accumulator.
+    auto& accum = pvOutAccum[(size_t) channel];
+    auto& outF  = pvOutFifo[(size_t) channel];
+    for (int k = 0; k < N; ++k)
+        accum[(size_t) k] += pvWindow[(size_t) k] * pvFftOut[(size_t) k].real() / pvOlaNorm;
+
+    // Publish pvHop finished samples, then slide the accumulator and input FIFO.
+    for (int k = 0; k < pvHop; ++k) outF[(size_t) k] = accum[(size_t) k];
+    std::memmove (accum.data(), accum.data() + pvHop, sizeof (float) * (size_t) (N - pvHop));
+    for (int k = N - pvHop; k < N; ++k) accum[(size_t) k] = 0.0f;
+    std::memmove (inF.data(), inF.data() + pvHop, sizeof (float) * (size_t) (N - pvHop));
+}
+
+// Drive the phase vocoder across a host block, in place. Channels advance in
+// lockstep (shared rover), so a frame fires for all channels at once. Applies
+// the input drive last, matching the mono engines (processWithPsola et al.).
+void SattariAutoPitchAudioProcessor::processPolyphonicRetune (juce::AudioBuffer<float>& buffer, float linearGain)
+{
+    const int n = buffer.getNumSamples();
+    if (pvInFifo.empty() || pvFft == nullptr) { buffer.applyGain (linearGain); return; }
+
+    const int usableCh = juce::jmin (buffer.getNumChannels(), (int) pvInFifo.size());
+    for (int i = 0; i < n; ++i)
+    {
+        for (int ch = 0; ch < usableCh; ++ch)
+        {
+            pvInFifo[(size_t) ch][(size_t) pvRover] = buffer.getSample (ch, i);
+            buffer.setSample (ch, i, pvOutFifo[(size_t) ch][(size_t) (pvRover - pvInFifoLatency)]);
+        }
+        if (++pvRover >= pvFrameSize)
+        {
+            pvRover = pvInFifoLatency;
+            for (int ch = 0; ch < usableCh; ++ch)
+                polyVocoderFrame (ch);
+        }
+    }
+    buffer.applyGain (linearGain);
+}
+
+// ============================================================================
 // Track Key Map
 // ============================================================================
 bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFile)
@@ -1529,18 +1841,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
     }
 
+    // Polyphonic: when ON, correction is done by the per-peak phase-locked
+    // vocoder (processPolyphonicRetune below) reading mainBuffer directly — NOT
+    // the old single-weighted-ratio HPS path (polyPushBlock / polyAnalyse..).
+    // Those remain available for reuse but are no longer in the correction path.
     const bool polyOn = apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
-    if (polyOn && scMonoScratch.size() >= (size_t) numSamples)
-    {
-        // Reuse the scratch for main mono sum.
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float m = 0.0f;
-            for (int ch = 0; ch < numChannels; ++ch) m += mainBuffer.getSample (ch, i);
-            scMonoScratch[(size_t) i] = m / (float) numChannels;
-        }
-        polyPushBlock (scMonoScratch.data(), numSamples);
-    }
 
     // Computed once per block: neural pitch feeds BOTH the correction override
     // (below) and the AutoKey histogram (in the loop) when a CREPE model is active.
@@ -1637,7 +1942,9 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     double targetPitchScale = 1.0;
     if (correctionOn)
     {
-        targetPitchScale = polyOn ? polyAnalyseAndComputeScale()
+        // Poly mode retunes per-peak in the spectral engine below, so the mono
+        // single-ratio smoother is held at unity (1.0) and left unused.
+        targetPitchScale = polyOn ? 1.0
                                   : pitchScaleForFrame (lastPitchFrame);
     }
     else
@@ -1666,6 +1973,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             transitionBoost = 1.0;                 // fresh note: snap fast
             lastTargetMidiForTransition = tgt;
             sessionTransientId.fetch_add (1);      // pulse for the cross-plugin bus
+            addVibratoRampSamples = 0.0;           // synthetic vibrato blooms afresh on each note
         }
     }
     // Decay the boost once per block (~time constant 60 ms).
@@ -1775,6 +2083,34 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         lastFedPitchScale  = smoothedPitchScale;
     }
 
+    // --- Synthetic vibrato (addVibrato) --------------------------------------
+    // ADD an LFO on top of the corrected pitch (a generated vibrato, distinct
+    // from the "Preserve Vibrato" of the singer above). It is layered onto a
+    // LOCAL copy of the correction scale (engineScale) — never the smoother state
+    // itself — so the 5.5 Hz oscillation cannot feed back into the correction
+    // loop. cents = depth * ramp * sin(phase); ramp blooms 0->1 over the onset ms
+    // from each note onset. Depth 0 is a strict no-op (engineScale == the correction
+    // scale unchanged), keeping the golden render bit-identical. Skipped in the
+    // poly path (which has its own per-note engine and ignores this scalar).
+    double engineScale = smoothedPitchScale;
+    const double addVibDepth = (double) apvts.getRawParameterValue ("addVibrato")->load();   // cents
+    if (addVibDepth > 0.0001 && lastPitchFrame.voiced && ! polyOn)
+    {
+        const double rate  = (double) apvts.getRawParameterValue ("vibratoRate")->load();    // Hz
+        const double onset = (double) apvts.getRawParameterValue ("vibratoOnset")->load();   // ms
+        const double onsetSamples = juce::jmax (1.0, onset * 0.001 * currentSampleRate);
+        const double ramp  = juce::jlimit (0.0, 1.0, addVibratoRampSamples / onsetSamples);
+        const double cents = addVibDepth * ramp * std::sin (addVibratoPhase);
+        engineScale *= std::pow (2.0, cents / 1200.0);
+        engineScale  = juce::jlimit (0.5, 2.0, engineScale);
+
+        // Advance the LFO phase + onset ramp by exactly this block.
+        addVibratoPhase += juce::MathConstants<double>::twoPi * rate * (double) numSamples / currentSampleRate;
+        if (addVibratoPhase > juce::MathConstants<double>::twoPi)
+            addVibratoPhase -= juce::MathConstants<double>::twoPi;
+        addVibratoRampSamples += (double) numSamples;
+    }
+
     // Input drive and output trim are kept SEPARATE. Input gain feeds the pitch
     // engine and the Style stage — turning it up is meant to push the Classic/Robot
     // saturators and the harmony blend harder (it is a drive control). Output gain
@@ -1814,16 +2150,37 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         lastUseLiveEngine = useLiveEngine;
     }
 
-    if (useLiveEngine)
+    // Poly is a third engine (the phase vocoder). Toggling it in/out flushes the
+    // mono engines AND the vocoder so neither replays stale pipeline audio at the
+    // seam (same rationale as the Live/Rubber Band swap above). Allocation-free.
+    const bool polyActive = polyOn && correctionOn;
+    if (polyActive != lastPolyActive)
     {
-        processWithPsola (mainBuffer, smoothedPitchScale, inputGain);
+        resetPolyVocoder();
+        for (auto& p : psola) p.reset();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        for (auto& s : rubberBand) if (s != nullptr) s->reset();
+        resetRbFifo();
+#endif
+        lastPolyActive = polyActive;
+    }
+
+    if (polyActive)
+    {
+        // Real polyphonic: every spectral peak is retuned independently to its
+        // nearest enabled in-scale tone. Replaces the mono single-ratio engine.
+        processPolyphonicRetune (mainBuffer, inputGain);
+    }
+    else if (useLiveEngine)
+    {
+        processWithPsola (mainBuffer, engineScale, inputGain);
     }
     else
     {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        processWithRubberBand (mainBuffer, smoothedPitchScale, inputGain);
+        processWithRubberBand (mainBuffer, engineScale, inputGain);
 #else
-        processFallbackFormantGuide (mainBuffer, smoothedPitchScale, inputGain);
+        processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
 #endif
     }
     applyModeCharacter (mainBuffer);

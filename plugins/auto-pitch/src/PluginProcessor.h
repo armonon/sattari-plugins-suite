@@ -10,6 +10,7 @@
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <array>
 #include <atomic>
+#include <complex>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -280,6 +281,45 @@ private:
     std::vector<PolyPeak>     polyPeaks;
     std::vector<PolyDetected> polyNotes;
 
+    // --- Real polyphonic retune: per-peak phase-locked vocoder ---------------
+    // When `polyphonic` is ON (default OFF), correction goes through a genuine
+    // phase vocoder (Laroche-Dolson peak shifting): every spectral peak is
+    // retuned INDEPENDENTLY to its nearest enabled in-scale tone, with identity
+    // phase-locking so each partial stays phase-coherent. This corrects the
+    // strongest simultaneous notes independently on clear material; it is NOT
+    // source separation (overlapping partials of different notes are not split).
+    // All buffers are preallocated in prepareToPlay -> preparePolyVocoder(), so
+    // the audio-thread frame processing never allocates or locks (RT-safe). The
+    // STFT introduces (pvFrameSize - pvHop) samples of latency, reported to the
+    // host when poly is on (see activeEngineLatencySamples()).
+    static constexpr int pvFftOrder  = 11;                    // 2048-point frame
+    static constexpr int pvFrameSize = 1 << pvFftOrder;       // 2048
+    static constexpr int pvOverlap   = 4;                     // 4x overlap
+    static constexpr int pvHop       = pvFrameSize / pvOverlap; // 512
+    std::unique_ptr<juce::dsp::FFT> pvFft;
+    std::vector<float> pvWindow;                              // Hann analysis+synthesis window
+    float pvOlaNorm = 1.5f;                                   // overlap-add gain (sum w^2 at hop offsets)
+    int   pvInFifoLatency = 0;                                // pvFrameSize - pvHop
+    int   pvRover = 0;                                        // shared write cursor (channels lockstep)
+    bool  lastPolyActive = false;                            // poly path ran last block (flush on toggle)
+    // Per-channel streaming state (smb-style overlap-add FIFOs + phase memory).
+    std::vector<std::vector<float>> pvInFifo;                 // [ch][pvFrameSize]
+    std::vector<std::vector<float>> pvOutFifo;                // [ch][pvFrameSize]
+    std::vector<std::vector<float>> pvOutAccum;               // [ch][pvFrameSize]
+    std::vector<std::vector<float>> pvLastPhase;              // [ch][pvFrameSize/2 + 1]
+    std::vector<std::vector<float>> pvSumPhase;               // [ch][pvFrameSize/2 + 1]
+    // Shared per-frame scratch (reused across channels within a single frame).
+    std::vector<std::complex<float>> pvFftIn, pvFftOut;      // size pvFrameSize
+    std::vector<float> pvMag, pvPhase, pvFreq;                // size half+1 (analysis)
+    std::vector<float> pvSynMag, pvSynPhase;                  // size half+1 (synthesis)
+    std::vector<int>   pvPeakBins;                            // detected spectral peaks (bin indices)
+    std::vector<int>   pvBinPeak;                             // size half+1: owning-peak index, -1 = identity
+    std::vector<float> pvPeakRatio;                           // per-peak retune ratio
+    void preparePolyVocoder (int numChannels);
+    void resetPolyVocoder();
+    void polyVocoderFrame (int channel);
+    void processPolyphonicRetune (juce::AudioBuffer<float>& buffer, float linearGain);
+
     // Track Key Map state. The vector is built on a background thread, then
     // swapped under `keyMapLock`. The audio thread reads with a try-lock and
     // skips lookup if the writer holds it (the writer's hold is microseconds).
@@ -353,6 +393,15 @@ private:
     // (vibrato) is re-injected, so hard tuning doesn't flatten expressive vibrato.
     // Reset on note onset so new notes still snap.
     double vibratoCenterMidi = -1000.0;
+
+    // --- Synthetic vibrato generator (addVibrato) ----------------------------
+    // Distinct from Preserve Vibrato (which keeps the SINGER's own): this ADDS a
+    // sinusoidal pitch LFO like a vocalist's natural vibrato. Depth (cents), rate
+    // (Hz) and onset (ms) are params; the onset ramp blooms 0->1 over vibratoOnset
+    // ms from each note ONSET (reset on a detected note change). Depth 0 is a
+    // strict no-op (golden render untouched). Both reset in resetPitchState.
+    double addVibratoPhase = 0.0;         // LFO phase, radians
+    double addVibratoRampSamples = 0.0;   // samples elapsed since the current note's onset
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessor)
 };
