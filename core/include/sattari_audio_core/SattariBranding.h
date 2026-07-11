@@ -115,6 +115,7 @@ inline const std::vector<Product>& products()
         { "warble",            "Sattari Warble",      "Lo-fi / tape",     kAccentViolet },
         { "scope",             "Sattari Scope",       "Analysis",         kAccent },
         { "granulator",        "Sattari Granulator",  "Granular instrument", kAccent },
+        { "brain",             "Sattari Brain",       "Session brain",    kAccent },
         { "glass-choir",       "Sattari Glass Choir", "Creative vocal FX", kAccentViolet },
     };
     return registry;

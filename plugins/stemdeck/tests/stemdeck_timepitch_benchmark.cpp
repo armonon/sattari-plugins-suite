@@ -87,7 +87,7 @@ juce::AudioBuffer<float> renderCase (const TimePitchDecision& decision, int bloc
     for (int pos = 0; pos < totalSamples; pos += blockSize)
     {
         const int n = juce::jmin (blockSize, totalSamples - pos);
-        deck.process (output, pos, n, true, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, decision, stemGains, {});
+        deck.process (output, pos, n, true, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, decision, stemGains, {}, {});
     }
 
     return output;
