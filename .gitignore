@@ -55,3 +55,4 @@ __pycache__/
 
 # Hosted download artifacts (deployed, not committed)
 apps/sattari-web/downloads/
+validation/giantsteps/

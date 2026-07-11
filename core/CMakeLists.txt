@@ -44,6 +44,29 @@ target_link_libraries(SattariAudioCoreKeyBench
     PRIVATE
         SattariAudioCore)
 
+# Real-dataset key evaluator — scores the shared detector against a labeled
+# corpus (GiantSteps) with the MIREX weighted metric, for all three profile
+# sets. Needs JUCE for audio decode + FFT, so unlike the bench it links the juce
+# modules (mirrors the SongKeyRender/contract targets, + audio_formats + dsp).
+# A tool, not a test, so EXCLUDE_FROM_ALL — build/run it explicitly.
+add_executable(SattariKeyDatasetEval EXCLUDE_FROM_ALL
+    tools/key_dataset_eval.cpp)
+
+target_include_directories(SattariKeyDatasetEval
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_link_libraries(SattariKeyDatasetEval
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_audio_formats
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
