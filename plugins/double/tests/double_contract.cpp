@@ -57,6 +57,7 @@ juce::AudioBuffer<float> render (float doubles, double& sideRms, double& peak)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     double dryPeak = 0.0, drySide = 0.0;

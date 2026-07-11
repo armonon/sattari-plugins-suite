@@ -79,6 +79,7 @@ double peakAbs (const juce::AudioBuffer<float>& b)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double e = 0; bool fin = true;
 

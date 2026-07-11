@@ -64,6 +64,7 @@ run (SattariAlignAudioProcessor& proc, double sr, int block, double seconds,
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     const double sr = 48000.0;
     const int block = 512;
 

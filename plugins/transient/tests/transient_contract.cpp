@@ -58,6 +58,7 @@ void render (float attack, float sustain, double& peak, double& tailRms, bool& f
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double pN=0,tN=0, pA=0,tA=0, pC=0,tC=0, pS=0,tS=0, pD=0,tD=0;
     bool f1=true,f2=true,f3=true,f4=true,f5=true;

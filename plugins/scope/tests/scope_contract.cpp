@@ -83,6 +83,7 @@ int peakBand (const SattariScopeAudioProcessor::Spectrum& s)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     // (1)+(2)+(3): a 1 kHz tone.

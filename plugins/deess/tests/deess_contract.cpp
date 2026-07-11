@@ -72,6 +72,7 @@ juce::AudioBuffer<float> render (float thresholdDb, double& lowAmp, double& hiAm
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     bool f1 = true, f2 = true;
     double lowOff = 0, hiOff = 0, lowOn = 0, hiOn = 0;

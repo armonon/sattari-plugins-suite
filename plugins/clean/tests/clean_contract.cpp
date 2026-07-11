@@ -54,6 +54,7 @@ void render (float amount, double& gapRms, double& burstRms, bool& finite)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     bool f0 = true, f1 = true;
     double gap0=0, burst0=0, gap1=0, burst1=0;

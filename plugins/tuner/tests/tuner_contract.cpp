@@ -52,6 +52,7 @@ run (double hz, double refA, int transpose, double& maxPassThruDelta)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     // 1) A4 = 440 Hz at reference 440 -> note 69 (A4), ~0 cents.

@@ -95,6 +95,7 @@ double passthroughErr (const RenderOut& r)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     // (1a) mix=0 → latency-comped pure dry, regardless of drive. Push drive hard

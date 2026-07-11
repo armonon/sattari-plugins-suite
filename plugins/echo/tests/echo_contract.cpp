@@ -74,6 +74,7 @@ double peakWindow (const juce::AudioBuffer<float>& b, int from, int to)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double dryErr = 0, peak = 0; bool nan = false;
 

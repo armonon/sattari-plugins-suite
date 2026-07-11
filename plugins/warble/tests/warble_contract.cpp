@@ -79,6 +79,7 @@ Stats render (std::function<void(juce::AudioProcessorValueTreeState&)> setup,
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     // 1) mix=0 -> dry pass-through (all effects at full trim + Age, mix silences).

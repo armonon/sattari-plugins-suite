@@ -87,6 +87,7 @@ double maxAbsErr (const juce::AudioBuffer<float>& out, const juce::AudioBuffer<f
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     const double sr = 48000.0;
 

@@ -60,6 +60,7 @@ double rmsWindow (const juce::AudioBuffer<float>& b, int from, int to)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double e1 = 0, e2 = 0, e3 = 0;
 

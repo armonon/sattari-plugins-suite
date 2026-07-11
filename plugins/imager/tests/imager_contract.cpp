@@ -104,6 +104,7 @@ ImgResult render (float width, bool lowMono, float haas, bool monoAud)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     const ImgResult neutral = render (1.0f, false, 0.0f, false);

@@ -114,6 +114,7 @@ double dbToGain (double db) { return std::pow (10.0, db / 20.0); }
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
 
     const float ceilDb = -1.0f;

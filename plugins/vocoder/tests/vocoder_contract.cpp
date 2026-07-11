@@ -87,6 +87,7 @@ bool anyNaN (const juce::AudioBuffer<float>& b)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     const double sr = 48000.0;
     int fails = 0;
 

@@ -30,6 +30,7 @@ void fillTone (juce::AudioBuffer<float>& buf, double& ph, double sr)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     const double sr = 48000.0;
     const int block = 256;
     int fails = 0;

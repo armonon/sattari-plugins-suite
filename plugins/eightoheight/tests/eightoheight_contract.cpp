@@ -81,6 +81,7 @@ void measure (const juce::AudioBuffer<float>& b, double sr, double& rms, double&
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     const double sr = 48000.0;
     int fails = 0;
 

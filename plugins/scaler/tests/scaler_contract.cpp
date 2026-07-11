@@ -29,6 +29,7 @@ std::set<int> noteOffs (const juce::MidiBuffer& b)
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     SattariScalerAudioProcessor p; auto& a = p.parameters();
     setParam (a, "followKey", 0.0f);

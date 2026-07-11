@@ -39,6 +39,7 @@ SattariMeterAudioProcessor::Readout run (float amp, bool antiphase, double& pass
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double pe1 = 0, pe2 = 0, pe3 = 0;
     auto full = run (0.5f, false, pe1);
