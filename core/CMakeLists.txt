@@ -34,6 +34,16 @@ target_link_libraries(SattariAudioCoreKeyContract
     PRIVATE
         SattariAudioCore)
 
+# Key-profile benchmark tool — evidence for the default profile in
+# SattariKeyDetector.h (Krumhansl vs Temperley vs Aarden-Essen). Pure-std; a tool,
+# not a test, so EXCLUDE_FROM_ALL — build/run it explicitly to regenerate the table.
+add_executable(SattariAudioCoreKeyBench EXCLUDE_FROM_ALL
+    tools/key_detector_bench.cpp)
+
+target_link_libraries(SattariAudioCoreKeyBench
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
