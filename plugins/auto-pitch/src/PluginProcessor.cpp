@@ -1694,15 +1694,22 @@ float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 {
     const auto style = currentStyleChoice();
     const float amount = apvts.getRawParameterValue ("amount")->load();
+    // Amount is a real 0..1 control: at 1.0 EVERY style corrects FULLY (in-tune),
+    // so a user who cranks Amount is actually in tune. The style shapes the CURVE
+    // (how gentle the low/mid of the knob is), not a hidden ceiling on max
+    // correction. The gentler styles use a convex power curve so they stay
+    // transparent at low Amount but still reach 1.0 at the top; the hard-tune
+    // styles keep their eager linear-with-clip mapping (Modern Rap / Robot are the
+    // golden-render path — left byte-for-byte unchanged).
     if (style == "Natural")
-        return amount * 0.52f;
+        return std::pow (amount, 2.0f);          // transparent knee, full at max
     if (style == "Classic")
-        return amount * 0.76f;
+        return std::pow (amount, 1.4f);
     if (style == "Modern Rap")
         return juce::jmin (1.0f, amount * 1.08f);
     if (style == "Robot")
         return juce::jmin (1.0f, amount * 1.25f);
-    return amount * 0.82f;
+    return std::pow (amount, 1.25f);             // Big Harmony + fallback
 }
 
 float SattariAutoPitchAudioProcessor::styleRetuneCoefficient() const
