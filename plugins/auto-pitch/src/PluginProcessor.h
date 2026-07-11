@@ -8,6 +8,7 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
+#include <sattari_audio_core/SattariHpcpChroma.h>
 #include <array>
 #include <atomic>
 #include <complex>
@@ -254,6 +255,11 @@ private:
     static constexpr int chromaFftOrder = 12;             // 4096-point FFT
     static constexpr int chromaFftSize  = 1 << chromaFftOrder;
     std::unique_ptr<juce::dsp::FFT> chromaFft;
+    // HPCP (tuning-corrected + harmonic-summed) chroma for AutoKey — far more
+    // reliable than a naive per-bin power map on full-mix material (validated on
+    // GiantSteps: linear ~20 -> HPCP ~52 MIREX). Reset + accumulated per analysis
+    // window; the rolling histogram blend below smooths it and follows modulations.
+    sattari::dsp::HpcpChromagram autoKeyHpcp;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)

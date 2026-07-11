@@ -1000,27 +1000,19 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     std::fill (chromaFftScratch.begin() + chromaFftSize, chromaFftScratch.end(), 0.0f);
     chromaFft->performFrequencyOnlyForwardTransform (chromaFftScratch.data());
 
-    // Map FFT magnitude bins to pitch classes (sum power per pc). Bins below ~A1
-    // (55 Hz) and above ~C8 (4186 Hz) are out of musical range -> skip.
-    std::array<double, 12> pcAccum {};
+    // HPCP chroma of this window: tuning-corrected + harmonic-summed + peak/whitened,
+    // which is what makes full-mix key detection work (naive per-bin power sits near
+    // chance). Reset per window so it follows modulations; the histogram blend below
+    // smooths across windows. finish() returns a normalised 12-bin chroma.
     const double binHz = currentSampleRate / (double) chromaFftSize;
-    const int firstBin = juce::jmax (1, (int) std::ceil (55.0  / binHz));
-    const int lastBin  = juce::jmin (chromaFftSize / 2, (int) std::floor (4186.0 / binHz));
-    for (int bin = firstBin; bin <= lastBin; ++bin)
-    {
-        const double f = bin * binHz;
-        const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
-        const int pc = ((int) std::round (midi) % 12 + 12) % 12;
-        const float mag = chromaFftScratch[(size_t) bin];
-        pcAccum[(size_t) pc] += (double) mag * mag;   // power, not amplitude
-    }
+    std::array<double, 12> pcAccum {};
+    autoKeyHpcp.reset();
+    autoKeyHpcp.accumulate (chromaFftScratch.data(), chromaFftSize / 2 + 1, binHz);
+    autoKeyHpcp.finish (pcAccum.data());
 
-    // Normalise -> chroma vector summing to 1. Then blend it into the histogram
-    // with a moderate weight so the rolling estimate stays smooth.
     double total = 0.0;
     for (double v : pcAccum) total += v;
-    if (total < 1.0e-9) return;
-    for (auto& v : pcAccum) v /= total;
+    if (total < 1.0e-9) return;   // silent window -> leave the histogram untouched
 
     constexpr double blend = 0.35;
     for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
