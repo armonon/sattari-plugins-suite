@@ -544,7 +544,7 @@ if CommandLine.arguments.contains("--contract-check") {
         let productCount = model.manifest.products.count
         let bundleCount = model.manifest.products.reduce(0) { $0 + $1.bundles.count }
         guard productCount >= 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected at least 6 products, got \(productCount)"]) }
-        guard model.manifest.products.contains(where: { $0.id == "auto-pitch" }) else { throw NSError(domain: "SattariHub", code: 11, userInfo: [NSLocalizedDescriptionKey: "Missing Auto Pitch product"]) }
+        guard model.manifest.products.contains(where: { $0.id == "vocal" }) else { throw NSError(domain: "SattariHub", code: 11, userInfo: [NSLocalizedDescriptionKey: "Missing Vocal product (Auto Pitch lives here as a module)"]) }
         guard model.manifest.products.flatMap({ $0.bundles }).contains(where: { $0.kind == "VST3" }) else { throw NSError(domain: "SattariHub", code: 12, userInfo: [NSLocalizedDescriptionKey: "Missing VST3 bundle entry"]) }
         let available = model.manifest.products.filter { model.productIsAvailable($0) }.count
         let downloadable = model.manifest.products.filter { model.productCanDownloadUpdate($0) }.count
