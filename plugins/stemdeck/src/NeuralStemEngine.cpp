@@ -225,6 +225,72 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
     return true;
 }
 
+bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input, double /*sampleRate*/,
+                                          int64_t playheadSample,
+                                          const SegmentCallback& onSegment,
+                                          const std::function<void(float)>& onProgress,
+                                          juce::String& message)
+{
+    if (! isAvailable()) { message = "Neural engine has no model loaded"; return false; }
+
+    const int64_t total = input.getNumSamples();
+    if (total < 16) { message = "Input too short"; return false; }
+
+    const int64_t win = impl->windowSamples > 0 ? impl->windowSamples
+                                                : (int64_t) juce::jmin ((int) total, (int) (10.0 * 44100.0));
+    const int64_t numSegs = (total + win - 1) / win;
+
+    // Playhead-first segment order: the segment containing the playhead, forward to
+    // the end, then wrap to cover everything before it.
+    const int64_t startSeg = juce::jlimit<int64_t> (0, numSegs - 1, playheadSample / win);
+    std::vector<int64_t> order;
+    order.reserve ((size_t) numSegs);
+    for (int64_t s = startSeg; s < numSegs; ++s) order.push_back (s);
+    for (int64_t s = 0; s < startSeg; ++s)       order.push_back (s);
+
+    std::vector<float> interleaved ((size_t) (2 * win));
+    std::array<std::vector<float>, 4> outWin;
+    juce::AudioBuffer<float> segBuf[4];
+    const int ch = input.getNumChannels();
+
+    try
+    {
+        for (size_t k = 0; k < order.size(); ++k)
+        {
+            const int64_t segStart = order[k] * win;
+            const int64_t n = juce::jmin (win, total - segStart);   // last segment is short
+            for (int64_t i = 0; i < win; ++i)
+            {
+                const int64_t idx = segStart + i;
+                const float l = idx < total ? input.getSample (0, (int) idx) : 0.0f;
+                const float r = (ch > 1 && idx < total) ? input.getSample (1, (int) idx) : l;
+                interleaved[(size_t) (2 * i)]     = l;
+                interleaved[(size_t) (2 * i + 1)] = r;
+            }
+            if (! impl->runWindow (interleaved.data(), win, outWin))
+            { message = "Inference failed"; return false; }
+
+            for (int s = 0; s < 4; ++s)
+            {
+                segBuf[s].setSize (2, (int) n, false, false, true);
+                for (int64_t i = 0; i < n; ++i)
+                {
+                    segBuf[s].setSample (0, (int) i, outWin[(size_t) s][(size_t) i]);
+                    segBuf[s].setSample (1, (int) i, outWin[(size_t) s][(size_t) (win + i)]);
+                }
+            }
+            if (onSegment) onSegment (segStart, segBuf[0], segBuf[1], segBuf[2], segBuf[3]);
+            if (onProgress) onProgress (juce::jlimit (0.0f, 1.0f, (float) (k + 1) / (float) order.size()));
+        }
+    }
+    catch (const Ort::Exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
+    catch (const std::exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
+
+    message = "Streaming separation complete";
+    if (onProgress) onProgress (1.0f);
+    return true;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 #else   // ONNX not compiled in — stub that always reports unavailable.
 
@@ -238,6 +304,10 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>&, double,
                                  juce::AudioBuffer<float>&, juce::AudioBuffer<float>&,
                                  juce::AudioBuffer<float>&, juce::AudioBuffer<float>&,
                                  const std::function<void(float)>&, juce::String& message)
+{ message = "Built without ONNX Runtime"; return false; }
+bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>&, double, int64_t,
+                                          const SegmentCallback&,
+                                          const std::function<void(float)>&, juce::String& message)
 { message = "Built without ONNX Runtime"; return false; }
 
 #endif

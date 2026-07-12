@@ -34,6 +34,21 @@ stems within a second or two of pressing play, transparently upgrading the DSP p
 as chunks complete. **No new model needed** — pure engineering on `NeuralStemEngine`.
 This is the highest ROI and should be done first.
 
+**Status: engine done + verified.** `NeuralStemEngine::separateStreaming()` tiles the
+track into model-window segments and separates them **playhead-first** (segment under
+the playhead → forward → wrap), invoking a per-segment callback as each completes.
+`StemDeckNeuralSmoke` proves it against the real 370 MB htdemucs model: first emitted
+segment covers the playhead, and reassembling the segments reconstructs the offline
+separation's per-stem energy.
+
+**Remaining (needs GUI validation):** publish each completed segment into the live
+deck's stem buffers progressively instead of the current write-4-full-WAVs-then-swap.
+The safe way is a preallocated full-length stem buffer per lane with an atomically
+published "valid-up-to sample" watermark: the deck reads the neural stems below the
+watermark and falls back to the RTSS DSP path above it (single-producer / single-
+consumer, no locks). This is a `DeckPlayer` stem-read change and must be verified with
+a running model in the UI.
+
 ### B. Train a small causal separator (true real-time, matches djay)
 Architecture options, cheapest first:
 - **Band-split RNN (BSRNN)-lite** or **Conv-TasNet-lite** — causal, ~1–3 M params,

@@ -48,6 +48,26 @@ public:
                    const std::function<void(float)>& onProgress,
                    juce::String& message);
 
+    // Streaming / look-ahead separation. Tiles the track into model-window-sized
+    // segments and separates them in PLAYHEAD-FIRST order (the segment under
+    // `playheadSample` first, then forward to the end, then wrapping to the head),
+    // invoking onSegment as each completes so the caller can publish stems near
+    // the playhead within a segment or two of pressing play — instead of waiting
+    // for the whole track. Each callback receives the segment's absolute start
+    // sample and four [2, segLen] stem buffers (drums / bass / music / vocals).
+    // BLOCKING — background thread only. Segments are independent (no overlap-add),
+    // so this is the fast preview path; `separate()` remains the full-quality pass.
+    using SegmentCallback = std::function<void (int64_t startSample,
+                                                const juce::AudioBuffer<float>& drums,
+                                                const juce::AudioBuffer<float>& bass,
+                                                const juce::AudioBuffer<float>& music,
+                                                const juce::AudioBuffer<float>& vocals)>;
+    bool separateStreaming (const juce::AudioBuffer<float>& input, double sampleRate,
+                            int64_t playheadSample,
+                            const SegmentCallback& onSegment,
+                            const std::function<void(float)>& onProgress,
+                            juce::String& message);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl;

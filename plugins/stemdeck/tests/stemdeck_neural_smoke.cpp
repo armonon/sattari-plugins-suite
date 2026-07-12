@@ -9,6 +9,7 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 static double rms (const juce::AudioBuffer<float>& x)
 {
@@ -59,6 +60,56 @@ int main (int argc, char** argv)
               << "bass   rms=" << rms (bass)   << "\n"
               << "music  rms=" << rms (music)  << "\n"
               << "vocals rms=" << rms (vocals) << "\n";
+
+    // ── Streaming / look-ahead path ───────────────────────────────────────────
+    // Separate playhead-first from the middle of the track; verify the first
+    // emitted segment covers the playhead, segments arrive in playhead-first
+    // order, and reassembling them reconstructs a full-length separation whose
+    // energy matches the offline pass (independent segments => close, not equal).
+    {
+        const int64_t playhead = len / 2;
+        juce::AudioBuffer<float> sd (2, len), sb (2, len), sm (2, len), sv (2, len);
+        sd.clear(); sb.clear(); sm.clear(); sv.clear();
+        std::vector<int64_t> starts;
+        auto onSeg = [&] (int64_t start, const juce::AudioBuffer<float>& d, const juce::AudioBuffer<float>& b,
+                          const juce::AudioBuffer<float>& m, const juce::AudioBuffer<float>& v)
+        {
+            starts.push_back (start);
+            const int n = juce::jmin (d.getNumSamples(), len - (int) start);
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                sd.copyFrom (ch, (int) start, d, ch, 0, n); sb.copyFrom (ch, (int) start, b, ch, 0, n);
+                sm.copyFrom (ch, (int) start, m, ch, 0, n); sv.copyFrom (ch, (int) start, v, ch, 0, n);
+            }
+        };
+        juce::String smsg;
+        const auto ts = juce::Time::getMillisecondCounterHiRes();
+        const bool sok = engine.separateStreaming (mix, rd->sampleRate, playhead, onSeg, {}, smsg);
+        std::cout << "streaming: " << (sok ? "OK" : "FAIL") << "  " << smsg
+                  << "  (" << (int) (juce::Time::getMillisecondCounterHiRes() - ts) << " ms, "
+                  << starts.size() << " segments)\n";
+        if (! sok) return 6;
+
+        bool ok = ! starts.empty();
+        // First segment must contain the playhead.
+        if (! starts.empty())
+        {
+            const int64_t win = starts.size() >= 2 ? (starts[1] > starts[0] ? starts[1] - starts[0] : 0) : len;
+            const bool coversPlayhead = starts[0] <= playhead && (win == 0 || playhead < starts[0] + win || starts.size() == 1);
+            std::cout << "  first segment @ " << starts[0] << " (playhead " << playhead << ") "
+                      << (coversPlayhead ? "covers playhead" : "MISSED playhead") << "\n";
+            ok = ok && coversPlayhead;
+        }
+        // Reassembled energy should track the offline pass within a factor of 2.
+        auto within = [] (double a, double b) { return a > 1e-9 && b > 1e-9 && a / b < 2.0 && b / a < 2.0; };
+        const bool recon = within (rms (sd), rms (drums)) && within (rms (sb), rms (bass))
+                         && within (rms (sm), rms (music)) && within (rms (sv), rms (vocals));
+        std::cout << "  reassembled rms drums=" << rms (sd) << " bass=" << rms (sb)
+                  << " music=" << rms (sm) << " vocals=" << rms (sv)
+                  << (recon ? "  (matches offline)" : "  (MISMATCH)") << "\n";
+        std::cout << (ok && recon ? "STREAM_OK\n" : "STREAM_FAIL\n");
+        if (! (ok && recon)) return 7;
+    }
 
     juce::WavAudioFormat wav;
     auto writeStem = [&] (juce::AudioBuffer<float>& b, const juce::String& name)
