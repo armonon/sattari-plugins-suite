@@ -374,6 +374,44 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // --keymap <song.wav> : scan a whole song into a per-section key timeline and print
+    // the effective correction key at playhead times across the track (Key Map test).
+    if (argc > 1 && std::strcmp (argv[1], "--keymap") == 0)
+    {
+        if (argc < 3) { std::fprintf (stderr, "usage: auto_pitch_render --keymap <song.wav>\n"); return 2; }
+        juce::File f (juce::String::fromUTF8 (argv[2]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
+        const double dur = rd ? rd->lengthInSamples / rd->sampleRate : 0.0;
+
+        SattariAutoPitchAudioProcessor p;
+        setParam (p.parameters(), "useKeyMap", 1.0f);
+        if (! p.startKeyMapScan (f)) { std::fprintf (stderr, "FAIL: scan did not start (missing file?)\n"); return 2; }
+
+        std::printf ("== KEY MAP TEST ==\n  scanning %.0f s ...\n", dur);
+        for (int i = 0; i < 1200; ++i) {   // up to 120 s
+            const auto st = p.getKeyMapStatus();
+            if (st.hasMap || (st.scanProgress < 0 && i > 3) || st.lastError.isNotEmpty()) break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (100));
+        }
+        const auto st = p.getKeyMapStatus();
+        if (! st.hasMap) { std::fprintf (stderr, "FAIL: no map produced (error: %s)\n", st.lastError.toRawUTF8()); return 1; }
+
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* SC[] = { "major","minor","chromatic" };
+        std::printf ("  segments: %d\n  key across the track:\n", st.numSegments);
+        int prevRoot = -1, prevScale = -1;
+        const double step = juce::jmax (4.0, dur / 24.0);
+        for (double t = 0; t <= dur + 0.5; t += step) {
+            const auto k = p.keyMapKeyAtSeconds (t);
+            const bool change = (k.root != prevRoot || k.scale != prevScale);
+            std::printf ("   %6.1fs : %-2s %-9s%s\n", t, NM[juce::jlimit(0,11,k.root)], SC[juce::jlimit(0,2,k.scale)],
+                         change && prevRoot >= 0 ? "   <- key change" : "");
+            prevRoot = k.root; prevScale = k.scale;
+        }
+        return 0;
+    }
+
     // --gainstage: guard the input-drive / output-trim split. Input gain must drive
     // the Style saturator (Classic tanh); output gain must be a clean post-Style
     // level trim that does NOT add distortion. Before the split these were summed,

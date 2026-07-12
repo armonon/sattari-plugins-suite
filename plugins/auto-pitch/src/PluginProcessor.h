@@ -91,6 +91,10 @@ public:
     bool startKeyMapScan (const juce::File& audioFile);
     void clearKeyMap();
     KeyMapStatus getKeyMapStatus() const;
+    // Key Map's (root, scale) at a playhead time — const lookup, for offline verification.
+    // Returns {root, scale} of the latest segment at or before `seconds`; {-1,-1} if empty.
+    struct KeyMapKey { int root = -1; int scale = -1; };
+    KeyMapKey keyMapKeyAtSeconds (double seconds) const;
 
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
     // sensible defaults when nothing has been processed yet.

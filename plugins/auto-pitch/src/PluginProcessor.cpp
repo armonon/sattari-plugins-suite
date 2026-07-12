@@ -1471,8 +1471,9 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     };
 
     std::vector<KeyMapEntry> built;
+    std::vector<KeyMapEntry> wins;   // every window's raw key estimate (smoothed after)
+    sattari::dsp::HpcpChromagram hpcp;
     juce::int64 pos = 0;
-    int prevRoot = -1, prevScale = -1;
 
     while (pos + windowSamples <= totalLen)
     {
@@ -1500,19 +1501,12 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
         fft.performFrequencyOnlyForwardTransform (fftBuf.data());
 
+        // HPCP chroma (tuning-corrected + harmonic-summed) — far more stable on a real
+        // full mix than the naive per-bin power chroma (the same upgrade AutoKey got).
         std::array<double, 12> chroma {};
-        const double binHz = sr / (double) fftSize;
-        const int firstBin = juce::jmax (1, (int) std::ceil (55.0  / binHz));
-        const int lastBin  = juce::jmin (fftSize / 2, (int) std::floor (4186.0 / binHz));
-        for (int bin = firstBin; bin <= lastBin; ++bin)
-        {
-            const double f = bin * binHz;
-            const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
-            const int pc = ((int) std::round (midi) % 12 + 12) % 12;
-            const float mag = fftBuf[(size_t) bin];
-            chroma[(size_t) pc] += (double) mag * mag;
-        }
-
+        hpcp.reset();
+        hpcp.accumulate (fftBuf.data(), fftSize / 2 + 1, sr / (double) fftSize);
+        hpcp.finish (chroma.data());
         double total = 0.0;
         for (double v : chroma) total += v;
         if (total > 1.0e-9)
@@ -1531,17 +1525,46 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
             }
         }
 
-        const double tSec = (double) pos / sr;
-        // Only emit a new entry when the (root, mode) actually changes -> compact map.
-        if (bestRoot != prevRoot || bestMode != prevScale)
-        {
-            built.push_back ({ tSec, bestRoot, bestMode, (float) bestScore });
-            prevRoot = bestRoot; prevScale = bestMode;
-        }
+        wins.push_back ({ (double) pos / sr, bestRoot, bestMode, (float) bestScore });
 
         pos += hopSamples;
         const int pct = totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0;
         keyMapProgress.store (juce::jlimit (0, 100, pct));
+    }
+
+    // Stabilise the raw per-window estimates into a usable timeline. A real song ran the
+    // naive change-on-every-flicker logic to ~1 segment/second of unrelated keys; now we
+    //   (1) majority-vote each window over +/- K neighbours (kills detector flicker), then
+    //   (2) run-length encode and DROP any segment shorter than minSeg (merge the flicker
+    //       back into the surrounding key) -> a handful of real sections.
+    {
+        const int K = 6;                 // +/- 6 windows @ 1 s hop = ~13 s vote span
+        const double minSeg = 10.0;      // seconds; sections are longer than this
+        const int n = (int) wins.size();
+        for (int i = 0; i < n; ++i)
+        {
+            int votes[24] = { 0 };
+            for (int j = juce::jmax (0, i - K); j <= juce::jmin (n - 1, i + K); ++j)
+                votes[wins[(size_t) j].rootIdx * 2 + wins[(size_t) j].scaleIdx]++;
+            int bestK = 0;
+            for (int k = 1; k < 24; ++k) if (votes[k] > votes[bestK]) bestK = k;
+            wins[(size_t) i].rootIdx  = bestK / 2;
+            wins[(size_t) i].scaleIdx = bestK % 2;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            if (built.empty())
+            {
+                built.push_back (wins[(size_t) i]);
+                built.back().timeSec = 0.0;   // first segment always starts at 0
+            }
+            else if (wins[(size_t) i].rootIdx != built.back().rootIdx
+                  || wins[(size_t) i].scaleIdx != built.back().scaleIdx)
+            {
+                if (wins[(size_t) i].timeSec - built.back().timeSec >= minSeg)
+                    built.push_back (wins[(size_t) i]);   // else: too short -> stay in current key
+            }
+        }
     }
 
     // Cancelled mid-scan (e.g. by setStateInformation restoring a map): do NOT
@@ -1568,6 +1591,23 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 // Called from processBlock when useKeyMap is on and the playhead has a position.
 // Looks up the segment covering `seconds` and writes the result to
 // `detectedAutoRoot` + (best-effort) the user's scale param.
+SattariAutoPitchAudioProcessor::KeyMapKey
+SattariAutoPitchAudioProcessor::keyMapKeyAtSeconds (double seconds) const
+{
+    const juce::ScopedTryLock l (keyMapLock);
+    if (! l.isLocked() || keyMap.empty())
+        return {};
+    int lo = 0, hi = (int) keyMap.size() - 1, idx = 0;
+    while (lo <= hi)
+    {
+        const int mid = (lo + hi) / 2;
+        if (keyMap[(size_t) mid].timeSec <= seconds) { idx = mid; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return { juce::jlimit (0, 11, keyMap[(size_t) idx].rootIdx),
+             juce::jlimit (0, 2,  keyMap[(size_t) idx].scaleIdx) };
+}
+
 void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
 {
     const juce::ScopedTryLock l (keyMapLock);
