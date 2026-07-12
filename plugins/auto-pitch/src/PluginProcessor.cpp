@@ -342,13 +342,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // Sound Source change is picked up on the next prepareToPlay (re-preparing the
     // shifter allocates, so it can't be done from the audio thread).
     {
-        double srcMinHz = minVoiceHz, srcMaxHz = maxVoiceHz;
-        voicedRangeHzForSource (srcMinHz, srcMaxHz);
-        const double psolaMinHz = juce::jlimit (40.0, 70.0, srcMinHz);
-        const double psolaMaxHz = juce::jmax (1000.0, srcMaxHz);   // voice stays 1000 Hz; instruments extend up
-        const int numCh = juce::jmax (1, getTotalNumOutputChannels());
-        psola.assign ((size_t) numCh, sattari::dsp::PsolaShifter());
-        for (auto& p : psola) p.prepare (currentSampleRate, psolaMinHz, psolaMaxHz);
+        const bool lowLatOn = apvts.getRawParameterValue ("lowLatency") != nullptr
+                           && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+        preparePsolaInto (psola, lowLatOn);
+        psolaLowLatPrepared = lowLatOn;
+        psolaSwapReady.store (false, std::memory_order_relaxed);
     }
 
     // Optional CREPE model: look in the suite's conventional models folder. Absent
@@ -503,6 +501,38 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
 // reports its small fixed delay; otherwise the Rubber Band pipeline delay plus the
 // FIFO cushion. Const + allocation-free so it is safe to call from prepareToPlay
 // and from handleAsyncUpdate() (message thread).
+// Min-Hz floor for the live PSOLA shifter. Low-latency vocal mode raises it (PSOLA
+// latency is ~2 periods of the floor), trading tracking of very low fundamentals for
+// a much shorter delay — ideal for live vocal monitoring.
+double SattariAutoPitchAudioProcessor::psolaFloorHz (bool lowLatency) const
+{
+    double srcMinHz = minVoiceHz, srcMaxHz = maxVoiceHz;
+    voicedRangeHzForSource (srcMinHz, srcMaxHz);
+    return lowLatency ? juce::jlimit (120.0, 260.0, juce::jmax (srcMinHz, 130.0))
+                      : juce::jlimit (40.0, 70.0, srcMinHz);
+}
+
+void SattariAutoPitchAudioProcessor::preparePsolaInto (std::vector<sattari::dsp::PsolaShifter>& dst, bool lowLatency)
+{
+    double srcMinHz = minVoiceHz, srcMaxHz = maxVoiceHz;
+    voicedRangeHzForSource (srcMinHz, srcMaxHz);
+    const double psolaMinHz = psolaFloorHz (lowLatency);
+    const double psolaMaxHz = juce::jmax (1000.0, srcMaxHz);   // voice stays 1000 Hz; instruments extend up
+    const int numCh = juce::jmax (1, getTotalNumOutputChannels());
+    dst.assign ((size_t) numCh, sattari::dsp::PsolaShifter());
+    for (auto& p : dst) p.prepare (currentSampleRate, psolaMinHz, psolaMaxHz);
+}
+
+// Analytic PSOLA latency (matches PsolaShifter::prepare): 2 max-periods + 1. Lets the
+// host be told the new latency the instant Low Latency toggles, before the audio-thread
+// shifter swap actually lands.
+int SattariAutoPitchAudioProcessor::psolaLatencyFor (bool lowLatency) const
+{
+    const double sr = juce::jmax (1.0, currentSampleRate);
+    const double maxPeriod = sr / juce::jmax (1.0, psolaFloorHz (lowLatency));
+    return (int) std::ceil (maxPeriod * 2.0) + 1;
+}
+
 int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
 {
     const bool lowLatOn  = apvts.getRawParameterValue ("lowLatency") != nullptr
@@ -517,7 +547,9 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     // STFT delay (pvFrameSize - pvHop) is the whole reported latency when active.
     if (polyOn && corrOn)
         return pvInFifoLatency;
-    const int psolaLatency = psola.empty() ? 0 : psola.front().getLatencySamples();
+    // Analytic (not psola.front()) so a Low Latency toggle reports the new value at
+    // once, even in the 1-block window before the freshly-built shifter is swapped in.
+    const int psolaLatency = psolaLatencyFor (lowLatOn);
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     return (lowLatOn || liveEngOn) ? psolaLatency : (rbLatency + rbCushion);
 #else
@@ -539,6 +571,18 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
 
 void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
 {
+    // If the Low Latency floor changed, build a fresh PSOLA set on THIS (message)
+    // thread and hand it to the audio thread to swap in — the allocation never touches
+    // the audio thread, and the swap itself is an O(1) pointer exchange.
+    const bool lowLatOn = apvts.getRawParameterValue ("lowLatency") != nullptr
+                       && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+    if (lowLatOn != psolaLowLatPrepared && ! psolaSwapReady.load (std::memory_order_acquire))
+    {
+        preparePsolaInto (pendingPsola, lowLatOn);
+        psolaLowLatPrepared = lowLatOn;
+        psolaSwapReady.store (true, std::memory_order_release);
+    }
+
     reportedLatencySamples = activeEngineLatencySamples();
     setLatencySamples (reportedLatencySamples);
 }
@@ -1806,6 +1850,15 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 {
     juce::ScopedNoDenormals noDenormals;
     midiLearn.processMidi (midi);
+
+    // Low-latency toggle: swap in the message-thread-built PSOLA set (O(1), no alloc).
+    // The old shifters stay in pendingPsola and are freed on the next message-thread
+    // rebuild, so nothing is deallocated on the audio thread.
+    if (psolaSwapReady.exchange (false, std::memory_order_acquire))
+    {
+        psola.swap (pendingPsola);
+        for (auto& p : psola) p.reset();
+    }
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples <= 0)

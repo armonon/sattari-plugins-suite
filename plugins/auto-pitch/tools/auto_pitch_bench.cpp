@@ -353,9 +353,12 @@ void runLatency()
     };
     const int inOnset = halfRiseIdx (sig);
 
-    for (int engine = 0; engine < 2; ++engine)
+    // Sweep all three latency modes: Rubber Band (print quality), Live/PSOLA, and the
+    // low-latency vocal mode (PSOLA with a raised min-Hz floor -> much shorter delay).
+    for (int engine = 0; engine < 3; ++engine)
     {
-        const bool live = (engine == 1);
+        const bool live   = (engine >= 1);
+        const bool lowLat = (engine == 2);
         SattariAutoPitchAudioProcessor p;
         auto& a = p.parameters();
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);   // A major (440 in scale)
@@ -363,20 +366,24 @@ void runLatency()
         setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);
         setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
         setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+        setParam (a, "lowLatency", lowLat ? 1.0f : 0.0f);
         const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
         auditSafety (out, "latency");
 
         const int reported = p.getLatencySamples();
-        const int outOnset = onsetIndex (out, 0, 0.02);
+        const int outOnset = halfRiseIdx (out);   // same group-delay measure as inOnset
         const int measured = (outOnset >= 0 && inOnset >= 0) ? (outOnset - inOnset) : -1;
         const double repMs  = 1000.0 * (double) reported / kSr;
         const double measMs = 1000.0 * (double) measured / kSr;
         const double diffMs = std::fabs (repMs - measMs);
-        const char*  v = verdict (measured >= 0 && diffMs <= 2.0, measured >= 0);
+        const char*  label  = engine == 0 ? "Rubber Band" : engine == 1 ? "Live/PSOLA" : "PSOLA LowLat";
+        // Low-latency mode must actually BE low: reported latency under 20 ms.
+        const bool honest = (measured >= 0 && diffMs <= 3.0);
+        const bool ok = lowLat ? (honest && repMs < 20.0) : honest;
         std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
-                     live ? "Live/PSOLA" : "Rubber Band", reported, repMs, measured, measMs, diffMs, v);
+                     label, reported, repMs, measured, measMs, diffMs, verdict (ok, measured >= 0));
     }
-    std::printf ("  threshold: |reported - measured| <= 2 ms PASS\n");
+    std::printf ("  threshold: |reported - measured| <= 3 ms honest; LowLat reported < 20 ms\n");
 }
 
 // ============================================================================

@@ -186,6 +186,14 @@ private:
     // prepare and, when the engine toggles, from handleAsyncUpdate() on the
     // message thread (setLatencySamples must never run on the audio thread).
     int  activeEngineLatencySamples() const;
+    // PSOLA prep helpers. Low-latency vocal mode raises the min-Hz floor so PSOLA's
+    // fixed ~2-period latency shrinks (33 ms -> ~15 ms) at the cost of not tracking
+    // fundamentals below the floor. preparePsolaInto builds a fresh shifter set (may
+    // allocate — message thread only); psolaLatencyFor computes the resulting latency
+    // analytically so the host can be told the new value before the audio-thread swap.
+    void preparePsolaInto (std::vector<sattari::dsp::PsolaShifter>& dst, bool lowLatency);
+    int  psolaLatencyFor (bool lowLatency) const;
+    double psolaFloorHz  (bool lowLatency) const;
     void parameterChanged (const juce::String& parameterID, float newValue) override;
     void handleAsyncUpdate() override;
 
@@ -383,6 +391,9 @@ private:
     // Rubber Band stays the default "print" engine (higher fidelity, more
     // latency); the "Live Engine" toggle swaps to PSOLA per channel.
     std::vector<sattari::dsp::PsolaShifter> psola;
+    std::vector<sattari::dsp::PsolaShifter> pendingPsola;     // message-thread-built, audio-thread-swapped (low-latency toggle)
+    std::atomic<bool> psolaSwapReady { false };              // pendingPsola is ready to swap in
+    bool psolaLowLatPrepared = false;                        // was the live PSOLA set built for low-latency?
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
