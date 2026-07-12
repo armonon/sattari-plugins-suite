@@ -102,6 +102,15 @@ public:
         mode = m; rootIdx = root; scaleIndex = scaleIdx; repaint();
     }
 
+    // Live "lock" strength 0..1 (detection confidence). Drawn as a 5-dot meter in
+    // the readout while auto-detecting so the user can see the key settle.
+    void setConfidence (float c) noexcept
+    {
+        c = juce::jlimit (0.0f, 1.0f, c);
+        if (std::abs (c - confidence) < 0.03f) return;
+        confidence = c; repaint();
+    }
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseUp    (const juce::MouseEvent&) override { pressed = false; repaint(); }
@@ -111,6 +120,7 @@ public:
 private:
     Mode mode = Mode::Manual;
     int  rootIdx = 9, scaleIndex = 1;
+    float confidence = 0.0f;
     bool hover = false, pressed = false;
 };
 
@@ -151,6 +161,7 @@ private:
     // --- Tab strip ------------------------------------------------------------
     juce::TextButton tabBasic { "BASIC" }, tabPro { "PRO" };
     int currentTab = 0;
+    float keyLock = 0.0f;   // smoothed detection-confidence for the readout meter
     juce::Component basicPanel, proPanel;
 
     // --- Header (shared by both tabs) ----------------------------------------
@@ -166,9 +177,11 @@ private:
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
     juce::Label editNotesLabel, detuneLabel, modeLabel;
-    // Single unified key control: shows the live key + how it's driven, and its
-    // menu links AutoKey / Follow Song Key or sets the key manually.
+    // Key control: a big live readout (KeyButton) + a row of three explicit
+    // action buttons under it. The readout shows the key + how it's driven +
+    // a confidence lock meter; the buttons make every mode a single visible click.
     KeyButton keyButton;
+    juce::TextButton autoDetectBtn { "AUTO-DETECT" }, followSongBtn { "FOLLOW SONG" }, setKeyBtn { "SET KEY" };
     juce::ToggleButton lowLatency { "Low Latency" };
 
     juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;

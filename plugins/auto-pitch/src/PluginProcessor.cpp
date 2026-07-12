@@ -227,9 +227,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Band stays the default for the higher-fidelity printed sound.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("liveEngine", "Live Engine (PSOLA)", false));
 
-    // Neural Pitch (CREPE): use the optional ONNX pitch model when present. Inert
-    // (falls back to YIN) unless a crepe.onnx is installed AND the build has ONNX.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", false));
+    // Neural Pitch (CREPE): the most advanced detector — default ON so new instances
+    // use it whenever a crepe.onnx is installed AND the build has ONNX. Fully inert
+    // and falls back to YIN when the model is absent, so this default is always safe.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", true));
 
     // Preserve Vibrato: 0 = full snap (kills vibrato under hard tune), 1 = keep
     // the singer's fast pitch oscillation while still correcting the note centre.

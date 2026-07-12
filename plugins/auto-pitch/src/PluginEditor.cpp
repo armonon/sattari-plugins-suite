@@ -209,9 +209,10 @@ void KeyButton::paint (juce::Graphics& g)
     g.setColour (linked ? accent.withAlpha (0.9f) : juce::Colour (sattari::brand::kHairline));
     g.drawRoundedRectangle (r, 10.0f, linked ? 1.8f : 1.0f);
 
-    auto inner = r.reduced (12.0f, 9.0f);
+    auto inner = r.reduced (14.0f, 10.0f);
 
-    // Mode chip (top): a link glyph + AUTO / FOLLOW / MAP / MANUAL.
+    // Top row: mode chip (left) + confidence lock meter (right, only while auto).
+    auto topRow = inner.removeFromTop (14.0f);
     const char* chip = mode == Mode::Auto ? "AUTO-DETECT"
                      : mode == Mode::Follow ? "FOLLOWING SONG KEY"
                      : mode == Mode::Map ? "KEY MAP" : "MANUAL KEY";
@@ -219,23 +220,38 @@ void KeyButton::paint (juce::Graphics& g)
     g.setColour (linked ? accent : juce::Colour (sattari::brand::kTextMuted));
     const juce::String chipText = (linked ? juce::String::fromUTF8 ("\xe2\x9b\x93  ") : juce::String())
                                 + chip;   // U+26D3 chains glyph when linked
-    g.drawText (chipText, inner.removeFromTop (14.0f), juce::Justification::centredLeft, false);
+    g.drawText (chipText, topRow, juce::Justification::centredLeft, false);
 
-    // Big key name (centre).
+    // Confidence lock meter: 5 dots that fill as detection settles. Shown for the
+    // live detectors (Auto / Follow / Map); hidden for a hand-set key (no detection).
+    if (linked)
+    {
+        auto meter = topRow.removeFromRight (78.0f);
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.setColour (juce::Colour (sattari::brand::kTextFaint));
+        g.drawText ("LOCK", meter.removeFromLeft (26.0f), juce::Justification::centredRight, false);
+        meter.removeFromLeft (4.0f);
+        const int lit = juce::roundToInt (confidence * 5.0f);
+        const float d = 6.0f, gap = 3.0f;
+        float x = meter.getX();
+        const float cy = meter.getCentreY();
+        for (int i = 0; i < 5; ++i)
+        {
+            juce::Rectangle<float> dot (x, cy - d * 0.5f, d, d);
+            g.setColour (i < lit ? accent : accent.withAlpha (0.22f));
+            g.fillEllipse (dot);
+            x += d + gap;
+        }
+    }
+
+    // Big key name (centre) — the headline the whole plugin is tuning to.
     static const char* names[]   = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
     static const char* scaleNm[] = { "major", "minor", "chromatic" };
     const juce::String keyText = juce::String (names[juce::jlimit (0, 11, rootIdx)])
                                + "  " + scaleNm[juce::jlimit (0, 2, scaleIndex)];
     g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-    g.setFont (juce::FontOptions (juce::jmin (28.0f, inner.getHeight() * 0.62f), juce::Font::bold));
-    g.drawText (keyText, inner.removeFromTop (juce::jmax (18.0f, inner.getHeight() - 12.0f)),
-                juce::Justification::centredLeft, false);
-
-    // Hint (bottom).
-    g.setFont (juce::FontOptions (9.5f));
-    g.setColour (juce::Colour (sattari::brand::kTextFaint));
-    g.drawText ("click: auto-detect / follow / set by hand",
-                inner, juce::Justification::bottomLeft, false);
+    g.setFont (juce::FontOptions (juce::jmin (32.0f, inner.getHeight() * 0.9f), juce::Font::bold));
+    g.drawText (keyText, inner, juce::Justification::centredLeft, false);
 }
 
 void KeyButton::mouseDown (const juce::MouseEvent&)
@@ -359,6 +375,41 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         setKeyParam ("keyRoot", (float) root);
         setKeyParam ("scale", (float) scaleIdx);
     };
+
+    // Three explicit action buttons under the readout — the discoverable controls.
+    // AUTO-DETECT / FOLLOW toggle the live sources; SET KEY opens a direct key picker.
+    // (The KeyButton readout itself still opens the same combined menu as a shortcut.)
+    for (auto* b : { &autoDetectBtn, &followSongBtn, &setKeyBtn })
+        basicPanel.addAndMakeVisible (*b);
+    autoDetectBtn.onClick = [this] { if (keyButton.onLinkAuto)   keyButton.onLinkAuto(); };
+    followSongBtn.onClick = [this] { if (keyButton.onLinkFollow) keyButton.onLinkFollow(); };
+    setKeyBtn.onClick = [this]
+    {
+        static const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        auto& a = audioProcessor.parameters();
+        const int curRoot  = juce::jlimit (0, 11, (int) std::round (a.getRawParameterValue ("keyRoot")->load()));
+        const int curScale = juce::jlimit (0,  2, (int) std::round (a.getRawParameterValue ("scale")->load()));
+        const bool manual  = a.getRawParameterValue ("autoKey")->load() < 0.5f
+                          && a.getRawParameterValue ("followSongKey")->load() < 0.5f;
+        juce::PopupMenu menu;
+        for (int root = 0; root < 12; ++root)
+        {
+            juce::PopupMenu sub;
+            sub.addItem (100 + root * 2 + 0, "Major", true, manual && curRoot == root && curScale == 0);
+            sub.addItem (100 + root * 2 + 1, "Minor", true, manual && curRoot == root && curScale == 1);
+            menu.addSubMenu (names[root], sub);
+        }
+        menu.addSeparator();
+        menu.addItem (3, "Chromatic  (nearest semitone)", true, manual && curScale == 2);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&setKeyBtn),
+            [this, curRoot] (int id)
+            {
+                if (id == 3)         { if (keyButton.onManualKey) keyButton.onManualKey (curRoot, 2); }
+                else if (id >= 100)  { const int root = (id - 100) / 2, sc = (id - 100) % 2;
+                                       if (keyButton.onManualKey) keyButton.onManualKey (root, sc); }
+            });
+    };
+
     basicPanel.addAndMakeVisible (noteDisplay);
     basicPanel.addAndMakeVisible (pillRow);
     // Plain click toggles whether the note is a valid correction target.
@@ -666,6 +717,19 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                         : KBMode::Manual;
     keyButton.setState (kbMode, origin.root, origin.scale);
 
+    // Smoothed "lock" meter: track pitch confidence while voiced, hold between notes
+    // so the meter reflects how settled detection is rather than flickering per-note.
+    const float lockTarget = snap.voiced ? snap.confidence : keyLock;
+    keyLock += 0.12f * (lockTarget - keyLock);
+    keyButton.setConfidence (keyLock);
+
+    // Highlight the button matching the active source so the current mode is obvious.
+    const auto acc = juce::Colour (sattari::brand::productAccent ("auto-pitch"));
+    const auto idle = juce::Colour (sattari::brand::kPanelRaised);
+    autoDetectBtn.setColour (juce::TextButton::buttonColourId, kbMode == KBMode::Auto   ? acc.withAlpha (0.85f) : idle);
+    followSongBtn.setColour (juce::TextButton::buttonColourId, kbMode == KBMode::Follow ? acc.withAlpha (0.85f) : idle);
+    setKeyBtn.setColour     (juce::TextButton::buttonColourId, kbMode == KBMode::Manual ? acc.withAlpha (0.85f) : idle);
+
     // Pills light for the key actually in use (the followed/detected key when
     // overriding, the manual key otherwise) — not the stale dropdown value.
     pillRow.setScale (origin.root, origin.scale);
@@ -761,9 +825,17 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     bArea.removeFromLeft (12);
     auto right = bArea;
 
-    // One unified key button spans the top of the left column.
-    keyButton.setBounds (left.removeFromTop (66));
-    left.removeFromTop (8);
+    // Key readout spans the top of the left column, with the 3 action buttons under it.
+    keyButton.setBounds (left.removeFromTop (58));
+    left.removeFromTop (6);
+    auto keyBtnRow = left.removeFromTop (30);
+    const int keyBw = (keyBtnRow.getWidth() - 12) / 3;
+    autoDetectBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
+    keyBtnRow.removeFromLeft (6);
+    followSongBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
+    keyBtnRow.removeFromLeft (6);
+    setKeyBtn.setBounds (keyBtnRow);
+    left.removeFromTop (10);
 
     noteDisplay.setBounds (left.removeFromTop ((int) (left.getHeight() * 0.55f)));
     left.removeFromTop (8);

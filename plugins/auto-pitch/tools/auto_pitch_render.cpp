@@ -217,6 +217,7 @@ int main (int argc, char** argv)
             setParam (a, "followSongKey", 0.0f);  setParam (a, "style", 1.0f); // Classic (pure tanh saturator)
             setParam (a, "amount", 1.0f);         setParam (a, "speed", 0.9f);
             setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "neuralPitch", 0.0f);    // pin OFF: keep golden machine-independent
             setParam (a, "inputGain", inDb);      setParam (a, "outputGain", outDb);
             return sattari::harness::renderThrough (p, src, sr, block);
         };
@@ -292,6 +293,7 @@ int main (int argc, char** argv)
             setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
             setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
             setParam (a, "vibrato", 0.0f);          // preserve OFF (isolate the generator)
+            setParam (a, "neuralPitch", 0.0f);      // pin OFF: golden must be machine-independent (no ONNX dependency)
             setParam (a, "liveEngine", 1.0f);       // PSOLA
             setParam (a, "addVibrato", depthCents);
             setParam (a, "vibratoRate", 5.5f);
