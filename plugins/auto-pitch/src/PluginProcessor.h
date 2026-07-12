@@ -279,25 +279,6 @@ private:
     bool sidechainSeenAudio = false;                      // true when SC bus delivered non-silence
     std::vector<float> scMonoScratch;                     // per-block mono sum of sidechain, no allocation in process
 
-    // --- Polyphonic (alpha) HPS detector on the main input -------------------
-    // Reuses chromaFft for FFT but its own ring + a separate accumulator so the
-    // sidechain-chroma path stays independent.
-    std::vector<float> polyRing;
-    int polyWritePos = 0, polySamplesSinceFft = 0;
-    double polyAveragePitchScale = 1.0;        // smoothed weighted-mean correction
-    std::array<int, 3> polyLastNotes { -1, -1, -1 };
-    void   polyPushBlock (const float* mono, int n);
-    double polyAnalyseAndComputeScale();       // returns target pitch scale, or 1.0 if no correction
-
-    // Preallocated scratch for polyAnalyseAndComputeScale() so the ~50 ms HPS hop
-    // never allocates on the audio thread. Sized in prepareToPlay; the analysis
-    // clears/refills (no construction) and stays within reserved capacity.
-    struct PolyPeak     { float val = 0.0f; int bin = 0; };
-    struct PolyDetected { double freq = 0.0; int midi = 0; float weight = 0.0f; };
-    std::vector<float>        polyHps;
-    std::vector<PolyPeak>     polyPeaks;
-    std::vector<PolyDetected> polyNotes;
-
     // --- Real polyphonic retune: per-peak phase-locked vocoder ---------------
     // When `polyphonic` is ON (default OFF), correction goes through a genuine
     // phase vocoder (Laroche-Dolson peak shifting): every spectral peak is

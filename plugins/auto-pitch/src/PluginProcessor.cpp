@@ -398,21 +398,6 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     sidechainSeenAudio = false;
     scMonoScratch.assign ((size_t) preparedBlockSize, 0.0f);
 
-    polyRing.assign ((size_t) chromaFftSize, 0.0f);
-    polyWritePos = 0;
-    polySamplesSinceFft = 0;
-    polyAveragePitchScale = 1.0;
-    polyLastNotes.fill (-1);
-    // Preallocate the poly-detection scratch so the audio-thread HPS hop never
-    // allocates. hps is indexed up to lastBin, which is capped at chromaFftSize/10;
-    // peaks can be one per bin in that band. reserve() to those bounds so the
-    // per-hop clear()/push_back() never reallocate.
-    polyHps.assign ((size_t) (chromaFftSize / 10 + 1), 0.0f);
-    polyPeaks.clear();
-    polyPeaks.reserve ((size_t) (chromaFftSize / 10 + 1));
-    polyNotes.clear();
-    polyNotes.reserve (3);
-
     // Real polyphonic phase-vocoder: preallocate all STFT buffers so the audio
     // thread never allocates when Polyphonic is engaged. Sized for the output
     // channel count (matches the mono engines' channel handling).
@@ -1081,126 +1066,6 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     constexpr double blend = 0.35;
     for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
         autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
-}
-
-// ============================================================================
-// Polyphonic (alpha) - HPS multi-pitch detection on the main input, then a
-// weighted-mean cent correction toward the nearest in-scale tones. The whole
-// signal then shifts by that mean (a chord moves as a unit). Honest scope: NOT
-// per-note Melodyne. Useful when an instrument plays slightly off-key chords.
-// ============================================================================
-void SattariAutoPitchAudioProcessor::polyPushBlock (const float* mono, int n)
-{
-    if (polyRing.empty()) return;
-    for (int i = 0; i < n; ++i)
-    {
-        polyRing[(size_t) polyWritePos] = mono[i];
-        polyWritePos = (polyWritePos + 1) % chromaFftSize;
-    }
-    polySamplesSinceFft += n;
-}
-
-double SattariAutoPitchAudioProcessor::polyAnalyseAndComputeScale()
-{
-    if (chromaFft == nullptr || chromaFftScratch.empty() || polyRing.empty() || polyHps.empty())
-        return polyAveragePitchScale;
-
-    // Re-detect every ~50 ms; in between we keep the smoothed target.
-    const int hop = (int) (currentSampleRate * 0.05);
-    if (polySamplesSinceFft < hop)
-        return polyAveragePitchScale;
-    polySamplesSinceFft = 0;
-
-    // Hann-window into the chroma FFT scratch (re-using the existing FFT obj).
-    for (int i = 0; i < chromaFftSize; ++i)
-        chromaFftScratch[(size_t) i] = polyRing[(size_t) ((polyWritePos + i) % chromaFftSize)]
-                                        * chromaHannWindow[(size_t) i];
-    std::fill (chromaFftScratch.begin() + chromaFftSize, chromaFftScratch.end(), 0.0f);
-    chromaFft->performFrequencyOnlyForwardTransform (chromaFftScratch.data());
-
-    // HPS over h = 1..5; vocal-instrument band [70..2200 Hz].
-    const double binHz = currentSampleRate / (double) chromaFftSize;
-    const int firstBin = juce::jmax (2, (int) std::ceil (70.0   / binHz));
-    const int lastBin  = juce::jmin (chromaFftSize / 10, (int) std::floor (2200.0 / binHz));
-    // Reuse the preallocated member (sized chromaFftSize/10+1 >= lastBin+1 in
-    // prepareToPlay): every index in [firstBin,lastBin] is written below before it
-    // is read, so no clear is needed and no allocation happens on the audio thread.
-    auto& hps = polyHps;
-    for (int k = firstBin; k <= lastBin; ++k)
-    {
-        float prod = chromaFftScratch[(size_t) k];
-        for (int h = 2; h <= 5; ++h)
-            prod *= chromaFftScratch[(size_t) (k * h)];
-        hps[(size_t) k] = prod;
-    }
-
-    float globalMax = 0.0f;
-    for (int k = firstBin; k <= lastBin; ++k) globalMax = juce::jmax (globalMax, hps[(size_t) k]);
-    if (globalMax < 1.0e-6f) return polyAveragePitchScale;
-    const float threshold = globalMax * 0.30f;
-
-    auto& peaks = polyPeaks;   // preallocated member; cleared + refilled, no realloc
-    peaks.clear();
-    for (int k = firstBin + 1; k < lastBin; ++k)
-    {
-        if (hps[(size_t) k] >= threshold
-            && hps[(size_t) k] >= hps[(size_t) (k - 1)]
-            && hps[(size_t) k] >= hps[(size_t) (k + 1)])
-            peaks.push_back ({ hps[(size_t) k], k });
-    }
-    std::sort (peaks.begin(), peaks.end(), [] (const PolyPeak& a, const PolyPeak& b) { return a.val > b.val; });
-
-    // Pick up to 3 peaks, dedupe near-duplicates within 2 semis.
-    auto& notes = polyNotes;   // preallocated member; cleared + refilled, no realloc
-    notes.clear();
-    for (const auto& p : peaks)
-    {
-        const double f    = (double) p.bin * binHz;
-        const int    midi = juce::jlimit (0, 127, (int) std::round (69.0 + 12.0 * std::log2 (f / 440.0)));
-        bool tooClose = false;
-        for (const auto& n : notes) if (std::abs (n.midi - midi) < 2) { tooClose = true; break; }
-        if (! tooClose) notes.push_back ({ f, midi, p.val });
-        if ((int) notes.size() >= 3) break;
-    }
-    if (notes.empty()) return polyAveragePitchScale;
-
-    polyLastNotes.fill (-1);
-    for (size_t i = 0; i < notes.size(); ++i) polyLastNotes[i] = notes[i].midi;
-
-    // Snap each detected note to the nearest in-scale + enabled tone, compute
-    // weighted-mean cent correction.
-    const int rootIndex   = currentCorrectionRootIndex();
-    const int scaleIndex  = effectiveScaleIndex();
-    const auto scaleName  = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
-    const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
-    auto pcEnabled = [enabledMask] (int midi) { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
-
-    double weightedCents = 0.0, totalWeight = 0.0;
-    for (const auto& n : notes)
-    {
-        int target = nearestScaleMidi ((double) n.midi, rootIndex, scaleName);
-        if (! pcEnabled (target))
-        {
-            for (int r = 1; r <= 12; ++r)
-            {
-                if (pcEnabled (target - r)) { target = target - r; break; }
-                if (pcEnabled (target + r)) { target = target + r; break; }
-            }
-        }
-        const double targetFreq = 440.0 * std::pow (2.0, ((double) target - 69.0) / 12.0);
-        const double cents      = 1200.0 * std::log2 (targetFreq / n.freq);
-        weightedCents += (double) n.weight * cents;
-        totalWeight   += (double) n.weight;
-    }
-    if (totalWeight < 1.0e-9) return polyAveragePitchScale;
-
-    const double meanCents = weightedCents / totalWeight;
-    const double target    = std::pow (2.0, meanCents / 1200.0);
-    // Smooth into the published scale so chord changes don't click.
-    const double alpha = 0.25;
-    polyAveragePitchScale += alpha * (target - polyAveragePitchScale);
-    polyAveragePitchScale  = juce::jlimit (0.5, 2.0, polyAveragePitchScale);
-    return polyAveragePitchScale;
 }
 
 // ============================================================================
@@ -1944,9 +1809,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     }
 
     // Polyphonic: when ON, correction is done by the per-peak phase-locked
-    // vocoder (processPolyphonicRetune below) reading mainBuffer directly — NOT
-    // the old single-weighted-ratio HPS path (polyPushBlock / polyAnalyse..).
-    // Those remain available for reuse but are no longer in the correction path.
+    // vocoder (processPolyphonicRetune below) reading mainBuffer directly.
     const bool polyOn = apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
 
     // Computed once per block: neural pitch feeds BOTH the correction override
@@ -2035,28 +1898,21 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
     }
 
-    // Polyphonic mode: replace the YIN-derived target with a weighted-mean
-    // multi-pitch target. The mode is still gated by Correction On + Amount
-    // downstream in pitchScaleForFrame -> we apply the override only when the
-    // user has correction enabled. polyAnalyseAndComputeScale() is the new
-    // override; pitchScaleForFrame stays untouched for v1 (monophonic) path.
+    // Polyphonic mode retunes per-peak in the spectral vocoder below, so the mono
+    // single-ratio smoother is held at unity and left unused in that mode.
     const bool correctionOn = apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f;
     double targetPitchScale = 1.0;
     if (correctionOn)
     {
-        // Poly mode retunes per-peak in the spectral engine below, so the mono
-        // single-ratio smoother is held at unity (1.0) and left unused.
         targetPitchScale = polyOn ? 1.0
                                   : pitchScaleForFrame (lastPitchFrame);
     }
     else
     {
-        // A user-facing Correction Off switch should be immediate, including the
-        // polyphonic alpha path (which bypasses pitchScaleForFrame). Reset both
+        // A user-facing Correction Off switch should be immediate; reset the mono
         // smoothers so no stale correction ratio coasts through after the toggle.
         smoothedPitchScale = 1.0;
         lastFedPitchScale = 1.0;
-        polyAveragePitchScale = 1.0;
     }
 
     // --- Note-transition retune modeling -------------------------------------

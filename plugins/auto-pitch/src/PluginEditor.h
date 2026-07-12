@@ -167,7 +167,7 @@ private:
     // --- Header (shared by both tabs) ----------------------------------------
     juce::Label title;
     juce::ComboBox vocalRange, keyRoot, scale;
-    juce::Label vocalRangeCaption, keyScaleCaption;
+    juce::Label vocalRangeCaption;
     juce::ComboBox factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save" };
 
@@ -176,7 +176,7 @@ private:
     juce::ToggleButton followKey { "Follow Song Key (Sattari Key)" };
     NoteDisplay noteDisplay;
     KeyPillRow pillRow;
-    juce::Label editNotesLabel, detuneLabel, modeLabel;
+    juce::Label editNotesLabel, detuneLabel;
     // Key control: a big live readout (KeyButton) + a row of three explicit
     // action buttons under it. The readout shows the key + how it's driven +
     // a confidence lock meter; the buttons make every mode a single visible click.
