@@ -1288,11 +1288,34 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     auto pcEnabled = [enabledMask] (int midi)
         { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
 
-    pvPeakRatio.clear();
+    // Harmonic-comb grouping: assign each peak to a NOTE (its fundamental peak). A peak
+    // is a harmonic of an earlier note-root if its true freq is a near-integer multiple
+    // of that root's freq. Grouping lets a note's upper partials inherit the FUNDAMENTAL's
+    // retune ratio, so the note transposes rigidly instead of each harmonic snapping to a
+    // scale tone on its own (which mis-tuned buried harmonics — the octave-collision case).
+    pvPeakFund.clear();
     for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
     {
-        const int kp = pvPeakBins[(size_t) pi];
-        const double f = juce::jmax (1.0, (double) pvFreq[(size_t) kp]);
+        const double f = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) pi]]);
+        int fund = pi;
+        for (int pj = pi - 1; pj >= 0; --pj)
+        {
+            if (pvPeakFund[(size_t) pj] != pj) continue;   // combs grow from note roots only
+            const double fj = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) pj]]);
+            const double r = f / fj;
+            const int h = (int) std::lround (r);
+            if (h >= 2 && h <= 12 && std::abs (r - (double) h) < 0.03 * (double) h) { fund = pj; break; }
+        }
+        pvPeakFund.push_back (fund);
+    }
+
+    // Per-note retune ratio: snap the NOTE's FUNDAMENTAL freq to the nearest scale tone;
+    // every partial of the note uses that same ratio (h*fund * ratio = h*correctedFund).
+    pvPeakRatio.assign (pvPeakBins.size(), 1.0f);
+    for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
+    {
+        const int fund = pvPeakFund[(size_t) pi];
+        const double f = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) fund]]);
         const double srcMidi = 69.0 + 12.0 * std::log2 (f / 440.0);
         int target = nearestScaleMidi (srcMidi, rootIndex, scaleName);   // honours chromatic
         if (! pcEnabled (target))
@@ -1305,7 +1328,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         // Amount scales the correction in the log domain (1 = full snap, 0 = none).
         double ratio = std::pow (targetFreq / f, amount);
         ratio = juce::jlimit (0.5, 2.0, ratio);
-        pvPeakRatio.push_back ((float) ratio);
+        pvPeakRatio[(size_t) pi] = (float) ratio;
     }
 
     // Assign every bin to the peak whose region of influence contains it (the

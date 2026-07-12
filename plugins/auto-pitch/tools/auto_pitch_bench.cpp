@@ -654,10 +654,11 @@ void runVibrato()
 //  We feed chords whose every note is +30 cents sharp (in C major) and measure, per
 //  note, how much energy moved from the DETUNED pitch to the CORRECTED (scale) pitch:
 //    moved = E(corrected) / (E(corrected) + E(detuned))    1.0 = fully tuned.
-//  Chords of 2/3/4 well-separated notes should tune cleanly. The OCTAVE case (C4+C5)
-//  is the source-separation stress: C5's fundamental sits on C4's 2nd harmonic, so a
-//  per-peak engine cannot split them — this row is EXPECTED to be weak and marks the
-//  boundary that a future partial-grouping (Melodyne-class) build must cross.
+//  Chords of 2/3/4 well-separated notes tune cleanly. The OCTAVE case (C4+C5) is the
+//  classic source-separation failure — C5's fundamental collides with C4's 2nd harmonic
+//  — and USED to score ~46%. Harmonic-comb grouping (each partial inherits its note's
+//  fundamental ratio) plus a 4096-pt frame (11.7 Hz/bin, which resolves the collision)
+//  now lift it to ~96%, so every row here is a REQUIRED pass and guards that win.
 // ============================================================================
 void runPolyphonic()
 {
@@ -672,8 +673,8 @@ void runPolyphonic()
         { "2-note  C+E",     { 261.63, 329.63 },                 false },
         { "3-note  C+E+G",   { 261.63, 329.63, 392.00 },         false },
         { "4-note  C+E+G+B", { 261.63, 329.63, 392.00, 493.88 }, false },
-        { "octave  C4+C5",   { 261.63, 523.25 },                 true  },
-        { "fifth   C4+G4",   { 261.63, 392.00 },                 true  },
+        { "octave  C4+C5",   { 261.63, 523.25 },                 false },   // was the 46% failure
+        { "fifth   C4+G4",   { 261.63, 392.00 },                 false },
     };
 
     // per-note detune: alternate +/- 35 cents so no two notes share a correction target.
@@ -722,10 +723,9 @@ void runPolyphonic()
         }
         const double meanMoved = sumMoved / (double) ch.notes.size();
         const bool ok = ch.stress ? true : (minMoved >= 0.60);
-        std::printf ("  %-16s  mean moved=%3.0f%%  worst note=%3.0f%%   [%s]%s\n",
+        std::printf ("  %-16s  mean moved=%3.0f%%  worst note=%3.0f%%   [%s]\n",
                      ch.name, meanMoved * 100.0, minMoved * 100.0,
-                     verdict (ok, ! ch.stress && minMoved >= 0.45),
-                     ch.stress ? "  (overlapping-partials stress)" : "");
+                     verdict (ok, minMoved >= 0.45));
     }
     std::printf ("  threshold: every note in a separated chord moves >= 60%% of its fundamental to pitch\n");
 }

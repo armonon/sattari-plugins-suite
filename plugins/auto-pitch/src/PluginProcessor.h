@@ -301,10 +301,15 @@ private:
     // the audio-thread frame processing never allocates or locks (RT-safe). The
     // STFT introduces (pvFrameSize - pvHop) samples of latency, reported to the
     // host when poly is on (see activeEngineLatencySamples()).
-    static constexpr int pvFftOrder  = 11;                    // 2048-point frame
-    static constexpr int pvFrameSize = 1 << pvFftOrder;       // 2048
+    // 4096-point frame: 11.7 Hz/bin @ 48k resolves close partials (e.g. an octave's
+    // C5 fundamental vs C4 2nd harmonic, ~22 Hz apart) that a 2048 frame merged into
+    // one bin — required for the harmonic-comb grouping to separate colliding notes.
+    // Costs latency (pvFrameSize - pvHop = 3072 smp ≈ 64 ms) but only in poly mode,
+    // which targets sustained chords/pads where that is inaudible.
+    static constexpr int pvFftOrder  = 12;                    // 4096-point frame
+    static constexpr int pvFrameSize = 1 << pvFftOrder;       // 4096
     static constexpr int pvOverlap   = 4;                     // 4x overlap
-    static constexpr int pvHop       = pvFrameSize / pvOverlap; // 512
+    static constexpr int pvHop       = pvFrameSize / pvOverlap; // 1024
     std::unique_ptr<juce::dsp::FFT> pvFft;
     std::vector<float> pvWindow;                              // Hann analysis+synthesis window
     float pvOlaNorm = 1.5f;                                   // overlap-add gain (sum w^2 at hop offsets)
@@ -324,6 +329,7 @@ private:
     std::vector<int>   pvPeakBins;                            // detected spectral peaks (bin indices)
     std::vector<int>   pvBinPeak;                             // size half+1: owning-peak index, -1 = identity
     std::vector<float> pvPeakRatio;                           // per-peak retune ratio
+    std::vector<int>   pvPeakFund;                            // per-peak: index of its harmonic-comb fundamental peak
     void preparePolyVocoder (int numChannels);
     void resetPolyVocoder();
     void polyVocoderFrame (int channel);
