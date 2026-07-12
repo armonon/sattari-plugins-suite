@@ -439,7 +439,8 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // Engine selector (replaces the old Live-Engine + Low-Latency toggles). One 3-way
     // choice driving the liveEngine + lowLatency params, so presets/automation still work.
     styleCaption (engineCaption, "ENGINE");
-    engineSelect.addItemList ({ "Studio  (best quality)", "Live", "Live \xc2\xb7 Low-Latency" }, 1);
+    engineSelect.addItemList ({ "Studio  (best quality)", "Live",
+                                juce::String::fromUTF8 ("Live \xc2\xb7 Low-Latency") }, 1);
     engineSelect.onChange = [this]
     {
         switch (engineSelect.getSelectedItemIndex())
@@ -812,7 +813,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         transposeReadout.setText (on
             ? juce::String ("detected ") + nm[src] + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
                 + (semis > 0 ? "+" : "") + juce::String (semis) + juce::String::fromUTF8 (" st  \xe2\x86\x92  ") + nm[res]
-            : juce::String ("off \xe2\x80\x94 per-note correction active"),
+            : juce::String::fromUTF8 ("off \xe2\x80\x94 per-note correction active"),
             juce::dontSendNotification);
     }
 
@@ -835,12 +836,42 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
              "the live correction follows via the host playhead.";
     keyMapStatusLabel.setText (s, juce::dontSendNotification);
 
-    // Honest Neural Pitch label: the toggle silently falls back to YIN when no
-    // crepe.onnx model is installed — say so instead of looking functional.
-    const juce::String wantedNeuralText = audioProcessor.neuralModelPresent()
-        ? "Neural Pitch" : "Neural Pitch (no model installed)";
+    // Honest Neural Pitch label + state: the toggle silently falls back to YIN when no
+    // crepe.onnx model is installed — say so AND disable it, so it never looks functional.
+    const bool neuralOk = audioProcessor.neuralModelPresent();
+    const juce::String wantedNeuralText = neuralOk ? "Neural Pitch" : "Neural Pitch (no model installed)";
     if (neuralPitch.getButtonText() != wantedNeuralText)
         neuralPitch.setButtonText (wantedNeuralText);
+    setControlActive (neuralPitch, neuralOk);
+
+    // ── Mode-aware enabled states ────────────────────────────────────────────────
+    // Don't let a control look interactive when the current mode makes it do nothing.
+    // Per-note correction is bypassed both when Correction is Off and when Transpose to
+    // Key is On (a whole-mix shift replaces correction), so dim every correction control.
+    auto& ap = audioProcessor.parameters();
+    const bool corrOn  = ap.getRawParameterValue ("enableCorrection")->load() > 0.5f;
+    const bool xposeOn = ap.getRawParameterValue ("xposeMode")->load() > 0.5f;
+    const bool correctionActive = corrOn && ! xposeOn;
+    juce::Component* correctionControls[] = {
+        &retuneSpeed, &flexTune, &humanize, &style, &modernLabel, &classicLabel,
+        &retuneSpeedCaption, &flexTuneCaption, &humanizeCaption, &pillRow, &editNotesLabel,
+        &flexAmt, &transition, &throat, &vibratoKnob, &classicMode, &doNoHarm,
+        &formantPreserve, &polyphonic, &formantShift, &flexAmtCaption, &transitionCaption,
+        &throatCaption, &vibratoCaption, &formantCaption
+    };
+    for (auto* c : correctionControls)
+        setControlActive (*c, correctionActive);
+
+    // The transpose amount + Match Key are inert until Transpose to Key is engaged.
+    setControlActive (transposeSemis, xposeOn);
+    setControlActive (matchKeyButton, xposeOn);
+}
+
+void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c, bool on)
+{
+    if (c.isEnabled() != on)       c.setEnabled (on);
+    const float a = on ? 1.0f : 0.4f;
+    if (c.getAlpha() != a)         c.setAlpha (a);
 }
 
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)

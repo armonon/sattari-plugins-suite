@@ -144,6 +144,9 @@ private:
     void timerCallback() override;
     void styleKnob (juce::Slider& s, bool feature = false);
     void styleCaption (juce::Label& l, const juce::String& text);
+    // Dim + disable a control when the current mode makes it inert (idempotent — safe
+    // to call every timer tick; JUCE only repaints when the state actually changes).
+    void setControlActive (juce::Component& c, bool on);
     void registerFactoryPresets();
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
