@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace
@@ -13,11 +15,6 @@ constexpr std::array<float, 12> minorProfile { 6.33f, 2.68f, 3.52f, 5.38f, 2.60f
 int midiNoteToPitchClass (int midiNote) noexcept
 {
     return (midiNote % 12 + 12) % 12;
-}
-
-double midiNoteToFrequency (int midiNote) noexcept
-{
-    return 440.0 * std::pow (2.0, ((double) midiNote - 69.0) / 12.0);
 }
 
 float normalisedCorrelation (const std::array<float, 12>& chroma, const std::array<float, 12>& profile, int transposition)
@@ -546,20 +543,63 @@ TrackAnalysis TrackAnalyzer::analyze (const juce::AudioBuffer<float>& audio, dou
         result.beatGridSamples = makeBeatGrid ((double) audio.getNumSamples(), sampleRate, result.detectedBpm, result.downbeatSample);
     }
 
-    const int analysisSamples = juce::jmin (audio.getNumSamples(), (int) std::round (sampleRate * 24.0));
+    // ── Key detection ─────────────────────────────────────────────────────────
+    // Whole-track chroma (not just the intro) with tuning compensation, then
+    // Krumhansl–Schmuckl profile correlation across all 24 keys. Windows spread
+    // across the entire track make the estimate robust to atypical intros and
+    // breakdowns; estimating global tuning first keeps chroma sharp for records
+    // that sit off A=440 (vinyl rips, live recordings, non-standard tunings).
     constexpr int windowSize = 4096;
-    constexpr int hopSize = 4096;
-    if (analysisSamples < windowSize)
+    if (audio.getNumSamples() < windowSize)
         return result;
+
+    std::vector<int> chromaStarts;
+    {
+        const int usable = audio.getNumSamples() - windowSize;
+        constexpr int maxWindows = 96;
+        const int n = juce::jmax (1, juce::jmin (maxWindows, usable / windowSize + 1));
+        for (int k = 0; k < n; ++k)
+            chromaStarts.push_back ((int) ((int64_t) usable * k / juce::jmax (1, n - 1)));
+    }
+
+    auto noteFreq = [] (double midi) { return 440.0 * std::pow (2.0, (midi - 69.0) / 12.0); };
+
+    // Global tuning offset in [-0.5, +0.4] semitone (0.1 steps): the offset that
+    // concentrates the most energy on note centres wins.
+    double tuningOffset = 0.0;
+    {
+        const int tuneWindows = juce::jmin ((int) chromaStarts.size(), 40);
+        double bestScore = -1.0;
+        // Search strictly inside (-0.5, +0.5) semitone in 0.05 steps. We must NOT
+        // hit ±0.5: that boundary aliases to the same frequency grid but shifts
+        // every pitch-class label by a semitone (a +40c note gets captured by the
+        // next semitone's probe), which would misdetect the key by a semitone.
+        for (int step = -9; step <= 9; ++step)
+        {
+            const double off = 0.05 * (double) step;
+            double score = 0.0;
+            for (int wi = 0; wi < tuneWindows; ++wi)
+                for (int midi = 60; midi <= 84; ++midi)   // upper register: cents == more Hz == resolvable
+                {
+                    const double f = noteFreq ((double) midi + off);
+                    if (f >= sampleRate * 0.45) continue;
+                    // Sum POWER (not amplitude): energy concentrates on the note
+                    // grid only when the offset matches the track's tuning, so a
+                    // squared measure discriminates the true offset far better.
+                    score += (double) goertzelPower (audio, chromaStarts[(size_t) wi], windowSize, sampleRate, f);
+                }
+            if (score > bestScore) { bestScore = score; tuningOffset = off; }
+        }
+    }
 
     std::array<float, 12> chroma {};
     int windows = 0;
-    for (int start = 0; start + windowSize <= analysisSamples; start += hopSize)
+    for (int start : chromaStarts)
     {
         ++windows;
         for (int midi = 36; midi <= 84; ++midi)
         {
-            const double frequency = midiNoteToFrequency (midi);
+            const double frequency = noteFreq ((double) midi + tuningOffset);
             if (frequency >= sampleRate * 0.45)
                 continue;
 

@@ -224,6 +224,23 @@ target_link_libraries(StemDeckBeatDetectTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckBeatDetectTest)
 
+# ── Key-detection accuracy check (chroma + tuning comp. + profile correlation) ─
+add_executable(StemDeckKeyDetectTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_key_detect.cpp
+        src/TrackAnalysis.cpp)
+add_dependencies(StemDeckKeyDetectTest SattariStemDeck)
+target_include_directories(StemDeckKeyDetectTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckKeyDetectTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckKeyDetectTest
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckKeyDetectTest)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest
