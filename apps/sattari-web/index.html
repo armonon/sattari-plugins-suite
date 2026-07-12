@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sattari Audio — Professional Plugin Suite for Mac</title>
-  <meta name="description" content="14 professional audio plugins for Mac. Auto Pitch, Harmony Engine, Maqam, Vocal Master, Rhythm Genie and more — all sharing one master key via the Sattari cross-plugin bus." />
+  <meta name="description" content="A complete Mac audio plugin suite — six products (Brain, Vocal, Create, Composer, Mix, StemDeck) built from 40 modules, all sharing one live session key over the Sattari cross-plugin bus." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -241,7 +241,7 @@
       padding: 26px;
       display: flex; flex-direction: column; gap: 14px;
       transition: border-color .2s, transform .2s, box-shadow .2s;
-      cursor: default;
+      cursor: pointer;
     }
     .plugin-card:hover {
       border-color: rgba(98,245,200,.35);
@@ -423,11 +423,65 @@
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+    /* ─── keyboard focus (a11y) ──────────────────────────────── */
+    a:focus-visible, button:focus-visible {
+      outline: 2px solid var(--mint);
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+
+    /* ─── plugin grid empty / error state ────────────────────── */
+    .grid-empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 56px 20px;
+      color: var(--sub);
+      font-size: .95rem;
+    }
+    .grid-empty strong { color: var(--white); font-weight: 600; }
+
+    /* ─── mobile menu ────────────────────────────────────────── */
+    .nav-toggle {
+      display: none;
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 10px; width: 40px; height: 40px;
+      align-items: center; justify-content: center; cursor: pointer;
+      color: var(--white);
+    }
+    .nav-menu {
+      position: fixed; top: 64px; left: 0; right: 0; z-index: 99;
+      background: rgba(7,9,15,.96);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      display: none; flex-direction: column; padding: 8px 5vw 16px;
+    }
+    .nav-menu.open { display: flex; }
+    .nav-menu a {
+      padding: 14px 4px; font-size: .95rem; font-weight: 500; color: var(--sub);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-menu a:last-child { border-bottom: none; }
+    .nav-menu a:hover, .nav-menu a:active { color: var(--white); }
+
     /* ─── mobile ─────────────────────────────────────────────── */
     @media (max-width: 680px) {
       .nav-links { display: none; }
-      .stat { padding: 0 20px; }
+      .nav-toggle { display: inline-flex; }
+      .nav .nav-cta { display: none; }          /* the CTA lives in the menu on mobile */
+      .stat { padding: 0 18px 0 0; margin-right: 18px; }
+      .stat-num { font-size: 1.6rem; }
       footer { flex-direction: column; align-items: flex-start; }
+    }
+
+    /* ─── reduced motion ─────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+        scroll-behavior: auto !important;
+      }
+      .plugin-card, .feature-card { opacity: 1 !important; transform: none !important; }
     }
   </style>
 </head>
@@ -449,7 +503,19 @@
     <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Get the Hub
   </a>
+  <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false" aria-controls="navMenu">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  </button>
 </nav>
+
+<!-- mobile dropdown menu -->
+<div class="nav-menu" id="navMenu">
+  <a href="#plugins">Plugins</a>
+  <a href="#key-bus">Key Bus</a>
+  <a href="#download">Download</a>
+  <a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a>
+  <a href="#download" style="color:var(--mint);font-weight:600">↓ Get the Hub</a>
+</div>
 
 <!-- ══ HERO ══════════════════════════════════════════════════════ -->
 <section class="hero" id="home">
@@ -596,13 +662,13 @@
   <h2>Every module, à la carte.</h2>
   <p class="section-intro">The six products are built from these modules. Filter to browse — every one installs via the Sattari Hub.</p>
 
-  <div class="filter-bar" id="filterBar">
-    <button class="filter-btn active" data-cat="all">All</button>
-    <button class="filter-btn" data-cat="Vocal">Vocal</button>
-    <button class="filter-btn" data-cat="MIDI">MIDI</button>
-    <button class="filter-btn" data-cat="Mix">Mix</button>
-    <button class="filter-btn" data-cat="Key">Key</button>
-    <button class="filter-btn" data-cat="Stem">Stem</button>
+  <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by category">
+    <button class="filter-btn active" data-cat="all" aria-pressed="true">All</button>
+    <button class="filter-btn" data-cat="Vocal" aria-pressed="false">Vocal</button>
+    <button class="filter-btn" data-cat="MIDI" aria-pressed="false">MIDI</button>
+    <button class="filter-btn" data-cat="Mix" aria-pressed="false">Mix</button>
+    <button class="filter-btn" data-cat="Key" aria-pressed="false">Key</button>
+    <button class="filter-btn" data-cat="Stem" aria-pressed="false">Stem</button>
   </div>
 
   <div class="plugins-grid" id="pluginsGrid"></div>
@@ -682,62 +748,95 @@
 
 <script src="plugins-data.js"></script>
 <script>
-  // ── render the plugin grid from the shared data ───────────────
   const grid = document.getElementById('pluginsGrid');
-  (window.SATTARI_PLUGINS || []).forEach(p => {
-    const tags = p.formats.map(f =>
-      `<span class="tag${(f==='AU'||f==='VST3') ? ' mint' : ''}">${f}</span>`).join('');
-    const a = document.createElement('a');
-    a.className = 'plugin-card';
-    a.href = `plugin.html?id=${p.id}`;
-    a.dataset.cats = p.cats;
-    a.innerHTML = `
-      <div class="plugin-header">
-        <div class="plugin-icon">${p.icon}</div>
-        <div class="plugin-meta">
-          <div class="plugin-name">${p.name}</div>
-          <div class="plugin-cat">${p.category}</div>
-        </div>
-        <div class="status-dot"></div>
-      </div>
-      <p class="plugin-desc">${p.tagline}</p>
-      <div class="plugin-footer">
-        <div class="format-tags">${tags}</div>
-        <span style="font-size:.8rem;font-weight:600;color:var(--mint)">How it works →</span>
-      </div>`;
-    grid.appendChild(a);
-  });
+  const plugins = window.SATTARI_PLUGINS || [];
 
-  // ── plugin category filter ────────────────────────────────────
-  const filterBar  = document.getElementById('filterBar');
-  const pluginCards = document.querySelectorAll('.plugin-card');
+  // ── render the plugin grid (with a load-failure fallback) ─────
+  if (!plugins.length) {
+    grid.innerHTML = '<div class="grid-empty"><strong>Couldn’t load the plugin list.</strong><br>Please refresh the page.</div>';
+  } else {
+    plugins.forEach(p => {
+      const tags = p.formats.map(f =>
+        `<span class="tag${(f==='AU'||f==='VST3') ? ' mint' : ''}">${f}</span>`).join('');
+      const a = document.createElement('a');
+      a.className = 'plugin-card';
+      a.href = `plugin.html?id=${p.id}`;
+      a.dataset.cats = p.cats;
+      a.setAttribute('aria-label', `${p.name} — how it works`);
+      a.innerHTML = `
+        <div class="plugin-header">
+          <div class="plugin-icon">${p.icon}</div>
+          <div class="plugin-meta">
+            <div class="plugin-name">${p.name}</div>
+            <div class="plugin-cat">${p.category}</div>
+          </div>
+          <div class="status-dot"></div>
+        </div>
+        <p class="plugin-desc">${p.tagline}</p>
+        <div class="plugin-footer">
+          <div class="format-tags">${tags}</div>
+          <span style="font-size:.8rem;font-weight:600;color:var(--mint)">How it works →</span>
+        </div>`;
+      grid.appendChild(a);
+    });
+  }
+
+  // empty-state node shown when a filter matches nothing
+  const emptyMsg = document.createElement('div');
+  emptyMsg.className = 'grid-empty';
+  emptyMsg.style.display = 'none';
+  emptyMsg.innerHTML = 'No plugins in this category yet.';
+  grid.appendChild(emptyMsg);
+
+  // ── plugin category filter (robust to the entrance animation) ─
+  const filterBar   = document.getElementById('filterBar');
+  const pluginCards = [...document.querySelectorAll('.plugin-card')];
+
+  function applyFilter(cat) {
+    let shown = 0;
+    pluginCards.forEach(card => {
+      const cats = card.dataset.cats || '';
+      const hide = (cat !== 'all' && !cats.includes(cat));
+      card.dataset.hidden = hide ? 'true' : 'false';
+      if (!hide) shown++;
+    });
+    emptyMsg.style.display = shown ? 'none' : 'block';
+  }
 
   filterBar.addEventListener('click', e => {
     const btn = e.target.closest('.filter-btn');
     if (!btn) return;
-
-    filterBar.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
-    const cat = btn.dataset.cat;
-    pluginCards.forEach(card => {
-      const cats = card.dataset.cats || '';
-      card.dataset.hidden = (cat !== 'all' && !cats.includes(cat)) ? 'true' : 'false';
+    filterBar.querySelectorAll('.filter-btn').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-pressed', 'false');
     });
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
+    applyFilter(btn.dataset.cat);
   });
 
-  // ── smooth scroll offset for fixed nav ───────────────────────
+  // ── mobile menu ───────────────────────────────────────────────
+  const navToggle = document.getElementById('navToggle');
+  const navMenu   = document.getElementById('navMenu');
+  const closeMenu = () => { navMenu.classList.remove('open'); navToggle.setAttribute('aria-expanded','false'); };
+  navToggle.addEventListener('click', () => {
+    const open = navMenu.classList.toggle('open');
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  navMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMenu));
+
+  // ── smooth scroll offset for fixed nav (closes the mobile menu) ─
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
       const target = document.querySelector(a.getAttribute('href'));
       if (!target) return;
       e.preventDefault();
-      const offset = 72;
-      window.scrollTo({ top: target.getBoundingClientRect().top + scrollY - offset, behavior: 'smooth' });
+      closeMenu();
+      window.scrollTo({ top: target.getBoundingClientRect().top + scrollY - 72, behavior: 'smooth' });
     });
   });
 
-  // ── nav shrink on scroll ──────────────────────────────────────
+  // ── nav shadow on scroll ──────────────────────────────────────
   const nav = document.querySelector('nav');
   window.addEventListener('scroll', () => {
     nav.style.boxShadow = scrollY > 20
@@ -745,24 +844,24 @@
       : 'none';
   }, { passive: true });
 
-  // ── staggered card entrance ───────────────────────────────────
-  if ('IntersectionObserver' in window) {
+  // ── gentle entrance for the (unfiltered) feature cards only ───
+  // Plugin cards stay visible by default — they're filtered, so animating their
+  // visibility risks stranding a filtered-in card invisible. Keeping them static is
+  // both more reliable and calmer than a 40-card scroll cascade.
+  const featureCards = [...document.querySelectorAll('.feature-card')];
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if ('IntersectionObserver' in window && !reduceMotion) {
+    const reveal = c => { c.style.opacity = '1'; c.style.transform = 'none'; };
     const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.style.opacity = '1';
-          entry.target.style.transform = 'translateY(0)';
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-
-    document.querySelectorAll('.plugin-card, .feature-card').forEach((card, i) => {
+      entries.forEach(en => { if (en.isIntersecting) { reveal(en.target); observer.unobserve(en.target); } });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    featureCards.forEach((card, i) => {
       card.style.opacity = '0';
-      card.style.transform = 'translateY(24px)';
-      card.style.transition = `opacity .45s ease ${i * 40}ms, transform .45s ease ${i * 40}ms`;
+      card.style.transform = 'translateY(16px)';
+      card.style.transition = `opacity .4s ease ${Math.min(i,5) * 55}ms, transform .4s ease ${Math.min(i,5) * 55}ms`;
       observer.observe(card);
     });
+    setTimeout(() => featureCards.forEach(reveal), 1500);   // safety net
   }
 </script>
 
