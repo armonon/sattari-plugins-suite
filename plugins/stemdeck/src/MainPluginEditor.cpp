@@ -3621,17 +3621,15 @@ void MainPluginEditor::toggleRecording()
         return;
     }
 
-    arrangementView.clearArrangement();
-    revealRecordingButton.setEnabled (false);
-    reloadIntoDecksButton.setEnabled (false);
-    bounceEditsButton.setEnabled (false);
-
+    // NOTE: do NOT clear the arrangement or disable Reveal/Reload/Bounce yet —
+    // cancelling the save dialog must leave the current work untouched. Only wipe
+    // once a destination is chosen and recording actually starts.
     recordChooser.launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
         [this] (const juce::FileChooser& chooser)
         {
             auto file = chooser.getResult();
             if (file.getFullPathName().isEmpty())
-                return;
+                return;   // cancelled — arrangement + buttons preserved
 
             if (! file.hasFileExtension ("wav"))
                 file = file.withFileExtension ("wav");
@@ -3639,7 +3637,13 @@ void MainPluginEditor::toggleRecording()
             const bool started = processorRef.beginMasterRecording (file);
             recordStatus.setText (started ? "Recording: " + file.getFileName() : "Could not start recording", juce::dontSendNotification);
             if (started)
+            {
+                arrangementView.clearArrangement();
+                revealRecordingButton.setEnabled (false);
+                reloadIntoDecksButton.setEnabled (false);
+                bounceEditsButton.setEnabled (false);
                 arrangementView.setRecordingProgress (0.0, file.getFullPathName());
+            }
         });
 }
 
