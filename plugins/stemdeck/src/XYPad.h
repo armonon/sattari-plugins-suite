@@ -47,7 +47,7 @@ public:
 
         // Title — muted, letter-spaced.
         g.setColour (juce::Colour (kTextMuted));
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         drawSpaced (g, "MASTER FX", r.withHeight (16.0f).translated (0.0f, 5.0f), 2.4f);
 
         // Recessed pad.
@@ -69,7 +69,7 @@ public:
 
         // Axis hints.
         g.setColour (juce::Colour (kTextMuted).withAlpha (0.75f));
-        g.setFont (juce::FontOptions (7.5f, juce::Font::plain));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::plain));
         g.drawText ("FILTER", juce::Rectangle<float> (pad.getX(), pad.getBottom() + 1.0f, pad.getWidth(), 12.0f),
                     juce::Justification::centred);
 
