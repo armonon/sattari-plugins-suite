@@ -455,7 +455,20 @@ private:
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton tapTempoButton { "TAP" };
+    juce::TextButton masterPlayButton;   // header: play/stop ALL decks at once
+    juce::TextButton automixButton;      // header: phrase-aligned auto-transition
+    juce::Label      automixStatusLabel; // shows the current transition plan / progress
     juce::TextButton camelotButton { "Key" };
+
+    // Automix crossfader ramp (message-thread driven from timerCallback).
+    bool          automixRamping   = false;
+    int           automixOutDeck   = -1;
+    float         automixCfFrom    = 0.0f;
+    float         automixCfTo      = 1.0f;
+    juce::uint32  automixStartMs   = 0;
+    double        automixDurationMs = 0.0;
+    void          startAutomix();
+    void          updateAutomixRamp();
     juce::TextButton midiLearnButton { "MIDI" };
     juce::Label libraryMetaLabel;   // shows BPM / key / duration for hovered file
     juce::TextButton revealRecordingButton { "Reveal" };

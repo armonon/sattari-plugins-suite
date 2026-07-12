@@ -1158,6 +1158,51 @@ void MainPluginProcessor::seekDeckSeconds (int deckIndex, double seconds)
     decks[(size_t) deckIndex].seekToSamples (seconds * audio->sourceSampleRate);
 }
 
+stemdeck::TransitionPlan MainPluginProcessor::planAutomixTransition (int outDeck, int inDeck) const
+{
+    stemdeck::TransitionPlan plan;
+    if (! juce::isPositiveAndBelow (outDeck, numDecks) || ! juce::isPositiveAndBelow (inDeck, numDecks) || outDeck == inDeck)
+        return plan;
+
+    const auto aOut = getDeckActiveAnalysis (outDeck);
+    const auto aIn  = getDeckActiveAnalysis (inDeck);
+    const auto audioOut = decks[(size_t) outDeck].getLoadedAudio();
+    const auto audioIn  = decks[(size_t) inDeck].getLoadedAudio();
+
+    std::vector<float> eOut, eIn;
+    if (audioOut != nullptr)
+        eOut = stemdeck::AutomixEngine::phraseEnergies (audioOut->audio, aOut.sampleRate,
+                    stemdeck::AutomixEngine::phraseBoundaries (aOut, 16));
+    if (audioIn != nullptr)
+        eIn = stemdeck::AutomixEngine::phraseEnergies (audioIn->audio, aIn.sampleRate,
+                    stemdeck::AutomixEngine::phraseBoundaries (aIn, 16));
+
+    return stemdeck::AutomixEngine::planTransition (aOut, aIn, eOut, eIn);
+}
+
+stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inDeck)
+{
+    stemdeck::TransitionPlan plan = planAutomixTransition (outDeck, inDeck);
+    if (! plan.valid)
+        return plan;
+
+    const auto audioIn = decks[(size_t) inDeck].getLoadedAudio();
+    if (audioIn != nullptr && audioIn->sourceSampleRate > 0.0)
+        decks[(size_t) inDeck].seekToSamples (plan.inPointSampleB);   // in-point is in source samples
+
+    // Crossfader routing: outgoing on A/left, incoming on B/right.
+    setDeckCfSide (outDeck, 0);
+    setDeckCfSide (inDeck, 2);
+
+    // Beat-sync so the incoming deck locks to the master grid.
+    if (auto* p = apvts.getParameter ("beatSync")) p->setValueNotifyingHost (1.0f);
+
+    // Start the incoming deck; the outgoing one keeps playing until the blend ends.
+    if (auto* p = apvts.getParameter (deckPrefix (inDeck) + "Play")) p->setValueNotifyingHost (1.0f);
+
+    return plan;
+}
+
 void MainPluginProcessor::beatJumpDeck (int deckIndex, double bars)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;

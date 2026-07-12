@@ -217,6 +217,18 @@ void WaveformDisplay::mouseDown (const juce::MouseEvent& e)
     onSeekRequest (t0 + (double) relX * (t1 - t0));
 }
 
+void WaveformDisplay::mouseDoubleClick (const juce::MouseEvent&)
+{
+    // If offline stems are loaded, double-click flips between the full-mix
+    // waveform (default) and the stacked per-stem view.
+    const bool stemsLoaded = drumsThumbnail.getTotalLength()  > 0.0
+                          || bassThumbnail.getTotalLength()   > 0.0
+                          || musicThumbnail.getTotalLength()  > 0.0
+                          || vocalsThumbnail.getTotalLength() > 0.0;
+    if (stemsLoaded)
+        setStemViewEnabled (! stemViewEnabled);
+}
+
 void WaveformDisplay::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
 {
     const float delta = wheel.deltaY * 0.2f;
@@ -241,11 +253,16 @@ void WaveformDisplay::paint (juce::Graphics& g)
                        || bassThumbnail.getTotalLength()   > 0.0
                        || musicThumbnail.getTotalLength()  > 0.0
                        || vocalsThumbnail.getTotalLength() > 0.0;
+    const bool haveMix  = thumbnail.getTotalLength() > 0.0;
+
+    // Keep the full-mix waveform visible even after stem separation. The stacked
+    // per-stem view is opt-in (setStemViewEnabled), or used when only stems exist.
+    const bool useStemView = stemViewEnabled ? hasStems : (hasStems && ! haveMix);
 
     // Determine zoom-adjusted time window
-    const double totalLen = hasStems ? juce::jmax (juce::jmax (drumsThumbnail.getTotalLength(), bassThumbnail.getTotalLength()),
-                                                    juce::jmax (musicThumbnail.getTotalLength(), vocalsThumbnail.getTotalLength()))
-                                     : thumbnail.getTotalLength();
+    const double totalLen = useStemView ? juce::jmax (juce::jmax (drumsThumbnail.getTotalLength(), bassThumbnail.getTotalLength()),
+                                                      juce::jmax (musicThumbnail.getTotalLength(), vocalsThumbnail.getTotalLength()))
+                                        : thumbnail.getTotalLength();
     const auto [tStart, tEnd] = visibleTimeRange (totalLen);
 
     // Showcase: jagged coloured demo waveform for the deck (overrides flat/empty
@@ -282,9 +299,9 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawLine (outX, wave.getY(), outX, wave.getBottom(), 1.5f);
     }
 
-    if (hasStems)
+    if (useStemView)
     {
-        // ── Stacked stem mode ─────────────────────────────────────────────────
+        // ── Stacked stem mode (opt-in) ────────────────────────────────────────
         const float bandH = wave.getHeight() / 4.0f;
         juce::AudioThumbnail* stems[4] = { &drumsThumbnail, &bassThumbnail,
                                            &musicThumbnail, &vocalsThumbnail };

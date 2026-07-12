@@ -53,6 +53,11 @@ public:
     void setRtssActive (bool active);
     bool getRtssActive() const noexcept { return rtssActive; }
 
+    // When false (default), the full-mix waveform stays visible even after stems
+    // are separated. When true, the stacked per-stem waveform view is shown.
+    void setStemViewEnabled (bool on) { if (on != stemViewEnabled) { stemViewEnabled = on; repaint(); } }
+    bool getStemViewEnabled() const noexcept { return stemViewEnabled; }
+
     // When false, the empty-state placeholder shows its waveform bars without the
     // "DROX AUDIO" drop hint (used to make a deck read as active in the showcase).
     void setShowDropHint (bool shouldShow) { showDropHint = shouldShow; repaint(); }
@@ -64,6 +69,7 @@ public:
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;   // toggle full-mix / stem view
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
@@ -107,6 +113,7 @@ private:
     bool  rtssActive     = false;
     bool  showDropHint   = true;
     bool  demoWaveform   = false;
+    bool  stemViewEnabled = false;   // false = keep full-mix waveform after separation
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformDisplay)
 };
