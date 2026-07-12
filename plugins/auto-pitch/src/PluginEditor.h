@@ -192,7 +192,7 @@ private:
     // --- Pro tab widgets -----------------------------------------------------
     juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
                        formantPreserve  { "Formant Preserve" },
-                       polyphonic       { "Polyphonic (alpha)" };
+                       polyphonic       { "Polyphonic" };
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
 

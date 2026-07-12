@@ -125,6 +125,36 @@ void makeVibratoTone (juce::AudioBuffer<float>& buf, double sr, double seconds,
     }
 }
 
+// A chord: sum of N sustained sine notes (each a frequency in `hz`). Used to probe
+// the polyphonic tuner — every note can be detuned independently by the caller.
+juce::AudioBuffer<float> makeChord (double sr, double seconds, const std::vector<double>& hz, float amp = 0.32f)
+{
+    const int n = (int) std::round (sr * seconds);
+    juce::AudioBuffer<float> buf (1, n);
+    buf.clear();
+    float* d = buf.getWritePointer (0);
+    for (double f : hz)
+    {
+        double ph = 0.0;
+        for (int i = 0; i < n; ++i) { d[i] += amp * (float) std::sin (ph); ph += 2.0 * M_PI * f / sr; }
+    }
+    return buf;
+}
+
+// Goertzel magnitude: RMS-scaled energy at a single frequency over [s0,s1). Lets us
+// ask "how much energy sits exactly at the detuned pitch vs the corrected pitch?"
+// without a full FFT — the clean way to measure per-note movement inside a chord.
+double goertzelMag (const juce::AudioBuffer<float>& b, double sr, double f, int s0, int s1)
+{
+    const double w = 2.0 * M_PI * f / sr;
+    const double coeff = 2.0 * std::cos (w);
+    double sPrev = 0.0, sPrev2 = 0.0;
+    const float* d = b.getReadPointer (0);
+    for (int i = s0; i < s1; ++i) { const double s = (double) d[i] + coeff * sPrev - sPrev2; sPrev2 = sPrev; sPrev = s; }
+    const double power = sPrev2 * sPrev2 + sPrev * sPrev - coeff * sPrev * sPrev2;
+    return std::sqrt (std::max (0.0, power)) / (double) juce::jmax (1, s1 - s0);
+}
+
 // ---- measurement primitives ------------------------------------------------
 
 // Detected-pitch track (MIDI) over the settled tail of a buffer. `start` skips the
@@ -618,6 +648,89 @@ void runVibrato()
 }
 
 // ============================================================================
+//  8. POLYPHONIC  (per-note chord tuning + the source-separation stress case)
+// ----------------------------------------------------------------------------
+//  The polyphonic engine retunes each spectral peak to its nearest in-scale tone.
+//  We feed chords whose every note is +30 cents sharp (in C major) and measure, per
+//  note, how much energy moved from the DETUNED pitch to the CORRECTED (scale) pitch:
+//    moved = E(corrected) / (E(corrected) + E(detuned))    1.0 = fully tuned.
+//  Chords of 2/3/4 well-separated notes should tune cleanly. The OCTAVE case (C4+C5)
+//  is the source-separation stress: C5's fundamental sits on C4's 2nd harmonic, so a
+//  per-peak engine cannot split them — this row is EXPECTED to be weak and marks the
+//  boundary that a future partial-grouping (Melodyne-class) build must cross.
+// ============================================================================
+void runPolyphonic()
+{
+    std::printf ("\n== 8. POLYPHONIC  (per-note chord tuning, harmonic-rich, opposing detune, C major) ==\n");
+
+    // HARMONIC-RICH notes (H partials, 1/k amplitude) with OPPOSING per-note detune so
+    // partials from different notes genuinely collide — the real polyphonic hard case.
+    // Pure sines would be trivial (one clean peak per note); these are instrument-like.
+    const int H = 5;
+    struct Chord { const char* name; std::vector<double> notes; bool stress; };
+    const std::vector<Chord> chords = {
+        { "2-note  C+E",     { 261.63, 329.63 },                 false },
+        { "3-note  C+E+G",   { 261.63, 329.63, 392.00 },         false },
+        { "4-note  C+E+G+B", { 261.63, 329.63, 392.00, 493.88 }, false },
+        { "octave  C4+C5",   { 261.63, 523.25 },                 true  },
+        { "fifth   C4+G4",   { 261.63, 392.00 },                 true  },
+    };
+
+    // per-note detune: alternate +/- 35 cents so no two notes share a correction target.
+    auto detCents = [] (size_t i) { return (i % 2 == 0) ? +35.0 : -35.0; };
+
+    for (const auto& ch : chords)
+    {
+        const int n = (int) std::round (kSr * 2.5);
+        juce::AudioBuffer<float> sig (1, n);
+        sig.clear();
+        float* d = sig.getWritePointer (0);
+        for (size_t i = 0; i < ch.notes.size(); ++i)
+        {
+            const double f0 = ch.notes[i] * std::pow (2.0, detCents (i) / 1200.0);  // detuned fundamental
+            for (int h = 1; h <= H; ++h)
+            {
+                const double amp = 0.18 / (double) h, fh = f0 * h;
+                if (fh > kSr * 0.45) break;
+                double ph = 0.0;
+                for (int s = 0; s < n; ++s) { d[s] += (float) (amp * std::sin (ph)); ph += 2.0 * M_PI * fh / kSr; }
+            }
+        }
+
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "keyRoot", 0.0f);          setParam (a, "scale", 0.0f);   // C major
+        setParam (a, "followSongKey", 0.0f);    setParam (a, "style", 0.0f);   // Natural (no colour)
+        setParam (a, "amount", 1.0f);           setParam (a, "speed", 0.9f);
+        setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
+        setParam (a, "polyphonic", 1.0f);
+        const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
+        auditSafety (out, "polyphonic");
+
+        // Per note: did the FUNDAMENTAL's energy move from the detuned pitch to the
+        // corrected (scale) pitch? Measured on the settled tail via Goertzel.
+        const int s0 = (int) (out.getNumSamples() * 0.45), s1 = out.getNumSamples();
+        double minMoved = 1.0, sumMoved = 0.0;
+        for (size_t i = 0; i < ch.notes.size(); ++i)
+        {
+            const double fDet  = ch.notes[i] * std::pow (2.0, detCents (i) / 1200.0);
+            const double eCorr = goertzelMag (out, kSr, ch.notes[i], s0, s1);
+            const double eDet  = goertzelMag (out, kSr, fDet,        s0, s1);
+            const double moved = (eCorr + eDet) > 1.0e-12 ? eCorr / (eCorr + eDet) : 0.0;
+            minMoved = std::min (minMoved, moved);
+            sumMoved += moved;
+        }
+        const double meanMoved = sumMoved / (double) ch.notes.size();
+        const bool ok = ch.stress ? true : (minMoved >= 0.60);
+        std::printf ("  %-16s  mean moved=%3.0f%%  worst note=%3.0f%%   [%s]%s\n",
+                     ch.name, meanMoved * 100.0, minMoved * 100.0,
+                     verdict (ok, ! ch.stress && minMoved >= 0.45),
+                     ch.stress ? "  (overlapping-partials stress)" : "");
+    }
+    std::printf ("  threshold: every note in a separated chord moves >= 60%% of its fundamental to pitch\n");
+}
+
+// ============================================================================
 //  7. SAFETY
 // ----------------------------------------------------------------------------
 //  Every render in this run is audited (finite + peak <= 1.0). This section adds a
@@ -660,6 +773,7 @@ int main (int argc, char** argv)
     if (all || sec == "cpu")        runCpu();
     if (all || sec == "transition") runTransition();
     if (all || sec == "vibrato")    runVibrato();
+    if (all || sec == "polyphonic" || sec == "poly") runPolyphonic();
     if (all || sec == "safety")     runSafety();
 
     // ---- SCORECARD footer: aggregate safety across everything that ran -------

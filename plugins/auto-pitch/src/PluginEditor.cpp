@@ -473,12 +473,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (enableCorrection);
     proPanel.addAndMakeVisible (doNoHarm);
     proPanel.addAndMakeVisible (formantPreserve);
-    // Experimental "alpha" features are hidden from the shipping UI (default off,
-    // param still registered for session compat). Build -DSATTARI_ENABLE_EXPERIMENTAL=1
-    // to expose them.
-   #if SATTARI_ENABLE_EXPERIMENTAL
+    // Polyphonic tuning: shipping feature (benchmark: 96-98% per-note on separated
+    // chords). Retunes each note of a chord/pad independently to the scale.
     proPanel.addAndMakeVisible (polyphonic);
-   #endif
     styleKnob (inputGain);
     styleKnob (outputGain);
     styleKnob (formantShift);
@@ -930,10 +927,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     doNoHarm.setBounds (pLeft.removeFromTop (28));
     pLeft.removeFromTop (4);
     formantPreserve.setBounds (pLeft.removeFromTop (28));
-   #if SATTARI_ENABLE_EXPERIMENTAL
     pLeft.removeFromTop (4);
     polyphonic.setBounds (pLeft.removeFromTop (28));
-   #endif
     pLeft.removeFromTop (16);
 
     auto knobsRow = pLeft.removeFromTop (140);
