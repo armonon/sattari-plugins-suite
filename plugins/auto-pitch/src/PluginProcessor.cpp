@@ -232,6 +232,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // and falls back to YIN when the model is absent, so this default is always safe.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", true));
 
+    // Transpose to Key (whole-mix): instead of per-note correction, shift the ENTIRE
+    // signal by a fixed number of semitones via Rubber Band (formant-aware) so a whole
+    // beat / instrumental / sample lands in a target key. xposeSemis is the shift; the
+    // editor's "Match Key" button sets it from AutoKey's detected key -> the SET KEY
+    // target. This is a musical transpose (moves everything), NOT note correction.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("xposeMode", "Transpose to Key", false));
+    params.push_back (std::make_unique<juce::AudioParameterInt>  ("xposeSemis", "Transpose", -12, 12, 0));
+
     // Preserve Vibrato: 0 = full snap (kills vibrato under hard tune), 1 = keep
     // the singer's fast pitch oscillation while still correcting the note centre.
     // Default OFF: on real input the pitch tracker jitters frame-to-frame, and
@@ -584,6 +592,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     lastPitchFrame = {};
     smoothedPitchScale = 1.0;
     lastFedPitchScale = 1.0;
+    smoothedXposeScale = 1.0;
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
     detectedAutoScale = 1;
@@ -2165,7 +2174,39 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         lastPolyActive = polyActive;
     }
 
-    if (polyActive)
+    // Transpose to Key is a whole-mix engine (Rubber Band, single fixed ratio). Like
+    // the Live/Poly swaps above, flush the pipeline on toggle so no stale audio splices.
+    const bool xposeActive = apvts.getRawParameterValue ("xposeMode")->load() > 0.5f;
+    if (xposeActive != lastXposeActive)
+    {
+        for (auto& p : psola) p.reset();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        for (auto& s : rubberBand) if (s != nullptr) s->reset();
+        resetRbFifo();
+#endif
+        resetPolyVocoder();
+        lastXposeActive = xposeActive;
+    }
+
+    if (xposeActive)
+    {
+        // Whole-mix musical transpose: shift the ENTIRE signal by xposeSemis semitones
+        // so a full beat / instrumental / sample moves into a target key. A one-pole
+        // glide on the ratio makes integer semitone changes portamento, never click.
+        const int semis = juce::jlimit (-12, 12,
+            (int) std::round (apvts.getRawParameterValue ("xposeSemis")->load()));
+        const double targetScale = std::pow (2.0, (double) semis / 12.0);
+        const double glide = (currentSampleRate > 0.0)
+            ? 1.0 - std::exp (-(double) mainBuffer.getNumSamples() / (0.060 * currentSampleRate))
+            : 1.0;
+        smoothedXposeScale += glide * (targetScale - smoothedXposeScale);
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        processWithRubberBand (mainBuffer, smoothedXposeScale, inputGain, /*straightTranspose=*/true);
+#else
+        processFallbackFormantGuide (mainBuffer, smoothedXposeScale, inputGain);
+#endif
+    }
+    else if (polyActive)
     {
         // Real polyphonic: every spectral peak is retuned independently to its
         // nearest enabled in-scale tone. Replaces the mono single-ratio engine.
@@ -2222,7 +2263,8 @@ void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>&
     buffer.applyGain (linearGain);
 }
 
-void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
+void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
+                                                            bool straightTranspose)
 {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     const int numChannels = buffer.getNumChannels();
@@ -2244,7 +2286,7 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
         {
             const int chunk = juce::jmin (maxChunk, numSamples - offset);
             juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), numChannels, offset, chunk);
-            processWithRubberBand (sub, pitchScale, linearGain);
+            processWithRubberBand (sub, pitchScale, linearGain, straightTranspose);
         }
         return;
     }
@@ -2255,7 +2297,10 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     // Formant handling: preserving formants keeps the voice natural under heavy
     // correction (no "chipmunk" colour); the shift control deliberately moves the
     // vocal-tract resonances for a throat/gender effect (semitones -> scale).
-    const bool formantPreserve = apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
+    // Straight transpose (Transpose-to-Key) moves the whole spectrum together — formants
+    // included — so we force preservation OFF regardless of the vocal Formant Preserve param.
+    const bool formantPreserve = ! straightTranspose
+                              && apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
     const float formantShiftSemis = apvts.getRawParameterValue ("formantShift")->load();
     // Throat: vocal-tract-length ratio (1.0 = natural). Combines multiplicatively
     // with the semitone Formant Shift so both controls move the formant envelope

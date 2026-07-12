@@ -499,6 +499,38 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (classicMode);
     proPanel.addAndMakeVisible (liveEngine);
     proPanel.addAndMakeVisible (neuralPitch);
+
+    // Transpose to Key: whole-mix musical transpose for beats/instruments. The semitone
+    // slider is the shift; "Match Key" reads AutoKey's detected key and sets the shift
+    // to land on the SET KEY target; enabling the mode auto-runs a Match once.
+    proPanel.addAndMakeVisible (transposeMode);
+    styleCaption (transposeCaption, "TRANSPOSE TO KEY  (beats / instruments)");
+    proPanel.addAndMakeVisible (transposeCaption);
+    transposeSemis.setSliderStyle (juce::Slider::LinearHorizontal);
+    transposeSemis.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 20);
+    transposeSemis.setRange (-12.0, 12.0, 1.0);
+    transposeSemis.textFromValueFunction = [] (double v) {
+        const int s = juce::roundToInt (v);
+        return (s > 0 ? "+" : "") + juce::String (s) + " st"; };
+    proPanel.addAndMakeVisible (transposeSemis);
+    matchKeyButton.onClick = [this]
+    {
+        // source = AutoKey's detected root; target = the SET KEY root. Shift by the
+        // nearest signed semitone delta so the whole mix lands on the target key.
+        const auto snap = audioProcessor.getLiveSnapshot();
+        auto& a = audioProcessor.parameters();
+        const int src = juce::jlimit (0, 11, snap.detectedRoot);
+        const int tgt = juce::jlimit (0, 11, (int) std::round (a.getRawParameterValue ("keyRoot")->load()));
+        int d = ((tgt - src) % 12 + 12) % 12;   // 0..11
+        if (d > 6) d -= 12;                      // nearest signed: -5..+6
+        setKeyParam ("xposeSemis", (float) d);
+    };
+    proPanel.addAndMakeVisible (matchKeyButton);
+    // Enabling the mode auto-runs Match once so it "just works" on drop-in.
+    transposeMode.onClick = [this] { if (transposeMode.getToggleState()) matchKeyButton.onClick(); };
+    transposeReadout.setJustificationType (juce::Justification::centredLeft);
+    transposeReadout.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    proPanel.addAndMakeVisible (transposeReadout);
     styleKnob (flexAmt);
     styleKnob (transition);
     styleKnob (throat);
@@ -593,6 +625,8 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     vibratoAttach          = std::make_unique<SliderAttachment> (params, "vibrato", vibratoKnob);
     liveEngineAttach       = std::make_unique<ButtonAttachment> (params, "liveEngine", liveEngine);
     neuralPitchAttach      = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
+    transposeModeAttach    = std::make_unique<ButtonAttachment> (params, "xposeMode", transposeMode);
+    transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
 
     showTab (0);
     startTimerHz (15);
@@ -744,6 +778,21 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     // Show only the live engine status; the JSON-trace summary is dev-only.
     traceStatus.setText (audioProcessor.getLiveStatusSummary(), juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
+
+    // Transpose-to-Key readout: detected source key -> shift -> resulting key.
+    {
+        static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const int src   = juce::jlimit (0, 11, snap.detectedRoot);
+        const int semis = juce::jlimit (-12, 12,
+            (int) std::round (audioProcessor.parameters().getRawParameterValue ("xposeSemis")->load()));
+        const int res   = ((src + semis) % 12 + 12) % 12;
+        const bool on   = audioProcessor.parameters().getRawParameterValue ("xposeMode")->load() > 0.5f;
+        transposeReadout.setText (on
+            ? juce::String ("detected ") + nm[src] + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
+                + (semis > 0 ? "+" : "") + juce::String (semis) + juce::String::fromUTF8 (" st  \xe2\x86\x92  ") + nm[res]
+            : juce::String ("off \xe2\x80\x94 per-note correction active"),
+            juce::dontSendNotification);
+    }
 
     // Track Key Map status panel.
     const auto km = audioProcessor.getKeyMapStatus();
@@ -924,6 +973,17 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto vibratoCell = behaviourRow;
     vibratoCaption.setBounds (vibratoCell.removeFromTop (14));
     vibratoKnob.setBounds (vibratoCell);
+
+    // Transpose to Key (top of right column): whole-mix transpose for beats/instruments.
+    transposeCaption.setBounds (pRight.removeFromTop (16));
+    auto xRow = pRight.removeFromTop (28);
+    transposeMode.setBounds (xRow.removeFromLeft ((int) (xRow.getWidth() * 0.62f)));
+    xRow.removeFromLeft (8);
+    matchKeyButton.setBounds (xRow);
+    pRight.removeFromTop (4);
+    transposeSemis.setBounds (pRight.removeFromTop (28));
+    transposeReadout.setBounds (pRight.removeFromTop (18));
+    pRight.removeFromTop (12);
 
     // Live status + key-detection (top half of right column).
     // loadTraceButton is intentionally not laid out - it's dev-only.

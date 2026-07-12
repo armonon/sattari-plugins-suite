@@ -191,6 +191,7 @@ int main (int argc, char** argv)
     const bool gainstage= (argc > 1 && std::strcmp (argv[1], "--gainstage") == 0);
     const bool vibtest  = (argc > 1 && std::strcmp (argv[1], "--vibtest") == 0);
     const bool polytest = (argc > 1 && std::strcmp (argv[1], "--polytest") == 0);
+    const bool xposetest= (argc > 1 && std::strcmp (argv[1], "--xposetest") == 0);
 
     const double sr = 48000.0;
     const int    block = 512;
@@ -415,6 +416,79 @@ int main (int argc, char** argv)
         if (peak < 1.0e-3f)     { std::fprintf (stderr, "FAIL: output silent (peak %.3g)\n", peak); ++fails; }
 
         std::printf (fails == 0 ? "Auto Pitch real-polyphonic proof ok\n" : "Auto Pitch real-polyphonic proof FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
+    }
+
+    // ---- Transpose-to-Key proof: enable xposeMode and shift a known 440 Hz tone by
+    //      N semitones; the output F0 must equal 440 * 2^(N/12). Proves the whole-mix
+    //      transpose engine shifts by exactly the requested amount.
+    if (xposetest)
+    {
+        juce::AudioBuffer<float> tone;
+        {
+            const int nn = (int) (sr * 2.5);
+            tone.setSize (1, nn);
+            float* d = tone.getWritePointer (0);
+            double ph = 0.0;
+            for (int i = 0; i < nn; ++i) { d[i] = 0.5f * (float) std::sin (ph); ph += 2.0 * M_PI * 440.0 / sr; }
+        }
+        // Dominant F0 via normalized autocorrelation over the settled tail — robust to
+        // harmonics / HF artifacts that fool a zero-crossing counter.
+        auto f0 = [&] (const juce::AudioBuffer<float>& b) {
+            const int n = b.getNumSamples();
+            const int s0 = (int) (n * 0.6);
+            const int len = n - s0;
+            const float* d = b.getReadPointer (0) + s0;
+            const int loLag = (int) (sr / 800.0), hiLag = (int) (sr / 150.0);
+            std::vector<double> corr ((size_t) (hiLag - loLag + 1), 0.0);
+            double best = -1.0;
+            for (int lag = loLag; lag <= hiLag; ++lag)
+            {
+                double acc = 0, e0 = 0, e1 = 0;
+                for (int i = 0; i + lag < len; ++i) { acc += d[i] * d[i + lag]; e0 += d[i] * d[i]; e1 += d[i + lag] * d[i + lag]; }
+                const double norm = (e0 > 0 && e1 > 0) ? acc / std::sqrt (e0 * e1) : 0.0;
+                corr[(size_t) (lag - loLag)] = norm;
+                best = std::max (best, norm);
+            }
+            // The fundamental is the FIRST local-maximum lag above a floor; longer strong
+            // lags are subharmonics (a pure sine correlates at every period multiple).
+            // Parabolic interpolation around the peak refines the sub-sample period.
+            for (int lag = loLag + 1; lag < hiLag; ++lag)
+            {
+                const double c = corr[(size_t) (lag - loLag)];
+                const double a = corr[(size_t) (lag - loLag - 1)];
+                const double e = corr[(size_t) (lag - loLag + 1)];
+                if (c > 0.5 && c >= a && c >= e)
+                {
+                    const double denom = a - 2.0 * c + e;
+                    const double delta = std::abs (denom) > 1e-12 ? 0.5 * (a - e) / denom : 0.0;
+                    return sr / ((double) lag + delta);
+                }
+            }
+            return 0.0;
+        };
+        const int semitones[] = { -5, 3, 7 };
+        int fails = 0;
+        std::printf ("== Transpose-to-Key (whole-mix shift accuracy) ==\n");
+        for (int s : semitones)
+        {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "neuralPitch", 0.0f);
+            setParam (a, "xposeMode", 1.0f);
+            setParam (a, "xposeSemis", (float) s);
+            const auto out = sattari::harness::renderThrough (p, tone, sr, block);
+            const double got = f0 (out);
+            const double want = 440.0 * std::pow (2.0, (double) s / 12.0);
+            const double centsErr = got > 0.0 ? 1200.0 * std::log2 (got / want) : 9999.0;
+            const bool ok = std::abs (centsErr) <= 35.0;   // <35 cents = correct semitone shift
+            if (! ok) ++fails;
+            std::printf ("  %+d st: want %.1f Hz  got %.1f Hz  (%.1f cents)  [%s]\n",
+                         s, want, got, centsErr, ok ? "OK" : "FAIL");
+        }
+        std::printf (fails == 0 ? "Auto Pitch transpose-to-key proof ok\n"
+                                : "Auto Pitch transpose-to-key proof FAILED (%d)\n", fails);
         return fails == 0 ? 0 : 1;
     }
 

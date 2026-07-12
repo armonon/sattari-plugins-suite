@@ -175,7 +175,8 @@ private:
     float styleRetuneCoefficient() const;
     juce::String currentStyleChoice() const;
     double pitchScaleForFrame (const PitchFrame& frame) const;
-    void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
+                                bool straightTranspose = false);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
 
@@ -209,6 +210,8 @@ private:
     mutable juce::AudioBuffer<float> harmonyScratch;
     double smoothedPitchScale = 1.0;
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
+    double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
+    bool   lastXposeActive    = false; // Transpose mode ran last block (flush engines on toggle)
     std::array<double, 12> autoKeyHistogram {};
     int detectedAutoRoot = 9;
     int detectedAutoScale = 1;   // AutoKey auto-detected mode: 0=major, 1=minor

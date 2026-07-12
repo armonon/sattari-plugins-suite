@@ -201,6 +201,12 @@ private:
     juce::Slider flexAmt, transition, throat, vibratoKnob;
     juce::Label flexAmtCaption, transitionCaption, throatCaption, vibratoCaption;
 
+    // --- Transpose to Key (Pro tab): whole-mix musical transpose for beats/instruments
+    juce::ToggleButton transposeMode { "Transpose to Key (whole mix)" };
+    juce::Slider transposeSemis;
+    juce::Label transposeCaption, transposeReadout;
+    juce::TextButton matchKeyButton { "Match Key" };
+
     // --- New engine / detector controls (Pro tab) ----------------------------
     juce::ToggleButton liveEngine  { "Live Engine (PSOLA)" };
     juce::ToggleButton neuralPitch { "Neural Pitch" };
@@ -227,7 +233,8 @@ private:
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
                                        polyphonicAttach, classicModeAttach;
     std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
-    std::unique_ptr<ButtonAttachment> liveEngineAttach, neuralPitchAttach;
+    std::unique_ptr<ButtonAttachment> liveEngineAttach, neuralPitchAttach, transposeModeAttach;
+    std::unique_ptr<SliderAttachment> transposeSemisAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };
