@@ -13,6 +13,7 @@
 #include <atomic>
 #include <complex>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -410,6 +411,12 @@ private:
     std::atomic<float> crepeResultHz { 0.0f };
     std::atomic<float> crepeResultConf { 0.0f };
     std::atomic<bool>  crepeResultVoiced { false };
+    // Offline (host bounce / non-realtime): the 12 ms worker can't keep pace with
+    // instant block processing, so neural pitch silently degrades to YIN. When
+    // offlineMode is set, the audio thread runs the ONNX inference SYNCHRONOUSLY under
+    // crepeMutex, and the worker skips (so the two never call analyse() concurrently).
+    std::atomic<bool>  offlineMode { false };
+    std::mutex         crepeMutex;
     void crepeWorkerLoop();
 
     // --- Vibrato preservation ------------------------------------------------

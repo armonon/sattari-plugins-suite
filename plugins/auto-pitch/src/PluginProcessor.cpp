@@ -166,10 +166,14 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
     while (crepeThreadRun.load (std::memory_order_relaxed))
     {
         // Only run inference when the user has enabled Neural Pitch and a model
-        // is loaded. The heavy ONNX Run() happens HERE, off the audio thread.
+        // is loaded. The heavy ONNX Run() happens HERE, off the audio thread. When
+        // offline, the audio thread drives inference synchronously instead, so the
+        // worker steps aside (offlineMode) — the mutex guards the hand-off window.
         if (crepeModelPresent
+            && ! offlineMode.load (std::memory_order_relaxed)
             && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
         {
+            const std::lock_guard<std::mutex> lk (crepeMutex);
             const auto r = crepe.analyse (0.5f);
             crepeResultHz.store (r.frequencyHz, std::memory_order_relaxed);
             crepeResultConf.store (r.confidence, std::memory_order_relaxed);
@@ -1868,11 +1872,27 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
         crepe.pushBlock (scMonoScratch.data(), numSamples);
 
-        const float crHz   = crepeResultHz.load (std::memory_order_relaxed);
-        const float crConf = crepeResultConf.load (std::memory_order_relaxed);
+        // Offline (host bounce): the worker can't keep up, so run the ONNX inference
+        // synchronously here — otherwise the neural detector silently degrades to YIN
+        // on a render. Realtime path is unchanged (reads the worker's result atomics).
+        const bool offline = isNonRealtime();
+        offlineMode.store (offline, std::memory_order_relaxed);
+        float crHz, crConf; bool crVoiced;
+        if (offline)
+        {
+            const std::lock_guard<std::mutex> lk (crepeMutex);
+            const auto r = crepe.analyse (0.5f);
+            crHz = r.frequencyHz; crConf = r.confidence; crVoiced = r.voiced;
+        }
+        else
+        {
+            crHz      = crepeResultHz.load (std::memory_order_relaxed);
+            crConf    = crepeResultConf.load (std::memory_order_relaxed);
+            crVoiced  = crepeResultVoiced.load (std::memory_order_relaxed);
+        }
         lastCrepeHz = crHz;
         lastCrepeConfidence = crConf;
-        if (crepeResultVoiced.load (std::memory_order_relaxed) && crHz > 0.0f && lastPitchFrame.voiced)
+        if (crVoiced && crHz > 0.0f && lastPitchFrame.voiced)
         {
             // Range-gate the CREPE estimate to the selected Sound Source, exactly
             // like the YIN gate (analyseCurrentPitchFrame -> result.voiced). An

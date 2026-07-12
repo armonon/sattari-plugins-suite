@@ -225,6 +225,7 @@ int main (int argc, char** argv)
             setParam (a, "formantPreserve", 1.0f);
             setParam (a, "vibrato", hard ? 0.0f : 0.5f);
             setParam (a, "classicMode", hard ? 1.0f : 0.0f);   // hard = instant retune
+            p.setNonRealtime (true);                           // offline -> synchronous CREPE
             auto o = sattari::harness::renderThrough (p, in, fsr, 512);
             return std::make_pair (o, p.currentKeyOrigin());
         };
@@ -334,6 +335,7 @@ int main (int argc, char** argv)
         setParam (a, "classicMode", 1.0f); setParam (a, "vibrato", 0.0f);   // HARD
 
         const int block = 512;
+        p.setNonRealtime (true);                               // offline -> synchronous CREPE
         p.setRateAndBufferSizeDetails (fsr, block); p.prepareToPlay (fsr, block);
         juce::AudioBuffer<float> work (2, block);
         std::vector<SattariAutoPitchAudioProcessor::DebugFrame> frames;
