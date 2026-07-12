@@ -435,7 +435,23 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     };
     styleCaption (editNotesLabel, "EDIT NOTES");
     basicPanel.addAndMakeVisible (editNotesLabel);
-    basicPanel.addAndMakeVisible (lowLatency);
+
+    // Engine selector (replaces the old Live-Engine + Low-Latency toggles). One 3-way
+    // choice driving the liveEngine + lowLatency params, so presets/automation still work.
+    styleCaption (engineCaption, "ENGINE");
+    engineSelect.addItemList ({ "Studio  (best quality)", "Live", "Live \xc2\xb7 Low-Latency" }, 1);
+    engineSelect.onChange = [this]
+    {
+        switch (engineSelect.getSelectedItemIndex())
+        {
+            case 0: setKeyParam ("liveEngine", 0.0f); setKeyParam ("lowLatency", 0.0f); break;  // Studio (RB)
+            case 1: setKeyParam ("liveEngine", 1.0f); setKeyParam ("lowLatency", 0.0f); break;  // Live (PSOLA)
+            case 2: setKeyParam ("liveEngine", 1.0f); setKeyParam ("lowLatency", 1.0f); break;  // Live low-latency
+            default: break;
+        }
+    };
+    basicPanel.addAndMakeVisible (engineCaption);
+    basicPanel.addAndMakeVisible (engineSelect);
 
     styleKnob (retuneSpeed, true);
     styleKnob (flexTune);
@@ -496,7 +512,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     // Antares-class behaviour controls.
     proPanel.addAndMakeVisible (classicMode);
-    proPanel.addAndMakeVisible (liveEngine);
     proPanel.addAndMakeVisible (neuralPitch);
 
     // Transpose to Key: whole-mix musical transpose for beats/instruments. The semitone
@@ -590,7 +605,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     autoKeyAttach        = std::make_unique<ButtonAttachment> (params, "autoKey", autoKey);
     followKeyAttach      = std::make_unique<ButtonAttachment> (params, "followSongKey", followKey);
-    lowLatencyAttach     = std::make_unique<ButtonAttachment> (params, "lowLatency", lowLatency);
 
     // Style is a Choice param (5 modes), not Bool. The Modern/Classic toggle maps
     // off=Modern Rap (idx 2), on=Classic (idx 1). Other style values still live
@@ -622,7 +636,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     transitionAttach       = std::make_unique<SliderAttachment> (params, "transition", transition);
     throatAttach           = std::make_unique<SliderAttachment> (params, "throat", throat);
     vibratoAttach          = std::make_unique<SliderAttachment> (params, "vibrato", vibratoKnob);
-    liveEngineAttach       = std::make_unique<ButtonAttachment> (params, "liveEngine", liveEngine);
     neuralPitchAttach      = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
     transposeModeAttach    = std::make_unique<ButtonAttachment> (params, "xposeMode", transposeMode);
     transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
@@ -778,6 +791,16 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     traceStatus.setText (audioProcessor.getLiveStatusSummary(), juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
 
+    // Reflect the engine (params -> selector) so presets/automation keep it in sync.
+    {
+        auto& a = audioProcessor.parameters();
+        const bool lowLat = a.getRawParameterValue ("lowLatency")->load() > 0.5f;
+        const bool live   = a.getRawParameterValue ("liveEngine")->load() > 0.5f;
+        const int idx = lowLat ? 2 : (live ? 1 : 0);
+        if (engineSelect.getSelectedItemIndex() != idx)
+            engineSelect.setSelectedItemIndex (idx, juce::dontSendNotification);
+    }
+
     // Transpose-to-Key readout: detected source key -> shift -> resulting key.
     {
         static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
@@ -893,8 +916,11 @@ void SattariAutoPitchAudioProcessorEditor::resized()
 
     left.removeFromTop (10);
     auto bottomRow = left.removeFromTop (32);
-    detuneLabel.setBounds (bottomRow.removeFromLeft (200));
-    lowLatency.setBounds (bottomRow.removeFromRight (140));
+    detuneLabel.setBounds (bottomRow.removeFromLeft (150));
+    // Engine selector on the right: caption + 3-way combo.
+    auto engineArea = bottomRow.removeFromRight (juce::jmin (244, bottomRow.getWidth()));
+    engineCaption.setBounds (engineArea.removeFromLeft (56));
+    engineSelect.setBounds (engineArea.reduced (0, 2));
 
     // ---- Right side (big knob + 2 small + style) ----
     retuneSpeedCaption.setBounds (right.removeFromTop (16));
@@ -945,11 +971,10 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
 
-    // Engine / detector toggles: Live Engine (PSOLA) + Neural Pitch (CREPE).
+    // Detector toggle: Neural Pitch (CREPE). The engine choice lives on the Basic tab
+    // as the single Engine selector (Studio / Live / Live Low-Latency).
     pLeft.removeFromTop (10);
-    auto engineRow = pLeft.removeFromTop (28);
-    liveEngine.setBounds (engineRow.removeFromLeft (engineRow.getWidth() / 2));
-    neuralPitch.setBounds (engineRow);
+    neuralPitch.setBounds (pLeft.removeFromTop (28));
 
     // Antares-class behaviour row: Classic Mode toggle + Flex / Transition /
     // Throat / Vibrato.

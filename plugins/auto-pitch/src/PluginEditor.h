@@ -182,7 +182,11 @@ private:
     // a confidence lock meter; the buttons make every mode a single visible click.
     KeyButton keyButton;
     juce::TextButton autoDetectBtn { "AUTO-DETECT" }, followSongBtn { "FOLLOW SONG" }, setKeyBtn { "SET KEY" };
-    juce::ToggleButton lowLatency { "Low Latency" };
+    // One engine selector replaces the old Live-Engine + Low-Latency toggles:
+    // Studio (Rubber Band) / Live (PSOLA) / Live Low-Latency (PSOLA, raised floor).
+    // Drives the liveEngine + lowLatency params underneath (preset/automation compat).
+    juce::ComboBox engineSelect;
+    juce::Label engineCaption;
 
     juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;
     juce::Slider retuneSpeed, flexTune, humanize;
@@ -208,7 +212,6 @@ private:
     juce::TextButton matchKeyButton { "Match Key" };
 
     // --- New engine / detector controls (Pro tab) ----------------------------
-    juce::ToggleButton liveEngine  { "Live Engine (PSOLA)" };
     juce::ToggleButton neuralPitch { "Neural Pitch" };
     juce::TextButton loadTraceButton { "Load trace JSON" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
@@ -229,11 +232,11 @@ private:
     std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
     std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, humanizeAttach,
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
-    std::unique_ptr<ButtonAttachment> autoKeyAttach, followKeyAttach, lowLatencyAttach,
+    std::unique_ptr<ButtonAttachment> autoKeyAttach, followKeyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
                                        polyphonicAttach, classicModeAttach;
     std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
-    std::unique_ptr<ButtonAttachment> liveEngineAttach, neuralPitchAttach, transposeModeAttach;
+    std::unique_ptr<ButtonAttachment> neuralPitchAttach, transposeModeAttach;
     std::unique_ptr<SliderAttachment> transposeSemisAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
