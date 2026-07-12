@@ -323,18 +323,25 @@ int main (int argc, char** argv)
                                                    * (float) i / (float) (kFftSize - 1));
 
     struct ProfileDef { const char* name; const double* maj; const double* min; };
-    const ProfileDef profiles[3] = {
+    const int NPROF = 5;
+    const ProfileDef profiles[NPROF] = {
         { "Krumhansl-Schmuckler",   detail::kKrumhanslMajor, detail::kKrumhanslMinor },
         { "Temperley/Kostka-Payne", detail::kTemperleyMajor, detail::kTemperleyMinor },
         { "Aarden-Essen",           detail::kAardenMajor,    detail::kAardenMinor    },
+        { "Sha'ath (audio)",        detail::kShaathMajor,    detail::kShaathMinor    },
+        { "Bellman-Budge",          detail::kBellmanMajor,   detail::kBellmanMinor   },
     };
-    ProfileScore scores[3];       // current linear-FFT chroma
-    ProfileScore scoresHpcp[3];   // new HPCP chroma (tuning-corrected + harmonic-summed)
-    for (int i = 0; i < 3; ++i)
+    ProfileScore scores[NPROF];       // current linear-FFT chroma
+    ProfileScore scoresHpcp[NPROF];   // new HPCP chroma (tuning-corrected + harmonic-summed)
+    for (int i = 0; i < NPROF; ++i)
     {
         scores[i].name     = profiles[i].name;
         scoresHpcp[i].name = profiles[i].name;
     }
+    // Store per-track HPCP chroma + truth so we can FIT an empirical profile and score
+    // it on a held-out half (honest generalisation, not in-sample).
+    std::vector<std::array<double,12>> allChroma;
+    std::vector<Truth> allTruth;
 
     int nTracks = 0, nSkipped = 0, nMissingAudio = 0;
 
@@ -368,13 +375,15 @@ int main (int argc, char** argv)
         fileChromaHpcp (fft, hann, mono, sampleRate, chromaHpcp);
 
         ++nTracks;
-        for (int p = 0; p < 3; ++p)
+        for (int p = 0; p < NPROF; ++p)
         {
             const KeyResult k  = detail::detectKeyWithProfiles (chroma,     profiles[p].maj, profiles[p].min);
             const KeyResult kh = detail::detectKeyWithProfiles (chromaHpcp, profiles[p].maj, profiles[p].min);
             scores[p].add     (k.valid  ? categorise (k.root,  k.minor,  truth.root, truth.minor) : Cat::Wrong);
             scoresHpcp[p].add (kh.valid ? categorise (kh.root, kh.minor, truth.root, truth.minor) : Cat::Wrong);
         }
+        std::array<double,12> ch; for (int i = 0; i < 12; ++i) ch[(size_t)i] = chromaHpcp[i];
+        allChroma.push_back (ch); allTruth.push_back (truth);
     }
 
     if (nTracks == 0)
@@ -388,7 +397,7 @@ int main (int argc, char** argv)
     std::printf ("Scored %d tracks  (skipped %d unparseable/silence/modal, %d missing audio)\n\n",
                  nTracks, nSkipped, nMissingAudio);
 
-    auto printBlock = [] (const char* title, const ProfileScore s[3])
+    auto printBlock = [NPROF] (const char* title, const ProfileScore s[])
     {
         std::printf ("== %s ==\n", title);
         std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
@@ -396,7 +405,7 @@ int main (int argc, char** argv)
         std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
                      "------------------------", "------", "--------", "---------",
                      "-------------------------");
-        for (int p = 0; p < 3; ++p)
+        for (int p = 0; p < NPROF; ++p)
         {
             const double rawAcc = 100.0 * (double) s[p].exact / (double) s[p].scored;
             const double mirex  = 100.0 * s[p].weightSum / (double) s[p].scored;
@@ -410,10 +419,51 @@ int main (int argc, char** argv)
     printBlock ("CURRENT chroma (linear FFT)",  scores);
     printBlock ("HPCP chroma (tuning-corrected + harmonic sum)", scoresHpcp);
 
-    // Overall winner across all 6 (chroma, profile) combos.
+    // ── Empirical profile: FIT to our own HPCP chroma, scored held-out ───────────
+    // Tonic-align each track's chroma by its ground-truth root, average per mode over
+    // a TRAIN half, then score on the TEST half (idx%2) so the number is honest, not
+    // in-sample. Also print the all-data fit for shipping.
+    auto fitProfiles = [&] (bool trainOnEven, std::array<double,12>& maj, std::array<double,12>& mnr) {
+        maj.fill (0.0); mnr.fill (0.0); int nMaj = 0, nMin = 0;
+        for (size_t t = 0; t < allChroma.size(); ++t) {
+            if (trainOnEven && (t % 2 != 0)) continue;          // even = train
+            const auto& tr = allTruth[t];
+            double sum = 0; for (double v : allChroma[t]) sum += v; if (sum < 1e-9) continue;
+            for (int i = 0; i < 12; ++i) {
+                const double v = allChroma[t][(size_t)((i + tr.root) % 12)] / sum;   // rotate tonic->0
+                if (tr.minor) { mnr[(size_t)i] += v; } else { maj[(size_t)i] += v; }
+            }
+            tr.minor ? ++nMin : ++nMaj;
+        }
+        if (nMaj) for (auto& v : maj) v /= nMaj;
+        if (nMin) for (auto& v : mnr) v /= nMin;
+    };
+    std::array<double,12> empMaj, empMin;
+    fitProfiles (true, empMaj, empMin);                          // fit on TRAIN (even)
+    ProfileScore empScore; empScore.name = "Empirical (HPCP, held-out)";
+    for (size_t t = 0; t < allChroma.size(); ++t) {
+        if (t % 2 == 0) continue;                                // score on TEST (odd)
+        const KeyResult k = detail::detectKeyWithProfiles (allChroma[t].data(), empMaj.data(), empMin.data());
+        empScore.add (k.valid ? categorise (k.root, k.minor, allTruth[t].root, allTruth[t].minor) : Cat::Wrong);
+    }
+    // Refit on ALL data for the shipped constants.
+    std::array<double,12> shipMaj, shipMin; fitProfiles (false, shipMaj, shipMin);
+    std::printf ("== EMPIRICAL profile (fit to our HPCP chroma) ==\n");
+    std::printf ("  held-out MIREXx100 = %.2f   (%d test tracks; exact/fifth/rel/par/wrong %d/%d/%d/%d/%d)\n\n",
+                 100.0 * empScore.weightSum / (double) juce::jmax (1, empScore.scored), empScore.scored,
+                 empScore.exact, empScore.fifth, empScore.relative, empScore.parallel, empScore.wrong);
+    auto printProf = [] (const char* nm, const std::array<double,12>& p) {
+        std::printf ("  kEmpirical%s[12] = { ", nm);
+        for (int i = 0; i < 12; ++i) std::printf ("%.4f%s", p[(size_t)i], i < 11 ? ", " : " };\n");
+    };
+    printProf ("Major", shipMaj);
+    printProf ("Minor", shipMin);
+    std::printf ("\n");
+
+    // Overall winner across all (chroma, profile) combos.
     const char* bestName = scores[0].name; const char* bestChroma = "current";
     double bestMirex = -1.0;
-    for (int p = 0; p < 3; ++p)
+    for (int p = 0; p < NPROF; ++p)
     {
         const double m  = 100.0 * scores[p].weightSum     / (double) scores[p].scored;
         const double mh = 100.0 * scoresHpcp[p].weightSum / (double) scoresHpcp[p].scored;

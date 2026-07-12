@@ -1451,24 +1451,6 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
                                                    * (float) i / (float) (fftSize - 1));
 
-    static constexpr double kProfileMajor[12] = { 6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88 };
-    static constexpr double kProfileMinor[12] = { 6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17 };
-
-    auto pearson = [] (const std::array<double,12>& h, const double* profile, int root) -> double
-    {
-        double meanH = 0.0, meanP = 0.0;
-        for (int i = 0; i < 12; ++i) { meanH += h[(size_t) i]; meanP += profile[i]; }
-        meanH /= 12.0; meanP /= 12.0;
-        double num = 0.0, dH = 0.0, dP = 0.0;
-        for (int i = 0; i < 12; ++i)
-        {
-            const double dh = h[(size_t) ((i + root) % 12)] - meanH;
-            const double dp = profile[i] - meanP;
-            num += dh * dp; dH += dh * dh; dP += dp * dp;
-        }
-        const double d = std::sqrt (dH * dP);
-        return d > 1.0e-9 ? num / d : -1.0;
-    };
 
     std::vector<KeyMapEntry> built;
     std::vector<KeyMapEntry> wins;   // every window's raw key estimate (smoothed after)
@@ -1513,17 +1495,14 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
             for (auto& v : chroma) v /= total;
 
         // Pick best (root, mode) by Krumhansl correlation.
-        double bestScore = -2.0;
-        int bestRoot = 0, bestMode = 0;
-        for (int mode = 0; mode < 2; ++mode)
-        {
-            const double* prof = (mode == 0) ? kProfileMajor : kProfileMinor;
-            for (int root = 0; root < 12; ++root)
-            {
-                const double s = pearson (chroma, prof, root);
-                if (s > bestScore) { bestScore = s; bestRoot = root; bestMode = mode; }
-            }
-        }
+        // Detect (root, mode) via the SHARED key detector + the default profile, so the
+        // Key Map uses the SAME profile as live AutoKey (this used to be inline Krumhansl,
+        // which drifted from the AutoKey profile and never got the profile upgrade).
+        const auto kr = sattari::dsp::detail::detectKeyWithProfiles (
+                            chroma.data(), sattari::dsp::detail::kDefaultMajor, sattari::dsp::detail::kDefaultMinor);
+        const int   bestRoot  = kr.valid ? kr.root : (wins.empty() ? 0 : wins.back().rootIdx);
+        const int   bestMode  = kr.minor ? 1 : 0;
+        const float bestScore = kr.valid ? (float) kr.confidence : 0.0f;
 
         wins.push_back ({ (double) pos / sr, bestRoot, bestMode, (float) bestScore });
 
