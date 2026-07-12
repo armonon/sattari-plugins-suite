@@ -9,7 +9,7 @@ void MixerSection::paint (juce::Graphics& g)
     g.drawRoundedRectangle (area, 14.0f, 1.0f);
 
     g.setColour (juce::Colours::white.withAlpha (0.75f));
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
     g.drawText ("MIXER", getLocalBounds().removeFromTop (20), juce::Justification::centred);
 
     // Live master-output scope: scrolling stereo level history, oldest at the left.
@@ -60,7 +60,7 @@ void MixerSection::paint (juce::Graphics& g)
         // Peak-hold headroom chip (dBFS) top-right of the scope.
         const float db = juce::Decibels::gainToDecibels (running, -60.0f);
         g.setColour ((db > -0.5f ? juce::Colour (0xffff5f6a) : cyan).withAlpha (0.85f));
-        g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
         const juce::String hdr = running > 0.0001f ? juce::String (db, 1) + " dB"
                                                     : juce::String (juce::CharPointer_UTF8 ("-\xe2\x88\x9e dB"));
         g.drawText (hdr, scope.withHeight (10.0f).translated (0.0f, -2.0f), juce::Justification::topRight);

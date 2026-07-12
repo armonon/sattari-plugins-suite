@@ -431,7 +431,7 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
     const auto& e = entries[(size_t) view[(size_t) row]];
 
     g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-    g.setFont (juce::FontOptions (12.0f));
+    g.setFont (juce::FontOptions (11.5f));
     const auto area = juce::Rectangle<int> (4, 0, width - 8, height);
 
     switch (columnId)
@@ -458,10 +458,10 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
                 g.setColour (camelotColour (e.keyPitchClass, e.keyMinor).withAlpha (0.85f));
                 g.fillRoundedRectangle (chip.toFloat(), 3.0f);
                 g.setColour (juce::Colours::black.withAlpha (0.85f));
-                g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
                 g.drawText (code, chip, juce::Justification::centred);
                 g.setColour (juce::Colour (sattari::brand::kTextMuted));
-                g.setFont (juce::FontOptions (11.0f));
+                g.setFont (juce::FontOptions (11.5f));
                 g.drawText (e.keyPitchClass >= 0 ? TrackAnalyzer::pitchClassName (e.keyPitchClass) + (e.keyMinor ? "m" : "")
                                                  : juce::String(),
                             juce::Rectangle<int> (34, 0, width - 38, height), juce::Justification::centredLeft);
@@ -557,7 +557,8 @@ void MusicLibraryView::saveCrateList()
 
 void MusicLibraryView::resized()
 {
-    auto area = getLocalBounds();
+    // Inset content so children clear the panel's rounded corners.
+    auto area = getLocalBounds().reduced (8, 8);
     auto top = area.removeFromTop (26);
     addFolderButton.setBounds (top.removeFromLeft (72));
     top.removeFromLeft (4);

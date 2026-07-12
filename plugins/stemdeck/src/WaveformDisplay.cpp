@@ -201,6 +201,14 @@ std::pair<double, double> WaveformDisplay::visibleTimeRange (double totalLength)
 
 void WaveformDisplay::mouseDown (const juce::MouseEvent& e)
 {
+    // Empty deck: the whole display is a browse affordance.
+    if (playbackTotalSeconds <= 0.0 && thumbnail.getTotalLength() <= 0.0 && ! demoWaveform)
+    {
+        if (onBrowseRequest)
+            onBrowseRequest();
+        return;
+    }
+
     if (! onSeekRequest || playbackTotalSeconds <= 0.0)
         return;
     const auto wave  = getLocalBounds().toFloat().reduced (4.0f, 4.0f);
@@ -296,7 +304,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
             }
 
             g.setColour (col.withAlpha (0.65f));
-            g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (stemLabel (lane + 1),
                         band.withLeft (band.getX() + 4.0f).withWidth (50.0f).withHeight (11.0f),
                         juce::Justification::centredLeft);
@@ -312,7 +320,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
             else
             {
                 g.setColour (col.withAlpha (0.30f));
-                g.setFont (juce::FontOptions (9.0f));
+                g.setFont (juce::FontOptions (10.0f));
                 g.drawText ("drop " + juce::String (stemLabel (lane + 1)).toLowerCase(),
                             band.reduced (4.0f, 2.0f).toNearestInt(),
                             juce::Justification::centred);
@@ -346,31 +354,33 @@ void WaveformDisplay::paint (juce::Graphics& g)
     }
     else
     {
-        // ── Empty placeholder ─────────────────────────────────────────────────
-        g.setColour (juce::Colour (kHairline).withAlpha (0.45f));
-        for (int i = 1; i < 8; ++i)
-        {
-            const float x = wave.getX() + wave.getWidth() * (float) i / 8.0f;
-            g.drawVerticalLine ((int) std::round (x), wave.getY(), wave.getBottom());
-        }
+        // ── Empty state: an honest, actionable drop zone ─────────────────────
+        // Dashed border + flat centre line; the whole area is clickable (browse)
+        // and a drag-and-drop target. No fake waveform bars.
         g.setColour (juce::Colour (kHairline).withAlpha (0.30f));
         g.drawHorizontalLine ((int) std::round (wave.getCentreY()), wave.getX(), wave.getRight());
 
-        juce::Random random (title.hashCode());
-        const int bars = juce::jmax (18, wave.toNearestInt().getWidth() / 8);
-        for (int i = 0; i < bars; ++i)
+        const auto zone = wave.reduced (juce::jmin (18.0f, wave.getWidth() * 0.04f),
+                                        juce::jmin (10.0f, wave.getHeight() * 0.12f));
         {
-            const float x = wave.getX() + (float) i * wave.getWidth() / (float) bars;
-            const float h = wave.getHeight() * (0.10f + 0.78f * random.nextFloat());
-            const auto r = juce::Rectangle<float> (x + 1.0f, wave.getCentreY() - h * 0.5f,
-                                                   juce::jmax (2.0f, wave.getWidth() / (float) bars - 2.0f), h);
-            g.setColour (accent.withAlpha (0.22f));
-            g.fillRoundedRectangle (r, 1.5f);
+            juce::Path border;
+            border.addRoundedRectangle (zone, 6.0f);
+            const float dashes[] = { 5.0f, 4.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (border, border, dashes, 2);
+            g.setColour (accent.withAlpha (0.35f));
+            g.fillPath (border);
         }
-        g.setColour (juce::Colour (kTextMuted));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         if (showDropHint)
-            g.drawText ("DROX AUDIO", wave.toNearestInt().reduced (4), juce::Justification::centred);
+        {
+            g.setColour (juce::Colour (kTextPrimary).withAlpha (0.75f));
+            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+            g.drawText ("Drop a track here", zone.withTrimmedBottom (zone.getHeight() * 0.42f).toNearestInt(),
+                        juce::Justification::centredBottom);
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (10.0f));
+            g.drawText ("or click to browse", zone.withTrimmedTop (zone.getHeight() * 0.55f).toNearestInt(),
+                        juce::Justification::centredTop);
+        }
     }
 
     // ── Beat-match grid ──────────────────────────────────────────────────────
@@ -444,8 +454,8 @@ void WaveformDisplay::paint (juce::Graphics& g)
                 head.addTriangle (mx, ay, mx - 9.0f, ay + 4.5f, mx, ay + 9.0f);
             g.fillPath (head);
         };
-        drawDJMarker (introEndSeconds,   juce::Colour (0xFF00CCFF), true);   // cyan  ▶ = intro ends, mix in after
-        drawDJMarker (outroStartSeconds, juce::Colour (0xFFFF9900), false);  // amber ◀ = outro starts, mix out before
+        drawDJMarker (introEndSeconds,   juce::Colour (0xff26d9ff), true);   // cyan  ▶ = intro ends, mix in after
+        drawDJMarker (outroStartSeconds, juce::Colour (0xffffb020), false);  // amber ◀ = outro starts, mix out before
     }
 
     // ── Live playhead + progress shading ────────────────────────────────────
@@ -504,7 +514,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.setColour (accent.withAlpha (0.75f));
         g.fillRoundedRectangle (badge.toFloat(), 3.0f);
         g.setColour (juce::Colours::white.withAlpha (0.92f));
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         g.drawText ("RTSS LIVE", badge, juce::Justification::centred);
     }
 
@@ -512,7 +522,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
     if (zoomLevel > 1.05f)
     {
         g.setColour (accent.withAlpha (0.55f));
-        g.setFont (juce::FontOptions (9.0f));
+        g.setFont (juce::FontOptions (10.0f));
         g.drawText (juce::String (zoomLevel, 1) + "x",
                     wave.toNearestInt().withLeft (wave.toNearestInt().getRight() - 32).withHeight (12),
                     juce::Justification::centredRight);

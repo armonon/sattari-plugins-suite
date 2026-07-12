@@ -72,8 +72,8 @@ private:
         juce::TextButton loopDouble { "x2" };
 
         // ── Intro / Outro DJ markers ──────────────────────────────────────────
-        juce::TextButton introEndBtn   { ">> I-End" };
-        juce::TextButton outroStartBtn { "O-Bgn <<" };
+        juce::TextButton introEndBtn   { "Intro End" };
+        juce::TextButton outroStartBtn { "Outro Start" };
 
         // ── Slip mode + Loop Roll ─────────────────────────────────────────────
         juce::TextButton slipButton    { "Slip" };
@@ -217,7 +217,9 @@ private:
         // A snapshot captures the whole lane (its full clip vector) so split / delete
         // round-trip cleanly.
         struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; bool full = false; LaneClips allState;
-                              std::array<std::vector<MidiClipData>, numEditableLanes> allMidi; };
+                              std::array<std::vector<MidiClipData>, numEditableLanes> allMidi;
+                              // Automation curves ride along so point edits are undoable too.
+                              std::array<std::vector<std::pair<double, float>>, numLanes> allAutoPoints; };
         LaneSnapshot captureLaneState (int laneIndex) const;
         LaneSnapshot captureFullState() const;   // whole arrangement (for cross-lane moves)
         void commitEdit (LaneSnapshot before);
@@ -227,6 +229,8 @@ private:
         void redo();
 
         std::function<void(int)> onClearDeckRequest;
+        std::function<void(int)> onStopDeckRequest;   // stop the deck's transport (launcher Stop)
+        std::function<void()>    onLaneMixChanged;    // mute/solo/gain edited — apply live
         std::function<void(double)> onSeek;   // user clicked the ruler to move the play cursor
         struct MidiRef { int lane = -1; int clip = -1; bool valid() const noexcept { return lane >= 0 && clip >= 0; } };
         std::function<void(int,int)> onEditMidiClip;   // (lane, clip) double-clicked
@@ -288,8 +292,8 @@ private:
 
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
         bool  isLaneSoloed (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneSoloed[(size_t) lane]; }
-        void  toggleLaneMute (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneMuted[(size_t) lane]  = ! laneMuted[(size_t) lane];  repaint(); } }
-        void  toggleLaneSolo (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneSoloed[(size_t) lane] = ! laneSoloed[(size_t) lane]; repaint(); } }
+        void  toggleLaneMute (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneMuted[(size_t) lane]  = ! laneMuted[(size_t) lane];  if (onLaneMixChanged) onLaneMixChanged(); repaint(); } }
+        void  toggleLaneSolo (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneSoloed[(size_t) lane] = ! laneSoloed[(size_t) lane]; if (onLaneMixChanged) onLaneMixChanged(); repaint(); } }
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -333,7 +337,7 @@ private:
         std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
         std::array<EditAutomation, numLanes> editAuto;
         int dragAutoLane = -1, dragAutoPointIdx = -1;
-        bool showDemoBlocks = true;   // showcase placeholder timeline clips
+        bool showDemoBlocks = false;   // showcase placeholder timeline clips (opt-in via Settings)
         std::array<std::vector<MidiClipData>, numEditableLanes> midiClips {};
         MidiRef activeMidiDrag;
         double  dragStartMidiStart = 0.0;
@@ -450,9 +454,7 @@ private:
     XYPad masterFxPad;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
-    juce::TextButton recordButton { "Record WAV" };
     juce::TextButton tapTempoButton { "TAP" };
-    juce::Label tapTempoLabel;
     juce::TextButton camelotButton { "Key" };
     juce::TextButton midiLearnButton { "MIDI" };
     juce::Label libraryMetaLabel;   // shows BPM / key / duration for hovered file
@@ -519,17 +521,17 @@ private:
     std::unique_ptr<MusicLibraryView> libraryView;
     juce::TextButton toggleLibraryButton { "LIBRARY" };
     juce::TextButton navDecksButton { "DECKS" };
-    std::array<juce::TextButton, 4> viewSwitchBtns;   // mini icon strip under the title
     // Nav bar: icon-above-label cells (matches the mockup header).
     std::array<juce::Rectangle<int>, 5> navRects {};
     void drawNavIcon (juce::Graphics&, int which, juce::Rectangle<float> box, juce::Colour) const;
     // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
-    // limiter/mic/utility chips) are hidden by default for the clean mockup view.
+    // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button
+    // in the header (plus title double-click) reveals them.
     bool advancedVisible = false;
     juce::TextButton advancedToggle { "TOOLS" };
-    // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline blocks).
-    // A real Settings gear toggles this back to live-loaded-audio behavior.
-    bool showcaseMode = true;
+    // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline
+    // blocks). Off by default — real state only; opt-in via the Settings gear.
+    bool showcaseMode = false;
     void setShowcaseMode (bool on);
     juce::TextButton settingsButton;   // gear — discoverable preferences (text set in ctor)
     void showSettingsMenu();
@@ -543,6 +545,7 @@ private:
     int    bpmDragDeck = -1;
     int    bpmDragStartY = 0;
     double bpmDragStartVal = 120.0;
+    bool   masterBpmDragging = false;   // drag on the GLOBAL TEMPO box
     void setDeckBpm (int deckIndex, double bpm);
     void showKeyMenuForDeck (int deckIndex);
     void syncBpmAll();   // warp all decks to the master deck's tempo (hotkey B)
@@ -637,6 +640,12 @@ private:
     void parameterChanged (const juce::String& parameterID, float newValue) override;
     static int parseDeckIndexFromParamID (const juce::String& id);
     static int parseStemLaneFromParamID (const juce::String& id);
+
+    // ── Motion state (eased in timerCallback @30Hz) ─────────────────────────
+    float navUnderlineX = -1.0f, navUnderlineW = 0.0f;      // sliding nav underline
+    std::array<double, 8> padFlashMs {};                    // pad-trigger flash stamps
+    // Activates every setTooltip() in the app (they are inert without a window).
+    juce::TooltipWindow tooltipWindow { this, 400 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainPluginEditor)
 };

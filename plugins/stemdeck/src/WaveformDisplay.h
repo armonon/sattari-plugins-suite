@@ -22,6 +22,9 @@ public:
     void setStemFile (int laneIndex, const juce::File& file);   // 1=drums 2=bass 3=music 4=vocals
     void setOnFileDropped (std::function<void(const juce::File&)> callback);
     void setOnSeekRequest (std::function<void(double /*seconds*/)> callback);
+    // Invoked when the user clicks an EMPTY display (no audio loaded): the editor
+    // opens its file chooser, so the empty state is a real affordance, not a poster.
+    void setOnBrowseRequest (std::function<void()> callback) { onBrowseRequest = std::move (callback); }
     void setPlaybackState (double positionSeconds, double totalSeconds, bool isPlaying);
 
     // Hot cues — drawn as coloured tick marks on the waveform
@@ -82,6 +85,7 @@ private:
     juce::File currentFile;
     std::function<void(const juce::File&)> onFileDropped;
     std::function<void(double)> onSeekRequest;
+    std::function<void()> onBrowseRequest;
 
     double playbackPositionSeconds = 0.0;
     double playbackTotalSeconds    = 0.0;

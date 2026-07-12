@@ -157,19 +157,14 @@ public:
         auto r = b.getLocalBounds().toFloat().reduced (0.5f);
         const bool on = b.getToggleState();
 
-        // Nav-bar cells: text-only, with an accent underline when active.
+        // Nav-bar cells: text-only hover/active wash. The active underline is
+        // painted by the editor as a single animated bar that slides between cells.
         if (b.getProperties().getWithDefault ("navNaked", false))
         {
             if (on || shouldDrawDown || shouldDrawHighlighted)
             {
                 g.setColour (getAccent().withAlpha (on ? 0.12f : 0.06f));
                 g.fillRoundedRectangle (r.reduced (2.0f), 6.0f);
-            }
-            if (on)
-            {
-                g.setColour (getAccent());
-                g.fillRoundedRectangle (r.getX() + 8.0f, r.getBottom() - 2.0f,
-                                        r.getWidth() - 16.0f, 2.0f, 1.0f);
             }
             return;
         }
