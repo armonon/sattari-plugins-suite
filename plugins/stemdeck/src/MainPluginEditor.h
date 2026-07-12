@@ -455,6 +455,7 @@ private:
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton tapTempoButton { "TAP" };
+    juce::TextButton masterPlayButton;   // header: play/stop ALL decks at once
     juce::TextButton camelotButton { "Key" };
     juce::TextButton midiLearnButton { "MIDI" };
     juce::Label libraryMetaLabel;   // shows BPM / key / duration for hovered file

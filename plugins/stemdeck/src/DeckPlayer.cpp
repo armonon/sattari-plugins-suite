@@ -1,4 +1,5 @@
 #include "DeckPlayer.h"
+#include "Interpolation.h"
 
 juce::String DeckPlayer::stemLaneId (int laneIndex)
 {
@@ -191,16 +192,11 @@ TrackAnalysis DeckPlayer::analyzeFullMixAroundPlayhead (double windowSeconds) co
 
 float DeckPlayer::readInterpolated (const juce::AudioBuffer<float>& audio, int channel, double position)
 {
-    const int numSamples = audio.getNumSamples();
-    if (numSamples <= 1)
-        return 0.0f;
-
-    const int c = juce::jlimit (0, audio.getNumChannels() - 1, channel);
-    const int i0 = juce::jlimit (0, numSamples - 1, (int) position);
-    const int i1 = juce::jmin (i0 + 1, numSamples - 1);
-    const float frac = (float) (position - (double) i0);
-    const auto* data = audio.getReadPointer (c);
-    return data[i0] + frac * (data[i1] - data[i0]);
+    // 16-tap Blackman-windowed sinc (see Interpolation.h): near-transparent
+    // sample-rate conversion and granular reads, and still bit-exact when the
+    // position lands on an integer sample (sinc(0) is a unit delta), so
+    // matched-rate no-stretch playback remains a pass-through.
+    return stemdeck::readSinc (audio, channel, position);
 }
 
 double DeckPlayer::wrapPosition (double position, double length)

@@ -2591,7 +2591,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         deckWaves[(size_t) i]->setOnBrowseRequest ([this, i] { openDeckChooser (i); });
         addAndMakeVisible (*deckWaves[(size_t) i]);
 
-        setupDeck (deckControls[(size_t) i], deckPrefix (i), "PLAY");
+        setupDeck (deckControls[(size_t) i], deckPrefix (i), u8 ("\xe2\x96\xb6 PLAY"));   // stopped default; timer swaps to STOP
         {
             const auto accent = deckAccent (i);
             auto& dc = deckControls[(size_t) i];
@@ -2838,6 +2838,23 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
     addAndMakeVisible (tapTempoButton);
+
+    // Universal transport: one button to play / stop every deck at once.
+    setupButton (masterPlayButton);
+    masterPlayButton.setButtonText (u8 ("\xe2\x96\xb6 PLAY ALL"));
+    masterPlayButton.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.22f));
+    masterPlayButton.setTooltip ("Play or stop every deck at once");
+    masterPlayButton.onClick = [this]
+    {
+        bool anyPlaying = false;
+        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+            anyPlaying = anyPlaying || processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+        const float target = anyPlaying ? 0.0f : 1.0f;   // any playing -> stop all, else start all
+        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+            if (auto* p = processorRef.parameters().getParameter (deckPrefix (i) + "Play"))
+                p->setValueNotifyingHost (target);
+    };
+    addAndMakeVisible (masterPlayButton);
     // Camelot wheel & MIDI learn buttons
     setupButton (camelotButton);
     camelotButton.onClick = [this] { showCamelotWheel (-1); };
@@ -2857,6 +2874,17 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     masterFxPad.attach (processorRef.parameters(), "masterFxX", "masterFxY");
     addAndMakeVisible (masterFxPad);
     setupSlider (crossfader, false);
+    // A crossfader's raw 0..1 value is meaningless; show the actual A/C <-> B/D
+    // balance instead, and double-click snaps back to CENTER.
+    crossfader.textFromValueFunction = [] (double v) -> juce::String
+    {
+        if (std::abs (v - 0.5) < 0.02) return "CENTER";
+        const int pct = (int) std::round (std::abs (v - 0.5) * 200.0);
+        return (v < 0.5 ? "A/C " : "B/D ") + juce::String (pct) + "%";
+    };
+    crossfader.setDoubleClickReturnValue (true, 0.5);
+    crossfader.updateText();
+    crossfader.setTooltip ("Crossfader: blends the A/C bus into the B/D bus. Double-click to centre.");
     setupSlider (masterBpm, false, " BPM");
     setupSlider (master, true, " dB");
     setupSlider (limiter, true, " dB");
@@ -3516,6 +3544,8 @@ void MainPluginEditor::applyImportedCues (int deckIndex)
         return;
     for (const auto& cue : found->second)
         processorRef.setHotCue (deckIndex, cue.num, cue.seconds);
+    refreshHotCueButtonColours (deckIndex);
+    updateWaveformHotCues (deckIndex);
 }
 
 void MainPluginEditor::applyExtractedDrums (int deckIndex, const std::vector<MelodyExtractor::Note>& hits)
@@ -4546,6 +4576,19 @@ void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
         }
     }
 
+    // Console deck meters: click to cycle this deck's crossfader assignment
+    // (A/C side -> Center -> B/D side), mirrored to the deck's Ctr/A/B buttons.
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        if (deckMeterBounds[(size_t) d].contains (e.getPosition()))
+        {
+            const int next = (processorRef.getDeckCfSide (d) + 1) % 3;
+            processorRef.setDeckCfSide (d, next);
+            for (int ss = 0; ss < 3; ++ss)
+                deckControls[(size_t) d].cfSideBtns[(size_t) ss].setToggleState (ss == next, juce::dontSendNotification);
+            repaint();
+            return;
+        }
+
     // GLOBAL TEMPO box: vertical drag adjusts the master tempo (same gesture as
     // the deck BPM chips) — the painted box is a real control, not a readout.
     if (masterTempoBounds.contains (e.getPosition()))
@@ -4940,9 +4983,13 @@ void MainPluginEditor::paint (juce::Graphics& g)
             const float y = barZone.getBottom() - (float) (seg + 1) * segH - (float) seg * segGap;
             g.fillRoundedRectangle (barZone.getX(), y, barZone.getWidth(), segH, 1.0f);
         }
+        // Deck letter + crossfader-side indicator ("<" A/C, "=" centre, ">" B/D).
+        // Clicking the meter cycles the side.
+        const int   side = processorRef.getDeckCfSide (d);
+        const char* mark = side == 0 ? "<" : side == 2 ? ">" : "=";
         g.setColour (accent.withAlpha (lit > 0 ? 0.95f : 0.5f));
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + d)),
+        g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + d)) + " " + mark,
                     r.withTop (r.getBottom() - 11.0f), juce::Justification::centred);
     }
 
@@ -5061,6 +5108,10 @@ void MainPluginEditor::resized()
     }
     subtitle.setBounds ({});   // mode line retired from the header (mockup layout)
     header.removeFromLeft (8);
+
+    // Universal transport: play/stop every deck at once (prominent, left of title).
+    masterPlayButton.setBounds (header.removeFromLeft (108).withSizeKeepingCentre (108, 34));
+    header.removeFromLeft (10);
 
     // Right cluster: settings gear / TOOLS / save / user presets / tempo chip.
     settingsButton.setBounds (header.removeFromRight (32).withSizeKeepingCentre (32, 30));
@@ -5644,6 +5695,9 @@ void MainPluginEditor::timerCallback()
                                     playing);
         if (playing != lastDeckPlayingUI[(size_t) i])
         {
+            // Transport button reflects the action: STOP while playing, PLAY while stopped.
+            deckControls[(size_t) i].play.setButtonText (playing ? u8 ("\xe2\x96\xa0 STOP")
+                                                                  : u8 ("\xe2\x96\xb6 PLAY"));
             // Auto-follow: the last deck to START playing becomes the sync master.
             if (playing)
                 setMasterDeck (i);
@@ -5652,7 +5706,16 @@ void MainPluginEditor::timerCallback()
         }
     }
     if (deckPlayChanged)
+    {
+        // Universal transport label follows the fleet: STOP ALL if anything plays.
+        bool anyPlaying = false;
+        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+            anyPlaying = anyPlaying || lastDeckPlayingUI[(size_t) i];
+        masterPlayButton.setButtonText (anyPlaying ? u8 ("\xe2\x96\xa0 STOP ALL") : u8 ("\xe2\x96\xb6 PLAY ALL"));
+        masterPlayButton.setColour (juce::TextButton::buttonColourId,
+            juce::Colour (sattari::brand::kAccent).withAlpha (anyPlaying ? 0.45f : 0.22f));
         repaint();   // refresh the deck-card active glow
+    }
 
     undoButton.setEnabled (arrangementView.canUndo());
     redoButton.setEnabled (arrangementView.canRedo());
@@ -5848,12 +5911,19 @@ void MainPluginEditor::timerCallback()
 void MainPluginEditor::setupToolTabs (int deckIndex)
 {
     static const char* const kLabels[] = { "CUE", "LOOP", "FX", "SYNC", "SRC" };
+    static const char* const kTips[] = {
+        "CUE - hot cues (1-8) + Intro End / Outro Start markers",
+        "LOOP - loop in/out, halve/double, slip, beat-roll and beat-jump",
+        "FX - this deck's echo/macro + per-stem filter, send and pitch",
+        "SYNC - source BPM, beat-grid offset, tempo/sync mode, key match",
+        "SRC - load a track, AI stem separation, and MIDI/drum extraction" };
     auto& dc = deckControls[(size_t) deckIndex];
     for (int t = 0; t < DeckControls::NumToolTabs; ++t)
     {
         auto& btn = dc.toolTabs[(size_t) t];
         btn.setButtonText (kLabels[t]);
         setupButton (btn);
+        btn.setTooltip (kTips[t]);
         btn.setColour (juce::TextButton::buttonOnColourId, deckAccent (deckIndex).withAlpha (0.55f));
         btn.onClick = [this, deckIndex, t] { setDeckToolTab (deckIndex, t); };
         addAndMakeVisible (btn);
@@ -5921,10 +5991,14 @@ void MainPluginEditor::setupHotCueButtons (int deckIndex)
         auto& btn = dc.hotCues[(size_t) c];
         btn.setButtonText (juce::String (c + 1));
         btn.setClickingTogglesState (false);
-        btn.setColour (juce::TextButton::buttonColourId,    kHotCueColours[(size_t) c].withAlpha (0.25f));
-        btn.setColour (juce::TextButton::buttonOnColourId,  kHotCueColours[(size_t) c].withAlpha (0.80f));
-        btn.setColour (juce::TextButton::textColourOffId,   kHotCueColours[(size_t) c]);
-        btn.setColour (juce::TextButton::textColourOnId,    juce::Colours::white);
+        // Empty by default: calm neutral pad. refreshHotCueButtonColours lights it
+        // up in its cue colour only once a cue is actually stored there.
+        btn.setColour (juce::TextButton::buttonColourId,   juce::Colour (sattari::brand::kPanelRaised));
+        btn.setColour (juce::TextButton::textColourOffId,  juce::Colour (sattari::brand::kTextMuted));
+        btn.setColour (juce::TextButton::textColourOnId,   juce::Colours::white);
+        btn.setTooltip ("Hot cue " + juce::String (c + 1)
+                        + " - click to drop a cue at the playhead, or jump to it. "
+                          "Alt-click clears; Cmd-click jumps + sets a 1-bar loop.");
         btn.onClick = [this, deckIndex, c]
         {
             handleHotCuePress (deckIndex, c, juce::ModifierKeys::getCurrentModifiers());
@@ -6003,8 +6077,11 @@ void MainPluginEditor::refreshHotCueButtonColours (int deckIndex)
     for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
     {
         const bool isSet = processorRef.getHotCue (deckIndex, c) >= 0.0;
+        // Set cue = its colour + white number; empty = neutral pad + muted number.
         dc.hotCues[(size_t) c].setColour (juce::TextButton::buttonColourId,
-                                          kHotCueColours[(size_t) c].withAlpha (isSet ? 0.60f : 0.18f));
+            isSet ? kHotCueColours[(size_t) c].withAlpha (0.55f) : juce::Colour (sattari::brand::kPanelRaised));
+        dc.hotCues[(size_t) c].setColour (juce::TextButton::textColourOffId,
+            isSet ? juce::Colours::white : juce::Colour (sattari::brand::kTextMuted));
     }
 }
 

@@ -208,6 +208,37 @@ target_link_libraries(StemDeckArchitectureContract
 
 sattari_enable_rubberband(StemDeckArchitectureContract SATTARI_STEMDECK_HAS_RUBBERBAND)
 
+add_executable(StemDeckBeatDetectTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_beat_detect.cpp
+        src/TrackAnalysis.cpp)
+add_dependencies(StemDeckBeatDetectTest SattariStemDeck)
+target_include_directories(StemDeckBeatDetectTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckBeatDetectTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckBeatDetectTest
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckBeatDetectTest)
+
+# ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
+# Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
+add_executable(StemDeckResamplerTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_resampler.cpp)
+add_dependencies(StemDeckResamplerTest SattariStemDeck)
+target_include_directories(StemDeckResamplerTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckResamplerTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckResamplerTest
+    PRIVATE juce::juce_audio_basics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+
 # ── Neural separation smoke test (real audio → 4 stems via ONNX Runtime) ───────
 # Exercises the app's exact NeuralStemEngine + ORT path headlessly. Only built
 # when ONNX Runtime is present.
