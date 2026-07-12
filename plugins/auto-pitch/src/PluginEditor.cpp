@@ -585,8 +585,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (useKeyMap);
     keyMapStatusLabel.setJustificationType (juce::Justification::topLeft);
     keyMapStatusLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
-    keyMapStatusLabel.setText ("No key map loaded.\nScan a track to build a per-section key timeline that the live\n"
-                               "correction follows via the host playhead.",
+    keyMapStatusLabel.setText (juce::String::fromUTF8 ("No key map \xe2\x80\x94 scan a track to follow key changes across a song."),
                                juce::dontSendNotification);
     proPanel.addAndMakeVisible (keyMapStatusLabel);
     scanTrackButton.onClick = [this] { onScanTrackClicked(); };
@@ -824,16 +823,14 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         s << "Scanning: " << km.scanProgress << "%\n";
     if (km.hasMap)
     {
-        s << "Loaded: " << km.loadedFileName << "\n";
-        s << km.numSegments << " key segments\n";
+        s << km.loadedFileName << juce::String::fromUTF8 ("   \xc2\xb7   ") << km.numSegments << " key segments";
         if (km.currentSegment >= 0)
-            s << "Currently at segment " << (km.currentSegment + 1);
+            s << juce::String::fromUTF8 ("   \xc2\xb7   segment ") << (km.currentSegment + 1);
     }
     else if (km.lastError.isNotEmpty())
         s << "Error: " << km.lastError;
     else if (km.scanProgress < 0)
-        s << "No key map loaded.\nScan a track to build a per-section key timeline that\n"
-             "the live correction follows via the host playhead.";
+        s << juce::String::fromUTF8 ("No key map \xe2\x80\x94 scan a track to follow key changes across a song.");
     keyMapStatusLabel.setText (s, juce::dontSendNotification);
 
     // Honest Neural Pitch label + state: the toggle silently falls back to YIN when no

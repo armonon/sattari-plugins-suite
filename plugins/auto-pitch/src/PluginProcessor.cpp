@@ -2521,28 +2521,23 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
-    const auto source = origin.source == KeyOrigin::Source::FollowBus ? juce::String ("Follow ")
-                      : origin.source == KeyOrigin::Source::KeyMap    ? juce::String ("Key Map ")
-                      : origin.source == KeyOrigin::Source::AutoKey   ? juce::String ("AutoKey ")
-                                                                       : juce::String ("key ");
     const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f
                          || apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
     const juce::String engine =
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        liveEngine ? "PSOLA live" : "Rubber Band realtime";
+        liveEngine ? "PSOLA" : "Rubber Band";
 #else
-        liveEngine ? "PSOLA live" : "fallback guide";
+        liveEngine ? "PSOLA" : "Guide";
 #endif
+    const juce::String dot = juce::String::fromUTF8 ("   \xc2\xb7   ");   // "  ·  "
 
     if (! lastPitchFrame.voiced)
-        return engine + " engine, " + source + root + " " + scale + " - waiting for voiced input";
+        return engine + dot + root + " " + scale + dot + "waiting for input";
 
-    return engine + " - " + source + root + " " + scale
-        + ", mode " + currentStyleChoice()
-        + ", in " + midiNoteName (lastPitchFrame.midi)
-        + " -> " + midiNoteName (lastPitchFrame.targetMidi)
-        + ", correction " + juce::String (lastPitchFrame.correctionCents, 1) + " cents"
-        + ", confidence " + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
+    return engine + dot + root + " " + scale + dot + currentStyleChoice() + dot
+        + midiNoteName (lastPitchFrame.midi) + juce::String::fromUTF8 (" \xe2\x86\x92 ") + midiNoteName (lastPitchFrame.targetMidi)
+        + dot + juce::String (lastPitchFrame.correctionCents, 1) + " ct"
+        + dot + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
 }
 
 sattari::audio_core::KeySignature SattariAutoPitchAudioProcessor::currentKeySignature() const
@@ -2572,39 +2567,14 @@ juce::String SattariAutoPitchAudioProcessor::currentSattariWheelCode() const
 
 juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
 {
+    // Minimal: just the key and how sure we are. (The harmonic-wheel / compatibility /
+    // bus-sharing detail used to live here but read as insider jargon in the UI.)
     const auto key = currentKeySignature();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, key.tonicPitchClass)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex())];
-    const auto wheelCode = currentSattariWheelCode();
     const int confidence = juce::roundToInt (key.confidence * 100.0);
-
-    if (wheelCode == "unknown")
-    {
-        return "Key Detection tab: " + root + " " + scale
-            + ", confidence " + juce::String (confidence) + "%"
-            + ", Sattari Wheel needs major/minor mode; Send to Tune keeps selected chromatic root.";
-    }
-
-    const auto same = sattari::audio_core::classifyHarmonicMove (key, key);
-    auto sideStepUp = key;
-    sideStepUp.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass + 7, 12);
-    const auto sideStepMove = sattari::audio_core::classifyHarmonicMove (key, sideStepUp);
-    auto relative = key;
-    relative.mode = key.mode == sattari::audio_core::MusicalMode::Major
-        ? sattari::audio_core::MusicalMode::Minor
-        : sattari::audio_core::MusicalMode::Major;
-    if (key.mode == sattari::audio_core::MusicalMode::Major)
-        relative.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass - 3, 12);
-    else if (key.mode == sattari::audio_core::MusicalMode::Minor)
-        relative.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass + 3, 12);
-
-    return "Key Detection tab: " + root + " " + scale
-        + " / Sattari Wheel " + wheelCode
-        + " / confidence " + juce::String (confidence) + "%"
-        + " / compatibility: " + juce::String (sattari::audio_core::toString (same))
-        + ", " + juce::String (sattari::audio_core::toString (sideStepMove))
-        + ", " + juce::String (sattari::audio_core::toString (sattari::audio_core::classifyHarmonicMove (key, relative)))
-        + " / Send to Tune shares this root+mode with correction and Adapt Map.";
+    return "Key   " + root + " " + scale
+        + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence";
 }
 
 int SattariAutoPitchAudioProcessor::rootToChoiceIndex (const juce::String& root)
