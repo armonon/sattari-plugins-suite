@@ -393,7 +393,8 @@ private:
     std::vector<sattari::dsp::PsolaShifter> psola;
     std::vector<sattari::dsp::PsolaShifter> pendingPsola;     // message-thread-built, audio-thread-swapped (low-latency toggle)
     std::atomic<bool> psolaSwapReady { false };              // pendingPsola is ready to swap in
-    bool psolaLowLatPrepared = false;                        // was the live PSOLA set built for low-latency?
+    std::atomic<bool> psolaLiveLowLat { false };            // low-latency state of the LIVE shifter (set by the audio thread on swap)
+    bool pendingLowLat = false;                             // low-latency target the pendingPsola set was built for
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------

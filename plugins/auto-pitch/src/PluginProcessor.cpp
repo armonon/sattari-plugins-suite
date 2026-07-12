@@ -345,7 +345,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const bool lowLatOn = apvts.getRawParameterValue ("lowLatency") != nullptr
                            && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
         preparePsolaInto (psola, lowLatOn);
-        psolaLowLatPrepared = lowLatOn;
+        psolaLiveLowLat.store (lowLatOn, std::memory_order_relaxed);
         psolaSwapReady.store (false, std::memory_order_relaxed);
     }
 
@@ -495,6 +495,10 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
                          && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f)
                      || (apvts.getRawParameterValue ("lowLatency") != nullptr
                          && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f);
+    // Seed the transpose seam too (siblings above are seeded), so a project restored
+    // with Transpose already ON doesn't fire a spurious engine flush on the first block.
+    lastXposeActive = (apvts.getRawParameterValue ("xposeMode") != nullptr
+                       && apvts.getRawParameterValue ("xposeMode")->load() > 0.5f);
 }
 
 // Active engine's reported latency (samples). PSOLA (Low Latency / Live Engine)
@@ -574,12 +578,18 @@ void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
     // If the Low Latency floor changed, build a fresh PSOLA set on THIS (message)
     // thread and hand it to the audio thread to swap in — the allocation never touches
     // the audio thread, and the swap itself is an O(1) pointer exchange.
+    // Compare the desired state against the LIVE shifter's state (updated by the audio
+    // thread on swap), not a message-thread flag — otherwise a fast off/on/off toggle
+    // could leave the wrong shifter live. If a build is already pending we skip; the
+    // audio thread re-triggers this after the swap if the param moved again meanwhile,
+    // so it always converges to the current parameter.
     const bool lowLatOn = apvts.getRawParameterValue ("lowLatency") != nullptr
                        && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
-    if (lowLatOn != psolaLowLatPrepared && ! psolaSwapReady.load (std::memory_order_acquire))
+    if (lowLatOn != psolaLiveLowLat.load (std::memory_order_acquire)
+        && ! psolaSwapReady.load (std::memory_order_acquire))
     {
         preparePsolaInto (pendingPsola, lowLatOn);
-        psolaLowLatPrepared = lowLatOn;
+        pendingLowLat = lowLatOn;
         psolaSwapReady.store (true, std::memory_order_release);
     }
 
@@ -1858,6 +1868,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     {
         psola.swap (pendingPsola);
         for (auto& p : psola) p.reset();
+        psolaLiveLowLat.store (pendingLowLat, std::memory_order_release);
+        // If the param moved again while this build was pending, request another rebuild
+        // so the live shifter converges to the current Low Latency state.
+        const bool wantLowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
+                             && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+        if (wantLowLat != pendingLowLat)
+            triggerAsyncUpdate();
     }
 
     const int numSamples = buffer.getNumSamples();

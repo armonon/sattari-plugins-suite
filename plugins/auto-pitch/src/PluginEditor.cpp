@@ -450,7 +450,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         return juce::String ((int) std::round (v * 100.0));
     };
     styleCaption (retuneSpeedCaption, "RETUNE SPEED");
-    styleCaption (flexTuneCaption, "FLEX TUNE");
+    // This Basic knob is attached to the `amount` param (correction strength), NOT the
+    // Flex-Tune param — label it accordingly so it doesn't collide with the Pro Flex-Tune.
+    styleCaption (flexTuneCaption, "AMOUNT");
     styleCaption (humanizeCaption, "HUMANIZE");
     basicPanel.addAndMakeVisible (retuneSpeed);
     basicPanel.addAndMakeVisible (flexTune);

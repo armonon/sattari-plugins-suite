@@ -197,7 +197,7 @@ private:
     juce::Label inputCaption, outputCaption, formantCaption;
 
     // --- Antares-class behaviour controls (Pro tab) --------------------------
-    juce::ToggleButton classicMode { "Classic Mode" };
+    juce::ToggleButton classicMode { "Hard Tune" };   // instant/robotic retune — distinct from the Style=Classic character
     juce::Slider flexAmt, transition, throat, vibratoKnob;
     juce::Label flexAmtCaption, transitionCaption, throatCaption, vibratoCaption;
 
