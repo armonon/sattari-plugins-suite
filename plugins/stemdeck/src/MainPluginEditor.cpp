@@ -2855,6 +2855,20 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                 p->setValueNotifyingHost (target);
     };
     addAndMakeVisible (masterPlayButton);
+
+    setupButton (automixButton);
+    automixButton.setButtonText ("AUTO");
+    automixButton.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.14f));
+    automixButton.setTooltip ("Auto-mix: phrase-aligned, tempo- and key-matched transition from the playing deck to the next loaded deck");
+    automixButton.onClick = [this] { startAutomix(); };
+    addAndMakeVisible (automixButton);
+
+    automixStatusLabel.setFont (juce::FontOptions (10.0f));
+    automixStatusLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    automixStatusLabel.setJustificationType (juce::Justification::centredLeft);
+    automixStatusLabel.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (automixStatusLabel);
+
     // Camelot wheel & MIDI learn buttons
     setupButton (camelotButton);
     camelotButton.onClick = [this] { showCamelotWheel (-1); };
@@ -5111,6 +5125,10 @@ void MainPluginEditor::resized()
 
     // Universal transport: play/stop every deck at once (prominent, left of title).
     masterPlayButton.setBounds (header.removeFromLeft (108).withSizeKeepingCentre (108, 34));
+    header.removeFromLeft (6);
+    automixButton.setBounds (header.removeFromLeft (52).withSizeKeepingCentre (52, 34));
+    header.removeFromLeft (6);
+    automixStatusLabel.setBounds (header.removeFromLeft (196).withSizeKeepingCentre (196, 30));
     header.removeFromLeft (10);
 
     // Right cluster: settings gear / TOOLS / save / user presets / tempo chip.
@@ -5587,10 +5605,74 @@ void MainPluginEditor::resized()
     mixerView.setBounds (overlay);
 }
 
+void MainPluginEditor::startAutomix()
+{
+    auto isPlaying = [this] (int d) {
+        auto* p = processorRef.parameters().getRawParameterValue (deckPrefix (d) + "Play");
+        return p != nullptr && p->load() > 0.5f;
+    };
+    auto hasAudio = [this] (int d) { return processorRef.getDeckPath (d).isNotEmpty(); };
+
+    // Outgoing = the first playing deck with a track; incoming = the next loaded,
+    // not-yet-playing deck.
+    int outDeck = -1, inDeck = -1;
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        if (isPlaying (d) && hasAudio (d)) { outDeck = d; break; }
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        if (d != outDeck && hasAudio (d) && ! isPlaying (d)) { inDeck = d; break; }
+
+    if (outDeck < 0 || inDeck < 0)
+    {
+        automixStatusLabel.setText ("AUTO needs a playing deck + a second loaded track",
+                                    juce::dontSendNotification);
+        return;
+    }
+
+    const auto plan = processorRef.beginAutomix (outDeck, inDeck);
+    if (! plan.valid)
+    {
+        automixStatusLabel.setText ("AUTO: not enough phrase structure to mix", juce::dontSendNotification);
+        return;
+    }
+
+    const double bpm = juce::jmax (60.0, (double) processorRef.getDeckActiveAnalysis (outDeck).detectedBpm);
+    automixDurationMs = (double) plan.lengthBeats * 60000.0 / bpm;
+    automixOutDeck    = outDeck;
+    automixCfFrom     = processorRef.parameters().getRawParameterValue ("crossfader")->load();
+    automixCfTo       = MainPluginProcessor::automixCrossfaderTo();   // ramp toward the incoming (B/right) bus
+    automixStartMs    = juce::Time::getMillisecondCounter();
+    automixRamping    = true;
+    automixStatusLabel.setText (plan.description, juce::dontSendNotification);
+}
+
+void MainPluginEditor::updateAutomixRamp()
+{
+    if (! automixRamping)
+        return;
+
+    const double elapsed = (double) (juce::Time::getMillisecondCounter() - automixStartMs);
+    const double t = automixDurationMs > 1.0 ? juce::jlimit (0.0, 1.0, elapsed / automixDurationMs) : 1.0;
+    const float cf = automixCfFrom + (automixCfTo - automixCfFrom) * (float) t;
+    if (auto* p = processorRef.parameters().getParameter ("crossfader"))
+        p->setValueNotifyingHost (cf);
+
+    if (t >= 1.0)
+    {
+        automixRamping = false;
+        // Stop the outgoing deck once fully faded out.
+        if (automixOutDeck >= 0)
+            if (auto* p = processorRef.parameters().getParameter (deckPrefix (automixOutDeck) + "Play"))
+                p->setValueNotifyingHost (0.0f);
+        automixOutDeck = -1;
+        automixStatusLabel.setText ("AUTO: mix complete", juce::dontSendNotification);
+    }
+}
+
 void MainPluginEditor::timerCallback()
 {
     // Service deferred audio-thread requests (e.g. TE transport auto-stop).
     processorRef.serviceDeferredActions();
+    updateAutomixRamp();
 
     // ── Motion: nav underline slides toward the active view's cell ──────────
     {

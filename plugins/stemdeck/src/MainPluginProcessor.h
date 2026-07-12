@@ -18,6 +18,7 @@
 #include "WarpEngine.h"
 #include "MasterFx.h"
 #include "SmartMaster.h"
+#include "AutomixEngine.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor
 {
@@ -62,6 +63,19 @@ public:
     void rewindDeck (int deckIndex);
     void seekDeckSeconds (int deckIndex, double seconds);
     void beatJumpDeck (int deckIndex, double bars);      // negative = back
+
+    // ── Automix ──────────────────────────────────────────────────────────────
+    // Plan a phrase-aligned harmonic transition from outDeck to inDeck (pure).
+    stemdeck::TransitionPlan planAutomixTransition (int outDeck, int inDeck) const;
+    // Execute the discrete setup: cue inDeck to the plan's in-point, assign
+    // crossfader sides (out=A/left, in=B/right), enable beat sync, and start
+    // inDeck. The crossfader RAMP itself is driven by the editor timer. Returns
+    // the plan (invalid if decks aren't ready).
+    stemdeck::TransitionPlan beginAutomix (int outDeck, int inDeck);
+    // The two crossfader endpoints (0=left/A .. 1=right/B) for a begun automix,
+    // so the UI can ramp between them. from = out-deck side, to = in-deck side.
+    static float automixCrossfaderFrom() noexcept { return 0.0f; }
+    static float automixCrossfaderTo()   noexcept { return 1.0f; }
 
     // Hot cues — 8 per deck, seconds-domain; -1 = unset
     static constexpr int numHotCues = 8;
