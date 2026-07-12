@@ -197,6 +197,181 @@ int main (int argc, char** argv)
     const int    block = 512;
     const double seconds = 4.0;
 
+    // --file <in.wav> <out.wav> : run a REAL recording through Auto Pitch (AutoKey +
+    // neural + Rubber Band, Natural style, full correction) and report objective
+    // correction stats + write the tuned output for listening.
+    if (argc > 1 && std::strcmp (argv[1], "--file") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --file <in.wav> <out.wav>\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+
+        // Two renders: NATURAL (vibrato preserved) and HARD (full snap, no vibrato) so
+        // we can separate true note-centre correction from intentionally-kept vibrato.
+        auto runCfg = [&] (bool hard) {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "vocalRange", 0.0f);       // Wide
+            setParam (a, "autoKey", 1.0f);          setParam (a, "followSongKey", 0.0f);
+            setParam (a, "neuralPitch", 1.0f);      setParam (a, "liveEngine", 0.0f);   // Rubber Band
+            setParam (a, "style", 0.0f);            // Natural
+            setParam (a, "amount", 1.0f);           setParam (a, "speed", hard ? 0.97f : 0.9f);
+            setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
+            setParam (a, "formantPreserve", 1.0f);
+            setParam (a, "vibrato", hard ? 0.0f : 0.5f);
+            setParam (a, "classicMode", hard ? 1.0f : 0.0f);   // hard = instant retune
+            auto o = sattari::harness::renderThrough (p, in, fsr, 512);
+            return std::make_pair (o, p.currentKeyOrigin());
+        };
+        auto [out, origin]  = runCfg (false);
+        auto [outH, originH] = runCfg (true);
+        (void) originH;
+        const juce::File outHF = outF.getParentDirectory().getChildFile (outF.getFileNameWithoutExtension() + "_hard.wav");
+        sattari::harness::writeWav (outF, out, fsr);
+        sattari::harness::writeWav (outHF, outH, fsr);
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* SC[] = { "major", "minor", "chromatic" };
+
+        // Autocorrelation f0 per hop over a mono mix; cents to the nearest scale tone.
+        auto monoAt = [] (const juce::AudioBuffer<float>& b, int i) {
+            double s = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) s += b.getSample (ch, i); return s / b.getNumChannels(); };
+        static const int MAJ[] = {0,2,4,5,7,9,11}, MINR[] = {0,2,3,5,7,8,10};
+        auto centsToScale = [&] (double midi) {
+            if (origin.scale == 2) { return std::fabs (midi - std::round (midi)) * 100.0; }   // chromatic
+            const int* sc = (origin.scale == 1) ? MINR : MAJ;
+            double best = 1e9;
+            for (int oct = -1; oct <= 10; ++oct) for (int d = 0; d < 7; ++d) {
+                const double cand = origin.root + sc[d] + 12.0 * oct;   // scale-tone MIDI (mod octave via root)
+                best = std::min (best, std::fabs (midi - cand) * 100.0);
+            }
+            return best;
+        };
+        // `sustainedOnly` restricts to note BODIES (pitch stable vs the previous voiced
+        // frame) so onsets/glides/breath — which no tuner can make instantly on-pitch —
+        // don't pollute the correction measurement.
+        auto measure = [&] (const juce::AudioBuffer<float>& b, bool sustainedOnly) {
+            const int n = b.getNumSamples(), hop = 512, win = 2048;
+            std::vector<double> errs; int voiced = 0, frames = 0; double prevMidi = -999;
+            std::vector<float> buf ((size_t) win);
+            for (int s = 0; s + win < n; s += hop) {
+                ++frames;
+                double e0 = 0; for (int i = 0; i < win; ++i) { buf[(size_t) i] = (float) monoAt (b, s + i); e0 += buf[(size_t) i] * buf[(size_t) i]; }
+                if (e0 / win < 1e-5) { prevMidi = -999; continue; }   // silence gate
+                const int loLag = (int) (fsr / 500.0), hiLag = (int) (fsr / 80.0);
+                double best = -1; int bestLag = -1;
+                for (int lag = loLag; lag <= hiLag; ++lag) {
+                    double acc = 0, ea = 0, eb = 0;
+                    for (int i = 0; i + lag < win; ++i) { acc += buf[(size_t) i] * buf[(size_t) (i + lag)]; ea += buf[(size_t) i] * buf[(size_t) i]; eb += buf[(size_t) (i + lag)] * buf[(size_t) (i + lag)]; }
+                    const double nc = (ea > 0 && eb > 0) ? acc / std::sqrt (ea * eb) : 0;
+                    if (nc > best) { best = nc; bestLag = lag; }
+                }
+                if (best < 0.7 || bestLag <= loLag || bestLag >= hiLag) { prevMidi = -999; continue; }   // unvoiced
+                // Parabolic interpolation on the correlation peak -> sub-sample lag, so the
+                // tracker's own resolution (~9 ct at integer lag) doesn't floor the residual.
+                auto ncAt = [&] (int lag) {
+                    double acc = 0, ea = 0, eb = 0;
+                    for (int i = 0; i + lag < win; ++i) { acc += buf[(size_t) i] * buf[(size_t) (i + lag)]; ea += buf[(size_t) i] * buf[(size_t) i]; eb += buf[(size_t) (i + lag)] * buf[(size_t) (i + lag)]; }
+                    return (ea > 0 && eb > 0) ? acc / std::sqrt (ea * eb) : 0.0;
+                };
+                const double cm = ncAt (bestLag - 1), c0 = best, cp = ncAt (bestLag + 1);
+                const double den = cm - 2 * c0 + cp;
+                const double delta = std::abs (den) > 1e-12 ? 0.5 * (cm - cp) / den : 0.0;
+                const double refLag = (double) bestLag + juce::jlimit (-0.5, 0.5, delta);
+                const double f0 = fsr / refLag, midi = 69.0 + 12.0 * std::log2 (f0 / 440.0);
+                const bool stable = (prevMidi > -900) && std::fabs (midi - prevMidi) < 0.25;
+                prevMidi = midi;
+                if (sustainedOnly && ! stable) continue;   // skip transitions/onsets
+                ++voiced;
+                errs.push_back (centsToScale (midi));
+            }
+            std::sort (errs.begin(), errs.end());
+            const double mean = errs.empty() ? 0 : std::accumulate (errs.begin(), errs.end(), 0.0) / errs.size();
+            const double med  = errs.empty() ? 0 : errs[errs.size() / 2];
+            return std::tuple<double,double,int,int> (mean, med, voiced, frames);
+        };
+
+        auto [inMean, inMed, inV, inF2]    = measure (in,   true);
+        auto [nMean, nMed, nV, nF2]        = measure (out,  true);
+        auto [hMean, hMed, hV, hF2]        = measure (outH, true);
+        (void) inF2; (void) nV; (void) nF2; (void) hV; (void) hF2;
+        auto peakOf = [] (const juce::AudioBuffer<float>& b) { float pk = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (ch, i))); return pk; };
+
+        std::printf ("== REAL VOCAL TEST ==\n");
+        std::printf ("  input: %.1f s, %.0f Hz, %d ch  (%d voiced frames)\n", rd->lengthInSamples / fsr, fsr, (int) rd->numChannels, inV);
+        std::printf ("  AutoKey detected: %s %s\n", NM[juce::jlimit (0,11,origin.root)], SC[juce::jlimit (0,2,origin.scale)]);
+        std::printf ("  cents-to-scale on SUSTAINED note bodies (|dist to nearest %s-%s tone|):\n", NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
+        std::printf ("    INPUT           mean=%5.1f ct   median=%5.1f ct\n", inMean, inMed);
+        std::printf ("    NATURAL (vib)   mean=%5.1f ct   median=%5.1f ct   tightened %.0f%% (median)\n", nMean, nMed, inMed > 0 ? (1 - nMed / inMed) * 100.0 : 0.0);
+        std::printf ("    HARD  (snap)    mean=%5.1f ct   median=%5.1f ct   tightened %.0f%% (median)\n", hMean, hMed, inMed > 0 ? (1 - hMed / inMed) * 100.0 : 0.0);
+        std::printf ("  output peak: natural=%.3f  hard=%.3f  (%s)\n", peakOf (out), peakOf (outH), (peakOf (out) <= 1.0f && peakOf (outH) <= 1.0f) ? "no clip" : "CLIP");
+        std::printf ("  wrote: %s\n         %s\n", outF.getFullPathName().toRawUTF8(), outHF.getFullPathName().toRawUTF8());
+        return 0;
+    }
+
+    // --diag <in.wav> : instrument the correction internals block-by-block to separate
+    // detection error (detected pitch jittery/biased) from retune undershoot (the shift
+    // applied is smaller than the correction the plugin wanted). HARD config.
+    if (argc > 1 && std::strcmp (argv[1], "--diag") == 0)
+    {
+        if (argc < 3) { std::fprintf (stderr, "usage: auto_pitch_render --diag <in.wav>\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+
+        SattariAutoPitchAudioProcessor p; auto& a = p.parameters();
+        setParam (a, "vocalRange", 0.0f); setParam (a, "autoKey", 1.0f); setParam (a, "followSongKey", 0.0f);
+        setParam (a, "neuralPitch", 1.0f); setParam (a, "liveEngine", 0.0f); setParam (a, "style", 0.0f);
+        setParam (a, "amount", 1.0f); setParam (a, "speed", 0.97f); setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "classicMode", 1.0f); setParam (a, "vibrato", 0.0f);   // HARD
+
+        const int block = 512;
+        p.setRateAndBufferSizeDetails (fsr, block); p.prepareToPlay (fsr, block);
+        juce::AudioBuffer<float> work (2, block);
+        std::vector<SattariAutoPitchAudioProcessor::DebugFrame> frames;
+        for (int pos = 0; pos < in.getNumSamples(); pos += block) {
+            const int len = juce::jmin (block, in.getNumSamples() - pos);
+            work.clear();
+            for (int ch = 0; ch < 2; ++ch) work.copyFrom (ch, 0, in, juce::jmin (ch, in.getNumChannels() - 1), pos, len);
+            juce::AudioBuffer<float> slice (work.getArrayOfWritePointers(), 2, len);
+            juce::MidiBuffer midi; p.processBlock (slice, midi);
+            frames.push_back (p.getDebugFrame());
+        }
+
+        std::vector<double> wanted, applied, residual, conf, jitter; double prevDet = -999; int voiced = 0;
+        for (const auto& f : frames) {
+            if (! f.voiced) { prevDet = -999; continue; }
+            ++voiced;
+            if (prevDet > -900) jitter.push_back (std::fabs (f.detectedMidi - prevDet) * 100.0);
+            const bool stable = prevDet > -900 && std::fabs (f.detectedMidi - prevDet) < 0.25;
+            prevDet = f.detectedMidi;
+            if (! stable) continue;
+            wanted.push_back (std::fabs (f.wantedCents));
+            applied.push_back (std::fabs (f.appliedCents));
+            residual.push_back (std::fabs (f.wantedCents - f.appliedCents));   // off-target remaining, per plugin's own detector
+            conf.push_back (f.confidence);
+        }
+        auto med  = [] (std::vector<double> v) { if (v.empty()) return 0.0; std::sort (v.begin(), v.end()); return v[v.size() / 2]; };
+        auto mean = [] (const std::vector<double>& v) { if (v.empty()) return 0.0; double s = 0; for (double x : v) s += x; return s / v.size(); };
+        std::printf ("== DIAG (HARD config, detection vs retune) ==\n");
+        std::printf ("  blocks=%d  voiced=%d  sustained=%d\n", (int) frames.size(), voiced, (int) wanted.size());
+        std::printf ("  detection jitter (voiced frame-to-frame |dMIDI|): median %.1f ct  mean %.1f ct\n", med (jitter), mean (jitter));
+        std::printf ("  confidence (sustained):                           median %.2f     mean %.2f\n", med (conf), mean (conf));
+        std::printf ("  WANTED   (target - detected):  median %.1f ct  mean %.1f ct\n", med (wanted), mean (wanted));
+        std::printf ("  APPLIED  (shift fed to engine): median %.1f ct  mean %.1f ct\n", med (applied), mean (applied));
+        std::printf ("  RESIDUAL |wanted - applied|:    median %.1f ct  mean %.1f ct\n", med (residual), mean (residual));
+        std::printf ("  -> large RESIDUAL = retune undershoot; small RESIDUAL + off output = detection bias.\n");
+        return 0;
+    }
+
     // --gainstage: guard the input-drive / output-trim split. Input gain must drive
     // the Style saturator (Classic tanh); output gain must be a clean post-Style
     // level trim that does NOT add distortion. Before the split these were summed,

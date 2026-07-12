@@ -132,6 +132,23 @@ public:
         return s;
     }
 
+    // Diagnostic snapshot of the correction internals — the raw detected pitch, the
+    // target scale tone, the correction the plugin WANTS, and the shift it actually fed
+    // the engine this block. Used offline to separate detection error (detected != true
+    // pitch) from retune undershoot (applied << wanted). Not for the audio thread.
+    struct DebugFrame { double detectedMidi = 0, targetMidi = 0, wantedCents = 0, appliedCents = 0, confidence = 0; bool voiced = false; };
+    DebugFrame getDebugFrame() const noexcept
+    {
+        DebugFrame d;
+        d.voiced       = lastPitchFrame.voiced;
+        d.detectedMidi = lastPitchFrame.midi;
+        d.targetMidi   = lastPitchFrame.targetMidi;
+        d.wantedCents  = lastPitchFrame.correctionCents;                       // (target - detected) * 100
+        d.appliedCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, lastFedPitchScale));  // actual shift fed to engine
+        d.confidence   = lastPitchFrame.confidence;
+        return d;
+    }
+
 private:
     struct PitchFrame
     {
