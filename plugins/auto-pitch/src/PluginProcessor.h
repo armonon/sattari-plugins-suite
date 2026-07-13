@@ -426,6 +426,24 @@ private:
     std::mutex         crepeMutex;
     void crepeWorkerLoop();
 
+    // --- Live neural key (AutoKey over the full-mix sidechain) ---------------
+    // The audio thread accumulates a DECAYED mean + covariance of the per-window
+    // HPCP chroma (the exact 90-dim feature the key-net was trained on) — cheap and
+    // RT-safe — and stashes the latest feature under a try_lock. The CREPE worker
+    // consumes it and runs keyNet.detect() off the audio thread; correlateAutoKey-
+    // Histogram prefers this neural key over the fixed profile when it's valid. Only
+    // the polyphonic sidechain path feeds it, so a monophonic vocal (no sidechain)
+    // still falls back to the histogram detector — which is where the profile belongs.
+    double             knMean[12]      = {};
+    double             knOuter[12][12] = {};
+    double             knWeight        = 0.0;
+    std::mutex         keyNetFeatMutex;
+    std::array<float, 90> keyNetFeat {};
+    std::atomic<bool>  keyNetFeatReady { false };
+    std::atomic<bool>  keyNetLiveValid { false };
+    std::atomic<int>   keyNetLiveRoot  { 0 };
+    std::atomic<int>   keyNetLiveMinor { 0 };
+
     // --- Vibrato preservation ------------------------------------------------
     // Low-passed "note centre" of the detected pitch. Correction snaps the centre
     // to the scale while a fraction of the singer's fast pitch oscillation

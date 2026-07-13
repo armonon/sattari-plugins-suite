@@ -179,6 +179,26 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
             crepeResultConf.store (r.confidence, std::memory_order_relaxed);
             crepeResultVoiced.store (r.voiced, std::memory_order_relaxed);
         }
+
+        // Live neural key (AutoKey): consume the latest chroma feature stashed by
+        // the audio thread and infer the key off-thread. Self-throttled — the audio
+        // thread refreshes the feature at most ~4x/sec, so this fires only that often.
+        if (keyNetPresent && keyNetFeatReady.exchange (false, std::memory_order_acquire))
+        {
+            std::array<float, 90> feat {};
+            {
+                const std::lock_guard<std::mutex> lk (keyNetFeatMutex);
+                feat = keyNetFeat;
+            }
+            const auto kn = keyNet.detect (feat.data());
+            if (kn.valid)
+            {
+                keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
+                keyNetLiveMinor.store (kn.minor ? 1 : 0, std::memory_order_relaxed);
+                keyNetLiveValid.store (true,             std::memory_order_release);
+            }
+        }
+
         std::this_thread::sleep_for (12ms);   // ~83 Hz refresh; plenty for pitch
     }
 }
@@ -410,6 +430,12 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     chromaSamplesSinceFft = 0;
     sidechainSeenAudio = false;
     scMonoScratch.assign ((size_t) preparedBlockSize, 0.0f);
+
+    // Reset the live neural-key accumulators so a previous session's key can't linger.
+    knWeight = 0.0;
+    for (int i = 0; i < 12; ++i) { knMean[i] = 0.0; for (int j = 0; j < 12; ++j) knOuter[i][j] = 0.0; }
+    keyNetFeatReady.store (false, std::memory_order_relaxed);
+    keyNetLiveValid.store (false, std::memory_order_relaxed);
 
     // Real polyphonic phase-vocoder: preallocate all STFT buffers so the audio
     // thread never allocates when Polyphonic is engaged. Sized for the output
@@ -962,15 +988,25 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 
     if (scaleName == "major" || scaleName == "minor")
     {
-        // Full 24-key Krumhansl-Schmuckler detection: AutoKey picks BOTH the root
-        // AND the mode (major vs minor) from the pitch-class histogram, instead of
-        // only finding the root within the user's chosen mode. detectedAutoScale
-        // then drives the effective scale (see effectiveScaleIndex).
-        const auto kr = sattari::dsp::detectKey (autoKeyHistogram.data());
-        if (kr.valid)
+        // AutoKey picks BOTH the root AND the mode (major vs minor); detectedAutoScale
+        // then drives the effective scale (see effectiveScaleIndex). Prefer the NEURAL
+        // key when the sidechain (full-mix) path has produced a valid inference — it's
+        // ~58% exact vs ~45% for the profile on real mixes. Absent a sidechain the
+        // neural result never validates and we fall back to the pitch-histogram
+        // detector, which is the right tool for a monophonic vocal.
+        if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
         {
-            bestRoot = kr.root;
-            detectedAutoScale = kr.minor ? 1 : 0;
+            bestRoot = keyNetLiveRoot.load (std::memory_order_relaxed);
+            detectedAutoScale = keyNetLiveMinor.load (std::memory_order_relaxed);
+        }
+        else
+        {
+            const auto kr = sattari::dsp::detectKey (autoKeyHistogram.data());
+            if (kr.valid)
+            {
+                bestRoot = kr.root;
+                detectedAutoScale = kr.minor ? 1 : 0;
+            }
         }
     }
     else
@@ -1079,6 +1115,45 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     constexpr double blend = 0.35;
     for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
         autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
+
+    // --- Live neural key: decayed mean + covariance of the L1-normalised chroma.
+    // Same feature as the offline Key Map / training (chroma summed to 1 per frame),
+    // just accumulated online. The decay lets it track modulations; ~1s of windows
+    // gives a stable covariance. The heavy inference happens on the worker — here we
+    // only update sums (12 + 144 mults) and stash the feature under a non-blocking
+    // try_lock, so the audio thread never waits on the worker.
+    if (keyNetPresent)
+    {
+        std::array<double, 12> ch {};
+        for (int i = 0; i < 12; ++i) ch[(size_t) i] = pcAccum[(size_t) i] / total;
+
+        constexpr double decay = 0.97;
+        knWeight = knWeight * decay + 1.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            knMean[i] = knMean[i] * decay + ch[(size_t) i];
+            for (int j = 0; j < 12; ++j)
+                knOuter[i][j] = knOuter[i][j] * decay + ch[(size_t) i] * ch[(size_t) j];
+        }
+
+        if (knWeight > 4.0)   // ~1s of 256 ms windows -> covariance has settled
+        {
+            double m[12];
+            for (int i = 0; i < 12; ++i) m[i] = knMean[i] / knWeight;
+            float feat[90]; int fi = 0;
+            for (int i = 0; i < 12; ++i) feat[fi++] = (float) m[i];
+            for (int i = 0; i < 12; ++i)
+                for (int j = i; j < 12; ++j)
+                    feat[fi++] = (float) (knOuter[i][j] / knWeight - m[i] * m[j]);
+
+            if (keyNetFeatMutex.try_lock())   // never blocks the audio thread
+            {
+                std::copy (feat, feat + 90, keyNetFeat.begin());
+                keyNetFeatMutex.unlock();
+                keyNetFeatReady.store (true, std::memory_order_release);
+            }
+        }
+    }
 }
 
 // ============================================================================
