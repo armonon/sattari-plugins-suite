@@ -2889,16 +2889,37 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (masterFxPad);
     setupSlider (crossfader, false);
     // A crossfader's raw 0..1 value is meaningless; show the actual A/C <-> B/D
-    // balance instead, and double-click snaps back to CENTER.
-    crossfader.textFromValueFunction = [] (double v) -> juce::String
+    // balance instead, and double-click snaps back to CENTER. Honour REVERSE so the
+    // label names the bus you're actually fading toward.
+    crossfader.textFromValueFunction = [this] (double v) -> juce::String
     {
         if (std::abs (v - 0.5) < 0.02) return "CENTER";
+        const bool rev = processorRef.parameters().getRawParameterValue ("crossfaderReverse")->load() > 0.5f;
+        const bool acSide = (v < 0.5) != rev;   // reverse swaps which bus each end feeds
         const int pct = (int) std::round (std::abs (v - 0.5) * 200.0);
-        return (v < 0.5 ? "A/C " : "B/D ") + juce::String (pct) + "%";
+        return (acSide ? "A/C " : "B/D ") + juce::String (pct) + "%";
     };
     crossfader.setDoubleClickReturnValue (true, 0.5);
     crossfader.updateText();
     crossfader.setTooltip ("Crossfader: blends the A/C bus into the B/D bus. Double-click to centre.");
+
+    // Response curve: Smooth (equal-power blend) · Linear · Sharp (fast crossover) ·
+    // Cut (scratch/transform — near-instant near either edge).
+    setupComboBox (crossfaderCurve);
+    crossfaderCurve.addItem ("Smooth", 1);
+    crossfaderCurve.addItem ("Linear", 2);
+    crossfaderCurve.addItem ("Sharp",  3);
+    crossfaderCurve.addItem ("Cut",    4);
+    crossfaderCurve.setTooltip ("Crossfader curve: Smooth = long blends, Sharp/Cut = fast cuts & scratching");
+    addAndMakeVisible (crossfaderCurve);
+
+    setupButton (crossfaderReverse);
+    crossfaderReverse.setClickingTogglesState (true);
+    crossfaderReverse.setColour (juce::TextButton::buttonOnColourId,
+                                 juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    crossfaderReverse.setTooltip ("Reverse (hamster): swap which end feeds A/C vs B/D");
+    crossfaderReverse.onClick = [this] { crossfader.updateText(); };   // keep the readout in sync
+    addAndMakeVisible (crossfaderReverse);
     setupSlider (masterBpm, false, " BPM");
     setupSlider (master, true, " dB");
     setupSlider (limiter, true, " dB");
@@ -3260,6 +3281,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (arrangementView);
 
     crossfaderAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "crossfader", crossfader);
+    crossfaderCurveAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "crossfaderCurve", crossfaderCurve);
+    crossfaderReverseAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "crossfaderReverse", crossfaderReverse);
     masterBpmAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "masterBpm", masterBpm);
     masterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "master", master);
     limiterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "limiterCeiling", limiter);
@@ -5085,17 +5108,40 @@ void MainPluginEditor::paint (juce::Graphics& g)
             }
         }
 
-        // Smart-master readout: short-term loudness + gain reduction when engaged.
+        // Smart-master readout: loudness vs. the mode target + a live gain-reduction
+        // bar, so the "AI" is legible instead of a black box.
         if (aiMasterButton.getToggleState())
         {
-            const float lufs = processorRef.getSmartMasterLufs();
-            const float gr   = processorRef.getSmartMasterGr();
-            juce::String txt = lufs > -69.0f ? juce::String (lufs, 1) + " LUFS" : juce::String ("-- LUFS");
-            if (gr > 0.1f) txt += "  GR " + juce::String (gr, 1);
-            g.setColour (juce::Colour (kAccent).withAlpha (0.9f));
+            const float lufs   = processorRef.getSmartMasterLufs();
+            const float gr     = processorRef.getSmartMasterGr();
+            const int   mode   = aiMasterMode.getSelectedId();          // 1 Streaming, 2 Club, 3 Warm
+            const float target = mode == 2 ? -9.0f : mode == 3 ? -16.0f : -14.0f;
+            const bool  live   = lufs > -45.0f;
+
+            auto strip  = masterOutBounds.reduced (12, 4).withTop (masterOutBounds.getBottom() - 16).toFloat();
+            auto grArea = strip.removeFromRight (58.0f);
+
+            // Loudness current → target: green when locked in (±1 dB), amber while converging.
+            const bool locked = live && std::abs (lufs - target) <= 1.0f;
+            juce::String txt = (live ? juce::String (lufs, 1) : juce::String ("--"))
+                             + u8 (" \xe2\x86\x92 ") + juce::String (target, 0) + " LUFS";
+            g.setColour ((locked ? juce::Colour (0xff37d98a) : juce::Colour (0xffffb020)).withAlpha (0.95f));
             g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            g.drawText (txt, masterOutBounds.reduced (12, 4).withTop (masterOutBounds.getBottom() - 16),
-                        juce::Justification::bottomLeft);
+            g.drawText (txt, strip, juce::Justification::bottomLeft);
+
+            // Gain-reduction bar (0..6 dB), lit amber as the bus compressor works.
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (7.5f));
+            g.drawText ("GR", grArea.removeFromLeft (13.0f), juce::Justification::centredLeft);
+            auto barTrack = grArea.withSizeKeepingCentre (grArea.getWidth(), 4.0f);
+            g.setColour (juce::Colour (kHairline));
+            g.fillRoundedRectangle (barTrack, 1.5f);
+            const float grNorm = juce::jlimit (0.0f, 1.0f, gr / 6.0f);
+            if (grNorm > 0.001f)
+            {
+                g.setColour (juce::Colour (0xffffb020));
+                g.fillRoundedRectangle (barTrack.withWidth (barTrack.getWidth() * grNorm), 1.5f);
+            }
         }
     }
 }
@@ -5173,25 +5219,37 @@ void MainPluginEditor::resized()
         libraryView->setBounds (libraryCol);
     }
 
-    // Advanced tools toolbar (plugin host / master key / AI master / rekordbox /
-    // project I/O) — hidden by default for the clean 1:1 view, revealed via TOOLS.
+    // Advanced tools toolbar (master key / AI master / rekordbox / project I/O) —
+    // hidden by default for the clean 1:1 view, revealed via TOOLS.
     juce::Component* advancedComps[] = {
-        &standaloneWorkflowGuide, &pluginHostStatus,
-        &pluginChainSelector, &pluginSelector, &loadPluginButton, &clearChainButton,
-        &scanPluginsButton, &reloadPluginCacheButton, &pluginHostMessage,
+        &standaloneWorkflowGuide,
         &masterKeyLabel, &masterKey, &syncAllDecksButton,
         &rbxExportButton, &rbxImportButton, &saveProjButton, &openProjButton,
         &metronomeButton, &talkoverButton, &overlapModeButton };
+
+    // FX plugin-host controls: only shown when the hosting path is actually wired
+    // (see STEMDECK_ENABLE_PLUGIN_HOST). Kept out of the array above so they never
+    // leak into shipping/demo layout even when TOOLS is open.
+    juce::Component* pluginHostComps[] = {
+        &pluginHostStatus, &pluginChainSelector, &pluginSelector, &loadPluginButton,
+        &clearChainButton, &scanPluginsButton, &reloadPluginCacheButton, &pluginHostMessage };
+    for (auto* c : pluginHostComps) { c->setVisible (false); c->setBounds ({}); }
 
     if (advancedVisible)
     {
         for (auto* c : advancedComps) c->setVisible (true);
 
         auto infoRow = area.removeFromTop (16);
+       #if STEMDECK_ENABLE_PLUGIN_HOST
+        for (auto* c : pluginHostComps) c->setVisible (true);
         standaloneWorkflowGuide.setBounds (infoRow.removeFromLeft (infoRow.getWidth() * 2 / 3));
         pluginHostStatus.setBounds (infoRow);
+       #else
+        standaloneWorkflowGuide.setBounds (infoRow);
+       #endif
         area.removeFromTop (4);
 
+       #if STEMDECK_ENABLE_PLUGIN_HOST
         auto fxRow = area.removeFromTop (22);
         pluginChainSelector.setBounds (fxRow.removeFromLeft (130));   fxRow.removeFromLeft (4);
         pluginSelector.setBounds (fxRow.removeFromLeft (260));        fxRow.removeFromLeft (4);
@@ -5201,6 +5259,7 @@ void MainPluginEditor::resized()
         reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (80)); fxRow.removeFromLeft (8);
         pluginHostMessage.setBounds (fxRow);
         area.removeFromTop (6);
+       #endif
 
         auto keyRow = area.removeFromTop (28);
         masterKeyLabel.setBounds (keyRow.removeFromLeft (108));       keyRow.removeFromLeft (4);
@@ -5488,6 +5547,15 @@ void MainPluginEditor::resized()
         deckMeterBounds[2] = leftMeters.reduced (3, 2);                                               // C
         deckMeterBounds[1] = rightMeters.removeFromTop (rightMeters.getHeight() / 2).reduced (3, 2);  // B
         deckMeterBounds[3] = rightMeters.reduced (3, 2);                                              // D
+
+        // Curve selector + REV toggle sit on a compact strip above the fader, centred.
+        auto ctrlStrip = xfRow.removeFromTop (22);
+        auto ctrl = ctrlStrip.withSizeKeepingCentre (188, 22);
+        crossfaderCurve.setBounds (ctrl.removeFromLeft (120));
+        ctrl.removeFromLeft (8);
+        crossfaderReverse.setBounds (ctrl);
+        xfRow.removeFromTop (4);
+
         crossfader.setBounds (xfRow.reduced (8, 0).withSizeKeepingCentre (xfRow.getWidth() - 16, 40));
     }
 

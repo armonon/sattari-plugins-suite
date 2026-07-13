@@ -19,6 +19,14 @@
 #include "WaveformDisplay.h"
 #include "XYPad.h"
 
+// Plugin-FX hosting is a scaffold: PluginHostManager discovers + instantiates plugins
+// but their audio is NOT routed into the mix yet. Exposing "Load FX" in a shipping/demo
+// build shows a control that does nothing audible, so keep the whole FX-host UI behind
+// this flag. Flip to 1 (or -DSTEMDECK_ENABLE_PLUGIN_HOST=1) while developing the routing.
+#ifndef STEMDECK_ENABLE_PLUGIN_HOST
+ #define STEMDECK_ENABLE_PLUGIN_HOST 0
+#endif
+
 class MainPluginEditor final : public juce::AudioProcessorEditor,
                                private juce::Timer,
                                private juce::FileBrowserListener,
@@ -453,6 +461,8 @@ private:
     MixerSection mixerPanel;
     XYPad masterFxPad;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
+    juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Cut
+    juce::TextButton crossfaderReverse { "REV" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton tapTempoButton { "TAP" };
     juce::TextButton masterPlayButton;   // header: play/stop ALL decks at once
@@ -517,6 +527,8 @@ private:
     std::array<PadControls, PadBank::numPads> pads;
 
     std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment, limiterAttachment, micGainAttachment;
+    std::unique_ptr<ComboBoxAttachment> crossfaderCurveAttachment;
+    std::unique_ptr<ButtonAttachment> crossfaderReverseAttachment;
     std::unique_ptr<ButtonAttachment> hostSyncAttachment, beatSyncAttachment, micMonitorAttachment;
 
     juce::FileChooser deckChooser { "Load a deck track" };
