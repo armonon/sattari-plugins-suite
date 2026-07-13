@@ -16,8 +16,10 @@ juce::var objectWith (std::initializer_list<std::pair<juce::Identifier, juce::va
 class StemProvider::StemJob final : public juce::ThreadPoolJob
 {
 public:
-    StemJob (StemProvider& owner, juce::File source, Callback cb)
-        : ThreadPoolJob ("StemDeck offline stem cache"), provider (owner), sourceFile (std::move (source)), callback (std::move (cb)) {}
+    StemJob (StemProvider& owner, juce::File source, Callback cb,
+             juce::int64 playhead = 0, ProgressiveStemCallback progressive = {})
+        : ThreadPoolJob ("StemDeck offline stem cache"), provider (owner), sourceFile (std::move (source)),
+          callback (std::move (cb)), playheadSample (playhead), onProgressiveStem (std::move (progressive)) {}
 
     JobStatus runJob() override
     {
@@ -27,9 +29,14 @@ public:
         {
             juce::String message;
             // Prefer in-process on-device neural (ONNX/CoreML) when a model is loaded
-            // — faster, no subprocess; else fall back to the demucs CLI.
-            bool done = provider.neuralAvailable()
-                     && provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
+            // — faster, no subprocess; else fall back to the demucs CLI. When a
+            // progressive callback is set, stream playhead-first so stems near the
+            // playhead publish within a segment or two instead of at the very end.
+            bool done = false;
+            if (provider.neuralAvailable())
+                done = onProgressiveStem
+                     ? provider.runNeuralSeparationStreaming (sourceFile, result.cacheDirectory, playheadSample, onProgressiveStem, message)
+                     : provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
             if (! done)
             {
                 juce::String cliMsg;
@@ -58,6 +65,8 @@ private:
     StemProvider& provider;
     juce::File sourceFile;
     Callback callback;
+    juce::int64 playheadSample = 0;
+    ProgressiveStemCallback onProgressiveStem;
 };
 
 StemProvider::StemProvider()
@@ -181,6 +190,88 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
     return ok;
 }
 
+bool StemProvider::runNeuralSeparationStreaming (const juce::File& sourceFile, const juce::File& cacheDirectory,
+                                                 juce::int64 playheadSample,
+                                                 const ProgressiveStemCallback& onProgressiveStem, juce::String& message)
+{
+    if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (sourceFile));
+    if (reader == nullptr) { message = "could not read source for neural separation"; return false; }
+
+    const int len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 600.0));
+    juce::AudioBuffer<float> input (2, juce::jmax (1, len));
+    reader->read (&input, 0, len, 0, true, true);
+    const double sr = reader->sampleRate;
+
+    // Full-length accumulators, silent until each playhead-first segment fills its
+    // region. Neural output order drums/bass/music/vocals -> DeckPlayer stem lanes.
+    const int laneOf[4] = { DeckPlayer::drumsStem, DeckPlayer::bassStem,
+                            DeckPlayer::musicStem, DeckPlayer::vocalsStem };
+    std::array<juce::AudioBuffer<float>, 4> acc;
+    for (auto& a : acc) { a.setSize (2, juce::jmax (1, len)); a.clear(); }
+
+    auto onSegment = [&] (juce::int64 startSample,
+                          const juce::AudioBuffer<float>& d,
+                          const juce::AudioBuffer<float>& b,
+                          const juce::AudioBuffer<float>& m,
+                          const juce::AudioBuffer<float>& v)
+    {
+        const juce::AudioBuffer<float>* segs[4] = { &d, &b, &m, &v };
+        const int start = (int) juce::jlimit<juce::int64> (0, len, startSample);
+        for (int s = 0; s < 4; ++s)
+        {
+            const int segLen = juce::jmin (segs[s]->getNumSamples(), len - start);
+            if (segLen <= 0)
+                continue;
+            for (int ch = 0; ch < 2; ++ch)
+                acc[(size_t) s].copyFrom (ch, start, *segs[s],
+                                          juce::jmin (ch, segs[s]->getNumChannels() - 1), 0, segLen);
+
+            if (onProgressiveStem)
+            {
+                // Immutable snapshot of what's separated so far for this lane; the deck
+                // swaps it in lock-free (atomic shared_ptr) and drops the previous one.
+                auto snap = std::make_shared<DeckPlayer::LoadedAudio>();
+                snap->audio = acc[(size_t) s];
+                snap->sourceSampleRate = sr;
+                snap->path = sourceFile.getFullPathName();
+                snap->displayName = DeckPlayer::stemLaneLabel (laneOf[s]);
+                onProgressiveStem (laneOf[s], std::move (snap));
+            }
+        }
+    };
+
+    juce::String sepMsg;
+    if (! neuralEngine.separateStreaming (input, sr, playheadSample, onSegment, nullptr, sepMsg))
+    {
+        message = sepMsg.isNotEmpty() ? sepMsg : juce::String ("neural streaming separation failed");
+        return false;
+    }
+
+    // Persist the completed stems to the WAV cache so the next load is instant.
+    cacheDirectory.createDirectory();
+    auto writeWav = [&] (const juce::AudioBuffer<float>& buf, const juce::String& name) -> bool
+    {
+        auto outFile = cacheDirectory.getChildFile (name);
+        outFile.deleteFile();
+        std::unique_ptr<juce::FileOutputStream> os (outFile.createOutputStream());
+        if (os == nullptr) return false;
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (os.get(), sr, 2, 24, {}, 0));
+        if (writer == nullptr) return false;
+        os.release();
+        return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+    };
+
+    const bool ok = writeWav (acc[0], "drums.wav") && writeWav (acc[1], "bass.wav")
+                 && writeWav (acc[2], "music.wav") && writeWav (acc[3], "vocals.wav");
+    message = ok ? "on-device neural streaming separation complete" : "neural stem write failed";
+    return ok;
+}
+
 void StemProvider::setCacheRoot (const juce::File& root)
 {
     cacheRoot = root;
@@ -246,6 +337,27 @@ void StemProvider::requestStemsAsync (const juce::File& sourceFile, Callback cal
     updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),
                                                 result.allCoreStemsReady ? "Premium stems already cached." : "Queued premium AI stem split."));
     pool.addJob (new StemJob (*this, sourceFile, std::move (callback)), true);
+}
+
+void StemProvider::requestStemsStreamingAsync (const juce::File& sourceFile,
+                                               juce::int64 playheadSample,
+                                               ProgressiveStemCallback onProgressiveStem,
+                                               Callback onComplete)
+{
+    if (! sourceFile.existsAsFile())
+        return;
+
+    {
+        const juce::ScopedLock lock (statusLock);
+        auto it = statusByHash.find (hashForFile (sourceFile));
+        if (it != statusByHash.end() && (it->second.jobQueued || it->second.jobRunning))
+            return;
+    }
+
+    const auto result = inspectCache (sourceFile);
+    updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),
+                                                result.allCoreStemsReady ? juce::String ("Premium stems already cached.") : u8 ("Splitting AI stems from the playhead\xe2\x80\xa6")));
+    pool.addJob (new StemJob (*this, sourceFile, std::move (onComplete), playheadSample, std::move (onProgressiveStem)), true);
 }
 
 StemProvider::Result StemProvider::inspectCache (const juce::File& sourceFile) const

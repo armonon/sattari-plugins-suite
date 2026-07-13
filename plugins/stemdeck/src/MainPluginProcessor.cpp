@@ -856,20 +856,34 @@ void MainPluginProcessor::requestDeckAiStemsAsync (int deckIndex)
         return;
 
     const juce::File source (path);
-    stemProvider.requestStemsAsync (source, [this, deckIndex] (StemProvider::Result result)
-    {
-        logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
-                             "ai_stem_split", deckNameFor (deckIndex), "premium_offline_cache",
-                             result.allCoreStemsReady ? "ready" : "failed_or_pending",
-                             result.cacheDirectory.getFullPathName(), result.message);
+    // Start separating from where the deck is playing so isolated stems near the
+    // playhead become audible within a segment or two (progressive, "instant-feel"),
+    // instead of waiting for the whole track. setStemAudio is a lock-free atomic
+    // swap, so publishing partial in-memory stems from the worker thread is RT-safe.
+    const juce::int64 playhead = (juce::int64) decks[(size_t) deckIndex].getPlayheadReferenceSamples();
 
-        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
-            if (result.stems[(size_t) lane].ready)
-                loadDeckStemFileAsync (deckIndex, lane, result.stems[(size_t) lane].file);
+    stemProvider.requestStemsStreamingAsync (source, playhead,
+        [this, deckIndex] (int lane, std::shared_ptr<const DeckPlayer::LoadedAudio> partial)
+        {
+            if (partial && juce::isPositiveAndBelow (deckIndex, numDecks))
+                decks[(size_t) deckIndex].setStemAudio (lane, std::move (partial));
+        },
+        [this, deckIndex] (StemProvider::Result result)
+        {
+            logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                                 "ai_stem_split", deckNameFor (deckIndex), "premium_streaming_cache",
+                                 result.allCoreStemsReady ? "ready" : "failed_or_pending",
+                                 result.cacheDirectory.getFullPathName(), result.message);
 
-        if (result.allCoreStemsReady)
-            applyPremiumStemMix (deckIndex);
-    });
+            // Reload from the freshly written WAV cache for the final, full-quality
+            // buffers (and to pick up any CLI-fallback result if neural was unavailable).
+            for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+                if (result.stems[(size_t) lane].ready)
+                    loadDeckStemFileAsync (deckIndex, lane, result.stems[(size_t) lane].file);
+
+            if (result.allCoreStemsReady)
+                applyPremiumStemMix (deckIndex);
+        });
 }
 
 void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file)
