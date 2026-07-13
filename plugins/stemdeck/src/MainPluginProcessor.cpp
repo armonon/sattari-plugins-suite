@@ -61,6 +61,41 @@ juce::String deckNameFor (int deckIndex)
 {
     return "Deck " + juce::String::charToString ((juce_wchar) ('A' + juce::jlimit (0, MainPluginProcessor::numDecks - 1, deckIndex)));
 }
+
+// Crossfader response law. Returns { A/C-bus gain, B/D-bus gain } for a fader
+// position in [0,1], shaped by `curve` (0 Smooth, 1 Linear, 2 Sharp, 3 Cut).
+// `reverse` (hamster) flips the fader sense so the two busses trade ends.
+inline std::pair<float, float> crossfaderBusGains (float x, int curve, bool reverse) noexcept
+{
+    x = juce::jlimit (0.0f, 1.0f, x);
+    if (reverse)
+        x = 1.0f - x;
+
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    switch (juce::jlimit (0, 3, curve))
+    {
+        case 1:   // Linear — constant-sum; gentle -6 dB dip through the centre.
+            return { 1.0f - x, x };
+
+        case 2:   // Sharp — equal-power on a centre-steepened position warp.
+        {
+            const float d  = x - 0.5f;                                   // -0.5..0.5
+            const float w  = std::copysign (std::pow (std::abs (d) * 2.0f, 0.45f), d);
+            const float xs = juce::jlimit (0.0f, 1.0f, 0.5f + 0.5f * w); // steeper near centre
+            return { std::cos (xs * halfPi), std::sin (xs * halfPi) };
+        }
+
+        case 3:   // Cut / transform — each side full except in a narrow edge band.
+        {
+            const float band = 0.10f;
+            return { juce::jlimit (0.0f, 1.0f, (1.0f - x) / band),
+                     juce::jlimit (0.0f, 1.0f, x / band) };
+        }
+
+        default:  // Smooth — classic equal-power blend.
+            return { std::cos (x * halfPi), std::sin (x * halfPi) };
+    }
+}
 }
 
 MainPluginProcessor::MainPluginProcessor()
@@ -249,6 +284,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
     }
 
     params.push_back (floatParam ("crossfader", "Crossfader", 0.0f, 1.0f, 0.5f));
+    // Crossfader response: 0 Smooth (equal-power, long blends) · 1 Linear (constant-sum) ·
+    // 2 Sharp (fast crossover) · 3 Cut (scratch/transform — near-instant near either edge).
+    params.push_back (choiceParam ("crossfaderCurve", "Crossfader Curve",
+                                   { "Smooth", "Linear", "Sharp", "Cut" }, 0));
+    // Hamster / reverse: swaps the fader sense so A/C and B/D trade ends.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("crossfaderReverse", 1), "Crossfader Reverse", false));
     params.push_back (floatParam ("masterBpm", "Global Master BPM", 40.0f, 240.0f, 120.0f, " BPM"));
     params.push_back (floatParam ("master", "Master", -60.0f, 6.0f, 0.0f, "dB"));
     params.push_back (floatParam ("limiterCeiling", "Limiter Ceiling", -12.0f, -0.1f, -1.0f, "dB"));
@@ -419,8 +460,11 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     updatePerformanceCaptureState (blockRecordingStart, syncSnapshot);
 
     const float crossfader = getFloatParam ("crossfader");
-    const float leftBusGain = std::cos (crossfader * juce::MathConstants<float>::halfPi);
-    const float rightBusGain = std::sin (crossfader * juce::MathConstants<float>::halfPi);
+    const int   xfCurve    = (int) std::round (getFloatParam ("crossfaderCurve"));
+    const bool  xfReverse  = getBoolParam ("crossfaderReverse");
+    const auto  xfGains    = crossfaderBusGains (crossfader, xfCurve, xfReverse);
+    const float leftBusGain  = xfGains.first;    // A/C bus
+    const float rightBusGain = xfGains.second;   // B/D bus
 
     for (int i = 0; i < numDecks; ++i)
     {
