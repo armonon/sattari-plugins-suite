@@ -373,6 +373,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         if (modelFile.existsAsFile())
             crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
     }
+    // Neural key model (optional). Used by the Key Map scan (offline) for far more
+    // accurate key detection than the fixed profile. Absent -> falls back to profiles.
+    keyNetPresent = false;
+    {
+        auto keyFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                           .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("keynet.onnx");
+        if (keyFile.existsAsFile())
+            keyNetPresent = keyNet.loadModel (keyFile.getFullPathName().toStdString());
+    }
     // Spin up the inference worker only when there's actually a model to run. It
     // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
     // that the model + buffers are fully configured.
@@ -1476,35 +1485,55 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
             windowMono[(size_t) i] = m;
         }
 
-        // Chroma over the centred FFT-sized portion of the window.
-        const int start = (windowSamples - fftSize) / 2;
-        for (int i = 0; i < fftSize; ++i)
-            fftBuf[(size_t) i] = windowMono[(size_t) (start + i)] * hann[(size_t) i];
-        std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
-        fft.performFrequencyOnlyForwardTransform (fftBuf.data());
+        // Per-frame HPCP chroma over the whole window -> mean(12) + covariance(12x12).
+        // The covariance (note co-occurrence) is the feature the NEURAL key model needs;
+        // it's computed exactly like key_dataset_eval's fileChromaHpcpCov so training and
+        // inference match. The mean alone still feeds the profile fallback.
+        std::array<double,12> mean {}; double cov[12][12] = {};
+        int frames = 0;
+        const int fhop = fftSize / 2;
+        for (int fs = 0; fs + fftSize <= windowSamples; fs += fhop)
+        {
+            for (int i = 0; i < fftSize; ++i)
+                fftBuf[(size_t) i] = windowMono[(size_t) (fs + i)] * hann[(size_t) i];
+            std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
+            fft.performFrequencyOnlyForwardTransform (fftBuf.data());
+            std::array<double,12> ch {};
+            hpcp.reset();
+            hpcp.accumulate (fftBuf.data(), fftSize / 2 + 1, sr / (double) fftSize);
+            hpcp.finish (ch.data());
+            double s = 0; for (double v : ch) s += v;
+            if (s < 1.0e-9) continue;
+            for (auto& v : ch) v /= s;
+            ++frames;
+            for (int i = 0; i < 12; ++i) { mean[(size_t) i] += ch[(size_t) i]; for (int j = 0; j < 12; ++j) cov[i][j] += ch[(size_t) i] * ch[(size_t) j]; }
+        }
 
-        // HPCP chroma (tuning-corrected + harmonic-summed) — far more stable on a real
-        // full mix than the naive per-bin power chroma (the same upgrade AutoKey got).
-        std::array<double, 12> chroma {};
-        hpcp.reset();
-        hpcp.accumulate (fftBuf.data(), fftSize / 2 + 1, sr / (double) fftSize);
-        hpcp.finish (chroma.data());
-        double total = 0.0;
-        for (double v : chroma) total += v;
-        if (total > 1.0e-9)
-            for (auto& v : chroma) v /= total;
+        int   bestRoot  = wins.empty() ? 0 : wins.back().rootIdx;
+        int   bestMode  = 0;
+        float bestScore = 0.0f;
+        if (frames > 0)
+        {
+            for (auto& v : mean) v /= frames;
+            for (int i = 0; i < 12; ++i) for (int j = 0; j < 12; ++j) cov[i][j] = cov[i][j] / frames - mean[(size_t) i] * mean[(size_t) j];
 
-        // Pick best (root, mode) by Krumhansl correlation.
-        // Detect (root, mode) via the SHARED key detector + the default profile, so the
-        // Key Map uses the SAME profile as live AutoKey (this used to be inline Krumhansl,
-        // which drifted from the AutoKey profile and never got the profile upgrade).
-        const auto kr = sattari::dsp::detail::detectKeyWithProfiles (
-                            chroma.data(), sattari::dsp::detail::kDefaultMajor, sattari::dsp::detail::kDefaultMinor);
-        const int   bestRoot  = kr.valid ? kr.root : (wins.empty() ? 0 : wins.back().rootIdx);
-        const int   bestMode  = kr.minor ? 1 : 0;
-        const float bestScore = kr.valid ? (float) kr.confidence : 0.0f;
+            if (keyNetPresent)   // neural key model (58% exact vs 45% profile)
+            {
+                float feat[90]; int fi = 0;
+                for (int i = 0; i < 12; ++i) feat[fi++] = (float) mean[(size_t) i];
+                for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[fi++] = (float) cov[i][j];
+                const auto kn = keyNet.detect (feat);
+                if (kn.valid) { bestRoot = kn.root; bestMode = kn.minor ? 1 : 0; bestScore = kn.confidence; }
+            }
+            else                 // fixed-profile fallback (shared with live AutoKey)
+            {
+                const auto kr = sattari::dsp::detail::detectKeyWithProfiles (
+                                    mean.data(), sattari::dsp::detail::kDefaultMajor, sattari::dsp::detail::kDefaultMinor);
+                if (kr.valid) { bestRoot = kr.root; bestMode = kr.minor ? 1 : 0; bestScore = (float) kr.confidence; }
+            }
+        }
 
-        wins.push_back ({ (double) pos / sr, bestRoot, bestMode, (float) bestScore });
+        wins.push_back ({ (double) pos / sr, bestRoot, bestMode, bestScore });
 
         pos += hopSamples;
         const int pct = totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0;

@@ -8,6 +8,7 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
+#include <sattari_audio_core/SattariKeyNet.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <array>
 #include <atomic>
@@ -406,6 +407,8 @@ private:
     // isAvailable() is false and YIN is used — zero behavioural change.
     sattari::dsp::CrepePitchTracker crepe;
     bool  crepeModelPresent = false;
+    sattari::dsp::KeyNet keyNet;              // neural key model (90-dim HPCP feature -> 24 keys)
+    bool  keyNetPresent = false;
     float lastCrepeHz = 0.0f;
     float lastCrepeConfidence = 0.0f;
     // Inference runs on a background worker, never the audio thread. The audio
