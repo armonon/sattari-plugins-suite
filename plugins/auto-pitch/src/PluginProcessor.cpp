@@ -1939,6 +1939,33 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // vocoder (processPolyphonicRetune below) reading mainBuffer directly.
     const bool polyOn = apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
 
+    // Polyphonic AutoKey with NO sidechain: the material being tuned lives on the
+    // MAIN input, so feed IT into the chroma / neural-key analyser. Without this,
+    // AutoKey on a dense instrumental degrades to monophonic pitch-tracking of the
+    // mix and mis-detects the key (measured A# vs the true G on a real track), so the
+    // per-peak retune snaps toward the WRONG scale. Feeding the main input lets the
+    // neural key model read the actual harmony. Gated to poly, so a monophonic vocal
+    // (main = single voice) still uses the pitch-histogram detector unchanged.
+    const bool haveLiveSidechain = getBusCount (true) > 1
+        && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled();
+    if (autoKeyOn && polyOn && ! haveLiveSidechain)
+    {
+        const int n = juce::jmin (numSamples, (int) scMonoScratch.size());
+        float energy = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            float m = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                m += mainBuffer.getSample (ch, i);
+            m /= (float) numChannels;
+            scMonoScratch[(size_t) i] = m;
+            energy += m * m;
+        }
+        if (energy > 1.0e-6f)
+            sidechainSeenAudio = true;   // prefer the chroma/neural key over the mono histogram
+        pushSidechainBlock (scMonoScratch.data(), n);
+    }
+
     // Computed once per block: neural pitch feeds BOTH the correction override
     // (below) and the AutoKey histogram (in the loop) when a CREPE model is active.
     const bool neuralOn   = apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f;

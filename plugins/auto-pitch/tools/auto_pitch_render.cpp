@@ -314,6 +314,172 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // --polyfile <in.wav> <out.wav> : run the REAL Polyphonic engine (per-peak
+    // phase-locked vocoder) on a dense mix and measure — objectively — whether it
+    // pulls spectral energy ONTO the target scale without wrecking the signal. This
+    // is the stress test the poly proof lacked: a 2-note dyad can't reveal what
+    // happens on a full instrumental. Metrics: in-scale chroma fraction before/after
+    // (should rise), RMS preservation, peak/clip, and a click proxy (max |sample jump|).
+    if (argc > 1 && std::strcmp (argv[1], "--polyfile") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --polyfile <in.wav> <out.wav>\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+
+        // Optional manual key: --polyfile in out <rootIdx 0..11> <scaleIdx 0=maj,1=min>.
+        // AutoKey on a dense mix with no sidechain tracks garbage, so for a clean read on
+        // the ENGINE (decoupled from key detection) pass the real key explicitly.
+        const bool manualKey = (argc >= 6);
+        const int  mRoot  = manualKey ? juce::jlimit (0, 11, std::atoi (argv[4])) : 0;
+        const int  mScale = manualKey ? juce::jlimit (0, 2,  std::atoi (argv[5])) : 0;
+
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "vocalRange", 8.0f);         // Instrument: Mid
+        setParam (a, "autoKey", manualKey ? 0.0f : 1.0f);   setParam (a, "followSongKey", 0.0f);
+        if (manualKey) { setParam (a, "keyRoot", (float) mRoot); setParam (a, "scale", (float) mScale); }
+        setParam (a, "neuralPitch", 0.0f);        setParam (a, "liveEngine", 0.0f);
+        setParam (a, "polyphonic", 1.0f);         setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "amount", 1.0f);             setParam (a, "speed", 0.95f);
+        setParam (a, "formantPreserve", 0.0f);    setParam (a, "doNoHarm", 0.0f);
+        setParam (a, "style", 0.0f);              // Natural — isolate the retune, no colour
+        p.setNonRealtime (true);
+        auto out = sattari::harness::renderThrough (p, in, fsr, 512);
+        const auto origin = p.currentKeyOrigin();
+        sattari::harness::writeWav (outF, out, fsr);
+
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* SC[] = { "major","minor","chromatic" };
+        static const int MAJ[] = {0,2,4,5,7,9,11}, MINR[] = {0,2,3,5,7,8,10};
+
+        // Whole-file power chroma (12 pitch classes) over 80..1200 Hz.
+        auto chromaOf = [&] (const juce::AudioBuffer<float>& b) {
+            const int win = 4096, hop = 2048, order = 12;
+            juce::dsp::FFT fft (order);
+            std::vector<float> scratch ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i)
+                hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {};
+            const int n = b.getNumSamples(), nc = b.getNumChannels();
+            for (int s = 0; s + win < n; s += hop)
+            {
+                for (int i = 0; i < win; ++i) { double m = 0; for (int ch = 0; ch < nc; ++ch) m += b.getSample (ch, s + i); scratch[(size_t) i] = (float) (m / nc) * hann[(size_t) i]; }
+                std::fill (scratch.begin() + win, scratch.end(), 0.0f);
+                fft.performFrequencyOnlyForwardTransform (scratch.data());
+                for (int k = 1; k < win / 2; ++k)
+                {
+                    const double f = (double) k * fsr / win;
+                    if (f < 80.0 || f > 1200.0) continue;
+                    const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
+                    const int cls = ((int) std::llround (midi) % 12 + 12) % 12;
+                    pc[(size_t) cls] += (double) scratch[(size_t) k];   // power spectrum bin
+                }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot > 0) for (auto& v : pc) v /= tot;
+            return pc;
+        };
+        auto inScaleFrac = [&] (const std::array<double,12>& pc) {
+            if (origin.scale == 2) return 1.0;   // chromatic: everything is in-scale
+            const int* sc = (origin.scale == 1) ? MINR : MAJ;
+            double f = 0; for (int d = 0; d < 7; ++d) f += pc[(size_t) (((origin.root + sc[d]) % 12 + 12) % 12)];
+            return f;
+        };
+        auto rmsOf = [] (const juce::AudioBuffer<float>& b) { double e = 0; long c = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) { e += (double) d[i] * d[i]; ++c; } } return c ? std::sqrt (e / c) : 0.0; };
+        auto peakOf = [] (const juce::AudioBuffer<float>& b) { float pk = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (ch, i))); return pk; };
+        auto maxJumpOf = [] (const juce::AudioBuffer<float>& b) { float mj = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 1; i < b.getNumSamples(); ++i) mj = std::max (mj, std::fabs (d[i] - d[i-1])); } return mj; };
+        auto allFinite = [] (const juce::AudioBuffer<float>& b) { for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) if (! std::isfinite (d[i])) return false; } return true; };
+
+        const auto ci = chromaOf (in), co = chromaOf (out);
+        const double fi = inScaleFrac (ci), fo = inScaleFrac (co);
+        const double ri = rmsOf (in), ro = rmsOf (out);
+
+        std::printf ("== POLYPHONIC STRESS (real dense mix) ==\n");
+        std::printf ("  input: %.1f s, %.0f Hz, %d ch\n", rd->lengthInSamples / fsr, fsr, (int) rd->numChannels);
+        std::printf ("  target key (AutoKey): %s %s\n", NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
+        std::printf ("  in-scale chroma fraction:  INPUT %.1f%%  ->  POLY %.1f%%   (%+.1f pts)\n", 100*fi, 100*fo, 100*(fo-fi));
+        std::printf ("  RMS preserved: in=%.4f out=%.4f (%.2fx)   peak=%.3f (%s)\n", ri, ro, ri>0?ro/ri:0.0, peakOf(out), peakOf(out)<=1.0f?"no clip":"CLIP");
+        std::printf ("  finite=%s   max |sample jump|=%.3f\n", allFinite(out)?"yes":"NO", maxJumpOf(out));
+        std::printf ("  wrote: %s\n", outF.getFullPathName().toRawUTF8());
+        const bool ok = allFinite (out) && peakOf (out) <= 1.0f && fo >= fi - 0.02 && ro > 0.2 * ri && ro < 4.0 * ri;
+        std::printf ("%s\n", ok ? "Auto Pitch polyphonic stress ok" : "FAIL: polyphonic stress");
+        return ok ? 0 : 1;
+    }
+
+    // --polystress : SELF-CONTAINED poly regression (no external file). Synthesise a
+    // dense cluster of the five out-of-C-major pitch classes (the black keys, each
+    // with harmonics) — 0% in-scale by construction — run the Polyphonic engine
+    // targeting C major, and assert it pulls the chroma ONTO the scale while staying
+    // finite and click-free. This is the committed counterpart to --polyfile (which
+    // needs a real, gitignored mix).
+    if (argc > 1 && std::strcmp (argv[1], "--polystress") == 0)
+    {
+        const double fsr = 48000.0; const int secs = 4;
+        const int n = (int) (fsr * secs);
+        juce::AudioBuffer<float> in (2, n);
+        in.clear();
+        // Black keys around the 4th octave: C#4 D#4 F#4 G#4 A#4. All OUT of C major.
+        const double notes[] = { 277.183, 311.127, 369.994, 415.305, 466.164 };
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            float* d = in.getWritePointer (ch);
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = (double) i / fsr;
+                double s = 0.0;
+                for (double f0 : notes)
+                    for (int h = 1; h <= 3; ++h)   // a few harmonics -> genuinely dense spectrum
+                        s += (0.16 / h) * std::sin (2.0 * juce::MathConstants<double>::pi * f0 * h * t);
+                d[i] = (float) (0.6 * s);
+            }
+        }
+
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "vocalRange", 8.0f);         // Instrument: Mid
+        setParam (a, "autoKey", 0.0f);            setParam (a, "followSongKey", 0.0f);
+        setParam (a, "keyRoot", 0.0f);            setParam (a, "scale", 0.0f);   // C major
+        setParam (a, "neuralPitch", 0.0f);        setParam (a, "polyphonic", 1.0f);
+        setParam (a, "enableCorrection", 1.0f);   setParam (a, "amount", 1.0f);
+        setParam (a, "speed", 0.97f);             setParam (a, "formantPreserve", 0.0f);
+        setParam (a, "doNoHarm", 0.0f);           setParam (a, "style", 0.0f);
+        p.setNonRealtime (true);
+        auto out = sattari::harness::renderThrough (p, in, fsr, 512);
+
+        auto inScaleFrac = [&] (const juce::AudioBuffer<float>& b) {
+            const int win = 4096, hop = 2048, order = 12;
+            juce::dsp::FFT fft (order);
+            std::vector<float> sc ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {};
+            for (int s = 0; s + win < b.getNumSamples(); s += hop)
+            {
+                for (int i = 0; i < win; ++i) { double m = 0.5 * (b.getSample (0, s + i) + b.getSample (1, s + i)); sc[(size_t) i] = (float) m * hann[(size_t) i]; }
+                std::fill (sc.begin() + win, sc.end(), 0.0f);
+                fft.performFrequencyOnlyForwardTransform (sc.data());
+                for (int k = 1; k < win / 2; ++k) { const double f = (double) k * fsr / win; if (f < 80.0 || f > 1600.0) continue; const int cls = ((int) std::llround (69.0 + 12.0 * std::log2 (f / 440.0)) % 12 + 12) % 12; pc[(size_t) cls] += (double) sc[(size_t) k]; }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot <= 0) return 0.0;
+            const int CMAJ[] = {0,2,4,5,7,9,11}; double f = 0; for (int d : CMAJ) f += pc[(size_t) d];
+            return f / tot;
+        };
+
+        const double fi = inScaleFrac (in), fo = inScaleFrac (out);
+        float pk = 0, mj = 0; bool finite = true;
+        for (int ch = 0; ch < 2; ++ch) { const float* d = out.getReadPointer (ch); for (int i = 0; i < n; ++i) { if (! std::isfinite (d[i])) finite = false; pk = std::max (pk, std::fabs (d[i])); if (i) mj = std::max (mj, std::fabs (d[i]-d[i-1])); } }
+
+        std::printf ("== POLYPHONIC STRESS (synthetic off-scale cluster -> C major) ==\n");
+        std::printf ("  in-scale chroma fraction:  INPUT %.1f%%  ->  POLY %.1f%%   (%+.1f pts)\n", 100*fi, 100*fo, 100*(fo-fi));
+        std::printf ("  finite=%s  peak=%.3f (%s)  max |jump|=%.3f\n", finite?"yes":"NO", pk, pk<=1.0f?"no clip":"CLIP", mj);
+        const bool ok = finite && pk <= 1.0f && fo > fi + 0.20;   // must move >=20 pts onto the scale
+        std::printf ("%s\n", ok ? "Auto Pitch polyphonic stress ok" : "FAIL: poly did not pull onto scale");
+        return ok ? 0 : 1;
+    }
+
     // --diag <in.wav> : instrument the correction internals block-by-block to separate
     // detection error (detected pitch jittery/biased) from retune undershoot (the shift
     // applied is smaller than the correction the plugin wanted). HARD config.
