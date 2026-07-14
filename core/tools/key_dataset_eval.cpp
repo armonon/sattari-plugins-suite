@@ -322,6 +322,41 @@ void fileChromaHpcpCov (juce::dsp::FFT& fft, const std::array<float, kFftSize>& 
         for (int i = 0; i < 12; ++i) for (int j = 0; j < 12; ++j) cov[i][j] = cov[i][j] / frames - mean[i] * mean[j];
     }
 }
+
+// Per-frame HPCP chroma SEQUENCE (each frame L1-normalised) — the temporal feature a
+// key-CNN consumes. Same hop/window as fileChromaHpcpCov so the CNN sees exactly the
+// frames the covariance summarises.
+std::vector<std::array<float,12>> fileChromaSeq (juce::dsp::FFT& fft, const std::array<float, kFftSize>& hann,
+                                                 const std::vector<float>& mono, double sampleRate)
+{
+    const double binHz = sampleRate / (double) kFftSize;
+    std::array<float, kFftSize * 2> scratch {};
+    const int hop = kFftSize / 2;
+    const juce::int64 n = (juce::int64) mono.size();
+    std::vector<std::array<float,12>> seq;
+    for (juce::int64 start = 0; start == 0 || start + kFftSize <= n; start += hop)
+    {
+        for (int i = 0; i < kFftSize; ++i)
+        {
+            const juce::int64 idx = start + i;
+            scratch[(size_t) i] = ((idx < n) ? mono[(size_t) idx] : 0.0f) * hann[(size_t) i];
+        }
+        std::fill (scratch.begin() + kFftSize, scratch.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (scratch.data());
+        sattari::dsp::HpcpChromagram hpcp; hpcp.reset();
+        hpcp.accumulate (scratch.data(), kFftSize / 2 + 1, binHz);
+        double ch[12]; hpcp.finish (ch);
+        double s = 0; for (int i = 0; i < 12; ++i) s += ch[i];
+        if (s > 1.0e-9)
+        {
+            std::array<float,12> f {};
+            for (int i = 0; i < 12; ++i) f[(size_t) i] = (float) (ch[i] / s);
+            seq.push_back (f);
+        }
+        if (start + kFftSize > n) break;
+    }
+    return seq;
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -384,6 +419,7 @@ int main (int argc, char** argv)
     // it on a held-out half (honest generalisation, not in-sample).
     std::vector<std::array<double,12>> allChroma;
     std::vector<std::array<double,90>> allFeat;   // mean(12) + cov upper-tri incl diag (78) — neural key feature
+    std::vector<std::vector<std::array<float,12>>> allSeq;   // per-frame HPCP chroma (CNN feature)
     std::vector<Truth> allTruth;
 
     int nTracks = 0, nSkipped = 0, nMissingAudio = 0;
@@ -435,6 +471,7 @@ int main (int argc, char** argv)
         for (int i = 0; i < 12; ++i) feat[(size_t) fi++] = covMean[i];
         for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[(size_t) fi++] = cov[i][j];
         allFeat.push_back (feat);
+        allSeq.push_back (fileChromaSeq (fft, hann, mono, sampleRate));
     }
 
     if (nTracks == 0)
@@ -511,6 +548,26 @@ int main (int argc, char** argv)
         }
         fdump.replaceWithText (fcsv);
         std::printf ("wrote %d cov-feature rows -> %s\n\n", (int) allFeat.size(), fdump.getFullPathName().toRawUTF8());
+
+        // Per-frame HPCP chroma SEQUENCES for the key-CNN. Compact binary:
+        //   int32 numTracks
+        //   per track: int32 root, int32 minor, int32 T, float32[T*12]  (frame-major)
+        const juce::File sdump = datasetDir.getChildFile ("chroma_seq.bin");
+        juce::FileOutputStream os (sdump);
+        if (os.openedOk())
+        {
+            os.setPosition (0); os.truncate();
+            const juce::int32 nt = (juce::int32) allSeq.size();
+            os.write (&nt, sizeof (nt));
+            for (size_t t = 0; t < allSeq.size(); ++t)
+            {
+                const juce::int32 r = allTruth[t].root, m = allTruth[t].minor ? 1 : 0, T = (juce::int32) allSeq[t].size();
+                os.write (&r, sizeof (r)); os.write (&m, sizeof (m)); os.write (&T, sizeof (T));
+                for (const auto& fr : allSeq[t]) os.write (fr.data(), sizeof (float) * 12);
+            }
+            os.flush();
+            std::printf ("wrote %d chroma sequences -> %s\n\n", (int) allSeq.size(), sdump.getFullPathName().toRawUTF8());
+        }
     }
 
     std::array<double,12> empMaj, empMin;
