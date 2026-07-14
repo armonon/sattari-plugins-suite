@@ -480,6 +480,64 @@ int main (int argc, char** argv)
         return ok ? 0 : 1;
     }
 
+    // --livekeytest : SELF-CONTAINED regression for the LIVE neural-key path (poly +
+    // AutoKey, main input, offline-synchronous inference). Renders a C-major chord
+    // progression, then the SAME progression pitched up a fifth, through the live path
+    // and asserts the detected root SHIFTS by the same interval. This is model-agnostic
+    // (doesn't hard-code which absolute key the net picks) yet fails loudly if the live
+    // feature build, offline-sync inference, or atomic hand-off breaks. The net is
+    // pitch-rotation-augmented, so transpose-equivariance is exactly its contract.
+    if (argc > 1 && std::strcmp (argv[1], "--livekeytest") == 0)
+    {
+        const double fsr = 48000.0;
+        // Four triads of a I-IV-V-vi in C major with a root an octave below, 1.6 s each.
+        // MIDI roots; each triad = root, +4, +7 (major) or +3,+7 (minor, for vi).
+        struct Tri { int r; bool minor; };
+        const Tri prog[] = { {60,false},{65,false},{67,false},{69,true} };   // C F G Am
+        auto midiHz = [] (double m) { return 440.0 * std::pow (2.0, (m - 69.0) / 12.0); };
+        auto build = [&] (int transpose) {
+            const int perTri = (int) (fsr * 1.6);
+            juce::AudioBuffer<float> b (2, perTri * 4); b.clear();
+            for (int ti = 0; ti < 4; ++ti)
+            {
+                const Tri& T = prog[ti];
+                const int third = T.minor ? 3 : 4;
+                const double roots[] = { (double) (T.r + transpose), (double) (T.r + transpose + third), (double) (T.r + transpose + 7) };
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    float* d = b.getWritePointer (ch) + ti * perTri;
+                    for (int i = 0; i < perTri; ++i)
+                    {
+                        const double t = (double) i / fsr; double s = 0.0;
+                        s += 0.28 * std::sin (2.0 * juce::MathConstants<double>::pi * midiHz (T.r + transpose - 12.0) * t);  // bass root
+                        for (double m : roots) for (int h = 1; h <= 3; ++h) s += (0.10 / h) * std::sin (2.0 * juce::MathConstants<double>::pi * midiHz (m) * h * t);
+                        d[i] = (float) (0.5 * s);
+                    }
+                }
+            }
+            return b;
+        };
+        auto detect = [&] (int transpose) {
+            auto in = build (transpose);
+            SattariAutoPitchAudioProcessor p; auto& a = p.parameters();
+            setParam (a, "vocalRange", 8.0f); setParam (a, "autoKey", 1.0f); setParam (a, "followSongKey", 0.0f);
+            setParam (a, "polyphonic", 1.0f); setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "neuralPitch", 0.0f); setParam (a, "amount", 1.0f); setParam (a, "style", 0.0f);
+            p.setNonRealtime (true);   // offline -> synchronous key inference (deterministic)
+            (void) sattari::harness::renderThrough (p, in, fsr, 512);
+            return p.currentKeyOrigin();
+        };
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const auto o0 = detect (0), o5 = detect (5);   // base, and up a perfect fourth (+5 st)
+        const int shift = ((o5.root - o0.root) % 12 + 12) % 12;
+        std::printf ("== LIVE NEURAL KEY (poly+AutoKey, offline-sync) ==\n");
+        std::printf ("  base progression:  root %s\n", NM[juce::jlimit(0,11,o0.root)]);
+        std::printf ("  +5 semitones:      root %s   (shift %+d)\n", NM[juce::jlimit(0,11,o5.root)], shift);
+        const bool ok = (shift == 5);
+        std::printf ("%s\n", ok ? "Auto Pitch live neural key ok" : "FAIL: live key did not track the transpose");
+        return ok ? 0 : 1;
+    }
+
     // --diag <in.wav> : instrument the correction internals block-by-block to separate
     // detection error (detected pitch jittery/biased) from retune undershoot (the shift
     // applied is smaller than the correction the plugin wanted). HARD config.

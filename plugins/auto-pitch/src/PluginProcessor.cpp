@@ -183,7 +183,11 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
         // Live neural key (AutoKey): consume the latest chroma feature stashed by
         // the audio thread and infer the key off-thread. Self-throttled — the audio
         // thread refreshes the feature at most ~4x/sec, so this fires only that often.
-        if (keyNetPresent && keyNetFeatReady.exchange (false, std::memory_order_acquire))
+        // Skipped when offline: the audio thread drives the key inference synchronously
+        // there (runChromaAnalysis), so the two never call keyNet concurrently.
+        if (keyNetPresent
+            && ! offlineMode.load (std::memory_order_relaxed)
+            && keyNetFeatReady.exchange (false, std::memory_order_acquire))
         {
             std::array<float, 90> feat {};
             {
@@ -1146,7 +1150,21 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
                 for (int j = i; j < 12; ++j)
                     feat[fi++] = (float) (knOuter[i][j] / knWeight - m[i] * m[j]);
 
-            if (keyNetFeatMutex.try_lock())   // never blocks the audio thread
+            if (offlineMode.load (std::memory_order_relaxed))
+            {
+                // Offline bounce: the worker can't keep pace with instant block
+                // processing (same reason CREPE degrades offline), so run the key
+                // inference SYNCHRONOUSLY here. The worker skips its key block while
+                // offlineMode is set, so the two never touch keyNet concurrently.
+                const auto kn = keyNet.detect (feat);
+                if (kn.valid)
+                {
+                    keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
+                    keyNetLiveMinor.store (kn.minor ? 1 : 0, std::memory_order_relaxed);
+                    keyNetLiveValid.store (true,             std::memory_order_release);
+                }
+            }
+            else if (keyNetFeatMutex.try_lock())   // real-time: hand to worker, never block
             {
                 std::copy (feat, feat + 90, keyNetFeat.begin());
                 keyNetFeatMutex.unlock();
