@@ -194,7 +194,7 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
                 const std::lock_guard<std::mutex> lk (keyNetFeatMutex);
                 feat = keyNetFeat;
             }
-            const auto kn = keyNet.detect (feat.data());
+            const auto kn = keyNet.detectTTA (feat.data());
             if (kn.valid)
             {
                 keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
@@ -1156,7 +1156,7 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
                 // processing (same reason CREPE degrades offline), so run the key
                 // inference SYNCHRONOUSLY here. The worker skips its key block while
                 // offlineMode is set, so the two never touch keyNet concurrently.
-                const auto kn = keyNet.detect (feat);
+                const auto kn = keyNet.detectTTA (feat);
                 if (kn.valid)
                 {
                     keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
@@ -1615,7 +1615,7 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
                 float feat[90]; int fi = 0;
                 for (int i = 0; i < 12; ++i) feat[fi++] = (float) mean[(size_t) i];
                 for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[fi++] = (float) cov[i][j];
-                const auto kn = keyNet.detect (feat);
+                const auto kn = keyNet.detectTTA (feat);
                 if (kn.valid) { bestRoot = kn.root; bestMode = kn.minor ? 1 : 0; bestScore = kn.confidence; }
             }
             else                 // fixed-profile fallback (shared with live AutoKey)
