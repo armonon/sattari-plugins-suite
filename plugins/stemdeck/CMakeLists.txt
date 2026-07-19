@@ -54,6 +54,7 @@ sattari_add_plugin(
         src/FilterProcessor.cpp
         src/HostGraph.cpp
         src/MainPluginEditor.cpp
+        src/MainPluginEditor_Arrangement.cpp
         src/MainPluginProcessor.cpp
         src/MasterRecorder.cpp
         src/MixerSection.cpp
