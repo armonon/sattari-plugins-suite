@@ -115,6 +115,8 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
     }
     cacheDeckParamIds();
+    // Optional trained key model (shared with Auto-Pitch). Absent -> DSP key stands.
+    neuralKey.loadDefaultModel();
     buildMidiTargets();
     ensureTeWrapperOnMessageThread();
 }
@@ -821,6 +823,21 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
     loaded->analysis = TrackAnalyzer::analyze (loaded->audio, loaded->sourceSampleRate);
+
+    // Trained key model on top of the DSP result. SattariKeyNet measured 58% exact
+    // vs 45% for profile correlation, so when the model is installed it wins; when
+    // it isn't (or ONNX is absent) TrackAnalyzer's key stands. Background thread.
+    if (neuralKey.isAvailable())
+    {
+        const auto k = neuralKey.detect (loaded->audio, loaded->sourceSampleRate);
+        if (k.valid)
+        {
+            loaded->analysis.keyPitchClass = k.root;
+            loaded->analysis.keyIsMinor    = k.minor;
+            loaded->analysis.keyConfidence = k.confidence;
+        }
+    }
+
     return loaded;
 }
 

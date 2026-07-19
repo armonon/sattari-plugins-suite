@@ -19,6 +19,7 @@
 #include "MasterFx.h"
 #include "SmartMaster.h"
 #include "AutomixEngine.h"
+#include "NeuralKeyEngine.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor
 {
@@ -415,6 +416,10 @@ private:
                      play, liveKey, keyLock, volume, fader, low, mid, high, filter, revMix, echoMix;
         std::array<juce::String, DeckPlayer::numStemLanes> stemGain, stemPitch, stemFilt, stemSend;
     };
+    // Trained neural key model (optional). Applied on top of TrackAnalyzer's
+    // DSP key when the model is installed; inert otherwise.
+    NeuralKeyEngine neuralKey;
+
     std::array<DeckParamIds, numDecks> deckIds;
     void cacheDeckParamIds();
 

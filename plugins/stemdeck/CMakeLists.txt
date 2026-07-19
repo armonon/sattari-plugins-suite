@@ -112,7 +112,9 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
     message(STATUS "StemDeck: ONNX Runtime found — on-device neural separation ENABLED (${ONNXRUNTIME_LIB})")
     target_include_directories(SattariStemDeck PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
     target_link_libraries(SattariStemDeck PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_STEMDECK_HAS_ONNX=1)
+    # SATTARI_HAS_ONNX is the suite-wide guard used by the shared core headers
+    # (SattariKeyNet). NeuralKeyEngine needs it to compile the real inference path.
+    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 else()
     message(STATUS "StemDeck: ONNX Runtime not found — neural separation uses demucs-CLI + RTSS fallback")
 endif()
