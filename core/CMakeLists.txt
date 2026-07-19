@@ -84,6 +84,15 @@ target_link_libraries(SattariAudioCoreCrepeContract
     PRIVATE
         SattariAudioCore)
 
+# VoxSynth analysis front-end contract (pure-std; embedded FFT + shared YIN). Locks
+# onset/legato/plosive classification, octave suppression, and percussion classes.
+add_executable(SattariAudioCoreVoxContract
+    tests/vox_analyzer_contract.cpp)
+
+target_link_libraries(SattariAudioCoreVoxContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.
