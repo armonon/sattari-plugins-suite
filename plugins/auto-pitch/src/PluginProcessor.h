@@ -97,6 +97,17 @@ public:
     struct KeyMapKey { int root = -1; int scale = -1; };
     KeyMapKey keyMapKeyAtSeconds (double seconds) const;
 
+    // --- Key Map visualisation (editor timeline) -----------------------------
+    // The scan also captures a peak envelope of the file so the editor can draw the
+    // song's waveform with its key SECTIONS overlaid, instead of a text summary.
+    // All three are published together with the map under keyMapLock.
+    std::vector<KeyMapEntry> getKeyMapSegments() const;
+    std::vector<float>       getKeyMapWaveform() const;   // 0..1 peak envelope
+    double                   getKeyMapDurationSec() const;
+    // Host playhead (seconds), updated per block so the timeline can draw a position
+    // marker even when Use Key Map is off.
+    double getKeyMapPlayheadSec() const { return keyMapPlayheadSec.load (std::memory_order_relaxed); }
+
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
     // sensible defaults when nothing has been processed yet.
     struct LiveSnapshot
@@ -352,6 +363,11 @@ private:
     // skips lookup if the writer holds it (the writer's hold is microseconds).
     juce::CriticalSection keyMapLock;
     std::vector<KeyMapEntry> keyMap;
+    // Peak envelope + duration of the scanned file, published with the map so the
+    // editor can draw the waveform under the key sections.
+    std::vector<float> keyMapWave;
+    double keyMapDurationSec = 0.0;
+    std::atomic<double> keyMapPlayheadSec { 0.0 };
     std::atomic<bool> keyMapScanning { false };
     // Set by setStateInformation() (and teardown) to ask an in-progress background
     // scan to stop before it publishes, so a restored/cleared map isn't clobbered

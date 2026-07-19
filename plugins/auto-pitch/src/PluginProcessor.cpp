@@ -1498,10 +1498,32 @@ void SattariAutoPitchAudioProcessor::clearKeyMap()
     keyMapScanCancel.store (false);
     const juce::ScopedLock l (keyMapLock);
     keyMap.clear();
+    keyMapWave.clear();
+    keyMapDurationSec = 0.0;
     keyMapFileName.clear();
     keyMapProgress.store (-1);
     keyMapCurrentSegment.store (-1);
     keyMapScanning.store (false);
+}
+
+// --- Key Map visualisation accessors (message thread; copy under the lock) ------
+std::vector<SattariAutoPitchAudioProcessor::KeyMapEntry>
+SattariAutoPitchAudioProcessor::getKeyMapSegments() const
+{
+    const juce::ScopedLock l (keyMapLock);
+    return keyMap;
+}
+
+std::vector<float> SattariAutoPitchAudioProcessor::getKeyMapWaveform() const
+{
+    const juce::ScopedLock l (keyMapLock);
+    return keyMapWave;
+}
+
+double SattariAutoPitchAudioProcessor::getKeyMapDurationSec() const
+{
+    const juce::ScopedLock l (keyMapLock);
+    return keyMapDurationSec;
 }
 
 SattariAutoPitchAudioProcessor::KeyMapStatus SattariAutoPitchAudioProcessor::getKeyMapStatus() const
@@ -1558,6 +1580,8 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     std::vector<KeyMapEntry> wins;   // every window's raw key estimate (smoothed after)
     sattari::dsp::HpcpChromagram hpcp;
     juce::int64 pos = 0;
+    std::vector<float> wave;                 // peak envelope for the editor timeline
+    wave.reserve ((size_t) (totalLen / juce::jmax (1, windowSamples) + 1) * 16);
 
     while (pos + windowSamples <= totalLen)
     {
@@ -1576,6 +1600,21 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
                 m += readBuf.getSample (ch, i);
             m /= (float) juce::jmax (1, readBuf.getNumChannels());
             windowMono[(size_t) i] = m;
+        }
+
+        // Peak envelope for the editor timeline: kWaveBucketsPerWindow points per
+        // 3.5 s window (~0.2 s resolution) — enough to draw a recognisable waveform
+        // without keeping the audio around.
+        {
+            constexpr int kWaveBucketsPerWindow = 16;
+            const int per = juce::jmax (1, windowSamples / kWaveBucketsPerWindow);
+            for (int b = 0; b < kWaveBucketsPerWindow; ++b)
+            {
+                const int s0 = b * per, s1 = juce::jmin (windowSamples, s0 + per);
+                float pk = 0.0f;
+                for (int i = s0; i < s1; ++i) pk = juce::jmax (pk, std::abs (windowMono[(size_t) i]));
+                wave.push_back (juce::jlimit (0.0f, 1.0f, pk));
+            }
         }
 
         // Per-frame HPCP chroma over the whole window -> mean(12) + covariance(12x12).
@@ -1678,10 +1717,12 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         return;
     }
 
-    // Publish.
+    // Publish (map + the waveform envelope the editor timeline draws).
     {
         const juce::ScopedLock l (keyMapLock);
         keyMap = std::move (built);
+        keyMapWave = std::move (wave);
+        keyMapDurationSec = (sr > 0.0) ? (double) totalLen / sr : 0.0;
         keyMapFileName = audioFile.getFileName();
         keyMapCurrentSegment.store (-1);
     }
@@ -1913,9 +1954,14 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             // editor timer, published off the audio thread).
             if (auto bpm = pos->getBpm())
                 hostBpmForBus.store (*bpm);
-            if (useKeyMap)
-                if (auto t = pos->getTimeInSeconds())
+            if (auto t = pos->getTimeInSeconds())
+            {
+                // Always publish the playhead so the editor's Key Map timeline can
+                // draw a position marker even when Use Key Map is off.
+                keyMapPlayheadSec.store (*t, std::memory_order_relaxed);
+                if (useKeyMap)
                     applyKeyMapAtSeconds (*t);
+            }
         }
 
     // Pull sidechain (master) audio if the bus is enabled. When AutoKey is on,

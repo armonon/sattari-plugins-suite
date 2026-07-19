@@ -623,7 +623,10 @@ int main (int argc, char** argv)
 
         static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
         static const char* SC[] = { "major","minor","chromatic" };
-        std::printf ("  segments: %d\n  key across the track:\n", st.numSegments);
+        // Also report the waveform envelope the editor's Key Map timeline draws, so a
+        // broken/empty capture shows up here instead of as a blank panel in the UI.
+        std::printf ("  segments: %d   timeline: %.1f s, %d envelope points\n  key across the track:\n",
+                     st.numSegments, p.getKeyMapDurationSec(), (int) p.getKeyMapWaveform().size());
         int prevRoot = -1, prevScale = -1;
         const double step = juce::jmax (4.0, dur / 24.0);
         for (double t = 0; t <= dur + 0.5; t += step) {

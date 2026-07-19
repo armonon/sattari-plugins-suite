@@ -588,6 +588,17 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     keyMapStatusLabel.setText (juce::String::fromUTF8 ("No key map \xe2\x80\x94 scan a track to follow key changes across a song."),
                                juce::dontSendNotification);
     proPanel.addAndMakeVisible (keyMapStatusLabel);
+    // Visual key map. Clicking a section reports its start time; we surface it in the
+    // status line so the producer can find the modulation in their DAW (a plugin can't
+    // seek the host transport).
+    proPanel.addAndMakeVisible (keyMapTimeline);
+    keyMapTimeline.onSegmentClicked = [this] (double sec)
+    {
+        const int mm = (int) (sec / 60.0), ss = (int) sec % 60;
+        keyMapStatusLabel.setText ("Section starts at " + juce::String (mm) + ":"
+                                       + juce::String (ss).paddedLeft ('0', 2),
+                                   juce::dontSendNotification);
+    };
     scanTrackButton.onClick = [this] { onScanTrackClicked(); };
     clearMapButton.onClick  = [this] { audioProcessor.clearKeyMap(); };
     useKeyMapAttach = std::make_unique<ButtonAttachment> (audioProcessor.parameters(), "useKeyMap", useKeyMap);
@@ -833,6 +844,24 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         s << juce::String::fromUTF8 ("No key map \xe2\x80\x94 scan a track to follow key changes across a song.");
     keyMapStatusLabel.setText (s, juce::dontSendNotification);
 
+    // Key Map timeline: refetch the (potentially large) waveform + segments only when
+    // the map actually changes, then just move the playhead marker each tick.
+    if (km.hasMap != keyMapShown || km.numSegments != keyMapShownSegs || km.loadedFileName != keyMapShownFile)
+    {
+        keyMapShown = km.hasMap; keyMapShownSegs = km.numSegments; keyMapShownFile = km.loadedFileName;
+        if (km.hasMap)
+        {
+            std::vector<sattari::ui::KeyMapSegment> segs;
+            for (const auto& e : audioProcessor.getKeyMapSegments())
+                segs.push_back ({ e.timeSec, e.rootIdx, e.scaleIdx, e.confidence });
+            keyMapTimeline.setData (audioProcessor.getKeyMapWaveform(), std::move (segs),
+                                    audioProcessor.getKeyMapDurationSec());
+        }
+        else
+            keyMapTimeline.clear();
+    }
+    keyMapTimeline.setPlayhead (audioProcessor.getKeyMapPlayheadSec());
+
     // Honest Neural Pitch label + state: the toggle silently falls back to YIN when no
     // crepe.onnx model is installed — say so AND disable it, so it never looks functional.
     const bool neuralOk = audioProcessor.neuralModelPresent();
@@ -1052,5 +1081,9 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     keymapHeader.removeFromLeft (10);
     midiLearnButton.setBounds (keymapHeader);
     pRight.removeFromTop (6);
+    // Timeline takes the bulk of the remaining space (it IS the key map now); the
+    // status line keeps a single row underneath for filename / progress / errors.
+    keyMapTimeline.setBounds (pRight.removeFromTop (juce::jmax (54, pRight.getHeight() - 30)));
+    pRight.removeFromTop (4);
     keyMapStatusLabel.setBounds (pRight);
 }

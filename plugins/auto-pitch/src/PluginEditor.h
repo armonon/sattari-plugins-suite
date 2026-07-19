@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariKeyMapTimeline.h>
 #include "PluginProcessor.h"
 
 class SattariAutoPitchAudioProcessorEditor;
@@ -226,6 +227,12 @@ private:
     juce::TextButton clearMapButton  { "Clear Map" };
     juce::ToggleButton useKeyMap     { "Use Key Map" };
     juce::Label keyMapStatusLabel;
+    // Visual key map: the song's waveform with its detected key sections. Refetched
+    // only when the map changes (tracked by these three), playhead moved every tick.
+    sattari::ui::KeyMapTimeline keyMapTimeline;
+    bool         keyMapShown     = false;
+    int          keyMapShownSegs = -1;
+    juce::String keyMapShownFile;
     std::unique_ptr<juce::FileChooser> trackFileChooser;
     std::unique_ptr<ButtonAttachment> useKeyMapAttach;
 
