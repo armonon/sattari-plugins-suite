@@ -8,11 +8,13 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
+#include <sattari_audio_core/SattariKeyNet.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <array>
 #include <atomic>
 #include <complex>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -90,6 +92,10 @@ public:
     bool startKeyMapScan (const juce::File& audioFile);
     void clearKeyMap();
     KeyMapStatus getKeyMapStatus() const;
+    // Key Map's (root, scale) at a playhead time — const lookup, for offline verification.
+    // Returns {root, scale} of the latest segment at or before `seconds`; {-1,-1} if empty.
+    struct KeyMapKey { int root = -1; int scale = -1; };
+    KeyMapKey keyMapKeyAtSeconds (double seconds) const;
 
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
     // sensible defaults when nothing has been processed yet.
@@ -130,6 +136,23 @@ public:
         s.confidence = (float) juce::jlimit (0.0, 1.0, lastPitchFrame.confidence);
         s.detectedRoot = detectedAutoRoot;
         return s;
+    }
+
+    // Diagnostic snapshot of the correction internals — the raw detected pitch, the
+    // target scale tone, the correction the plugin WANTS, and the shift it actually fed
+    // the engine this block. Used offline to separate detection error (detected != true
+    // pitch) from retune undershoot (applied << wanted). Not for the audio thread.
+    struct DebugFrame { double detectedMidi = 0, targetMidi = 0, wantedCents = 0, appliedCents = 0, confidence = 0; bool voiced = false; };
+    DebugFrame getDebugFrame() const noexcept
+    {
+        DebugFrame d;
+        d.voiced       = lastPitchFrame.voiced;
+        d.detectedMidi = lastPitchFrame.midi;
+        d.targetMidi   = lastPitchFrame.targetMidi;
+        d.wantedCents  = lastPitchFrame.correctionCents;                       // (target - detected) * 100
+        d.appliedCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, lastFedPitchScale));  // actual shift fed to engine
+        d.confidence   = lastPitchFrame.confidence;
+        return d;
     }
 
 private:
@@ -384,6 +407,8 @@ private:
     // isAvailable() is false and YIN is used — zero behavioural change.
     sattari::dsp::CrepePitchTracker crepe;
     bool  crepeModelPresent = false;
+    sattari::dsp::KeyNet keyNet;              // neural key model (90-dim HPCP feature -> 24 keys)
+    bool  keyNetPresent = false;
     float lastCrepeHz = 0.0f;
     float lastCrepeConfidence = 0.0f;
     // Inference runs on a background worker, never the audio thread. The audio
@@ -393,7 +418,31 @@ private:
     std::atomic<float> crepeResultHz { 0.0f };
     std::atomic<float> crepeResultConf { 0.0f };
     std::atomic<bool>  crepeResultVoiced { false };
+    // Offline (host bounce / non-realtime): the 12 ms worker can't keep pace with
+    // instant block processing, so neural pitch silently degrades to YIN. When
+    // offlineMode is set, the audio thread runs the ONNX inference SYNCHRONOUSLY under
+    // crepeMutex, and the worker skips (so the two never call analyse() concurrently).
+    std::atomic<bool>  offlineMode { false };
+    std::mutex         crepeMutex;
     void crepeWorkerLoop();
+
+    // --- Live neural key (AutoKey over the full-mix sidechain) ---------------
+    // The audio thread accumulates a DECAYED mean + covariance of the per-window
+    // HPCP chroma (the exact 90-dim feature the key-net was trained on) — cheap and
+    // RT-safe — and stashes the latest feature under a try_lock. The CREPE worker
+    // consumes it and runs keyNet.detect() off the audio thread; correlateAutoKey-
+    // Histogram prefers this neural key over the fixed profile when it's valid. Only
+    // the polyphonic sidechain path feeds it, so a monophonic vocal (no sidechain)
+    // still falls back to the histogram detector — which is where the profile belongs.
+    double             knMean[12]      = {};
+    double             knOuter[12][12] = {};
+    double             knWeight        = 0.0;
+    std::mutex         keyNetFeatMutex;
+    std::array<float, 90> keyNetFeat {};
+    std::atomic<bool>  keyNetFeatReady { false };
+    std::atomic<bool>  keyNetLiveValid { false };
+    std::atomic<int>   keyNetLiveRoot  { 0 };
+    std::atomic<int>   keyNetLiveMinor { 0 };
 
     // --- Vibrato preservation ------------------------------------------------
     // Low-passed "note centre" of the detected pitch. Correction snaps the centre

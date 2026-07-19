@@ -78,25 +78,66 @@ namespace detail
         18.2648, 0.737619, 14.0499, 16.8599, 0.702494, 14.4362, 0.702494, 18.6161, 4.56621, 1.93186, 7.37619, 1.75623
     };
 
-    // Default profile set. 0 = Krumhansl, 1 = Temperley/Kostka-Payne, 2 = Aarden-
-    // Essen. Set to the measured benchmark WINNER (see header note at top of file).
-    // 0 (Krumhansl) chosen by evidence: it was the accuracy winner. Temperley/
-    // Aarden are kept selectable — Temperley has ~2x the confidence margin, so
-    // define SATTARI_KEY_PROFILE=1 if a caller prioritises readout stability over
-    // the extra accuracy on the benchmark's ambiguous cases.
+    // 4) Sha'ath (2011) — profiles derived specifically for AUDIO key detection
+    //    ("Estimating Musical Key and Mode", the KeyFinder profiles). Strong on real
+    //    recordings where the literature score-corpus profiles underperform.
+    inline constexpr double kShaathMajor[12] = {
+        6.6, 2.0, 3.5, 2.3, 4.6, 4.0, 2.5, 5.2, 2.4, 3.7, 2.3, 3.4
+    };
+    inline constexpr double kShaathMinor[12] = {
+        6.5, 2.7, 3.5, 5.4, 2.6, 3.5, 2.5, 5.2, 4.0, 2.7, 4.3, 3.2
+    };
+
+    // 5) Bellman-Budge (1970) — note-frequency counts from a corpus; another
+    //    audio-favoured alternative that resists the perfect-fifth confusion.
+    inline constexpr double kBellmanMajor[12] = {
+        16.80, 0.86, 12.95, 1.41, 13.49, 11.93, 1.25, 20.28, 1.80, 8.04, 0.62, 10.57
+    };
+    inline constexpr double kBellmanMinor[12] = {
+        18.16, 0.69, 12.99, 13.34, 1.07, 11.15, 1.38, 21.07, 7.49, 1.53, 0.92, 10.21
+    };
+
+    // 6) Empirical — profiles FIT to our own HPCP chroma on the GiantSteps dataset
+    //    (mean tonic-aligned chroma over labelled tracks; see core/tools/fit_profiles).
+    //    In-domain, so it tracks the real chroma pipeline rather than a foreign corpus.
+    inline constexpr double kEmpiricalMajor[12] = {
+        0.1018, 0.0726, 0.0862, 0.0759, 0.0882, 0.0864, 0.0745, 0.0980, 0.0741, 0.0822, 0.0781, 0.0819
+    };
+    inline constexpr double kEmpiricalMinor[12] = {
+        0.0943, 0.0783, 0.0842, 0.0865, 0.0787, 0.0835, 0.0777, 0.0940, 0.0812, 0.0785, 0.0848, 0.0784
+    };
+
+    // Default profile set: 0=Krumhansl 1=Temperley 2=Aarden 3=Sha'ath 4=Bellman
+    // 6=Empirical. Chosen by REAL-DATASET evidence (80 GiantSteps tracks, HPCP chroma,
+    // SattariKeyDatasetEval): the old default (Krumhansl) was the WORST for exact key
+    // (36 %). For correction, exact key is what matters (a perfect-fifth error tunes to
+    // the wrong scale), so Aarden-Essen is the default — best-exact literature profile
+    // at 45 % (vs 41 % Sha'ath, 40 % Temperley). Sha'ath has the top MIREX (54, more
+    // partial credit for fifths) and an empirical fit reached 47.5 % held-out but is
+    // EDM-biased, so both stay selectable rather than default. The old synthetic-bench
+    // note (which crowned Krumhansl) was measured on 12 clean tones — not real audio.
     #ifndef SATTARI_KEY_PROFILE
-    #define SATTARI_KEY_PROFILE 0
+    #define SATTARI_KEY_PROFILE 2
     #endif
 
     #if   SATTARI_KEY_PROFILE == 0
         inline constexpr const double* kDefaultMajor = kKrumhanslMajor;
         inline constexpr const double* kDefaultMinor = kKrumhanslMinor;
-    #elif SATTARI_KEY_PROFILE == 2
-        inline constexpr const double* kDefaultMajor = kAardenMajor;
-        inline constexpr const double* kDefaultMinor = kAardenMinor;
-    #else
+    #elif SATTARI_KEY_PROFILE == 1
         inline constexpr const double* kDefaultMajor = kTemperleyMajor;
         inline constexpr const double* kDefaultMinor = kTemperleyMinor;
+    #elif SATTARI_KEY_PROFILE == 3
+        inline constexpr const double* kDefaultMajor = kShaathMajor;
+        inline constexpr const double* kDefaultMinor = kShaathMinor;
+    #elif SATTARI_KEY_PROFILE == 4
+        inline constexpr const double* kDefaultMajor = kBellmanMajor;
+        inline constexpr const double* kDefaultMinor = kBellmanMinor;
+    #elif SATTARI_KEY_PROFILE == 6
+        inline constexpr const double* kDefaultMajor = kEmpiricalMajor;
+        inline constexpr const double* kDefaultMinor = kEmpiricalMinor;
+    #else
+        inline constexpr const double* kDefaultMajor = kAardenMajor;
+        inline constexpr const double* kDefaultMinor = kAardenMinor;
     #endif
 
     // Pearson correlation of `chroma` (rotated so `root` aligns to the profile

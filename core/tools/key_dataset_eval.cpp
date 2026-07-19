@@ -280,6 +280,83 @@ void fileChromaHpcp (juce::dsp::FFT& fft, const std::array<float, kFftSize>& han
     }
     hpcp.finish (outChroma);
 }
+
+// Per-frame HPCP chroma -> mean(12) + covariance(12x12). The covariance captures note
+// CO-OCCURRENCE (chord/harmonic structure), the feature that lets a neural key model
+// beat a fixed profile. Feature-matched to what the plugin will compute at runtime.
+void fileChromaHpcpCov (juce::dsp::FFT& fft, const std::array<float, kFftSize>& hann,
+                        const std::vector<float>& mono, double sampleRate,
+                        double mean[12], double cov[12][12])
+{
+    const double binHz = sampleRate / (double) kFftSize;
+    std::array<float, kFftSize * 2> scratch {};
+    const int hop = kFftSize / 2;
+    const juce::int64 n = (juce::int64) mono.size();
+    for (int i = 0; i < 12; ++i) { mean[i] = 0; for (int j = 0; j < 12; ++j) cov[i][j] = 0; }
+    int frames = 0;
+    for (juce::int64 start = 0; start == 0 || start + kFftSize <= n; start += hop)
+    {
+        for (int i = 0; i < kFftSize; ++i)
+        {
+            const juce::int64 idx = start + i;
+            const float s = (idx < n) ? mono[(size_t) idx] : 0.0f;
+            scratch[(size_t) i] = s * hann[(size_t) i];
+        }
+        std::fill (scratch.begin() + kFftSize, scratch.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (scratch.data());
+        sattari::dsp::HpcpChromagram hpcp; hpcp.reset();
+        hpcp.accumulate (scratch.data(), kFftSize / 2 + 1, binHz);
+        double ch[12]; hpcp.finish (ch);
+        double s = 0; for (int i = 0; i < 12; ++i) s += ch[i];
+        if (s > 1.0e-9)
+        {
+            for (int i = 0; i < 12; ++i) ch[i] /= s;   // per-frame L1 normalise
+            ++frames;
+            for (int i = 0; i < 12; ++i) { mean[i] += ch[i]; for (int j = 0; j < 12; ++j) cov[i][j] += ch[i] * ch[j]; }
+        }
+        if (start + kFftSize > n) break;
+    }
+    if (frames > 0)
+    {
+        for (int i = 0; i < 12; ++i) mean[i] /= frames;
+        for (int i = 0; i < 12; ++i) for (int j = 0; j < 12; ++j) cov[i][j] = cov[i][j] / frames - mean[i] * mean[j];
+    }
+}
+
+// Per-frame HPCP chroma SEQUENCE (each frame L1-normalised) — the temporal feature a
+// key-CNN consumes. Same hop/window as fileChromaHpcpCov so the CNN sees exactly the
+// frames the covariance summarises.
+std::vector<std::array<float,12>> fileChromaSeq (juce::dsp::FFT& fft, const std::array<float, kFftSize>& hann,
+                                                 const std::vector<float>& mono, double sampleRate)
+{
+    const double binHz = sampleRate / (double) kFftSize;
+    std::array<float, kFftSize * 2> scratch {};
+    const int hop = kFftSize / 2;
+    const juce::int64 n = (juce::int64) mono.size();
+    std::vector<std::array<float,12>> seq;
+    for (juce::int64 start = 0; start == 0 || start + kFftSize <= n; start += hop)
+    {
+        for (int i = 0; i < kFftSize; ++i)
+        {
+            const juce::int64 idx = start + i;
+            scratch[(size_t) i] = ((idx < n) ? mono[(size_t) idx] : 0.0f) * hann[(size_t) i];
+        }
+        std::fill (scratch.begin() + kFftSize, scratch.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (scratch.data());
+        sattari::dsp::HpcpChromagram hpcp; hpcp.reset();
+        hpcp.accumulate (scratch.data(), kFftSize / 2 + 1, binHz);
+        double ch[12]; hpcp.finish (ch);
+        double s = 0; for (int i = 0; i < 12; ++i) s += ch[i];
+        if (s > 1.0e-9)
+        {
+            std::array<float,12> f {};
+            for (int i = 0; i < 12; ++i) f[(size_t) i] = (float) (ch[i] / s);
+            seq.push_back (f);
+        }
+        if (start + kFftSize > n) break;
+    }
+    return seq;
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -323,18 +400,27 @@ int main (int argc, char** argv)
                                                    * (float) i / (float) (kFftSize - 1));
 
     struct ProfileDef { const char* name; const double* maj; const double* min; };
-    const ProfileDef profiles[3] = {
+    const int NPROF = 5;
+    const ProfileDef profiles[NPROF] = {
         { "Krumhansl-Schmuckler",   detail::kKrumhanslMajor, detail::kKrumhanslMinor },
         { "Temperley/Kostka-Payne", detail::kTemperleyMajor, detail::kTemperleyMinor },
         { "Aarden-Essen",           detail::kAardenMajor,    detail::kAardenMinor    },
+        { "Sha'ath (audio)",        detail::kShaathMajor,    detail::kShaathMinor    },
+        { "Bellman-Budge",          detail::kBellmanMajor,   detail::kBellmanMinor   },
     };
-    ProfileScore scores[3];       // current linear-FFT chroma
-    ProfileScore scoresHpcp[3];   // new HPCP chroma (tuning-corrected + harmonic-summed)
-    for (int i = 0; i < 3; ++i)
+    ProfileScore scores[NPROF];       // current linear-FFT chroma
+    ProfileScore scoresHpcp[NPROF];   // new HPCP chroma (tuning-corrected + harmonic-summed)
+    for (int i = 0; i < NPROF; ++i)
     {
         scores[i].name     = profiles[i].name;
         scoresHpcp[i].name = profiles[i].name;
     }
+    // Store per-track HPCP chroma + truth so we can FIT an empirical profile and score
+    // it on a held-out half (honest generalisation, not in-sample).
+    std::vector<std::array<double,12>> allChroma;
+    std::vector<std::array<double,90>> allFeat;   // mean(12) + cov upper-tri incl diag (78) — neural key feature
+    std::vector<std::vector<std::array<float,12>>> allSeq;   // per-frame HPCP chroma (CNN feature)
+    std::vector<Truth> allTruth;
 
     int nTracks = 0, nSkipped = 0, nMissingAudio = 0;
 
@@ -368,13 +454,24 @@ int main (int argc, char** argv)
         fileChromaHpcp (fft, hann, mono, sampleRate, chromaHpcp);
 
         ++nTracks;
-        for (int p = 0; p < 3; ++p)
+        for (int p = 0; p < NPROF; ++p)
         {
             const KeyResult k  = detail::detectKeyWithProfiles (chroma,     profiles[p].maj, profiles[p].min);
             const KeyResult kh = detail::detectKeyWithProfiles (chromaHpcp, profiles[p].maj, profiles[p].min);
             scores[p].add     (k.valid  ? categorise (k.root,  k.minor,  truth.root, truth.minor) : Cat::Wrong);
             scoresHpcp[p].add (kh.valid ? categorise (kh.root, kh.minor, truth.root, truth.minor) : Cat::Wrong);
         }
+        std::array<double,12> ch; for (int i = 0; i < 12; ++i) ch[(size_t)i] = chromaHpcp[i];
+        allChroma.push_back (ch); allTruth.push_back (truth);
+
+        // 90-dim neural feature: per-frame HPCP mean(12) + covariance upper-tri incl diag (78).
+        double covMean[12], cov[12][12];
+        fileChromaHpcpCov (fft, hann, mono, sampleRate, covMean, cov);
+        std::array<double,90> feat; int fi = 0;
+        for (int i = 0; i < 12; ++i) feat[(size_t) fi++] = covMean[i];
+        for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[(size_t) fi++] = cov[i][j];
+        allFeat.push_back (feat);
+        allSeq.push_back (fileChromaSeq (fft, hann, mono, sampleRate));
     }
 
     if (nTracks == 0)
@@ -388,7 +485,7 @@ int main (int argc, char** argv)
     std::printf ("Scored %d tracks  (skipped %d unparseable/silence/modal, %d missing audio)\n\n",
                  nTracks, nSkipped, nMissingAudio);
 
-    auto printBlock = [] (const char* title, const ProfileScore s[3])
+    auto printBlock = [NPROF] (const char* title, const ProfileScore s[])
     {
         std::printf ("== %s ==\n", title);
         std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
@@ -396,7 +493,7 @@ int main (int argc, char** argv)
         std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
                      "------------------------", "------", "--------", "---------",
                      "-------------------------");
-        for (int p = 0; p < 3; ++p)
+        for (int p = 0; p < NPROF; ++p)
         {
             const double rawAcc = 100.0 * (double) s[p].exact / (double) s[p].scored;
             const double mirex  = 100.0 * s[p].weightSum / (double) s[p].scored;
@@ -410,10 +507,95 @@ int main (int argc, char** argv)
     printBlock ("CURRENT chroma (linear FFT)",  scores);
     printBlock ("HPCP chroma (tuning-corrected + harmonic sum)", scoresHpcp);
 
-    // Overall winner across all 6 (chroma, profile) combos.
+    // ── Empirical profile: FIT to our own HPCP chroma, scored held-out ───────────
+    // Tonic-align each track's chroma by its ground-truth root, average per mode over
+    // a TRAIN half, then score on the TEST half (idx%2) so the number is honest, not
+    // in-sample. Also print the all-data fit for shipping.
+    auto fitProfiles = [&] (bool trainOnEven, std::array<double,12>& maj, std::array<double,12>& mnr) {
+        maj.fill (0.0); mnr.fill (0.0); int nMaj = 0, nMin = 0;
+        for (size_t t = 0; t < allChroma.size(); ++t) {
+            if (trainOnEven && (t % 2 != 0)) continue;          // even = train
+            const auto& tr = allTruth[t];
+            double sum = 0; for (double v : allChroma[t]) sum += v; if (sum < 1e-9) continue;
+            for (int i = 0; i < 12; ++i) {
+                const double v = allChroma[t][(size_t)((i + tr.root) % 12)] / sum;   // rotate tonic->0
+                if (tr.minor) { mnr[(size_t)i] += v; } else { maj[(size_t)i] += v; }
+            }
+            tr.minor ? ++nMin : ++nMaj;
+        }
+        if (nMaj) for (auto& v : maj) v /= nMaj;
+        if (nMin) for (auto& v : mnr) v /= nMin;
+    };
+    // Dump per-track HPCP chroma + label for training a neural key model on the EXACT
+    // feature the plugin computes (avoids a train/deploy chroma mismatch). One row:
+    // chroma0..chroma11, root(0..11), minor(0/1).
+    {
+        const juce::File dump = datasetDir.getChildFile ("chroma.csv");
+        juce::String csv;
+        for (size_t t = 0; t < allChroma.size(); ++t) {
+            for (int i = 0; i < 12; ++i) csv << juce::String (allChroma[t][(size_t)i], 6) << ",";
+            csv << allTruth[t].root << "," << (allTruth[t].minor ? 1 : 0) << "\n";
+        }
+        dump.replaceWithText (csv);
+        std::printf ("wrote %d chroma rows -> %s\n", (int) allChroma.size(), dump.getFullPathName().toRawUTF8());
+
+        // 90-dim neural feature (mean + covariance), feature-matched to the plugin.
+        const juce::File fdump = datasetDir.getChildFile ("chroma_cov.csv");
+        juce::String fcsv;
+        for (size_t t = 0; t < allFeat.size(); ++t) {
+            for (int i = 0; i < 90; ++i) fcsv << juce::String (allFeat[t][(size_t)i], 6) << ",";
+            fcsv << allTruth[t].root << "," << (allTruth[t].minor ? 1 : 0) << "\n";
+        }
+        fdump.replaceWithText (fcsv);
+        std::printf ("wrote %d cov-feature rows -> %s\n\n", (int) allFeat.size(), fdump.getFullPathName().toRawUTF8());
+
+        // Per-frame HPCP chroma SEQUENCES for the key-CNN. Compact binary:
+        //   int32 numTracks
+        //   per track: int32 root, int32 minor, int32 T, float32[T*12]  (frame-major)
+        const juce::File sdump = datasetDir.getChildFile ("chroma_seq.bin");
+        juce::FileOutputStream os (sdump);
+        if (os.openedOk())
+        {
+            os.setPosition (0); os.truncate();
+            const juce::int32 nt = (juce::int32) allSeq.size();
+            os.write (&nt, sizeof (nt));
+            for (size_t t = 0; t < allSeq.size(); ++t)
+            {
+                const juce::int32 r = allTruth[t].root, m = allTruth[t].minor ? 1 : 0, T = (juce::int32) allSeq[t].size();
+                os.write (&r, sizeof (r)); os.write (&m, sizeof (m)); os.write (&T, sizeof (T));
+                for (const auto& fr : allSeq[t]) os.write (fr.data(), sizeof (float) * 12);
+            }
+            os.flush();
+            std::printf ("wrote %d chroma sequences -> %s\n\n", (int) allSeq.size(), sdump.getFullPathName().toRawUTF8());
+        }
+    }
+
+    std::array<double,12> empMaj, empMin;
+    fitProfiles (true, empMaj, empMin);                          // fit on TRAIN (even)
+    ProfileScore empScore; empScore.name = "Empirical (HPCP, held-out)";
+    for (size_t t = 0; t < allChroma.size(); ++t) {
+        if (t % 2 == 0) continue;                                // score on TEST (odd)
+        const KeyResult k = detail::detectKeyWithProfiles (allChroma[t].data(), empMaj.data(), empMin.data());
+        empScore.add (k.valid ? categorise (k.root, k.minor, allTruth[t].root, allTruth[t].minor) : Cat::Wrong);
+    }
+    // Refit on ALL data for the shipped constants.
+    std::array<double,12> shipMaj, shipMin; fitProfiles (false, shipMaj, shipMin);
+    std::printf ("== EMPIRICAL profile (fit to our HPCP chroma) ==\n");
+    std::printf ("  held-out MIREXx100 = %.2f   (%d test tracks; exact/fifth/rel/par/wrong %d/%d/%d/%d/%d)\n\n",
+                 100.0 * empScore.weightSum / (double) juce::jmax (1, empScore.scored), empScore.scored,
+                 empScore.exact, empScore.fifth, empScore.relative, empScore.parallel, empScore.wrong);
+    auto printProf = [] (const char* nm, const std::array<double,12>& p) {
+        std::printf ("  kEmpirical%s[12] = { ", nm);
+        for (int i = 0; i < 12; ++i) std::printf ("%.4f%s", p[(size_t)i], i < 11 ? ", " : " };\n");
+    };
+    printProf ("Major", shipMaj);
+    printProf ("Minor", shipMin);
+    std::printf ("\n");
+
+    // Overall winner across all (chroma, profile) combos.
     const char* bestName = scores[0].name; const char* bestChroma = "current";
     double bestMirex = -1.0;
-    for (int p = 0; p < 3; ++p)
+    for (int p = 0; p < NPROF; ++p)
     {
         const double m  = 100.0 * scores[p].weightSum     / (double) scores[p].scored;
         const double mh = 100.0 * scoresHpcp[p].weightSum / (double) scoresHpcp[p].scored;

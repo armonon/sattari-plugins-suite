@@ -166,15 +166,43 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
     while (crepeThreadRun.load (std::memory_order_relaxed))
     {
         // Only run inference when the user has enabled Neural Pitch and a model
-        // is loaded. The heavy ONNX Run() happens HERE, off the audio thread.
+        // is loaded. The heavy ONNX Run() happens HERE, off the audio thread. When
+        // offline, the audio thread drives inference synchronously instead, so the
+        // worker steps aside (offlineMode) — the mutex guards the hand-off window.
         if (crepeModelPresent
+            && ! offlineMode.load (std::memory_order_relaxed)
             && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
         {
+            const std::lock_guard<std::mutex> lk (crepeMutex);
             const auto r = crepe.analyse (0.5f);
             crepeResultHz.store (r.frequencyHz, std::memory_order_relaxed);
             crepeResultConf.store (r.confidence, std::memory_order_relaxed);
             crepeResultVoiced.store (r.voiced, std::memory_order_relaxed);
         }
+
+        // Live neural key (AutoKey): consume the latest chroma feature stashed by
+        // the audio thread and infer the key off-thread. Self-throttled — the audio
+        // thread refreshes the feature at most ~4x/sec, so this fires only that often.
+        // Skipped when offline: the audio thread drives the key inference synchronously
+        // there (runChromaAnalysis), so the two never call keyNet concurrently.
+        if (keyNetPresent
+            && ! offlineMode.load (std::memory_order_relaxed)
+            && keyNetFeatReady.exchange (false, std::memory_order_acquire))
+        {
+            std::array<float, 90> feat {};
+            {
+                const std::lock_guard<std::mutex> lk (keyNetFeatMutex);
+                feat = keyNetFeat;
+            }
+            const auto kn = keyNet.detectTTA (feat.data());
+            if (kn.valid)
+            {
+                keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
+                keyNetLiveMinor.store (kn.minor ? 1 : 0, std::memory_order_relaxed);
+                keyNetLiveValid.store (true,             std::memory_order_release);
+            }
+        }
+
         std::this_thread::sleep_for (12ms);   // ~83 Hz refresh; plenty for pitch
     }
 }
@@ -369,6 +397,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         if (modelFile.existsAsFile())
             crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
     }
+    // Neural key model (optional). Used by the Key Map scan (offline) for far more
+    // accurate key detection than the fixed profile. Absent -> falls back to profiles.
+    keyNetPresent = false;
+    {
+        auto keyFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                           .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("keynet.onnx");
+        if (keyFile.existsAsFile())
+            keyNetPresent = keyNet.loadModel (keyFile.getFullPathName().toStdString());
+    }
     // Spin up the inference worker only when there's actually a model to run. It
     // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
     // that the model + buffers are fully configured.
@@ -397,6 +434,12 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     chromaSamplesSinceFft = 0;
     sidechainSeenAudio = false;
     scMonoScratch.assign ((size_t) preparedBlockSize, 0.0f);
+
+    // Reset the live neural-key accumulators so a previous session's key can't linger.
+    knWeight = 0.0;
+    for (int i = 0; i < 12; ++i) { knMean[i] = 0.0; for (int j = 0; j < 12; ++j) knOuter[i][j] = 0.0; }
+    keyNetFeatReady.store (false, std::memory_order_relaxed);
+    keyNetLiveValid.store (false, std::memory_order_relaxed);
 
     // Real polyphonic phase-vocoder: preallocate all STFT buffers so the audio
     // thread never allocates when Polyphonic is engaged. Sized for the output
@@ -949,15 +992,25 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 
     if (scaleName == "major" || scaleName == "minor")
     {
-        // Full 24-key Krumhansl-Schmuckler detection: AutoKey picks BOTH the root
-        // AND the mode (major vs minor) from the pitch-class histogram, instead of
-        // only finding the root within the user's chosen mode. detectedAutoScale
-        // then drives the effective scale (see effectiveScaleIndex).
-        const auto kr = sattari::dsp::detectKey (autoKeyHistogram.data());
-        if (kr.valid)
+        // AutoKey picks BOTH the root AND the mode (major vs minor); detectedAutoScale
+        // then drives the effective scale (see effectiveScaleIndex). Prefer the NEURAL
+        // key when the sidechain (full-mix) path has produced a valid inference — it's
+        // ~58% exact vs ~45% for the profile on real mixes. Absent a sidechain the
+        // neural result never validates and we fall back to the pitch-histogram
+        // detector, which is the right tool for a monophonic vocal.
+        if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
         {
-            bestRoot = kr.root;
-            detectedAutoScale = kr.minor ? 1 : 0;
+            bestRoot = keyNetLiveRoot.load (std::memory_order_relaxed);
+            detectedAutoScale = keyNetLiveMinor.load (std::memory_order_relaxed);
+        }
+        else
+        {
+            const auto kr = sattari::dsp::detectKey (autoKeyHistogram.data());
+            if (kr.valid)
+            {
+                bestRoot = kr.root;
+                detectedAutoScale = kr.minor ? 1 : 0;
+            }
         }
     }
     else
@@ -1066,6 +1119,59 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     constexpr double blend = 0.35;
     for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
         autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
+
+    // --- Live neural key: decayed mean + covariance of the L1-normalised chroma.
+    // Same feature as the offline Key Map / training (chroma summed to 1 per frame),
+    // just accumulated online. The decay lets it track modulations; ~1s of windows
+    // gives a stable covariance. The heavy inference happens on the worker — here we
+    // only update sums (12 + 144 mults) and stash the feature under a non-blocking
+    // try_lock, so the audio thread never waits on the worker.
+    if (keyNetPresent)
+    {
+        std::array<double, 12> ch {};
+        for (int i = 0; i < 12; ++i) ch[(size_t) i] = pcAccum[(size_t) i] / total;
+
+        constexpr double decay = 0.97;
+        knWeight = knWeight * decay + 1.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            knMean[i] = knMean[i] * decay + ch[(size_t) i];
+            for (int j = 0; j < 12; ++j)
+                knOuter[i][j] = knOuter[i][j] * decay + ch[(size_t) i] * ch[(size_t) j];
+        }
+
+        if (knWeight > 4.0)   // ~1s of 256 ms windows -> covariance has settled
+        {
+            double m[12];
+            for (int i = 0; i < 12; ++i) m[i] = knMean[i] / knWeight;
+            float feat[90]; int fi = 0;
+            for (int i = 0; i < 12; ++i) feat[fi++] = (float) m[i];
+            for (int i = 0; i < 12; ++i)
+                for (int j = i; j < 12; ++j)
+                    feat[fi++] = (float) (knOuter[i][j] / knWeight - m[i] * m[j]);
+
+            if (offlineMode.load (std::memory_order_relaxed))
+            {
+                // Offline bounce: the worker can't keep pace with instant block
+                // processing (same reason CREPE degrades offline), so run the key
+                // inference SYNCHRONOUSLY here. The worker skips its key block while
+                // offlineMode is set, so the two never touch keyNet concurrently.
+                const auto kn = keyNet.detectTTA (feat);
+                if (kn.valid)
+                {
+                    keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
+                    keyNetLiveMinor.store (kn.minor ? 1 : 0, std::memory_order_relaxed);
+                    keyNetLiveValid.store (true,             std::memory_order_release);
+                }
+            }
+            else if (keyNetFeatMutex.try_lock())   // real-time: hand to worker, never block
+            {
+                std::copy (feat, feat + 90, keyNetFeat.begin());
+                keyNetFeatMutex.unlock();
+                keyNetFeatReady.store (true, std::memory_order_release);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1447,28 +1553,11 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
                                                    * (float) i / (float) (fftSize - 1));
 
-    static constexpr double kProfileMajor[12] = { 6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88 };
-    static constexpr double kProfileMinor[12] = { 6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17 };
-
-    auto pearson = [] (const std::array<double,12>& h, const double* profile, int root) -> double
-    {
-        double meanH = 0.0, meanP = 0.0;
-        for (int i = 0; i < 12; ++i) { meanH += h[(size_t) i]; meanP += profile[i]; }
-        meanH /= 12.0; meanP /= 12.0;
-        double num = 0.0, dH = 0.0, dP = 0.0;
-        for (int i = 0; i < 12; ++i)
-        {
-            const double dh = h[(size_t) ((i + root) % 12)] - meanH;
-            const double dp = profile[i] - meanP;
-            num += dh * dp; dH += dh * dh; dP += dp * dp;
-        }
-        const double d = std::sqrt (dH * dP);
-        return d > 1.0e-9 ? num / d : -1.0;
-    };
 
     std::vector<KeyMapEntry> built;
+    std::vector<KeyMapEntry> wins;   // every window's raw key estimate (smoothed after)
+    sattari::dsp::HpcpChromagram hpcp;
     juce::int64 pos = 0;
-    int prevRoot = -1, prevScale = -1;
 
     while (pos + windowSamples <= totalLen)
     {
@@ -1489,55 +1578,94 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
             windowMono[(size_t) i] = m;
         }
 
-        // Chroma over the centred FFT-sized portion of the window.
-        const int start = (windowSamples - fftSize) / 2;
-        for (int i = 0; i < fftSize; ++i)
-            fftBuf[(size_t) i] = windowMono[(size_t) (start + i)] * hann[(size_t) i];
-        std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
-        fft.performFrequencyOnlyForwardTransform (fftBuf.data());
-
-        std::array<double, 12> chroma {};
-        const double binHz = sr / (double) fftSize;
-        const int firstBin = juce::jmax (1, (int) std::ceil (55.0  / binHz));
-        const int lastBin  = juce::jmin (fftSize / 2, (int) std::floor (4186.0 / binHz));
-        for (int bin = firstBin; bin <= lastBin; ++bin)
+        // Per-frame HPCP chroma over the whole window -> mean(12) + covariance(12x12).
+        // The covariance (note co-occurrence) is the feature the NEURAL key model needs;
+        // it's computed exactly like key_dataset_eval's fileChromaHpcpCov so training and
+        // inference match. The mean alone still feeds the profile fallback.
+        std::array<double,12> mean {}; double cov[12][12] = {};
+        int frames = 0;
+        const int fhop = fftSize / 2;
+        for (int fs = 0; fs + fftSize <= windowSamples; fs += fhop)
         {
-            const double f = bin * binHz;
-            const double midi = 69.0 + 12.0 * std::log2 (f / 440.0);
-            const int pc = ((int) std::round (midi) % 12 + 12) % 12;
-            const float mag = fftBuf[(size_t) bin];
-            chroma[(size_t) pc] += (double) mag * mag;
+            for (int i = 0; i < fftSize; ++i)
+                fftBuf[(size_t) i] = windowMono[(size_t) (fs + i)] * hann[(size_t) i];
+            std::fill (fftBuf.begin() + fftSize, fftBuf.end(), 0.0f);
+            fft.performFrequencyOnlyForwardTransform (fftBuf.data());
+            std::array<double,12> ch {};
+            hpcp.reset();
+            hpcp.accumulate (fftBuf.data(), fftSize / 2 + 1, sr / (double) fftSize);
+            hpcp.finish (ch.data());
+            double s = 0; for (double v : ch) s += v;
+            if (s < 1.0e-9) continue;
+            for (auto& v : ch) v /= s;
+            ++frames;
+            for (int i = 0; i < 12; ++i) { mean[(size_t) i] += ch[(size_t) i]; for (int j = 0; j < 12; ++j) cov[i][j] += ch[(size_t) i] * ch[(size_t) j]; }
         }
 
-        double total = 0.0;
-        for (double v : chroma) total += v;
-        if (total > 1.0e-9)
-            for (auto& v : chroma) v /= total;
-
-        // Pick best (root, mode) by Krumhansl correlation.
-        double bestScore = -2.0;
-        int bestRoot = 0, bestMode = 0;
-        for (int mode = 0; mode < 2; ++mode)
+        int   bestRoot  = wins.empty() ? 0 : wins.back().rootIdx;
+        int   bestMode  = 0;
+        float bestScore = 0.0f;
+        if (frames > 0)
         {
-            const double* prof = (mode == 0) ? kProfileMajor : kProfileMinor;
-            for (int root = 0; root < 12; ++root)
+            for (auto& v : mean) v /= frames;
+            for (int i = 0; i < 12; ++i) for (int j = 0; j < 12; ++j) cov[i][j] = cov[i][j] / frames - mean[(size_t) i] * mean[(size_t) j];
+
+            if (keyNetPresent)   // neural key model (58% exact vs 45% profile)
             {
-                const double s = pearson (chroma, prof, root);
-                if (s > bestScore) { bestScore = s; bestRoot = root; bestMode = mode; }
+                float feat[90]; int fi = 0;
+                for (int i = 0; i < 12; ++i) feat[fi++] = (float) mean[(size_t) i];
+                for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[fi++] = (float) cov[i][j];
+                const auto kn = keyNet.detectTTA (feat);
+                if (kn.valid) { bestRoot = kn.root; bestMode = kn.minor ? 1 : 0; bestScore = kn.confidence; }
+            }
+            else                 // fixed-profile fallback (shared with live AutoKey)
+            {
+                const auto kr = sattari::dsp::detail::detectKeyWithProfiles (
+                                    mean.data(), sattari::dsp::detail::kDefaultMajor, sattari::dsp::detail::kDefaultMinor);
+                if (kr.valid) { bestRoot = kr.root; bestMode = kr.minor ? 1 : 0; bestScore = (float) kr.confidence; }
             }
         }
 
-        const double tSec = (double) pos / sr;
-        // Only emit a new entry when the (root, mode) actually changes -> compact map.
-        if (bestRoot != prevRoot || bestMode != prevScale)
-        {
-            built.push_back ({ tSec, bestRoot, bestMode, (float) bestScore });
-            prevRoot = bestRoot; prevScale = bestMode;
-        }
+        wins.push_back ({ (double) pos / sr, bestRoot, bestMode, bestScore });
 
         pos += hopSamples;
         const int pct = totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0;
         keyMapProgress.store (juce::jlimit (0, 100, pct));
+    }
+
+    // Stabilise the raw per-window estimates into a usable timeline. A real song ran the
+    // naive change-on-every-flicker logic to ~1 segment/second of unrelated keys; now we
+    //   (1) majority-vote each window over +/- K neighbours (kills detector flicker), then
+    //   (2) run-length encode and DROP any segment shorter than minSeg (merge the flicker
+    //       back into the surrounding key) -> a handful of real sections.
+    {
+        const int K = 6;                 // +/- 6 windows @ 1 s hop = ~13 s vote span
+        const double minSeg = 10.0;      // seconds; sections are longer than this
+        const int n = (int) wins.size();
+        for (int i = 0; i < n; ++i)
+        {
+            int votes[24] = { 0 };
+            for (int j = juce::jmax (0, i - K); j <= juce::jmin (n - 1, i + K); ++j)
+                votes[wins[(size_t) j].rootIdx * 2 + wins[(size_t) j].scaleIdx]++;
+            int bestK = 0;
+            for (int k = 1; k < 24; ++k) if (votes[k] > votes[bestK]) bestK = k;
+            wins[(size_t) i].rootIdx  = bestK / 2;
+            wins[(size_t) i].scaleIdx = bestK % 2;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            if (built.empty())
+            {
+                built.push_back (wins[(size_t) i]);
+                built.back().timeSec = 0.0;   // first segment always starts at 0
+            }
+            else if (wins[(size_t) i].rootIdx != built.back().rootIdx
+                  || wins[(size_t) i].scaleIdx != built.back().scaleIdx)
+            {
+                if (wins[(size_t) i].timeSec - built.back().timeSec >= minSeg)
+                    built.push_back (wins[(size_t) i]);   // else: too short -> stay in current key
+            }
+        }
     }
 
     // Cancelled mid-scan (e.g. by setStateInformation restoring a map): do NOT
@@ -1564,6 +1692,23 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 // Called from processBlock when useKeyMap is on and the playhead has a position.
 // Looks up the segment covering `seconds` and writes the result to
 // `detectedAutoRoot` + (best-effort) the user's scale param.
+SattariAutoPitchAudioProcessor::KeyMapKey
+SattariAutoPitchAudioProcessor::keyMapKeyAtSeconds (double seconds) const
+{
+    const juce::ScopedTryLock l (keyMapLock);
+    if (! l.isLocked() || keyMap.empty())
+        return {};
+    int lo = 0, hi = (int) keyMap.size() - 1, idx = 0;
+    while (lo <= hi)
+    {
+        const int mid = (lo + hi) / 2;
+        if (keyMap[(size_t) mid].timeSec <= seconds) { idx = mid; lo = mid + 1; }
+        else hi = mid - 1;
+    }
+    return { juce::jlimit (0, 11, keyMap[(size_t) idx].rootIdx),
+             juce::jlimit (0, 2,  keyMap[(size_t) idx].scaleIdx) };
+}
+
 void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
 {
     const juce::ScopedTryLock l (keyMapLock);
@@ -1812,6 +1957,33 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // vocoder (processPolyphonicRetune below) reading mainBuffer directly.
     const bool polyOn = apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
 
+    // Polyphonic AutoKey with NO sidechain: the material being tuned lives on the
+    // MAIN input, so feed IT into the chroma / neural-key analyser. Without this,
+    // AutoKey on a dense instrumental degrades to monophonic pitch-tracking of the
+    // mix and mis-detects the key (measured A# vs the true G on a real track), so the
+    // per-peak retune snaps toward the WRONG scale. Feeding the main input lets the
+    // neural key model read the actual harmony. Gated to poly, so a monophonic vocal
+    // (main = single voice) still uses the pitch-histogram detector unchanged.
+    const bool haveLiveSidechain = getBusCount (true) > 1
+        && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled();
+    if (autoKeyOn && polyOn && ! haveLiveSidechain)
+    {
+        const int n = juce::jmin (numSamples, (int) scMonoScratch.size());
+        float energy = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            float m = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                m += mainBuffer.getSample (ch, i);
+            m /= (float) numChannels;
+            scMonoScratch[(size_t) i] = m;
+            energy += m * m;
+        }
+        if (energy > 1.0e-6f)
+            sidechainSeenAudio = true;   // prefer the chroma/neural key over the mono histogram
+        pushSidechainBlock (scMonoScratch.data(), n);
+    }
+
     // Computed once per block: neural pitch feeds BOTH the correction override
     // (below) and the AutoKey histogram (in the loop) when a CREPE model is active.
     const bool neuralOn   = apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f;
@@ -1868,11 +2040,27 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
         crepe.pushBlock (scMonoScratch.data(), numSamples);
 
-        const float crHz   = crepeResultHz.load (std::memory_order_relaxed);
-        const float crConf = crepeResultConf.load (std::memory_order_relaxed);
+        // Offline (host bounce): the worker can't keep up, so run the ONNX inference
+        // synchronously here — otherwise the neural detector silently degrades to YIN
+        // on a render. Realtime path is unchanged (reads the worker's result atomics).
+        const bool offline = isNonRealtime();
+        offlineMode.store (offline, std::memory_order_relaxed);
+        float crHz, crConf; bool crVoiced;
+        if (offline)
+        {
+            const std::lock_guard<std::mutex> lk (crepeMutex);
+            const auto r = crepe.analyse (0.5f);
+            crHz = r.frequencyHz; crConf = r.confidence; crVoiced = r.voiced;
+        }
+        else
+        {
+            crHz      = crepeResultHz.load (std::memory_order_relaxed);
+            crConf    = crepeResultConf.load (std::memory_order_relaxed);
+            crVoiced  = crepeResultVoiced.load (std::memory_order_relaxed);
+        }
         lastCrepeHz = crHz;
         lastCrepeConfidence = crConf;
-        if (crepeResultVoiced.load (std::memory_order_relaxed) && crHz > 0.0f && lastPitchFrame.voiced)
+        if (crVoiced && crHz > 0.0f && lastPitchFrame.voiced)
         {
             // Range-gate the CREPE estimate to the selected Sound Source, exactly
             // like the YIN gate (analyseCurrentPitchFrame -> result.voiced). An
@@ -2501,28 +2689,23 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
-    const auto source = origin.source == KeyOrigin::Source::FollowBus ? juce::String ("Follow ")
-                      : origin.source == KeyOrigin::Source::KeyMap    ? juce::String ("Key Map ")
-                      : origin.source == KeyOrigin::Source::AutoKey   ? juce::String ("AutoKey ")
-                                                                       : juce::String ("key ");
     const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f
                          || apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
     const juce::String engine =
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        liveEngine ? "PSOLA live" : "Rubber Band realtime";
+        liveEngine ? "PSOLA" : "Rubber Band";
 #else
-        liveEngine ? "PSOLA live" : "fallback guide";
+        liveEngine ? "PSOLA" : "Guide";
 #endif
+    const juce::String dot = juce::String::fromUTF8 ("   \xc2\xb7   ");   // "  ·  "
 
     if (! lastPitchFrame.voiced)
-        return engine + " engine, " + source + root + " " + scale + " - waiting for voiced input";
+        return engine + dot + root + " " + scale + dot + "waiting for input";
 
-    return engine + " - " + source + root + " " + scale
-        + ", mode " + currentStyleChoice()
-        + ", in " + midiNoteName (lastPitchFrame.midi)
-        + " -> " + midiNoteName (lastPitchFrame.targetMidi)
-        + ", correction " + juce::String (lastPitchFrame.correctionCents, 1) + " cents"
-        + ", confidence " + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
+    return engine + dot + root + " " + scale + dot + currentStyleChoice() + dot
+        + midiNoteName (lastPitchFrame.midi) + juce::String::fromUTF8 (" \xe2\x86\x92 ") + midiNoteName (lastPitchFrame.targetMidi)
+        + dot + juce::String (lastPitchFrame.correctionCents, 1) + " ct"
+        + dot + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
 }
 
 sattari::audio_core::KeySignature SattariAutoPitchAudioProcessor::currentKeySignature() const
@@ -2552,39 +2735,14 @@ juce::String SattariAutoPitchAudioProcessor::currentSattariWheelCode() const
 
 juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
 {
+    // Minimal: just the key and how sure we are. (The harmonic-wheel / compatibility /
+    // bus-sharing detail used to live here but read as insider jargon in the UI.)
     const auto key = currentKeySignature();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, key.tonicPitchClass)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex())];
-    const auto wheelCode = currentSattariWheelCode();
     const int confidence = juce::roundToInt (key.confidence * 100.0);
-
-    if (wheelCode == "unknown")
-    {
-        return "Key Detection tab: " + root + " " + scale
-            + ", confidence " + juce::String (confidence) + "%"
-            + ", Sattari Wheel needs major/minor mode; Send to Tune keeps selected chromatic root.";
-    }
-
-    const auto same = sattari::audio_core::classifyHarmonicMove (key, key);
-    auto sideStepUp = key;
-    sideStepUp.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass + 7, 12);
-    const auto sideStepMove = sattari::audio_core::classifyHarmonicMove (key, sideStepUp);
-    auto relative = key;
-    relative.mode = key.mode == sattari::audio_core::MusicalMode::Major
-        ? sattari::audio_core::MusicalMode::Minor
-        : sattari::audio_core::MusicalMode::Major;
-    if (key.mode == sattari::audio_core::MusicalMode::Major)
-        relative.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass - 3, 12);
-    else if (key.mode == sattari::audio_core::MusicalMode::Minor)
-        relative.tonicPitchClass = sattari::audio_core::positiveModulo (key.tonicPitchClass + 3, 12);
-
-    return "Key Detection tab: " + root + " " + scale
-        + " / Sattari Wheel " + wheelCode
-        + " / confidence " + juce::String (confidence) + "%"
-        + " / compatibility: " + juce::String (sattari::audio_core::toString (same))
-        + ", " + juce::String (sattari::audio_core::toString (sideStepMove))
-        + ", " + juce::String (sattari::audio_core::toString (sattari::audio_core::classifyHarmonicMove (key, relative)))
-        + " / Send to Tune shares this root+mode with correction and Adapt Map.";
+    return "Key   " + root + " " + scale
+        + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence";
 }
 
 int SattariAutoPitchAudioProcessor::rootToChoiceIndex (const juce::String& root)

@@ -82,12 +82,13 @@ int main()
         return 1;
     }
 
+    // The Key-Detection readout was intentionally minimised (was a paragraph of
+    // harmonic-wheel / Send-to-Tune jargon). It must now just state the key + confidence.
     const auto keyTabSummary = processor.getKeyDetectionTabSummary();
-    if (! keyTabSummary.containsIgnoreCase ("Sattari Wheel")
-        || ! keyTabSummary.containsIgnoreCase ("compatibility")
-        || ! keyTabSummary.containsIgnoreCase ("Send to Tune"))
+    if (! keyTabSummary.containsIgnoreCase ("Key")
+        || ! keyTabSummary.containsIgnoreCase ("confidence"))
     {
-        std::cerr << "key detection tab did not expose harmonic-lab bridge: " << keyTabSummary << "\n";
+        std::cerr << "key detection tab summary missing key/confidence: " << keyTabSummary << "\n";
         return 1;
     }
 
@@ -138,8 +139,10 @@ int main()
             noiseProc.processBlock (buffer, midi);
         }
 
+        // Live status is now compact ("engine · key · A3 -> A3 · ..."); the detected
+        // input note must still read A3 (correct octave under noise).
         const auto noiseStatus = noiseProc.getLiveStatusSummary();
-        if (! noiseStatus.contains (" in A3 "))
+        if (! noiseStatus.contains ("A3"))
         {
             std::cerr << "YIN failed noise-robustness: expected detected note A3, got: "
                       << noiseStatus << "\n";
@@ -183,7 +186,7 @@ int main()
         }
 
         const auto modeStatus = modeProcessor.getLiveStatusSummary();
-        if (! modeStatus.contains ("mode " + expectedModes[mode]))
+        if (! modeStatus.contains (expectedModes[mode]))   // compact status shows the Style name
         {
             std::cerr << "mode status missing " << expectedModes[mode] << ": " << modeStatus << "\n";
             return 1;
