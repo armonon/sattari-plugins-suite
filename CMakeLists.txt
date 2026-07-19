@@ -46,6 +46,7 @@ add_subdirectory(plugins/scope)
 add_subdirectory(plugins/granulator)
 add_subdirectory(plugins/glass-choir)
 add_subdirectory(plugins/brain)
+add_subdirectory(plugins/voxsynth)
 
 # Cross-plugin session bus contract: defined here (not in core/) because it needs
 # juce_core, which only exists after the plugins above have pulled JUCE in.

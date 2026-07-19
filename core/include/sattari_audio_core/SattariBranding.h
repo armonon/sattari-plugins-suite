@@ -78,6 +78,7 @@ inline const std::vector<Product>& products()
         { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     kAccent },
         { "song-key",          "Sattari Key",         "Key detection",    kAccent },
         { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
+        { "voxsynth",          "Sattari VoxSynth",    "Voice instrument", kAccent },
         { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
         { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
         { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },
