@@ -1,4 +1,6 @@
 #include "TrackAnalysis.h"
+#include <sattari_audio_core/SattariHpcpChroma.h>
+#include <sattari_audio_core/SattariKeyDetector.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -9,41 +11,6 @@
 namespace
 {
 constexpr std::array<const char*, 12> noteNames { "C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B" };
-constexpr std::array<float, 12> majorProfile { 6.35f, 2.23f, 3.48f, 2.33f, 4.38f, 4.09f, 2.52f, 5.19f, 2.39f, 3.66f, 2.29f, 2.88f };
-constexpr std::array<float, 12> minorProfile { 6.33f, 2.68f, 3.52f, 5.38f, 2.60f, 3.53f, 2.54f, 4.75f, 3.98f, 2.69f, 3.34f, 3.17f };
-
-int midiNoteToPitchClass (int midiNote) noexcept
-{
-    return (midiNote % 12 + 12) % 12;
-}
-
-float normalisedCorrelation (const std::array<float, 12>& chroma, const std::array<float, 12>& profile, int transposition)
-{
-    float chromaMean = 0.0f;
-    float profileMean = 0.0f;
-    for (int i = 0; i < 12; ++i)
-    {
-        chromaMean += chroma[(size_t) i];
-        profileMean += profile[(size_t) i];
-    }
-    chromaMean /= 12.0f;
-    profileMean /= 12.0f;
-
-    float numerator = 0.0f;
-    float chromaEnergy = 0.0f;
-    float profileEnergy = 0.0f;
-    for (int i = 0; i < 12; ++i)
-    {
-        const float c = chroma[(size_t) ((i + transposition) % 12)] - chromaMean;
-        const float p = profile[(size_t) i] - profileMean;
-        numerator += c * p;
-        chromaEnergy += c * c;
-        profileEnergy += p * p;
-    }
-
-    const float denom = std::sqrt (chromaEnergy * profileEnergy);
-    return denom > 1.0e-9f ? numerator / denom : 0.0f;
-}
 
 // Multiband spectral-flux onset envelope: log-compressed magnitude flux summed
 // across bins with a low(kick)/high(hat)-emphasising band weighting. Far more
@@ -221,31 +188,6 @@ std::vector<double> trackBeats (const std::vector<float>& env, double sampleRate
     return beats;
 }
 
-// Downbeat via 4/4 phase: group tracked beats by (index % 4), pick the phase with
-// the greatest average onset strength (kick tends to fall on beat 1). Beats-based
-// and structural — better than "first transient above threshold".
-double detectDownbeat (const std::vector<double>& beats, const std::vector<float>& env,
-                       int hopSize, double fallback)
-{
-    if (beats.size() < 4 || env.empty()) return fallback;
-    std::array<double, 4> phaseEnergy { 0.0, 0.0, 0.0, 0.0 };
-    std::array<int, 4>    phaseCount  { 0, 0, 0, 0 };
-    for (size_t b = 0; b < beats.size(); ++b)
-    {
-        const int frame = (int) std::round (beats[b] / (double) hopSize);
-        if (frame < 0 || frame >= (int) env.size()) continue;
-        const int ph = (int) (b % 4);
-        phaseEnergy[(size_t) ph] += (double) env[(size_t) frame];
-        phaseCount [(size_t) ph] += 1;
-    }
-    int bestPhase = 0; double bestAvg = -1.0;
-    for (int p = 0; p < 4; ++p)
-    {
-        const double avg = phaseCount[(size_t) p] > 0 ? phaseEnergy[(size_t) p] / phaseCount[(size_t) p] : 0.0;
-        if (avg > bestAvg) { bestAvg = avg; bestPhase = p; }
-    }
-    return beats[(size_t) bestPhase];
-}
 
 // Local tempo curve: short-window autocorrelation of the onset envelope, searched
 // within +/-40% of the global tempo (so it tracks accel/rit without octave jumps),
@@ -544,116 +486,76 @@ TrackAnalysis TrackAnalyzer::analyze (const juce::AudioBuffer<float>& audio, dou
     }
 
     // ── Key detection ─────────────────────────────────────────────────────────
-    // Whole-track chroma (not just the intro) with tuning compensation, then
-    // Krumhansl–Schmuckl profile correlation across all 24 keys. Windows spread
-    // across the entire track make the estimate robust to atypical intros and
-    // breakdowns; estimating global tuning first keeps chroma sharp for records
-    // that sit off A=440 (vinyl rips, live recordings, non-standard tunings).
-    constexpr int windowSize = 4096;
-    if (audio.getNumSamples() < windowSize)
+    // Measured on 500 labelled GiantSteps tracks (core/tools/key_dataset_eval):
+    // the CHROMA FRONT-END dominates, not the profile. A linear note-frequency
+    // chroma scores ~9 % exact / 17 MIREX; the shared HPCP chromagram
+    // (tuning-corrected + harmonic sum + spectral whitening) scores 38.8 % with
+    // the same Krumhansl profile, and 45.2 % exact / 56.56 MIREX with Sha'ath —
+    // the best profile on real audio. So we delegate to the SAME shared-core code
+    // that evaluation scored, rather than reimplementing: StemDeck inherits that
+    // measured behaviour by construction.
+    //
+    // NOTE: a trained model (NeuralKeyEngine + SattariKeyNet) overrides this when
+    // installed; this is the always-available fallback.
+    constexpr int kKeyFftOrder = 12;
+    constexpr int kKeyFftSize  = 1 << kKeyFftOrder;   // 4096, matches the evaluator
+    if (audio.getNumSamples() < kKeyFftSize)
         return result;
 
-    std::vector<int> chromaStarts;
     {
-        const int usable = audio.getNumSamples() - windowSize;
-        constexpr int maxWindows = 96;
-        const int n = juce::jmax (1, juce::jmin (maxWindows, usable / windowSize + 1));
-        for (int k = 0; k < n; ++k)
-            chromaStarts.push_back ((int) ((int64_t) usable * k / juce::jmax (1, n - 1)));
-    }
-
-    auto noteFreq = [] (double midi) { return 440.0 * std::pow (2.0, (midi - 69.0) / 12.0); };
-
-    // Global tuning offset in [-0.5, +0.4] semitone (0.1 steps): the offset that
-    // concentrates the most energy on note centres wins.
-    double tuningOffset = 0.0;
-    {
-        const int tuneWindows = juce::jmin ((int) chromaStarts.size(), 40);
-        double bestScore = -1.0;
-        // Search strictly inside (-0.5, +0.5) semitone in 0.05 steps. We must NOT
-        // hit ±0.5: that boundary aliases to the same frequency grid but shifts
-        // every pitch-class label by a semitone (a +40c note gets captured by the
-        // next semitone's probe), which would misdetect the key by a semitone.
-        for (int step = -9; step <= 9; ++step)
+        // Mono sum.
+        const int n  = audio.getNumSamples();
+        const int ch = juce::jmax (1, audio.getNumChannels());
+        std::vector<float> mono ((size_t) n, 0.0f);
+        for (int c = 0; c < ch; ++c)
         {
-            const double off = 0.05 * (double) step;
-            double score = 0.0;
-            for (int wi = 0; wi < tuneWindows; ++wi)
-                for (int midi = 60; midi <= 84; ++midi)   // upper register: cents == more Hz == resolvable
-                {
-                    const double f = noteFreq ((double) midi + off);
-                    if (f >= sampleRate * 0.45) continue;
-                    // Sum POWER (not amplitude): energy concentrates on the note
-                    // grid only when the offset matches the track's tuning, so a
-                    // squared measure discriminates the true offset far better.
-                    score += (double) goertzelPower (audio, chromaStarts[(size_t) wi], windowSize, sampleRate, f);
-                }
-            if (score > bestScore) { bestScore = score; tuningOffset = off; }
+            const auto* d = audio.getReadPointer (c);
+            for (int i = 0; i < n; ++i) mono[(size_t) i] += d[i];
         }
-    }
+        for (auto& v : mono) v /= (float) ch;
 
-    std::array<float, 12> chroma {};
-    int windows = 0;
-    for (int start : chromaStarts)
-    {
-        ++windows;
-        for (int midi = 36; midi <= 84; ++midi)
+        const double binHz = sampleRate / (double) kKeyFftSize;
+        const int hop = kKeyFftSize / 2;
+
+        juce::dsp::FFT keyFft (kKeyFftOrder);
+        std::vector<float> hann ((size_t) kKeyFftSize);
+        for (int i = 0; i < kKeyFftSize; ++i)
+            hann[(size_t) i] = 0.5f - 0.5f * std::cos (2.0f * juce::MathConstants<float>::pi
+                                                       * (float) i / (float) (kKeyFftSize - 1));
+        std::vector<float> scratch ((size_t) (kKeyFftSize * 2), 0.0f);
+
+        // EXACTLY the evaluator's fileChromaHpcp: ONE accumulator, reset once,
+        // every frame accumulated into it, finish() once at the end. Do NOT switch
+        // to per-frame finish + L1 + average — that is the *covariance* recipe used
+        // for the neural feature, a different weighting that was not the 56.56 run.
+        sattari::dsp::HpcpChromagram hpcp;
+        hpcp.reset();
+        for (int64_t start = 0; start == 0 || start + kKeyFftSize <= (int64_t) n; start += hop)
         {
-            const double frequency = noteFreq ((double) midi + tuningOffset);
-            if (frequency >= sampleRate * 0.45)
-                continue;
-
-            chroma[(size_t) midiNoteToPitchClass (midi)] += std::sqrt (goertzelPower (audio, start, windowSize, sampleRate, frequency));
+            for (int i = 0; i < kKeyFftSize; ++i)
+            {
+                const int64_t idx = start + i;
+                const float s = (idx < (int64_t) n) ? mono[(size_t) idx] : 0.0f;
+                scratch[(size_t) i] = s * hann[(size_t) i];
+            }
+            std::fill (scratch.begin() + kKeyFftSize, scratch.end(), 0.0f);
+            keyFft.performFrequencyOnlyForwardTransform (scratch.data());
+            hpcp.accumulate (scratch.data(), kKeyFftSize / 2 + 1, binHz);
+            if (start + kKeyFftSize > (int64_t) n) break;
         }
-    }
+        double chroma[12] = {};
+        hpcp.finish (chroma);
 
-    if (windows == 0)
-        return result;
-
-    float total = 0.0f;
-    for (auto& value : chroma)
-    {
-        value = std::log1p (value / (float) windows);
-        total += value;
-    }
-
-    if (total <= 1.0e-6f)
-        return result;
-
-    float bestScore = -2.0f;
-    float secondScore = -2.0f;
-    int bestKey = -1;
-    bool bestMinor = false;
-
-    for (int key = 0; key < 12; ++key)
-    {
-        const float major = normalisedCorrelation (chroma, majorProfile, key);
-        const float minor = normalisedCorrelation (chroma, minorProfile, key);
-
-        auto consider = [&] (float score, bool isMinor)
+        // Sha'ath profiles — top MIREX on real audio in the same evaluation.
+        const auto kr = sattari::dsp::detail::detectKeyWithProfiles (
+                            chroma, sattari::dsp::detail::kShaathMajor,
+                                    sattari::dsp::detail::kShaathMinor);
+        if (kr.valid)
         {
-            if (score > bestScore)
-            {
-                secondScore = bestScore;
-                bestScore = score;
-                bestKey = key;
-                bestMinor = isMinor;
-            }
-            else if (score > secondScore)
-            {
-                secondScore = score;
-            }
-        };
-
-        consider (major, false);
-        consider (minor, true);
-    }
-
-    if (bestKey >= 0)
-    {
-        result.keyPitchClass = bestKey;
-        result.keyIsMinor = bestMinor;
-        result.keyConfidence = juce::jlimit (0.0f, 1.0f, (bestScore - secondScore + 0.15f) / 0.5f);
+            result.keyPitchClass = kr.root;
+            result.keyIsMinor    = kr.minor;
+            result.keyConfidence = juce::jlimit (0.0f, 1.0f, (float) kr.confidence);
+        }
     }
 
     return result;

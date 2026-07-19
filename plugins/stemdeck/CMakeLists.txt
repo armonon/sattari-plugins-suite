@@ -29,6 +29,11 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
 project(SATTARI_STEMDECK_PLUGIN VERSION 0.5.0)
 
+# Shared core headers (HpcpChromagram + key profiles). TrackAnalysis.cpp uses them
+# for key detection, and the EXCLUDE_FROM_ALL test targets compile that file
+# standalone, so put them on the include path for every target in this directory.
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../../core/include)
+
 # Tracktion Engine requires C++20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
