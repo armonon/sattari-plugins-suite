@@ -20,6 +20,8 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
     readout.setColour (juce::Label::textColourId, juce::Colour (br::kAccent));
     addAndMakeVisible (readout);
 
+    addAndMakeVisible (sessionHud);
+
     auto combo = [this] (juce::ComboBox& b, const juce::StringArray& items, const juce::String& id, std::unique_ptr<CA>& att)
     {
         b.addItemList (items, 1);
@@ -94,10 +96,11 @@ void SattariVoxSynthAudioProcessorEditor::resized()
 {
     auto r = getLocalBounds().reduced (16);
     auto top = r.removeFromTop (30);
-    title.setBounds (top.removeFromLeft (130));
-    subtitle.setBounds (top.removeFromLeft (140).withTrimmedTop (7));
-    modeBox.setBounds (top.removeFromRight (90));
-    percBtn.setBounds (top.removeFromRight (110));
+    title.setBounds (top.removeFromLeft (110));
+    subtitle.setBounds (top.removeFromLeft (110).withTrimmedTop (7));
+    modeBox.setBounds (top.removeFromRight (76));
+    top.removeFromRight (6);
+    sessionHud.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 22));
 
     readout.setBounds (r.removeFromTop (30));
     r.removeFromTop (8);
@@ -105,6 +108,7 @@ void SattariVoxSynthAudioProcessorEditor::resized()
     auto oscRow = r.removeFromTop (24);
     osc1Box.setBounds (oscRow.removeFromLeft (120)); oscRow.removeFromLeft (8);
     osc2Box.setBounds (oscRow.removeFromLeft (120));
+    percBtn.setBounds (oscRow.removeFromRight (120));
     r.removeFromTop (6);
 
     juce::Slider* ks[] = { &mix, &detune, &glide, &cutoff, &filtAmt, &reso, &quantize, &level };

@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariSessionHud.h>
 #include "PluginProcessor.h"
 
 class SattariVoxSynthAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -27,6 +28,7 @@ private:
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("voxsynth") };
 
     juce::Label title, subtitle, readout;
+    sattari::ui::SessionHud sessionHud;
     juce::ComboBox modeBox, osc1Box, osc2Box;
     std::unique_ptr<CA> modeAtt, osc1Att, osc2Att;
     juce::ToggleButton percBtn { "Percussion" };
