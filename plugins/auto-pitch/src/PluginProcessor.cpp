@@ -406,6 +406,16 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         if (keyFile.existsAsFile())
             keyNetPresent = keyNet.loadModel (keyFile.getFullPathName().toStdString());
     }
+    // Spectrogram key model (optional, strictly better: 72.1 vs 61.5 MIREX). Used ONLY
+    // by the offline Key Map scan — it wants a 30 s window and a pseudo-CQT, so it is
+    // not viable on the live path, which keeps the cheap chroma model.
+    keyNetSpecPresent = false;
+    {
+        auto specFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                            .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("keynet_spec.onnx");
+        if (specFile.existsAsFile())
+            keyNetSpecPresent = keyNetSpec.loadModel (specFile.getFullPathName().toStdString());
+    }
     // Spin up the inference worker only when there's actually a model to run. It
     // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
     // that the model + buffers are fully configured.
@@ -1558,8 +1568,15 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 
     // Window the scan: ~3.5 second analysis windows hop every ~1 second so the
     // map captures mid-song key changes without spamming segments.
-    const int windowSamples = juce::jmax (8192, (int) (sr * 3.5));
-    const int hopSamples    = juce::jmax (1024, (int) (sr * 1.0));
+    // The SPECTROGRAM key model (72.1 MIREX) is trained on 30 s..120 s excerpts, so it
+    // needs a window in that range — feeding it 3.5 s would be a domain mismatch. Key
+    // changes are structural (sections last far longer), so a 30 s window on a 15 s hop
+    // still resolves a modulation to within ~15 s. Without the model we keep the chroma
+    // scan's fine 3.5 s / 1 s grid.
+    const bool useSpecScan  = keyNetSpecPresent;
+    const int windowSamples = useSpecScan ? (int) (sr * 30.0) : juce::jmax (8192, (int) (sr * 3.5));
+    const int hopSamples    = useSpecScan ? (int) (sr * 15.0) : juce::jmax (1024, (int) (sr * 1.0));
+    const double hopSec     = (sr > 0.0) ? (double) hopSamples / sr : 1.0;
 
     juce::AudioBuffer<float> readBuf (2, windowSamples);
     std::vector<float> windowMono ((size_t) windowSamples, 0.0f);
@@ -1602,19 +1619,38 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
             windowMono[(size_t) i] = m;
         }
 
-        // Peak envelope for the editor timeline: kWaveBucketsPerWindow points per
-        // 3.5 s window (~0.2 s resolution) — enough to draw a recognisable waveform
-        // without keeping the audio around.
+        // Peak envelope for the editor timeline. Captured over the HOP region only, so
+        // overlapping windows don't double-count and the envelope stays time-linear at
+        // ~0.2 s per point regardless of the window/hop grid in use.
         {
-            constexpr int kWaveBucketsPerWindow = 16;
-            const int per = juce::jmax (1, windowSamples / kWaveBucketsPerWindow);
-            for (int b = 0; b < kWaveBucketsPerWindow; ++b)
+            const int envSpan = juce::jmin (hopSamples, windowSamples);
+            const int buckets = juce::jmax (1, (int) (envSpan / juce::jmax (1.0, sr * 0.2)));
+            const int per = juce::jmax (1, envSpan / buckets);
+            for (int b = 0; b < buckets; ++b)
             {
-                const int s0 = b * per, s1 = juce::jmin (windowSamples, s0 + per);
+                const int s0 = b * per, s1 = juce::jmin (envSpan, s0 + per);
                 float pk = 0.0f;
                 for (int i = s0; i < s1; ++i) pk = juce::jmax (pk, std::abs (windowMono[(size_t) i]));
                 wave.push_back (juce::jlimit (0.0f, 1.0f, pk));
             }
+        }
+
+        // Spectrogram key model path: one pseudo-CQT + TTA inference per 30 s window.
+        if (useSpecScan)
+        {
+            std::vector<float> feat;
+            int specRoot = wins.empty() ? 0 : wins.back().rootIdx;
+            int specMode = wins.empty() ? 0 : wins.back().scaleIdx;
+            float specConf = 0.0f;
+            if (logSpec.compute (windowMono.data(), windowSamples, sr, feat))
+            {
+                const auto kn = keyNetSpec.detectTTA (feat.data());
+                if (kn.valid) { specRoot = kn.root; specMode = kn.minor ? 1 : 0; specConf = kn.confidence; }
+            }
+            wins.push_back ({ (double) pos / sr, specRoot, specMode, specConf });
+            pos += hopSamples;
+            keyMapProgress.store (juce::jlimit (0, 100, totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0));
+            continue;
         }
 
         // Per-frame HPCP chroma over the whole window -> mean(12) + covariance(12x12).
@@ -1678,7 +1714,10 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     //   (2) run-length encode and DROP any segment shorter than minSeg (merge the flicker
     //       back into the surrounding key) -> a handful of real sections.
     {
-        const int K = 6;                 // +/- 6 windows @ 1 s hop = ~13 s vote span
+        // Vote span is defined in SECONDS (~13 s), not windows, so it holds on both the
+        // chroma grid (1 s hop -> K=6) and the spectrogram grid (15 s hop -> K=0, where
+        // each estimate already integrates 30 s and needs no de-flickering).
+        const int K = juce::jmax (0, (int) std::lround (6.5 / juce::jmax (0.001, hopSec)));
         const double minSeg = 10.0;      // seconds; sections are longer than this
         const int n = (int) wins.size();
         for (int i = 0; i < n; ++i)

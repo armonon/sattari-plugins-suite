@@ -19,6 +19,7 @@
 #include "PluginProcessor.h"
 #include <sattari_audio_core/SattariRenderHarness.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
+#include <sattari_audio_core/SattariLogSpec.h>
 
 #include <cmath>
 #include <cstdio>
@@ -536,6 +537,42 @@ int main (int argc, char** argv)
         const bool ok = (shift == 5);
         std::printf ("%s\n", ok ? "Auto Pitch live neural key ok" : "FAIL: live key did not track the transpose");
         return ok ? 0 : 1;
+    }
+
+    // --specdump <in.wav> <out.bin> : compute the C++ pseudo-CQT (SattariLogSpec) for a
+    // file and write it as raw float32 [84*256]. Paired with scripts/pcqt_featurize.py's
+    // pcqt_of() to prove the TRAINING feature and the INFERENCE feature agree — the one
+    // thing that would silently wreck the spectrogram key model in the plugin.
+    if (argc > 1 && std::strcmp (argv[1], "--specdump") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --specdump <in.wav> <out.bin>\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        const int n = (int) juce::jmin (rd->lengthInSamples, (juce::int64) (fsr * 120.0));   // match training cap
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), n);
+        rd->read (&in, 0, n, 0, true, true);
+        std::vector<float> mono ((size_t) n, 0.0f);
+        for (int i = 0; i < n; ++i)
+        {
+            double m = 0.0;
+            for (int ch = 0; ch < in.getNumChannels(); ++ch) m += in.getSample (ch, i);
+            mono[(size_t) i] = (float) (m / juce::jmax (1, in.getNumChannels()));
+        }
+        sattari::dsp::LogSpec spec; std::vector<float> feat;
+        if (! spec.compute (mono.data(), n, fsr, feat)) { std::fprintf (stderr, "FAIL: spec compute\n"); return 1; }
+        outF.deleteFile();
+        juce::FileOutputStream os (outF);
+        if (! os.openedOk()) { std::fprintf (stderr, "FAIL: cannot write %s\n", argv[3]); return 1; }
+        os.write (feat.data(), sizeof (float) * feat.size());
+        os.flush();
+        double mean = 0.0; for (float v : feat) mean += v; mean /= feat.size();
+        std::printf ("specdump: %d values (%dx%d)  mean=%.4f  wrote %s\n",
+                     (int) feat.size(), sattari::dsp::LogSpec::kBins, sattari::dsp::LogSpec::kFrames,
+                     mean, outF.getFullPathName().toRawUTF8());
+        return 0;
     }
 
     // --diag <in.wav> : instrument the correction internals block-by-block to separate

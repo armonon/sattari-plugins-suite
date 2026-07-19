@@ -9,6 +9,7 @@
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariKeyNet.h>
+#include <sattari_audio_core/SattariKeyNetSpec.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <array>
 #include <atomic>
@@ -425,6 +426,11 @@ private:
     bool  crepeModelPresent = false;
     sattari::dsp::KeyNet keyNet;              // neural key model (90-dim HPCP feature -> 24 keys)
     bool  keyNetPresent = false;
+    // Spectrogram key model (72.1 MIREX vs the chroma model's 61.5) — offline Key Map
+    // scan only: it needs a 30 s window and a pseudo-CQT, too heavy for the live path.
+    sattari::dsp::LogSpec     logSpec;
+    sattari::dsp::KeyNetSpec  keyNetSpec;
+    bool  keyNetSpecPresent = false;
     float lastCrepeHz = 0.0f;
     float lastCrepeConfidence = 0.0f;
     // Inference runs on a background worker, never the audio thread. The audio
