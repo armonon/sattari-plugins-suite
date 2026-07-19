@@ -418,6 +418,12 @@ private:
     std::array<DeckParamIds, numDecks> deckIds;
     void cacheDeckParamIds();
 
+    // Pad gains were read as getFloatParam("pad" + String(i+1) + "Gain") inside
+    // processBlock — that heap-allocates juce::String temporaries on the audio
+    // thread every block. Cache the atomic pointers instead: no allocation AND
+    // no per-block APVTS string lookup.
+    std::array<std::atomic<float>*, PadBank::numPads> padGainParams {};
+
     struct DeckPerformanceState
     {
         bool play = false;

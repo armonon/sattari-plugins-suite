@@ -141,6 +141,10 @@ void MainPluginProcessor::cacheDeckParamIds()
             p.stemSend [(size_t) lane] = s + "Send";
         }
     }
+
+    // Pad gains: resolve the atomics once so processBlock never builds a String.
+    for (int i = 0; i < PadBank::numPads; ++i)
+        padGainParams[(size_t) i] = apvts.getRawParameterValue ("pad" + juce::String (i + 1) + "Gain");
 }
 
 void MainPluginProcessor::buildMidiTargets()
@@ -673,7 +677,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     std::array<float, PadBank::numPads> padGains {};
     for (int i = 0; i < PadBank::numPads; ++i)
-        padGains[(size_t) i] = getFloatParam ("pad" + juce::String (i + 1) + "Gain");
+        if (auto* p = padGainParams[(size_t) i])          // cached — no RT allocation
+            padGains[(size_t) i] = p->load (std::memory_order_relaxed);
     padBank.process (buffer, 0, buffer.getNumSamples(), padGains);
 
     // Arrangement + piano-roll MIDI share one transport (the arrangement playhead),

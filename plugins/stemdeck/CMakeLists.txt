@@ -1,5 +1,31 @@
 cmake_minimum_required(VERSION 3.22)
 
+# StemDeck links ONNX Runtime for on-device neural separation. Homebrew ships it
+# arm64-only, so the suite-default universal build (SATTARI_UNIVERSAL=ON) fails
+# to link with "Undefined symbols for architecture x86_64". If a universal build
+# is implied but the available ONNX Runtime is NOT universal, fall back to
+# host-arch-only for THIS plugin — the rest of the suite still ships universal,
+# and an explicit -DCMAKE_OSX_ARCHITECTURES=... always wins.
+# Must run before SattariDeploymentTarget.cmake (which sets the universal pair)
+# and before project() so the compiler checks use the right arch.
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+    execute_process(COMMAND uname -m
+                    OUTPUT_VARIABLE _sd_host_arch OUTPUT_STRIP_TRAILING_WHITESPACE)
+    foreach(_sd_ort "/opt/homebrew/lib/libonnxruntime.dylib" "/usr/local/lib/libonnxruntime.dylib")
+        if(EXISTS "${_sd_ort}" AND NOT _sd_ort_archs)
+            execute_process(COMMAND lipo -archs "${_sd_ort}"
+                            OUTPUT_VARIABLE _sd_ort_archs OUTPUT_STRIP_TRAILING_WHITESPACE
+                            ERROR_QUIET)
+        endif()
+    endforeach()
+    if(_sd_ort_archs AND NOT (_sd_ort_archs MATCHES "x86_64" AND _sd_ort_archs MATCHES "arm64"))
+        set(CMAKE_OSX_ARCHITECTURES "${_sd_host_arch}" CACHE STRING
+            "macOS build architectures" FORCE)
+        message(STATUS "StemDeck: ONNX Runtime is '${_sd_ort_archs}'-only -> building "
+                       "${_sd_host_arch} only (a universal build could not link).")
+    endif()
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
 project(SATTARI_STEMDECK_PLUGIN VERSION 0.5.0)
 

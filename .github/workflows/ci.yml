@@ -108,6 +108,39 @@ jobs:
           "$bin" --smoke
 
   # ---------------------------------------------------------------------------
+  # StemDeck DSP accuracy gates. These assert real numeric behaviour against
+  # synthetic ground truth (known BPMs/keys/tempo ramps, analytic resampling
+  # error), so a regression in the analysis or audio path fails the build rather
+  # than silently degrading. Each binary exits non-zero on failure.
+  # StemDeckNeuralSmoke is intentionally excluded: it needs the 353 MB htdemucs
+  # model and a real WAV, neither of which belongs in CI.
+  # ---------------------------------------------------------------------------
+  stemdeck-dsp:
+    name: StemDeck DSP accuracy (beat / key / automix / resampler)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build + run DSP accuracy tests
+        run: |
+          set -e
+          for t in StemDeckBeatDetectTest StemDeckKeyDetectTest StemDeckAutomixTest StemDeckResamplerTest; do
+            cmake --build build/stemdeck --target "$t" -j3
+            bin="$(find build/stemdeck -type f -name "$t" -perm +111 | head -n1)"
+            if [ -z "$bin" ]; then echo "::error::$t binary not found"; exit 1; fi
+            echo "── Running $t"
+            "$bin"
+          done
+
+  # ---------------------------------------------------------------------------
   # Root configure + cross-plugin contract. Configuring from the repo root
   # exercises every plugin's add_subdirectory together (catching cross-target /
   # shared-core breakage the matrix can miss); we then build only the
