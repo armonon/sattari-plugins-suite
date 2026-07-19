@@ -92,32 +92,58 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
         interp.process (ratio, mono.data(), rs.data(), outLen);
     }
 
-    // ── Inference ─────────────────────────────────────────────────────────────
-    std::vector<float> beatAct, downAct;
+    // ── Chunked inference ─────────────────────────────────────────────────────
+    // beat_this has a fixed usable sequence length and is designed to run on
+    // 1500-frame (~30 s) chunks with a 6-frame border overlap; feeding a whole
+    // song fails ("invalid expand shape") past ~2 min. So we mirror beat_this's
+    // split_piece: run fixed-size audio chunks and stitch the activation tracks,
+    // discarding the border frames on each side to avoid seam artifacts.
+    const int T = (int) (rs.size() / (size_t) kHop) + 1;               // total frames
+    if (T < 8) return r;
+
+    constexpr int kChunkFrames  = 1500;                                // matches beat_this
+    constexpr int kBorderFrames = 6;
+    const int chunkSamples = kChunkFrames * kHop;
+
+    std::vector<float> beatAct ((size_t) T, 0.0f), downAct ((size_t) T, 0.0f);
     try
     {
         auto mem = Ort::MemoryInfo::CreateCpu (OrtArenaAllocator, OrtMemTypeDefault);
-        std::array<int64_t, 1> shape { (int64_t) rs.size() };
-        auto input = Ort::Value::CreateTensor<float> (mem, rs.data(), rs.size(), shape.data(), shape.size());
         const char* inNames[]  = { impl->inputName.c_str() };
         const char* outNames[] = { impl->beatName.c_str(), impl->downName.c_str() };
-        auto outs = impl->session->Run (Ort::RunOptions { nullptr }, inNames, &input, 1, outNames, 2);
-        if (outs.size() < 2) return r;
+        const int stride = (kChunkFrames - 2 * kBorderFrames) * kHop;  // advance per chunk
 
-        auto grab = [] (Ort::Value& v, std::vector<float>& dst)
+        for (int startSamp = 0; startSamp < (int) rs.size(); startSamp += stride)
         {
-            const auto info = v.GetTensorTypeAndShapeInfo();
-            const int64_t total = info.GetElementCount();
-            const float* p = v.GetTensorData<float>();
-            dst.assign (p, p + total);                                  // [1, T] -> T
-        };
-        grab (outs[0], beatAct);
-        grab (outs[1], downAct);
+            const int len = juce::jmin (chunkSamples, (int) rs.size() - startSamp);
+            if (len < kHop * 8) break;                                 // trailing scrap
+            const int startFrame = startSamp / kHop;
+
+            std::array<int64_t, 1> shape { (int64_t) len };
+            auto input = Ort::Value::CreateTensor<float> (mem, rs.data() + startSamp, (size_t) len,
+                                                          shape.data(), shape.size());
+            auto outs = impl->session->Run (Ort::RunOptions { nullptr }, inNames, &input, 1, outNames, 2);
+            if (outs.size() < 2) return r;
+
+            const float* bp = outs[0].GetTensorData<float>();
+            const float* dp = outs[1].GetTensorData<float>();
+            const int chT   = (int) outs[0].GetTensorTypeAndShapeInfo().GetElementCount();
+
+            // Keep the interior frames (skip border on both sides, except the very
+            // first/last chunk which own the track edges).
+            const bool firstChunk = (startSamp == 0);
+            const bool lastChunk  = (startSamp + stride >= (int) rs.size());
+            const int lo = firstChunk ? 0 : kBorderFrames;
+            const int hi = lastChunk  ? chT : chT - kBorderFrames;
+            for (int j = lo; j < hi; ++j)
+            {
+                const int g = startFrame + j;
+                if (g >= 0 && g < T) { beatAct[(size_t) g] = bp[j]; downAct[(size_t) g] = dp[j]; }
+            }
+            if (lastChunk) break;
+        }
     }
     catch (const std::exception&) { return r; }
-
-    const int T = (int) beatAct.size();
-    if (T < 8) return r;
 
     // ── Peak-pick beats ───────────────────────────────────────────────────────
     // Frame f -> time (f * hop / modelRate) sec -> input-rate sample.
