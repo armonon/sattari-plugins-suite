@@ -824,6 +824,14 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     loaded->sourceSampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
+    // ── Persistent analysis cache (build-order #1) ─────────────────────────────
+    // Loading runs three full-track analyses (~10 s for 5 min). Most loads in a
+    // studio workflow are RE-loads, so a content-hash hit skips all of it. On a
+    // miss we run everything, then store the result for next time.
+    const juce::String contentHash = AnalysisCache::hashFile (file);
+    if (analysisCache.lookup (contentHash, loaded->analysis))
+        return loaded;   // cache hit — DSP + neural analysis already done previously
+
     loaded->analysis = TrackAnalyzer::analyze (loaded->audio, loaded->sourceSampleRate);
 
     // Trained beat/downbeat model (beat_this) on top of the DSP grid. When the
@@ -856,6 +864,7 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
         }
     }
 
+    analysisCache.store (contentHash, loaded->analysis);
     return loaded;
 }
 

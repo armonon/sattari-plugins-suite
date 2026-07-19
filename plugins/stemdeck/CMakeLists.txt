@@ -52,6 +52,7 @@ sattari_add_plugin(
     NEEDS_MIDI_INPUT
     EDITOR_WANTS_KEYBOARD_FOCUS
     SOURCES
+        src/AnalysisCache.cpp
         src/ArrangementBuilder.cpp
         src/BeatSyncEngine.cpp
         src/DeckPlayer.cpp
@@ -89,6 +90,15 @@ target_compile_definitions(SattariStemDeck
 
 sattari_enable_rubberband(SattariStemDeck SATTARI_STEMDECK_HAS_RUBBERBAND)
 sattari_enable_tracktion_engine(SattariStemDeck)
+
+# Persistent analysis cache (AnalysisCache.cpp). SQLite ships with the OS on
+# macOS; on other platforms find or vendor it.
+find_library(SQLITE3_LIB sqlite3)
+if(SQLITE3_LIB)
+    target_link_libraries(SattariStemDeck PRIVATE ${SQLITE3_LIB})
+else()
+    target_link_libraries(SattariStemDeck PRIVATE sqlite3)
+endif()
 
 # The EXCLUDE_FROM_ALL contract/benchmark executables below reuse SattariStemDeck's
 # generated JuceHeader.h, which #includes <tracktion_graph/...>. Link the Tracktion
@@ -293,6 +303,24 @@ target_link_libraries(StemDeckAutomixTest
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckAutomixTest)
+
+# ── Analysis cache round-trip (SQLite persistence of TrackAnalysis) ────────────
+add_executable(StemDeckAnalysisCacheTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_analysis_cache.cpp
+        src/AnalysisCache.cpp)
+add_dependencies(StemDeckAnalysisCacheTest SattariStemDeck)
+target_include_directories(StemDeckAnalysisCacheTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckAnalysisCacheTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+find_library(SQLITE3_LIB_TEST sqlite3)
+target_link_libraries(StemDeckAnalysisCacheTest
+    PRIVATE juce::juce_audio_utils ${SQLITE3_LIB_TEST}
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckAnalysisCacheTest)
 
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.

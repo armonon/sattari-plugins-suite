@@ -21,6 +21,7 @@
 #include "AutomixEngine.h"
 #include "NeuralKeyEngine.h"
 #include "NeuralBeatEngine.h"
+#include "AnalysisCache.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor
 {
@@ -423,6 +424,8 @@ private:
     // Trained neural beat/downbeat tracker (optional). Overrides the DSP
     // beat grid when the model is installed; inert otherwise.
     NeuralBeatEngine neuralBeat;
+    // Persistent analysis cache — a re-load skips DSP + neural analysis.
+    AnalysisCache analysisCache;
 
     std::array<DeckParamIds, numDecks> deckIds;
     void cacheDeckParamIds();
