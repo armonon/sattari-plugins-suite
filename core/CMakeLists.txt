@@ -93,6 +93,14 @@ target_link_libraries(SattariAudioCoreVoxContract
     PRIVATE
         SattariAudioCore)
 
+# VoxSynth continuous-pitch synth engine contract (pure-std).
+add_executable(SattariAudioCoreVoxSynthContract
+    tests/vox_synth_contract.cpp)
+
+target_link_libraries(SattariAudioCoreVoxSynthContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.
