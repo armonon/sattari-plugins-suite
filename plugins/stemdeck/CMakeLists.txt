@@ -359,6 +359,24 @@ target_link_libraries(StemDeckCaptureTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckCaptureTest)
 
+# ── Session render/replay (event stream -> deterministic sample-timed plan) ────
+add_executable(StemDeckRenderTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_render.cpp
+        src/SessionCapture.cpp
+        src/SessionModel.cpp)
+add_dependencies(StemDeckRenderTest SattariStemDeck)
+target_include_directories(StemDeckRenderTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckRenderTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckRenderTest
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckRenderTest)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest
