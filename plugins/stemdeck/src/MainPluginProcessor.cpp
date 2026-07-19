@@ -117,6 +117,8 @@ MainPluginProcessor::MainPluginProcessor()
     cacheDeckParamIds();
     // Optional trained key model (shared with Auto-Pitch). Absent -> DSP key stands.
     neuralKey.loadDefaultModel();
+    // Optional trained beat model (beat_this). Absent -> DSP beat grid stands.
+    neuralBeat.loadDefaultModel();
     buildMidiTargets();
     ensureTeWrapperOnMessageThread();
 }
@@ -823,6 +825,22 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
     loaded->analysis = TrackAnalyzer::analyze (loaded->audio, loaded->sourceSampleRate);
+
+    // Trained beat/downbeat model (beat_this) on top of the DSP grid. When the
+    // model is installed its grid wins; without it the Ellis DP tracker stands.
+    // Background thread — same additive, fallback-safe pattern as the key model.
+    if (neuralBeat.isAvailable())
+    {
+        const auto b = neuralBeat.detect (loaded->audio, loaded->sourceSampleRate);
+        if (b.valid && b.beatGridSamples.size() >= 4)
+        {
+            loaded->analysis.beatGridSamples = b.beatGridSamples;
+            loaded->analysis.downbeatSample  = b.downbeatSample;
+            loaded->analysis.beatsPerBar     = b.beatsPerBar;
+            if (b.detectedBpm > 1.0f)
+                loaded->analysis.detectedBpm = b.detectedBpm;
+        }
+    }
 
     // Trained key model on top of the DSP result. SattariKeyNet measured 58% exact
     // vs 45% for profile correlation, so when the model is installed it wins; when

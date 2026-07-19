@@ -69,6 +69,7 @@ sattari_add_plugin(
         src/RoadmapAdapters.h
         src/SamplePad.cpp
         src/RealTimeStemSeparator.cpp
+        src/NeuralBeatEngine.cpp
         src/NeuralStemEngine.cpp
         src/StemProvider.cpp
         src/TimePitchEngine.cpp
@@ -208,6 +209,7 @@ add_executable(StemDeckArchitectureContract
         src/HostGraph.cpp
         src/PerformanceRecorder.cpp
         src/RealTimeStemSeparator.cpp
+        src/NeuralBeatEngine.cpp
         src/NeuralStemEngine.cpp
         src/StemProvider.cpp
         src/TimePitchEngine.cpp
