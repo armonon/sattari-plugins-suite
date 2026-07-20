@@ -13,8 +13,11 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <array>
 #include <functional>
+#include <vector>
 #include "SessionModel.h"
+#include "StructureAnalysis.h"
 
 class ArrangementView : public juce::Component
 {
@@ -28,11 +31,22 @@ public:
     using AudioProvider = std::function<const juce::AudioBuffer<float>* (const juce::String& trackId, double& srcRateOut)>;
     void setAudioProvider (AudioProvider p) { audioProvider = std::move (p); repaint(); }
 
+    // Optional: per-track separated stems (drums/bass/music/vocals) -> stem-coloured
+    // waveforms. Any null entry is skipped. Takes precedence over the mono provider.
+    using StemProvider = std::function<std::array<const juce::AudioBuffer<float>*, 4> (const juce::String& trackId, double& srcRateOut)>;
+    void setStemProvider (StemProvider p) { stemProvider = std::move (p); repaint(); }
+
+    // Optional: structure sections per track for the intro/build/drop ribbon.
+    using StructureProvider = std::function<std::vector<stemdeck::Section> (const juce::String& trackId)>;
+    void setStructureProvider (StructureProvider p) { structureProvider = std::move (p); repaint(); }
+
     void paint (juce::Graphics& g) override;
 
 private:
     stemdeck::session::SessionModel session;
     AudioProvider audioProvider;
+    StemProvider stemProvider;
+    StructureProvider structureProvider;
     double playheadBeat = -1.0;
 
     // layout

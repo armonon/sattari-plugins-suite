@@ -464,6 +464,18 @@ target_link_libraries(StemDeckArrangeRender
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckArrangeRender)
 
+# ── Structure segmentation (intro/build/drop/breakdown from energy) ────────────
+add_executable(StemDeckStructureTest
+    EXCLUDE_FROM_ALL tests/stemdeck_structure.cpp)
+add_dependencies(StemDeckStructureTest SattariStemDeck)
+target_include_directories(StemDeckStructureTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckStructureTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckStructureTest
+    PRIVATE juce::juce_audio_basics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest

@@ -26,6 +26,20 @@ juce::Colour ArrangementView::deckColour (int deck)
     return cols[juce::jlimit (0, 3, deck)];
 }
 
+namespace stemdeck
+{
+// Section colour for the arrangement ribbon (kept here so StructureAnalysis.h
+// stays graphics-free / unit-testable against juce_audio_basics alone).
+juce::Colour sectionColour (const juce::String& label)
+{
+    if (label == "INTRO")     return juce::Colour (0xff4a90d9);   // blue
+    if (label == "BUILD")     return juce::Colour (0xffe6c15a);   // amber
+    if (label == "DROP")      return juce::Colour (0xffe6545a);   // hot red
+    if (label == "BREAKDOWN") return juce::Colour (0xffb98cff);   // violet
+    return juce::Colour (0xff6b7280);                             // OUTRO / grey
+}
+}
+
 namespace
 {
 // Draw a min/max waveform of `src`'s first `srcSamples` samples across `area`.
@@ -123,17 +137,61 @@ void ArrangementView::paint (juce::Graphics& g)
             juce::Rectangle<float> clip (cx0, (float) lane.getY() + 3, cx1 - cx0, (float) lane.getHeight() - 6);
             g.setColour (accent.withAlpha (0.16f)); g.fillRoundedRectangle (clip, 3.0f);
 
-            // Waveform behind the clip (colour = deck accent; stem colouring is future).
-            if (audioProvider)
+            const double clipBeats = endBeat - e.atBeat;
+            const double srcSecs = clipBeats * 60.0 / tempo;
+
+            // A structure ribbon (intro/build/drop/breakdown) along the clip top.
+            const float ribbonH = 9.0f;
+            juce::Rectangle<float> waveArea = clip.reduced (1.0f, 3.0f);
+            if (structureProvider)
+            {
+                const auto sections = structureProvider (e.trackId);
+                if (! sections.empty())
+                {
+                    double trackBeats = 0.0; for (const auto& sec : sections) trackBeats = juce::jmax (trackBeats, sec.endBeat);
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.reduceClipRegion (clip.getSmallestIntegerContainer());
+                    for (const auto& sec : sections)
+                    {
+                        // section beats (in the track) -> beats-into-the-clip -> x
+                        const float sx0 = clip.getX() + (float) (sec.startBeat / juce::jmax (1.0, trackBeats)) * clip.getWidth();
+                        const float sx1 = clip.getX() + (float) (sec.endBeat   / juce::jmax (1.0, trackBeats)) * clip.getWidth();
+                        juce::Rectangle<float> band (sx0, clip.getY() + 1.0f, sx1 - sx0, ribbonH);
+                        g.setColour (stemdeck::sectionColour (sec.label).withAlpha (0.85f));
+                        g.fillRect (band);
+                        if (band.getWidth() > 34.0f)
+                        {
+                            g.setColour (juce::Colours::black.withAlpha (0.8f));
+                            g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+                            g.drawText (sec.label, band.reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
+                        }
+                    }
+                    waveArea.removeFromTop (ribbonH + 1.0f);
+                }
+            }
+
+            // Waveform: per-stem in stem colours when stems are available, else mono accent.
+            juce::Graphics::ScopedSaveState ss (g);
+            g.reduceClipRegion (clip.getSmallestIntegerContainer());
+            bool drewStems = false;
+            if (stemProvider)
+            {
+                double srcRate = session.sampleRate;
+                const auto stems = stemProvider (e.trackId, srcRate);
+                const std::array<juce::Colour, 4> stemCols {
+                    juce::Colour (0xffe6a54a),   // drums  amber
+                    juce::Colour (0xffb98cff),   // bass   violet
+                    juce::Colour (0xff57e39a),   // music  green
+                    juce::Colour (0xff45b6e6) }; // vocals blue
+                for (int s = 0; s < 4; ++s)
+                    if (stems[(size_t) s] != nullptr)
+                    { drawWaveform (g, *stems[(size_t) s], (juce::int64) (srcSecs * srcRate), waveArea, stemCols[(size_t) s].withAlpha (0.55f)); drewStems = true; }
+            }
+            if (! drewStems && audioProvider)
             {
                 double srcRate = session.sampleRate;
                 if (const auto* buf = audioProvider (e.trackId, srcRate))
-                {
-                    const double srcSecs = (endBeat - e.atBeat) * 60.0 / tempo;
-                    juce::Graphics::ScopedSaveState ss (g);
-                    g.reduceClipRegion (clip.getSmallestIntegerContainer());
-                    drawWaveform (g, *buf, (juce::int64) (srcSecs * srcRate), clip.reduced (1.0f, 3.0f), accent.withAlpha (0.55f));
-                }
+                    drawWaveform (g, *buf, (juce::int64) (srcSecs * srcRate), waveArea, accent.withAlpha (0.55f));
             }
             g.setColour (accent.withAlpha (0.9f)); g.drawRoundedRectangle (clip, 3.0f, 1.2f);
 
@@ -143,7 +201,7 @@ void ArrangementView::paint (juce::Graphics& g)
             g.setColour (juce::Colour (0xfff2f5fa));
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText ("DECK " + juce::String::charToString ((juce::juce_wchar) ('A' + deck)) + "  " + name,
-                        clip.toNearestInt().reduced (6, 3), juce::Justification::topLeft, true);
+                        waveArea.toNearestInt().reduced (6, 2), juce::Justification::topLeft, true);
         }
 
         // Automation polylines: fader (solid) + low-EQ dB (dashed), mapped over the lane.
