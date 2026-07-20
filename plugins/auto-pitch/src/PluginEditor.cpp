@@ -505,6 +505,15 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         setKeyParam ("polyphonic", lock ? 1.0f : 0.0f);
         if (lock) { setKeyParam ("autoKey", 1.0f); setKeyParam ("followSongKey", 0.0f); }
     };
+    // Poly Harmony amount — an in-key diatonic-3rd voice added on top of polyphonic
+    // correction (best-effort on dense material; 0 = off).
+    polyHarmonyCaption.setText (juce::String::fromUTF8 ("POLY HARMONY  \xc2\xb7  in-key 3rd (poly)"), juce::dontSendNotification);
+    polyHarmonyCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    polyHarmonyCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    proPanel.addAndMakeVisible (polyHarmonyCaption);
+    polyHarmonyKnob.setSliderStyle (juce::Slider::LinearHorizontal);
+    polyHarmonyKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
+    proPanel.addAndMakeVisible (polyHarmonyKnob);
     styleKnob (inputGain);
     styleKnob (outputGain);
     styleKnob (formantShift);
@@ -647,6 +656,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     inputGainAttach      = std::make_unique<SliderAttachment> (params, "inputGain", inputGain);
     outputGainAttach     = std::make_unique<SliderAttachment> (params, "outputGain", outputGain);
     formantShiftAttach   = std::make_unique<SliderAttachment> (params, "formantShift", formantShift);
+    polyHarmonyAttach    = std::make_unique<SliderAttachment> (params, "polyHarmony", polyHarmonyKnob);
 
     enableCorrectionAttach = std::make_unique<ButtonAttachment> (params, "enableCorrection", enableCorrection);
     doNoHarmAttach         = std::make_unique<ButtonAttachment> (params, "doNoHarm", doNoHarm);
@@ -1084,6 +1094,10 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     pRight.removeFromTop (4);
     transposeSemis.setBounds (pRight.removeFromTop (28));
     transposeReadout.setBounds (pRight.removeFromTop (18));
+    pRight.removeFromTop (10);
+
+    polyHarmonyCaption.setBounds (pRight.removeFromTop (14));
+    polyHarmonyKnob.setBounds (pRight.removeFromTop (22));
     pRight.removeFromTop (12);
 
     // Live status + key-detection (top half of right column).

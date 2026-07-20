@@ -340,6 +340,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // that two notes SHARE (an exact unison/octave collides — the octave case scores
     // ~46%); true source separation (Melodyne-class) is a future build.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("polyphonic", "Polyphonic", false));
+    // Poly Harmony: in Polyphonic mode, add an in-key harmony voice a diatonic third above
+    // every detected note, phase-coherent via a dedicated accumulator so it never perturbs
+    // the corrected voice. 0 = off (the harmony pass is skipped entirely). Best-effort on
+    // dense material — it inherits the "shared partials" limit of the poly engine above.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("polyHarmony", "Poly Harmony",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -1223,6 +1229,7 @@ void SattariAutoPitchAudioProcessor::preparePolyVocoder (int numChannels)
     pvOutAccum.assign ((size_t) nc, std::vector<float> ((size_t) N, 0.0f));
     pvLastPhase.assign((size_t) nc, std::vector<float> ((size_t) (half + 1), 0.0f));
     pvSumPhase.assign ((size_t) nc, std::vector<float> ((size_t) (half + 1), 0.0f));
+    pvSumPhaseHarm.assign ((size_t) nc, std::vector<float> ((size_t) (half + 1), 0.0f));
 
     pvFftIn.assign  ((size_t) N, std::complex<float> {});
     pvFftOut.assign ((size_t) N, std::complex<float> {});
@@ -1245,6 +1252,7 @@ void SattariAutoPitchAudioProcessor::resetPolyVocoder()
     for (auto& v : pvOutAccum)  std::fill (v.begin(), v.end(), 0.0f);
     for (auto& v : pvLastPhase) std::fill (v.begin(), v.end(), 0.0f);
     for (auto& v : pvSumPhase)  std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& v : pvSumPhaseHarm) std::fill (v.begin(), v.end(), 0.0f);
     pvRover = pvInFifoLatency;
 }
 
@@ -1320,6 +1328,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     const auto scaleName   = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
     const double amount    = (double) apvts.getRawParameterValue ("amount")->load();
+    const float  polyHarmonyAmt = apvts.getRawParameterValue ("polyHarmony")->load();
     auto pcEnabled = [enabledMask] (int midi)
         { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
 
@@ -1347,6 +1356,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     // Per-note retune ratio: snap the NOTE's FUNDAMENTAL freq to the nearest scale tone;
     // every partial of the note uses that same ratio (h*fund * ratio = h*correctedFund).
     pvPeakRatio.assign (pvPeakBins.size(), 1.0f);
+    pvPeakHarmRatio.assign (pvPeakBins.size(), 0.0f);
     for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
     {
         const int fund = pvPeakFund[(size_t) pi];
@@ -1364,6 +1374,17 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         double ratio = std::pow (targetFreq / f, amount);
         ratio = juce::jlimit (0.5, 2.0, ratio);
         pvPeakRatio[(size_t) pi] = (float) ratio;
+
+        // Poly Harmony: ratio to a diatonic third above the corrected note (two scale
+        // degrees up, or +4 st in chromatic). Used only when the harmony pass is on.
+        if (polyHarmonyAmt > 0.0f)
+        {
+            int hm = target;
+            if (scaleName == "chromatic") hm = target + 4;
+            else { int cnt = 0; for (int s = 0; s < 24 && cnt < 2; ++s) { ++hm; const int deg = (((hm - rootIndex) % 12) + 12) % 12; if (scaleAllowsDegree (deg, scaleName)) ++cnt; } }
+            const double hFreq = 440.0 * std::pow (2.0, ((double) hm - 69.0) / 12.0);
+            pvPeakHarmRatio[(size_t) pi] = (float) juce::jlimit (0.5, 4.0, hFreq / f);
+        }
     }
 
     // Assign every bin to the peak whose region of influence contains it (the
@@ -1435,6 +1456,43 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         const float ph = pvSynPhase[(size_t) b];
         pvFftIn[(size_t) b] = std::complex<float> (m * std::cos (ph), m * std::sin (ph));
     }
+
+    // (c) Poly Harmony — add an in-key harmony a diatonic third above each note directly
+    //     into the complex spectrum, with a DEDICATED phase accumulator, so it is
+    //     phase-coherent yet can never perturb the corrected voice built above. The whole
+    //     pass is skipped when off, so it has zero effect on the benchmarked main voice.
+    if (polyHarmonyAmt > 0.0f)
+    {
+        auto& sumPhH = pvSumPhaseHarm[(size_t) channel];
+        for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
+        {
+            const double hratio = (double) pvPeakHarmRatio[(size_t) pi];
+            if (hratio <= 0.0) continue;
+            const int    kp   = pvPeakBins[(size_t) pi];
+            const int    nkp  = juce::jlimit (0, half, (int) std::lround ((double) kp * hratio));
+            const double fSyn = (double) pvFreq[(size_t) kp] * hratio;
+            double tmp = (fSyn - (double) nkp * freqPerBin) / freqPerBin;
+            tmp *= juce::MathConstants<double>::twoPi / (double) pvOverlap;
+            tmp += (double) nkp * expct;
+            sumPhH[(size_t) nkp] += (float) tmp;
+            const double peakSyn = (double) sumPhH[(size_t) nkp];
+            const double phPeak  = (double) pvPhase[(size_t) kp];
+
+            int lo = (pi == 0) ? firstBin : (pvPeakBins[(size_t) (pi - 1)] + kp) / 2 + 1;
+            int hi = (pi == (int) pvPeakBins.size() - 1) ? lastBin : (pvPeakBins[(size_t) (pi + 1)] + kp) / 2;
+            lo = juce::jlimit (0, half, lo);
+            hi = juce::jlimit (0, half, hi);
+            for (int k = lo; k <= hi; ++k)
+            {
+                const int nb = juce::jlimit (0, half, (int) std::lround ((double) k * hratio));
+                const double locked = peakSyn + ((double) pvPhase[(size_t) k] - phPeak);
+                sumPhH[(size_t) nb] = (float) locked;
+                const float m = pvMag[(size_t) k] * polyHarmonyAmt;
+                pvFftIn[(size_t) nb] += std::complex<float> (m * std::cos ((float) locked), m * std::sin ((float) locked));
+            }
+        }
+    }
+
     for (int b = half + 1; b < N; ++b)
         pvFftIn[(size_t) b] = std::conj (pvFftIn[(size_t) (N - b)]);
     pvFft->perform (pvFftIn.data(), pvFftOut.data(), true);   // inverse (JUCE scales by 1/N)

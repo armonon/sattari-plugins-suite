@@ -211,6 +211,9 @@ private:
     // --- Antares-class behaviour controls (Pro tab) --------------------------
     juce::ToggleButton classicMode { "Hard Tune" };   // instant/robotic retune — distinct from the Style=Classic character
     juce::Slider flexAmt, transition, throat, vibratoKnob;
+    // Poly Harmony amount — adds an in-key diatonic-3rd voice in Polyphonic mode.
+    juce::Slider polyHarmonyKnob;
+    juce::Label  polyHarmonyCaption;
     juce::Label flexAmtCaption, transitionCaption, throatCaption, vibratoCaption;
 
     // --- Transpose to Key (Pro tab): whole-mix musical transpose for beats/instruments
@@ -252,6 +255,7 @@ private:
     std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
     std::unique_ptr<ButtonAttachment> neuralPitchAttach, transposeModeAttach;
     std::unique_ptr<SliderAttachment> transposeSemisAttach;
+    std::unique_ptr<SliderAttachment> polyHarmonyAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };

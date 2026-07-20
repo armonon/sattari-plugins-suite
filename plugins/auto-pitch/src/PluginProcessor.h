@@ -354,6 +354,10 @@ private:
     std::vector<int>   pvBinPeak;                             // size half+1: owning-peak index, -1 = identity
     std::vector<float> pvPeakRatio;                           // per-peak retune ratio
     std::vector<int>   pvPeakFund;                            // per-peak: index of its harmonic-comb fundamental peak
+    // Poly Harmony (opt-in): a dedicated per-channel phase accumulator + per-peak harmony
+    // ratio, so the harmony voice is phase-coherent and fully isolated from the corrected voice.
+    std::vector<std::vector<float>> pvSumPhaseHarm;           // [ch][half+1]
+    std::vector<float> pvPeakHarmRatio;                       // per-peak harmony (diatonic-3rd) ratio
     void preparePolyVocoder (int numChannels);
     void resetPolyVocoder();
     void polyVocoderFrame (int channel);
