@@ -56,6 +56,9 @@ private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void pullBusScale();
     void registerFactoryPresets();
+    // In-key echo interval as a pitch ratio: Unison/8ve up/8ve down/Fifth, or a
+    // scale-aware major/minor third off the current note when a session key is present.
+    float echoHarmonyRatio (int mode, bool voiced, float freqHz) const;
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank;
@@ -69,6 +72,12 @@ private:
     int   dryPos_ = 0, totalLatency_ = 0, hopCount_ = 0;
     double sr_ = 48000.0, lastPeriod_ = 240.0;
     float lastScale_ = 1.0f;
+
+    // Key Echo: a second PSOLA instance harmonises the current input in key; that
+    // harmony feeds a feedback delay so the repeats are pitched (a diatonic delay).
+    sattari::dsp::PsolaShifter echoShifter_;
+    std::vector<float> echoBuf_, echoHarm_, out_;
+    int   echoPos_ = 0, maxEchoDelay_ = 0;
 
     std::array<bool, 12> busScale_ { };
     juce::int64 lastBusPollMs_ = 0;

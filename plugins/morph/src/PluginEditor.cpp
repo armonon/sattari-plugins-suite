@@ -46,7 +46,19 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     knob (drive, driveC, "Drive", "drive", driveA);
     knob (mix, mixC, "Mix", "mix", mixA);
 
-    setSize (440, 284);
+    // Key Echo — in-key pitched delay. Repeats are harmonised to the key.
+    echoCaption.setText (juce::String::fromUTF8 ("KEY ECHO  \xc2\xb7  in-key repeats"), juce::dontSendNotification);
+    echoCaption.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    echoCaption.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
+    addAndMakeVisible (echoCaption);
+    echoModeBox.addItemList ({ "Unison", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 1);
+    addAndMakeVisible (echoModeBox);
+    echoModeAtt = std::make_unique<CA> (processor.parameters(), "echomode", echoModeBox);
+    knob (echoTime, echoTimeC, "Time", "echotime", echoTimeA);
+    knob (echoFeedback, echoFeedbackC, "Feedback", "echofeedback", echoFeedbackA);
+    knob (echoMix, echoMixC, "Echo Mix", "echomix", echoMixA);
+
+    setSize (440, 430);
     startTimerHz (4);
 }
 
@@ -95,8 +107,24 @@ void SattariMorphAudioProcessorEditor::resized()
     robotCap.setVisible (robot); robotNoteBox.setVisible (robot);
     r.removeFromTop (10);
 
-    juce::Slider* ks[] = { &pitch, &formant, &drive, &mix };
-    juce::Label*  cs[] = { &pitchC, &formantC, &driveC, &mixC };
-    const int w = r.getWidth() / 4;
-    for (int i = 0; i < 4; ++i) { auto cell = r.removeFromLeft (w); cs[i]->setBounds (cell.removeFromBottom (16)); ks[i]->setBounds (cell.reduced (4)); }
+    {
+        auto knobRow = r.removeFromTop (110);
+        juce::Slider* ks[] = { &pitch, &formant, &drive, &mix };
+        juce::Label*  cs[] = { &pitchC, &formantC, &driveC, &mixC };
+        const int w = knobRow.getWidth() / 4;
+        for (int i = 0; i < 4; ++i) { auto cell = knobRow.removeFromLeft (w); cs[i]->setBounds (cell.removeFromBottom (16)); ks[i]->setBounds (cell.reduced (4)); }
+    }
+    r.removeFromTop (8);
+
+    echoCaption.setBounds (r.removeFromTop (16));
+    r.removeFromTop (2);
+    echoModeBox.setBounds (r.removeFromTop (24).removeFromLeft (160));
+    r.removeFromTop (8);
+    {
+        auto echoRow = r.removeFromTop (110);
+        juce::Slider* es[] = { &echoTime, &echoFeedback, &echoMix };
+        juce::Label*  ec[] = { &echoTimeC, &echoFeedbackC, &echoMixC };
+        const int w = echoRow.getWidth() / 3;
+        for (int i = 0; i < 3; ++i) { auto cell = echoRow.removeFromLeft (w); ec[i]->setBounds (cell.removeFromBottom (16)); es[i]->setBounds (cell.reduced (4)); }
+    }
 }

@@ -66,6 +66,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariMorphAudioProcessor::
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("mix", "Mix",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
+    // Key Echo — a pitched feedback delay whose repeats are harmonised in key. The
+    // harmony is the CURRENT (pitched) input shifted by an in-key interval, then delayed,
+    // so PSOLA always runs on a valid period. echomix defaults to 0 (echo off).
+    p.push_back (std::make_unique<AudioParameterChoice> ("echomode", "Echo",
+        juce::StringArray { "Unison", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 1));
+    p.push_back (std::make_unique<AudioParameterFloat>  ("echotime", "Echo Time",
+        NormalisableRange<float> (40.0f, 1000.0f, 1.0f), 300.0f));
+    p.push_back (std::make_unique<AudioParameterFloat>  ("echofeedback", "Echo Feedback",
+        NormalisableRange<float> (0.0f, 0.9f, 0.01f), 0.35f));
+    p.push_back (std::make_unique<AudioParameterFloat>  ("echomix", "Echo Mix",
+        NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     return { p.begin(), p.end() };
 }
 
@@ -82,6 +93,14 @@ void SattariMorphAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     dryDelay_.assign ((size_t) (totalLatency_ + n + 4), 0.0f);
     dryPos_ = 0; lastPeriod_ = sampleRate / 220.0; lastScale_ = 1.0f;
     setLatencySamples (totalLatency_);
+
+    // Key Echo scratch/state: max echo time is 1 s, allocation-free thereafter.
+    echoShifter_.prepare (sampleRate, 60.0, 1000.0);
+    maxEchoDelay_ = (int) (sampleRate * 1.0) + 1;
+    echoBuf_.assign ((size_t) (maxEchoDelay_ + n + 4), 0.0f);
+    echoHarm_.assign ((size_t) n, 0.0f);
+    out_.assign ((size_t) n, 0.0f);
+    echoPos_ = 0;
 }
 
 bool SattariMorphAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -164,15 +183,77 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int i = 0; i < n; ++i) wet_[(size_t) i] = std::tanh (wet_[(size_t) i] * g) * mk;
     }
 
-    // Delay dry to the wet latency, then mix.
+    // Delay dry to the wet latency, then mix -> mono out scratch.
+    if ((int) out_.size() < n) out_.assign ((size_t) n, 0.0f);
     for (int i = 0; i < n; ++i)
     {
         dryDelay_[(size_t) dryPos_] = dryMono_[(size_t) i];
         const int rd = (dryPos_ - totalLatency_ + (int) dryDelay_.size()) % (int) dryDelay_.size();
         const float dry = dryDelay_[(size_t) rd];
         dryPos_ = (dryPos_ + 1) % (int) dryDelay_.size();
-        const float o = mix * wet_[(size_t) i] + (1.0f - mix) * dry;
-        for (int c = 0; c < buffer.getNumChannels(); ++c) buffer.setSample (c, i, o);
+        out_[(size_t) i] = mix * wet_[(size_t) i] + (1.0f - mix) * dry;
+    }
+
+    // Key Echo: harmonise the CURRENT (pitched) input in key, feed it a feedback delay,
+    // and add the delayed harmony back — so the repeats are in-key. Bypassed at mix 0.
+    const float echoMix = apvts.getRawParameterValue ("echomix")->load();
+    if (echoMix > 0.0001f && ! echoBuf_.empty())
+    {
+        const int   echoMode = (int) apvts.getRawParameterValue ("echomode")->load();
+        const float echoTime = apvts.getRawParameterValue ("echotime")->load();
+        const float echoFb   = juce::jlimit (0.0f, 0.9f, apvts.getRawParameterValue ("echofeedback")->load());
+        if (echoMode == 4)   // Diatonic 3rd needs the session key
+        {
+            const auto now = juce::Time::currentTimeMillis();
+            if (now - lastBusPollMs_ > 500) { lastBusPollMs_ = now; pullBusScale(); }
+        }
+        const float hratio = echoHarmonyRatio (echoMode, pr.voiced, pr.frequencyHz);
+        if ((int) echoHarm_.size() < n) echoHarm_.assign ((size_t) n, 0.0f);
+        echoShifter_.process (dryMono_.data(), echoHarm_.data(), n, hratio, period);
+
+        const int bsz = (int) echoBuf_.size();
+        const int delaySamp = juce::jlimit (1, maxEchoDelay_, (int) (echoTime * sr_ / 1000.0));
+        for (int i = 0; i < n; ++i)
+        {
+            const int rdd = (echoPos_ - delaySamp + bsz) % bsz;
+            const float delayed = echoBuf_[(size_t) rdd];
+            echoBuf_[(size_t) echoPos_] = echoHarm_[(size_t) i] + echoFb * delayed;
+            echoPos_ = (echoPos_ + 1) % bsz;
+            out_[(size_t) i] += echoMix * delayed;
+        }
+    }
+
+    for (int i = 0; i < n; ++i)
+        for (int c = 0; c < buffer.getNumChannels(); ++c) buffer.setSample (c, i, out_[(size_t) i]);
+}
+
+// In-key echo interval as a pitch ratio. Octaves/fifth need no key; the diatonic third
+// walks two scale degrees up from the current note using the session-bus scale (falling
+// back to a major third when there's no key or the note is unvoiced).
+float SattariMorphAudioProcessor::echoHarmonyRatio (int mode, bool voiced, float freqHz) const
+{
+    switch (mode)
+    {
+        case 1: return 2.0f;                              // Octave up
+        case 2: return 0.5f;                              // Octave down
+        case 3: return std::pow (2.0f, 7.0f / 12.0f);     // Fifth
+        case 4:                                           // Diatonic 3rd (key-aware)
+        {
+            if (! voiced || freqHz <= 0.0f) return std::pow (2.0f, 4.0f / 12.0f);
+            const float detMidi = 69.0f + 12.0f * std::log2 (freqHz / 440.0f);
+            int base = (int) std::lround (detMidi); float bd = 1.0e9f;
+            for (int d = -6; d <= 6; ++d)
+            {
+                const int m = (int) std::lround (detMidi) + d;
+                if (! busScale_[(size_t) (((m % 12) + 12) % 12)]) continue;
+                const float dist = std::abs (detMidi - (float) m);
+                if (dist < bd) { bd = dist; base = m; }
+            }
+            int m = base, cnt = 0;
+            for (int step = 0; step < 24 && cnt < 2; ++step) { ++m; if (busScale_[(size_t) (((m % 12) + 12) % 12)]) ++cnt; }
+            return std::pow (2.0f, ((float) m - detMidi) / 12.0f);
+        }
+        default: return 1.0f;                             // Unison
     }
 }
 

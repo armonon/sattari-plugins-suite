@@ -34,5 +34,13 @@ private:
     juce::Label  pitchC, formantC, driveC, mixC;
     std::unique_ptr<SA> pitchA, formantA, driveA, mixA;
 
+    // Key Echo section — in-key pitched delay.
+    juce::Label    echoCaption;
+    juce::ComboBox echoModeBox;
+    std::unique_ptr<CA> echoModeAtt;
+    juce::Slider echoTime, echoFeedback, echoMix;
+    juce::Label  echoTimeC, echoFeedbackC, echoMixC;
+    std::unique_ptr<SA> echoTimeA, echoFeedbackA, echoMixA;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariMorphAudioProcessorEditor)
 };
