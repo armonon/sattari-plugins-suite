@@ -16,6 +16,7 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (SattariS
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Master-track key scanner - publishes one key to the whole suite");
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
+    addAndMakeVisible (sessionHud);
 
     addAndMakeVisible (publishToggle);
     addAndMakeVisible (manualToggle);
@@ -107,6 +108,7 @@ void SattariSongKeyAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced (20);
 
     auto top = area.removeFromTop (60);
+    sessionHud.setBounds (top.removeFromRight (160).removeFromTop (24).reduced (0, 1));
     title.setBounds (top.removeFromTop (36));
     subtitle.setBounds (top.removeFromTop (22));
     area.removeFromTop (8);

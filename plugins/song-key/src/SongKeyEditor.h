@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariSessionHud.h>
 #include "SongKeyProcessor.h"
 
 class SattariSongKeyAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -26,6 +27,7 @@ private:
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("song-key") };
 
     juce::Label title, subtitle;
+    sattari::ui::SessionHud sessionHud;
     juce::ToggleButton publishToggle { "Publish to Suite" }, manualToggle { "Manual Override" };
     juce::ComboBox manualRootBox, manualScaleBox;
     juce::TextButton rescanButton { "Re-scan" };
