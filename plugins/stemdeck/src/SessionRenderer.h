@@ -64,8 +64,14 @@ public:
             double playhead = 0.0;   // in source samples
             bool   playing = false;
             double fader = 1.0;      // linear gain; default audible if never set
+            int    cfSide = 1;       // crossfader bus: 0=A(left), 1=center, 2=B(right)
         };
         std::array<Deck, kMaxDecks> decks {};
+
+        // Master crossfader, 0=A .. 1=B, constant-power. 0.5 (center) is the
+        // neutral default: a center-assigned deck is unaffected regardless.
+        double crossfader = 0.5;
+        const double halfPi = juce::MathConstants<double>::halfPi;
 
         const auto plan = SessionRender::buildPlan (s);
         size_t pi = 0;
@@ -95,6 +101,8 @@ public:
                             break;
                         case ActionKind::param:
                             if (a.paramId == "fader" || a.paramId == "gain") d.fader = a.value;
+                            else if (a.paramId == "cfSide")     d.cfSide = (int) a.value;
+                            else if (a.paramId == "crossfader") crossfader = juce::jlimit (0.0, 1.0, a.value);
                             break;
                     }
                 }
@@ -107,10 +115,15 @@ public:
                 if (d.playing && d.src != nullptr && d.src->getNumSamples() > 1
                     && d.playhead >= 0.0 && d.playhead < (double) d.src->getNumSamples())
                 {
+                    // Constant-power crossfader: A rides cos, B rides sin, center flat.
+                    const double cf = d.cfSide == 0 ? std::cos (crossfader * halfPi)
+                                    : d.cfSide == 2 ? std::sin (crossfader * halfPi)
+                                                    : 1.0;
+                    const double g  = d.fader * cf;
                     const float sl = stemdeck::readSinc (*d.src, 0, d.playhead);
                     const float sr = stemdeck::readSinc (*d.src, d.src->getNumChannels() > 1 ? 1 : 0, d.playhead);
-                    l += (double) d.fader * sl;
-                    r += (double) d.fader * sr;
+                    l += g * sl;
+                    r += g * sr;
                 }
                 if (d.playing) d.playhead += d.srcRate / outRate;
             }

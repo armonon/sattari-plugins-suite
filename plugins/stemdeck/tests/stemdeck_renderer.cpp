@@ -123,6 +123,44 @@ int main()
         check (rms (fast) > 0.01, "faster render still non-silent");
     }
 
+    // ── Crossfader: A/B bus isolation + constant power ──────────────────────────
+    // Deck 0 on bus A, deck 1 on bus B, both playing full. Sweep the crossfader.
+    auto twoDeckMix = [&] (double cfValue)
+    {
+        SessionCapture cap; cap.begin (48000.0, 124.0);
+        cap.recordDeckLoad (0, { "A", "/a", "", 30, 124, 0, 0, false }, 0.0);
+        cap.recordDeckLoad (1, { "B", "/b", "", 30, 124, 0, 0, false }, 0.0);
+        cap.recordParam (0, "cfSide", 0.0, 0.0);   // A / left
+        cap.recordParam (1, "cfSide", 2.0, 0.0);   // B / right
+        cap.recordParam (0, "crossfader", cfValue, 0.0);  // master
+        cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (1, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        cap.recordTransport (1, TransportKind::pause, 0.0, 16.0);
+        return SessionRenderer::render (cap.session(), provider);
+    };
+    {
+        const auto atA = twoDeckMix (0.0);   // fully A: deck0 full, deck1 silent
+        const auto atB = twoDeckMix (1.0);   // fully B: deck1 full, deck0 silent
+        const auto mid = twoDeckMix (0.5);   // both at cos/sin(pi/4)=0.707
+        // Both mixes use the same source, so A-only and B-only should have equal RMS.
+        check (std::abs (rms (atA) - rms (atB)) < 1e-3, "crossfader full-A and full-B are symmetric");
+        check (rms (atA) > 0.01, "crossfader at 0 passes bus A");
+        // Constant power: mid RMS of A+B (0.707 each, same signal summed) vs one full.
+        check (rms (mid) > rms (atA) * 0.9, "center keeps constant power (both buses at -3 dB sum)");
+    }
+    {
+        // A deck on bus A goes silent when the crossfader is fully at B.
+        SessionCapture cap; cap.begin (48000.0, 124.0);
+        cap.recordDeckLoad (0, { "A", "/a", "", 30, 124, 0, 0, false }, 0.0);
+        cap.recordParam (0, "cfSide", 0.0, 0.0);
+        cap.recordParam (0, "crossfader", 1.0, 0.0);   // hard to B
+        cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        check (rms (SessionRenderer::render (cap.session(), provider)) < 1e-6,
+               "bus-A deck is silent with crossfader hard to B");
+    }
+
     std::cout << (fails == 0 ? "RENDERER_OK" : "RENDERER_FAIL (" + std::to_string (fails) + ")") << "\n";
     return fails == 0 ? 0 : 1;
 }
