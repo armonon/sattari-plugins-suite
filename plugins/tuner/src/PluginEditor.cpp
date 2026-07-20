@@ -11,6 +11,7 @@ SattariTunerAudioProcessorEditor::SattariTunerAudioProcessorEditor (SattariTuner
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Precision instrument & vocal tuner");
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
+    addAndMakeVisible (sessionHud);
 
     auto& params = processor.parameters();
 
@@ -145,6 +146,7 @@ void SattariTunerAudioProcessorEditor::paintTunerFace (juce::Graphics& g, juce::
 void SattariTunerAudioProcessorEditor::resized()
 {
     auto b = getLocalBounds().reduced (18);
+    sessionHud.setBounds (b.removeFromRight (156).removeFromTop (24).reduced (0, 1));
     title.setBounds (b.removeFromTop (34));
     subtitle.setBounds (b.removeFromTop (20));
 

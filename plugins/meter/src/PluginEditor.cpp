@@ -10,6 +10,7 @@ SattariMeterAudioProcessorEditor::SattariMeterAudioProcessorEditor (SattariMeter
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Loudness · true-peak · correlation");
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
+    addAndMakeVisible (sessionHud);
 
     target.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     target.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 80, 16);
@@ -89,6 +90,7 @@ void SattariMeterAudioProcessorEditor::paint (juce::Graphics& g)
 void SattariMeterAudioProcessorEditor::resized()
 {
     auto b = getLocalBounds().reduced (18);
+    sessionHud.setBounds (b.removeFromRight (156).removeFromTop (24).reduced (0, 1));
     title.setBounds (b.removeFromTop (34));
     subtitle.setBounds (b.removeFromTop (20));
 

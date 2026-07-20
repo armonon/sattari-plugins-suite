@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariSessionHud.h>
 #include "PluginProcessor.h"
 
 class SattariMeterAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -26,6 +27,7 @@ private:
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("meter") };
 
     juce::Label title, subtitle, targetCap;
+    sattari::ui::SessionHud sessionHud;
     juce::Slider target;
     juce::TextButton resetBtn { "Reset Integrated" };
     std::unique_ptr<SliderAttachment> targetAtt;

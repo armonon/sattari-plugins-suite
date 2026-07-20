@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariSessionHud.h>
 #include "PluginProcessor.h"
 
 class SattariTunerAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -27,6 +28,7 @@ private:
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("tuner") };
 
     juce::Label title, subtitle;
+    sattari::ui::SessionHud sessionHud;
 
     juce::Slider referenceA, smoothing, transpose;
     juce::Label  referenceACap, smoothingCap, transposeCap;
