@@ -5,11 +5,12 @@ using APVTS = juce::AudioProcessorValueTreeState;
 
 namespace
 {
-constexpr const char* kVoiceOnIds[SattariHarmonyAudioProcessor::kNumVoices]      = { "v1on", "v2on", "v3on", "v4on" };
-constexpr const char* kVoiceIntervalIds[SattariHarmonyAudioProcessor::kNumVoices]= { "v1int", "v2int", "v3int", "v4int" };
-constexpr const char* kVoiceLevelIds[SattariHarmonyAudioProcessor::kNumVoices]   = { "v1level", "v2level", "v3level", "v4level" };
-constexpr const char* kVoicePanIds[SattariHarmonyAudioProcessor::kNumVoices]     = { "v1pan", "v2pan", "v3pan", "v4pan" };
-constexpr const char* kVoiceFormantIds[SattariHarmonyAudioProcessor::kNumVoices] = { "v1formant", "v2formant", "v3formant", "v4formant" };
+constexpr const char* kVoiceOnIds[SattariHarmonyAudioProcessor::kNumVoices]      = { "v1on", "v2on", "v3on", "v4on", "v5on", "v6on", "v7on", "v8on" };
+constexpr const char* kVoiceIntervalIds[SattariHarmonyAudioProcessor::kNumVoices]= { "v1int", "v2int", "v3int", "v4int", "v5int", "v6int", "v7int", "v8int" };
+constexpr const char* kVoiceLevelIds[SattariHarmonyAudioProcessor::kNumVoices]   = { "v1level", "v2level", "v3level", "v4level", "v5level", "v6level", "v7level", "v8level" };
+constexpr const char* kVoicePanIds[SattariHarmonyAudioProcessor::kNumVoices]     = { "v1pan", "v2pan", "v3pan", "v4pan", "v5pan", "v6pan", "v7pan", "v8pan" };
+constexpr const char* kVoiceFormantIds[SattariHarmonyAudioProcessor::kNumVoices] = { "v1formant", "v2formant", "v3formant", "v4formant", "v5formant", "v6formant", "v7formant", "v8formant" };
+constexpr const char* kVoiceOctaveIds[SattariHarmonyAudioProcessor::kNumVoices]  = { "v1oct", "v2oct", "v3oct", "v4oct", "v5oct", "v6oct", "v7oct", "v8oct" };
 }
 
 // ---- shared choice lists ----------------------------------------------------
@@ -68,12 +69,14 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "scale", 1 }, "Scale", scaleChoices(), 0));
     p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "lowLatency", 1 }, "Low Latency", false));
 
-    // Per-voice. Sensible defaults give an instant 3-part choir (1+2+3 on).
-    const int   defInterval[kNumVoices] = { 6, 8, 0, 8 };          // 3rd↑, 5th↑, Oct↓, 5th↑
-    const bool  defOn      [kNumVoices] = { true, true, true, false };
-    const float defLevel   [kNumVoices] = { -3.0f, -5.0f, -6.0f, -6.0f };
-    const float defPan     [kNumVoices] = { -0.4f,  0.4f,  0.0f,  0.6f };
-    const float defFormant [kNumVoices] = {  0.0f,  0.0f, -1.0f,  1.0f };
+    // Per-voice. Defaults keep the out-of-box behaviour a 3-part choir (v1+2+3 on);
+    // voices 5-8 are the Pro extension — present but off until dialled in.
+    const int   defInterval[kNumVoices] = { 6, 8, 0, 8, 9, 4, 6, 8 };   // 3rd↑ 5th↑ Oct↓ 5th↑ | 6th↑ 2nd↑ 3rd↑ 5th↑
+    const bool  defOn      [kNumVoices] = { true, true, true, false, false, false, false, false };
+    const float defLevel   [kNumVoices] = { -3.0f, -5.0f, -6.0f, -6.0f, -7.0f, -7.0f, -8.0f, -8.0f };
+    const float defPan     [kNumVoices] = { -0.4f,  0.4f,  0.0f,  0.6f, -0.7f,  0.7f, -0.55f, 0.55f };
+    const float defFormant [kNumVoices] = {  0.0f,  0.0f, -1.0f,  1.0f, -2.0f,  2.0f, -1.5f, 1.5f };
+    const int   defOctave  [kNumVoices] = {  0, 0, 0, 0, 0, 1, -1, 0 };
 
     for (int v = 0; v < kNumVoices; ++v)
     {
@@ -81,6 +84,7 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
         const auto pfx = "Voice " + s + " ";
         p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "v" + s + "on",    1 }, pfx + "On", defOn[v]));
         p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "v" + s + "int",   1 }, pfx + "Interval", intervalChoices(), defInterval[v]));
+        p.push_back (std::make_unique<juce::AudioParameterInt> (juce::ParameterID { "v" + s + "oct", 1 }, pfx + "Octave", -2, 2, defOctave[v]));
         p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "v" + s + "level", 1 }, pfx + "Level", juce::NormalisableRange<float> (-48.0f, 6.0f, 0.1f), defLevel[v]));
         p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "v" + s + "pan",   1 }, pfx + "Pan",   juce::NormalisableRange<float> (-1.0f, 1.0f, 0.001f), defPan[v]));
         p.push_back (std::make_unique<FloatP>  (juce::ParameterID { "v" + s + "formant",1 }, pfx + "Formant", juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), defFormant[v]));
@@ -332,6 +336,8 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         {
             const int deg = intervalDegrees ((int) std::round (param (kVoiceIntervalIds[(size_t) v])));
             int harmonyMidi = sattari::harmony::diatonicShift (leadMidiLive, root, scale, deg);
+            harmonyMidi += 12 * (int) std::round (param (kVoiceOctaveIds[(size_t) v]));   // Pro: per-voice octave
+            harmonyMidi = juce::jlimit (0, 127, harmonyMidi);
             if (chordMode)
                 harmonyMidi = sattari::harmony::nearestChordTone (harmonyMidi, chordPcs.data(), chordPcCount);
             snapVoiceMidi[v].store (harmonyMidi);

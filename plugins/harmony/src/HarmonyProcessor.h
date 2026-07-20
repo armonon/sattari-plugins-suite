@@ -28,7 +28,7 @@
 class SattariHarmonyAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    static constexpr int kNumVoices = 4;
+    static constexpr int kNumVoices = 8;   // Pro: 8-voice diatonic stack (was 4)
 
     SattariHarmonyAudioProcessor();
     ~SattariHarmonyAudioProcessor() override = default;

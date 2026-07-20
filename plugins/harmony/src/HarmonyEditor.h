@@ -49,7 +49,7 @@ private:
     struct VoiceStrip
     {
         juce::ToggleButton on;
-        juce::ComboBox interval;
+        juce::ComboBox interval, octave;   // octave = Pro per-voice ±2 oct
         juce::Slider level, pan, formant;
     };
     std::array<VoiceStrip, kNumVoices> voices;

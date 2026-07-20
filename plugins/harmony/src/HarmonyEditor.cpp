@@ -3,9 +3,11 @@
 
 namespace
 {
-const std::array<juce::Colour, 4> kVoiceColours {
+const std::array<juce::Colour, 8> kVoiceColours {
     juce::Colour (0xff62f5c8), juce::Colour (0xff7dd3fc),
-    juce::Colour (0xff34d8b4), juce::Colour (0xff8ce0d0) };
+    juce::Colour (0xff34d8b4), juce::Colour (0xff8ce0d0),
+    juce::Colour (0xff9b7bff), juce::Colour (0xffb59bff),
+    juce::Colour (0xff5ec6e0), juce::Colour (0xff7fe0c8) };
 
 juce::String midiName (int m)
 {
@@ -20,7 +22,7 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
       presetManager (p.parameters(), "harmony")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (940, 620);
+    setSize (1400, 620);   // Pro: wider for the 8-voice band
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Harmony");
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Diatonic vocal harmoniser - up to four voices, locked to the song key");
@@ -107,6 +109,9 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
 
         setupCombo (vs.interval, SattariHarmonyAudioProcessor::intervalChoices());
         comboAtts.push_back (std::make_unique<ComboAttachment> (params, "v" + s + "int", vs.interval));
+
+        setupCombo (vs.octave, { "-2 oct", "-1 oct", "0", "+1 oct", "+2 oct" });
+        comboAtts.push_back (std::make_unique<ComboAttachment> (params, "v" + s + "oct", vs.octave));
 
         setupSlider (vs.level, " dB"); vs.level.setName ("Level");
         setupSlider (vs.pan);          vs.pan.setName ("Pan");
@@ -320,6 +325,7 @@ void SattariHarmonyAudioProcessorEditor::resized()
         col.removeFromTop (20);                      // header caption (painted)
         auto onRow = col.removeFromTop (24);
         voices[(size_t) v].on.setBounds (onRow.removeFromLeft (40));
+        voices[(size_t) v].octave.setBounds (onRow);   // octave selector beside the On toggle
         voices[(size_t) v].interval.setBounds (col.removeFromTop (26));
         col.removeFromTop (24);                       // knob captions
         auto knobs = col.removeFromTop (96);
