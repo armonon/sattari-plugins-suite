@@ -476,6 +476,26 @@ target_link_libraries(StemDeckStructureTest
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 
+# ── StemDeck Arrange — standalone app to TRY the arrangement view on real tracks ─
+juce_add_gui_app(StemDeckArrangeApp
+    PRODUCT_NAME "StemDeck Arrange")
+juce_generate_juce_header(StemDeckArrangeApp)
+target_sources(StemDeckArrangeApp PRIVATE
+    app/StemDeckArrangeApp.cpp
+    src/ArrangementView.cpp
+    src/SessionModel.cpp
+    src/SessionCapture.cpp
+    src/TrackAnalysis.cpp)
+target_include_directories(StemDeckArrangeApp PRIVATE src ${CMAKE_CURRENT_LIST_DIR}/../../core/include)
+target_compile_definitions(StemDeckArrangeApp PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_APPLICATION_NAME_STRING="StemDeck Arrange"
+    JUCE_APPLICATION_VERSION_STRING="0.1")
+target_link_libraries(StemDeckArrangeApp PRIVATE
+    juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
+    juce::juce_gui_extra juce::juce_graphics
+    juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest
