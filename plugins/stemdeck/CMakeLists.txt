@@ -395,6 +395,24 @@ target_link_libraries(StemDeckRendererTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckRendererTest)
 
+# ── Session export (render -> WAV + tracklist + cue sheet) ─────────────────────
+add_executable(StemDeckExportTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_export.cpp
+        src/SessionCapture.cpp
+        src/SessionModel.cpp)
+add_dependencies(StemDeckExportTest SattariStemDeck)
+target_include_directories(StemDeckExportTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckExportTest PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckExportTest
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckExportTest)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest
