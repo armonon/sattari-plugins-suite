@@ -413,6 +413,19 @@ target_link_libraries(StemDeckExportTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckExportTest)
 
+# ── Loudness meter (BS.1770 integrated LUFS + true-peak) ───────────────────────
+add_executable(StemDeckLoudnessTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_loudness.cpp)
+add_dependencies(StemDeckLoudnessTest SattariStemDeck)
+target_include_directories(StemDeckLoudnessTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckLoudnessTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckLoudnessTest
+    PRIVATE juce::juce_audio_basics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
 add_executable(StemDeckResamplerTest
