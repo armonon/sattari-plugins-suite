@@ -22,6 +22,17 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
 
     addAndMakeVisible (sessionHud);
 
+    // Factory presets — drive the processor program interface (single source of truth).
+    presetBox.setTextWhenNothingSelected (juce::String::fromUTF8 ("Presets\xe2\x80\xa6"));
+    for (int i = 0; i < processor.getNumPrograms(); ++i)
+        presetBox.addItem (processor.getProgramName (i), i + 1);
+    presetBox.onChange = [this]
+    {
+        const int idx = presetBox.getSelectedItemIndex();
+        if (idx >= 0) processor.setCurrentProgram (idx);
+    };
+    addAndMakeVisible (presetBox);
+
     auto combo = [this] (juce::ComboBox& b, const juce::StringArray& items, const juce::String& id, std::unique_ptr<CA>& att)
     {
         b.addItemList (items, 1);
@@ -102,6 +113,8 @@ void SattariVoxSynthAudioProcessorEditor::resized()
     modeBox.setBounds (top.removeFromRight (76));
     top.removeFromRight (6);
     sessionHud.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 22));
+    top.removeFromLeft (8);
+    presetBox.setBounds (top.removeFromLeft (juce::jmin (140, juce::jmax (0, top.getWidth()))).withSizeKeepingCentre (juce::jmin (140, juce::jmax (0, top.getWidth())), 24));
 
     readout.setBounds (r.removeFromTop (30));
     r.removeFromTop (8);

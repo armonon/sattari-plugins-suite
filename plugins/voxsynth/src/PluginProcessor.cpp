@@ -11,9 +11,56 @@ SattariVoxSynthAudioProcessor::SattariVoxSynthAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Voice",  juce::AudioChannelSet::stereo(), true)
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "VOXSYNTH", createLayout())
+      apvts (*this, nullptr, "VOXSYNTH", createLayout()),
+      presetBank (apvts, "voxsynth")
 {
     for (auto& b : busScale_) b = true;
+    registerFactoryPresets();
+}
+
+// Starting-point voices spanning the instrument: leads, bass, pad, the talkbox/
+// vocoder trick, and the beatbox map. Raw parameter values; choice/int params take
+// their index. quantize=1 locks to the session-bus key; percussion=1 is beatbox mode.
+void SattariVoxSynthAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    // waves: 0 Sine 1 Saw 2 Square 3 Triangle | mode: 0 Synth 1 MIDI
+    // params: mode osc1 osc2 osc2oct detune mix glide cutoff filtamt reso quantize percussion vocoder level
+    auto P = [] (float mode, float o1, float o2, float oct, float det, float mix, float glide,
+                 float cut, float filt, float reso, float quant, float perc, float voc, float lvl) -> PV
+    {
+        return PV { {"mode",mode}, {"osc1",o1}, {"osc2",o2}, {"osc2oct",oct}, {"detune",det},
+                    {"mix",mix}, {"glide",glide}, {"cutoff",cut}, {"filtamt",filt}, {"reso",reso},
+                    {"quantize",quant}, {"percussion",perc}, {"vocoder",voc}, {"level",lvl} };
+    };
+    //                             mode o1 o2 oct  det  mix glide  cut  filt reso quant perc voc  lvl
+    presetBank.addFactoryPreset ("Init",          P (0, 1, 1,  0,   7, 0.40f, 12,  400, 1.00f,0.20f, 0,  0,  0.00f, 0.90f));
+    presetBank.addFactoryPreset ("Analog Lead",   P (0, 1, 1,  0,  12, 0.50f,  8, 3000, 0.30f,0.35f, 0,  0,  0.00f, 0.90f));
+    presetBank.addFactoryPreset ("Fat Supersaw",  P (0, 1, 1,  0,  30, 0.50f,  5, 6000, 0.20f,0.20f, 0,  0,  0.00f, 0.85f));
+    presetBank.addFactoryPreset ("Sub Bass",      P (0, 0, 2, -1,   0, 0.30f, 20,  200, 0.20f,0.10f, 1,  0,  0.00f, 0.95f));
+    presetBank.addFactoryPreset ("Soft Pad",      P (0, 3, 1,  0,  10, 0.50f, 60, 1200, 0.50f,0.15f, 0,  0,  0.00f, 0.80f));
+    presetBank.addFactoryPreset ("Octave Stack",  P (0, 1, 1,  1,   5, 0.50f,  6, 4000, 0.30f,0.20f, 0,  0,  0.00f, 0.85f));
+    presetBank.addFactoryPreset ("Glass Bells",   P (0, 0, 0,  1,   3, 0.50f,  0, 8000, 0.10f,0.40f, 0,  0,  0.00f, 0.80f));
+    presetBank.addFactoryPreset ("Talkbox",       P (0, 1, 1,  0,   7, 0.45f,  8, 1500, 1.00f,0.30f, 0,  0,  0.80f, 0.90f));
+    presetBank.addFactoryPreset ("Robot Vocoder", P (0, 2, 1,  0,   7, 0.50f,  6, 2000, 0.80f,0.25f, 1,  0,  1.00f, 0.90f));
+    presetBank.addFactoryPreset ("Key-Locked Lead",P(0, 1, 2,  0,  10, 0.45f,  0, 3500, 0.30f,0.20f, 1,  0,  0.00f, 0.90f));
+    presetBank.addFactoryPreset ("Beatbox Kit",   P (0, 1, 1,  0,   7, 0.40f, 12,  400, 1.00f,0.20f, 0,  1,  0.00f, 0.90f));
+}
+
+int SattariVoxSynthAudioProcessor::getNumPrograms()    { return juce::jmax (1, presetBank.numFactoryPresets()); }
+int SattariVoxSynthAudioProcessor::getCurrentProgram() { return currentProgram; }
+
+void SattariVoxSynthAudioProcessor::setCurrentProgram (int index)
+{
+    if (index < 0 || index >= presetBank.numFactoryPresets()) return;
+    currentProgram = index;
+    presetBank.loadFactoryPreset (index);
+}
+
+const juce::String SattariVoxSynthAudioProcessor::getProgramName (int index)
+{
+    const auto names = presetBank.factoryPresetNames();
+    return juce::isPositiveAndBelow (index, names.size()) ? names[index] : juce::String();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxSynthAudioProcessor::createLayout()

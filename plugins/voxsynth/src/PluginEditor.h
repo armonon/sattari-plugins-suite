@@ -29,6 +29,7 @@ private:
 
     juce::Label title, subtitle, readout;
     sattari::ui::SessionHud sessionHud;
+    juce::ComboBox presetBox;
     juce::ComboBox modeBox, osc1Box, osc2Box;
     std::unique_ptr<CA> modeAtt, osc1Att, osc2Att;
     juce::ToggleButton percBtn { "Percussion" };

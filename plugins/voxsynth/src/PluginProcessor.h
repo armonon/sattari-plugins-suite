@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariVoxSynthEngine.h>
 #include <sattari_audio_core/SattariVocoderBank.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <atomic>
 
 // =============================================================================
@@ -40,10 +41,10 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int) override;
+    const juce::String getProgramName (int) override;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -63,8 +64,11 @@ public:
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void pullBusKey();
+    void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank;
+    int currentProgram = 0;
 
     sattari::dsp::VoxAnalyzer   analyzer_;
     sattari::dsp::VoxSynthEngine engine_;
