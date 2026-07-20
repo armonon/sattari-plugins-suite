@@ -77,6 +77,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariMorphAudioProcessor::
         NormalisableRange<float> (0.0f, 0.9f, 0.01f), 0.35f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("echomix", "Echo Mix",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+    // Harmony voice — a dry, in-key parallel voice (same interval engine as the echo,
+    // but immediate, not delayed). Off + 0 mix by default, so existing patches are unchanged.
+    p.push_back (std::make_unique<AudioParameterChoice> ("harmvoice", "Harmony",
+        juce::StringArray { "Off", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 0));
+    p.push_back (std::make_unique<AudioParameterFloat>  ("harmmix", "Harmony Level",
+        NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     return { p.begin(), p.end() };
 }
 
@@ -101,6 +107,9 @@ void SattariMorphAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
     echoHarm_.assign ((size_t) n, 0.0f);
     out_.assign ((size_t) n, 0.0f);
     echoPos_ = 0;
+
+    harmShifter_.prepare (sampleRate, 60.0, 1000.0);
+    harmScratch_.assign ((size_t) n, 0.0f);
 }
 
 bool SattariMorphAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -192,6 +201,23 @@ void SattariMorphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const float dry = dryDelay_[(size_t) rd];
         dryPos_ = (dryPos_ + 1) % (int) dryDelay_.size();
         out_[(size_t) i] = mix * wet_[(size_t) i] + (1.0f - mix) * dry;
+    }
+
+    // Harmony voice — a dry, in-key parallel voice of the current input (immediate, no
+    // delay). Same interval engine as the echo. Off / level 0 => silent.
+    const int   harmVoice = (int) apvts.getRawParameterValue ("harmvoice")->load();
+    const float harmMix   = apvts.getRawParameterValue ("harmmix")->load();
+    if (harmVoice > 0 && harmMix > 0.0001f)
+    {
+        if (harmVoice == 4)
+        {
+            const auto now = juce::Time::currentTimeMillis();
+            if (now - lastBusPollMs_ > 500) { lastBusPollMs_ = now; pullBusScale(); }
+        }
+        const float hr = echoHarmonyRatio (harmVoice, pr.voiced, pr.frequencyHz);
+        if ((int) harmScratch_.size() < n) harmScratch_.assign ((size_t) n, 0.0f);
+        harmShifter_.process (dryMono_.data(), harmScratch_.data(), n, hr, period);
+        for (int i = 0; i < n; ++i) out_[(size_t) i] += harmMix * harmScratch_[(size_t) i];
     }
 
     // Key Echo: harmonise the CURRENT (pitched) input in key, feed it a feedback delay,

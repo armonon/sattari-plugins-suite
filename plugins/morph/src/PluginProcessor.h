@@ -79,6 +79,10 @@ private:
     std::vector<float> echoBuf_, echoHarm_, out_;
     int   echoPos_ = 0, maxEchoDelay_ = 0;
 
+    // Harmony voice: a second PSOLA instance adds a dry in-key parallel voice.
+    sattari::dsp::PsolaShifter harmShifter_;
+    std::vector<float> harmScratch_;
+
     std::array<bool, 12> busScale_ { };
     juce::int64 lastBusPollMs_ = 0;
 

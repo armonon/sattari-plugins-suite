@@ -46,6 +46,19 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     knob (drive, driveC, "Drive", "drive", driveA);
     knob (mix, mixC, "Mix", "mix", mixA);
 
+    // Harmony voice — a dry in-key parallel voice.
+    harmCaption.setText (juce::String::fromUTF8 ("HARMONY VOICE  \xc2\xb7  in-key"), juce::dontSendNotification);
+    harmCaption.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    harmCaption.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
+    addAndMakeVisible (harmCaption);
+    harmVoiceBox.addItemList ({ "Off", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 1);
+    addAndMakeVisible (harmVoiceBox);
+    harmVoiceAtt = std::make_unique<CA> (processor.parameters(), "harmvoice", harmVoiceBox);
+    harmMix.setSliderStyle (juce::Slider::LinearHorizontal);
+    harmMix.setTextBoxStyle (juce::Slider::TextBoxRight, false, 46, 18);
+    addAndMakeVisible (harmMix);
+    harmMixA = std::make_unique<SA> (processor.parameters(), "harmmix", harmMix);
+
     // Key Echo — in-key pitched delay. Repeats are harmonised to the key.
     echoCaption.setText (juce::String::fromUTF8 ("KEY ECHO  \xc2\xb7  in-key repeats"), juce::dontSendNotification);
     echoCaption.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
@@ -58,7 +71,7 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     knob (echoFeedback, echoFeedbackC, "Feedback", "echofeedback", echoFeedbackA);
     knob (echoMix, echoMixC, "Echo Mix", "echomix", echoMixA);
 
-    setSize (440, 430);
+    setSize (440, 480);
     startTimerHz (4);
 }
 
@@ -113,6 +126,16 @@ void SattariMorphAudioProcessorEditor::resized()
         juce::Label*  cs[] = { &pitchC, &formantC, &driveC, &mixC };
         const int w = knobRow.getWidth() / 4;
         for (int i = 0; i < 4; ++i) { auto cell = knobRow.removeFromLeft (w); cs[i]->setBounds (cell.removeFromBottom (16)); ks[i]->setBounds (cell.reduced (4)); }
+    }
+    r.removeFromTop (8);
+
+    harmCaption.setBounds (r.removeFromTop (14));
+    r.removeFromTop (2);
+    {
+        auto hr = r.removeFromTop (24);
+        harmVoiceBox.setBounds (hr.removeFromLeft (140));
+        hr.removeFromLeft (8);
+        harmMix.setBounds (hr);
     }
     r.removeFromTop (8);
 

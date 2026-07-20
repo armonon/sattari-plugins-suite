@@ -34,6 +34,13 @@ private:
     juce::Label  pitchC, formantC, driveC, mixC;
     std::unique_ptr<SA> pitchA, formantA, driveA, mixA;
 
+    // Harmony voice — dry in-key parallel voice.
+    juce::Label    harmCaption;
+    juce::ComboBox harmVoiceBox;
+    std::unique_ptr<CA> harmVoiceAtt;
+    juce::Slider   harmMix;
+    std::unique_ptr<SA> harmMixA;
+
     // Key Echo section — in-key pitched delay.
     juce::Label    echoCaption;
     juce::ComboBox echoModeBox;
