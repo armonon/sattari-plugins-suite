@@ -54,6 +54,7 @@ sattari_add_plugin(
     SOURCES
         src/AnalysisCache.cpp
         src/ArrangementBuilder.cpp
+        src/ArrangementView.cpp
         src/BeatSyncEngine.cpp
         src/DeckPlayer.cpp
         src/EQProcessor.cpp
@@ -443,6 +444,25 @@ target_link_libraries(StemDeckSessionDemo
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckSessionDemo)
+
+# ── Arrangement view render (draws a session to a PNG, offline) ────────────────
+add_executable(StemDeckArrangeRender
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_arrange_render.cpp
+        src/ArrangementView.cpp
+        src/SessionCapture.cpp
+        src/SessionModel.cpp)
+add_dependencies(StemDeckArrangeRender SattariStemDeck)
+target_include_directories(StemDeckArrangeRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckArrangeRender PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckArrangeRender
+    PRIVATE juce::juce_audio_utils juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckArrangeRender)
 
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
