@@ -5,8 +5,11 @@
 // This is the "packaging, not research" product — the model is already trained; this
 // turns it into the thing DJs pay Mixed In Key ($58-98) for.
 //
-//   key_analyzer <folder> [--csv out.csv]
+//   key_analyzer <folder> [--csv out.csv] [--rekordbox out.xml]
 //
+// --rekordbox writes a rekordbox-importable collection XML (key + BPM + Camelot), so a
+// DJ can analyse a whole library here and import it with the key column already filled —
+// the paid feature of Mixed In Key / rekordbox's own analysis.
 // Reads models from ~/Library/Sattari Audio/models/keynet.onnx (same as the plugins).
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
@@ -26,7 +29,7 @@ const char* kNote[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
 constexpr int kCamMaj[12] = { 8,3,10,5,12,7,2,9,4,11,6,1 };
 constexpr int kCamMin[12] = { 5,12,7,2,9,4,11,6,1,8,3,10 };
 
-struct Analysis { juce::String file; int root = 0; bool minor = false; float conf = 0; double bpm = 0; };
+struct Analysis { juce::String file; juce::File src; int root = 0; bool minor = false; float conf = 0; double bpm = 0; };
 double estimateBpm (const std::vector<float>& env, double envRateHz);   // fwd
 
 // Whole-file HPCP mean(12)+cov(78) — exactly the model's training feature — plus a
@@ -75,7 +78,7 @@ bool analyseFile (juce::AudioFormatManager& fm, const juce::File& f, sattari::ds
     for (int i = 0; i < 12; ++i) for (int j = i; j < 12; ++j) feat[fi++] = (float) cov[i][j];
 
     const auto kn = net.available() ? net.detectTTA (feat) : sattari::dsp::KeyNetResult{};
-    a.file = f.getFileName(); a.root = kn.root; a.minor = kn.minor; a.conf = kn.confidence;
+    a.file = f.getFileName(); a.src = f; a.root = kn.root; a.minor = kn.minor; a.conf = kn.confidence;
     a.bpm = estimateBpm (onsetEnv, sr / kHop);
     return true;
 }
@@ -98,15 +101,69 @@ double estimateBpm (const std::vector<float>& env, double envRateHz)
     while (bpm > 160.0) bpm /= 2.0;
     return bpm;
 }
+
+// ── rekordbox collection export ───────────────────────────────────────────────
+// rekordbox reads the Tonality attribute for its Key column; we also stash the
+// Camelot code in Comments (Mixed In Key convention) for harmonic-mixing sorting.
+juce::String rbTonality (int root, bool minor)
+{
+    return juce::String (kNote[((root % 12) + 12) % 12]) + (minor ? "m" : "");
+}
+
+// rekordbox Location is a file URL of the form file://localhost/abs/path (percent-
+// encoded). juce::URL(File) yields file:///abs/path — swap in the localhost authority.
+juce::String fileLocation (const juce::File& f)
+{
+    auto u = juce::URL (f).toString (false);
+    if (u.startsWith ("file://")) u = "file://localhost" + u.substring (7);
+    return u;
+}
+
+void writeRekordbox (const juce::File& out, const std::vector<Analysis>& rows)
+{
+    juce::XmlElement root ("DJ_PLAYLISTS");
+    root.setAttribute ("Version", "1.0.0");
+    auto* product = root.createNewChildElement ("PRODUCT");
+    product->setAttribute ("Name", "Sattari Key");
+    product->setAttribute ("Version", "1.0");
+    product->setAttribute ("Company", "Sattari Audio");
+
+    auto* col = root.createNewChildElement ("COLLECTION");
+    col->setAttribute ("Entries", (int) rows.size());
+    int id = 1;
+    for (const auto& a : rows)
+    {
+        const int r = ((a.root % 12) + 12) % 12;
+        auto* t = col->createNewChildElement ("TRACK");
+        t->setAttribute ("TrackID", id++);
+        t->setAttribute ("Name", a.src.getFileNameWithoutExtension());
+        t->setAttribute ("Kind", a.src.getFileExtension().substring (1).toUpperCase() + " File");
+        t->setAttribute ("Location", fileLocation (a.src));
+        t->setAttribute ("AverageBpm", juce::String (a.bpm, 2));
+        t->setAttribute ("Tonality", rbTonality (r, a.minor));
+        t->setAttribute ("Comments", juce::String (a.minor ? kCamMin[r] : kCamMaj[r]) + (a.minor ? "A" : "B"));
+    }
+
+    // A minimal (empty) PLAYLISTS/ROOT node keeps rekordbox's importer happy.
+    auto* pls = root.createNewChildElement ("PLAYLISTS");
+    auto* node = pls->createNewChildElement ("NODE");
+    node->setAttribute ("Type", "0"); node->setAttribute ("Name", "ROOT"); node->setAttribute ("Count", "0");
+
+    out.replaceWithText (root.toString());
+}
 } // namespace
 
 int main (int argc, char** argv)
 {
-    if (argc < 2) { std::fprintf (stderr, "usage: key_analyzer <folder> [--csv out.csv]\n"); return 2; }
+    if (argc < 2) { std::fprintf (stderr, "usage: key_analyzer <folder> [--csv out.csv] [--rekordbox out.xml]\n"); return 2; }
     juce::File folder (juce::String::fromUTF8 (argv[1]));
     if (! folder.isDirectory()) { std::fprintf (stderr, "not a folder: %s\n", argv[1]); return 2; }
-    juce::File csv;
-    for (int i = 2; i < argc - 1; ++i) if (juce::String (argv[i]) == "--csv") csv = juce::File (juce::String::fromUTF8 (argv[i + 1]));
+    juce::File csv, rbxml;
+    for (int i = 2; i < argc - 1; ++i)
+    {
+        if (juce::String (argv[i]) == "--csv")       csv   = juce::File (juce::String::fromUTF8 (argv[i + 1]));
+        if (juce::String (argv[i]) == "--rekordbox") rbxml = juce::File (juce::String::fromUTF8 (argv[i + 1]));
+    }
 
     sattari::dsp::KeyNet net;
     auto model = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
@@ -121,6 +178,7 @@ int main (int argc, char** argv)
     std::printf ("%-40s  %-9s  %-4s  %-4s  %s\n", "file", "key", "cam", "bpm", "conf");
     std::printf ("%-40s  %-9s  %-4s  %-4s  %s\n", "----", "---", "---", "---", "----");
     juce::StringArray csvRows; csvRows.add ("file,key,camelot,bpm,confidence");
+    std::vector<Analysis> rows;
     int ok = 0;
     for (const auto& f : files)
     {
@@ -132,9 +190,11 @@ int main (int argc, char** argv)
                      f.getFileName().substring (0, 40).toRawUTF8(), key.toRawUTF8(), cam.toRawUTF8(),
                      (int) std::lround (a.bpm), a.conf * 100.0f);
         csvRows.add (a.file.replaceCharacter (',', ' ') + "," + key + "," + cam + "," + juce::String ((int) std::lround (a.bpm)) + "," + juce::String (a.conf, 3));
+        rows.push_back (a);
         ++ok;
     }
     std::printf ("\nanalysed %d file(s).\n", ok);
     if (csv != juce::File{}) { csv.replaceWithText (csvRows.joinIntoString ("\n") + "\n"); std::printf ("wrote %s\n", csv.getFullPathName().toRawUTF8()); }
+    if (rbxml != juce::File{}) { writeRekordbox (rbxml, rows); std::printf ("wrote %s (%d tracks, rekordbox import)\n", rbxml.getFullPathName().toRawUTF8(), (int) rows.size()); }
     return 0;
 }
