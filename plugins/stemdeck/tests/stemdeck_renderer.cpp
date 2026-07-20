@@ -8,6 +8,7 @@
 #include <string>
 #include <cmath>
 #include <map>
+#include <limits>
 
 using namespace stemdeck::session;
 
@@ -199,6 +200,53 @@ int main()
         cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
         cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
         check (rms (SessionRenderer::render (cap.session(), p)) > 0.2, "untouched EQ is bypassed (tone passes at full level)");
+    }
+
+    // ── Mix-bus limiter: ceiling is never exceeded; below-ceiling is transparent ─
+    {
+        auto peakOf = [] (const juce::AudioBuffer<float>& b)
+        {
+            float p = 0.0f;
+            for (int c = 0; c < b.getNumChannels(); ++c)
+                for (int i = 0; i < b.getNumSamples(); ++i) p = juce::jmax (p, std::abs (b.getSample (c, i)));
+            return p;
+        };
+
+        // A hot mix that would clip: loud source + fader boosted above unity.
+        auto hot = sineTrack (SR, 30.0, 300.0);   // 0.5 peak source
+        SessionRenderer::AudioProvider p = [&] (const juce::String&, double& rate) { rate = SR; return &hot; };
+        SessionCapture cap; cap.begin (48000.0, 124.0);
+        cap.recordDeckLoad (0, { "H", "/h", "", 30, 124, 0, 0, false }, 0.0);
+        cap.recordParam (0, "fader", 4.0, 0.0);   // +12 dB -> peak ~2.0, must be limited
+        cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        const auto s = cap.session();
+
+        const double ceilLin = std::pow (10.0, -1.0 / 20.0);   // -1 dBFS
+        const auto limited = SessionRenderer::render (s, p);    // default -1 dB ceiling
+        check (allFinite (limited), "limited render is finite");
+        check (peakOf (limited) <= (float) ceilLin + 1e-4f, "no sample exceeds the -1 dBFS ceiling");
+        check (peakOf (limited) > (float) ceilLin * 0.8f, "limiter drives the mix up near the ceiling");
+
+        // Same session with the limiter disabled would clip well over 1.0.
+        SessionRenderer::Options noLim; noLim.limiterCeilingDb = std::numeric_limits<double>::infinity();
+        check (peakOf (SessionRenderer::render (s, p, noLim)) > 1.5f, "without the limiter the mix clips (>1.5)");
+
+        // A quiet mix (well under the ceiling) passes through untouched.
+        auto quiet = sineTrack (SR, 30.0, 300.0);   // 0.5 peak
+        SessionRenderer::AudioProvider pq = [&] (const juce::String&, double& rate) { rate = SR; return &quiet; };
+        SessionCapture qc; qc.begin (48000.0, 124.0);
+        qc.recordDeckLoad (0, { "Q", "/q", "", 30, 124, 0, 0, false }, 0.0);
+        qc.recordParam (0, "fader", 1.0, 0.0);   // peak 0.5, under -1 dB
+        qc.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        qc.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        const auto withLim = SessionRenderer::render (qc.session(), pq);
+        SessionRenderer::Options off; off.limiterCeilingDb = std::numeric_limits<double>::infinity();
+        const auto without = SessionRenderer::render (qc.session(), pq, off);
+        bool identical = withLim.getNumSamples() == without.getNumSamples();
+        for (int i = 0; identical && i < withLim.getNumSamples(); ++i)
+            identical = withLim.getSample (0, i) == without.getSample (0, i);
+        check (identical, "below-ceiling mix is transparent (limiter changes nothing)");
     }
 
     std::cout << (fails == 0 ? "RENDERER_OK" : "RENDERER_FAIL (" + std::to_string (fails) + ")") << "\n";

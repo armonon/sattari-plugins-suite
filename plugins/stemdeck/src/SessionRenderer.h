@@ -63,6 +63,41 @@ struct RenderEq
     }
 };
 
+// Offline look-ahead brickwall limiter for the render master bus. Because the whole
+// buffer is available, the ceiling guarantee is exact: a backward attack pass and a
+// forward release pass only ever LOWER the gain below ceiling/peak, so no output
+// sample can exceed the ceiling, while a signal already under the ceiling passes
+// through untouched (transparent). Linked stereo (one gain for both channels).
+struct RenderLimiter
+{
+    static void apply (juce::AudioBuffer<float>& buf, double ceilingLin,
+                       int lookaheadSamples, int releaseSamples)
+    {
+        const int n = buf.getNumSamples();
+        if (n <= 0 || buf.getNumChannels() <= 0) return;
+        const int ch = buf.getNumChannels();
+
+        std::vector<double> g ((size_t) n, 1.0);
+        for (int i = 0; i < n; ++i)
+        {
+            double peak = 0.0;
+            for (int c = 0; c < ch; ++c) peak = juce::jmax (peak, (double) std::abs (buf.getSample (c, i)));
+            g[(size_t) i] = peak > ceilingLin ? ceilingLin / peak : 1.0;   // needed gain, <= 1
+        }
+        // Attack: ramp gain down over the look-ahead window before each dip.
+        const double atk = lookaheadSamples > 0 ? 1.0 / lookaheadSamples : 1.0;
+        for (int i = n - 2; i >= 0; --i) g[(size_t) i] = juce::jmin (g[(size_t) i], g[(size_t) (i + 1)] + atk);
+        // Release: gain recovers no faster than the release slope. Both passes only
+        // take the min, so g[i] stays <= ceiling/peak — the ceiling is guaranteed.
+        const double rel = releaseSamples > 0 ? 1.0 / releaseSamples : 1.0;
+        for (int i = 1; i < n; ++i) g[(size_t) i] = juce::jmin (g[(size_t) i], g[(size_t) (i - 1)] + rel);
+
+        for (int c = 0; c < ch; ++c)
+            for (int i = 0; i < n; ++i)
+                buf.setSample (c, i, (float) (buf.getSample (c, i) * g[(size_t) i]));
+    }
+};
+
 class SessionRenderer
 {
 public:
@@ -74,8 +109,11 @@ public:
 
     struct Options
     {
-        double tailBeats = 8.0;   // silence/decay rendered after the last event
-        int    blockSize = 512;   // action-application granularity
+        double tailBeats = 8.0;      // silence/decay rendered after the last event
+        int    blockSize = 512;      // action-application granularity
+        double limiterCeilingDb = -1.0;  // master brickwall ceiling; +inf disables
+        double limiterLookaheadMs = 2.0;
+        double limiterReleaseMs = 60.0;
     };
 
     static juce::AudioBuffer<float> render (const SessionModel& s, const AudioProvider& provider)
@@ -183,6 +221,12 @@ public:
             out.setSample (0, (int) i, (float) l);
             out.setSample (1, (int) i, (float) r);
         }
+
+        // Master brickwall limiter (the mix-bus limiter every exported mix needs).
+        if (std::isfinite (opt.limiterCeilingDb))
+            RenderLimiter::apply (out, juce::Decibels::decibelsToGain (opt.limiterCeilingDb),
+                                  (int) std::round (opt.limiterLookaheadMs * 0.001 * outRate),
+                                  (int) std::round (opt.limiterReleaseMs   * 0.001 * outRate));
         return out;
     }
 };
