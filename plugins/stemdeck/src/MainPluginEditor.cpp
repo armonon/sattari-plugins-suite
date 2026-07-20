@@ -484,6 +484,17 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (masterPlayButton);
 
+    // Prominent top-bar REC: arm/stop capturing the performance (same as the
+    // arrangement-capture Rec). Turns solid red while recording.
+    setupButton (topRecordButton);
+    topRecordButton.setButtonText (u8 ("\xe2\x97\x8f REC"));
+    topRecordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xffff5f6a).withAlpha (0.16f));
+    topRecordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffff3b47));
+    topRecordButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    topRecordButton.setTooltip ("Record your performance into the arrangement");
+    topRecordButton.onClick = [this] { toggleRecording(); };
+    addAndMakeVisible (topRecordButton);
+
     setupButton (automixButton);
     automixButton.setButtonText ("AUTO");
     automixButton.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.14f));
@@ -2822,6 +2833,8 @@ void MainPluginEditor::resized()
     // Universal transport: play/stop every deck at once (prominent, left of title).
     masterPlayButton.setBounds (header.removeFromLeft (108).withSizeKeepingCentre (108, 34));
     header.removeFromLeft (6);
+    topRecordButton.setBounds (header.removeFromLeft (66).withSizeKeepingCentre (66, 34));
+    header.removeFromLeft (6);
     automixButton.setBounds (header.removeFromLeft (52).withSizeKeepingCentre (52, 34));
     header.removeFromLeft (6);
     automixStatusLabel.setBounds (header.removeFromLeft (196).withSizeKeepingCentre (196, 30));
@@ -3498,6 +3511,8 @@ void MainPluginEditor::timerCallback()
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
     arrRecordButton.setToggleState (recording, juce::dontSendNotification);
+    topRecordButton.setToggleState (recording, juce::dontSendNotification);
+    topRecordButton.setButtonText (recording ? u8 ("\xe2\x97\x8f REC \xe2\x80\xa2") : u8 ("\xe2\x97\x8f REC"));
 
     // Meters live in the MASTER OUTPUT panel — refresh continuously.
     if (! masterOutBounds.isEmpty())

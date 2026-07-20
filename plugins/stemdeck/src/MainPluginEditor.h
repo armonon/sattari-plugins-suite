@@ -467,6 +467,7 @@ private:
     juce::ToggleButton hostSync, beatSync, micMonitor;
     juce::TextButton tapTempoButton { "TAP" };
     juce::TextButton masterPlayButton;   // header: play/stop ALL decks at once
+    juce::TextButton topRecordButton;    // header: arm/stop capturing the performance
     juce::TextButton automixButton;      // header: phrase-aligned auto-transition
     juce::Label      automixStatusLabel; // shows the current transition plan / progress
     juce::TextButton camelotButton { "Key" };
