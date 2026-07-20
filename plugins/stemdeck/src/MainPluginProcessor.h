@@ -120,6 +120,9 @@ public:
     TrackAnalysis getDeckAnalysis (int deckIndex) const;
     TrackAnalysis getDeckLiveAnalysis (int deckIndex) const;
     TrackAnalysis getDeckActiveAnalysis (int deckIndex) const;
+    // Loaded audio for a deck (for the arrangement view's waveforms). May be null.
+    std::shared_ptr<const DeckPlayer::LoadedAudio> getDeckLoadedAudio (int deckIndex) const
+    { return juce::isPositiveAndBelow (deckIndex, numDecks) ? decks[(size_t) deckIndex].getLoadedAudio() : nullptr; }
     void refreshLiveKeyAnalysis();
     juce::String getDeckKeyInfo (int deckIndex) const;
     juce::String getDeckTimePitchStatus (int deckIndex) const;

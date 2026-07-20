@@ -9,6 +9,7 @@
 #include "MainPluginProcessor.h"
 #include "MixerSection.h"
 #include "MixerView.h"
+#include "ArrangementView.h"
 #include "MusicLibraryView.h"
 #include "PianoRollView.h"
 #include "DrumExtractor.h"
@@ -509,6 +510,10 @@ private:
     PianoRollView pianoRoll;
     juce::TextButton pianoRollButton { "Piano Roll" };
     MixerView mixerView;
+    // Mix-timeline arrangement overlay (the ARRANGER surface) — draws a live
+    // snapshot of the loaded decks: clips, stem-less waveforms, structure, xfader.
+    ArrangementView mixArrangeView;
+    void refreshMixArrangement();   // rebuild the snapshot session from deck state
     juce::TextButton mixerButton { "Mixer" };
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
     juce::TextButton metronomeButton { "Click" };

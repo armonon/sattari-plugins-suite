@@ -632,14 +632,35 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (pianoRollButton);
     pianoRollButton.setClickingTogglesState (true);
     pianoRollButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
+    // ARRANGER nav → the mix-timeline overlay (the new arrangement surface). The
+    // per-clip piano roll still opens separately via onEditMidiClip.
     pianoRollButton.onClick = [this]
     {
-        if (pianoRollButton.getToggleState())
-            openPianoRollForClip (pianoRollLane < 0 ? 0 : pianoRollLane, pianoRollClip);
-        else
-            pianoRoll.setVisible (false);
+        const bool show = pianoRollButton.getToggleState();
+        if (show) { refreshMixArrangement(); fadeOverlay (mixArrangeView, true); mixArrangeView.toFront (true); }
+        else       fadeOverlay (mixArrangeView, false);
     };
     addAndMakeVisible (pianoRollButton);
+
+    // Mix arrangement overlay — hidden until the ARRANGER nav is toggled. Waveforms
+    // + structure come from the live deck buffers/analysis via these providers.
+    addChildComponent (mixArrangeView);
+    mixArrangeView.setAudioProvider ([this] (const juce::String& id, double& rate) -> const juce::AudioBuffer<float>*
+    {
+        const int deck = id.getIntValue();
+        if (auto a = processorRef.getDeckLoadedAudio (deck)) { rate = a->sourceSampleRate; return &a->audio; }
+        return nullptr;
+    });
+    mixArrangeView.setStructureProvider ([this] (const juce::String& id)
+    {
+        const int deck = id.getIntValue();
+        if (auto a = processorRef.getDeckLoadedAudio (deck))
+        {
+            const double bpm = a->analysis.detectedBpm > 1.0f ? a->analysis.detectedBpm : 124.0;
+            return stemdeck::segmentStructure (a->audio, a->sourceSampleRate, bpm);
+        }
+        return std::vector<stemdeck::Section> {};
+    });
 
     pianoRoll.onClose = [this]
     {
@@ -665,7 +686,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     mixerButton.onClick = [this]
     {
         const bool on = mixerButton.getToggleState();
-        if (on) { pianoRollButton.setToggleState (false, juce::dontSendNotification); fadeOverlay (pianoRoll, false); }
+        if (on) { pianoRollButton.setToggleState (false, juce::dontSendNotification); fadeOverlay (pianoRoll, false); fadeOverlay (mixArrangeView, false); }
         fadeOverlay (mixerView, on);
         if (on) mixerView.toFront (true);
     };
@@ -686,6 +707,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     navDecksButton.onClick = [this]
     {
         fadeOverlay (pianoRoll, false);
+        fadeOverlay (mixArrangeView, false);
         pianoRollButton.setToggleState (false, juce::dontSendNotification);
         fadeOverlay (mixerView, false);
         mixerButton.setToggleState (false, juce::dontSendNotification);
@@ -3299,6 +3321,54 @@ void MainPluginEditor::resized()
     const auto overlay = getLocalBounds().withTrimmedTop (overlayTop).reduced (8, 6);
     pianoRoll.setBounds (overlay);
     mixerView.setBounds (overlay);
+    mixArrangeView.setBounds (overlay);
+}
+
+void MainPluginEditor::refreshMixArrangement()
+{
+    using namespace stemdeck::session;
+    SessionModel s;
+    const double bpm = juce::jmax (60.0, processorRef.getTransportSnapshot().bpm);
+    s.masterTempo = bpm;
+    s.sampleRate = juce::jmax (8000.0, processorRef.getRecordingSampleRate());
+
+    auto paramVal = [this] (const juce::String& id) -> double
+    { if (auto* p = processorRef.parameters().getRawParameterValue (id)) return p->load(); return 0.0; };
+
+    int placed = 0; double firstDeckStart = 0.0;
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+    {
+        if (processorRef.getDeckPath (d).isEmpty()) continue;
+        const double at = placed * 32.0;                       // stagger clips by 8 bars
+        if (placed == 0) firstDeckStart = at;
+
+        TrackRef t; t.id = juce::String (d); t.path = processorRef.getDeckPath (d);
+        if (auto a = processorRef.getDeckLoadedAudio (d))
+        {
+            t.durationSec = a->audio.getNumSamples() / juce::jmax (1.0, a->sourceSampleRate);
+            t.bpm = a->analysis.detectedBpm; t.keyPitchClass = a->analysis.keyPitchClass; t.keyIsMinor = a->analysis.keyIsMinor;
+        }
+        s.addTrack (t);
+
+        Event load; load.type = EventType::deckLoad; load.deck = d; load.atBeat = at; load.trackId = t.id; s.addEvent (load);
+        Event fad;  fad.type = EventType::param; fad.deck = d; fad.atBeat = at; fad.paramId = "fader";
+        fad.value = juce::jlimit (0.0, 1.0, paramVal (deckPrefix (d) + "Fader")); s.addEvent (fad);
+        Event cs;   cs.type = EventType::param; cs.deck = d; cs.atBeat = at; cs.paramId = "cfSide";
+        cs.value = processorRef.getDeckCfSide (d); s.addEvent (cs);
+        Event lo;   lo.type = EventType::param; lo.deck = d; lo.atBeat = at; lo.paramId = "low";
+        lo.value = paramVal (deckPrefix (d) + "Low"); s.addEvent (lo);
+        if (paramVal (deckPrefix (d) + "Play") > 0.5)
+        { Event pl; pl.type = EventType::transport; pl.deck = d; pl.transport = TransportKind::play; pl.atBeat = at; s.addEvent (pl); }
+        ++placed;
+    }
+
+    Event cf; cf.type = EventType::param; cf.deck = 0; cf.atBeat = 0.0; cf.paramId = "crossfader";
+    cf.value = juce::jlimit (0.0, 1.0, paramVal ("crossfader")); s.addEvent (cf);
+
+    mixArrangeView.setSession (s);
+    // Playhead from the first loaded deck's position.
+    if (placed > 0)
+        mixArrangeView.setPlayheadBeat (firstDeckStart + processorRef.getDeckPlayheadSeconds (0) * bpm / 60.0);
 }
 
 void MainPluginEditor::startAutomix()
@@ -3369,6 +3439,7 @@ void MainPluginEditor::timerCallback()
     // Service deferred audio-thread requests (e.g. TE transport auto-stop).
     processorRef.serviceDeferredActions();
     updateAutomixRamp();
+    if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
 
     // ── Motion: nav underline slides toward the active view's cell ──────────
     {
