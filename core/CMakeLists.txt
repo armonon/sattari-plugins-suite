@@ -101,6 +101,14 @@ target_link_libraries(SattariAudioCoreVoxSynthContract
     PRIVATE
         SattariAudioCore)
 
+# Formant shifter contract (pure-std; cepstral envelope warp preserves pitch).
+add_executable(SattariAudioCoreFormantContract
+    tests/formant_shifter_contract.cpp)
+
+target_link_libraries(SattariAudioCoreFormantContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.
