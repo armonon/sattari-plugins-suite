@@ -201,6 +201,10 @@ private:
     juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
                        formantPreserve  { "Formant Preserve" },
                        polyphonic       { "Polyphonic" };
+    // One-click macro: arms Polyphonic + AutoKey so a whole instrument/chord is pulled
+    // into the detected key (Amount is the strength). Not a param — a convenience over
+    // the two toggles it drives; its lit state mirrors them (synced in timerCallback).
+    juce::ToggleButton scaleLock { juce::String::fromUTF8 ("Scale Lock  \xc2\xb7  instrument \xe2\x86\x92 key") };
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
 

@@ -495,6 +495,16 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // Polyphonic tuning: shipping feature (benchmark: 96-98% per-note on separated
     // chords). Retunes each note of a chord/pad independently to the scale.
     proPanel.addAndMakeVisible (polyphonic);
+    // Scale Lock macro — arm Polyphonic + AutoKey in one click (and clear the mutually
+    // exclusive Follow-Song-Key), so a whole instrumental snaps into its own detected
+    // key. Releasing just drops Polyphonic; the key mode is left as the user had it.
+    proPanel.addAndMakeVisible (scaleLock);
+    scaleLock.onClick = [this]
+    {
+        const bool lock = scaleLock.getToggleState();
+        setKeyParam ("polyphonic", lock ? 1.0f : 0.0f);
+        if (lock) { setKeyParam ("autoKey", 1.0f); setKeyParam ("followSongKey", 0.0f); }
+    };
     styleKnob (inputGain);
     styleKnob (outputGain);
     styleKnob (formantShift);
@@ -759,6 +769,16 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     const auto snap = audioProcessor.getLiveSnapshot();
     noteDisplay.setSnapshot (snap);
 
+    // Keep the Scale Lock macro lit only while it is actually armed (Polyphonic + AutoKey),
+    // so toggling either underlying control directly stays reflected.
+    if (auto* pv = audioProcessor.parameters().getRawParameterValue ("polyphonic"))
+        if (auto* ak = audioProcessor.parameters().getRawParameterValue ("autoKey"))
+        {
+            const bool locked = pv->load() > 0.5f && ak->load() > 0.5f;
+            if (scaleLock.getToggleState() != locked)
+                scaleLock.setToggleState (locked, juce::dontSendNotification);
+        }
+
     // Publish the current correction key onto the cross-plugin bus so other
     // Sattari instances (e.g. Royal Chain's Tune) can follow. Throttled to
     // ~1 Hz inside publishCurrentKeyToBus() so the JSON file never thrashes.
@@ -1014,7 +1034,9 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantPreserve.setBounds (pLeft.removeFromTop (28));
     pLeft.removeFromTop (4);
     polyphonic.setBounds (pLeft.removeFromTop (28));
-    pLeft.removeFromTop (16);
+    pLeft.removeFromTop (4);
+    scaleLock.setBounds (pLeft.removeFromTop (28));
+    pLeft.removeFromTop (12);
 
     auto knobsRow = pLeft.removeFromTop (140);
     const int pKw = knobsRow.getWidth() / 3;
