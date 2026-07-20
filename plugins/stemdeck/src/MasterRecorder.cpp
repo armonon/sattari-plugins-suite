@@ -80,9 +80,12 @@ bool MasterRecorder::beginRecording (const juce::File& destinationFile)
                                                                              {},
                                                                              0));
     if (! newWriter)
-        return false;
+        return false;   // writer creation failed: `stream` still owns it, freed on scope exit
 
-    outputStream = std::move (stream);
+    // The AudioFormatWriter takes ownership of the stream and deletes it in its
+    // destructor. Release it from the local unique_ptr so it isn't double-freed
+    // (the old code stored it in `outputStream` too → double delete → crash on stop).
+    stream.release();
     writer = std::move (newWriter);
     targetFile = destinationFile;
     startThread (juce::Thread::Priority::normal);
