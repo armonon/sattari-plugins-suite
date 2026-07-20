@@ -25,6 +25,44 @@
 namespace stemdeck::session
 {
 
+// A minimal RBJ biquad (Direct Form I transposed) for the render-time 3-band EQ.
+struct RenderBiquad
+{
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    double process (double x) noexcept
+    {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+    void lowpass (double f, double sr, double Q = 0.70710678)
+    {
+        const double w = juce::MathConstants<double>::twoPi * f / sr, c = std::cos (w), al = std::sin (w) / (2 * Q);
+        const double a0 = 1 + al; b0 = (1 - c) / 2 / a0; b1 = (1 - c) / a0; b2 = b0; a1 = -2 * c / a0; a2 = (1 - al) / a0;
+    }
+    void highpass (double f, double sr, double Q = 0.70710678)
+    {
+        const double w = juce::MathConstants<double>::twoPi * f / sr, c = std::cos (w), al = std::sin (w) / (2 * Q);
+        const double a0 = 1 + al; b0 = (1 + c) / 2 / a0; b1 = -(1 + c) / a0; b2 = b0; a1 = -2 * c / a0; a2 = (1 - al) / a0;
+    }
+};
+
+// Three-band isolator: low (<250 Hz), mid (250..2500), high (>2500), each with a
+// linear gain. One per channel per deck.
+struct RenderEq
+{
+    RenderBiquad lpLo, hpMid, lpMid, hpHi;
+    void init (double sr) { lpLo.lowpass (250.0, sr); hpMid.highpass (250.0, sr); lpMid.lowpass (2500.0, sr); hpHi.highpass (2500.0, sr); }
+    double process (double x, double gLo, double gMid, double gHi) noexcept
+    {
+        const double lo = lpLo.process (x);
+        const double mid = lpMid.process (hpMid.process (x));
+        const double hi = hpHi.process (x);
+        return gLo * lo + gMid * mid + gHi * hi;
+    }
+};
+
 class SessionRenderer
 {
 public:
@@ -65,8 +103,12 @@ public:
             bool   playing = false;
             double fader = 1.0;      // linear gain; default audible if never set
             int    cfSide = 1;       // crossfader bus: 0=A(left), 1=center, 2=B(right)
+            double lowDb = 0.0, midDb = 0.0, highDb = 0.0;   // 3-band EQ, dB (0 = flat)
+            bool   eqOn = false;     // engaged once any band leaves 0 dB
+            RenderEq eqL, eqR;
         };
         std::array<Deck, kMaxDecks> decks {};
+        for (auto& d : decks) { d.eqL.init (outRate); d.eqR.init (outRate); }
 
         // Master crossfader, 0=A .. 1=B, constant-power. 0.5 (center) is the
         // neutral default: a center-assigned deck is unaffected regardless.
@@ -103,6 +145,9 @@ public:
                             if (a.paramId == "fader" || a.paramId == "gain") d.fader = a.value;
                             else if (a.paramId == "cfSide")     d.cfSide = (int) a.value;
                             else if (a.paramId == "crossfader") crossfader = juce::jlimit (0.0, 1.0, a.value);
+                            else if (a.paramId == "low")  { d.lowDb  = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
+                            else if (a.paramId == "mid")  { d.midDb  = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
+                            else if (a.paramId == "high") { d.highDb = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
                             break;
                     }
                 }
@@ -120,8 +165,16 @@ public:
                                     : d.cfSide == 2 ? std::sin (crossfader * halfPi)
                                                     : 1.0;
                     const double g  = d.fader * cf;
-                    const float sl = stemdeck::readSinc (*d.src, 0, d.playhead);
-                    const float sr = stemdeck::readSinc (*d.src, d.src->getNumChannels() > 1 ? 1 : 0, d.playhead);
+                    double sl = stemdeck::readSinc (*d.src, 0, d.playhead);
+                    double sr = stemdeck::readSinc (*d.src, d.src->getNumChannels() > 1 ? 1 : 0, d.playhead);
+                    if (d.eqOn)   // 3-band isolator; bypassed at flat so neutral stays clean
+                    {
+                        const double gLo = juce::Decibels::decibelsToGain (d.lowDb, -100.0);
+                        const double gMid = juce::Decibels::decibelsToGain (d.midDb, -100.0);
+                        const double gHi = juce::Decibels::decibelsToGain (d.highDb, -100.0);
+                        sl = d.eqL.process (sl, gLo, gMid, gHi);
+                        sr = d.eqR.process (sr, gLo, gMid, gHi);
+                    }
                     l += g * sl;
                     r += g * sr;
                 }

@@ -161,6 +161,46 @@ int main()
                "bus-A deck is silent with crossfader hard to B");
     }
 
+    // ── 3-band EQ: killing a band removes its energy, leaves others ─────────────
+    auto toneTrack = [&] (double hz) { return sineTrack (SR, 30.0, hz); };
+    auto renderTone = [&] (const juce::AudioBuffer<float>& src, double lowDb, double midDb, double highDb)
+    {
+        SessionRenderer::AudioProvider p = [&] (const juce::String&, double& rate) { rate = SR; return &src; };
+        SessionCapture cap; cap.begin (48000.0, 124.0);
+        cap.recordDeckLoad (0, { "T", "/t", "", 30, 124, 0, 0, false }, 0.0);
+        if (lowDb  != 0.0) cap.recordParam (0, "low",  lowDb,  0.0);
+        if (midDb  != 0.0) cap.recordParam (0, "mid",  midDb,  0.0);
+        if (highDb != 0.0) cap.recordParam (0, "high", highDb, 0.0);
+        cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        return SessionRenderer::render (cap.session(), p);
+    };
+    {
+        auto lowTone  = toneTrack (60.0);     // deep bass
+        auto highTone = toneTrack (6000.0);   // treble
+
+        const double lowFlat = rms (renderTone (lowTone, 0, 0, 0));
+        const double lowKill = rms (renderTone (lowTone, -60.0, 0, 0));   // kill low band
+        check (lowFlat > 0.01, "60 Hz tone renders at flat EQ");
+        check (lowKill < lowFlat * 0.1, "killing the LOW band removes a 60 Hz tone");
+
+        const double hiFlat = rms (renderTone (highTone, 0, 0, 0));
+        const double hiLowKill = rms (renderTone (highTone, -60.0, 0, 0)); // low kill on a treble tone
+        check (hiLowKill > hiFlat * 0.7, "killing the LOW band leaves a 6 kHz tone intact");
+        const double hiHighKill = rms (renderTone (highTone, 0, 0, -60.0)); // kill high band
+        check (hiHighKill < hiFlat * 0.2, "killing the HIGH band removes a 6 kHz tone");
+    }
+    {
+        // Neutral EQ (no band events) is bypassed -> clean pass-through, unchanged length.
+        auto tone = toneTrack (1000.0);
+        SessionRenderer::AudioProvider p = [&] (const juce::String&, double& rate) { rate = SR; return &tone; };
+        SessionCapture cap; cap.begin (48000.0, 124.0);
+        cap.recordDeckLoad (0, { "T", "/t", "", 30, 124, 0, 0, false }, 0.0);
+        cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
+        cap.recordTransport (0, TransportKind::pause, 0.0, 16.0);
+        check (rms (SessionRenderer::render (cap.session(), p)) > 0.2, "untouched EQ is bypassed (tone passes at full level)");
+    }
+
     std::cout << (fails == 0 ? "RENDERER_OK" : "RENDERER_FAIL (" + std::to_string (fails) + ")") << "\n";
     return fails == 0 ? 0 : 1;
 }
