@@ -67,6 +67,28 @@ target_link_libraries(SattariKeyDatasetEval
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+# Sattari Key — standalone batch key + Camelot + BPM analyzer (the DJ product).
+# Runs the deployed keynet.onnx (needs ONNX) over a folder and writes a report.
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/SattariOnnx.cmake)
+add_executable(SattariKeyAnalyzer EXCLUDE_FROM_ALL
+    tools/key_analyzer.cpp)
+
+target_include_directories(SattariKeyAnalyzer
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_link_libraries(SattariKeyAnalyzer
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_audio_formats
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+
+sattari_enable_onnx(SattariKeyAnalyzer SATTARI_HAS_ONNX)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
