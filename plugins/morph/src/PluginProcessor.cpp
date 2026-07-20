@@ -8,9 +8,48 @@ SattariMorphAudioProcessor::SattariMorphAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "MORPH", createLayout())
+      apvts (*this, nullptr, "MORPH", createLayout()),
+      presetBank (apvts, "morph")
 {
     for (auto& b : busScale_) b = true;
+    registerFactoryPresets();
+}
+
+// Deterministic "recipe" presets — the fast way to a usable transform. Values are
+// raw parameter values (mode/robotnote are choice indices). mix=1 keeps them fully
+// wet; the dry-delay path means Mix is always safe to pull back.
+void SattariMorphAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    // params: mode(0 Shift,1 Quantize,2 Robot) pitch(-12..12) formant(-12..12)
+    //         robotnote(0..11, 9=A) drive(0..1) mix(0..1)
+    presetBank.addFactoryPreset ("Init",              PV { {"mode",0}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Chipmunk",          PV { {"mode",0}, {"pitch",12}, {"formant",4},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Deep Demon",        PV { {"mode",0}, {"pitch",-12},{"formant",-5}, {"robotnote",9}, {"drive",0.15f},{"mix",1.0f} });
+    presetBank.addFactoryPreset ("Octave Up",         PV { {"mode",0}, {"pitch",12}, {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Octave Down",       PV { {"mode",0}, {"pitch",-12},{"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Femme \xe2\x86\x92 Masc", PV { {"mode",0}, {"pitch",-2}, {"formant",-6}, {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Masc \xe2\x86\x92 Femme", PV { {"mode",0}, {"pitch",2},  {"formant",6},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Telephone",         PV { {"mode",0}, {"pitch",0},  {"formant",3},  {"robotnote",9}, {"drive",0.4f}, {"mix",0.9f} });
+    presetBank.addFactoryPreset ("Alien",             PV { {"mode",0}, {"pitch",7},  {"formant",-8}, {"robotnote",9}, {"drive",0.2f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("Robot (key-lock)",  PV { {"mode",1}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
+    presetBank.addFactoryPreset ("T-Pain Monotone",   PV { {"mode",2}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.1f}, {"mix",1.0f} });
+}
+
+int SattariMorphAudioProcessor::getNumPrograms()    { return juce::jmax (1, presetBank.numFactoryPresets()); }
+int SattariMorphAudioProcessor::getCurrentProgram() { return currentProgram; }
+
+void SattariMorphAudioProcessor::setCurrentProgram (int index)
+{
+    if (index < 0 || index >= presetBank.numFactoryPresets()) return;
+    currentProgram = index;
+    presetBank.loadFactoryPreset (index);
+}
+
+const juce::String SattariMorphAudioProcessor::getProgramName (int index)
+{
+    const auto names = presetBank.factoryPresetNames();
+    return juce::isPositiveAndBelow (index, names.size()) ? names[index] : juce::String();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariMorphAudioProcessor::createLayout()

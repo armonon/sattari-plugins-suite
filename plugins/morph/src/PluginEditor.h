@@ -27,7 +27,7 @@ private:
     sattari::ui::SessionHud sessionHud;
 
     juce::Label title, subtitle, robotCap;
-    juce::ComboBox modeBox, robotNoteBox;
+    juce::ComboBox presetBox, modeBox, robotNoteBox;
     std::unique_ptr<CA> modeAtt, robotAtt;
 
     juce::Slider pitch, formant, drive, mix;

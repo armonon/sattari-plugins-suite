@@ -16,6 +16,18 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     addAndMakeVisible (subtitle);
     addAndMakeVisible (sessionHud);
 
+    // Factory presets — drive the processor's program interface (single source of
+    // truth); the param attachments update every control when a preset loads.
+    presetBox.setTextWhenNothingSelected (juce::String::fromUTF8 ("Presets\xe2\x80\xa6"));
+    for (int i = 0; i < processor.getNumPrograms(); ++i)
+        presetBox.addItem (processor.getProgramName (i), i + 1);
+    presetBox.onChange = [this]
+    {
+        const int idx = presetBox.getSelectedItemIndex();
+        if (idx >= 0) processor.setCurrentProgram (idx);
+    };
+    addAndMakeVisible (presetBox);
+
     modeBox.addItemList ({ "Shift", "Quantize", "Robot" }, 1);
     addAndMakeVisible (modeBox);
     modeAtt = std::make_unique<CA> (processor.parameters(), "mode", modeBox);
@@ -34,7 +46,7 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     knob (drive, driveC, "Drive", "drive", driveA);
     knob (mix, mixC, "Mix", "mix", mixA);
 
-    setSize (440, 250);
+    setSize (440, 284);
     startTimerHz (4);
 }
 
@@ -70,6 +82,9 @@ void SattariMorphAudioProcessorEditor::resized()
     title.setBounds (top.removeFromLeft (90));
     subtitle.setBounds (top.removeFromLeft (150).withTrimmedTop (7));
     sessionHud.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 22));
+    r.removeFromTop (10);
+
+    presetBox.setBounds (r.removeFromTop (24).removeFromLeft (200));
     r.removeFromTop (10);
 
     auto modeRow = r.removeFromTop (26);
