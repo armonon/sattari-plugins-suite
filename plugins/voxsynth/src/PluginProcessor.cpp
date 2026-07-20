@@ -39,6 +39,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxSynthAudioProcesso
     p.push_back (std::make_unique<AudioParameterFloat>  ("quantize", "Quantize to Key",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     p.push_back (std::make_unique<AudioParameterBool>   ("percussion", "Percussion (beatbox)", false));
+    p.push_back (std::make_unique<AudioParameterFloat>  ("vocoder", "Vocoder (talkbox)",
+        NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("level", "Level",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.9f));
     return { p.begin(), p.end() };
@@ -50,6 +52,7 @@ void SattariVoxSynthAudioProcessor::prepareToPlay (double sampleRate, int sample
     sattari::dsp::VoxAnalyzer::Config cfg;   // defaults: 65-1050 Hz, 256 hop
     analyzer_.prepare (sampleRate, cfg);
     engine_.prepare (sampleRate);
+    vocoder_.prepare (sampleRate, 20);
     frames_.assign ((size_t) analyzer_.maxFramesForBlock (juce::jmax (32, samplesPerBlock)) + 4, {});
     mono_.assign ((size_t) juce::jmax (32, samplesPerBlock), 0.0f);
     activeNote_ = -1; percHold_ = 0; percNote_ = -1;
@@ -194,6 +197,13 @@ void SattariVoxSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
                         lr.cents = (float) (f.midi - std::lround (f.midi)) * 100.0f; }
     }
     if (! midiMode) engine_.render (sp + cursor, juce::jmax (0, n - cursor));
+
+    // Vocoder / talkbox: the voice (modulator) shapes the synth (carrier) so it "speaks".
+    if (! midiMode)
+    {
+        const float voc = apvts.getRawParameterValue ("vocoder")->load();
+        if (voc > 0.001f) vocoder_.process (sp, mono_.data(), sp, n, voc);
+    }
 
     if (percMode && percHold_ > 0) { percHold_ -= n; if (percHold_ <= 0 && percNote_ >= 0) { midi.addEvent (juce::MidiMessage::noteOff (10, percNote_), n - 1); percNote_ = -1; } }
 

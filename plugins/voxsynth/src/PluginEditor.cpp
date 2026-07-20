@@ -43,9 +43,10 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
     knob (filtAmt, filtAmtC, juce::String::fromUTF8 ("Vowel \xe2\x86\x92 Filter"), "filtamt", filtAmtA);
     knob (reso, resoC, "Reso", "reso", resoA);
     knob (quantize, quantizeC, "Quantize", "quantize", quantizeA);
+    knob (vocoder, vocoderC, "Vocoder", "vocoder", vocoderA);
     knob (level, levelC, "Level", "level", levelA);
 
-    setSize (560, 300);
+    setSize (620, 300);
     startTimerHz (30);
 }
 
@@ -111,9 +112,9 @@ void SattariVoxSynthAudioProcessorEditor::resized()
     percBtn.setBounds (oscRow.removeFromRight (120));
     r.removeFromTop (6);
 
-    juce::Slider* ks[] = { &mix, &detune, &glide, &cutoff, &filtAmt, &reso, &quantize, &level };
-    juce::Label*  cs[] = { &mixC, &detuneC, &glideC, &cutoffC, &filtAmtC, &resoC, &quantizeC, &levelC };
-    const int n = 8, w = r.getWidth() / n;
+    juce::Slider* ks[] = { &mix, &detune, &glide, &cutoff, &filtAmt, &reso, &quantize, &vocoder, &level };
+    juce::Label*  cs[] = { &mixC, &detuneC, &glideC, &cutoffC, &filtAmtC, &resoC, &quantizeC, &vocoderC, &levelC };
+    const int n = 9, w = r.getWidth() / n;
     for (int i = 0; i < n; ++i)
     {
         auto cell = r.removeFromLeft (w);

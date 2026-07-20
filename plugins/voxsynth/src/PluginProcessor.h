@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariVoxAnalyzer.h>
 #include <sattari_audio_core/SattariVoxSynthEngine.h>
+#include <sattari_audio_core/SattariVocoderBank.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <atomic>
 
@@ -67,6 +68,7 @@ private:
 
     sattari::dsp::VoxAnalyzer   analyzer_;
     sattari::dsp::VoxSynthEngine engine_;
+    sattari::dsp::VocoderBank    vocoder_;   // talkbox mode: voice shapes the synth
     std::vector<sattari::dsp::VoxAnalyzer::Frame> frames_;
     std::vector<float> mono_;
 

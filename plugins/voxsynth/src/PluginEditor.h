@@ -34,9 +34,9 @@ private:
     juce::ToggleButton percBtn { "Percussion" };
     std::unique_ptr<BA> percAtt;
 
-    juce::Slider mix, detune, glide, cutoff, filtAmt, reso, quantize, level;
-    juce::Label  mixC, detuneC, glideC, cutoffC, filtAmtC, resoC, quantizeC, levelC;
-    std::unique_ptr<SA> mixA, detuneA, glideA, cutoffA, filtAmtA, resoA, quantizeA, levelA;
+    juce::Slider mix, detune, glide, cutoff, filtAmt, reso, quantize, vocoder, level;
+    juce::Label  mixC, detuneC, glideC, cutoffC, filtAmtC, resoC, quantizeC, vocoderC, levelC;
+    std::unique_ptr<SA> mixA, detuneA, glideA, cutoffA, filtAmtA, resoA, quantizeA, vocoderA, levelA;
 
     float glow = 0.0f;
 

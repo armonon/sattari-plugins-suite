@@ -109,6 +109,14 @@ target_link_libraries(SattariAudioCoreFormantContract
     PRIVATE
         SattariAudioCore)
 
+# Channel vocoder bank contract (pure-std; carrier takes the modulator's spectrum).
+add_executable(SattariAudioCoreVocoderContract
+    tests/vocoder_bank_contract.cpp)
+
+target_link_libraries(SattariAudioCoreVocoderContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.
