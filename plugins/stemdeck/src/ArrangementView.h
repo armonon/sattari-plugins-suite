@@ -12,6 +12,8 @@
 // =============================================================================
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <functional>
 #include "SessionModel.h"
 
 class ArrangementView : public juce::Component
@@ -22,10 +24,15 @@ public:
     void setSession (stemdeck::session::SessionModel s) { session = std::move (s); repaint(); }
     void setPlayheadBeat (double b) { playheadBeat = b; repaint(); }
 
+    // Optional: supply source audio per trackId so clips draw their waveform.
+    using AudioProvider = std::function<const juce::AudioBuffer<float>* (const juce::String& trackId, double& srcRateOut)>;
+    void setAudioProvider (AudioProvider p) { audioProvider = std::move (p); repaint(); }
+
     void paint (juce::Graphics& g) override;
 
 private:
     stemdeck::session::SessionModel session;
+    AudioProvider audioProvider;
     double playheadBeat = -1.0;
 
     // layout

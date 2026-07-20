@@ -10,19 +10,35 @@
 
 using namespace stemdeck::session;
 
+static juce::AudioBuffer<float> makeTrack (double sr, double bpm, double hz, double secs)
+{
+    const int n = (int) (sr * secs);
+    juce::AudioBuffer<float> b (2, n); b.clear();
+    const double beat = sr * 60.0 / bpm;
+    for (double t = 0; t < n; t += beat)
+        for (int i = 0; i < (int) (sr * 0.1) && (int) t + i < n; ++i)
+        { const float v = 0.7f * std::sin (2.0f * juce::MathConstants<float>::pi * 55.0f * i / (float) sr) * std::exp (-(float) i / (float) (sr * 0.03)); b.addSample (0, (int) t + i, v); b.addSample (1, (int) t + i, v); }
+    for (int i = 0; i < n; ++i) { const float v = 0.25f * std::sin (2.0f * juce::MathConstants<float>::pi * (float) hz * i / (float) sr); b.addSample (0, i, v); b.addSample (1, i, v); }
+    return b;
+}
+
 static SessionModel demoSession()
 {
     SessionCapture cap; cap.begin (44100.0, 124.0);
     cap.recordDeckLoad (0, { "A", "/demo/opening-track.wav", "ha", 40, 124, 0, 0, false }, 0.0);
+    cap.recordParam (0, "cfSide", 0.0, 0.0);
     cap.recordParam (0, "fader", 1.0, 0.0);
+    cap.recordParam (0, "crossfader", 0.0, 0.0);
     cap.recordTransport (0, TransportKind::play, 0.0, 0.0);
     cap.recordDeckLoad (1, { "B", "/demo/incoming-track.wav", "hb", 40, 124, 0, 0, false }, 32.0);
-    cap.recordParam (1, "fader", 0.0, 32.0);
+    cap.recordParam (1, "cfSide", 2.0, 32.0);
+    cap.recordParam (1, "fader", 1.0, 32.0);
     cap.recordTransport (1, TransportKind::play, 0.0, 32.0);
-    for (int k = 0; k <= 8; ++k)   // the transition
+    for (int k = 0; k <= 8; ++k)   // the transition: crossfade A->B, roll off A's lows
     {
-        cap.recordParam (0, "fader", 1.0 - k / 8.0, 32.0 + k * 2.0);
-        cap.recordParam (1, "fader",       k / 8.0, 32.0 + k * 2.0);
+        const double beat = 32.0 + k * 2.0;
+        cap.recordParam (0, "crossfader", k / 8.0, beat);
+        cap.recordParam (0, "low", -12.0 * k / 8.0, beat);
     }
     cap.recordTransport (0, TransportKind::pause, 0.0, 50.0);
     Region tr; tr.kind = "transition"; tr.startBeat = 32.0; tr.endBeat = 48.0;
@@ -38,6 +54,9 @@ int main (int argc, char** argv)
 
     ArrangementView view;
     view.setSession (demoSession());
+    auto trackA = makeTrack (44100.0, 124.0, 220.0, 40.0);
+    auto trackB = makeTrack (44100.0, 124.0, 330.0, 40.0);
+    view.setAudioProvider ([&] (const juce::String& id, double& rate) { rate = 44100.0; return id == "A" ? &trackA : &trackB; });
     view.setPlayheadBeat (40.0);
     const int W = 1400, H = 460;
     view.setSize (W, H);

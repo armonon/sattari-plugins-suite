@@ -26,6 +26,30 @@ juce::Colour ArrangementView::deckColour (int deck)
     return cols[juce::jlimit (0, 3, deck)];
 }
 
+namespace
+{
+// Draw a min/max waveform of `src`'s first `srcSamples` samples across `area`.
+void drawWaveform (juce::Graphics& g, const juce::AudioBuffer<float>& src, juce::int64 srcSamples,
+                   juce::Rectangle<float> area, juce::Colour colour)
+{
+    const int n = (int) juce::jmin ((juce::int64) src.getNumSamples(), srcSamples);
+    if (n <= 1 || area.getWidth() < 1.0f) return;
+    const float midY = area.getCentreY(), halfH = area.getHeight() * 0.46f;
+    const int cols = juce::jmax (1, (int) area.getWidth());
+    const auto* d = src.getReadPointer (0);
+    g.setColour (colour);
+    for (int c = 0; c < cols; ++c)
+    {
+        const int s0 = (int) ((juce::int64) c * n / cols);
+        const int s1 = (int) ((juce::int64) (c + 1) * n / cols);
+        float mn = 0.0f, mx = 0.0f;
+        for (int i = s0; i < s1; ++i) { mn = juce::jmin (mn, d[i]); mx = juce::jmax (mx, d[i]); }
+        const float x = area.getX() + (float) c;
+        g.drawVerticalLine ((int) x, midY - mx * halfH, midY - mn * halfH);
+    }
+}
+} // namespace
+
 void ArrangementView::paint (juce::Graphics& g)
 {
     const auto bg = juce::Colour (0xff12141a);
@@ -33,7 +57,10 @@ void ArrangementView::paint (juce::Graphics& g)
 
     auto bounds = getLocalBounds();
     auto header = bounds.removeFromTop (kHeaderH);
-    auto body = bounds.reduced (10, 6);
+    auto full = bounds.reduced (10, 6);
+    auto cfStrip = full.removeFromBottom (34);   // master crossfader lane at the bottom
+    full.removeFromBottom (4);
+    auto body = full;
 
     // Which decks are used?
     std::vector<int> decks;
@@ -43,6 +70,7 @@ void ArrangementView::paint (juce::Graphics& g)
     if (decks.empty()) decks.push_back (0);
 
     const double tBeats = totalBeats();
+    const double tempo = session.masterTempo > 1.0 ? session.masterTempo : 120.0;
 
     // ── Header: title + tempo ──────────────────────────────────────────────────
     g.setColour (juce::Colour (0xffe8ecf2));
@@ -70,20 +98,6 @@ void ArrangementView::paint (juce::Graphics& g)
         }
     }
 
-    // ── Transition regions (behind the lanes) ──────────────────────────────────
-    for (const auto& r : session.regions)
-    {
-        const float x0 = beatToX (r.startBeat, body), x1 = beatToX (r.endBeat, body);
-        juce::Rectangle<float> rr ((float) x0, (float) body.getY(), x1 - x0, (float) body.getHeight());
-        g.setColour (juce::Colour (0x2235c8e6));
-        g.fillRect (rr);
-        g.setColour (juce::Colour (0x8835c8e6));
-        g.drawRect (rr, 1.0f);
-        g.setColour (juce::Colour (0xffbfe9f5));
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-        g.drawText (r.kind.toUpperCase(), (int) x0 + 3, body.getY() + 2, 120, 12, juce::Justification::topLeft);
-    }
-
     // ── Per-deck lanes ─────────────────────────────────────────────────────────
     const int laneH = (body.getHeight() - kLaneGap * ((int) decks.size() - 1)) / (int) decks.size();
     int y = body.getY();
@@ -107,43 +121,104 @@ void ArrangementView::paint (juce::Graphics& g)
 
             const float cx0 = beatToX (e.atBeat, lane), cx1 = beatToX (endBeat, lane);
             juce::Rectangle<float> clip (cx0, (float) lane.getY() + 3, cx1 - cx0, (float) lane.getHeight() - 6);
-            g.setColour (accent.withAlpha (0.22f)); g.fillRoundedRectangle (clip, 3.0f);
-            g.setColour (accent.withAlpha (0.9f));  g.drawRoundedRectangle (clip, 3.0f, 1.2f);
+            g.setColour (accent.withAlpha (0.16f)); g.fillRoundedRectangle (clip, 3.0f);
+
+            // Waveform behind the clip (colour = deck accent; stem colouring is future).
+            if (audioProvider)
+            {
+                double srcRate = session.sampleRate;
+                if (const auto* buf = audioProvider (e.trackId, srcRate))
+                {
+                    const double srcSecs = (endBeat - e.atBeat) * 60.0 / tempo;
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.reduceClipRegion (clip.getSmallestIntegerContainer());
+                    drawWaveform (g, *buf, (juce::int64) (srcSecs * srcRate), clip.reduced (1.0f, 3.0f), accent.withAlpha (0.55f));
+                }
+            }
+            g.setColour (accent.withAlpha (0.9f)); g.drawRoundedRectangle (clip, 3.0f, 1.2f);
 
             juce::String name = e.trackId;
             for (const auto& t : session.tracks)
                 if (t.id == e.trackId) { const auto fn = juce::File (t.path).getFileNameWithoutExtension(); if (fn.isNotEmpty()) name = fn; }
-            g.setColour (juce::Colour (0xffe8ecf2));
+            g.setColour (juce::Colour (0xfff2f5fa));
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText ("DECK " + juce::String::charToString ((juce::juce_wchar) ('A' + deck)) + "  " + name,
                         clip.toNearestInt().reduced (6, 3), juce::Justification::topLeft, true);
         }
 
-        // Fader automation polyline (0..1 over the lane).
-        juce::Path fader;
-        bool started = false;
-        double curr = 1.0;
-        auto plot = [&] (double beat, double val)
+        // Automation polylines: fader (solid) + low-EQ dB (dashed), mapped over the lane.
+        auto automation = [&] (const juce::String& id, double def, double lo, double hi, float thick, bool dashed)
         {
-            const float px = beatToX (beat, lane);
-            const float py = (float) lane.getBottom() - 3 - (float) juce::jlimit (0.0, 1.0, val) * (float) (lane.getHeight() - 8);
-            if (! started) { fader.startNewSubPath (px, py); started = true; } else fader.lineTo (px, py);
+            juce::Path p; bool started = false; double curr = def;
+            auto plot = [&] (double beat, double val)
+            {
+                const float px = beatToX (beat, lane);
+                const float f = (float) juce::jlimit (0.0, 1.0, (val - lo) / (hi - lo));
+                const float py = (float) lane.getBottom() - 4 - f * (float) (lane.getHeight() - 10);
+                if (! started) { p.startNewSubPath (px, py); started = true; } else p.lineTo (px, py);
+            };
+            for (const auto& e : session.events)
+                if (e.deck == deck && e.type == EventType::param && e.paramId == id)
+                { plot (e.atBeat, curr); curr = e.value; plot (e.atBeat, curr); }
+            if (! started) return;
+            plot (tBeats, curr);
+            if (dashed) { const float d[2] { 4.0f, 4.0f }; juce::Path dp; juce::PathStrokeType (thick).createDashedStroke (dp, p, d, 2); g.fillPath (dp); }
+            else g.strokePath (p, juce::PathStrokeType (thick));
         };
-        for (const auto& e : session.events)
-            if (e.deck == deck && e.type == EventType::param && e.paramId == "fader")
-            { plot (e.atBeat, curr); curr = e.value; plot (e.atBeat, curr); }
-        plot (tBeats, curr);
-        g.setColour (accent.withAlpha (0.8f));
-        g.strokePath (fader, juce::PathStrokeType (1.4f));
+        g.setColour (accent.withAlpha (0.95f));                automation ("fader", 1.0, 0.0, 1.0, 1.6f, false);
+        g.setColour (juce::Colour (0xffe6c15a).withAlpha (0.8f)); automation ("low", 0.0, -12.0, 6.0, 1.2f, true);   // EQ low, dashed gold
 
         y += laneH + kLaneGap;
     }
 
-    // ── Playhead ───────────────────────────────────────────────────────────────
+    // ── Transition objects (drawn ON TOP, spanning the lanes, with handles) ─────
+    for (const auto& r : session.regions)
+    {
+        const float x0 = beatToX (r.startBeat, body), x1 = beatToX (r.endBeat, body);
+        juce::Rectangle<float> rr (x0, (float) body.getY() - 2, x1 - x0, (float) body.getHeight() + 4);
+        const auto amber = juce::Colour (0xffffb347);   // signature accent for transitions
+        g.setColour (amber.withAlpha (0.14f)); g.fillRoundedRectangle (rr, 4.0f);
+        g.setColour (amber.withAlpha (0.95f)); g.drawRoundedRectangle (rr, 4.0f, 1.6f);
+        // grab handles at each edge
+        for (float hx : { rr.getX(), rr.getRight() })
+        {
+            juce::Rectangle<float> h (hx - 3.0f, rr.getCentreY() - 14.0f, 6.0f, 28.0f);
+            g.setColour (amber); g.fillRoundedRectangle (h, 2.0f);
+        }
+        // label chip
+        juce::Rectangle<int> chip ((int) x0 + 6, body.getY() + 3, 150, 15);
+        g.setColour (amber.withAlpha (0.9f)); g.fillRoundedRectangle (chip.toFloat(), 3.0f);
+        g.setColour (juce::Colour (0xff1a1200));
+        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.drawText (r.kind.toUpperCase() + "  " + juce::String ((int) (r.endBeat - r.startBeat)) + " beats",
+                    chip, juce::Justification::centred);
+    }
+
+    // ── Master crossfader strip (0=A .. 1=B automation) ─────────────────────────
+    {
+        g.setColour (juce::Colour (0xff181b22)); g.fillRoundedRectangle (cfStrip.toFloat(), 4.0f);
+        g.setColour (juce::Colour (0xff5a6070));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.drawText ("XFADER  A", cfStrip.getX() + 4, cfStrip.getY() + 1, 60, 10, juce::Justification::topLeft);
+        g.drawText ("B", cfStrip.getRight() - 14, cfStrip.getY() + 1, 12, 10, juce::Justification::topLeft);
+        juce::Path cf; bool started = false; double curr = 0.5;
+        auto plot = [&] (double beat, double v)
+        {
+            const float px = beatToX (beat, cfStrip);
+            const float py = (float) cfStrip.getBottom() - 3 - (float) juce::jlimit (0.0, 1.0, v) * (float) (cfStrip.getHeight() - 12);
+            if (! started) { cf.startNewSubPath (px, py); started = true; } else cf.lineTo (px, py);
+        };
+        for (const auto& e : session.events)
+            if (e.type == EventType::param && e.paramId == "crossfader") { plot (e.atBeat, curr); curr = e.value; plot (e.atBeat, curr); }
+        plot (tBeats, curr);
+        g.setColour (juce::Colour (0xff35c8e6)); g.strokePath (cf, juce::PathStrokeType (1.6f));
+    }
+
+    // ── Playhead (spans everything) ─────────────────────────────────────────────
     if (playheadBeat >= 0.0)
     {
         const float x = beatToX (playheadBeat, body);
         g.setColour (juce::Colour (0xffff5a5a));
-        g.drawVerticalLine ((int) x, (float) body.getY(), (float) body.getBottom());
+        g.drawVerticalLine ((int) x, (float) body.getY() - 2, (float) cfStrip.getBottom());
     }
 }
