@@ -187,6 +187,42 @@
       ]
     },
     {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "category": "Mix rack",
+      "accent": "#62f5c8",
+      "description": "Sattari Mix \u2014 Mix rack.",
+      "formats": [
+        "AU",
+        "VST3"
+      ],
+      "status": "alpha",
+      "version": "0.2.0-six-products",
+      "modules": [
+        {
+          "name": "Sattari Mix",
+          "slug": "mix"
+        }
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Mix.component",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/AU/Sattari Mix.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Mix.vst3",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Mix.app",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/Standalone/Sattari Mix.app"
+        }
+      ]
+    },
+    {
       "id": "stemdeck",
       "name": "Sattari StemDeck",
       "category": "DJ / remix",

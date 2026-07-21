@@ -80,6 +80,7 @@ inline const std::vector<Product>& products()
         { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
         { "voxsynth",          "Sattari VoxSynth",    "Voice instrument", kAccent },
         { "morph",             "Sattari Morph",       "Voice character",  kAccentViolet },
+        { "mix",               "Sattari Mix",         "Mix rack",         kAccent },
         { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
         { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
         { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },

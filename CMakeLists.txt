@@ -4,6 +4,7 @@ project(SATTARI_AUDIO_PLUGINS VERSION 0.1.0)
 
 add_subdirectory(core)
 
+add_subdirectory(plugins/mix)
 add_subdirectory(plugins/sub-conjurer)
 add_subdirectory(plugins/stemdeck)
 add_subdirectory(plugins/side-chain-master)
