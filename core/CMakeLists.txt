@@ -99,6 +99,15 @@ target_link_libraries(SattariAudioCoreScaleIntervalContract
     PRIVATE
         SattariAudioCore)
 
+# BS.1770 K-weighting + true-peak contract (pure-std). Shared by Meter and Peak,
+# which each carried their own copy of these standards-defined filters.
+add_executable(SattariAudioCoreKWeightingContract
+    tests/kweighting_contract.cpp)
+
+target_link_libraries(SattariAudioCoreKWeightingContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
