@@ -19,6 +19,12 @@
 //    Shift    — straight pitch/formant, no correction.
 //    Quantize — snap the pitch to the SESSION-BUS key (which AlterBoy can't do).
 //    Robot    — lock output to one note, monotone (the T-Pain effect).
+//  Two in-key extras sit after the transform, both off by default:
+//    Harmony Voice — a dry parallel voice an octave/fifth/diatonic-3rd away, in key.
+//    Key Echo      — a feedback delay fed that same harmony, so the REPEATS are in
+//                    key (a diatonic delay, not the clean delay that Space provides).
+//  Both harmonise the CURRENT input, so PSOLA always runs on a valid period, and both
+//  take their interval from the shared contract-tested walk (SattariScaleInterval.h).
 //  Reuses the shared YIN tracker, TD-PSOLA shifter, and cepstral formant warp.
 //  The dry path is delayed to match the wet latency so Mix never comb-filters.
 // =============================================================================
