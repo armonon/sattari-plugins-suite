@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/CleanModule.h>
 #include <array>
 #include <atomic>
 
@@ -24,6 +25,7 @@ public:
     ~SattariCleanAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void reset() override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -47,7 +49,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
-    float getReductionDb() const noexcept { return reductionDb.load (std::memory_order_relaxed); }
+    float getReductionDb() const noexcept { return module.getReductionDb(); }
 
 private:
     static constexpr int kBands = 3;
@@ -57,11 +59,8 @@ private:
     juce::AudioProcessorValueTreeState apvts;
     double sampleRate = 44100.0;
 
-    juce::dsp::LinkwitzRileyFilter<float> lr1, lr2;   // crossovers (low|rest, mid|high)
-    std::array<sattari::dsp::EnvelopeFollower, kBands> env;   // stereo-linked, per band
-    std::array<float, kBands> floor { { 1.0f, 1.0f, 1.0f } };   // min-follower: starts high, drops to the noise floor
-    std::array<float, kBands> gSmooth { { 1.0f, 1.0f, 1.0f } };
-    std::atomic<float> reductionDb { 0.0f };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::CleanModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariCleanAudioProcessor)
 };
