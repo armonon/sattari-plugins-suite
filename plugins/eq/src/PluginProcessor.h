@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/EqModule.h>
 #include <array>
 
 // =============================================================================
@@ -22,6 +23,7 @@ public:
     ~SattariEQAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void reset() override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -67,11 +69,8 @@ private:
     juce::AudioProcessorValueTreeState apvts;
     double sampleRate = 44100.0;
 
-    std::array<std::array<Biquad, 2>, kBands> bell;    // [band][channel] peaking
-    std::array<Biquad, kBands>               detBP;    // [band] bandpass detector (mono/linked)
-    std::array<sattari::dsp::EnvelopeFollower, kBands> detEnv;
-    std::array<Biquad, 2> hp, lp;
-    bool hpOn = false, lpOn = false;
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::EqModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariEQAudioProcessor)
 };
