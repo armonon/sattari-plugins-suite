@@ -7,6 +7,7 @@
 #include <sattari_audio_core/SattariFormantShifter.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariScaleInterval.h>
 #include <atomic>
 
 // =============================================================================

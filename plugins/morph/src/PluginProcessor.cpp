@@ -293,8 +293,10 @@ float SattariMorphAudioProcessor::echoHarmonyRatio (int mode, bool voiced, float
                 const float dist = std::abs (detMidi - (float) m);
                 if (dist < bd) { bd = dist; base = m; }
             }
-            int m = base, cnt = 0;
-            for (int step = 0; step < 24 && cnt < 2; ++step) { ++m; if (busScale_[(size_t) (((m % 12) + 12) % 12)]) ++cnt; }
+            // Two scale steps up, in key. With no session key the bus mask is all-true
+            // (chromatic), and the shared walk falls back to a fixed major third rather
+            // than degenerating into a whole tone.
+            const int m = sattari::dsp::scaleStepsAbove (base, busScale_.data(), 2, 4);
             return std::pow (2.0f, ((float) m - detMidi) / 12.0f);
         }
         default: return 1.0f;                             // Unison

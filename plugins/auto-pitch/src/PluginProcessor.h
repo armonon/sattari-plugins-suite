@@ -9,6 +9,7 @@
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariKeyNet.h>
+#include <sattari_audio_core/SattariScaleInterval.h>
 #include <sattari_audio_core/SattariKeyNetSpec.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <array>

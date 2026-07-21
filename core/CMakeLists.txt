@@ -89,6 +89,16 @@ target_link_libraries(SattariKeyAnalyzer
 
 sattari_enable_onnx(SattariKeyAnalyzer SATTARI_HAS_ONNX)
 
+# In-key interval walk contract (pure-std) — locks that a "third" is two SCALE steps,
+# so its semitone size follows the degree, and that a chromatic key falls back to a
+# fixed interval instead of degenerating into a whole tone.
+add_executable(SattariAudioCoreScaleIntervalContract
+    tests/scale_interval_contract.cpp)
+
+target_link_libraries(SattariAudioCoreScaleIntervalContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)

@@ -1357,6 +1357,11 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     // every partial of the note uses that same ratio (h*fund * ratio = h*correctedFund).
     pvPeakRatio.assign (pvPeakBins.size(), 1.0f);
     pvPeakHarmRatio.assign (pvPeakBins.size(), 0.0f);
+    // Pitch-class mask for the harmony walk — same for every peak, so build it once.
+    bool harmonyScaleMask[12] = {};
+    if (polyHarmonyAmt > 0.0f)
+        for (int pc = 0; pc < 12; ++pc)
+            harmonyScaleMask[pc] = scaleAllowsDegree ((((pc - rootIndex) % 12) + 12) % 12, scaleName) != 0;
     for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
     {
         const int fund = pvPeakFund[(size_t) pi];
@@ -1379,9 +1384,9 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         // degrees up, or +4 st in chromatic). Used only when the harmony pass is on.
         if (polyHarmonyAmt > 0.0f)
         {
-            int hm = target;
-            if (scaleName == "chromatic") hm = target + 4;
-            else { int cnt = 0; for (int s = 0; s < 24 && cnt < 2; ++s) { ++hm; const int deg = (((hm - rootIndex) % 12) + 12) % 12; if (scaleAllowsDegree (deg, scaleName)) ++cnt; } }
+            // Two scale steps up, via the shared in-key walk (contract-tested); a chromatic
+            // key falls back to a fixed major third.
+            const int hm = sattari::dsp::scaleStepsAbove (target, harmonyScaleMask, 2, 4);
             const double hFreq = 440.0 * std::pow (2.0, ((double) hm - 69.0) / 12.0);
             pvPeakHarmRatio[(size_t) pi] = (float) juce::jlimit (0.5, 4.0, hFreq / f);
         }
