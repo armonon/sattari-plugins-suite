@@ -21,19 +21,37 @@ SattariMorphAudioProcessor::SattariMorphAudioProcessor()
 void SattariMorphAudioProcessor::registerFactoryPresets()
 {
     using PV = sattari::presets::SattariPresetManager::PresetValues;
-    // params: mode(0 Shift,1 Quantize,2 Robot) pitch(-12..12) formant(-12..12)
-    //         robotnote(0..11, 9=A) drive(0..1) mix(0..1)
-    presetBank.addFactoryPreset ("Init",              PV { {"mode",0}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Chipmunk",          PV { {"mode",0}, {"pitch",12}, {"formant",4},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Deep Demon",        PV { {"mode",0}, {"pitch",-12},{"formant",-5}, {"robotnote",9}, {"drive",0.15f},{"mix",1.0f} });
-    presetBank.addFactoryPreset ("Octave Up",         PV { {"mode",0}, {"pitch",12}, {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Octave Down",       PV { {"mode",0}, {"pitch",-12},{"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Femme \xe2\x86\x92 Masc", PV { {"mode",0}, {"pitch",-2}, {"formant",-6}, {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Masc \xe2\x86\x92 Femme", PV { {"mode",0}, {"pitch",2},  {"formant",6},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Telephone",         PV { {"mode",0}, {"pitch",0},  {"formant",3},  {"robotnote",9}, {"drive",0.4f}, {"mix",0.9f} });
-    presetBank.addFactoryPreset ("Alien",             PV { {"mode",0}, {"pitch",7},  {"formant",-8}, {"robotnote",9}, {"drive",0.2f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("Robot (key-lock)",  PV { {"mode",1}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.0f}, {"mix",1.0f} });
-    presetBank.addFactoryPreset ("T-Pain Monotone",   PV { {"mode",2}, {"pitch",0},  {"formant",0},  {"robotnote",9}, {"drive",0.1f}, {"mix",1.0f} });
+    // Every preset sets EVERY parameter, so recalling one is deterministic — otherwise a
+    // preset would inherit whatever Key Echo / Harmony Voice happened to be dialled in.
+    //   mode 0 Shift/1 Quantize/2 Robot | robotnote 0..11 (9=A)
+    //   echomode + harmvoice: 0 Unison|Off, 1 Oct up, 2 Oct down, 3 Fifth, 4 Diatonic 3rd
+    auto P = [] (float mode, float pitch, float formant, float robotnote, float drive, float mix,
+                 float echomode, float echotime, float echofb, float echomix,
+                 float harmvoice, float harmmix) -> PV
+    {
+        return PV { {"mode",mode}, {"pitch",pitch}, {"formant",formant}, {"robotnote",robotnote},
+                    {"drive",drive}, {"mix",mix}, {"echomode",echomode}, {"echotime",echotime},
+                    {"echofeedback",echofb}, {"echomix",echomix},
+                    {"harmvoice",harmvoice}, {"harmmix",harmmix} };
+    };
+    //                                          mode pitch form robot drive  mix | ecmode ectime ecfb ecmix | hvoice hmix
+    presetBank.addFactoryPreset ("Init",              P (0,   0,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Chipmunk",          P (0,  12,   4,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Deep Demon",        P (0, -12,  -5,   9, 0.15f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Octave Up",         P (0,  12,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Octave Down",       P (0, -12,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Femme \xe2\x86\x92 Masc", P (0, -2, -6, 9, 0.00f, 1.0f,  1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Masc \xe2\x86\x92 Femme", P (0,  2,  6, 9, 0.00f, 1.0f,  1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Telephone",         P (0,   0,   3,   9, 0.40f, 0.9f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Alien",             P (0,   7,  -8,   9, 0.20f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Robot (key-lock)",  P (1,   0,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    presetBank.addFactoryPreset ("T-Pain Monotone",   P (2,   0,   0,   9, 0.10f, 1.0f,   1, 300, 0.35f, 0.00f,   0, 0.00f));
+    // Showcase the in-key features so they're discoverable from the preset menu.
+    presetBank.addFactoryPreset ("Shimmer Echo",      P (0,   0,   0,   9, 0.00f, 1.0f,   1, 350, 0.50f, 0.45f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Dub Throw",         P (0,   0,   0,   9, 0.10f, 1.0f,   2, 500, 0.60f, 0.50f,   0, 0.00f));
+    presetBank.addFactoryPreset ("Harmonised Lead",   P (0,   0,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   4, 0.45f));
+    presetBank.addFactoryPreset ("Fifth Stack",       P (0,   0,   0,   9, 0.00f, 1.0f,   1, 300, 0.35f, 0.00f,   3, 0.40f));
+    presetBank.addFactoryPreset ("Choir in Key",      P (0,   0,   0,   9, 0.00f, 1.0f,   4, 420, 0.45f, 0.35f,   4, 0.35f));
 }
 
 int SattariMorphAudioProcessor::getNumPrograms()    { return juce::jmax (1, presetBank.numFactoryPresets()); }
