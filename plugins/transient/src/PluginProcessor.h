@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/TransientModule.h>
 #include <atomic>
 
 // =============================================================================
@@ -22,6 +23,7 @@ public:
     ~SattariTransientAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void reset() override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -45,7 +47,7 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
-    float getGainDb() const noexcept { return gainDb.load (std::memory_order_relaxed); }
+    float getGainDb() const noexcept { return module.getGainDb(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -54,10 +56,9 @@ private:
     juce::AudioProcessorValueTreeState apvts;
     double sampleRate = 44100.0;
 
-    // Differential envelope detectors (stereo-linked, run on the mono max).
-    sattari::dsp::EnvelopeFollower atkFast, atkSlow;   // difference = attack env
-    sattari::dsp::EnvelopeFollower susFast, susSlow;   // difference = sustain env
-    std::atomic<float> gainDb { 0.0f };
+    // The DSP itself. This shell is a thin wrapper so the standalone plugin and the
+    // Mix rack slot run the SAME implementation and can never drift apart.
+    sattari::dsp::TransientModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariTransientAudioProcessor)
 };
