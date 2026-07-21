@@ -41,6 +41,9 @@ jobs:
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/chromagram_contract.cpp -o /tmp/chromagram_contract
           /tmp/chromagram_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/scale_interval_contract.cpp -o /tmp/scale_interval_contract
+          /tmp/scale_interval_contract
 
   # ---------------------------------------------------------------------------
   # Per-plugin build matrix on macOS: proves each plugin still configures and
