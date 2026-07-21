@@ -36,6 +36,10 @@ public:
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    // Transport relocate / loop: flush every streaming buffer (dry-latency delay, the
+    // Key Echo feedback line, and all three PSOLA/formant units) so a jump never replays
+    // the previous position's echo tail. Allocation-free, so it is safe to call live.
+    void reset() override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 

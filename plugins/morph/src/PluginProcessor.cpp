@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <algorithm>
 
 namespace { const juce::StringArray kModes { "Shift", "Quantize", "Robot" };
            const juce::StringArray kNotes { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }; }
@@ -128,6 +129,21 @@ void SattariMorphAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 
     harmShifter_.prepare (sampleRate, 60.0, 1000.0);
     harmScratch_.assign ((size_t) n, 0.0f);
+}
+
+void SattariMorphAudioProcessor::reset()
+{
+    std::fill (dryMono_.begin(),    dryMono_.end(),    0.0f);
+    std::fill (wet_.begin(),        wet_.end(),        0.0f);
+    std::fill (dryDelay_.begin(),   dryDelay_.end(),   0.0f);
+    std::fill (out_.begin(),        out_.end(),        0.0f);
+    std::fill (echoBuf_.begin(),    echoBuf_.end(),    0.0f);
+    std::fill (echoHarm_.begin(),   echoHarm_.end(),   0.0f);
+    std::fill (harmScratch_.begin(),harmScratch_.end(),0.0f);
+    dryPos_ = 0; echoPos_ = 0;
+    lastPeriod_ = sr_ / 220.0; lastScale_ = 1.0f;
+    pitch_.reset(); psola_.reset(); formant_.reset();
+    echoShifter_.reset(); harmShifter_.reset();
 }
 
 bool SattariMorphAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
