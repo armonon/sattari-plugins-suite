@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <sattari_audio_core/modules/CleanModule.h>
+#include <sattari_audio_core/modules/MeterModule.h>
 #include <sattari_audio_core/modules/EqModule.h>
 
 SattariMixAudioProcessor::SattariMixAudioProcessor()
@@ -21,6 +22,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeModules()
     std::vector<std::unique_ptr<sattari::dsp::SattariModule>> v;
     v.push_back (std::make_unique<sattari::dsp::CleanModule>());
     v.push_back (std::make_unique<sattari::dsp::EqModule>());
+    v.push_back (std::make_unique<sattari::dsp::MeterModule>());
     v.push_back (std::make_unique<sattari::dsp::TransientModule>());
     return v;
 }
