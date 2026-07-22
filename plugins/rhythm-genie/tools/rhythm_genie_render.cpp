@@ -46,6 +46,57 @@ float bufferPeak (const juce::AudioBuffer<float>& b)
     return pk;
 }
 
+// Loop proof: with the sequencer silenced, play ONE live pad hit in cycle 1 and prove the
+// looper repeats it (a hit at the same phase in cycle 2, with none in between).
+int runLoopTest()
+{
+    const double sr = 48000.0; const int block = 256; const double bpm = 120.0;
+    SattariRhythmGenieAudioProcessor proc;
+    auto& apvts = proc.parameters();
+    setParam (apvts, "loopOn",  1.0f);
+    setParam (apvts, "loopBars", 0.0f);   // choice index 0 = 1 bar = 4 beats
+    setParam (apvts, "kickOn",  0.0f);    // silence the step sequencer entirely
+    setParam (apvts, "snareOn", 0.0f);
+    setParam (apvts, "chatOn",  0.0f);
+    setParam (apvts, "ohatOn",  0.0f);
+
+    MockPlayHead mph; mph.bpm = bpm; mph.playing = true;
+    proc.setPlayHead (&mph);
+    proc.prepareToPlay (sr, block);
+
+    const double spb = sr * 60.0 / bpm;
+    const double blockBeats = block / spb;
+    const double injectPpq = 1.0;         // phase 0.25 within the 4-beat loop
+
+    float cyc1 = 0.0f, cyc2replay = 0.0f, cyc2quiet = 0.0f;
+    double ppq = 0.0; bool injected = false;
+    while (ppq < 8.2)                      // two full 1-bar cycles + a hair
+    {
+        mph.ppq = ppq;
+        juce::AudioBuffer<float> audio (2, block); audio.clear();
+        juce::MidiBuffer midi;
+        if (! injected && ppq <= injectPpq && injectPpq < ppq + blockBeats)
+        {
+            const int off = (int) ((injectPpq - ppq) * spb);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 120), juce::jlimit (0, block - 1, off));
+            injected = true;
+        }
+        proc.processBlock (audio, midi);
+        const float pk = bufferPeak (audio);
+        if (ppq >= 1.0 && ppq < 2.0) cyc1       = std::max (cyc1,       pk);   // the live hit
+        if (ppq >= 5.0 && ppq < 5.7) cyc2replay = std::max (cyc2replay, pk);   // loop replay
+        if (ppq >= 6.5 && ppq < 7.5) cyc2quiet  = std::max (cyc2quiet,  pk);   // off-phase = silent
+        ppq += blockBeats;
+    }
+
+    std::printf ("Rhythm Genie loop: cyc1-hit=%.3f, cyc2-replay=%.3f, cyc2-quiet=%.4f\n",
+                 cyc1, cyc2replay, cyc2quiet);
+    if (cyc1 < 1.0e-2f)                 { std::fprintf (stderr, "FAIL: live loop hit made no sound\n"); return 1; }
+    if (cyc2replay < 1.0e-2f)           { std::fprintf (stderr, "FAIL: loop did not replay in cycle 2\n"); return 1; }
+    if (cyc2replay < cyc2quiet * 2.0f)  { std::fprintf (stderr, "FAIL: loop replay not localised to its phase\n"); return 1; }
+    return 0;
+}
+
 // Count note-ons for a given note whose PPQ position lands near an integer beat.
 int onBeatCount (const std::vector<std::pair<double,int>>& notes, int note, double maxBeats)
 {
@@ -137,6 +188,8 @@ int main (int argc, char** argv)
         std::printf ("Rhythm Genie audio: sequencer peak=%.3f, live-pad peak=%.3f, tail=%.4f\n",
                      playPeak, stoppedPeak, tailPeak);
     }
+
+    if (runLoopTest() != 0) return 1;   // seamless loop mode: capture + replay
 
     if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes, audio peak %.3f)\n", onCount, playPeak); return 0; }
 

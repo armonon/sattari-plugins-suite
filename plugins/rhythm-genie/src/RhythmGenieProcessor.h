@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariDrumKit.h>
 #include <sattari_audio_core/SattariDrumPads.h>
+#include <sattari_audio_core/SattariDrumLooper.h>
 #include "RhythmPatterns.h"
 #include <array>
 #include <atomic>
@@ -89,6 +90,9 @@ private:
 
     sattari::dsp::DrumKit<kKitLanes> kit;
     sattari::dsp::DrumPadMap         padMap { kKitLanes };
+    sattari::dsp::DrumLooper         looper;       // live-pad loop ("looper feel")
+    double loopClockBeats = 0.0;                   // free-running loop position when stopped
+    bool   wasLoopOn = false;                      // detect enable edge -> fresh capture
     std::vector<float>               kitScratch;   // mono render buffer (sized in prepare)
     struct KitHit { int lane; float velocity; int offset; };
     static constexpr int kMaxKitHits = 256;
@@ -109,7 +113,7 @@ private:
     std::atomic<int> liveWrite { 0 };
     std::atomic<int> liveRead  { 0 };
     void pushLive (int kind, int id, float velocity) noexcept;
-    void drainLiveHits() noexcept;
+    void drainLiveHits (bool recordToLoop, double phase) noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
 

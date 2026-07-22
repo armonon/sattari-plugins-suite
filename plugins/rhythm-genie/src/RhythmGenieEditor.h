@@ -51,6 +51,11 @@ private:
     std::array<juce::TextButton, kNumPads> padButtons;
     std::array<juce::TextButton, kNumPads> padSetButtons;
 
+    // Seamless loop mode.
+    juce::ToggleButton loopButton { "Loop" };
+    juce::ComboBox     loopBarsBox;
+    std::unique_ptr<ComboAttachment> loopBarsAtt;
+
     std::unique_ptr<ComboAttachment> styleAtt;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAtts;
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAtts;

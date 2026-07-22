@@ -6,7 +6,11 @@
 using APVTS = juce::AudioProcessorValueTreeState;
 using namespace sattari::rhythm;
 
-namespace { constexpr int kDrumChannel = 10; }   // GM percussion channel
+namespace
+{
+constexpr int kDrumChannel = 10;   // GM percussion channel
+inline double wrap01 (double p) noexcept { p -= (double) (long long) p; if (p < 0.0) p += 1.0; return p; }
+}
 
 juce::StringArray SattariRhythmGenieAudioProcessor::styleChoices()
 {
@@ -49,6 +53,11 @@ APVTS::ParameterLayout SattariRhythmGenieAudioProcessor::createParameterLayout()
         p.push_back (std::make_unique<FloatP> (juce::ParameterID { base[l] + juce::String ("Decay"), 1 }, nm + " Decay", unit(), 0.5f));
     }
 
+    // Seamless loop: capture live pad hits and repeat them every N bars ("looper feel").
+    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "loopOn", 1 }, "Loop", false));
+    p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "loopBars", 1 }, "Loop Bars",
+                                            juce::StringArray { "1", "2", "4" }, 1));
+
     return { p.begin(), p.end() };
 }
 
@@ -77,6 +86,9 @@ void SattariRhythmGenieAudioProcessor::prepareToPlay (double sampleRate, int sam
     kit.reset();
     kitScratch.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
     kitHitCount = 0;
+    looper.reset();
+    loopClockBeats = 0.0;
+    wasLoopOn = false;
 
     // Resolve the shaping-param pointers once (off the audio thread).
     static const char* base[kNumLanes] = { "kick", "snare", "chat", "ohat" };
@@ -165,8 +177,9 @@ void SattariRhythmGenieAudioProcessor::pushLiveKey  (int keyCode, float velocity
 void SattariRhythmGenieAudioProcessor::pushLiveLane (int lane, float velocity) noexcept { pushLive (2, lane, velocity); }
 
 // Drain on the audio thread: pad-map binding (learn) resolves here, so a "Set" armed from
-// the editor captures whichever note/key the user next plays.
-void SattariRhythmGenieAudioProcessor::drainLiveHits() noexcept
+// the editor captures whichever note/key the user next plays. When looping, live hits are
+// also recorded into the loop at `phase` so overdubs join the cycle.
+void SattariRhythmGenieAudioProcessor::drainLiveHits (bool recordToLoop, double phase) noexcept
 {
     int r = liveRead.load (std::memory_order_relaxed);
     const int w = liveWrite.load (std::memory_order_acquire);
@@ -180,7 +193,11 @@ void SattariRhythmGenieAudioProcessor::drainLiveHits() noexcept
             case 1:  lane = padMap.handleKey    (lh.id); break;
             default: lane = lh.id;                       break;   // direct pad-button hit
         }
-        if (lane >= 0) queueKitHit (lane, lh.velocity, 0);
+        if (lane >= 0)
+        {
+            queueKitHit (lane, lh.velocity, 0);
+            if (recordToLoop) looper.recordHit (lane, lh.velocity, phase);
+        }
         r = (r + 1) % kLiveFifoSize;
     }
     liveRead.store (r, std::memory_order_release);
@@ -240,28 +257,13 @@ void SattariRhythmGenieAudioProcessor::processBlock (juce::AudioBuffer<float>& b
 
     const int numSamples = buffer.getNumSamples();
 
-    // Live pads: every incoming MIDI note-on plays the internal kit, always — even when the
-    // transport is stopped — so the plugin is a playable drum instrument, not just a
-    // pattern source. A note that maps to no pad is ignored.
-    for (const auto meta : midi)
-    {
-        const auto msg = meta.getMessage();
-        if (! msg.isNoteOn()) continue;
-        const int lane = padMap.handleNoteOn (msg.getNoteNumber());
-        if (lane >= 0)
-            queueKitHit (lane, msg.getFloatVelocity(),
-                         juce::jlimit (0, juce::jmax (0, numSamples - 1), (int) meta.samplePosition));
-    }
-
-    drainLiveHits();   // editor pad clicks / computer-key hits (fire at block start)
-
-    juce::MidiBuffer generated;
-
+    // --- Transport + loop phase (computed first so live hits can be time-stamped) ------
     const auto t = sattari::host::read (*this);
     const double bpm = t.bpm > 0.0 ? t.bpm : 120.0;
     pubBpm.store (bpm, std::memory_order_relaxed);   // shared to the cross-plugin tempo bus
     const double samplesPerBeat = currentSampleRate * 60.0 / bpm;
     const double samplesPerStep = samplesPerBeat / 4.0;
+    const double blockBeats     = (double) numSamples / samplesPerBeat;
     const bool standalone = (wrapperType == wrapperType_Standalone);
 
     double startPpq = 0.0;
@@ -269,18 +271,72 @@ void SattariRhythmGenieAudioProcessor::processBlock (juce::AudioBuffer<float>& b
     if (t.hasPpq) { startPpq = t.ppqPosition;  generate = t.isPlaying; }
     else          { startPpq = internalPpq;    generate = t.isPlaying || standalone; }
 
+    // Loop mode: capture live pad hits and repeat them every N bars ("looper feel"). The
+    // loop runs off the host PPQ when playing, else a free clock so it cycles when stopped.
+    const bool loopOn   = param ("loopOn") > 0.5f;
+    const int  barsIdx  = (int) std::round (param ("loopBars"));
+    const int  loopBars = (barsIdx <= 0) ? 1 : (barsIdx == 1 ? 2 : 4);
+    const double loopLenBeats = (double) loopBars * 4.0;
+    if (loopOn && ! wasLoopOn) looper.clear();       // fresh capture each time it is armed
+    wasLoopOn = loopOn;
+    looper.setEnabled (loopOn);
+
+    const double loopBase = (t.hasPpq && t.isPlaying) ? startPpq : loopClockBeats;
+    const double loopFrom = wrap01 (loopBase / loopLenBeats);
+    const double loopTo   = wrap01 ((loopBase + blockBeats) / loopLenBeats);
+    const double dPhase   = (loopLenBeats > 0.0) ? (blockBeats / loopLenBeats) : 0.0;
+    if (! (t.hasPpq && t.isPlaying)) loopClockBeats += blockBeats;   // free-run when stopped
+    auto phaseAtOffset = [&] (int off) noexcept
+    {
+        const double frac = numSamples > 0 ? (double) off / (double) numSamples : 0.0;
+        return wrap01 (loopFrom + frac * dPhase);
+    };
+
+    // Replay the loop BEFORE ingesting this block's live hits, so a hit recorded now isn't
+    // also collected now (it plays once live, then from the next cycle onward).
+    if (loopOn)
+    {
+        sattari::dsp::DrumLooper::Hit lh[64];
+        const int n = looper.collect (loopFrom, loopTo, lh, 64);
+        for (int i = 0; i < n; ++i)
+        {
+            double d = lh[i].phase - loopFrom; if (d < 0.0) d += 1.0;
+            const int off = juce::jlimit (0, juce::jmax (0, numSamples - 1),
+                                          dPhase > 0.0 ? (int) (d / dPhase * (double) numSamples) : 0);
+            queueKitHit (lh[i].pad, lh[i].velocity, off);
+        }
+    }
+
+    // --- Live pads: every incoming MIDI note-on plays the internal kit, always — even when
+    // the transport is stopped. When looping, the hit is also recorded into the cycle.
+    for (const auto meta : midi)
+    {
+        const auto msg = meta.getMessage();
+        if (! msg.isNoteOn()) continue;
+        const int lane = padMap.handleNoteOn (msg.getNoteNumber());
+        if (lane >= 0)
+        {
+            const int off = juce::jlimit (0, juce::jmax (0, numSamples - 1), (int) meta.samplePosition);
+            queueKitHit (lane, msg.getFloatVelocity(), off);
+            if (loopOn) looper.recordHit (lane, msg.getFloatVelocity(), phaseAtOffset (off));
+        }
+    }
+
+    drainLiveHits (loopOn, loopFrom);   // editor pad clicks / computer-key hits (fire at block start)
+
+    juce::MidiBuffer generated;
+
     if (! generate)
     {
         if (wasGenerating) allNotesOff (generated);  // release hanging notes on stop
         wasGenerating = false;
         playStep.store (-1);
-        renderKit (buffer, numSamples);              // still voice live pads + ring out tails
+        renderKit (buffer, numSamples);              // still voice live pads + loop + ring-out tails
         midi.swapWith (generated);
         return;
     }
     wasGenerating = true;
 
-    const double blockBeats = (double) numSamples / samplesPerBeat;
     const double endPpq     = startPpq + blockBeats;
     const double swingPpq   = (double) param ("swing") * 0.125;  // delay odd 16ths up to half a step
 

@@ -102,6 +102,14 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
     }
     refreshPadLabels();
 
+    // Loop controls: toggle + bars.
+    loopButton.setClickingTogglesState (true);
+    addAndMakeVisible (loopButton);
+    buttonAtts.push_back (std::make_unique<ButtonAttachment> (params, "loopOn", loopButton));
+    loopBarsBox.addItemList ({ "1 bar", "2 bars", "4 bars" }, 1);
+    addAndMakeVisible (loopBarsBox);
+    loopBarsAtt = std::make_unique<ComboAttachment> (params, "loopBars", loopBarsBox);
+
     startTimerHz (30);
 }
 
@@ -311,6 +319,10 @@ void SattariRhythmGenieAudioProcessorEditor::resized()
     abRow.setBounds (presetRow.removeFromLeft (94));
     presetRow.removeFromLeft (8);
     midiLearnButton.setBounds (presetRow.removeFromLeft (110));
+    presetRow.removeFromLeft (14);
+    loopButton.setBounds (presetRow.removeFromLeft (66));
+    presetRow.removeFromLeft (4);
+    loopBarsBox.setBounds (presetRow.removeFromLeft (86));
     area.removeFromTop (12);
 
     gridArea = area.removeFromTop (168);
