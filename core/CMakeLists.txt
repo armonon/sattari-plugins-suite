@@ -145,6 +145,15 @@ target_link_libraries(SattariAudioCoreBeatGridContract
     PRIVATE
         SattariAudioCore)
 
+# Generative groove contract (pure-std). Euclidean rhythms, style generation, density
+# thin/fill, deterministic mutate, stacks preserved on regenerate.
+add_executable(SattariAudioCoreGrooveContract
+    tests/groove_contract.cpp)
+
+target_link_libraries(SattariAudioCoreGrooveContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
