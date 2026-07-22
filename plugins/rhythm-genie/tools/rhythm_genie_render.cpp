@@ -151,6 +151,44 @@ int runGridTest()
     return 0;
 }
 
+// Sample-slot proof: load a DC=0.5 buffer into lane 0 and trigger it. The synth kick is a
+// zero-mean decaying tone, so a clearly positive DC offset proves the SAMPLE played instead.
+int runSampleTest()
+{
+    const double sr = 48000.0; const int block = 512;
+    SattariRhythmGenieAudioProcessor proc;
+
+    const int slen = (int) (sr * 0.25);                 // 0.25 s
+    juce::AudioBuffer<float> samp (1, slen);
+    for (int i = 0; i < slen; ++i) samp.setSample (0, i, 0.5f);   // constant DC
+    proc.setLaneSampleBuffer (0, samp, sr, "dc-test");
+
+    MockPlayHead mph; mph.bpm = 120.0; mph.playing = false;       // stopped: pure live pad
+    proc.setPlayHead (&mph);
+    proc.prepareToPlay (sr, block);
+
+    double meanSum = 0.0; int meanN = 0; float pk = 0.0f;
+    for (int blk = 0; blk < 30; ++blk)
+    {
+        mph.ppq = 0.0;
+        juce::AudioBuffer<float> a (2, block); a.clear();
+        juce::MidiBuffer m;
+        if (blk == 0) m.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 120), 0);   // GM kick -> pad 0
+        proc.processBlock (a, m);
+        pk = std::max (pk, bufferPeak (a));
+        if (blk >= 1 && blk < 20)   // steady-state during sample playback
+        {
+            const float* w = a.getReadPointer (0);
+            for (int i = 0; i < block; ++i) { meanSum += w[i]; ++meanN; }
+        }
+    }
+    const double mean = meanN ? meanSum / meanN : 0.0;
+    std::printf ("Rhythm Genie sample: peak=%.3f, dc-mean=%.3f\n", pk, mean);
+    if (pk < 0.1f)    { std::fprintf (stderr, "FAIL: sample slot produced no audio\n"); return 1; }
+    if (mean < 0.10)  { std::fprintf (stderr, "FAIL: sample (DC) not playing — mean %.3f (synth would be ~0)\n", mean); return 1; }
+    return 0;
+}
+
 // Count note-ons for a given note whose PPQ position lands near an integer beat.
 int onBeatCount (const std::vector<std::pair<double,int>>& notes, int note, double maxBeats)
 {
@@ -245,6 +283,7 @@ int main (int argc, char** argv)
 
     if (runLoopTest() != 0) return 1;   // seamless loop mode: capture + replay
     if (runGridTest() != 0) return 1;   // editable multi-lane grid: clear + toggle
+    if (runSampleTest() != 0) return 1; // per-lane sample slots
 
     if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes, audio peak %.3f)\n", onCount, playPeak); return 0; }
 

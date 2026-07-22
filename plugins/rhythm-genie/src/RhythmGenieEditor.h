@@ -52,6 +52,8 @@ private:
     static constexpr int kNumPads = 8;   // kick snare c.hat o.hat clap tom rim ride
     std::array<juce::TextButton, kNumPads> padButtons;
     std::array<juce::TextButton, kNumPads> padSetButtons;
+    std::array<juce::TextButton, kNumPads> padLoadButtons;
+    std::unique_ptr<juce::FileChooser>     fileChooser;
 
     // Seamless loop mode.
     juce::ToggleButton loopButton { "Loop" };

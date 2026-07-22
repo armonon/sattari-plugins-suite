@@ -69,6 +69,7 @@ SattariRhythmGenieAudioProcessor::SattariRhythmGenieAudioProcessor()
     grid.setLanes (kGridLanes);
     grid.setSteps (kSteps);
     regenerateGrid();   // seed an editable groove from the default style
+    formatManager.registerBasicFormats();
 }
 
 int SattariRhythmGenieAudioProcessor::kitLaneNote (int lane) noexcept
@@ -92,6 +93,53 @@ void SattariRhythmGenieAudioProcessor::regenerateGrid()
     sattari::dsp::generate (grid, map[styleIdx], param ("density"), (std::uint32_t) (rng.nextInt() | 1));
 }
 
+// --- Sample slots ----------------------------------------------------------------
+void SattariRhythmGenieAudioProcessor::setLaneSampleBuffer (int lane, juce::AudioBuffer<float> buf,
+                                                            double sourceSr, const juce::String& name)
+{
+    if (lane < 0 || lane >= kGridLanes) return;
+    SampleSlot::Ptr s = new SampleSlot();
+    s->data = std::move (buf);
+    s->sourceSr = sourceSr > 0.0 ? sourceSr : 44100.0;
+    s->name = name;
+    retainedSamples.add (s);                              // keep alive for the session (msg thread)
+    const juce::SpinLock::ScopedLockType sl (sampleLock);
+    laneSample[lane] = s;                                 // fast pointer swap
+}
+
+bool SattariRhythmGenieAudioProcessor::loadSampleForLane (int lane, const juce::File& file)
+{
+    if (lane < 0 || lane >= kGridLanes || ! file.existsAsFile()) return false;
+    std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+    if (reader == nullptr) return false;
+    const int len = (int) juce::jmin ((juce::int64) (reader->sampleRate * 12.0), reader->lengthInSamples);  // cap 12 s
+    if (len <= 0) return false;
+    juce::AudioBuffer<float> buf ((int) juce::jmax (1u, reader->numChannels), len);
+    reader->read (&buf, 0, len, 0, true, true);
+    setLaneSampleBuffer (lane, std::move (buf), reader->sampleRate, file.getFileName());
+    laneSamplePath[lane] = file.getFullPathName();
+    return true;
+}
+
+void SattariRhythmGenieAudioProcessor::clearSampleForLane (int lane) noexcept
+{
+    if (lane < 0 || lane >= kGridLanes) return;
+    laneSamplePath[lane].clear();
+    const juce::SpinLock::ScopedLockType sl (sampleLock);
+    laneSample[lane] = nullptr;                           // falls back to the synth voice
+}
+
+bool SattariRhythmGenieAudioProcessor::laneHasSample (int lane) const noexcept
+{
+    return lane >= 0 && lane < kGridLanes && laneSample[lane] != nullptr;
+}
+
+juce::String SattariRhythmGenieAudioProcessor::laneSampleName (int lane) const
+{
+    if (lane >= 0 && lane < kGridLanes && laneSample[lane] != nullptr) return laneSample[lane]->name;
+    return {};
+}
+
 void SattariRhythmGenieAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
@@ -113,6 +161,7 @@ void SattariRhythmGenieAudioProcessor::prepareToPlay (double sampleRate, int sam
     looper.reset();
     loopClockBeats = 0.0;
     wasLoopOn = false;
+    for (auto& sp : samplePlay) { sp.active = false; sp.pos = 0.0; }   // keep loaded samples, stop voices
 
     // Resolve the shaping-param pointers once (off the audio thread).
     static const char* base[kNumLanes] = { "kick", "snare", "chat", "ohat" };
@@ -259,10 +308,10 @@ void SattariRhythmGenieAudioProcessor::renderKit (juce::AudioBuffer<float>& buff
     for (int i = 0; i < kitHitCount; ++i)
     {
         const int off = juce::jlimit (0, numSamples, kitHits[(size_t) i].offset);
-        if (off > pos) { kit.render (kitScratch.data() + pos, off - pos); pos = off; }
-        kit.trigger (kitHits[(size_t) i].lane, kitHits[(size_t) i].velocity, laneVoiceParams (kitHits[(size_t) i].lane));
+        if (off > pos) { renderKitSegment (kitScratch.data() + pos, off - pos); pos = off; }
+        triggerLane (kitHits[(size_t) i].lane, kitHits[(size_t) i].velocity);
     }
-    if (pos < numSamples) kit.render (kitScratch.data() + pos, numSamples - pos);
+    if (pos < numSamples) renderKitSegment (kitScratch.data() + pos, numSamples - pos);
 
     // Drive the summed kit through a gentle tanh so a full bar of simultaneous hits glues
     // and stays under 0 dBFS instead of clipping the host (a bare sum peaks ~+3 dB).
@@ -275,6 +324,55 @@ void SattariRhythmGenieAudioProcessor::renderKit (juce::AudioBuffer<float>& buff
     }
 
     kitHitCount = 0;   // hits consumed for this block
+}
+
+// Trigger a lane: play its loaded sample if there is one (and the swap isn't mid-flight),
+// otherwise the synthesised voice.
+void SattariRhythmGenieAudioProcessor::triggerLane (int lane, float velocity) noexcept
+{
+    {
+        const juce::SpinLock::ScopedTryLockType sl (sampleLock);
+        if (sl.isLocked() && lane >= 0 && lane < kGridLanes && laneSample[lane] != nullptr)
+        {
+            const auto vp = laneVoiceParams (lane);
+            auto& sp = samplePlay[lane];
+            sp.buf  = laneSample[lane];      // retain (atomic inc); old ref survives in retainedSamples
+            sp.pos  = 0.0;
+            sp.gain = juce::jlimit (0.0f, 1.0f, velocity) * (0.2f + 0.8f * vp.level);
+            const double semis = (double) (vp.tune - 0.5f) * 24.0;   // +/- 1 octave
+            sp.rate = (sp.buf->sourceSr / (currentSampleRate > 0.0 ? currentSampleRate : 44100.0))
+                      * std::pow (2.0, semis / 12.0);
+            sp.active = true;
+            return;
+        }
+    }
+    kit.trigger (lane, velocity, laneVoiceParams (lane));
+}
+
+// Render one segment: the synth kit (additive) plus any active sample voices.
+void SattariRhythmGenieAudioProcessor::renderKitSegment (float* out, int numSamples) noexcept
+{
+    kit.render (out, numSamples);
+    for (int lane = 0; lane < kGridLanes; ++lane)
+    {
+        auto& sp = samplePlay[lane];
+        if (! sp.active || sp.buf == nullptr) continue;
+        const auto& d = sp.buf->data;
+        const int len = d.getNumSamples();
+        if (len < 2) { sp.active = false; continue; }
+        const float* L = d.getReadPointer (0);
+        const float* R = d.getNumChannels() > 1 ? d.getReadPointer (1) : L;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const int idx = (int) sp.pos;
+            if (idx >= len - 1) { sp.active = false; break; }
+            const float frac = (float) (sp.pos - (double) idx);
+            const float s0 = 0.5f * (L[idx]     + R[idx]);
+            const float s1 = 0.5f * (L[idx + 1] + R[idx + 1]);
+            out[i] += (s0 + frac * (s1 - s0)) * sp.gain;   // linear-interp mono sum
+            sp.pos += sp.rate;
+        }
+    }
 }
 
 void SattariRhythmGenieAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -428,6 +526,16 @@ void SattariRhythmGenieAudioProcessor::getStateInformation (juce::MemoryBlock& d
                     c->setAttribute ("v", grid.velocity (l, s));
                     c->setAttribute ("p", grid.probability (l, s));
                 }
+
+        // Persist per-lane sample file paths (reloaded on restore).
+        auto* smp = xml->createNewChildElement ("SAMPLES");
+        for (int l = 0; l < kGridLanes; ++l)
+            if (laneSamplePath[l].isNotEmpty())
+            {
+                auto* e = smp->createNewChildElement ("s");
+                e->setAttribute ("l", l);
+                e->setAttribute ("path", laneSamplePath[l]);
+            }
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -454,6 +562,13 @@ void SattariRhythmGenieAudioProcessor::setStateInformation (const void* data, in
                           (float) c->getDoubleAttribute ("v", 0.8),
                           (float) c->getDoubleAttribute ("p", 1.0));
         }
+        if (auto* smp = xml->getChildByName ("SAMPLES"))
+            for (auto* e : smp->getChildWithTagNameIterator ("s"))
+            {
+                const int l = e->getIntAttribute ("l", -1);
+                const juce::File f (e->getStringAttribute ("path"));
+                if (l >= 0 && l < kGridLanes && f.existsAsFile()) loadSampleForLane (l, f);
+            }
         if (xml->hasTagName (apvts.state.getType()))
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
     }

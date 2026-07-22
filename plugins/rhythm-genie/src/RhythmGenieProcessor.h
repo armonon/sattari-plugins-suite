@@ -65,6 +65,17 @@ public:
     void clearGrid() noexcept { grid.clear(); }
     void toggleCell (int lane, int step) noexcept { grid.toggle (lane, step); }
 
+    // --- Per-lane sample slots ------------------------------------------------
+    // When a lane has a sample loaded, triggering it plays the sample instead of the synth
+    // voice. Loading reads the file on the message thread; the audio thread only copies a
+    // reference-counted pointer under a try-lock, so nothing allocates or frees on it.
+    bool loadSampleForLane (int lane, const juce::File& file);   // message thread
+    void clearSampleForLane (int lane) noexcept;
+    bool laneHasSample (int lane) const noexcept;
+    juce::String laneSampleName (int lane) const;
+    // Install a decoded buffer directly (used by loadSampleForLane and offline tests).
+    void setLaneSampleBuffer (int lane, juce::AudioBuffer<float> buf, double sourceSr, const juce::String& name);
+
     // --- Editor -> audio live triggering (all message-thread, lock-free) --------
     // The editor pushes gestures here; the audio thread drains them and does all pad-map
     // binding, so learn ("Set" then play a note/key) resolves on the audio thread.
@@ -96,7 +107,28 @@ private:
     static constexpr int kKitLanes = 8;   // 0 kick 1 snare 2 chat 3 ohat 4 clap 5 tom 6 rim 7 ride
     void queueKitHit (int lane, float velocity, int sampleOffset) noexcept;
     void renderKit (juce::AudioBuffer<float>& buffer, int numSamples) noexcept;
+    void renderKitSegment (float* out, int numSamples) noexcept;   // synth voices + sample voices
+    void triggerLane (int lane, float velocity) noexcept;          // sample if loaded, else synth
     sattari::dsp::DrumVoiceParams laneVoiceParams (int lane) const noexcept;
+
+    // Reference-counted sample data, so an in-flight voice keeps its buffer alive even after
+    // the slot is swapped/cleared; everything is retained until the processor is destroyed,
+    // so a buffer is never freed on the audio thread.
+    struct SampleSlot : juce::ReferenceCountedObject
+    {
+        juce::AudioBuffer<float> data;
+        double sourceSr = 44100.0;
+        juce::String name;
+        using Ptr = juce::ReferenceCountedObjectPtr<SampleSlot>;
+    };
+    struct SamplePlayback { SampleSlot::Ptr buf; double pos = 0.0, rate = 1.0; float gain = 1.0f; bool active = false; };
+
+    SampleSlot::Ptr  laneSample[kGridLanes];              // current sample per lane (null = synth)
+    SamplePlayback   samplePlay[kGridLanes];              // active playback state per lane
+    juce::String     laneSamplePath[kGridLanes];          // for state persistence
+    juce::ReferenceCountedArray<SampleSlot> retainedSamples;   // keeps every loaded slot alive (msg thread)
+    juce::SpinLock   sampleLock;                          // guards the laneSample swap
+    juce::AudioFormatManager formatManager;
 
     sattari::dsp::DrumKit<kKitLanes> kit;
     sattari::dsp::DrumPadMap         padMap { kKitLanes };

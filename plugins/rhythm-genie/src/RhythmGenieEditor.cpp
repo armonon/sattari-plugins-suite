@@ -100,6 +100,24 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
             grabKeyboardFocus();
         };
         addAndMakeVisible (set);
+
+        // Load: pick a sample for this lane (plays instead of the synth voice); when one is
+        // loaded the button clears it back to the synth.
+        auto& load = padLoadButtons[(size_t) i];
+        load.onClick = [this, i]
+        {
+            if (processor.laneHasSample (i)) { processor.clearSampleForLane (i); refreshPadLabels(); return; }
+            fileChooser = std::make_unique<juce::FileChooser> (
+                "Load sample for " + juce::String (kPadNames[i]), juce::File(), "*.wav;*.aif;*.aiff;*.flac");
+            fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                [this, i] (const juce::FileChooser& fc)
+                {
+                    const auto f = fc.getResult();
+                    if (f.existsAsFile()) processor.loadSampleForLane (i, f);
+                    refreshPadLabels();
+                });
+        };
+        addAndMakeVisible (load);
     }
     refreshPadLabels();
 
@@ -188,12 +206,19 @@ void SattariRhythmGenieAudioProcessorEditor::refreshPadLabels()
         juce::String binding;
         if (note >= 0) binding << note;
         if (keyc > 0)  binding << (binding.isEmpty() ? "" : "/") << juce::String::charToString ((juce_wchar) keyc);
-        padButtons[(size_t) i].setButtonText (juce::String (kPadNames[i]) + (binding.isEmpty() ? "" : "  " + binding));
+        const bool hasSample = processor.laneHasSample (i);
+        padButtons[(size_t) i].setButtonText (juce::String (kPadNames[i]) + (hasSample ? " *" : "")
+                                              + (binding.isEmpty() ? "" : "  " + binding));
 
         const bool arming = (learning == i);
         padSetButtons[(size_t) i].setButtonText (arming ? "…" : "Set");
         padSetButtons[(size_t) i].setColour (juce::TextButton::buttonColourId,
             arming ? juce::Colour (sattari::brand::kAccent) : juce::Colour (sattari::brand::kPanelRaised));
+
+        padLoadButtons[(size_t) i].setButtonText (hasSample ? "x" : "smp");
+        padLoadButtons[(size_t) i].setColour (juce::TextButton::buttonColourId,
+            hasSample ? juce::Colour (sattari::brand::kAccent).withAlpha (0.6f)
+                      : juce::Colour (sattari::brand::kPanelRaised));
     }
 }
 
@@ -379,14 +404,17 @@ void SattariRhythmGenieAudioProcessorEditor::resized()
 
     // --- Tap-drum pads ---------------------------------------------------------
     area.removeFromTop (22);   // TAP PADS header
-    padsArea = area.removeFromTop (74);
+    padsArea = area.removeFromTop (76);
     {
         auto pads = padsArea;
         const int pw = pads.getWidth() / kNumPads;
         for (int i = 0; i < kNumPads; ++i)
         {
             auto col = pads.removeFromLeft (pw).reduced (4);
-            padSetButtons[(size_t) i].setBounds (col.removeFromBottom (20));
+            auto bottom = col.removeFromBottom (20);          // Set + Load side by side
+            padSetButtons[(size_t) i].setBounds (bottom.removeFromLeft (bottom.getWidth() / 2));
+            bottom.removeFromLeft (3);
+            padLoadButtons[(size_t) i].setBounds (bottom);
             col.removeFromBottom (3);
             padButtons[(size_t) i].setBounds (col);
         }
