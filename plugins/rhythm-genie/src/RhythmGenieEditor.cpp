@@ -8,6 +8,11 @@ namespace
 const std::array<juce::Colour, kNumLanes> kLaneColours {
     juce::Colour (0xff62f5c8), juce::Colour (0xff7dd3fc),
     juce::Colour (0xff34d8b4), juce::Colour (0xff8ce0d0) };
+
+// The 8 kit voices in lane order (matches DrumPadMap / DrumKit lane assignment).
+const char* const kPadNames[8] = { "Kick", "Snare", "C.Hat", "O.Hat", "Clap", "Tom", "Rim", "Ride" };
+// Shaping-param bases for the four sequencer lanes (only these have Level/Tune/Decay).
+const char* const kKitBase[kNumLanes] = { "kick", "snare", "chat", "ohat" };
 }
 
 SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (SattariRhythmGenieAudioProcessor& p)
@@ -15,7 +20,8 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
       presetManager (p.parameters(), "rhythm-genie")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (880, 540);
+    setSize (960, 720);
+    setWantsKeyboardFocus (true);   // laptop keyboard plays the pads
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Rhythm Genie");
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Host-synced MIDI drum-pattern generator");
@@ -63,6 +69,39 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
         buttonAtts.push_back (std::make_unique<ButtonAttachment> (params, laneIds[l], laneToggles[(size_t) l]));
     }
 
+    // --- Kit-shaping knobs: master + per-lane Level / Tune / Decay -------------
+    setupKitKnob (kitLevelSlider);
+    sliderAtts.push_back (std::make_unique<SliderAttachment> (params, "kitLevel", kitLevelSlider));
+    for (int l = 0; l < kNumLanes; ++l)
+    {
+        setupKitKnob (laneLevelS[(size_t) l]);
+        setupKitKnob (laneTuneS [(size_t) l]);
+        setupKitKnob (laneDecayS[(size_t) l]);
+        sliderAtts.push_back (std::make_unique<SliderAttachment> (params, kKitBase[l] + juce::String ("Level"), laneLevelS[(size_t) l]));
+        sliderAtts.push_back (std::make_unique<SliderAttachment> (params, kKitBase[l] + juce::String ("Tune"),  laneTuneS [(size_t) l]));
+        sliderAtts.push_back (std::make_unique<SliderAttachment> (params, kKitBase[l] + juce::String ("Decay"), laneDecayS[(size_t) l]));
+    }
+
+    // --- Tap-drum pads: click to play; "Set" arms MIDI/key learn ---------------
+    for (int i = 0; i < kNumPads; ++i)
+    {
+        auto& pad = padButtons[(size_t) i];
+        pad.setButtonText (kPadNames[i]);
+        pad.onClick = [this, i] { processor.pushLiveLane (i, 0.9f); grabKeyboardFocus(); };
+        addAndMakeVisible (pad);
+
+        auto& set = padSetButtons[(size_t) i];
+        set.setButtonText ("Set");
+        set.onClick = [this, i]
+        {
+            if (processor.learningPad() == i) processor.cancelLearn();   // toggle off
+            else                              processor.armLearn (i);
+            grabKeyboardFocus();
+        };
+        addAndMakeVisible (set);
+    }
+    refreshPadLabels();
+
     startTimerHz (30);
 }
 
@@ -77,6 +116,45 @@ void SattariRhythmGenieAudioProcessorEditor::setupSlider (juce::Slider& s)
     s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 16);
     addAndMakeVisible (s);
+}
+
+void SattariRhythmGenieAudioProcessorEditor::setupKitKnob (juce::Slider& s)
+{
+    s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);   // caption drawn in paint()
+    addAndMakeVisible (s);
+}
+
+// Laptop keyboard plays the pads (and captures a learn binding when a "Set" is armed).
+bool SattariRhythmGenieAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+{
+    const int kc = key.getKeyCode();
+    if ((kc >= 'A' && kc <= 'Z') || (kc >= '0' && kc <= '9'))
+    {
+        processor.pushLiveKey (kc, 0.9f);
+        return true;   // consume so it doesn't beep
+    }
+    return false;
+}
+
+// Show each pad's bound MIDI note + key, and highlight the one currently arming for learn.
+void SattariRhythmGenieAudioProcessorEditor::refreshPadLabels()
+{
+    const int learning = processor.learningPad();
+    for (int i = 0; i < kNumPads; ++i)
+    {
+        const int note = processor.padMidiNote (i);
+        const int keyc = processor.padKeyCode (i);
+        juce::String binding;
+        if (note >= 0) binding << note;
+        if (keyc > 0)  binding << (binding.isEmpty() ? "" : "/") << juce::String::charToString ((juce_wchar) keyc);
+        padButtons[(size_t) i].setButtonText (juce::String (kPadNames[i]) + (binding.isEmpty() ? "" : "  " + binding));
+
+        const bool arming = (learning == i);
+        padSetButtons[(size_t) i].setButtonText (arming ? "…" : "Set");
+        padSetButtons[(size_t) i].setColour (juce::TextButton::buttonColourId,
+            arming ? juce::Colour (sattari::brand::kAccent) : juce::Colour (sattari::brand::kPanelRaised));
+    }
 }
 
 void SattariRhythmGenieAudioProcessorEditor::refreshUserPresets()
@@ -104,6 +182,7 @@ void SattariRhythmGenieAudioProcessorEditor::timerCallback()
     transportStatus.setText (step >= 0 ? "Playing - step " + juce::String (step + 1) + " / 16"
                                        : "Stopped (press play in your DAW)",
                              juce::dontSendNotification);
+    refreshPadLabels();
     repaint();
 }
 
@@ -185,6 +264,31 @@ void SattariRhythmGenieAudioProcessorEditor::paint (juce::Graphics& g)
         auto b = laneToggles[(size_t) l].getBounds();
         g.drawText (laneName (l), b.getRight() + 4, b.getY(), 90, b.getHeight(), juce::Justification::centredLeft);
     }
+
+    auto sectionHeader = [&] (const juce::String& text, juce::Rectangle<int> area)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.55f));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (text, area.getX(), area.getY() - 16, 240, 14, juce::Justification::centredLeft);
+    };
+    sectionHeader ("TAP PADS  -  click, or play your MIDI / keyboard  (Set = learn)", padsArea);
+    sectionHeader ("KIT", kitArea);
+
+    // Kit-knob captions (master + per-lane Level / Tune / Decay).
+    auto knobCaption = [&] (juce::Slider& s, const juce::String& text)
+    {
+        auto b = s.getBounds();
+        g.setColour (juce::Colours::white.withAlpha (0.8f));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText (text, b.getX() - 6, b.getBottom() - 2, b.getWidth() + 12, 14, juce::Justification::centred);
+    };
+    knobCaption (kitLevelSlider, "Master");
+    for (int l = 0; l < kNumLanes; ++l)
+    {
+        knobCaption (laneLevelS[(size_t) l], juce::String (kPadNames[l]) + " Lvl");
+        knobCaption (laneTuneS [(size_t) l], juce::String (kPadNames[l]) + " Tune");
+        knobCaption (laneDecayS[(size_t) l], juce::String (kPadNames[l]) + " Dec");
+    }
 }
 
 void SattariRhythmGenieAudioProcessorEditor::resized()
@@ -209,18 +313,51 @@ void SattariRhythmGenieAudioProcessorEditor::resized()
     midiLearnButton.setBounds (presetRow.removeFromLeft (110));
     area.removeFromTop (12);
 
-    gridArea = area.removeFromTop (188);
-    area.removeFromTop (28);   // room for knob captions
+    gridArea = area.removeFromTop (168);
+    area.removeFromTop (24);   // room for knob captions
 
-    auto knobs = area.removeFromTop (96);
+    auto knobs = area.removeFromTop (88);
     auto knobRow = knobs.withSizeKeepingCentre (juce::jmin (knobs.getWidth(), 680), knobs.getHeight());
     const int kw = knobRow.getWidth() / 6;
     for (auto* s : { &densitySlider, &swingSlider, &velocitySlider, &gateSlider, &accentSlider, &humanizeSlider })
         s->setBounds (knobRow.removeFromLeft (kw).reduced (4));
 
-    area.removeFromTop (8);
-    auto lanes = area.removeFromTop (28);
+    area.removeFromTop (6);
+    auto lanes = area.removeFromTop (24);
     const int lw = lanes.getWidth() / kNumLanes;
     for (int l = 0; l < kNumLanes; ++l)
-        laneToggles[(size_t) l].setBounds (lanes.removeFromLeft (lw).removeFromLeft (44));
+        laneToggles[(size_t) l].setBounds (lanes.removeFromLeft (lw).removeFromLeft (40));
+
+    // --- Tap-drum pads ---------------------------------------------------------
+    area.removeFromTop (22);   // TAP PADS header
+    padsArea = area.removeFromTop (74);
+    {
+        auto pads = padsArea;
+        const int pw = pads.getWidth() / kNumPads;
+        for (int i = 0; i < kNumPads; ++i)
+        {
+            auto col = pads.removeFromLeft (pw).reduced (4);
+            padSetButtons[(size_t) i].setBounds (col.removeFromBottom (20));
+            col.removeFromBottom (3);
+            padButtons[(size_t) i].setBounds (col);
+        }
+    }
+
+    // --- Kit-shaping knobs: master + per-lane Level / Tune / Decay -------------
+    area.removeFromTop (22);   // KIT header
+    kitArea = area.removeFromTop (78);
+    {
+        std::vector<juce::Slider*> ks { &kitLevelSlider };
+        for (int l = 0; l < kNumLanes; ++l)
+        {
+            ks.push_back (&laneLevelS[(size_t) l]);
+            ks.push_back (&laneTuneS [(size_t) l]);
+            ks.push_back (&laneDecayS[(size_t) l]);
+        }
+        auto row = kitArea;
+        const int n = (int) ks.size();
+        const int cw = row.getWidth() / n;
+        for (auto* s : ks)
+            s->setBounds (row.removeFromLeft (cw).withTrimmedBottom (14).reduced (6));
+    }
 }
