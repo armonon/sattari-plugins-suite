@@ -73,6 +73,10 @@ public:
         tuneCos_ = tuneSin_ = 0.0;
     }
 
+    // Pre-size the whitening-envelope buffer so accumulate() never allocates on the
+    // audio thread. Call once from prepareToPlay with the FFT's bin count (fftSize/2+1).
+    void reserveBins (int numBins) { if (numBins > 0 && (int) env_.size() < numBins) env_.resize ((size_t) numBins); }
+
     // Fold one FFT magnitude frame into the running HPCP state.
     // `magnitude` has `numBins` entries (typically fftSize/2 + 1); binHz = fs/fftSize.
     void accumulate (const float* magnitude, int numBins, double binHz) noexcept
@@ -86,7 +90,10 @@ public:
 
         // --- spectral whitening envelope: forward+backward 1-pole smoothing of
         //     the magnitude, so peaks are scored by prominence over local timbre. ---
-        env_.assign ((size_t) numBins, 0.0);
+        // Grow only (both passes fully overwrite env_, so it needs sizing not zeroing).
+        // With a fixed FFT this allocates at most once — and never on the audio thread
+        // if the caller warmed it with reserveBins() in prepare().
+        if ((int) env_.size() < numBins) env_.resize ((size_t) numBins);
         double e = 0.0;
         for (int b = 0; b < numBins; ++b)
         { e = kWhitenSmooth * e + (1.0 - kWhitenSmooth) * (double) magnitude[b]; env_[(size_t) b] = e; }

@@ -136,13 +136,26 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
     // the mono engines — listen so a toggle refreshes the host delay-comp figure.
     apvts.addParameterListener ("polyphonic", this);
+    // These also switch the active engine class (and thus the real latency): Transpose
+    // forces Rubber Band whatever else is on, and turning correction off drops the
+    // Polyphonic engine back to the mono path. Listen so the reported latency follows.
+    apvts.addParameterListener ("xposeMode", this);
+    apvts.addParameterListener ("enableCorrection", this);
+
+    // Publish the correction key to the cross-plugin bus on a message-thread heartbeat,
+    // so followers keep tracking even with the editor closed and no neural model. The
+    // publish self-throttles (CAS, ~1 Hz) and no-ops unless AutoKey / Key Map is active.
+    startTimerHz (2);
 }
 
 SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
 {
+    stopTimer();   // bus-publish heartbeat
     apvts.removeParameterListener ("liveEngine", this);
     apvts.removeParameterListener ("lowLatency", this);
     apvts.removeParameterListener ("polyphonic", this);
+    apvts.removeParameterListener ("xposeMode", this);
+    apvts.removeParameterListener ("enableCorrection", this);
     // A latency-refresh may be queued on the message thread; cancel it before we
     // start tearing members down.
     cancelPendingUpdate();
@@ -440,6 +453,9 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // Chroma FFT setup (allocation-free after this). Hann-windowed magnitude
     // spectrum is mapped to 12 pitch classes for polyphonic AutoKey on the SC.
     chromaFft = std::make_unique<juce::dsp::FFT> (chromaFftOrder);
+    // Warm the whitening-envelope buffer off the audio thread so the first AutoKey
+    // chroma window never allocates in accumulate().
+    autoKeyHpcp.reserveBins (chromaFftSize / 2 + 1);
     chromaRing.assign ((size_t) chromaFftSize, 0.0f);
     chromaFftScratch.assign ((size_t) (chromaFftSize * 2), 0.0f);
     chromaHannWindow.assign ((size_t) chromaFftSize, 0.0f);
@@ -591,19 +607,24 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
                            && apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
     const bool corrOn    = apvts.getRawParameterValue ("enableCorrection") == nullptr
                            || apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f;
-    // Polyphonic replaces the mono engine entirely with the phase vocoder, so its
-    // STFT delay (pvFrameSize - pvHop) is the whole reported latency when active.
-    if (polyOn && corrOn)
-        return pvInFifoLatency;
+    const bool xposeOn   = apvts.getRawParameterValue ("xposeMode") != nullptr
+                           && apvts.getRawParameterValue ("xposeMode")->load() > 0.5f;
     // Analytic (not psola.front()) so a Low Latency toggle reports the new value at
     // once, even in the 1-block window before the freshly-built shifter is swapped in.
     const int psolaLatency = psolaLatencyFor (lowLatOn);
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-    return (lowLatOn || liveEngOn) ? psolaLatency : (rbLatency + rbCushion);
+    const int rbLat = rbLatency + rbCushion;
 #else
-    // No Rubber Band: the formant-guide fallback is block-local (~0 latency).
-    return (lowLatOn || liveEngOn) ? psolaLatency : 0;
+    const int rbLat = 0;   // no Rubber Band: the formant-guide fallback is block-local
 #endif
+    // Mirror processBlock's engine precedence EXACTLY, or the host is delay-compensated
+    // for the wrong engine:
+    //   Transpose-to-Key always runs Rubber Band, whatever else is on;
+    //   then Polyphonic (phase vocoder); then PSOLA (Live/Low-Latency); else Rubber Band.
+    if (xposeOn)               return rbLat;
+    if (polyOn && corrOn)      return pvInFifoLatency;
+    if (lowLatOn || liveEngOn) return psolaLatency;
+    return rbLat;
 }
 
 void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float)
@@ -613,8 +634,16 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // thread, and parameterChanged may be called from the audio thread (host
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
-    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic")
+    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic"
+        || parameterID == "xposeMode" || parameterID == "enableCorrection")
         triggerAsyncUpdate();
+}
+
+void SattariAutoPitchAudioProcessor::timerCallback()
+{
+    // Editor-independent, model-independent bus heartbeat. publishCurrentKeyToBus()
+    // self-throttles and returns early unless AutoKey / Key Map is the active source.
+    publishCurrentKeyToBus();
 }
 
 void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
@@ -1067,9 +1096,12 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     const bool mapOn = keyMapDriving();
     if (! autoKeyOn && ! mapOn) return;
 
+    // CAS throttle: the editor timer and the worker thread both call this, so claim the
+    // 1 s window atomically — only the thread that wins the exchange writes the file.
     const auto now = juce::Time::currentTimeMillis();
-    if (now - lastBusPublishMs < 1000) return;
-    lastBusPublishMs = now;
+    juce::int64 prev = lastBusPublishMs.load (std::memory_order_relaxed);
+    if (now - prev < 1000) return;
+    if (! lastBusPublishMs.compare_exchange_strong (prev, now, std::memory_order_relaxed)) return;
 
     const int root  = currentCorrectionRootIndex();
     const int scale = juce::jlimit (0, 2, effectiveScaleIndex());
@@ -1097,9 +1129,15 @@ void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int 
     const int hop = (int) (currentSampleRate * 0.256);
     if (chromaSamplesSinceFft >= hop && sidechainSeenAudio)
     {
-        chromaSamplesSinceFft = 0;
-        runChromaAnalysis();
-        correlateAutoKeyHistogram();
+        chromaSamplesSinceFft = 0;   // reset regardless, so the counter can't grow unbounded
+        // correlateAutoKeyHistogram() writes detectedAutoRoot/Scale — the SECOND writer
+        // besides the mono histogram. Like that one, it must not run while the Key Map is
+        // driving, or the sidechain/poly chroma detector overwrites the map's key.
+        if (! keyMapDriving())
+        {
+            runChromaAnalysis();
+            correlateAutoKeyHistogram();
+        }
     }
 }
 
@@ -1239,8 +1277,12 @@ void SattariAutoPitchAudioProcessor::preparePolyVocoder (int numChannels)
     pvSynMag.assign  ((size_t) (half + 1), 0.0f);
     pvSynPhase.assign((size_t) (half + 1), 0.0f);
     pvBinPeak.assign ((size_t) (half + 1), -1);
-    pvPeakBins.clear();  pvPeakBins.reserve  ((size_t) (half + 1));
-    pvPeakRatio.clear(); pvPeakRatio.reserve ((size_t) (half + 1));
+    pvPeakBins.clear();     pvPeakBins.reserve     ((size_t) (half + 1));
+    pvPeakRatio.clear();    pvPeakRatio.reserve    ((size_t) (half + 1));
+    // pvPeakFund + pvPeakHarmRatio are rebuilt per frame via push_back/assign; reserve
+    // them here too so a frame with many peaks never reallocates on the audio thread.
+    pvPeakFund.clear();     pvPeakFund.reserve     ((size_t) (half + 1));
+    pvPeakHarmRatio.clear(); pvPeakHarmRatio.reserve ((size_t) (half + 1));
 
     pvRover = pvInFifoLatency;
 }
@@ -2014,6 +2056,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     juce::ScopedNoDenormals noDenormals;
     midiLearn.processMidi (midi);
 
+    // Refresh the offline flag FIRST, before any sidechain/chroma work — pushSidechainBlock
+    // -> runChromaAnalysis reads offlineMode to decide sync-vs-async ONNX, so a stale value
+    // (e.g. still true from a just-finished bounce) would run synchronous inference on the
+    // realtime thread for the first playback block. Computed once here and reused below.
+    const bool offline = isNonRealtime();
+    offlineMode.store (offline, std::memory_order_relaxed);
+
     // Low-latency toggle: swap in the message-thread-built PSOLA set (O(1), no alloc).
     // The old shifters stay in pendingPsola and are freed on the next message-thread
     // rebuild, so nothing is deallocated on the audio thread.
@@ -2147,7 +2196,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         if (--pitchSamplesUntilAnalysis <= 0)
         {
             auto detected = analyseCurrentPitchFrame();
-            if (! sidechainSeenAudio)
+            // The mono histogram and the Key Map both write detectedAutoRoot, and this
+            // runs AFTER applyKeyMapAtSeconds in the block — so while the Key Map is
+            // driving, updating the histogram here would clobber the map's key with the
+            // singer's own, retuning to the wrong key while the UI still says "Key Map".
+            // Skip it when the map drives; AutoKey and manual (display) modes are
+            // unaffected. The sidechain path uses the neural chroma detector instead.
+            if (! keyMapDriving() && ! sidechainSeenAudio)
             {
                 // Neural-assisted AutoKey: when CREPE is active + confident, feed
                 // its more-accurate pitch class into the histogram instead of YIN's,
@@ -2191,8 +2246,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // Offline (host bounce): the worker can't keep up, so run the ONNX inference
         // synchronously here — otherwise the neural detector silently degrades to YIN
         // on a render. Realtime path is unchanged (reads the worker's result atomics).
-        const bool offline = isNonRealtime();
-        offlineMode.store (offline, std::memory_order_relaxed);
+        // `offline` was computed at the top of the block (before any chroma work).
         float crHz, crConf; bool crVoiced;
         if (offline)
         {

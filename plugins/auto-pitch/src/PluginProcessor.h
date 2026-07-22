@@ -26,7 +26,8 @@
 
 class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
                                              private juce::AudioProcessorValueTreeState::Listener,
-                                             private juce::AsyncUpdater
+                                             private juce::AsyncUpdater,
+                                             private juce::Timer
 {
 public:
     SattariAutoPitchAudioProcessor();
@@ -232,6 +233,10 @@ private:
     double psolaFloorHz  (bool lowLatency) const;
     void parameterChanged (const juce::String& parameterID, float newValue) override;
     void handleAsyncUpdate() override;
+    // Message-thread heartbeat (~2 Hz) that republishes the key to the cross-plugin bus
+    // whether or not the editor is open and whether or not a neural model is installed —
+    // the worker thread only exists when a model is present, so publishing can't live there.
+    void timerCallback() override;
 
     juce::AudioProcessorValueTreeState apvts;
 public:
@@ -284,7 +289,11 @@ private:
     // Sattari plugins follow tempo / react to onsets, not just the key.
     std::atomic<double>      hostBpmForBus { 0.0 };
     std::atomic<juce::int64> sessionTransientId { 0 };
-    juce::int64              lastBusPublishMs = 0;   // per-instance bus publish throttle
+    // Per-instance bus publish throttle. Atomic + CAS because publishing now happens
+    // from BOTH the editor timer (immediate while open) and the CREPE worker thread
+    // (so the key keeps broadcasting after the GUI is closed) — the CAS guarantees at
+    // most one writer per second, so the two threads never write the bus file at once.
+    std::atomic<juce::int64> lastBusPublishMs { 0 };
 
     // Follow Song Key: read the key Sattari Key (or any publisher) puts on the bus.
     sattari::xplugin::SessionReader sessionReader;
