@@ -66,6 +66,30 @@ SattariRhythmGenieAudioProcessor::SattariRhythmGenieAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    grid.setLanes (kGridLanes);
+    grid.setSteps (kSteps);
+    regenerateGrid();   // seed an editable groove from the default style
+}
+
+int SattariRhythmGenieAudioProcessor::kitLaneNote (int lane) noexcept
+{
+    // GM drum map for the 8 kit voices (kick snare chat ohat clap tom rim ride).
+    static const int notes[kGridLanes] = { 36, 38, 42, 46, 39, 45, 37, 51 };
+    return (lane >= 0 && lane < kGridLanes) ? notes[lane] : 36;
+}
+
+// Fill the drum lanes (0-3) from the current style + density; hand-placed sounds on
+// lanes 4-7 survive (SattariGroove only touches 0-3). Called from the constructor and
+// the editor's Generate button.
+void SattariRhythmGenieAudioProcessor::regenerateGrid()
+{
+    using GS = sattari::dsp::GrooveStyle;
+    // Style order: Four on Floor / Boom Bap / Trap / Pop / Breakbeat / Half-Time.
+    static const GS map[6] = { GS::FourFloor, GS::BoomBap, GS::Trap, GS::House, GS::Breakbeat, GS::HalfTime };
+    const int styleIdx = juce::jlimit (0, 5, (int) std::round (param ("style")));
+    grid.setLanes (kGridLanes);
+    grid.setSteps (kSteps);
+    sattari::dsp::generate (grid, map[styleIdx], param ("density"), (std::uint32_t) (rng.nextInt() | 1));
 }
 
 void SattariRhythmGenieAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -110,8 +134,9 @@ bool SattariRhythmGenieAudioProcessor::isBusesLayoutSupported (const BusesLayout
 bool SattariRhythmGenieAudioProcessor::laneEnabled (int lane) const noexcept
 {
     static const char* ids[kNumLanes] = { "kickOn", "snareOn", "chatOn", "ohatOn" };
-    if (lane < 0 || lane >= kNumLanes) return false;
-    return apvts.getRawParameterValue (ids[lane])->load() > 0.5f;
+    if (lane < 0 || lane >= kGridLanes) return false;
+    if (lane < kNumLanes) return apvts.getRawParameterValue (ids[lane])->load() > 0.5f;
+    return true;   // lanes 4-7 (clap/tom/rim/ride) have no mute toggle; always active
 }
 
 void SattariRhythmGenieAudioProcessor::allNotesOff (juce::MidiBuffer& out)
@@ -128,23 +153,25 @@ void SattariRhythmGenieAudioProcessor::allNotesOff (juce::MidiBuffer& out)
 void SattariRhythmGenieAudioProcessor::emitStep (int stepIdx, int sampleOffset,
                                                  juce::MidiBuffer& out, double samplesPerStep)
 {
-    const auto& pat   = pattern ((int) std::round (param ("style")));
-    const float dens  = param ("density");
     const float vBase = param ("velocity");
     const float acc   = param ("accent");
     const float hum   = param ("humanize");
     const int   gateS = juce::jmax (1, (int) (param ("gate") * samplesPerStep));
 
-    for (int lane = 0; lane < kNumLanes; ++lane)
+    for (int lane = 0; lane < kGridLanes; ++lane)
     {
-        if (! laneEnabled (lane) || ! stepActive (pat, lane, stepIdx, dens))
+        // The editable grid is the source of truth: a cell fires (probability-gated) and
+        // carries its own velocity, so hand-drawn / generated patterns both work.
+        if (! laneEnabled (lane) || ! grid.fires (lane, stepIdx, rng.nextFloat()))
             continue;
 
-        float v = vBase;
+        const float cellV = grid.velocity (lane, stepIdx);           // per-cell dynamics
+        float v = vBase * (0.6f + 0.5f * cellV);                     // knob = master level
         if (stepIdx % 4 == 0) v += acc * 0.3f;                       // downbeat accent
         v += (rng.nextFloat() * 2.0f - 1.0f) * 0.15f * hum;          // humanise
+        v = juce::jlimit (0.0f, 1.0f, v);
         const int vel = juce::jlimit (1, 127, (int) std::round (v * 127.0f));
-        const int note = laneNote (lane);
+        const int note = kitLaneNote (lane);
 
         out.addEvent (juce::MidiMessage::noteOn (kDrumChannel, note, (juce::uint8) vel), sampleOffset);
         if (pendingOffCount < kMaxPendingOffs)
@@ -386,6 +413,21 @@ void SattariRhythmGenieAudioProcessor::getStateInformation (juce::MemoryBlock& d
         pads->setAttribute ("n", (int) v.size());
         for (int i = 0; i < (int) v.size(); ++i)
             pads->setAttribute ("b" + juce::String (i), v[(size_t) i]);
+
+        // Persist the editable grid (only the ON cells, so it stays compact).
+        auto* g = xml->createNewChildElement ("GRID");
+        g->setAttribute ("lanes", grid.lanes());
+        g->setAttribute ("steps", grid.steps());
+        for (int l = 0; l < grid.lanes(); ++l)
+            for (int s = 0; s < grid.steps(); ++s)
+                if (grid.on (l, s))
+                {
+                    auto* c = g->createNewChildElement ("c");
+                    c->setAttribute ("l", l);
+                    c->setAttribute ("s", s);
+                    c->setAttribute ("v", grid.velocity (l, s));
+                    c->setAttribute ("p", grid.probability (l, s));
+                }
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -401,6 +443,16 @@ void SattariRhythmGenieAudioProcessor::setStateInformation (const void* data, in
             for (int i = 0; i < n; ++i)
                 v[(size_t) i] = pads->getIntAttribute ("b" + juce::String (i), -1);
             padMap.fromState (v);
+        }
+        if (auto* g = xml->getChildByName ("GRID"))
+        {
+            grid.clear();
+            grid.setLanes (g->getIntAttribute ("lanes", kGridLanes));
+            grid.setSteps (g->getIntAttribute ("steps", kSteps));
+            for (auto* c : g->getChildWithTagNameIterator ("c"))
+                grid.set (c->getIntAttribute ("l", -1), c->getIntAttribute ("s", -1), true,
+                          (float) c->getDoubleAttribute ("v", 0.8),
+                          (float) c->getDoubleAttribute ("p", 1.0));
         }
         if (xml->hasTagName (apvts.state.getType()))
             apvts.replaceState (juce::ValueTree::fromXml (*xml));

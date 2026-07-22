@@ -25,8 +25,10 @@ private:
     void setupSlider (juce::Slider&);
     void setupKitKnob (juce::Slider&);
     bool keyPressed (const juce::KeyPress& key) override;
+    void mouseDown (const juce::MouseEvent& e) override;
     void timerCallback() override;
     void drawGrid (juce::Graphics&, juce::Rectangle<int> area);
+    bool gridCellAt (juce::Point<int> p, int& laneOut, int& stepOut) const;
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
     void refreshPadLabels();
@@ -55,6 +57,9 @@ private:
     juce::ToggleButton loopButton { "Loop" };
     juce::ComboBox     loopBarsBox;
     std::unique_ptr<ComboAttachment> loopBarsAtt;
+
+    // Editable-grid controls.
+    juce::TextButton generateButton { "Generate" }, clearButton { "Clear" };
 
     std::unique_ptr<ComboAttachment> styleAtt;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAtts;

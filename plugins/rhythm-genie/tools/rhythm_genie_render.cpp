@@ -97,6 +97,60 @@ int runLoopTest()
     return 0;
 }
 
+// Editable-grid proof: an empty grid is silent; toggling cells makes exactly those lanes
+// fire — including lane 4 (Clap = GM 39), proving the 8-lane grid drives the output.
+int runGridTest()
+{
+    const double sr = 48000.0; const int block = 512; const double bpm = 120.0;
+    SattariRhythmGenieAudioProcessor proc;
+    auto& apvts = proc.parameters();
+    setParam (apvts, "swing", 0.0f); setParam (apvts, "humanize", 0.0f);
+    setParam (apvts, "kickOn", 1.0f); setParam (apvts, "snareOn", 1.0f);
+    setParam (apvts, "chatOn", 1.0f); setParam (apvts, "ohatOn", 1.0f);
+
+    MockPlayHead mph; mph.bpm = bpm; mph.playing = true;
+    proc.setPlayHead (&mph);
+    proc.prepareToPlay (sr, block);
+    const double spb = sr * 60.0 / bpm;
+    const double bb  = block / spb;
+
+    // 1) Cleared grid = no notes across a bar.
+    proc.clearGrid();
+    int cleared = 0;
+    for (double ppq = 0.0; ppq < 4.0; ppq += bb)
+    {
+        mph.ppq = ppq;
+        juce::AudioBuffer<float> a (2, block); a.clear();
+        juce::MidiBuffer m; proc.processBlock (a, m);
+        for (const auto meta : m) if (meta.getMessage().isNoteOn()) ++cleared;
+    }
+
+    // 2) Toggle kick (lane 0) and clap (lane 4) on step 0 — both must fire their GM notes.
+    proc.toggleCell (0, 0);
+    proc.toggleCell (4, 0);
+    bool sawKick = false, sawClap = false; int edited = 0;
+    for (double ppq = 0.0; ppq < 1.0; ppq += bb)
+    {
+        mph.ppq = ppq;
+        juce::AudioBuffer<float> a (2, block); a.clear();
+        juce::MidiBuffer m; proc.processBlock (a, m);
+        for (const auto meta : m)
+        {
+            const auto msg = meta.getMessage();
+            if (! msg.isNoteOn()) continue;
+            ++edited;
+            if (msg.getNoteNumber() == 36) sawKick = true;   // GM kick
+            if (msg.getNoteNumber() == 39) sawClap = true;   // GM clap (lane 4)
+        }
+    }
+
+    std::printf ("Rhythm Genie grid: cleared-notes=%d, edited kick=%d clap=%d\n", cleared, (int) sawKick, (int) sawClap);
+    if (cleared != 0) { std::fprintf (stderr, "FAIL: cleared grid still emitted %d note(s)\n", cleared); return 1; }
+    if (! sawKick)    { std::fprintf (stderr, "FAIL: toggled kick cell (lane 0) did not fire GM 36\n"); return 1; }
+    if (! sawClap)    { std::fprintf (stderr, "FAIL: toggled clap cell (lane 4) did not fire GM 39\n"); return 1; }
+    return 0;
+}
+
 // Count note-ons for a given note whose PPQ position lands near an integer beat.
 int onBeatCount (const std::vector<std::pair<double,int>>& notes, int note, double maxBeats)
 {
@@ -190,6 +244,7 @@ int main (int argc, char** argv)
     }
 
     if (runLoopTest() != 0) return 1;   // seamless loop mode: capture + replay
+    if (runGridTest() != 0) return 1;   // editable multi-lane grid: clear + toggle
 
     if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes, audio peak %.3f)\n", onCount, playPeak); return 0; }
 

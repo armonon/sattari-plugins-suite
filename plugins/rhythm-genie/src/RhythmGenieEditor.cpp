@@ -5,9 +5,10 @@ using namespace sattari::rhythm;
 
 namespace
 {
-const std::array<juce::Colour, kNumLanes> kLaneColours {
-    juce::Colour (0xff62f5c8), juce::Colour (0xff7dd3fc),
-    juce::Colour (0xff34d8b4), juce::Colour (0xff8ce0d0) };
+// One colour per kit voice (8 lanes).
+const std::array<juce::Colour, 8> kLaneColours {
+    juce::Colour (0xff62f5c8), juce::Colour (0xff7dd3fc), juce::Colour (0xff34d8b4), juce::Colour (0xff8ce0d0),
+    juce::Colour (0xfff5c862), juce::Colour (0xfff57d9c), juce::Colour (0xffc89cf5), juce::Colour (0xff9cf5c8) };
 
 // The 8 kit voices in lane order (matches DrumPadMap / DrumKit lane assignment).
 const char* const kPadNames[8] = { "Kick", "Snare", "C.Hat", "O.Hat", "Clap", "Tom", "Rim", "Ride" };
@@ -20,7 +21,7 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
       presetManager (p.parameters(), "rhythm-genie")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (960, 720);
+    setSize (960, 772);
     setWantsKeyboardFocus (true);   // laptop keyboard plays the pads
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Rhythm Genie");
@@ -110,6 +111,12 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
     addAndMakeVisible (loopBarsBox);
     loopBarsAtt = std::make_unique<ComboAttachment> (params, "loopBars", loopBarsBox);
 
+    // Editable-grid controls: Generate fills lanes from the style, Clear wipes it.
+    generateButton.onClick = [this] { processor.regenerateGrid(); repaint(); };
+    clearButton.onClick    = [this] { processor.clearGrid();      repaint(); };
+    addAndMakeVisible (generateButton);
+    addAndMakeVisible (clearButton);
+
     startTimerHz (30);
 }
 
@@ -143,6 +150,31 @@ bool SattariRhythmGenieAudioProcessorEditor::keyPressed (const juce::KeyPress& k
         return true;   // consume so it doesn't beep
     }
     return false;
+}
+
+// Map a point to a grid cell using the same geometry as drawGrid.
+bool SattariRhythmGenieAudioProcessorEditor::gridCellAt (juce::Point<int> p, int& laneOut, int& stepOut) const
+{
+    const auto& bg = processor.beatGrid();
+    const int lanes = bg.lanes(), steps = bg.steps();
+    const int labelW = 78;
+    auto gr = gridArea.reduced (10).withTrimmedLeft (labelW);
+    if (! gr.contains (p) || steps <= 0 || lanes <= 0) return false;
+    const int s = (int) ((float) (p.x - gr.getX()) / (gr.getWidth()  / (float) steps));
+    const int l = (int) ((float) (p.y - gr.getY()) / (gr.getHeight() / (float) lanes));
+    if (s < 0 || s >= steps || l < 0 || l >= lanes) return false;
+    laneOut = l; stepOut = s; return true;
+}
+
+// Click a grid cell to toggle it (draw / erase steps live).
+void SattariRhythmGenieAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+{
+    int lane = 0, step = 0;
+    if (gridCellAt (e.getPosition(), lane, step))
+    {
+        processor.toggleCell (lane, step);
+        repaint();
+    }
 }
 
 // Show each pad's bound MIDI note + key, and highlight the one currently arming for learn.
@@ -202,16 +234,14 @@ void SattariRhythmGenieAudioProcessorEditor::drawGrid (juce::Graphics& g, juce::
     g.setColour (juce::Colour (sattari::brand::kHairline));
     g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
 
+    const auto& bg = processor.beatGrid();
+    const int lanes = bg.lanes();
+    const int steps = bg.steps();
     const int labelW = 78;
     auto grid = area.reduced (10).withTrimmedLeft (labelW);
-    const float cellW = grid.getWidth()  / (float) kSteps;
-    const float cellH = grid.getHeight() / (float) kNumLanes;
+    const float cellW = grid.getWidth()  / (float) steps;
+    const float cellH = grid.getHeight() / (float) lanes;
     const int   step  = processor.currentStep();
-
-    auto& apvts = processor.parameters();
-    const int   style = (int) std::round (apvts.getRawParameterValue ("style")->load());
-    const float dens  = apvts.getRawParameterValue ("density")->load();
-    const auto& pat   = pattern (style);
 
     // playhead column
     if (step >= 0)
@@ -220,29 +250,30 @@ void SattariRhythmGenieAudioProcessorEditor::drawGrid (juce::Graphics& g, juce::
         g.fillRect (grid.getX() + step * cellW, (float) area.getY() + 6.0f, cellW, (float) area.getHeight() - 12.0f);
     }
 
-    for (int lane = 0; lane < kNumLanes; ++lane)
+    for (int lane = 0; lane < lanes; ++lane)
     {
         const float y = grid.getY() + lane * cellH;
-        g.setColour (juce::Colour (sattari::brand::kTextMuted));
+        const bool on = processor.laneEnabled (lane);
+        g.setColour (juce::Colour (sattari::brand::kTextMuted).withAlpha (on ? 1.0f : 0.4f));
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        g.drawText (laneName (lane), area.getX() + 12, (int) y, labelW - 6, (int) cellH,
+        g.drawText (lane < 8 ? kPadNames[lane] : "-", area.getX() + 12, (int) y, labelW - 6, (int) cellH,
                     juce::Justification::centredLeft);
 
-        const bool on = processor.laneEnabled (lane);
-        for (int s = 0; s < kSteps; ++s)
+        for (int s = 0; s < steps; ++s)
         {
             const float x = grid.getX() + s * cellW;
             juce::Rectangle<float> cell (x + 1.5f, y + 1.5f, cellW - 3.0f, cellH - 3.0f);
-            const bool hit = on && stepActive (pat, lane, s, dens);
+            const bool hit = bg.on (lane, s);
             const bool beat = (s % 4) == 0;
 
             g.setColour (juce::Colour (beat ? sattari::brand::kPanelRaised : sattari::brand::kPanel));
             g.fillRoundedRectangle (cell, 3.0f);
             if (hit)
             {
-                auto c = kLaneColours[(size_t) lane];
+                auto c = kLaneColours[(size_t) (lane % (int) kLaneColours.size())];
                 const bool live = (s == step);
-                g.setColour (live ? juce::Colours::white : c.withAlpha (0.92f));
+                g.setColour (on ? (live ? juce::Colours::white : c.withAlpha (0.92f))
+                                : c.withAlpha (0.30f));   // muted lane: dimmed
                 g.fillRoundedRectangle (cell.reduced (1.0f), 3.0f);
             }
         }
@@ -323,9 +354,15 @@ void SattariRhythmGenieAudioProcessorEditor::resized()
     loopButton.setBounds (presetRow.removeFromLeft (66));
     presetRow.removeFromLeft (4);
     loopBarsBox.setBounds (presetRow.removeFromLeft (86));
-    area.removeFromTop (12);
+    area.removeFromTop (8);
 
-    gridArea = area.removeFromTop (168);
+    auto gridControls = area.removeFromTop (26);
+    generateButton.setBounds (gridControls.removeFromLeft (96));
+    gridControls.removeFromLeft (6);
+    clearButton.setBounds (gridControls.removeFromLeft (72));
+    area.removeFromTop (6);
+
+    gridArea = area.removeFromTop (210);   // 8 lanes
     area.removeFromTop (24);   // room for knob captions
 
     auto knobs = area.removeFromTop (88);

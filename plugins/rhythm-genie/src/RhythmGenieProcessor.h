@@ -7,6 +7,8 @@
 #include <sattari_audio_core/SattariDrumKit.h>
 #include <sattari_audio_core/SattariDrumPads.h>
 #include <sattari_audio_core/SattariDrumLooper.h>
+#include <sattari_audio_core/SattariBeatGrid.h>
+#include <sattari_audio_core/SattariGroove.h>
 #include "RhythmPatterns.h"
 #include <array>
 #include <atomic>
@@ -55,6 +57,14 @@ public:
     int  currentStep() const noexcept { return playStep.load(); }
     bool laneEnabled (int lane) const noexcept;
 
+    // --- Editable beat grid (drives all 8 kit lanes) --------------------------
+    static constexpr int kGridLanes = 8;   // one per kit voice
+    static int  kitLaneNote (int lane) noexcept;       // GM note per lane (8 voices)
+    const sattari::dsp::BeatGrid& beatGrid() const noexcept { return grid; }
+    void regenerateGrid();                 // fill lanes 0-3 from the current style + density
+    void clearGrid() noexcept { grid.clear(); }
+    void toggleCell (int lane, int step) noexcept { grid.toggle (lane, step); }
+
     // --- Editor -> audio live triggering (all message-thread, lock-free) --------
     // The editor pushes gestures here; the audio thread drains them and does all pad-map
     // binding, so learn ("Set" then play a note/key) resolves on the audio thread.
@@ -91,6 +101,7 @@ private:
     sattari::dsp::DrumKit<kKitLanes> kit;
     sattari::dsp::DrumPadMap         padMap { kKitLanes };
     sattari::dsp::DrumLooper         looper;       // live-pad loop ("looper feel")
+    sattari::dsp::BeatGrid           grid;         // editable step grid (8 lanes x 16 steps)
     double loopClockBeats = 0.0;                   // free-running loop position when stopped
     bool   wasLoopOn = false;                      // detect enable edge -> fresh capture
     std::vector<float>               kitScratch;   // mono render buffer (sized in prepare)
