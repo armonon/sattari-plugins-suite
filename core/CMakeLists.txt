@@ -127,6 +127,15 @@ target_link_libraries(SattariAudioCoreDrumPadsContract
     PRIVATE
         SattariAudioCore)
 
+# Tap-drum loop contract (pure-std). Feel-preserving looper: phase-recorded hits
+# replay once per cycle, boundary wrap drops/doubles nothing, overdub adds hits.
+add_executable(SattariAudioCoreDrumLooperContract
+    tests/drum_looper_contract.cpp)
+
+target_link_libraries(SattariAudioCoreDrumLooperContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
