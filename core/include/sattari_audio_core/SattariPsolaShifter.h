@@ -127,7 +127,12 @@ private:
     {
         const int    half = (int) std::floor (P);
         if (half < 1) return;
-        const int64_t a  = (int64_t) std::llround (s / P) * (int64_t) std::llround (P); // nearest analysis mark
+        // Nearest analysis mark: pick the mark INDEX n = round(s/P), then place it at
+        // round(n*P). The old form round(s/P)*round(P) multiplied the index by the
+        // INTEGER-rounded period, so for any non-integer P (i.e. essentially every
+        // voiced pitch) the mark drifted n*(round(P)-P) samples off the input and the
+        // grain fell outside the ring within seconds — the monitor faded to silence.
+        const int64_t a  = (int64_t) std::llround ((double) std::llround (s / P) * P);   // nearest analysis mark
         const int64_t sc = (int64_t) std::llround (s);                                  // synth centre
         const int64_t oldest = writePos - (int64_t) inRing.size() + 2;
 

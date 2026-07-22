@@ -189,6 +189,34 @@ int main()
         if (peak > 8.0f) { std::printf ("  FAIL runaway peak %.2f at alpha=%.2f\n", peak, alpha); ++fails; }
     }
 
+    // 5) SUSTAIN: a long steady tone at a NON-INTEGER period must not decay. This is
+    //    the case the original test missed — it used f0=150 @ 48k, period=320.0 exactly
+    //    integer, the one value where the drifting-mark bug (round(s/P)*round(P)) is
+    //    invisible. With a fractional period the buggy analysis mark walked off the
+    //    input ring and the output faded to full silence within ~3 s. Assert the tail
+    //    RMS is still a healthy fraction of the head RMS over several seconds.
+    for (double periodSamples : { 100.5, 200.5, 137.3, 289.7 })
+    {
+        const double f0s = sr / periodSamples;
+        const auto tone = makeVoice (sr, f0s, (int) (sr * 6.0)); // 6 seconds
+        sattari::dsp::PsolaShifter ps; ps.prepare (sr);
+        const auto y = runShifter (ps, tone, 1.0, periodSamples, block);   // unity pitch (identity)
+
+        auto rmsWindow = [&] (double t0, double t1)
+        {
+            const int a = (int) (t0 * sr), b = std::min ((int) (t1 * sr), (int) y.size());
+            double acc = 0.0; int cnt = 0;
+            for (int i = a; i < b; ++i) { acc += (double) y[(size_t) i] * y[(size_t) i]; ++cnt; }
+            return cnt > 0 ? std::sqrt (acc / cnt) : 0.0;
+        };
+        const double head = rmsWindow (0.5, 1.0);               // after warm-up
+        const double tail = rmsWindow (5.0, 5.8);               // seconds later
+        bool finite = true; for (float v : y) if (! std::isfinite (v)) finite = false;
+        if (! finite)                    { std::printf ("  FAIL non-finite sustain P=%.1f\n", periodSamples); ++fails; }
+        if (head < 1.0e-3)               { std::printf ("  FAIL sustain never started P=%.1f\n", periodSamples); ++fails; }
+        else if (tail < 0.5 * head)      { std::printf ("  FAIL sustain DECAYED P=%.1f  head=%.4f tail=%.4f\n", periodSamples, head, tail); ++fails; }
+    }
+
     std::printf (fails == 0 ? "PsolaShifter contract ok\n" : "PsolaShifter contract FAILED (%d)\n", fails);
     return fails == 0 ? 0 : 1;
 }
