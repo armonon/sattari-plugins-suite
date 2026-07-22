@@ -136,6 +136,15 @@ target_link_libraries(SattariAudioCoreDrumLooperContract
     PRIVATE
         SattariAudioCore)
 
+# Editable step-grid contract (pure-std). Lanes x steps with on/velocity/probability,
+# loop length = active step count, deterministic probability gating.
+add_executable(SattariAudioCoreBeatGridContract
+    tests/beat_grid_contract.cpp)
+
+target_link_libraries(SattariAudioCoreBeatGridContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
