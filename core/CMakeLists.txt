@@ -108,6 +108,16 @@ target_link_libraries(SattariAudioCoreKWeightingContract
     PRIVATE
         SattariAudioCore)
 
+# Synthesised drum-voice engine contract (pure-std). Backs the Rhythm Genie beat
+# machine: locks that every voice sounds + rings out, Decay lengthens tails, and
+# brightness is ordered like real drums (kick dull, hats bright).
+add_executable(SattariAudioCoreDrumKitContract
+    tests/drum_kit_contract.cpp)
+
+target_link_libraries(SattariAudioCoreDrumKitContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
