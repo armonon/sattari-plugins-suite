@@ -80,9 +80,15 @@ cat > "$hub_app/Contents/PkgInfo" <<<"APPLSatr"
 #    The Hub reads the manifest and finds these via Bundle.main.resourceURL.
 # ---------------------------------------------------------------------------
 echo "== bundling plugin payloads =="
+# The manifest paths are rooted at build/all (the canonical output tree). Set
+# SATTARI_BUILD_TREE=build/local to SOURCE payloads from a different build tree while
+# keeping the Hub's internal layout (and thus runtime lookup) identical.
+build_tree="${SATTARI_BUILD_TREE:-build/all}"
+echo "   sourcing payloads from: $build_tree"
 copied=0; missing=0
 while IFS= read -r relative_path; do
-    src="$repo_root/$relative_path"
+    src_rel="${relative_path/build\/all/$build_tree}"
+    src="$repo_root/$src_rel"
     if [ -e "$src" ]; then
         dst="$hub_app/Contents/Resources/Payload/$relative_path"
         mkdir -p "$(dirname "$dst")"
@@ -90,7 +96,7 @@ while IFS= read -r relative_path; do
         ditto "$src" "$dst"
         copied=$((copied + 1))
     else
-        echo "  WARN: missing $relative_path"
+        echo "  WARN: missing $src_rel"
         missing=$((missing + 1))
     fi
 done < <(python3 -c "
