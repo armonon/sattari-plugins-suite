@@ -118,6 +118,15 @@ target_link_libraries(SattariAudioCoreDrumKitContract
     PRIVATE
         SattariAudioCore)
 
+# Playable drum-pad bindings + learn-flow contract (pure-std). The "press Set, press
+# anything, it's mapped" experience: MIDI/key bindings, one-touch learn, move-on-rebind.
+add_executable(SattariAudioCoreDrumPadsContract
+    tests/drum_pads_contract.cpp)
+
+target_link_libraries(SattariAudioCoreDrumPadsContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)
