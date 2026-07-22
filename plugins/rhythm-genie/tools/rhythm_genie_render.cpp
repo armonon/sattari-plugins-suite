@@ -9,6 +9,7 @@
 //   rhythm_genie_render --smoke  # assert some notes are emitted (CI-safe)
 #include "RhythmGenieProcessor.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -25,15 +26,25 @@ void setParam (juce::AudioProcessorValueTreeState& apvts, const juce::String& id
 struct MockPlayHead : juce::AudioPlayHead
 {
     double ppq = 0.0, bpm = 120.0;
+    bool playing = true;
     juce::Optional<PositionInfo> getPosition() const override
     {
         PositionInfo info;
         info.setBpm (bpm);
         info.setPpqPosition (ppq);
-        info.setIsPlaying (true);
+        info.setIsPlaying (playing);
         return info;
     }
 };
+
+// Peak absolute sample across a buffer — a cheap "did it make sound" probe.
+float bufferPeak (const juce::AudioBuffer<float>& b)
+{
+    float pk = 0.0f;
+    for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        pk = std::max (pk, b.getMagnitude (ch, 0, b.getNumSamples()));
+    return pk;
+}
 
 // Count note-ons for a given note whose PPQ position lands near an integer beat.
 int onBeatCount (const std::vector<std::pair<double,int>>& notes, int note, double maxBeats)
@@ -79,12 +90,14 @@ int main (int argc, char** argv)
     std::vector<std::pair<double,int>> notes;    // (ppqPosition, note)
     double ppq = 0.0;
     int onCount = 0;
+    float playPeak = 0.0f;                        // loudest sample while the sequencer plays
     while (ppq < 4.2)                            // a bit over one 4/4 bar
     {
         mph.ppq = ppq;
         juce::AudioBuffer<float> audio (2, block); audio.clear();
         juce::MidiBuffer midi;
         proc.processBlock (audio, midi);
+        playPeak = std::max (playPeak, bufferPeak (audio));
         for (const auto meta : midi)
         {
             const auto m = meta.getMessage();
@@ -98,7 +111,34 @@ int main (int argc, char** argv)
     }
 
     if (onCount == 0) { std::fprintf (stderr, "FAIL: no MIDI generated\n"); return 1; }
-    if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes)\n", onCount); return 0; }
+
+    // The kit is an instrument now: the same steps that emit MIDI must also make sound.
+    if (playPeak < 1.0e-3f) { std::fprintf (stderr, "FAIL: sequencer produced no audio (peak %.6f)\n", playPeak); return 1; }
+    // ...and a full bar of hits must stay under 0 dBFS (soft-clipped bus), not blow the master.
+    if (playPeak > 1.0f)    { std::fprintf (stderr, "FAIL: kit bus clips over 0 dBFS (peak %.6f)\n", playPeak); return 1; }
+
+    // Live pad while STOPPED: an incoming MIDI note (GM kick = 36) must voice the kit even
+    // with the transport stopped, and a ring-out tail must persist after the note.
+    {
+        mph.playing = false;
+        float stoppedPeak = 0.0f, tailPeak = 0.0f;
+        for (int blk = 0; blk < 20; ++blk)
+        {
+            juce::AudioBuffer<float> audio (2, block); audio.clear();
+            juce::MidiBuffer midi;
+            if (blk == 0) midi.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 110), 0);
+            proc.processBlock (audio, midi);
+            const float pk = bufferPeak (audio);
+            stoppedPeak = std::max (stoppedPeak, pk);
+            if (blk >= 1) tailPeak = std::max (tailPeak, pk);   // audio after the trigger block
+        }
+        if (stoppedPeak < 1.0e-3f) { std::fprintf (stderr, "FAIL: live pad silent while stopped (peak %.6f)\n", stoppedPeak); return 1; }
+        if (tailPeak    < 1.0e-4f) { std::fprintf (stderr, "FAIL: drum voice did not ring out (tail %.6f)\n", tailPeak); return 1; }
+        std::printf ("Rhythm Genie audio: sequencer peak=%.3f, live-pad peak=%.3f, tail=%.4f\n",
+                     playPeak, stoppedPeak, tailPeak);
+    }
+
+    if (smoke) { std::printf ("Rhythm Genie render smoke ok (%d notes, audio peak %.3f)\n", onCount, playPeak); return 0; }
 
     const int kicks  = onBeatCount (notes, 36, 4.0);   // kick on 0,1,2,3
     const int snares = onBeatCount (notes, 38, 4.0);   // snare on 1,3

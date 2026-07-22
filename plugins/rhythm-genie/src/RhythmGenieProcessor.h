@@ -4,6 +4,8 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariDrumKit.h>
+#include <sattari_audio_core/SattariDrumPads.h>
 #include "RhythmPatterns.h"
 #include <array>
 #include <atomic>
@@ -35,7 +37,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return 2.0; }   // longest drum tail (ride/808)
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -52,6 +54,18 @@ public:
     int  currentStep() const noexcept { return playStep.load(); }
     bool laneEnabled (int lane) const noexcept;
 
+    // --- Editor -> audio live triggering (all message-thread, lock-free) --------
+    // The editor pushes gestures here; the audio thread drains them and does all pad-map
+    // binding, so learn ("Set" then play a note/key) resolves on the audio thread.
+    void pushLiveNote (int note, float velocity) noexcept;   // on-screen keys / external note
+    void pushLiveKey  (int keyCode, float velocity) noexcept; // computer-keyboard pad
+    void pushLiveLane (int lane, float velocity) noexcept;    // direct pad-button hit
+    void armLearn (int pad) noexcept { padMap.armLearn (pad); }
+    void cancelLearn() noexcept { padMap.cancelLearn(); }
+    int  learningPad() const noexcept { return padMap.learning(); }
+    int  padMidiNote (int pad) const noexcept { return padMap.midiNote (pad); }
+    int  padKeyCode  (int pad) const noexcept { return padMap.keyCode (pad); }
+
     // Publish the current tempo + transient-pulse count to the cross-plugin tempo
     // bus. Called from the editor timer (message thread — file I/O is fine there),
     // throttled internally, so Rhythm Genie acts as the suite's tempo source.
@@ -64,6 +78,38 @@ private:
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void  emitStep (int stepIdx, int sampleOffset, juce::MidiBuffer& out, double samplesPerStep);
     void  allNotesOff (juce::MidiBuffer& out);
+
+    // --- Audio drum engine ---------------------------------------------------
+    // Rhythm Genie is now an instrument: the same step decisions that emit MIDI also
+    // trigger a synth kit, and incoming MIDI notes / the editor's pads play it live.
+    static constexpr int kKitLanes = 8;   // 0 kick 1 snare 2 chat 3 ohat 4 clap 5 tom 6 rim 7 ride
+    void queueKitHit (int lane, float velocity, int sampleOffset) noexcept;
+    void renderKit (juce::AudioBuffer<float>& buffer, int numSamples) noexcept;
+    sattari::dsp::DrumVoiceParams laneVoiceParams (int lane) const noexcept;
+
+    sattari::dsp::DrumKit<kKitLanes> kit;
+    sattari::dsp::DrumPadMap         padMap { kKitLanes };
+    std::vector<float>               kitScratch;   // mono render buffer (sized in prepare)
+    struct KitHit { int lane; float velocity; int offset; };
+    static constexpr int kMaxKitHits = 256;
+    std::array<KitHit, kMaxKitHits>  kitHits {};
+    int kitHitCount = 0;
+
+    // Shaping-param pointers cached in prepare so the audio thread never touches the
+    // APVTS map or builds parameter-id strings while rendering.
+    std::atomic<float>* laneLevelP[sattari::rhythm::kNumLanes] {};
+    std::atomic<float>* laneTuneP [sattari::rhythm::kNumLanes] {};
+    std::atomic<float>* laneDecayP[sattari::rhythm::kNumLanes] {};
+    std::atomic<float>* kitLevelP = nullptr;
+
+    // Lock-free SPSC FIFO: editor (message thread) -> audio thread live hits.
+    struct LiveHit { int kind; int id; float velocity; };   // kind 0 note, 1 key, 2 lane
+    static constexpr int kLiveFifoSize = 64;
+    std::array<LiveHit, kLiveFifoSize> liveFifo {};
+    std::atomic<int> liveWrite { 0 };
+    std::atomic<int> liveRead  { 0 };
+    void pushLive (int kind, int id, float velocity) noexcept;
+    void drainLiveHits() noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
 
