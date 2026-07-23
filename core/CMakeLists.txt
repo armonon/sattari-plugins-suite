@@ -213,6 +213,16 @@ target_link_libraries(SattariAudioCoreSliceTableContract
     PRIVATE
         SattariAudioCore)
 
+# Chop onset-curve contract (pure-std). Analyse-once + cheap re-threshold, markers on
+# transients, monotonic sensitivity, refractory. Real-material proof is the separate
+# chop_onset_probe tool (GiantSteps corpus) — synthetic input alone proves nothing.
+add_executable(SattariAudioCoreOnsetCurveContract
+    tests/onset_curve_contract.cpp)
+
+target_link_libraries(SattariAudioCoreOnsetCurveContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.
