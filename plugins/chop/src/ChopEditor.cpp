@@ -1,16 +1,23 @@
 #include "ChopEditor.h"
-#include <sattari_audio_core/SattariBranding.h>
 
 SattariChopAudioProcessorEditor::SattariChopAudioProcessorEditor (SattariChopAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (900, 620);
+    setSize (940, 620);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Chop");
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Slicing sampler");
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
+
+    statusLabel.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    statusLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    statusLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (statusLabel);
+
+    loadButton.onClick = [this] { openFileChooser(); };
+    addAndMakeVisible (loadButton);
 
     auto setup = [this] (juce::Slider& s, const char* name)
     {
@@ -23,29 +30,145 @@ SattariChopAudioProcessorEditor::SattariChopAudioProcessorEditor (SattariChopAud
     setup (outputSlider, "Output");
     sliderAtts.push_back (std::make_unique<SliderAttachment> (processor.parameters(), "sensitivity", sensitivitySlider));
     sliderAtts.push_back (std::make_unique<SliderAttachment> (processor.parameters(), "output",      outputSlider));
+
+    startTimerHz (20);
 }
 
 SattariChopAudioProcessorEditor::~SattariChopAudioProcessorEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void SattariChopAudioProcessorEditor::openFileChooser()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Load audio to chop", juce::File(),
+                                                       "*.wav;*.aif;*.aiff;*.flac;*.mp3");
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this] (const juce::FileChooser& fc)
+        {
+            const auto f = fc.getResult();
+            if (f.existsAsFile()) processor.loadFile (f);
+            repaint();
+        });
+}
+
+bool SattariChopAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (f.endsWithIgnoreCase (".wav") || f.endsWithIgnoreCase (".aif") || f.endsWithIgnoreCase (".aiff")
+            || f.endsWithIgnoreCase (".flac") || f.endsWithIgnoreCase (".mp3"))
+            return true;
+    return false;
+}
+
+void SattariChopAudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    dragHighlight = false;
+    for (const auto& f : files)
+    {
+        const juce::File file (f);
+        if (file.existsAsFile() && processor.loadFile (file)) break;
+    }
+    repaint();
+}
+
+// Sensitivity is a live control: when it moves, re-threshold the stored curve. The
+// analysis itself never re-runs (§2.2).
+void SattariChopAudioProcessorEditor::timerCallback()
+{
+    const float s = processor.parameters().getRawParameterValue ("sensitivity")->load();
+    if (processor.hasSource() && std::abs (s - lastSensitivity) > 1.0e-4f)
+    {
+        lastSensitivity = s;
+        processor.reslice();
+        repaint();
+    }
+
+    const int n = processor.numSlices();
+    if (n != lastSliceCount)
+    {
+        lastSliceCount = n;
+        statusLabel.setText (processor.hasSource()
+                                 ? processor.sourceName() + "  -  " + juce::String (n) + " slices  -  play from C1"
+                                 : "drop a file, or Load audio...",
+                             juce::dontSendNotification);
+        repaint();
+    }
+}
+
+void SattariChopAudioProcessorEditor::rebuildPeaks()
+{
+    auto src = processor.snapshot();
+    const int w = waveformArea.getWidth();
+    if (src == nullptr || w <= 0) { peakMin.clear(); peakMax.clear(); peaksForSource = nullptr; return; }
+    if (peaksForSource == src.get() && peaksForWidth == w) return;   // cached
+
+    peakMin.assign ((std::size_t) w, 0.0f);
+    peakMax.assign ((std::size_t) w, 0.0f);
+    const auto& b = src->audio;
+    const std::int64_t n = b.getNumSamples();
+    const float* d = b.getReadPointer (0);
+    for (int x = 0; x < w; ++x)
+    {
+        const std::int64_t a = (std::int64_t) ((double) x / w * (double) n);
+        const std::int64_t e = (std::int64_t) ((double) (x + 1) / w * (double) n);
+        float lo = 0.0f, hi = 0.0f;
+        for (std::int64_t i = a; i < e && i < n; ++i) { lo = std::min (lo, d[i]); hi = std::max (hi, d[i]); }
+        peakMin[(std::size_t) x] = lo;
+        peakMax[(std::size_t) x] = hi;
+    }
+    peaksForSource = src.get();
+    peaksForWidth = w;
+}
+
+void SattariChopAudioProcessorEditor::drawWaveform (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    auto r = area.toFloat();
+    g.setColour (juce::Colour (sattari::brand::kPanelDeep));
+    g.fillRoundedRectangle (r, 12.0f);
+    g.setColour (juce::Colour (dragHighlight ? sattari::brand::kAccent : sattari::brand::kHairline));
+    g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, dragHighlight ? 2.0f : 1.0f);
+
+    auto src = processor.snapshot();
+    if (src == nullptr)
+    {
+        g.setColour (juce::Colour (sattari::brand::kTextMuted));
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.drawText ("drop an audio file here", area, juce::Justification::centred);
+        return;
+    }
+
+    rebuildPeaks();
+    const auto inner = area.reduced (8);
+    const float midY = (float) inner.getCentreY();
+    const float half = inner.getHeight() * 0.46f;
+
+    g.setColour (juce::Colour (sattari::brand::kTextMuted).withAlpha (0.75f));
+    for (int x = 0; x < (int) peakMin.size(); ++x)
+    {
+        const float px = (float) (inner.getX() + x);
+        g.drawLine (px, midY - peakMax[(std::size_t) x] * half,
+                    px, midY - peakMin[(std::size_t) x] * half, 1.0f);
+    }
+
+    // Slice markers.
+    const std::int64_t total = src->audio.getNumSamples();
+    if (total <= 0) return;
+    const auto accent = juce::Colour (sattari::brand::productAccent ("chop"));
+    for (const auto& sl : src->slices)
+    {
+        const float px = inner.getX() + (float) ((double) sl.first / (double) total) * inner.getWidth();
+        g.setColour (accent.withAlpha (0.9f));
+        g.drawLine (px, (float) inner.getY(), px, (float) inner.getBottom(), 1.0f);
+    }
 }
 
 void SattariChopAudioProcessorEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+    drawWaveform (g, waveformArea);
 
-    // Placeholder for the waveform + slice surface (the product, §3).
-    auto r = waveformArea.toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanelDeep));
-    g.fillRoundedRectangle (r, 12.0f);
-    g.setColour (juce::Colour (sattari::brand::kHairline));
-    g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText ("waveform + slice markers  —  editing surface lands here",
-                waveformArea, juce::Justification::centred);
-
-    // Slider captions.
     g.setColour (juce::Colours::white.withAlpha (0.85f));
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     for (auto* s : { &sensitivitySlider, &outputSlider })
@@ -57,14 +180,18 @@ void SattariChopAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced (20);
 
     auto top = area.removeFromTop (56);
-    title.setBounds (top.removeFromTop (34));
-    subtitle.setBounds (top.removeFromTop (20));
+    auto titleCol = top.removeFromLeft (360);
+    title.setBounds (titleCol.removeFromTop (34));
+    subtitle.setBounds (titleCol.removeFromTop (20));
+    statusLabel.setBounds (top.removeFromBottom (22));
 
-    area.removeFromTop (8);
+    auto bar = area.removeFromTop (32);
+    loadButton.setBounds (bar.removeFromLeft (130));
+    area.removeFromTop (10);
+
     auto controls = area.removeFromBottom (96);
-    padArea = area.removeFromBottom (150);        // reserved: pad grid / keyboard strip
-    area.removeFromBottom (12);
-    waveformArea = area;                          // the rest is the waveform surface
+    area.removeFromBottom (10);
+    waveformArea = area;
 
     auto knobRow = controls.withSizeKeepingCentre (juce::jmin (controls.getWidth(), 260), controls.getHeight());
     sensitivitySlider.setBounds (knobRow.removeFromLeft (knobRow.getWidth() / 2).reduced (6));

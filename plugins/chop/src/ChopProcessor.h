@@ -1,18 +1,20 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariOnsetCurve.h>
+#include <sattari_audio_core/SattariSliceTable.h>
 
 // =============================================================================
 //  Sattari Chop — slicing sampler.
 // -----------------------------------------------------------------------------
-//  Loads source audio (file / stem / deck capture), detects onsets into a slice
-//  table (hand-editable, with locked markers that survive re-detection), maps
-//  slices to pads/keys, and plays them back with per-slice processing. This is
-//  the scaffold: the plugin builds + validates as an instrument; the slicing
-//  engine, mapping, voices, and the waveform editing surface land on top.
+//  Load a file, detect onsets, slice, play the slices from MIDI. The expensive
+//  analysis runs once on load (worker/message thread); the Sensitivity control only
+//  re-thresholds the stored onset curve, so re-slicing is cheap enough to be live.
 //
-//  See CHOP_SPEC (§0 build order): the editing surface is the product, and its
-//  feel is verified in a DAW — the engine is verified offline on real material.
+//  Realtime contract (spec §5): the audio thread never allocates, locks or does file
+//  I/O. The loaded source + its slice list are published as an IMMUTABLE snapshot; the
+//  audio thread takes a reference under a try-lock and reads it. Every snapshot is
+//  retained for the session, so a buffer is never freed on the audio thread.
 // =============================================================================
 class SattariChopAudioProcessor final : public juce::AudioProcessor
 {
@@ -45,11 +47,69 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
+    // --- Source + slicing (message thread) ------------------------------------
+    bool loadFile (const juce::File& file);       // read, analyse, slice, publish
+    void reslice();                               // re-threshold the stored curve only
+    bool hasSource() const noexcept;
+    juce::String sourceName() const;
+    int  numSlices() const noexcept;
+    double sourceLengthSeconds() const noexcept;
+
+    // Lowest MIDI note; slice i is triggered by kBaseNote + i.
+    static constexpr int kBaseNote = 36;          // C1
+
+    // Snapshot for the editor's waveform + markers (message thread reads).
+    struct Source : juce::ReferenceCountedObject
+    {
+        juce::AudioBuffer<float> audio;
+        double sr = 44100.0;
+        juce::String name;
+        std::vector<std::pair<std::int64_t, std::int64_t>> slices;   // [start,end)
+        using Ptr = juce::ReferenceCountedObjectPtr<Source>;
+    };
+    Source::Ptr snapshot() const;                 // may be nullptr
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    void publish (Source::Ptr s);
+    void rebuildSlicesFromTable (Source& s) const;
+    std::int64_t snapToZeroCrossing (const juce::AudioBuffer<float>& b, std::int64_t pos) const;
+
     juce::AudioProcessorValueTreeState apvts;
     double currentSampleRate = 44100.0;
+
+    // Analysis state — message thread only.
+    sattari::dsp::OnsetCurve onset;
+    sattari::dsp::SliceTable table;
+    std::vector<float> monoScratch;
+    juce::String loadedPath;
+
+    // Published snapshot (audio thread reads under try-lock).
+    Source::Ptr current;
+    juce::ReferenceCountedArray<Source> retained;
+    mutable juce::SpinLock sourceLock;
+
+    juce::AudioFormatManager formatManager;
+
+    // --- Voices ---------------------------------------------------------------
+    static constexpr int kMaxVoices = 32;
+    struct Voice
+    {
+        Source::Ptr src;
+        int    slice = -1;
+        double pos = 0.0;
+        float  gain = 1.0f;
+        float  env = 0.0f;       // short attack/release ramp, avoids clicks
+        bool   releasing = false;
+        bool   active = false;
+        int    note = -1;
+    };
+    std::array<Voice, kMaxVoices> voices;
+    int voiceCounter = 0;
+
+    void startVoice (int sliceIndex, int note, float velocity);
+    void stopVoicesForNote (int note);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariChopAudioProcessor)
 };
