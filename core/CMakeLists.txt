@@ -204,6 +204,15 @@ target_link_libraries(SattariAudioCoreVocoderContract
     PRIVATE
         SattariAudioCore)
 
+# Chop slice-table contract (pure-std; the one-way-door schema). Locked markers survive
+# re-detection, tombstones stay deleted, sensitivity touches only unlocked markers.
+add_executable(SattariAudioCoreSliceTableContract
+    tests/slice_table_contract.cpp)
+
+target_link_libraries(SattariAudioCoreSliceTableContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.

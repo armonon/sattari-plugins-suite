@@ -62,6 +62,9 @@ jobs:
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/groove_contract.cpp -o /tmp/groove_contract
           /tmp/groove_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/slice_table_contract.cpp -o /tmp/slice_table_contract
+          /tmp/slice_table_contract
 
   # ---------------------------------------------------------------------------
   # Per-plugin build matrix on macOS: proves each plugin still configures and
