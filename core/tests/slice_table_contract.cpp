@@ -7,6 +7,7 @@
 #include <sattari_audio_core/SattariSliceTable.h>
 
 #include <cstdio>
+#include <cstdlib>   // std::llabs
 #include <string>
 #include <vector>
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>   // std::size_t (libstdc++ does not leak ::size_t)
 #include <cstdint>
 
 // =============================================================================
@@ -39,28 +40,28 @@ public:
     }
     void clearLane (int lane) noexcept
     {
-        if (validLane (lane)) for (auto& c : cells_[(size_t) lane]) c = Cell{};
+        if (validLane (lane)) for (auto& c : cells_[(std::size_t) lane]) c = Cell{};
     }
 
     void set (int lane, int step, bool on, float vel = 0.8f, float prob = 1.0f) noexcept
     {
         if (! valid (lane, step)) return;
-        Cell& c = cells_[(size_t) lane][(size_t) step];
+        Cell& c = cells_[(std::size_t) lane][(std::size_t) step];
         c.on = on; c.velocity = clamp01 (vel); c.probability = clamp01 (prob);
     }
     void toggle (int lane, int step) noexcept
     {
         if (! valid (lane, step)) return;
-        Cell& c = cells_[(size_t) lane][(size_t) step];
+        Cell& c = cells_[(std::size_t) lane][(std::size_t) step];
         c.on = ! c.on;
         if (c.on && c.velocity <= 0.0f) c.velocity = 0.8f;   // sensible default on first enable
     }
-    void setVelocity   (int lane, int step, float v) noexcept { if (valid (lane, step)) cells_[(size_t) lane][(size_t) step].velocity   = clamp01 (v); }
-    void setProbability (int lane, int step, float p) noexcept { if (valid (lane, step)) cells_[(size_t) lane][(size_t) step].probability = clamp01 (p); }
+    void setVelocity   (int lane, int step, float v) noexcept { if (valid (lane, step)) cells_[(std::size_t) lane][(std::size_t) step].velocity   = clamp01 (v); }
+    void setProbability (int lane, int step, float p) noexcept { if (valid (lane, step)) cells_[(std::size_t) lane][(std::size_t) step].probability = clamp01 (p); }
 
-    bool  on          (int lane, int step) const noexcept { return valid (lane, step) && cells_[(size_t) lane][(size_t) step].on; }
-    float velocity    (int lane, int step) const noexcept { return valid (lane, step) ? cells_[(size_t) lane][(size_t) step].velocity    : 0.0f; }
-    float probability (int lane, int step) const noexcept { return valid (lane, step) ? cells_[(size_t) lane][(size_t) step].probability : 0.0f; }
+    bool  on          (int lane, int step) const noexcept { return valid (lane, step) && cells_[(std::size_t) lane][(std::size_t) step].on; }
+    float velocity    (int lane, int step) const noexcept { return valid (lane, step) ? cells_[(std::size_t) lane][(std::size_t) step].velocity    : 0.0f; }
+    float probability (int lane, int step) const noexcept { return valid (lane, step) ? cells_[(std::size_t) lane][(std::size_t) step].probability : 0.0f; }
 
     // Does this cell fire on this pass? On, and (probability 1) OR (a supplied uniform
     // draw in [0,1) falls under the probability). draw is caller-owned so the grid is
@@ -68,7 +69,7 @@ public:
     bool fires (int lane, int step, float draw) const noexcept
     {
         if (! on (lane, step)) return false;
-        const float p = cells_[(size_t) lane][(size_t) step].probability;
+        const float p = cells_[(std::size_t) lane][(std::size_t) step].probability;
         return p >= 1.0f || draw < p;
     }
 
@@ -87,7 +88,7 @@ private:
     bool validLane (int lane) const noexcept { return lane >= 0 && lane < kMaxLanes; }
     bool valid (int lane, int step) const noexcept { return lane >= 0 && lane < kMaxLanes && step >= 0 && step < kMaxSteps; }
 
-    std::array<std::array<Cell, (size_t) kMaxSteps>, (size_t) kMaxLanes> cells_ {};
+    std::array<std::array<Cell, (std::size_t) kMaxSteps>, (std::size_t) kMaxLanes> cells_ {};
     int lanes_ = 8;
     int steps_ = 16;
 };

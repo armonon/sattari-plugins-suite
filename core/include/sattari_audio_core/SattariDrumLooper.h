@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>   // std::size_t (libstdc++ does not leak ::size_t)
 #include <cstdint>
 
 // =============================================================================
@@ -42,7 +43,7 @@ public:
     void recordHit (int pad, float velocity, double phase) noexcept
     {
         if (count_ >= kMaxHits) return;
-        hits_[(size_t) count_++] = { pad, velocity, wrap01 (phase) };
+        hits_[(std::size_t) count_++] = { pad, velocity, wrap01 (phase) };
     }
 
     // Collect recorded hits whose phase lies in the half-open span [from, to), i.e. hits
@@ -58,10 +59,10 @@ public:
         int n = 0;
         for (int i = 0; i < count_ && n < maxOut; ++i)
         {
-            const double p = hits_[(size_t) i].phase;
+            const double p = hits_[(std::size_t) i].phase;
             const bool due = (from < to) ? (p >= from && p < to)          // no wrap
                                          : (p >= from || p < to);         // wrapped across 0
-            if (due) out[n++] = hits_[(size_t) i];
+            if (due) out[n++] = hits_[(std::size_t) i];
         }
         return n;
     }
@@ -74,7 +75,7 @@ private:
         return p;
     }
 
-    std::array<Hit, (size_t) kMaxHits> hits_ {};
+    std::array<Hit, (std::size_t) kMaxHits> hits_ {};
     int  count_ = 0;
     bool enabled_ = false;
 };

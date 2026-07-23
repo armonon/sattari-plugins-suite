@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>    // std::llabs — NOT transitively provided by libstdc++ (GCC/Linux)
+#include <utility>    // std::pair (boundaries)
 #include <vector>
 #include <algorithm>
 
