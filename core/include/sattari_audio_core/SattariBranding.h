@@ -40,6 +40,7 @@ inline constexpr std::uint32_t kHairline     = 0xff272a31; // 1px separators / k
 
 inline constexpr std::uint32_t kAccent       = 0xff62f5c8; // signature mint (default)
 inline constexpr std::uint32_t kAccentViolet = 0xff9b7bff; // secondary highlight
+inline constexpr std::uint32_t kAccentAmber  = 0xfff5a24b; // sampler / slicing lane
 inline constexpr std::uint32_t kTextPrimary  = 0xffeef1f6;
 inline constexpr std::uint32_t kTextMuted     = 0xff8b93a1;
 inline constexpr std::uint32_t kTextFaint     = 0xff555c69;
@@ -89,6 +90,7 @@ inline const std::vector<Product>& products()
         { "maqam",             "Sattari Maqam",       "Microtonal tuning",kAccent },
         { "vocal-master",      "Sattari Vocal Master","Vocal master",     kAccent },
         { "rhythm-genie",      "Sattari Rhythm Genie","MIDI / drums",     kAccent },
+        { "chop",              "Sattari Chop",        "Slicing sampler",  kAccentAmber },
         { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  kAccent },
         { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
         { "align",             "Sattari Align",       "Timing alignment", kAccent },

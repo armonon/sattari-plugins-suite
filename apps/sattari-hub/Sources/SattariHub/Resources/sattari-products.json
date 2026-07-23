@@ -11,7 +11,7 @@
       "name": "Sattari Auto Pitch",
       "category": "Vocal tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Auto Pitch \u2014 Vocal tuning.",
+      "description": "Sattari Auto Pitch — Vocal tuning.",
       "formats": [
         "AU",
         "VST3"
@@ -47,7 +47,7 @@
       "name": "Sattari Key",
       "category": "Key detection",
       "accent": "#62f5c8",
-      "description": "Sattari Key \u2014 Key detection.",
+      "description": "Sattari Key — Key detection.",
       "formats": [
         "AU",
         "VST3"
@@ -83,7 +83,7 @@
       "name": "Sattari VoxKey",
       "category": "Voice-to-MIDI",
       "accent": "#62f5c8",
-      "description": "Sattari VoxKey \u2014 Voice-to-MIDI.",
+      "description": "Sattari VoxKey — Voice-to-MIDI.",
       "formats": [
         "AU",
         "VST3"
@@ -119,7 +119,7 @@
       "name": "Sattari VoxSynth",
       "category": "Voice instrument",
       "accent": "#62f5c8",
-      "description": "Sattari VoxSynth \u2014 Voice instrument.",
+      "description": "Sattari VoxSynth — Voice instrument.",
       "formats": [
         "AU",
         "VST3"
@@ -155,7 +155,7 @@
       "name": "Sattari Morph",
       "category": "Voice character",
       "accent": "#9b7bff",
-      "description": "Sattari Morph \u2014 Voice character.",
+      "description": "Sattari Morph — Voice character.",
       "formats": [
         "AU",
         "VST3"
@@ -191,7 +191,7 @@
       "name": "Sattari Mix",
       "category": "Mix rack",
       "accent": "#62f5c8",
-      "description": "Sattari Mix \u2014 Mix rack.",
+      "description": "Sattari Mix — Mix rack.",
       "formats": [
         "AU",
         "VST3"
@@ -227,7 +227,7 @@
       "name": "Sattari StemDeck",
       "category": "DJ / remix",
       "accent": "#62f5c8",
-      "description": "Sattari StemDeck \u2014 DJ / remix.",
+      "description": "Sattari StemDeck — DJ / remix.",
       "formats": [
         "AU",
         "VST3"
@@ -263,7 +263,7 @@
       "name": "Sub Conjurer",
       "category": "Low-end",
       "accent": "#62f5c8",
-      "description": "Sub Conjurer \u2014 Low-end.",
+      "description": "Sub Conjurer — Low-end.",
       "formats": [
         "AU",
         "VST3"
@@ -299,7 +299,7 @@
       "name": "Side Chain Master",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Side Chain Master \u2014 Dynamics.",
+      "description": "Side Chain Master — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -335,7 +335,7 @@
       "name": "Sattari Royal Chain",
       "category": "Vocal chain",
       "accent": "#62f5c8",
-      "description": "Sattari Royal Chain \u2014 Vocal chain.",
+      "description": "Sattari Royal Chain — Vocal chain.",
       "formats": [
         "AU",
         "VST3"
@@ -371,7 +371,7 @@
       "name": "Sattari Harmony",
       "category": "Vocal harmony",
       "accent": "#62f5c8",
-      "description": "Sattari Harmony \u2014 Vocal harmony.",
+      "description": "Sattari Harmony — Vocal harmony.",
       "formats": [
         "AU",
         "VST3"
@@ -407,7 +407,7 @@
       "name": "Sattari Maqam",
       "category": "Microtonal tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Maqam \u2014 Microtonal tuning.",
+      "description": "Sattari Maqam — Microtonal tuning.",
       "formats": [
         "AU",
         "VST3"
@@ -443,7 +443,7 @@
       "name": "Sattari Vocal Master",
       "category": "Vocal master",
       "accent": "#62f5c8",
-      "description": "Sattari Vocal Master \u2014 Vocal master.",
+      "description": "Sattari Vocal Master — Vocal master.",
       "formats": [
         "AU",
         "VST3"
@@ -479,7 +479,7 @@
       "name": "Sattari Rhythm Genie",
       "category": "MIDI / drums",
       "accent": "#62f5c8",
-      "description": "Sattari Rhythm Genie \u2014 MIDI / drums.",
+      "description": "Sattari Rhythm Genie — MIDI / drums.",
       "formats": [
         "AU",
         "VST3"
@@ -511,11 +511,47 @@
       ]
     },
     {
+      "id": "chop",
+      "name": "Sattari Chop",
+      "category": "Slicing sampler",
+      "accent": "#f5a24b",
+      "description": "Sattari Chop — Slicing sampler.",
+      "formats": [
+        "AU",
+        "VST3"
+      ],
+      "status": "alpha",
+      "version": "0.2.0-six-products",
+      "modules": [
+        {
+          "name": "Sattari Chop",
+          "slug": "chop"
+        }
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Chop.component",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/AU/Sattari Chop.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Chop.vst3",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/VST3/Sattari Chop.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Chop.app",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/Standalone/Sattari Chop.app"
+        }
+      ]
+    },
+    {
       "id": "sattari-arp",
       "name": "Sattari Arp",
       "category": "MIDI / creative",
       "accent": "#62f5c8",
-      "description": "Sattari Arp \u2014 MIDI / creative.",
+      "description": "Sattari Arp — MIDI / creative.",
       "formats": [
         "AU",
         "VST3"
@@ -551,7 +587,7 @@
       "name": "Sattari Bus",
       "category": "Bus / mix",
       "accent": "#62f5c8",
-      "description": "Sattari Bus \u2014 Bus / mix.",
+      "description": "Sattari Bus — Bus / mix.",
       "formats": [
         "AU",
         "VST3"
@@ -587,7 +623,7 @@
       "name": "Sattari Align",
       "category": "Timing alignment",
       "accent": "#62f5c8",
-      "description": "Sattari Align \u2014 Timing alignment.",
+      "description": "Sattari Align — Timing alignment.",
       "formats": [
         "AU",
         "VST3"
@@ -623,7 +659,7 @@
       "name": "Sattari Warp",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Warp \u2014 Creative vocal FX.",
+      "description": "Sattari Warp — Creative vocal FX.",
       "formats": [
         "AU",
         "VST3"
@@ -659,7 +695,7 @@
       "name": "Sattari Tuner",
       "category": "Tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Tuner \u2014 Tuning.",
+      "description": "Sattari Tuner — Tuning.",
       "formats": [
         "AU",
         "VST3"
@@ -695,7 +731,7 @@
       "name": "Sattari Double",
       "category": "Vocal doubler",
       "accent": "#62f5c8",
-      "description": "Sattari Double \u2014 Vocal doubler.",
+      "description": "Sattari Double — Vocal doubler.",
       "formats": [
         "AU",
         "VST3"
@@ -731,7 +767,7 @@
       "name": "Sattari De-Ess",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari De-Ess \u2014 Dynamics.",
+      "description": "Sattari De-Ess — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -767,7 +803,7 @@
       "name": "Sattari Face",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Face \u2014 Creative vocal FX.",
+      "description": "Sattari Face — Creative vocal FX.",
       "formats": [
         "AU",
         "VST3"
@@ -803,7 +839,7 @@
       "name": "Sattari Transient",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Transient \u2014 Dynamics.",
+      "description": "Sattari Transient — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -839,7 +875,7 @@
       "name": "Sattari Meter",
       "category": "Metering",
       "accent": "#62f5c8",
-      "description": "Sattari Meter \u2014 Metering.",
+      "description": "Sattari Meter — Metering.",
       "formats": [
         "AU",
         "VST3"
@@ -875,7 +911,7 @@
       "name": "Sattari Scaler",
       "category": "MIDI / creative",
       "accent": "#62f5c8",
-      "description": "Sattari Scaler \u2014 MIDI / creative.",
+      "description": "Sattari Scaler — MIDI / creative.",
       "formats": [
         "AU",
         "VST3"
@@ -911,7 +947,7 @@
       "name": "Sattari EQ",
       "category": "EQ",
       "accent": "#62f5c8",
-      "description": "Sattari EQ \u2014 EQ.",
+      "description": "Sattari EQ — EQ.",
       "formats": [
         "AU",
         "VST3"
@@ -947,7 +983,7 @@
       "name": "Sattari Space",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Space \u2014 Reverb / delay.",
+      "description": "Sattari Space — Reverb / delay.",
       "formats": [
         "AU",
         "VST3"
@@ -983,7 +1019,7 @@
       "name": "Sattari Clean",
       "category": "Restoration",
       "accent": "#62f5c8",
-      "description": "Sattari Clean \u2014 Restoration.",
+      "description": "Sattari Clean — Restoration.",
       "formats": [
         "AU",
         "VST3"
@@ -1019,7 +1055,7 @@
       "name": "Sattari Comp",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Comp \u2014 Dynamics.",
+      "description": "Sattari Comp — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -1055,7 +1091,7 @@
       "name": "Sattari Peak",
       "category": "Mastering",
       "accent": "#62f5c8",
-      "description": "Sattari Peak \u2014 Mastering.",
+      "description": "Sattari Peak — Mastering.",
       "formats": [
         "AU",
         "VST3"
@@ -1091,7 +1127,7 @@
       "name": "Sattari Vocoder",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Vocoder \u2014 Creative vocal FX.",
+      "description": "Sattari Vocoder — Creative vocal FX.",
       "formats": [
         "AU",
         "VST3"
@@ -1127,7 +1163,7 @@
       "name": "Sattari Shimmer",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Shimmer \u2014 Reverb / delay.",
+      "description": "Sattari Shimmer — Reverb / delay.",
       "formats": [
         "AU",
         "VST3"
@@ -1163,7 +1199,7 @@
       "name": "Sattari Echo",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Echo \u2014 Reverb / delay.",
+      "description": "Sattari Echo — Reverb / delay.",
       "formats": [
         "AU",
         "VST3"
@@ -1199,7 +1235,7 @@
       "name": "Sattari Heat",
       "category": "Saturation",
       "accent": "#62f5c8",
-      "description": "Sattari Heat \u2014 Saturation.",
+      "description": "Sattari Heat — Saturation.",
       "formats": [
         "AU",
         "VST3"
@@ -1235,7 +1271,7 @@
       "name": "Sattari Multiband",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Multiband \u2014 Dynamics.",
+      "description": "Sattari Multiband — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -1271,7 +1307,7 @@
       "name": "Sattari Gate",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Gate \u2014 Dynamics.",
+      "description": "Sattari Gate — Dynamics.",
       "formats": [
         "AU",
         "VST3"
@@ -1307,7 +1343,7 @@
       "name": "Sattari Riser",
       "category": "Creative FX",
       "accent": "#9b7bff",
-      "description": "Sattari Riser \u2014 Creative FX.",
+      "description": "Sattari Riser — Creative FX.",
       "formats": [
         "AU",
         "VST3"
@@ -1343,7 +1379,7 @@
       "name": "Sattari Pulse",
       "category": "Creative FX",
       "accent": "#9b7bff",
-      "description": "Sattari Pulse \u2014 Creative FX.",
+      "description": "Sattari Pulse — Creative FX.",
       "formats": [
         "AU",
         "VST3"
@@ -1379,7 +1415,7 @@
       "name": "Sattari 808",
       "category": "Low-end",
       "accent": "#62f5c8",
-      "description": "Sattari 808 \u2014 Low-end.",
+      "description": "Sattari 808 — Low-end.",
       "formats": [
         "AU",
         "VST3"
@@ -1415,7 +1451,7 @@
       "name": "Sattari Image",
       "category": "Stereo / imaging",
       "accent": "#62f5c8",
-      "description": "Sattari Image \u2014 Stereo / imaging.",
+      "description": "Sattari Image — Stereo / imaging.",
       "formats": [
         "AU",
         "VST3"
@@ -1451,7 +1487,7 @@
       "name": "Sattari Warble",
       "category": "Lo-fi / tape",
       "accent": "#9b7bff",
-      "description": "Sattari Warble \u2014 Lo-fi / tape.",
+      "description": "Sattari Warble — Lo-fi / tape.",
       "formats": [
         "AU",
         "VST3"
@@ -1487,7 +1523,7 @@
       "name": "Sattari Scope",
       "category": "Analysis",
       "accent": "#62f5c8",
-      "description": "Sattari Scope \u2014 Analysis.",
+      "description": "Sattari Scope — Analysis.",
       "formats": [
         "AU",
         "VST3"
@@ -1523,7 +1559,7 @@
       "name": "Sattari Granulator",
       "category": "Granular instrument",
       "accent": "#62f5c8",
-      "description": "Sattari Granulator \u2014 Granular instrument.",
+      "description": "Sattari Granulator — Granular instrument.",
       "formats": [
         "AU",
         "VST3"
@@ -1559,7 +1595,7 @@
       "name": "Sattari Brain",
       "category": "Session brain",
       "accent": "#62f5c8",
-      "description": "Sattari Brain \u2014 Session brain.",
+      "description": "Sattari Brain — Session brain.",
       "formats": [
         "AU",
         "VST3"
@@ -1595,7 +1631,7 @@
       "name": "Sattari Glass Choir",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Glass Choir \u2014 Creative vocal FX.",
+      "description": "Sattari Glass Choir — Creative vocal FX.",
       "formats": [
         "AU",
         "VST3"

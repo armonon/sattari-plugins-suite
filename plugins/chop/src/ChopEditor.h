@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariBranding.h>
 #include "ChopProcessor.h"
 
 // Sattari Chop editor — scaffold. The waveform + slice-marker surface (the product,
@@ -20,8 +21,8 @@ private:
 
     SattariChopAudioProcessor& processor;
 
-    // Chop identity: a warm amber accent, distinct from the mint family.
-    sattari::ui::SattariLookAndFeel lookAndFeel { 0xfff5a24b };
+    // Chop identity: the amber sampler accent from the brand registry.
+    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("chop") };
 
     juce::Label title, subtitle;
     juce::Slider sensitivitySlider, outputSlider;
