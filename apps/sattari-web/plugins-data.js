@@ -589,5 +589,93 @@ window.SATTARI_PLUGINS = [
       "Tempo-synced position scanning",
       "Filter, amp/filter envelopes, 2 LFOs, sub osc"
     ]
+  },
+  {
+    id: "morph", name: "Sattari Morph", icon: "🌀",
+    category: "Voice character", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Change who is singing — then echo it in key.",
+    what: "Morph reshapes the character of a voice: age, size, gender and grit, without changing the notes. It also carries two in-key effects — a pitched delay whose repeats stay in your song's key, and a parallel harmony voice — so a single plugin can turn one take into a section.",
+    how: "Formants are shifted independently of pitch using a cepstral envelope warp, so the vocal changes character while the melody is untouched. The Key Echo re-pitches each repeat along the scale rather than chromatically, using the shared in-key interval walk, and the Harmony Voice adds a dry parallel line a diatonic interval away. Both read the session key from the cross-plugin bus.",
+    features: [
+      "Independent formant / pitch control (character without transposing)",
+      "Key Echo — delay repeats that stay in the song's key",
+      "Harmony Voice — a dry in-key parallel line",
+      "Reads the session key automatically",
+      "Streaming state flushes on transport relocate"
+    ]
+  },
+  {
+    id: "voxsynth", name: "Sattari VoxSynth", icon: "🎛️",
+    category: "Voice instrument", cats: "Vocal MIDI",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Your voice becomes the synth — continuously, not note-by-note.",
+    what: "VoxSynth plays a synthesiser directly from your voice. Unlike voice-to-MIDI, it doesn't quantise you into discrete notes — slides, bends and breath come through, so the instrument moves the way you actually sang.",
+    how: "A shared analysis front-end tracks pitch (YIN, with an optional CREPE neural model), amplitude and spectral centroid every hop, and classifies onsets as voiced, plosive, fricative or legato. Legato moves bend the oscillator instead of retriggering, and the amplitude envelope drives the VCA directly, so the synth breathes with the voice.",
+    features: [
+      "Continuous pitch — glides and bends survive",
+      "Onset classification (voiced / plosive / fricative / legato)",
+      "Optional CREPE neural pitch for breathy takes",
+      "Amplitude drives the VCA — dynamics preserved",
+      "Factory presets across lead, bass and pad voices"
+    ]
+  },
+  {
+    id: "chop", name: "Sattari Chop", icon: "🔪",
+    category: "Slicing sampler", cats: "MIDI",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Drop a loop, get a playable kit — sliced on the transients.",
+    what: "Chop turns any audio into a playable instrument. It finds the hits, slices between them, and lays the slices across your keyboard so you can replay the groove however you like. One slider controls how finely it chops, and the markers move live as you drag it.",
+    how: "On load, the source is analysed once: an STFT drives a detection function combining spectral flux, high-frequency content and amplitude-envelope derivative. That curve is stored, so the Sensitivity control only re-thresholds it — re-slicing is instant and never re-runs the analysis. Every slice boundary resolves to a nearby zero crossing so slices never click.",
+    features: [
+      "Transient slicing with a live sensitivity control",
+      "Analyse once — re-slicing is instant",
+      "Zero-crossing boundaries (no clicks)",
+      "Slices mapped chromatically from C1",
+      "Drag-and-drop any audio file"
+    ],
+    status: "early"
+  },
+  {
+    id: "mix", name: "Sattari Mix", icon: "🎚️",
+    category: "Mix rack", cats: "Mixing",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "One rack, eight slots — the mixing chain in a single window.",
+    what: "Mix hosts the suite's mixing tools as modules in one rack, so a channel strip is a single plugin instance instead of five. Load what you need into the slots and reorder them.",
+    how: "Each module implements a shared interface and runs inside the rack's chain, so the same DSP powers both the standalone plugin and the hosted module — one implementation, two shells. Latency is reported up to the host correctly as modules change.",
+    features: [
+      "8 module slots in one instance",
+      "Hosts Transient, EQ, Clean, Meter and Peak today",
+      "Same DSP as the standalone plugins",
+      "Correct latency reporting as the chain changes"
+    ]
+  },
+  {
+    id: "glass-choir", name: "Sattari Glass Choir", icon: "👼",
+    category: "Vocal texture", cats: "Vocal",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Turn a single voice into a wide, glassy choir.",
+    what: "Glass Choir builds an ensemble out of one vocal — shimmering, wide and airy. Good for pads, ad-libs and background beds where you want the voice to become texture rather than a lead.",
+    how: "Multiple pitch-shifted voices are generated with the shared PSOLA engine and spread across the stereo field with per-voice detune and delay, so the ensemble widens without phasing into mush.",
+    features: [
+      "Multi-voice ensemble from a single take",
+      "Per-voice detune and stereo spread",
+      "Shared PSOLA pitch engine",
+      "Sits behind a lead without crowding it"
+    ]
+  },
+  {
+    id: "brain", name: "Sattari Brain", icon: "🧠",
+    category: "Session intelligence", cats: "Key",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "The session's shared brain — key, tempo and transients for every plugin.",
+    what: "Brain publishes the state of your session so the rest of the suite can follow it. Put it on the master and every key-aware and tempo-aware Sattari plugin lines up without any routing.",
+    how: "It analyses the mix and writes key, tempo and transient information to the cross-plugin bus — a lock-free shared channel other instances read. Consumers pick it up without MIDI routing or sidechains.",
+    features: [
+      "One authoritative session state",
+      "Key, tempo and transient pulses",
+      "No routing required — plugins just follow",
+      "Manual override per consumer"
+    ]
   }
 ];
