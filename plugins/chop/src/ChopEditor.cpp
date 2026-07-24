@@ -73,6 +73,81 @@ void SattariChopAudioProcessorEditor::filesDropped (const juce::StringArray& fil
     repaint();
 }
 
+// --- §3 coordinate mapping + direct manipulation --------------------------------
+std::int64_t SattariChopAudioProcessorEditor::sampleAtX (int x) const
+{
+    auto src = processor.snapshot();
+    if (src == nullptr) return 0;
+    const auto inner = waveformArea.reduced (8);
+    const std::int64_t total = src->audio.getNumSamples();
+    if (inner.getWidth() <= 0 || total <= 0) return 0;
+    const double f = (double) (x - inner.getX()) / inner.getWidth();
+    return (std::int64_t) juce::jlimit (0.0, (double) total, f * (double) total);
+}
+
+int SattariChopAudioProcessorEditor::xAtSample (std::int64_t sample) const
+{
+    auto src = processor.snapshot();
+    const auto inner = waveformArea.reduced (8);
+    if (src == nullptr) return inner.getX();
+    const std::int64_t total = src->audio.getNumSamples();
+    if (total <= 0) return inner.getX();
+    return inner.getX() + (int) ((double) sample / (double) total * inner.getWidth());
+}
+
+int SattariChopAudioProcessorEditor::nearestMarkerX (int x) const
+{
+    auto src = processor.snapshot();
+    if (src == nullptr) return -1;
+    const int grab = 6;
+    int best = -1, bestD = grab + 1;
+    for (int i = 0; i < (int) src->slices.size(); ++i)
+    {
+        const int d = std::abs (xAtSample (src->slices[(size_t) i].first) - x);
+        if (d <= grab && d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+}
+
+void SattariChopAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (! waveformArea.contains (e.getPosition())) return;
+    const int mi = nearestMarkerX (e.x);
+    if (mi >= 0)
+    {
+        auto src = processor.snapshot();                       // grab an existing marker to drag
+        dragging = true;
+        dragFromSample = src->slices[(size_t) mi].first;
+        dragCurrentX = e.x;
+        dragWillDelete = false;
+    }
+    else
+    {
+        processor.addSliceAtSample (sampleAtX (e.x), ! e.mods.isAltDown());   // click on empty adds
+        repaint();
+    }
+}
+
+void SattariChopAudioProcessorEditor::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! dragging) return;
+    dragCurrentX = juce::jlimit (waveformArea.getX(), waveformArea.getRight(), e.x);
+    dragWillDelete = (e.y < waveformArea.getY() - 10 || e.y > waveformArea.getBottom() + 10);  // drag off = delete
+    repaint();
+}
+
+void SattariChopAudioProcessorEditor::mouseUp (const juce::MouseEvent& e)
+{
+    if (! dragging) return;
+    dragging = false;
+    if (dragWillDelete)
+        processor.deleteSliceNear (dragFromSample);
+    else
+        processor.moveSliceNear (dragFromSample, sampleAtX (dragCurrentX), ! e.mods.isAltDown());
+    dragWillDelete = false;
+    repaint();
+}
+
 // Sensitivity is a live control: when it moves, re-threshold the stored curve. The
 // analysis itself never re-runs (§2.2).
 void SattariChopAudioProcessorEditor::timerCallback()
@@ -158,9 +233,19 @@ void SattariChopAudioProcessorEditor::drawWaveform (juce::Graphics& g, juce::Rec
     const auto accent = juce::Colour (sattari::brand::productAccent ("chop"));
     for (const auto& sl : src->slices)
     {
+        const bool grabbed = dragging && sl.first == dragFromSample;
         const float px = inner.getX() + (float) ((double) sl.first / (double) total) * inner.getWidth();
-        g.setColour (accent.withAlpha (0.9f));
-        g.drawLine (px, (float) inner.getY(), px, (float) inner.getBottom(), 1.0f);
+        g.setColour (grabbed ? accent.withAlpha (0.25f) : accent.withAlpha (0.9f));   // dim the grabbed one
+        g.drawLine (px, (float) inner.getY(), px, (float) inner.getBottom(), grabbed ? 1.0f : 1.0f);
+    }
+
+    // Drag preview: where the grabbed marker will land — red if it will be deleted.
+    if (dragging)
+    {
+        g.setColour (dragWillDelete ? juce::Colour (sattari::brand::kDanger)
+                                    : juce::Colours::white);
+        g.drawLine ((float) dragCurrentX, (float) inner.getY(), (float) dragCurrentX, (float) inner.getBottom(),
+                    dragWillDelete ? 2.0f : 1.5f);
     }
 }
 

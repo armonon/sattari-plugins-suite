@@ -23,6 +23,11 @@ public:
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
 
+    // §3 direct manipulation: click adds a marker, drag moves it, drag off top/bottom deletes.
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp   (const juce::MouseEvent&) override;
+
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
 
@@ -30,6 +35,10 @@ private:
     void openFileChooser();
     void rebuildPeaks();
     void drawWaveform (juce::Graphics&, juce::Rectangle<int> area);
+
+    std::int64_t sampleAtX (int x) const;                 // waveform x -> source sample
+    int          xAtSample (std::int64_t sample) const;   // source sample -> waveform x
+    int          nearestMarkerX (int x) const;            // index of active marker within grab px, or -1
 
     SattariChopAudioProcessor& processor;
 
@@ -51,6 +60,12 @@ private:
     float lastSensitivity = -1.0f;
     int lastSliceCount = -1;
     bool dragHighlight = false;
+
+    // Drag state for the marker-move / drag-off-to-delete gesture.
+    bool         dragging = false;
+    std::int64_t dragFromSample = 0;   // the marker grabbed on mouseDown
+    int          dragCurrentX = 0;
+    bool         dragWillDelete = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariChopAudioProcessorEditor)
 };

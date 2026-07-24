@@ -69,12 +69,21 @@ public:
     };
     Source::Ptr snapshot() const;                 // may be nullptr
 
+    // --- §3 editing gestures (message thread). snap=true applies onset magnetism then a
+    // zero-crossing resolve (§3.2); Alt-drag in the editor passes snap=false for free
+    // placement (but a boundary always still resolves to a zero crossing to avoid clicks).
+    void addSliceAtSample  (std::int64_t sample, bool snap = true);
+    void moveSliceNear     (std::int64_t fromSample, std::int64_t toSample, bool snap = true);
+    void deleteSliceNear   (std::int64_t sample);
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void publish (Source::Ptr s);
+    void republishFromTable();                    // rebuild slices from the (edited) table, keep audio
     void rebuildSlicesFromTable (Source& s) const;
     std::int64_t snapToZeroCrossing (const juce::AudioBuffer<float>& b, std::int64_t pos) const;
+    std::int64_t onsetSnap (std::int64_t sample, std::int64_t windowSamples) const;  // nearest detected onset
 
     juce::AudioProcessorValueTreeState apvts;
     double currentSampleRate = 44100.0;

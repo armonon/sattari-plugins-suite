@@ -149,6 +149,65 @@ void SattariChopAudioProcessor::reslice()
     publish (next);
 }
 
+// Rebuild the published slices from the current table (after a hand edit), keeping the
+// audio. One deep copy per edit — edits are user gestures, not per-frame, so this is fine.
+void SattariChopAudioProcessor::republishFromTable()
+{
+    Source::Ptr s = snapshot();
+    if (s == nullptr) return;
+    Source::Ptr next = new Source();
+    next->audio.makeCopyOf (s->audio);
+    next->sr = s->sr;
+    next->name = s->name;
+    rebuildSlicesFromTable (*next);
+    publish (next);
+}
+
+// Nearest detected onset to `sample` within `window`, else `sample`. Snaps to the actual
+// transients (candidates at a permissive threshold), not the currently-thresholded set,
+// so magnetism works regardless of the Sensitivity setting (§3.2 priority: onsets first).
+std::int64_t SattariChopAudioProcessor::onsetSnap (std::int64_t sample, std::int64_t window) const
+{
+    if (! onset.analysed()) return sample;
+    const auto cands = onset.candidates (0.05f);
+    std::int64_t best = sample, bestD = window + 1;
+    for (const auto& c : cands)
+    {
+        const std::int64_t d = std::llabs (c.samplePos - sample);
+        if (d <= window && d < bestD) { bestD = d; best = c.samplePos; }
+    }
+    return best;
+}
+
+// --- §3 gestures ----------------------------------------------------------------
+void SattariChopAudioProcessor::addSliceAtSample (std::int64_t sample, bool snap)
+{
+    Source::Ptr s = snapshot();
+    if (s == nullptr) return;
+    const std::int64_t win = (std::int64_t) (s->sr * 0.015);   // +/-15 ms magnetism at default zoom
+    std::int64_t pos = snap ? onsetSnap (sample, win) : sample;
+    pos = snapToZeroCrossing (s->audio, pos);                  // always: no clicks (§3.2)
+    table.addMarker (pos);
+    republishFromTable();
+}
+
+void SattariChopAudioProcessor::moveSliceNear (std::int64_t fromSample, std::int64_t toSample, bool snap)
+{
+    Source::Ptr s = snapshot();
+    if (s == nullptr) return;
+    const std::int64_t win = (std::int64_t) (s->sr * 0.015);
+    std::int64_t pos = snap ? onsetSnap (toSample, win) : toSample;
+    pos = snapToZeroCrossing (s->audio, pos);
+    table.moveMarkerNear (fromSample, pos);
+    republishFromTable();
+}
+
+void SattariChopAudioProcessor::deleteSliceNear (std::int64_t sample)
+{
+    table.deleteMarkerNear (sample);
+    republishFromTable();
+}
+
 // --- Voices --------------------------------------------------------------------
 void SattariChopAudioProcessor::startVoice (int sliceIndex, int note, float velocity)
 {
