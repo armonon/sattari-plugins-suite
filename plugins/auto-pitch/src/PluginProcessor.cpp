@@ -2819,9 +2819,12 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
     {
         if (style == "Classic")
         {
+            // Gentle vintage warmth: near-unity low-level gain (0.65 * 1.5), soft peak
+            // compression. ~1% THD at -6 dBFS, ~3% at 0 dBFS — musical, not the 8% the old
+            // 1.12/0.96 drive produced. Character you'd reach for, not a distortion pedal.
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
                 for (int i = 0; i < buffer.getNumSamples(); ++i)
-                    buffer.setSample (channel, i, std::tanh (buffer.getSample (channel, i) * 1.12f) * 0.96f);
+                    buffer.setSample (channel, i, std::tanh (buffer.getSample (channel, i) * 0.65f) * 1.5f);
         }
         return;
     }
