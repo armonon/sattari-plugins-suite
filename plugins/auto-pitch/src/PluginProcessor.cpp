@@ -26,13 +26,17 @@ const juce::StringArray styleChoices { "Natural", "Classic", "Modern Rap", "Robo
 const std::array<int, 7> majorDegrees { 0, 2, 4, 5, 7, 9, 11 };
 const std::array<int, 7> minorDegrees { 0, 2, 3, 5, 7, 8, 10 };
 
-// Output ceiling: identity below the knee, then a tanh soft-knee that asymptotes
-// to just under 0 dBFS. Transparent for normal vocals (peaks < ~-2.5 dBFS), but
-// catches the peak overshoot the phase-vocoder pitch shift (and the loud Style
-// stages) can produce, so a hot input never hard-clips the host output.
+// Output ceiling: identity below the knee, then a tanh soft-knee asymptoting to just
+// under 0 dBFS. It is a SAFETY ceiling, not a tone stage — the knee sits at -0.7 dBFS so
+// it is inaudible on any normal vocal (a hot -1 dBFS take is untouched) and only engages
+// on genuine overshoot from the pitch shift / Style stages, keeping it under 0 dBFS.
+//
+// The knee used to sit at -2.5 dBFS (0.75), which soft-clipped every loud syllable of a
+// mastered-hot vocal and measured 0.6-2.5% THD across -1..0 dBFS — audible as the
+// "distortion/clipping" it was supposed to prevent. At 0.92 that same range is 0-0.7%.
 inline float softCeiling (float x) noexcept
 {
-    constexpr float knee = 0.75f, ceiling = 0.988f, range = ceiling - knee;
+    constexpr float knee = 0.92f, ceiling = 0.9955f, range = ceiling - knee;
     const float a = std::fabs (x);
     if (a <= knee) return x;
     return std::copysign (knee + range * std::tanh ((a - knee) / range), x);
@@ -226,7 +230,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
 
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("keyRoot", "Key Root", rootChoices, 9));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale", scaleChoices, 1));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 1));
+    // Default to Natural (clean correction). "Classic" and up apply tanh saturation as a
+    // deliberate character — measured 2.4% THD at -6 dBFS, 8% at 0 dBFS — so shipping it as
+    // the default made a plain vocal "distort" out of the box. Users who want warmth pick it.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("enableCorrection", "Enable Correction", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("autoKey", "AutoKey Follow", false));
     // Follow Song Key defaults OFF so the header Key & Scale menu is authoritative
