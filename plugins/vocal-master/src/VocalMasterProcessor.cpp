@@ -30,6 +30,21 @@ SattariVocalMasterAudioProcessor::SattariVocalMasterAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (dB for input/output, 0..1 macros, -1..1 tone).
+// Only listed params are set; anything omitted keeps its default, so presets stay valid
+// as params evolve.
+void SattariVocalMasterAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Clean & Present", PV{ {"isolate", 0.30f}, {"denoise", 0.30f}, {"deess", 0.40f}, {"tone",  0.10f}, {"air", 0.45f}, {"level", 0.50f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Podcast Voice",   PV{ {"isolate", 0.20f}, {"denoise", 0.60f}, {"deess", 0.35f}, {"tone", -0.10f}, {"air", 0.30f}, {"level", 0.70f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Bright Pop Vocal",PV{ {"isolate", 0.35f}, {"denoise", 0.30f}, {"deess", 0.55f}, {"tone",  0.30f}, {"air", 0.70f}, {"level", 0.55f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Rap Vocal",       PV{ {"isolate", 0.45f}, {"denoise", 0.35f}, {"deess", 0.50f}, {"tone",  0.15f}, {"air", 0.40f}, {"level", 0.65f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Isolate & Rescue",PV{ {"isolate", 0.70f}, {"denoise", 0.60f}, {"deess", 0.40f}, {"tone",  0.05f}, {"air", 0.35f}, {"level", 0.60f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Warm Intimate",   PV{ {"isolate", 0.25f}, {"denoise", 0.35f}, {"deess", 0.30f}, {"tone", -0.25f}, {"air", 0.25f}, {"level", 0.50f}, {"mix", 1.0f} });
 }
 
 void SattariVocalMasterAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)

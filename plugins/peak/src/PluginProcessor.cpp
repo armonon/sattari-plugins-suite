@@ -13,6 +13,21 @@ SattariPeakAudioProcessor::SattariPeakAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (dB, dBTP, ms, LUFS, bool 0/1). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariPeakAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Transparent Limit",   PV{ {"push", 2},  {"ceiling", -1},    {"release", 120}, {"lookahead", 3}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Streaming -14 LUFS",  PV{ {"push", 4},  {"ceiling", -1},    {"release", 150}, {"autoLoud", 1}, {"targetLufs", -14}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Loud Master",         PV{ {"push", 8},  {"ceiling", -0.3f}, {"release", 80},  {"lookahead", 4}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Gentle Ceiling",      PV{ {"push", 0},  {"ceiling", -0.5f}, {"release", 200}, {"lookahead", 5}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Club -9 LUFS",        PV{ {"push", 6},  {"ceiling", -0.8f}, {"release", 60},  {"autoLoud", 1}, {"targetLufs", -9}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Aggressive Maximize", PV{ {"push", 12}, {"ceiling", -0.2f}, {"release", 40},  {"lookahead", 2}, {"truePeak", 1} });
+    presetBank.addFactoryPreset ("Broadcast -16",       PV{ {"push", 3},  {"ceiling", -2},    {"release", 150}, {"autoLoud", 1}, {"targetLufs", -16}, {"truePeak", 1} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

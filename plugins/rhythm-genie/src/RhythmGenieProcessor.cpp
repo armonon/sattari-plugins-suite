@@ -68,8 +68,25 @@ SattariRhythmGenieAudioProcessor::SattariRhythmGenieAudioProcessor()
 {
     grid.setLanes (kGridLanes);
     grid.setSteps (kSteps);
+    registerFactoryPresets();
     regenerateGrid();   // seed an editable groove from the default style
     formatManager.registerBasicFormats();
+}
+
+// Genre-flavoured factory presets. Each sets the style + feel; loading one (setCurrentProgram)
+// regenerates the grid so the pattern actually changes. Styles: 0 Four-on-Floor, 1 Boom Bap,
+// 2 Trap, 3 Pop, 4 Breakbeat, 5 Half-Time.
+void SattariRhythmGenieAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("House",       PV{ {"style",0}, {"density",0.70f}, {"swing",0.08f}, {"velocity",0.85f}, {"accent",0.40f}, {"humanize",0.15f} });
+    presetBank.addFactoryPreset ("Techno Drive",PV{ {"style",0}, {"density",0.88f}, {"swing",0.00f}, {"velocity",0.92f}, {"accent",0.35f}, {"humanize",0.10f}, {"chatDecay",0.60f} });
+    presetBank.addFactoryPreset ("Boom Bap",    PV{ {"style",1}, {"density",0.50f}, {"swing",0.18f}, {"velocity",0.80f}, {"accent",0.45f}, {"humanize",0.35f} });
+    presetBank.addFactoryPreset ("Lo-Fi Swing", PV{ {"style",1}, {"density",0.45f}, {"swing",0.26f}, {"velocity",0.72f}, {"accent",0.30f}, {"humanize",0.50f}, {"kitLevel",0.72f} });
+    presetBank.addFactoryPreset ("Trap",        PV{ {"style",2}, {"density",0.75f}, {"swing",0.00f}, {"velocity",0.85f}, {"accent",0.55f}, {"humanize",0.12f}, {"kickDecay",0.70f} });
+    presetBank.addFactoryPreset ("Pop",         PV{ {"style",3}, {"density",0.55f}, {"swing",0.10f}, {"velocity",0.82f}, {"accent",0.40f}, {"humanize",0.20f} });
+    presetBank.addFactoryPreset ("Breakbeat",   PV{ {"style",4}, {"density",0.72f}, {"swing",0.05f}, {"velocity",0.85f}, {"accent",0.45f}, {"humanize",0.30f} });
+    presetBank.addFactoryPreset ("Half-Time",   PV{ {"style",5}, {"density",0.50f}, {"swing",0.00f}, {"velocity",0.80f}, {"accent",0.50f}, {"humanize",0.18f} });
 }
 
 int SattariRhythmGenieAudioProcessor::kitLaneNote (int lane) noexcept

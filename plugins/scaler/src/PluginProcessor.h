@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <array>
 
 // =============================================================================
@@ -35,10 +36,13 @@ public:
     bool isMidiEffect() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -59,10 +63,13 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void  registerFactoryPresets();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void resolveKey (int& root, sattari::dsp::ScaleId& id) const;
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "scaler" };   // after apvts
+    int currentProgram = 0;
     sattari::xplugin::SessionReader sessionReader;
 
     // For each held input note, the output notes we sent (for matching note-offs).

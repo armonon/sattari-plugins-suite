@@ -36,6 +36,20 @@ Sattari808AudioProcessor::Sattari808AudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (choice index, seconds, 0..1). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void Sattari808AudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Deep 808",       PV{ {"wave", 0}, {"glide", 0.10f}, {"decay", 1.80f}, {"drive", 0.15f}, {"subfold", 0.35f}, {"blend", 0.85f}, {"output", 1.0f} });
+    presetBank.addFactoryPreset ("Distorted 808",  PV{ {"wave", 1}, {"glide", 0.08f}, {"decay", 1.20f}, {"drive", 0.75f}, {"subfold", 0.60f}, {"blend", 0.90f}, {"output", 1.0f} });
+    presetBank.addFactoryPreset ("Short Punchy",   PV{ {"wave", 0}, {"glide", 0.02f}, {"decay", 0.35f}, {"drive", 0.40f}, {"subfold", 0.20f}, {"blend", 0.90f}, {"output", 1.0f} });
+    presetBank.addFactoryPreset ("Sub Boom",       PV{ {"wave", 0}, {"glide", 0.15f}, {"decay", 2.30f}, {"drive", 0.10f}, {"subfold", 0.50f}, {"blend", 0.80f}, {"output", 1.0f} });
+    presetBank.addFactoryPreset ("Glide Bass",     PV{ {"wave", 0}, {"glide", 0.60f}, {"decay", 1.00f}, {"drive", 0.20f}, {"subfold", 0.25f}, {"blend", 0.85f}, {"output", 1.0f} });
+    presetBank.addFactoryPreset ("Trap Knock",     PV{ {"wave", 1}, {"glide", 0.05f}, {"decay", 0.70f}, {"drive", 0.55f}, {"subfold", 0.40f}, {"blend", 0.90f}, {"output", 1.1f} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout Sattari808AudioProcessor::createParameterLayout()

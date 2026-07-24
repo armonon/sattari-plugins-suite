@@ -9,6 +9,21 @@ SattariVoxKeyAudioProcessor::SattariVoxKeyAudioProcessor()
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     apvts.state.setProperty ("schema", "SattariVoxKey.v0.1.0", nullptr);
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (choice index, 0..1, ms, semitones, bool 0/1).
+// Only listed params are set; anything omitted keeps its default. Key params (key /
+// followKey) are intentionally left untouched so a preset never fights the song key.
+void SattariVoxKeyAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Lead Melody",         PV{ {"mode", 0}, {"scale", 2}, {"sensitivity", 0.65f}, {"smoothness", 0.50f}, {"confidence", 0.58f}, {"octave",  0}, {"hold",  60}, {"release", 140}, {"velocity", 0.72f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Bass Follow",         PV{ {"mode", 1}, {"scale", 2}, {"sensitivity", 0.60f}, {"smoothness", 0.60f}, {"confidence", 0.62f}, {"octave", -1}, {"hold",  80}, {"release", 180}, {"velocity", 0.70f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Drum Mouth",          PV{ {"mode", 3}, {"scale", 0}, {"sensitivity", 0.80f}, {"smoothness", 0.20f}, {"confidence", 0.65f}, {"octave",  0}, {"hold",  30}, {"release",  60}, {"velocity", 0.85f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Smooth Pad Layer",    PV{ {"mode", 4}, {"scale", 1}, {"sensitivity", 0.55f}, {"smoothness", 0.85f}, {"confidence", 0.50f}, {"octave",  0}, {"hold", 150}, {"release", 400}, {"velocity", 0.60f}, {"pitchBend", 0}, {"glide", 1} });
+    presetBank.addFactoryPreset ("Harmony Stack",       PV{ {"mode", 2}, {"scale", 1}, {"sensitivity", 0.62f}, {"smoothness", 0.55f}, {"confidence", 0.58f}, {"octave",  0}, {"hold",  80}, {"release", 160}, {"velocity", 0.72f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Expressive Glide Lead",PV{ {"mode", 0}, {"scale", 3}, {"sensitivity", 0.70f}, {"smoothness", 0.60f}, {"confidence", 0.55f}, {"octave",  0}, {"hold",  70}, {"release", 200}, {"velocity", 0.80f}, {"pitchBend", 1}, {"pitchBendRange", 2}, {"glide", 1} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor::createParameterLayout()

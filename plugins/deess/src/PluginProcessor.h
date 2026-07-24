@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <array>
 
 // =============================================================================
@@ -35,10 +36,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -95,7 +99,11 @@ private:
         }
     };
 
+    void registerFactoryPresets();
+
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "deess" };   // after apvts
+    int currentProgram = 0;
     double sampleRate = 44100.0;
     std::array<Biquad, 2> hp, shelf;
     sattari::dsp::EnvelopeFollower env;   // stereo-linked band envelope

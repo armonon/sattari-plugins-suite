@@ -46,10 +46,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -69,6 +72,7 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
     void updateOnsetEnvelope (const juce::AudioBuffer<float>& mainBuf,
                               const juce::AudioBuffer<float>& guideBuf,
                               int numSamples);
@@ -76,6 +80,8 @@ private:
     void resetDspState();
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "align" };   // after apvts
+    int currentProgram = 0;
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:

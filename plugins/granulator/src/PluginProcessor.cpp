@@ -24,6 +24,64 @@ SattariGranulatorAudioProcessor::SattariGranulatorAudioProcessor()
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
     formats.registerBasicFormats();   // wav / aiff / flac / ogg / mp3 (platform dependent)
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values on Layer A (layerMorph defaults to 0 = A only)
+// plus shared globals. Only listed params are set; anything omitted keeps its default,
+// so presets stay valid as params evolve.
+void SattariGranulatorAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    presetBank.addFactoryPreset ("Pad", PV{
+        {"A_grainSize", 220.0f}, {"A_density", 40.0f}, {"A_densityMode", 1}, {"A_spray", 0.30f},
+        {"A_smoothness", 0.60f}, {"A_window", 1}, {"A_grainPan", 0.40f},
+        {"ampAttack", 400.0f}, {"ampDecay", 800.0f}, {"ampSustain", 1.0f}, {"ampRelease", 1500.0f},
+        {"reverbMix", 0.35f}, {"reverbSize", 0.70f}, {"reverbDamp", 0.40f},
+        {"width", 1.30f}, {"volume", -6.0f} });
+
+    presetBank.addFactoryPreset ("Texture", PV{
+        {"A_grainSize", 90.0f}, {"A_density", 30.0f}, {"A_densityMode", 1}, {"A_spray", 0.50f},
+        {"A_smoothness", 0.40f}, {"A_window", 2}, {"A_grainPan", 0.60f}, {"A_posLfoAmt", 0.30f},
+        {"ampAttack", 150.0f}, {"ampRelease", 800.0f},
+        {"reverbMix", 0.25f}, {"reverbSize", 0.50f},
+        {"width", 1.20f}, {"volume", -6.0f} });
+
+    presetBank.addFactoryPreset ("Glitch", PV{
+        {"A_grainSize", 20.0f}, {"A_density", 60.0f}, {"A_densityMode", 0}, {"A_spray", 0.80f},
+        {"A_srcReverse", 1}, {"A_posScanRate", 0.50f}, {"A_grainPan", 0.80f}, {"A_smoothness", 0.0f},
+        {"ampAttack", 5.0f}, {"ampDecay", 200.0f}, {"ampRelease", 200.0f},
+        {"width", 1.0f}, {"volume", -6.0f} });
+
+    presetBank.addFactoryPreset ("Ambient Cloud", PV{
+        {"A_grainSize", 300.0f}, {"A_density", 15.0f}, {"A_densityMode", 1}, {"A_spray", 0.70f},
+        {"A_smoothness", 0.80f}, {"A_window", 1},
+        {"ampAttack", 800.0f}, {"ampSustain", 1.0f}, {"ampRelease", 3000.0f},
+        {"pitchLfoAmt", 15.0f}, {"pitchLfoRate", 3.0f},
+        {"reverbMix", 0.50f}, {"reverbSize", 0.85f}, {"reverbDamp", 0.30f},
+        {"width", 1.40f}, {"volume", -8.0f} });
+
+    presetBank.addFactoryPreset ("Rhythmic Stutter", PV{
+        {"A_grainSize", 60.0f}, {"A_densitySync", 1}, {"A_densityDiv", 6}, {"A_densityMode", 0},
+        {"A_spray", 0.20f}, {"A_grainPan", 0.50f},
+        {"ampAttack", 5.0f}, {"ampDecay", 300.0f}, {"ampRelease", 150.0f},
+        {"width", 1.10f}, {"volume", -6.0f} });
+
+    presetBank.addFactoryPreset ("Formant Vox", PV{
+        {"A_grainSize", 80.0f}, {"A_density", 25.0f}, {"A_densityMode", 1}, {"A_formantShift", 3.0f},
+        {"A_unisonVoices", 2}, {"A_unisonDetune", 12.0f}, {"A_unisonWidth", 0.60f},
+        {"filterType", 0}, {"cutoff", 4000.0f}, {"reso", 0.20f},
+        {"ampAttack", 60.0f}, {"ampRelease", 500.0f},
+        {"width", 1.20f}, {"volume", -6.0f} });
+
+    presetBank.addFactoryPreset ("Deep Grain Bass", PV{
+        {"A_grainSize", 120.0f}, {"A_density", 30.0f}, {"A_densityMode", 1}, {"A_tuneCoarse", -12},
+        {"A_spray", 0.15f},
+        {"subOsc", 1}, {"subLevel", 0.50f}, {"subWave", 0}, {"subOct", -1},
+        {"filterType", 0}, {"cutoff", 2000.0f}, {"reso", 0.15f},
+        {"ampAttack", 10.0f}, {"ampDecay", 500.0f}, {"ampRelease", 400.0f},
+        {"voiceMode", 0}, {"width", 0.80f}, {"volume", -6.0f} });
 }
 
 SattariGranulatorAudioProcessor::~SattariGranulatorAudioProcessor()

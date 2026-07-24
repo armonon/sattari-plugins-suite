@@ -28,8 +28,23 @@ SattariShimmerAudioProcessor::SattariShimmerAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
 }
 SattariShimmerAudioProcessor::~SattariShimmerAudioProcessor() { sessionReader.stop(); }
+
+// Factory presets: real parameter values (0..1 amounts, choice index, ms). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariShimmerAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Classic Octave",  PV{ {"size", 0.75f}, {"shimmer", 0.45f}, {"interval", 0}, {"damp", 0.35f}, {"predelay", 20}, {"width", 1.0f}, {"mix", 0.35f} });
+    presetBank.addFactoryPreset ("Angelic Pad",     PV{ {"size", 0.90f}, {"shimmer", 0.60f}, {"interval", 0}, {"damp", 0.30f}, {"predelay", 40}, {"width", 1.0f}, {"mix", 0.50f} });
+    presetBank.addFactoryPreset ("Fifth Bloom",     PV{ {"size", 0.70f}, {"shimmer", 0.50f}, {"interval", 1}, {"damp", 0.40f}, {"predelay", 25}, {"mix", 0.40f} });
+    presetBank.addFactoryPreset ("Subtle Sparkle",  PV{ {"size", 0.60f}, {"shimmer", 0.30f}, {"interval", 0}, {"damp", 0.50f}, {"predelay", 15}, {"mix", 0.25f} });
+    presetBank.addFactoryPreset ("Cathedral",       PV{ {"size", 0.95f}, {"shimmer", 0.70f}, {"interval", 0}, {"damp", 0.25f}, {"predelay", 60}, {"width", 1.0f}, {"mix", 0.55f} });
+    presetBank.addFactoryPreset ("Fourth Glass",    PV{ {"size", 0.80f}, {"shimmer", 0.55f}, {"interval", 2}, {"damp", 0.35f}, {"predelay", 30}, {"mix", 0.45f} });
+    presetBank.addFactoryPreset ("Dark Shimmer",    PV{ {"size", 0.85f}, {"shimmer", 0.50f}, {"interval", 0}, {"damp", 0.70f}, {"predelay", 35}, {"mix", 0.40f} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariShimmerAudioProcessor::createParameterLayout()

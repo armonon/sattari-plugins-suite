@@ -14,8 +14,28 @@ SattariScalerAudioProcessor::SattariScalerAudioProcessor()
     : juce::AudioProcessor (BusesProperties()),   // MIDI effect: no audio buses
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
 }
 SattariScalerAudioProcessor::~SattariScalerAudioProcessor() { sessionReader.stop(); }
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets pick a scale mode + chord type; Root and
+// Follow Song Key are left untouched so the generator keeps the user's key.
+void SattariScalerAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // chord: 0=Off(snap) 1=Triad 2=Seventh 3=Power 4=Octave
+    // scale: 0=Chromatic 1=Major 2=Minor 3=Penta Maj 4=Penta Min 5=Dorian 6=Mixolydian 7=Harm Minor
+    presetBank.addFactoryPreset ("Major Triads",    PV{ {"chord", 1}, {"scale", 1}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Minor Triads",    PV{ {"chord", 1}, {"scale", 2}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Major 7ths",      PV{ {"chord", 2}, {"scale", 1}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Minor 7ths",      PV{ {"chord", 2}, {"scale", 2}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Power Chords",    PV{ {"chord", 3}, {"scale", 2}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Octave Doubler",  PV{ {"chord", 4}, {"scale", 1}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Pentatonic Snap", PV{ {"chord", 0}, {"scale", 3}, {"octave", 0} });
+    presetBank.addFactoryPreset ("Dorian 7ths",     PV{ {"chord", 2}, {"scale", 5}, {"octave", 0} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariScalerAudioProcessor::createParameterLayout()

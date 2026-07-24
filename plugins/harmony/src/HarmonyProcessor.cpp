@@ -105,6 +105,46 @@ SattariHarmonyAudioProcessor::SattariHarmonyAudioProcessor()
         snapVoiceMidi[v].store (-1);
         snapVoiceOn[v].store (false);
     }
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets shape the voicing (which voices are on and
+// their intervals) plus the ensemble macros; the key/scale menu is left untouched
+// so harmonies still follow whatever key the user (or the song bus) has set.
+void SattariHarmonyAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // Voice interval choice indices: 0=Oct↓ 1=6↓ 2=5↓ 3=4↓ 4=3↓ 5=Uni 6=3↑ 7=4↑ 8=5↑ 9=6↑ 10=Oct↑
+    presetBank.addFactoryPreset ("Third Above",
+        PV{ {"mix", 0.65f}, {"tune", 0.85f}, {"spread", 0.4f}, {"choir", 0.0f}, {"humanize", 0.25f},
+            {"v1on", 1}, {"v1int", 6}, {"v2on", 0}, {"v3on", 0} });
+
+    presetBank.addFactoryPreset ("Third & Fifth",
+        PV{ {"mix", 0.7f}, {"tune", 0.85f}, {"spread", 0.55f}, {"choir", 0.1f}, {"humanize", 0.3f},
+            {"v1on", 1}, {"v1int", 6}, {"v2on", 1}, {"v2int", 8}, {"v3on", 0} });
+
+    presetBank.addFactoryPreset ("Octave Doubler",
+        PV{ {"mix", 0.6f}, {"tune", 0.9f}, {"spread", 0.5f}, {"choir", 0.0f}, {"humanize", 0.15f},
+            {"v1on", 1}, {"v1int", 10}, {"v2on", 1}, {"v2int", 0}, {"v3on", 0} });
+
+    presetBank.addFactoryPreset ("Low Harmony",
+        PV{ {"mix", 0.7f}, {"tune", 0.8f}, {"spread", 0.45f}, {"choir", 0.1f}, {"humanize", 0.3f},
+            {"v1on", 1}, {"v1int", 4}, {"v2on", 1}, {"v2int", 2}, {"v3on", 0} });
+
+    presetBank.addFactoryPreset ("Wide Choir",
+        PV{ {"mix", 0.8f}, {"tune", 0.75f}, {"spread", 0.85f}, {"choir", 0.6f}, {"humanize", 0.45f},
+            {"v1on", 1}, {"v1int", 6}, {"v2on", 1}, {"v2int", 8}, {"v3on", 1}, {"v3int", 0} });
+
+    presetBank.addFactoryPreset ("Full Ensemble",
+        PV{ {"mix", 0.85f}, {"tune", 0.7f}, {"spread", 0.9f}, {"choir", 0.5f}, {"humanize", 0.5f},
+            {"v1on", 1}, {"v1int", 6}, {"v2on", 1}, {"v2int", 8}, {"v3on", 1}, {"v3int", 10},
+            {"v4on", 1}, {"v4int", 4}, {"v5on", 1}, {"v5int", 9} });
+
+    presetBank.addFactoryPreset ("Hard Tune Stack",
+        PV{ {"mix", 0.75f}, {"tune", 1.0f}, {"spread", 0.6f}, {"choir", 0.0f}, {"humanize", 0.0f},
+            {"v1on", 1}, {"v1int", 6}, {"v2on", 1}, {"v2int", 8}, {"v3on", 1}, {"v3int", 10} });
 }
 
 // ---- prepare ----------------------------------------------------------------

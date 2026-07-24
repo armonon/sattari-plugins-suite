@@ -75,9 +75,24 @@ SattariVocoderAudioProcessor::SattariVocoderAudioProcessor()
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
     heldMidi.fill (-1);
+    registerFactoryPresets();
 }
 
 SattariVocoderAudioProcessor::~SattariVocoderAudioProcessor() { sessionReader.stop(); }
+
+// Factory presets: real parameter values (band count, choice index, semitones, ms, dB).
+// Only listed params are set; anything omitted keeps its default. Key params (followKey /
+// root / scale) are intentionally left untouched so a preset never fights the song key.
+void SattariVocoderAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Classic Robot",   PV{ {"bands", 20}, {"wave", 0}, {"voicing", 1}, {"octave",  0}, {"formant",  0}, {"unvoiced", 0.30f}, {"attack",  5}, {"release",  60}, {"mix", 1.0f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Fat Synth Choir", PV{ {"bands", 28}, {"wave", 0}, {"voicing", 3}, {"octave",  0}, {"formant",  2}, {"unvoiced", 0.25f}, {"attack",  8}, {"release", 120}, {"mix", 1.0f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Bright Talk",     PV{ {"bands", 32}, {"wave", 1}, {"voicing", 0}, {"octave",  0}, {"formant",  3}, {"unvoiced", 0.50f}, {"attack",  3}, {"release",  40}, {"mix", 1.0f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Deep Menace",     PV{ {"bands", 16}, {"wave", 0}, {"voicing", 2}, {"octave", -1}, {"formant", -4}, {"unvoiced", 0.20f}, {"attack", 10}, {"release", 150}, {"mix", 1.0f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Airy Sibilant",   PV{ {"bands", 24}, {"wave", 0}, {"voicing", 1}, {"octave",  1}, {"formant",  4}, {"unvoiced", 0.70f}, {"attack",  2}, {"release",  30}, {"mix", 1.0f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Seventh Pad",     PV{ {"bands", 26}, {"wave", 0}, {"voicing", 4}, {"octave",  0}, {"formant",  0}, {"unvoiced", 0.30f}, {"attack", 15}, {"release", 200}, {"mix", 1.0f}, {"output", 0} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariVocoderAudioProcessor::createParameterLayout()

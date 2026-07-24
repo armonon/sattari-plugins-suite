@@ -35,6 +35,22 @@ SattariMultibandAudioProcessor::SattariMultibandAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (Hz, dB, ratio). Only listed params are set;
+// anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariMultibandAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Vocal Master",    PV{ {"xLow", 250}, {"xHigh", 3000}, {"thr1", -18}, {"ratio1", 2},    {"thr2", -20}, {"ratio2", 2.5f}, {"thr3", -22}, {"ratio3", 2},    {"mk3", 1}, {"mix", 100} });
+    presetBank.addFactoryPreset ("Full Master Glue",PV{ {"xLow", 200}, {"xHigh", 4000}, {"thr1", -16}, {"ratio1", 2},    {"thr2", -18}, {"ratio2", 2},    {"thr3", -20}, {"ratio3", 2},    {"output", 1} });
+    presetBank.addFactoryPreset ("Tame Lows",       PV{ {"xLow", 150}, {"thr1", -24}, {"ratio1", 4},  {"atk1", 20}, {"rel1", 200}, {"thr2", 0}, {"ratio2", 1}, {"thr3", 0}, {"ratio3", 1} });
+    presetBank.addFactoryPreset ("De-Harsh Highs",  PV{ {"xHigh", 5000}, {"thr1", 0}, {"ratio1", 1}, {"thr2", 0}, {"ratio2", 1}, {"thr3", -28}, {"ratio3", 4}, {"atk3", 2}, {"rel3", 80} });
+    presetBank.addFactoryPreset ("Punch Bus",       PV{ {"xLow", 200}, {"xHigh", 3500}, {"thr1", -20}, {"ratio1", 3}, {"atk1", 8}, {"thr2", -18}, {"ratio2", 2.5f}, {"atk2", 5}, {"thr3", -20}, {"ratio3", 2}, {"mk1", 1} });
+    presetBank.addFactoryPreset ("Bass Control",    PV{ {"xLow", 120}, {"thr1", -28}, {"ratio1", 5}, {"atk1", 10}, {"rel1", 150}, {"mk1", 2} });
+    presetBank.addFactoryPreset ("Aggressive",      PV{ {"xLow", 250}, {"xHigh", 3000}, {"thr1", -26}, {"ratio1", 6}, {"thr2", -26}, {"ratio2", 6}, {"thr3", -26}, {"ratio3", 6}, {"mix", 100}, {"output", 2} });
+    presetBank.addFactoryPreset ("Parallel Multi",  PV{ {"thr1", -30}, {"ratio1", 4}, {"thr2", -30}, {"ratio2", 4}, {"thr3", -30}, {"ratio3", 4}, {"mix", 45} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

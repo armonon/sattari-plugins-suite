@@ -8,6 +8,20 @@ SattariCleanAudioProcessor::SattariCleanAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (Amount 0..1, Sensitivity 1.5..12, Output dB).
+// Only listed params are set; anything omitted keeps its default.
+void SattariCleanAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Light Cleanup",   PV{ {"amount", 0.35f}, {"sensitivity", 3.0f} });
+    presetBank.addFactoryPreset ("Vocal De-Noise",  PV{ {"amount", 0.5f},  {"sensitivity", 4.0f} });
+    presetBank.addFactoryPreset ("Hiss Removal",    PV{ {"amount", 0.6f},  {"sensitivity", 5.0f} });
+    presetBank.addFactoryPreset ("Heavy Cleanup",   PV{ {"amount", 0.8f},  {"sensitivity", 6.0f} });
+    presetBank.addFactoryPreset ("Gentle Room",     PV{ {"amount", 0.3f},  {"sensitivity", 2.5f} });
+    presetBank.addFactoryPreset ("Aggressive",      PV{ {"amount", 0.95f}, {"sensitivity", 8.0f}, {"output", 1} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

@@ -24,6 +24,20 @@ SattariDoubleAudioProcessor::SattariDoubleAudioProcessor()
 {
     voices[0].rng.setSeed (0x1234abcd);
     voices[1].rng.setSeed (0x7f3e2a11);
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (cents, ms, 0..1, dB). Only listed params are
+// set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariDoubleAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Subtle Glue",     PV{ {"detune",  6}, {"timing", 10}, {"drift", 0.15f}, {"width", 0.45f}, {"level", 0.45f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Tight & Close",   PV{ {"detune",  4}, {"timing",  6}, {"drift", 0.10f}, {"width", 0.40f}, {"level", 0.50f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Natural Double",  PV{ {"detune", 12}, {"timing", 18}, {"drift", 0.40f}, {"width", 0.75f}, {"level", 0.60f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Wide Doubler",    PV{ {"detune", 16}, {"timing", 24}, {"drift", 0.50f}, {"width", 1.00f}, {"level", 0.75f}, {"output", 0} });
+    presetBank.addFactoryPreset ("Lush Thickener",  PV{ {"detune", 22}, {"timing", 30}, {"drift", 0.70f}, {"width", 0.90f}, {"level", 0.85f}, {"output", -1} });
+    presetBank.addFactoryPreset ("Chorus Wash",     PV{ {"detune", 28}, {"timing", 40}, {"drift", 0.90f}, {"width", 1.00f}, {"level", 0.90f}, {"output", -2} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

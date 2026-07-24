@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include "CleanModule.h"
 #include "TuneModule.h"
 #include "ControlModule.h"
@@ -34,10 +35,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.75; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -55,10 +59,13 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
     void updateMeter (std::atomic<float>& meter, float target);
     float measurePeak (const juce::AudioBuffer<float>& buffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "royal-chain" };   // after apvts
+    int currentProgram = 0;
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:

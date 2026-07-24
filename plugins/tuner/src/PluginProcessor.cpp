@@ -14,6 +14,20 @@ SattariTunerAudioProcessor::SattariTunerAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (reference Hz, 0..1 smoothing, transpose semis).
+// Only listed params are set; anything omitted keeps its default.
+void SattariTunerAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Standard (A=440)", PV{ {"referenceA", 440}, {"smoothing", 0.50f}, {"transpose",  0} });
+    presetBank.addFactoryPreset ("432 Hz",           PV{ {"referenceA", 432}, {"smoothing", 0.50f}, {"transpose",  0} });
+    presetBank.addFactoryPreset ("Baroque (A=415)",  PV{ {"referenceA", 415}, {"smoothing", 0.60f}, {"transpose",  0} });
+    presetBank.addFactoryPreset ("Bb Instrument",    PV{ {"referenceA", 440}, {"smoothing", 0.50f}, {"transpose",  2} });
+    presetBank.addFactoryPreset ("Eb Instrument",    PV{ {"referenceA", 440}, {"smoothing", 0.50f}, {"transpose", -3} });
+    presetBank.addFactoryPreset ("Steady Needle",    PV{ {"referenceA", 440}, {"smoothing", 0.90f}, {"transpose",  0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

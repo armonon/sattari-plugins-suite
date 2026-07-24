@@ -8,6 +8,22 @@ SattariFaceAudioProcessor::SattariFaceAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (semitones, 0..1 mix, dB). Only listed params
+// are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariFaceAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Deeper / Bigger",  PV{ {"pitch",   0}, {"formant", -4}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Smaller / Brighter",PV{ {"pitch",   0}, {"formant",  4}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Feminize",         PV{ {"pitch",   0}, {"formant",  5}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Masculinize",      PV{ {"pitch",   0}, {"formant", -5}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Chipmunk",         PV{ {"pitch",   7}, {"formant",  3}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Monster",          PV{ {"pitch",  -7}, {"formant", -5}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Octave Up",        PV{ {"pitch",  12}, {"formant",  0}, {"mix", 1.0f},  {"output", 0} });
+    presetBank.addFactoryPreset ("Subtle Warmth",    PV{ {"pitch",   0}, {"formant", -2}, {"mix", 0.65f}, {"output", 0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

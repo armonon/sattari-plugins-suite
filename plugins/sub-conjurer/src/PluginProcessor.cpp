@@ -22,6 +22,38 @@ SubConjurerAudioProcessor::SubConjurerAudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets shape the sub tone/character; Tuning, Lock
+// Note and Follow Song Key are left untouched so the sub keeps the user's key.
+void SubConjurerAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // mode: 0=Clean 1=Power 2=Deep 3=808 4=Perc-to-Sub   (octave int 0..3)
+    presetBank.addFactoryPreset ("Clean Sub",
+        PV{ {"mode", 0}, {"octave", 1}, {"amount", 0.8f}, {"dry", 0.5f}, {"richness", 0.1f},
+            {"glide", 0.15f}, {"saturation", 0.1f}, {"attack", 0.008f}, {"release", 0.18f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("Power Bass",
+        PV{ {"mode", 1}, {"octave", 1}, {"amount", 1.0f}, {"dry", 0.35f}, {"richness", 0.4f},
+            {"glide", 0.2f}, {"saturation", 0.35f}, {"attack", 0.006f}, {"release", 0.2f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("Deep Rumble",
+        PV{ {"mode", 2}, {"octave", 0}, {"amount", 1.0f}, {"dry", 0.2f}, {"richness", 0.2f},
+            {"glide", 0.3f}, {"saturation", 0.2f}, {"attack", 0.012f}, {"release", 0.35f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("808 Boom",
+        PV{ {"mode", 3}, {"octave", 1}, {"amount", 1.1f}, {"dry", 0.25f}, {"richness", 0.35f},
+            {"glide", 0.3f}, {"saturation", 0.45f}, {"attack", 0.005f}, {"release", 0.5f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("Perc Sub",
+        PV{ {"mode", 4}, {"octave", 1}, {"amount", 0.9f}, {"dry", 0.3f}, {"richness", 0.3f},
+            {"glide", 0.05f}, {"saturation", 0.3f}, {"attack", 0.003f}, {"release", 0.12f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("Warm Saturated",
+        PV{ {"mode", 1}, {"octave", 1}, {"amount", 0.95f}, {"dry", 0.3f}, {"richness", 0.5f},
+            {"glide", 0.2f}, {"saturation", 0.6f}, {"attack", 0.008f}, {"release", 0.25f}, {"subonly", 0} });
+    presetBank.addFactoryPreset ("Sub Only",
+        PV{ {"mode", 2}, {"octave", 0}, {"amount", 1.0f}, {"dry", 0.0f}, {"richness", 0.25f},
+            {"glide", 0.25f}, {"saturation", 0.2f}, {"attack", 0.008f}, {"release", 0.22f}, {"subonly", 1} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SubConjurerAudioProcessor::createParameterLayout()

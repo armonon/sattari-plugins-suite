@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <atomic>
 #include <vector>
 
@@ -49,10 +50,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 2.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -72,8 +76,11 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     double resolveBpm();
+    void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "riser" };   // after apvts
+    int currentProgram = 0;
     double sampleRate = 44100.0;
 
     sattari::xplugin::TempoReader tempoReader;   // TEMPO-bus fallback when host reports none

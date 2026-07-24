@@ -8,6 +8,20 @@ SattariDeEssAudioProcessor::SattariDeEssAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (Hz, dB, choice index). Only listed params are
+// set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariDeEssAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Vocal — Gentle",   PV{ {"freq", 6500}, {"threshold", -26}, {"range",  6}, {"mode", 0}, {"output", 0} });
+    presetBank.addFactoryPreset ("Vocal — Firm",     PV{ {"freq", 7000}, {"threshold", -34}, {"range", 10}, {"mode", 0}, {"output", 0} });
+    presetBank.addFactoryPreset ("Bright / Airy",    PV{ {"freq", 8500}, {"threshold", -30}, {"range",  7}, {"mode", 0}, {"output", 0} });
+    presetBank.addFactoryPreset ("Rap Vocal",        PV{ {"freq", 7500}, {"threshold", -36}, {"range", 12}, {"mode", 0}, {"output", 0} });
+    presetBank.addFactoryPreset ("Aggressive",       PV{ {"freq", 6000}, {"threshold", -40}, {"range", 16}, {"mode", 0}, {"output", 0} });
+    presetBank.addFactoryPreset ("Wideband Ess",     PV{ {"freq", 6500}, {"threshold", -30}, {"range",  8}, {"mode", 1}, {"output", 0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

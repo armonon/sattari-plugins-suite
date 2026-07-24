@@ -11,6 +11,32 @@ SattariAlignAudioProcessor::SattariAlignAudioProcessor()
           .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets tune the detector/smoothing for different
+// source material; Bypass is left untouched.
+void SattariAlignAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // algorithm: 0=Bulk Shift (v1) 1=DTW Warp (v2 alpha)
+    // searchRangeMs 10..300, sensitivity/smoothing 0..1, manualOffsetMs -150..150
+    presetBank.addFactoryPreset ("Vocal Doubles",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 80.0f}, {"sensitivity", 0.6f}, {"smoothing", 0.75f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("Drum Stems",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 60.0f}, {"sensitivity", 0.7f}, {"smoothing", 0.5f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("Guitar Layers",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 100.0f}, {"sensitivity", 0.55f}, {"smoothing", 0.7f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("Wide Search",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 250.0f}, {"sensitivity", 0.5f}, {"smoothing", 0.7f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("Tight & Fast",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 40.0f}, {"sensitivity", 0.8f}, {"smoothing", 0.3f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("Gentle Follow",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 0}, {"searchRangeMs", 120.0f}, {"sensitivity", 0.45f}, {"smoothing", 0.9f}, {"manualOffsetMs", 0.0f} });
+    presetBank.addFactoryPreset ("DTW Drift (v2)",
+        PV{ {"autoAlign", 1}, {"lock", 0}, {"algorithm", 1}, {"searchRangeMs", 150.0f}, {"sensitivity", 0.55f}, {"smoothing", 0.7f}, {"manualOffsetMs", 0.0f} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariAlignAudioProcessor::createParameterLayout()

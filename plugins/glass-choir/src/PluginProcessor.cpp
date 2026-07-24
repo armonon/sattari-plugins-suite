@@ -114,6 +114,21 @@ SattariGlassChoirAudioProcessor::SattariGlassChoirAudioProcessor()
 {
     juce::uint32 seed = 0x51a55c00;
     for (auto& v : doubles) { v.rng.setSeed ((juce::int64) seed); seed = seed * 1664525u + 1013904223u; }
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (0..1 macros, choice index, dB, cents/ms). Only
+// listed params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariGlassChoirAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Natural Double",     PV{ {"character", 0.15f}, {"mode", 0}, {"voiceCount", 0}, {"detuneSpread", 8}, {"timing", 12}, {"humanize", 0.25f}, {"reverbMix", 0.20f}, {"width", 1.1f}, {"harmonyOn", 0} });
+    presetBank.addFactoryPreset ("Tight Ensemble",     PV{ {"character", 0.35f}, {"mode", 1}, {"voiceCount", 1}, {"detuneSpread", 12}, {"timing", 16}, {"humanize", 0.35f}, {"reverbMix", 0.30f}, {"width", 1.3f}, {"harmonyOn", 0} });
+    presetBank.addFactoryPreset ("Massive Choir",      PV{ {"character", 0.60f}, {"mode", 1}, {"voiceCount", 2}, {"detuneSpread", 20}, {"timing", 24}, {"humanize", 0.50f}, {"reverbMix", 0.40f}, {"width", 1.5f}, {"harmonyOn", 1}, {"harmonyMix", 0.50f} });
+    presetBank.addFactoryPreset ("Glass Cathedral",    PV{ {"character", 0.70f}, {"mode", 2}, {"voiceCount", 2}, {"detuneSpread", 28}, {"timing", 30}, {"humanize", 0.60f}, {"reverbMix", 0.55f}, {"reverbSize", 0.85f}, {"width", 1.6f}, {"trailsOn", 1}, {"trailsMix", 0.35f} });
+    presetBank.addFactoryPreset ("Destroyed Angel",    PV{ {"character", 0.85f}, {"mode", 2}, {"voiceCount", 2}, {"destroyOn", 1}, {"destroyMix", 0.50f}, {"drive", 0.60f}, {"crush", 0.40f}, {"reverbMix", 0.50f}, {"width", 1.6f} });
+    presetBank.addFactoryPreset ("Key-Locked Harmony", PV{ {"character", 0.40f}, {"mode", 1}, {"voiceCount", 1}, {"harmonyOn", 1}, {"harmonyMix", 0.60f}, {"followKey", 1}, {"reverbMix", 0.35f}, {"width", 1.3f} });
+    presetBank.addFactoryPreset ("Airy Whisper Pad",   PV{ {"character", 0.30f}, {"mode", 0}, {"voiceCount", 1}, {"detuneSpread", 10}, {"timing", 14}, {"reverbMix", 0.45f}, {"reverbSize", 0.75f}, {"duckAmount", 0.70f}, {"width", 1.4f} });
 }
 
 // -- Parameter layout (full v1 list per spec) ---------------------------------

@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <vector>
 
 class SattariArpAudioProcessor final : public juce::AudioProcessor
@@ -26,10 +27,13 @@ public:
     bool isMidiEffect() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -46,6 +50,7 @@ private:
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
 
     void renderArp (juce::MidiBuffer& output, int startSample, int numSamples);
     void handleInputMidi (const juce::MidiMessage& message, int samplePosition, juce::MidiBuffer& output);
@@ -75,6 +80,8 @@ public:
 private:
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "sattari-arp" };   // after apvts
+    int currentProgram = 0;
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:

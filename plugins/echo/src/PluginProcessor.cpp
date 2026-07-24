@@ -29,8 +29,24 @@ SattariEchoAudioProcessor::SattariEchoAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
 }
 SattariEchoAudioProcessor::~SattariEchoAudioProcessor() { tempoReader.stop(); }
+
+// Factory presets: real parameter values (choice index, Hz/ms, ratios). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariEchoAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Slapback",        PV{ {"sync", 0}, {"timems", 110}, {"feedback", 0.12f}, {"pingpong", 0}, {"tone", 0.0f}, {"diffusion", 0.0f}, {"mix", 0.28f} });
+    presetBank.addFactoryPreset ("Ping-Pong 1/8",   PV{ {"sync", 1}, {"div", 3}, {"feedback", 0.45f}, {"pingpong", 1}, {"width", 1.0f}, {"tone", -0.2f}, {"mix", 0.35f} });
+    presetBank.addFactoryPreset ("Dotted Eighth",   PV{ {"sync", 1}, {"div", 4}, {"feedback", 0.40f}, {"pingpong", 0}, {"tone", -0.15f}, {"mix", 0.32f} });
+    presetBank.addFactoryPreset ("Dub Delay",       PV{ {"sync", 1}, {"div", 3}, {"feedback", 0.70f}, {"tone", -0.5f}, {"diffusion", 0.45f}, {"mix", 0.40f} });
+    presetBank.addFactoryPreset ("Ambient Wash",    PV{ {"sync", 1}, {"div", 6}, {"feedback", 0.80f}, {"diffusion", 0.70f}, {"tone", -0.3f}, {"width", 1.0f}, {"mix", 0.50f} });
+    presetBank.addFactoryPreset ("Quarter Echo",    PV{ {"sync", 1}, {"div", 0}, {"feedback", 0.35f}, {"pingpong", 0}, {"tone", -0.1f}, {"mix", 0.30f} });
+    presetBank.addFactoryPreset ("Ducked Delay",    PV{ {"sync", 1}, {"div", 3}, {"feedback", 0.50f}, {"duck", 0.70f}, {"tone", -0.2f}, {"mix", 0.40f} });
+    presetBank.addFactoryPreset ("Triplet Bounce",  PV{ {"sync", 1}, {"div", 5}, {"feedback", 0.42f}, {"pingpong", 1}, {"width", 1.0f}, {"mix", 0.35f} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariEchoAudioProcessor::createParameterLayout()

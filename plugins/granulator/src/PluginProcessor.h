@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>   // ScaleId, snapMidiToScale
 #include <sattari_audio_core/SattariRealtime.h>          // AtomicSnapshot
+#include <sattari_audio_core/SattariPresetManager.h>
 
 #include "SourceSample.h"
 
@@ -75,10 +76,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 12.0; }   // long amp release
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -185,6 +189,7 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     // Raw value of a per-layer param on a specific layer (A_/B_ prefixed).
     float layerParam (Layer layer, const char* baseId) const noexcept;
@@ -270,6 +275,8 @@ private:
     //  State
     // =========================================================================
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "granulator" };   // after apvts
+    int currentProgram = 0;
     double sampleRate = 44100.0;
 
     std::array<LayerState, kNumLayers> layers;

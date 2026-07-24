@@ -22,6 +22,35 @@ SattariArpAudioProcessor::SattariArpAudioProcessor()
     : AudioProcessor (BusesProperties()),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets shape the arp pattern/feel; Scale Root,
+// Scale and Follow Song Key are left untouched so the arp keeps the user's key.
+void SattariArpAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // rate:    0=1/4 1=1/8 2=1/8T 3=1/16 4=1/16T 5=1/32
+    // pattern: 0=Up 1=Down 2=Up-Down 3=Down-Up 4=As Played 5=Random 6=Chord Pulse
+    // velocityMode: 0=Input 1=Fixed 2=Accent   (swing range is 0..0.65)
+    presetBank.addFactoryPreset ("Classic Up",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.7f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Staccato Gate",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.35f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Triplet Roll",
+        PV{ {"rate", 2}, {"pattern", 2}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.6f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Swung Eighths",
+        PV{ {"rate", 1}, {"pattern", 4}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.75f}, {"swing", 0.5f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Octave Cascade",
+        PV{ {"rate", 3}, {"pattern", 1}, {"octaves", 4}, {"ratchet", 1}, {"gate", 0.85f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Ratchet Machine",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 2}, {"ratchet", 3}, {"gate", 0.5f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Random Motion",
+        PV{ {"rate", 3}, {"pattern", 5}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.65f}, {"swing", 0.0f}, {"velocityMode", 2}, {"humanize", 8} });
+    presetBank.addFactoryPreset ("Chord Pulse",
+        PV{ {"rate", 1}, {"pattern", 6}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.9f}, {"swing", 0.0f}, {"velocityMode", 0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::createParameterLayout()

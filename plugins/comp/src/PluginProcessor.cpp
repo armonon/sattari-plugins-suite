@@ -40,9 +40,25 @@ SattariCompAudioProcessor::SattariCompAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
 }
 
 SattariCompAudioProcessor::~SattariCompAudioProcessor() { tempoReader.stop(); }
+
+// Factory presets: real parameter values (dB, ms, ratio, choice index). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariCompAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Vocal — Gentle",    PV{ {"threshold", -20}, {"ratio", 2.5f}, {"knee", 8},  {"attack", 12}, {"release", 180}, {"makeup", 2},  {"mix", 100} });
+    presetBank.addFactoryPreset ("Vocal — Punchy",    PV{ {"threshold", -18}, {"ratio", 4},    {"knee", 4},  {"attack", 5},  {"release", 120}, {"makeup", 3},  {"mix", 100} });
+    presetBank.addFactoryPreset ("Vocal — Smooth",    PV{ {"threshold", -22}, {"ratio", 3},    {"knee", 10}, {"attack", 20}, {"release", 250}, {"makeup", 3},  {"autoRelease", 1} });
+    presetBank.addFactoryPreset ("Rap Vocal",         PV{ {"threshold", -16}, {"ratio", 5},    {"knee", 3},  {"attack", 3},  {"release", 90},  {"makeup", 4} });
+    presetBank.addFactoryPreset ("Bus Glue",          PV{ {"threshold", -14}, {"ratio", 2},    {"knee", 12}, {"attack", 30}, {"release", 300}, {"makeup", 2},  {"autoGain", 1} });
+    presetBank.addFactoryPreset ("Drum Smack",        PV{ {"threshold", -20}, {"ratio", 6},    {"knee", 2},  {"attack", 1},  {"release", 80},  {"makeup", 3} });
+    presetBank.addFactoryPreset ("Parallel Squash",   PV{ {"threshold", -30}, {"ratio", 10},   {"knee", 6},  {"attack", 1},  {"release", 100}, {"makeup", 6},  {"mix", 40} });
+    presetBank.addFactoryPreset ("Tempo Pump",        PV{ {"threshold", -18}, {"ratio", 4},    {"knee", 4},  {"attack", 8},  {"release", 140}, {"tempoRelease", 1}, {"releaseDiv", 4} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariCompAudioProcessor::createParameterLayout()

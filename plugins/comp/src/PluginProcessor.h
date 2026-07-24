@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include <atomic>
 
 // =============================================================================
@@ -50,10 +51,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -77,8 +81,11 @@ private:
     // Resolve the release time in ms, honouring the tempo-release toggle.
     double resolveReleaseMs (double userReleaseMs);
     double resolveBpm();
+    void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "comp" };   // after apvts
+    int currentProgram = 0;
     double sampleRate = 44100.0;
 
     // Gain-reduction envelope smoother (dB domain). Detector is instantaneous

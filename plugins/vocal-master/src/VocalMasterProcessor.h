@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
 #include <sattari_audio_core/SattariStemSeparator.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include "VocalMasterDsp.h"
 #include <array>
 #include <atomic>
@@ -39,10 +40,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -59,9 +63,12 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "vocal-master" };   // after apvts
+    int currentProgram = 0;
 
     double currentSampleRate = 44100.0;
 

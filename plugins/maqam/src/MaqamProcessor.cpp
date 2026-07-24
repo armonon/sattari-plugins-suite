@@ -45,6 +45,33 @@ SattariMaqamAudioProcessor::SattariMaqamAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Each preset selects a maqam and its correction feel;
+// Root / Follow Song Key are left untouched so the tuner keeps the user's key.
+void SattariMaqamAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // maqam choice indices: 0=Rast 1=Bayati 2=Hijaz 3=Saba 4=Kurd 5=Nahawand 6=Ajam 7=Hijazkar
+    presetBank.addFactoryPreset ("Rast — Natural",
+        PV{ {"maqam", 0}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Bayati — Expressive",
+        PV{ {"maqam", 1}, {"strength", 0.75f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Hijaz — Hard Tune",
+        PV{ {"maqam", 2}, {"strength", 1.0f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Saba — Gentle",
+        PV{ {"maqam", 3}, {"strength", 0.65f}, {"mix", 0.9f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Kurd — Modern",
+        PV{ {"maqam", 4}, {"strength", 0.9f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Nahawand — Minor Feel",
+        PV{ {"maqam", 5}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Ajam — Major Feel",
+        PV{ {"maqam", 6}, {"strength", 0.85f}, {"mix", 1.0f}, {"formant", 1} });
+    presetBank.addFactoryPreset ("Hijazkar — Ornament",
+        PV{ {"maqam", 7}, {"strength", 0.7f}, {"mix", 0.95f}, {"formant", 1} });
 }
 
 void SattariMaqamAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)

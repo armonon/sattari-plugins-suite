@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include "PitchDetector.h"
 #include "VoiceMidiMapper.h"
 #include <atomic>
@@ -37,10 +38,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -70,8 +74,11 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     VoxKeyVoiceMidiMapper::Settings readSettings() const;
     void publishDisplayState (const VoxKeyVoiceMidiMapper::State& state);
+    void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "voxkey" };   // after apvts
+    int currentProgram = 0;
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:

@@ -40,6 +40,21 @@ SattariWarpAudioProcessor::SattariWarpAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (0..1 macros, Hz, dB, choice index). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariWarpAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Subtle Character", PV{ {"dose", 0.30f}, {"vowel", 0.40f}, {"vowelAmt", 0.40f}, {"robotAmt", 0.10f}, {"drive", 0.20f}, {"crush", 0.10f}, {"stutter", 0.0f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Talkbox Vowel",    PV{ {"dose", 0.70f}, {"vowel", 0.50f}, {"vowelAmt", 0.85f}, {"robotAmt", 0.00f}, {"drive", 0.15f}, {"crush", 0.00f}, {"stutter", 0.0f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Robot Voice",      PV{ {"dose", 0.70f}, {"vowel", 0.20f}, {"vowelAmt", 0.30f}, {"robotFreq", 90}, {"robotAmt", 0.80f}, {"drive", 0.20f}, {"crush", 0.10f}, {"stutter", 0.0f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Lo-Fi Grit",       PV{ {"dose", 0.65f}, {"vowel", 0.30f}, {"vowelAmt", 0.20f}, {"robotAmt", 0.00f}, {"drive", 0.70f}, {"crush", 0.60f}, {"stutter", 0.0f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Glitch Stutter",   PV{ {"dose", 0.70f}, {"vowelAmt", 0.20f}, {"robotAmt", 0.10f}, {"drive", 0.20f}, {"crush", 0.20f}, {"stutter", 0.80f}, {"stutterRate", 3}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Metallic Swarm",   PV{ {"dose", 0.80f}, {"vowel", 0.60f}, {"vowelAmt", 0.50f}, {"robotFreq", 300}, {"robotAmt", 0.60f}, {"drive", 0.30f}, {"crush", 0.30f}, {"stutter", 0.0f}, {"mix", 1.0f} });
+    presetBank.addFactoryPreset ("Fully Mangled",    PV{ {"dose", 1.00f}, {"vowel", 0.50f}, {"vowelAmt", 0.70f}, {"robotFreq", 160}, {"robotAmt", 0.70f}, {"drive", 0.80f}, {"crush", 0.70f}, {"stutter", 0.50f}, {"stutterRate", 4}, {"mix", 1.0f} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariWarpAudioProcessor::createParameterLayout()

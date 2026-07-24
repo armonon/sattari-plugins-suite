@@ -19,6 +19,21 @@ SattariEQAudioProcessor::SattariEQAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (Hz, dB, Q, Dyn 0..1). Only listed params are
+// set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariEQAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Vocal Presence",    PV{ {"hpf", 80}, {"f1", 200}, {"g1", -2}, {"q1", 0.8f}, {"f2", 3000}, {"g2", 3},  {"q2", 1.2f}, {"f3", 8000}, {"g3", 2.5f}, {"q3", 0.9f} });
+    presetBank.addFactoryPreset ("De-Mud",            PV{ {"hpf", 60}, {"f1", 300}, {"g1", -4}, {"q1", 1.5f}, {"f2", 250}, {"g2", -3}, {"q2", 1.0f} });
+    presetBank.addFactoryPreset ("Air & Sparkle",     PV{ {"f3", 12000}, {"g3", 4}, {"q3", 0.7f}, {"f2", 6000}, {"g2", 2}, {"q2", 0.9f}, {"lpf", 20000} });
+    presetBank.addFactoryPreset ("Warm Body",         PV{ {"f1", 150}, {"g1", 2.5f}, {"q1", 0.8f}, {"f2", 500}, {"g2", 1.5f}, {"q2", 1.0f} });
+    presetBank.addFactoryPreset ("Dynamic De-Harsh",  PV{ {"f2", 4000}, {"g2", -5}, {"q2", 2.0f}, {"d2", 0.8f}, {"f3", 7000}, {"g3", -4}, {"q3", 1.5f}, {"d3", 0.7f} });
+    presetBank.addFactoryPreset ("Telephone",         PV{ {"hpf", 400}, {"lpf", 3000}, {"f2", 1500}, {"g2", 4}, {"q2", 1.5f} });
+    presetBank.addFactoryPreset ("Tighten Lows",      PV{ {"hpf", 100}, {"f1", 120}, {"g1", -3}, {"q1", 1.2f}, {"d1", 0.6f} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

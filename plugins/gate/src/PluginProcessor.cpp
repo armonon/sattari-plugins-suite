@@ -39,9 +39,25 @@ SattariGateAudioProcessor::SattariGateAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
 }
 
 SattariGateAudioProcessor::~SattariGateAudioProcessor() { tempoReader.stop(); }
+
+// Factory presets: real parameter values (dB, ms, choice index). Only listed params are
+// set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariGateAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Vocal Gate",       PV{ {"threshold", -45}, {"range", 40}, {"attack", 1},   {"hold", 60}, {"release", 150}, {"hysteresis", 6}, {"scHpf", 80} });
+    presetBank.addFactoryPreset ("Tight Vocal",      PV{ {"threshold", -38}, {"range", 60}, {"attack", 0.5f},{"hold", 30}, {"release", 80},  {"hysteresis", 8}, {"scHpf", 100} });
+    presetBank.addFactoryPreset ("Drum Gate",        PV{ {"threshold", -30}, {"range", 70}, {"attack", 0.1f},{"hold", 20}, {"release", 60},  {"lookahead", 2},  {"hysteresis", 5} });
+    presetBank.addFactoryPreset ("Tom Gate",         PV{ {"threshold", -35}, {"range", 50}, {"attack", 0.3f},{"hold", 80}, {"release", 200}, {"hysteresis", 6} });
+    presetBank.addFactoryPreset ("Gentle Expander",  PV{ {"threshold", -50}, {"range", 18}, {"ratio", 3},    {"attack", 5},{"hold", 50}, {"release", 250}, {"expander", 1}, {"hysteresis", 3} });
+    presetBank.addFactoryPreset ("Deep Expander",    PV{ {"threshold", -45}, {"range", 30}, {"ratio", 4},    {"attack", 2},{"hold", 40}, {"release", 300}, {"expander", 1} });
+    presetBank.addFactoryPreset ("Trance Gate 1/8",  PV{ {"tempoGate", 1}, {"tempoDiv", 3}, {"tempoDuty", 50}, {"attack", 2}, {"release", 40}, {"range", 90} });
+    presetBank.addFactoryPreset ("Trance Gate 1/16", PV{ {"tempoGate", 1}, {"tempoDiv", 5}, {"tempoDuty", 45}, {"attack", 1}, {"release", 20}, {"range", 90} });
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariGateAudioProcessor::createParameterLayout()

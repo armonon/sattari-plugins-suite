@@ -8,6 +8,21 @@ SattariTransientAudioProcessor::SattariTransientAudioProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (attack/sustain -1..1, output dB). Only listed
+// params are set; anything omitted keeps its default, so presets stay valid as params evolve.
+void SattariTransientAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Add Punch",       PV{ {"attack", 0.5f},  {"sustain", 0.0f} });
+    presetBank.addFactoryPreset ("Softer Attack",   PV{ {"attack", -0.4f}, {"sustain", 0.0f} });
+    presetBank.addFactoryPreset ("More Body",       PV{ {"attack", 0.0f},  {"sustain", 0.5f} });
+    presetBank.addFactoryPreset ("Tighten Tail",    PV{ {"attack", 0.2f},  {"sustain", -0.5f} });
+    presetBank.addFactoryPreset ("Snappy Drums",    PV{ {"attack", 0.7f},  {"sustain", -0.3f} });
+    presetBank.addFactoryPreset ("Room & Sustain",  PV{ {"attack", -0.2f}, {"sustain", 0.6f} });
+    presetBank.addFactoryPreset ("Big & Punchy",    PV{ {"attack", 0.6f},  {"sustain", 0.4f}, {"output", 0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout

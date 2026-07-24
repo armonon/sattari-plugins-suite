@@ -9,6 +9,7 @@
 #include <sattari_audio_core/SattariDrumLooper.h>
 #include <sattari_audio_core/SattariBeatGrid.h>
 #include <sattari_audio_core/SattariGroove.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include "RhythmPatterns.h"
 #include <array>
 #include <atomic>
@@ -42,10 +43,18 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 2.0; }   // longest drum tail (ride/808)
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets())
+        {
+            currentProgram = i;
+            presetBank.loadFactoryPreset (i);
+            regenerateGrid();   // the pattern lives in the grid — rebuild it from the preset's style/density
+        }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -159,6 +168,9 @@ private:
     void drainLiveHits (bool recordToLoop, double phase) noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "rhythm-genie" };   // after apvts
+    int currentProgram = 0;
+    void registerFactoryPresets();
 
     double currentSampleRate = 44100.0;
     double internalPpq = 0.0;          // free-run clock when the host has no PPQ
