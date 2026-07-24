@@ -488,6 +488,21 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     }
 
     buffer.applyGain (outGain);
+
+    // Safety ceiling: the dry lead plus summed harmony voices can exceed 0 dBFS on a hot
+    // input, and nothing else bounded it. tanh soft-knee (transparent below -0.7 dBFS,
+    // asymptotes just under 0) so stacked voices never hard-clip the host.
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        float* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float a = std::abs (d[i]);
+            if (a > 0.92f)
+                d[i] = std::copysign (0.92f + 0.0755f * std::tanh ((a - 0.92f) / 0.0755f), d[i]);
+        }
+    }
+
     outputMeter.store (buffer.getMagnitude (0, numSamples));
 
     // Publish live readout for the editor.
