@@ -650,6 +650,113 @@ int main (int argc, char** argv)
         return ok ? 0 : 1;
     }
 
+    // --tunefile <in.wav> <out.wav> [root scale] : render ONE file through the full poly
+    // high-end chain (Polyphonic + High Tracking + Tonal Focus + HF Focus) and write it.
+    // Used by the T3 stem-render pipeline to tune each separated tonal stem on its own —
+    // no cross-source interference — before the stems are summed back.
+    if (argc > 1 && std::strcmp (argv[1], "--tunefile") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --tunefile <in.wav> <out.wav> [root scale]\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+        const bool manualKey = (argc >= 6);
+        SattariAutoPitchAudioProcessor p; auto& a = p.parameters();
+        setParam (a, "vocalRange", 8.0f);
+        setParam (a, "autoKey", manualKey ? 0.0f : 1.0f);   setParam (a, "followSongKey", 0.0f);
+        if (manualKey) { setParam (a, "keyRoot", (float) juce::jlimit (0, 11, std::atoi (argv[4]))); setParam (a, "scale", (float) juce::jlimit (0, 2, std::atoi (argv[5]))); }
+        setParam (a, "neuralPitch", 0.0f);        setParam (a, "liveEngine", 0.0f);
+        setParam (a, "polyphonic", 1.0f);         setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "amount", 1.0f);             setParam (a, "speed", 0.95f);
+        setParam (a, "formantPreserve", 0.0f);    setParam (a, "doNoHarm", 0.0f);
+        setParam (a, "style", 0.0f);              setParam (a, "polyHFGate", 1.0f);
+        setParam (a, "tonalFocus", 1.0f);         setParam (a, "hiTrack", 1.0f);
+        p.setNonRealtime (true);
+        auto out = sattari::harness::renderThrough (p, in, fsr, 512);
+        sattari::harness::writeWav (outF, out, fsr);
+        std::printf ("tunefile: %s -> %s (%.1fs, poly+hiTrack+tonalFocus)\n",
+                     inF.getFileName().toRawUTF8(), outF.getFileName().toRawUTF8(), rd->lengthInSamples / fsr);
+        return 0;
+    }
+
+    // --mix <out.wav> <in1.wav> <in2.wav> ... : sum any number of same-rate wavs (stems)
+    // into one file, guarding against clip with a gentle ceiling. The T3 remix step.
+    if (argc > 1 && std::strcmp (argv[1], "--mix") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --mix <out.wav> <in1.wav> <in2.wav> ...\n"); return 2; }
+        juce::File outF (juce::String::fromUTF8 (argv[2]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        double fsr = 0; int nCh = 0, nSmp = 0;
+        std::vector<juce::AudioBuffer<float>> stems;
+        for (int ai = 3; ai < argc; ++ai)
+        {
+            juce::File f (juce::String::fromUTF8 (argv[ai]));
+            std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
+            if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[ai]); return 2; }
+            if (fsr == 0) fsr = rd->sampleRate;
+            juce::AudioBuffer<float> b ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+            rd->read (&b, 0, (int) rd->lengthInSamples, 0, true, true);
+            nCh  = std::max (nCh, b.getNumChannels());
+            nSmp = std::max (nSmp, b.getNumSamples());
+            stems.push_back (std::move (b));
+        }
+        juce::AudioBuffer<float> mix (juce::jmax (1, nCh), juce::jmax (1, nSmp));
+        mix.clear();
+        for (auto& b : stems)
+            for (int ch = 0; ch < mix.getNumChannels(); ++ch)
+            {
+                const int sc = std::min (ch, b.getNumChannels() - 1);
+                const int n  = std::min (mix.getNumSamples(), b.getNumSamples());
+                for (int i = 0; i < n; ++i) mix.addSample (ch, i, b.getSample (sc, i));
+            }
+        float pk = 0.0f; for (int ch = 0; ch < mix.getNumChannels(); ++ch) pk = std::max (pk, mix.getMagnitude (ch, 0, mix.getNumSamples()));
+        if (pk > 0.98f) mix.applyGain (0.98f / pk);   // only pull down if it would clip
+        sattari::harness::writeWav (outF, mix, fsr);
+        std::printf ("mix: %d stems -> %s (%.1fs, peak %.3f%s)\n",
+                     (int) stems.size(), outF.getFileName().toRawUTF8(), nSmp / juce::jmax (1.0, fsr), pk,
+                     pk > 0.98f ? ", normalised" : "");
+        return 0;
+    }
+
+    // --inkey <wav> <root 0..11> <scale 0=maj,1=min> : report the in-scale chroma fraction
+    // of a finished file in the low/mid (80-1200 Hz), high (2.5k-5k Hz) and full (80-5k Hz)
+    // bands. Used to compare input vs in-mix poly vs T3 stem-render on the same footing.
+    if (argc > 1 && std::strcmp (argv[1], "--inkey") == 0)
+    {
+        if (argc < 5) { std::fprintf (stderr, "usage: auto_pitch_render --inkey <wav> <root> <scale>\n"); return 2; }
+        juce::File f (juce::String::fromUTF8 (argv[2]));
+        const int root = juce::jlimit (0, 11, std::atoi (argv[3]));
+        const int scale = juce::jlimit (0, 2, std::atoi (argv[4]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> b ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&b, 0, (int) rd->lengthInSamples, 0, true, true);
+        static const int MAJ[] = {0,2,4,5,7,9,11}, MINR[] = {0,2,3,5,7,8,10};
+        auto bandInScale = [&] (double loHz, double hiHz) {
+            const int win = 4096, hop = 2048, order = 12; juce::dsp::FFT fft (order);
+            std::vector<float> sc ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {}; const int n = b.getNumSamples(), nc = b.getNumChannels();
+            for (int s = 0; s + win < n; s += hop) {
+                for (int i = 0; i < win; ++i) { double m = 0; for (int ch = 0; ch < nc; ++ch) m += b.getSample (ch, s + i); sc[(size_t) i] = (float) (m / nc) * hann[(size_t) i]; }
+                std::fill (sc.begin() + win, sc.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (sc.data());
+                for (int k = 1; k < win / 2; ++k) { const double fr = (double) k * fsr / win; if (fr < loHz || fr > hiHz) continue; const double midi = 69.0 + 12.0 * std::log2 (fr / 440.0); pc[(size_t) ((((int) std::llround (midi)) % 12 + 12) % 12)] += (double) sc[(size_t) k]; }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot <= 0) return 0.0; for (auto& v : pc) v /= tot;
+            if (scale == 2) return 1.0; const int* scl = (scale == 1) ? MINR : MAJ;
+            double fr = 0; for (int d = 0; d < 7; ++d) fr += pc[(size_t) (((root + scl[d]) % 12 + 12) % 12)]; return fr;
+        };
+        std::printf ("inkey %s: lowMid(80-1200)=%.1f%%  high(2.5k-5k)=%.1f%%  full(80-5k)=%.1f%%\n",
+                     f.getFileName().toRawUTF8(), 100*bandInScale (80,1200), 100*bandInScale (2500,5000), 100*bandInScale (80,5000));
+        return 0;
+    }
+
     // --polystress : SELF-CONTAINED poly regression (no external file). Synthesise a
     // dense cluster of the five out-of-C-major pitch classes (the black keys, each
     // with harmonics) — 0% in-scale by construction — run the Polyphonic engine
