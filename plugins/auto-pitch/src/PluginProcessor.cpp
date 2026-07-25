@@ -366,6 +366,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // dense material — it inherits the "shared partials" limit of the poly engine above.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("polyHarmony", "Poly Harmony",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+    // Poly HF Focus: on a full instrumental the high end drifts out of key because high
+    // "orphan" peaks — ones not grouped as a harmonic of a lower note — get snapped to a
+    // scale tone on their own, but those are usually masked partials or non-tonal content
+    // (hats/air), not real fundamentals. This rolls off their correction above ~1.3 kHz so
+    // they aren't mis-tuned. 1 = full protection (default), 0 = legacy (snap everything).
+    // Harmonics grouped under a low root are unaffected — they ride the root's ratio.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("polyHFGate", "Poly HF Focus",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -1406,6 +1414,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     // every partial of the note uses that same ratio (h*fund * ratio = h*correctedFund).
     pvPeakRatio.assign (pvPeakBins.size(), 1.0f);
     pvPeakHarmRatio.assign (pvPeakBins.size(), 0.0f);
+    const double hfGate = (double) apvts.getRawParameterValue ("polyHFGate")->load();
     // Pitch-class mask for the harmony walk — same for every peak, so build it once.
     bool harmonyScaleMask[12] = {};
     if (polyHarmonyAmt > 0.0f)
@@ -1425,7 +1434,19 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
             }
         const double targetFreq = 440.0 * std::pow (2.0, ((double) target - 69.0) / 12.0);
         // Amount scales the correction in the log domain (1 = full snap, 0 = none).
-        double ratio = std::pow (targetFreq / f, amount);
+        // Poly HF Focus: an "orphan" root (fund == pi — a peak that wasn't grouped as the
+        // harmonic of any lower note) that sits high in the spectrum is almost never a real
+        // fundamental — it's a masked partial or non-tonal air/hats. Snapping it to a scale
+        // tone is what drags an instrumental's high end out of key. Roll its correction off
+        // from ~1.3 kHz up to ~5 kHz (down to ~8% there), modulated by the HF Focus amount.
+        // Grouped harmonics (fund != pi) are untouched — they ride their root's ratio.
+        double effAmount = amount;
+        if (hfGate > 0.0 && fund == pi && f > 1300.0)
+        {
+            const double t = juce::jlimit (0.0, 1.0, (f - 1300.0) / (5000.0 - 1300.0));
+            effAmount = amount * (1.0 - hfGate * 0.92 * t);
+        }
+        double ratio = std::pow (targetFreq / f, effAmount);
         ratio = juce::jlimit (0.5, 2.0, ratio);
         pvPeakRatio[(size_t) pi] = (float) ratio;
 
