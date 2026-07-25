@@ -374,6 +374,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Harmonics grouped under a low root are unaffected — they ride the root's ratio.
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("polyHFGate", "Poly HF Focus",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
+    // Tonal Focus: on a full instrumental, tune only the TONAL (harmonic) content and leave
+    // the percussive/noise content (hats, air, transients) exactly where it is. A causal
+    // HPSS mask scores each spectral bin harmonic-vs-percussive; as this rises, bins that
+    // read predominantly percussive are routed to the unshifted path instead of being
+    // pitch-corrected. 0 = tune everything (legacy, default — preserves the poly benchmark);
+    // 1 = fully protect noise/transients. This is the real high-end-in-key lever (T2).
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("tonalFocus", "Tonal Focus",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
+    // High Tracking: how far up the spectrum the poly engine follows a corrected note's
+    // harmonics. Legacy stops at 2.5 kHz, so above that a note's overtones stay frozen at
+    // their ORIGINAL pitch after the fundamental is retuned — the audible "high end out of
+    // key" on an instrumental. Raising this lets those tonal overtones ride the correction.
+    // 0 = 2.5 kHz (legacy, default); 1 = 7 kHz. Pair with Tonal Focus so only tonal high
+    // content follows and hats/air stay put.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("hiTrack", "High Tracking",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift", "Formant Shift",
         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain", "Input Gain",
@@ -1299,6 +1315,13 @@ void SattariAutoPitchAudioProcessor::preparePolyVocoder (int numChannels)
     pvPeakFund.clear();     pvPeakFund.reserve     ((size_t) (half + 1));
     pvPeakHarmRatio.clear(); pvPeakHarmRatio.reserve ((size_t) (half + 1));
 
+    // Tonal Focus: one causal HPSS mask per channel (own history), shared per-frame scratch.
+    // Freq radius ~ a few semitones' worth of bins at this resolution isolates a partial from
+    // broadband neighbours; 15 time frames ≈ 0.35 s of history at this hop marks steady tones.
+    pvHarmMask.assign ((size_t) nc, sattari::dsp::HarmonicMask {});
+    for (auto& m : pvHarmMask) m.prepare (half + 1, 15, 15);
+    pvTonal.assign ((size_t) (half + 1), 1.0f);
+
     pvRover = pvInFifoLatency;
 }
 
@@ -1310,6 +1333,7 @@ void SattariAutoPitchAudioProcessor::resetPolyVocoder()
     for (auto& v : pvLastPhase) std::fill (v.begin(), v.end(), 0.0f);
     for (auto& v : pvSumPhase)  std::fill (v.begin(), v.end(), 0.0f);
     for (auto& v : pvSumPhaseHarm) std::fill (v.begin(), v.end(), 0.0f);
+    for (auto& m : pvHarmMask) m.reset();
     pvRover = pvInFifoLatency;
 }
 
@@ -1359,9 +1383,21 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         pvFreq[(size_t) k] = (float) (((double) k + tmp) * freqPerBin);        // Hz
     }
 
+    // Tonal Focus: classify every analysis bin harmonic-vs-percussive from this channel's
+    // own recent-spectra history. Computed every frame (cheap, causal, no latency) so the
+    // history stays warm and the mask is ready the instant the user raises Tonal Focus.
+    if (channel < (int) pvHarmMask.size())
+        pvHarmMask[(size_t) channel].process (pvMag.data(), pvTonal.data());
+
     // --- Peak picking in the correctable band ------------------------------
     const int firstBin = juce::jmax (2, (int) std::ceil (60.0   / freqPerBin));
-    const int lastBin  = juce::jmin (half - 2, (int) std::floor (2500.0 / freqPerBin));
+    // High Tracking extends the peak-follow ceiling so a corrected note's HIGH harmonics
+    // move with their fundamental instead of staying frozen (out of tune relative to the
+    // now-corrected root). 0 = 2.5 kHz (legacy); 1 = 7 kHz. Tonal Focus keeps the added
+    // high-band shifting off percussive/noise content.
+    const double hiTrack   = (double) apvts.getRawParameterValue ("hiTrack")->load();
+    const double trackCeil = 2500.0 + hiTrack * 4500.0;
+    const int lastBin  = juce::jmin (half - 2, (int) std::floor (trackCeil / freqPerBin));
     float gmax = 0.0f;
     for (int k = firstBin; k <= lastBin; ++k) gmax = juce::jmax (gmax, pvMag[(size_t) k]);
 
@@ -1386,6 +1422,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
     const double amount    = (double) apvts.getRawParameterValue ("amount")->load();
     const float  polyHarmonyAmt = apvts.getRawParameterValue ("polyHarmony")->load();
+    const double tonalFocus = (double) apvts.getRawParameterValue ("tonalFocus")->load();
     auto pcEnabled = [enabledMask] (int midi)
         { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
 
@@ -1476,6 +1513,19 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         for (int k = lo; k <= hi; ++k) pvBinPeak[(size_t) k] = pi;
     }
 
+    // Tonal Focus routing: a peak-owned bin that reads predominantly PERCUSSIVE gets sent
+    // back to the identity (unshifted) path, so hats/air/transients keep their natural
+    // pitch while tonal partials are still tuned. The threshold scales with the parameter:
+    // at tonalFocus = 1 any bin more noise than tone (w < 0.5) passes through; at 0 nothing
+    // is rerouted, so the poly benchmark is byte-identical to before this feature existed.
+    if (tonalFocus > 0.0)
+    {
+        const float thresh = (float) (tonalFocus * 0.5);
+        for (int k = 0; k <= half; ++k)
+            if (pvBinPeak[(size_t) k] != -1 && pvTonal[(size_t) k] < thresh)
+                pvBinPeak[(size_t) k] = -1;
+    }
+
     // --- Synthesis ---------------------------------------------------------
     for (int b = 0; b <= half; ++b) pvSynMag[(size_t) b] = 0.0f;
 
@@ -1516,6 +1566,10 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         hi = juce::jlimit (0, half, hi);
         for (int k = lo; k <= hi; ++k)
         {
+            // Tonal Focus may have rerouted this bin to the identity path (percussive):
+            // it was already passed through unshifted in (a), so skip it here to avoid
+            // double-counting its energy. At tonalFocus = 0 nothing is rerouted.
+            if (pvBinPeak[(size_t) k] != pi) continue;
             const int nb = juce::jlimit (0, half, (int) std::lround ((double) k * ratio));
             pvSynMag[(size_t) nb] += pvMag[(size_t) k];
             const double locked = peakSyn + ((double) pvPhase[(size_t) k] - phPeak);

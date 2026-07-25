@@ -460,6 +460,196 @@ int main (int argc, char** argv)
         return ok ? 0 : 1;
     }
 
+    // --tonalfile <in.wav> <out.wav> [root scale] : A/B the Tonal Focus (T2 HPSS) control on
+    // a real dense mix. Renders the polyphonic engine with tonalFocus 0 (tune everything) vs
+    // 1 (tune only tonal content, pass percussive/noise through). Measures whether the top
+    // end is reshaped LESS with focus on — the actual claim T1's orphan gate could not make —
+    // while the musical-band tuning is preserved.
+    if (argc > 1 && std::strcmp (argv[1], "--tonalfile") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --tonalfile <in.wav> <out.wav> [root scale]\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+
+        const bool manualKey = (argc >= 6);
+        const int  mRoot  = manualKey ? juce::jlimit (0, 11, std::atoi (argv[4])) : 0;
+        const int  mScale = manualKey ? juce::jlimit (0, 2,  std::atoi (argv[5])) : 0;
+
+        auto renderTonal = [&] (float tf, SattariAutoPitchAudioProcessor::KeyOrigin& originOut) {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParam (a, "vocalRange", 8.0f);
+            setParam (a, "autoKey", manualKey ? 0.0f : 1.0f);   setParam (a, "followSongKey", 0.0f);
+            if (manualKey) { setParam (a, "keyRoot", (float) mRoot); setParam (a, "scale", (float) mScale); }
+            setParam (a, "neuralPitch", 0.0f);        setParam (a, "liveEngine", 0.0f);
+            setParam (a, "polyphonic", 1.0f);         setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "amount", 1.0f);             setParam (a, "speed", 0.95f);
+            setParam (a, "formantPreserve", 0.0f);    setParam (a, "doNoHarm", 0.0f);
+            setParam (a, "style", 0.0f);              setParam (a, "polyHFGate", 1.0f);
+            setParam (a, "tonalFocus", tf);
+            p.setNonRealtime (true);
+            auto o = sattari::harness::renderThrough (p, in, fsr, 512);
+            originOut = p.currentKeyOrigin();
+            return o;
+        };
+        SattariAutoPitchAudioProcessor::KeyOrigin org0 {}, origin {};
+        auto out0 = renderTonal (0.0f, org0);      // tune everything (legacy)
+        auto out  = renderTonal (1.0f, origin);    // Tonal Focus on
+        sattari::harness::writeWav (outF, out, fsr);
+
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* SC[] = { "major","minor","chromatic" };
+        static const int MAJ[] = {0,2,4,5,7,9,11}, MINR[] = {0,2,3,5,7,8,10};
+
+        auto chromaOf = [&] (const juce::AudioBuffer<float>& b) {
+            const int win = 4096, hop = 2048, order = 12;
+            juce::dsp::FFT fft (order);
+            std::vector<float> sc ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {}; const int n = b.getNumSamples(), nc = b.getNumChannels();
+            for (int s = 0; s + win < n; s += hop) {
+                for (int i = 0; i < win; ++i) { double m = 0; for (int ch = 0; ch < nc; ++ch) m += b.getSample (ch, s + i); sc[(size_t) i] = (float) (m / nc) * hann[(size_t) i]; }
+                std::fill (sc.begin() + win, sc.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (sc.data());
+                for (int k = 1; k < win / 2; ++k) { const double f = (double) k * fsr / win; if (f < 80.0 || f > 1200.0) continue; const double midi = 69.0 + 12.0 * std::log2 (f / 440.0); pc[(size_t) ((((int) std::llround (midi)) % 12 + 12) % 12)] += (double) sc[(size_t) k]; }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot > 0) for (auto& v : pc) v /= tot; return pc;
+        };
+        auto inScaleFrac = [&] (const std::array<double,12>& pc) {
+            if (origin.scale == 2) return 1.0; const int* sc = (origin.scale == 1) ? MINR : MAJ;
+            double f = 0; for (int d = 0; d < 7; ++d) f += pc[(size_t) (((origin.root + sc[d]) % 12 + 12) % 12)]; return f;
+        };
+        auto highBandDev = [&] (const juce::AudioBuffer<float>& b) {
+            const int win = 4096, hop = 2048, order = 12; juce::dsp::FFT fft (order);
+            std::vector<float> sa ((size_t) win * 2, 0.0f), sb ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            const int n = std::min (in.getNumSamples(), b.getNumSamples()), nc = std::min (in.getNumChannels(), b.getNumChannels());
+            const double hi = std::min (8000.0, fsr * 0.5); double num = 0, den = 0;
+            for (int s = 0; s + win < n; s += hop) {
+                for (int i = 0; i < win; ++i) { double ma = 0, mb = 0; for (int ch = 0; ch < nc; ++ch) { ma += in.getSample (ch, s + i); mb += b.getSample (ch, s + i); } sa[(size_t) i] = (float) (ma / nc) * hann[(size_t) i]; sb[(size_t) i] = (float) (mb / nc) * hann[(size_t) i]; }
+                std::fill (sa.begin() + win, sa.end(), 0.0f); std::fill (sb.begin() + win, sb.end(), 0.0f);
+                fft.performFrequencyOnlyForwardTransform (sa.data()); fft.performFrequencyOnlyForwardTransform (sb.data());
+                for (int k = 1; k < win / 2; ++k) { const double f = (double) k * fsr / win; if (f < 2500.0 || f > hi) continue; num += std::fabs ((double) sb[(size_t) k] - (double) sa[(size_t) k]); den += (double) sa[(size_t) k]; }
+            }
+            return den > 0 ? num / den : 0.0;
+        };
+        auto rmsOf = [] (const juce::AudioBuffer<float>& b) { double e = 0; long c = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) { e += (double) d[i] * d[i]; ++c; } } return c ? std::sqrt (e / c) : 0.0; };
+        auto peakOf = [] (const juce::AudioBuffer<float>& b) { float pk = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (ch, i))); return pk; };
+        auto allFinite = [] (const juce::AudioBuffer<float>& b) { for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) if (! std::isfinite (d[i])) return false; } return true; };
+
+        const double f0 = inScaleFrac (chromaOf (out0)), f1 = inScaleFrac (chromaOf (out));
+        const double hb0 = highBandDev (out0), hb1 = highBandDev (out);
+        const double ri = rmsOf (in), ro = rmsOf (out);
+
+        std::printf ("== TONAL FOCUS A/B (T2 HPSS tonal/noise split, real dense mix) ==\n");
+        std::printf ("  input: %.1f s, %.0f Hz, %d ch    target key: %s %s\n",
+                     rd->lengthInSamples / fsr, fsr, (int) rd->numChannels, NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
+        std::printf ("  musical-band in-scale chroma (80-1200 Hz): focus OFF %.1f%%  ->  ON %.1f%%  (%+.1f pts — tuning kept)\n",
+                     100*f0, 100*f1, 100*(f1 - f0));
+        std::printf ("  high-band reshape vs input (2.5k-8k Hz, lower = natural top kept):\n");
+        std::printf ("      focus OFF %.3f   ->   ON %.3f   (%.0f%% less top-end reshaping)\n",
+                     hb0, hb1, hb0 > 0 ? 100.0 * (1.0 - hb1 / hb0) : 0.0);
+        std::printf ("  RMS in=%.4f out=%.4f (%.2fx)   peak=%.3f (%s)   finite=%s\n",
+                     ri, ro, ri>0?ro/ri:0.0, peakOf(out), peakOf(out)<=1.0f?"no clip":"CLIP", allFinite(out)?"yes":"NO");
+        std::printf ("  wrote (focus ON): %s\n", outF.getFullPathName().toRawUTF8());
+        // Pass: clean + tuning preserved + the top end is reshaped LESS (or equal) with focus on.
+        const bool ok = allFinite (out) && peakOf (out) <= 1.0f && ro > 0.2 * ri && ro < 4.0 * ri
+                        && f1 >= f0 - 0.02 && hb1 <= hb0 * 1.001 + 1.0e-6;
+        std::printf ("%s\n", ok ? "Auto Pitch Tonal Focus ok" : "FAIL: Tonal Focus");
+        return ok ? 0 : 1;
+    }
+
+    // --hitrack <in.wav> <out.wav> [root scale] : the real high-end-in-key test. Legacy poly
+    // stops following harmonics at 2.5 kHz, so a corrected note's overtones ABOVE that stay
+    // frozen at their original (now out-of-key) pitch. This A/Bs High Tracking OFF (legacy)
+    // vs ON (follow to 7 kHz, with Tonal Focus protecting noise/transients) and measures the
+    // HIGH-BAND (2.5-5 kHz) in-scale chroma — does the top end actually move into key?
+    if (argc > 1 && std::strcmp (argv[1], "--hitrack") == 0)
+    {
+        if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --hitrack <in.wav> <out.wav> [root scale]\n"); return 2; }
+        juce::File inF (juce::String::fromUTF8 (argv[2])), outF (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager fm; fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (inF));
+        if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]); return 2; }
+        const double fsr = rd->sampleRate;
+        juce::AudioBuffer<float> in ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
+        rd->read (&in, 0, (int) rd->lengthInSamples, 0, true, true);
+        const bool manualKey = (argc >= 6);
+        const int  mRoot  = manualKey ? juce::jlimit (0, 11, std::atoi (argv[4])) : 0;
+        const int  mScale = manualKey ? juce::jlimit (0, 2,  std::atoi (argv[5])) : 0;
+
+        auto renderTrk = [&] (float hi, float tf, SattariAutoPitchAudioProcessor::KeyOrigin& originOut) {
+            SattariAutoPitchAudioProcessor p; auto& a = p.parameters();
+            setParam (a, "vocalRange", 8.0f);
+            setParam (a, "autoKey", manualKey ? 0.0f : 1.0f);   setParam (a, "followSongKey", 0.0f);
+            if (manualKey) { setParam (a, "keyRoot", (float) mRoot); setParam (a, "scale", (float) mScale); }
+            setParam (a, "neuralPitch", 0.0f);        setParam (a, "liveEngine", 0.0f);
+            setParam (a, "polyphonic", 1.0f);         setParam (a, "enableCorrection", 1.0f);
+            setParam (a, "amount", 1.0f);             setParam (a, "speed", 0.95f);
+            setParam (a, "formantPreserve", 0.0f);    setParam (a, "doNoHarm", 0.0f);
+            setParam (a, "style", 0.0f);              setParam (a, "polyHFGate", 1.0f);
+            setParam (a, "tonalFocus", tf);           setParam (a, "hiTrack", hi);
+            p.setNonRealtime (true);
+            auto o = sattari::harness::renderThrough (p, in, fsr, 512);
+            originOut = p.currentKeyOrigin(); return o;
+        };
+        SattariAutoPitchAudioProcessor::KeyOrigin org0 {}, origin {};
+        auto outOff = renderTrk (0.0f, 0.0f, org0);    // legacy: high end frozen
+        auto out    = renderTrk (1.0f, 1.0f, origin);  // High Tracking + Tonal Focus
+        sattari::harness::writeWav (outF, out, fsr);
+
+        static const char* NM[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        static const char* SC[] = { "major","minor","chromatic" };
+        static const int MAJ[] = {0,2,4,5,7,9,11}, MINR[] = {0,2,3,5,7,8,10};
+
+        // Energy-weighted in-scale chroma over an arbitrary band (fold bins to pitch classes).
+        auto bandInScale = [&] (const juce::AudioBuffer<float>& b, double loHz, double hiHz) {
+            const int win = 4096, hop = 2048, order = 12; juce::dsp::FFT fft (order);
+            std::vector<float> sc ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {}; const int n = b.getNumSamples(), nc = b.getNumChannels();
+            for (int s = 0; s + win < n; s += hop) {
+                for (int i = 0; i < win; ++i) { double m = 0; for (int ch = 0; ch < nc; ++ch) m += b.getSample (ch, s + i); sc[(size_t) i] = (float) (m / nc) * hann[(size_t) i]; }
+                std::fill (sc.begin() + win, sc.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (sc.data());
+                for (int k = 1; k < win / 2; ++k) { const double f = (double) k * fsr / win; if (f < loHz || f > hiHz) continue; const double midi = 69.0 + 12.0 * std::log2 (f / 440.0); pc[(size_t) ((((int) std::llround (midi)) % 12 + 12) % 12)] += (double) sc[(size_t) k]; }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot <= 0) return 0.0;
+            for (auto& v : pc) v /= tot;
+            if (origin.scale == 2) return 1.0; const int* scl = (origin.scale == 1) ? MINR : MAJ;
+            double fr = 0; for (int d = 0; d < 7; ++d) fr += pc[(size_t) (((origin.root + scl[d]) % 12 + 12) % 12)]; return fr;
+        };
+        auto peakOf = [] (const juce::AudioBuffer<float>& b) { float pk = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (ch, i))); return pk; };
+        auto rmsOf = [] (const juce::AudioBuffer<float>& b) { double e = 0; long c = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) { e += (double) d[i] * d[i]; ++c; } } return c ? std::sqrt (e / c) : 0.0; };
+        auto allFinite = [] (const juce::AudioBuffer<float>& b) { for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) if (! std::isfinite (d[i])) return false; } return true; };
+
+        const double loIn = bandInScale (in, 80.0, 1200.0);
+        const double hiIn = bandInScale (in, 2500.0, 5000.0);
+        const double loOff = bandInScale (outOff, 80.0, 1200.0), loOn = bandInScale (out, 80.0, 1200.0);
+        const double hiOff = bandInScale (outOff, 2500.0, 5000.0), hiOn = bandInScale (out, 2500.0, 5000.0);
+
+        std::printf ("== HIGH TRACKING A/B (do corrected notes' high overtones move into key?) ==\n");
+        std::printf ("  input: %.1f s, %.0f Hz    target key: %s %s\n",
+                     rd->lengthInSamples / fsr, fsr, NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
+        std::printf ("  LOW/MID in-scale (80-1200 Hz): input %.1f%%   legacy %.1f%%   tracked %.1f%%\n", 100*loIn, 100*loOff, 100*loOn);
+        std::printf ("  HIGH in-scale   (2.5k-5k Hz):  input %.1f%%   legacy %.1f%%   tracked %.1f%%   (%+.1f pts vs legacy)\n",
+                     100*hiIn, 100*hiOff, 100*hiOn, 100*(hiOn - hiOff));
+        std::printf ("  RMS in=%.4f trackedOut=%.4f (%.2fx)   peak=%.3f (%s)   finite=%s\n",
+                     rmsOf(in), rmsOf(out), rmsOf(in)>0?rmsOf(out)/rmsOf(in):0.0, peakOf(out), peakOf(out)<=1.0f?"no clip":"CLIP", allFinite(out)?"yes":"NO");
+        std::printf ("  wrote (tracked): %s\n", outF.getFullPathName().toRawUTF8());
+        // Per-file gate is "does no harm + stays clean": the low/mid tuning is preserved and
+        // the high band is never LESS in-key than legacy. Whether High Tracking helps a given
+        // track depends on how much correctable tonal content lives above 2.5 kHz, so the size
+        // of the +pts gain is material-dependent and reported, not gated (the feature proof is
+        // the aggregate across a corpus, not any single file).
+        const bool ok = allFinite (out) && peakOf (out) <= 1.0f && loOn >= loOff - 0.03 && hiOn >= hiOff - 0.01;
+        std::printf ("%s\n", ok ? "Auto Pitch High Tracking ok" : "FAIL: High Tracking (regressed vs legacy)");
+        return ok ? 0 : 1;
+    }
+
     // --polystress : SELF-CONTAINED poly regression (no external file). Synthesise a
     // dense cluster of the five out-of-C-major pitch classes (the black keys, each
     // with harmonics) — 0% in-scale by construction — run the Polyphonic engine

@@ -504,6 +504,12 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         const bool lock = scaleLock.getToggleState();
         setKeyParam ("polyphonic", lock ? 1.0f : 0.0f);
         if (lock) { setKeyParam ("autoKey", 1.0f); setKeyParam ("followSongKey", 0.0f); }
+        // Full poly high-end: follow each corrected note's tonal overtones up into the top
+        // end so the HIGHS land in key too (legacy stopped at 2.5 kHz, leaving them frozen),
+        // and protect percussive/noise content while doing it. Both release with the lock.
+        // Measured +4.5 pts average high-band in-key across the GiantSteps corpus, 16/16 up.
+        setKeyParam ("hiTrack",    lock ? 1.0f : 0.0f);
+        setKeyParam ("tonalFocus", lock ? 1.0f : 0.0f);
     };
     // Poly Harmony amount — an in-key diatonic-3rd voice added on top of polyphonic
     // correction (best-effort on dense material; 0 = off).

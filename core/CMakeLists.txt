@@ -223,6 +223,17 @@ target_link_libraries(SattariAudioCoreOnsetCurveContract
     PRIVATE
         SattariAudioCore)
 
+# Causal harmonic/percussive soft-mask contract (pure-std). Backs Auto Pitch poly
+# "Tonal Focus": tonal partials read harmonic (safe to tune), broadband transients read
+# percussive (left unshifted). Synthetic input proves the algorithm; the perceptual mix
+# result is the separate Auto Pitch --polyfile A/B on real material.
+add_executable(SattariAudioCoreHarmonicMaskContract
+    tests/harmonic_mask_contract.cpp)
+
+target_link_libraries(SattariAudioCoreHarmonicMaskContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.

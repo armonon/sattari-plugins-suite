@@ -12,6 +12,7 @@
 #include <sattari_audio_core/SattariScaleInterval.h>
 #include <sattari_audio_core/SattariKeyNetSpec.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
+#include <sattari_audio_core/SattariHarmonicMask.h>
 #include <array>
 #include <atomic>
 #include <complex>
@@ -368,6 +369,12 @@ private:
     // ratio, so the harmony voice is phase-coherent and fully isolated from the corrected voice.
     std::vector<std::vector<float>> pvSumPhaseHarm;           // [ch][half+1]
     std::vector<float> pvPeakHarmRatio;                       // per-peak harmony (diatonic-3rd) ratio
+    // Tonal Focus (opt-in): a causal HPSS mask per channel classifies each analysis bin as
+    // harmonic (tonal partial) vs percussive (broadband/transient). Predominantly-percussive
+    // bins are routed to the identity (unshifted) path so hats/air stay natural while tonal
+    // partials are still tuned. pvTonal is per-frame scratch (size half+1).
+    std::vector<sattari::dsp::HarmonicMask> pvHarmMask;       // [ch]
+    std::vector<float> pvTonal;                               // size half+1: per-bin tonalness [0,1]
     void preparePolyVocoder (int numChannels);
     void resetPolyVocoder();
     void polyVocoderFrame (int channel);
