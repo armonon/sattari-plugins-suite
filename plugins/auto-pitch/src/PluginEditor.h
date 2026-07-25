@@ -214,6 +214,10 @@ private:
     // Poly Harmony amount — adds an in-key diatonic-3rd voice in Polyphonic mode.
     juce::Slider polyHarmonyKnob;
     juce::Label  polyHarmonyCaption;
+    // Poly high-end (instrumentals): follow tonal overtones up into the top end so the
+    // highs land in key, and protect percussive/noise content while doing it.
+    juce::Slider highTrackKnob, tonalFocusKnob;
+    juce::Label  highTrackCaption, tonalFocusCaption;
     juce::Label flexAmtCaption, transitionCaption, throatCaption, vibratoCaption;
 
     // --- Transpose to Key (Pro tab): whole-mix musical transpose for beats/instruments
@@ -255,7 +259,7 @@ private:
     std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
     std::unique_ptr<ButtonAttachment> neuralPitchAttach, transposeModeAttach;
     std::unique_ptr<SliderAttachment> transposeSemisAttach;
-    std::unique_ptr<SliderAttachment> polyHarmonyAttach;
+    std::unique_ptr<SliderAttachment> polyHarmonyAttach, highTrackAttach, tonalFocusAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariAutoPitchAudioProcessorEditor)
 };

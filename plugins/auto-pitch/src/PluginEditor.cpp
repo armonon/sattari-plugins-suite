@@ -520,6 +520,24 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     polyHarmonyKnob.setSliderStyle (juce::Slider::LinearHorizontal);
     polyHarmonyKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
     proPanel.addAndMakeVisible (polyHarmonyKnob);
+    // Poly high-end (instrumentals). High Tracking follows a corrected note's tonal
+    // overtones up into the top end so the highs land in key; Tonal Focus protects
+    // percussive/noise content (hats/air) from being pitched while it does. The Scale
+    // Lock macro arms both at full; these knobs let you dial them independently.
+    highTrackCaption.setText (juce::String::fromUTF8 ("HIGH TRACKING  \xc2\xb7  tune the highs (poly)"), juce::dontSendNotification);
+    highTrackCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    highTrackCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    proPanel.addAndMakeVisible (highTrackCaption);
+    highTrackKnob.setSliderStyle (juce::Slider::LinearHorizontal);
+    highTrackKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
+    proPanel.addAndMakeVisible (highTrackKnob);
+    tonalFocusCaption.setText (juce::String::fromUTF8 ("TONAL FOCUS  \xc2\xb7  spare the noise (poly)"), juce::dontSendNotification);
+    tonalFocusCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    tonalFocusCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    proPanel.addAndMakeVisible (tonalFocusCaption);
+    tonalFocusKnob.setSliderStyle (juce::Slider::LinearHorizontal);
+    tonalFocusKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
+    proPanel.addAndMakeVisible (tonalFocusKnob);
     styleKnob (inputGain);
     styleKnob (outputGain);
     styleKnob (formantShift);
@@ -663,6 +681,8 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     outputGainAttach     = std::make_unique<SliderAttachment> (params, "outputGain", outputGain);
     formantShiftAttach   = std::make_unique<SliderAttachment> (params, "formantShift", formantShift);
     polyHarmonyAttach    = std::make_unique<SliderAttachment> (params, "polyHarmony", polyHarmonyKnob);
+    highTrackAttach      = std::make_unique<SliderAttachment> (params, "hiTrack", highTrackKnob);
+    tonalFocusAttach     = std::make_unique<SliderAttachment> (params, "tonalFocus", tonalFocusKnob);
 
     enableCorrectionAttach = std::make_unique<ButtonAttachment> (params, "enableCorrection", enableCorrection);
     doNoHarmAttach         = std::make_unique<ButtonAttachment> (params, "doNoHarm", doNoHarm);
@@ -1104,6 +1124,13 @@ void SattariAutoPitchAudioProcessorEditor::resized()
 
     polyHarmonyCaption.setBounds (pRight.removeFromTop (14));
     polyHarmonyKnob.setBounds (pRight.removeFromTop (22));
+    pRight.removeFromTop (10);
+
+    highTrackCaption.setBounds (pRight.removeFromTop (14));
+    highTrackKnob.setBounds (pRight.removeFromTop (22));
+    pRight.removeFromTop (6);
+    tonalFocusCaption.setBounds (pRight.removeFromTop (14));
+    tonalFocusKnob.setBounds (pRight.removeFromTop (22));
     pRight.removeFromTop (12);
 
     // Live status + key-detection (top half of right column).
