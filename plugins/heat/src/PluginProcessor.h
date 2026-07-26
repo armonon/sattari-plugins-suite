@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/modules/HeatModule.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -55,46 +56,12 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
     // Post-shaper drive read-out (0..1) for a UI heat meter.
-    float getDriveMeter() const noexcept { return driveMeter.load (std::memory_order_relaxed); }
+    float getDriveMeter() const noexcept { return module.currentDriveMeter(); }
 
 private:
-    // --- tiny building blocks (hand-rolled, no extra JUCE modules) -----------
-    struct Biquad
-    {
-        float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
-        float z1 = 0, z2 = 0; // transposed direct form II
-        void reset() noexcept { z1 = z2 = 0; }
-        float process (float x) noexcept
-        {
-            const float y = b0 * x + z1;
-            z1 = b1 * x - a1 * y + z2;
-            z2 = b2 * x - a2 * y;
-            return y;
-        }
-        void setLowShelf (double fs, double f, double gainDb) noexcept;
-        void setHighShelf (double fs, double f, double gainDb) noexcept;
-    };
-
-    // First-order DC blocker (removes the offset the bias asymmetry injects).
-    struct DcBlocker
-    {
-        float x1 = 0.0f, y1 = 0.0f, r = 0.9975f;
-        void reset() noexcept { x1 = y1 = 0.0f; }
-        float process (float x) noexcept
-        {
-            const float y = x - x1 + r * y1;
-            x1 = x; y1 = y;
-            return y;
-        }
-    };
-
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float getParam (const char* id) const noexcept;
     void registerFactoryPresets();
-
-    // The per-model nonlinearity. `pre` is the driven input, `bias` the
-    // asymmetry amount (-1..1). Returns a bounded shaped sample.
-    static float shape (int model, float pre, float bias) noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank;
@@ -104,20 +71,8 @@ private:
     int currentProgram = 0;
     double sampleRate = 44100.0;
 
-    // Tone-tilt shelf pair (dark<->bright), pre-shaper, per channel.
-    std::array<Biquad, 2> lowShelf, highShelf;
-    std::array<DcBlocker, 2> dcBlock;
-
-    // Anti-aliased drive: oversample ONLY the shaper (4x). The dry path for the
-    // parallel mix is delayed by the oversampler latency so wet/dry stay phase
-    // aligned; the plugin reports that latency to the host.
-    std::unique_ptr<juce::dsp::Oversampling<float>> driveOS;
-    int osChannels = 0;
-    juce::AudioBuffer<float> dryStash;   // original input for this block
-    juce::AudioBuffer<float> dryRing;    // latency-comp delay (length = OS latency)
-    int dryRingLen = 1, dryRingPos = 0;
-
-    std::atomic<float> driveMeter { 0.0f };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::HeatModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariHeatAudioProcessor)
 };
