@@ -220,6 +220,37 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
             }
         }
 
+        // Live AutoKey via the spectrogram model (the better one). Runs once we have a
+        // full ~30 s window and then at most every kAkSpecIntervalSec of AUDIO — counting
+        // samples rather than iterations keeps the cadence the same however often this
+        // loop happens to spin. Skipped offline for the same reason as keyNet above.
+        if (keyNetSpecPresent
+            && ! offlineMode.load (std::memory_order_relaxed)
+            && akSpecRing != nullptr
+            && (int) akSpecMono.size() >= akSpecRingSize)
+        {
+            const long seen = akSpecFilled.load (std::memory_order_relaxed);
+            const long interval = (long) (kAkSpecIntervalSec * juce::jmax (1.0, currentSampleRate));
+            if (seen >= (long) akSpecRingSize && (akSpecLastRun < 0 || seen - akSpecLastRun >= interval))
+            {
+                akSpecLastRun = seen;
+                const int sp = akSpecWritePos.load (std::memory_order_acquire);
+                for (int i = 0; i < akSpecRingSize; ++i)   // linearise oldest-first
+                    akSpecMono[(size_t) i] = akSpecRing[(size_t) ((sp + i) % akSpecRingSize)].load (std::memory_order_relaxed);
+
+                if (logSpec.compute (akSpecMono.data(), akSpecRingSize, currentSampleRate, akSpecFeat))
+                {
+                    const auto ks = keyNetSpec.detectTTA (akSpecFeat.data());
+                    if (ks.valid)
+                    {
+                        akSpecRoot.store  (ks.root,          std::memory_order_relaxed);
+                        akSpecMinor.store (ks.minor ? 1 : 0, std::memory_order_relaxed);
+                        akSpecValid.store (true,             std::memory_order_release);
+                    }
+                }
+            }
+        }
+
         std::this_thread::sleep_for (12ms);   // ~83 Hz refresh; plenty for pitch
     }
 }
@@ -502,6 +533,19 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     knWeight = 0.0;
     for (int i = 0; i < 12; ++i) { knMean[i] = 0.0; for (int j = 0; j < 12; ++j) knOuter[i][j] = 0.0; }
     keyNetFeatReady.store (false, std::memory_order_relaxed);
+
+    // Long ring + scratch for the live spectrogram AutoKey (allocated once per prepare).
+    akSpecRingSize = juce::jmax (1, (int) (currentSampleRate * kAkSpecSeconds));
+    akSpecRing = std::make_unique<std::atomic<float>[]> ((size_t) akSpecRingSize);
+    for (int i = 0; i < akSpecRingSize; ++i)
+        akSpecRing[(size_t) i].store (0.0f, std::memory_order_relaxed);
+    akSpecWritePos.store (0);
+    akSpecFilled.store (0);
+    akSpecMono.assign ((size_t) akSpecRingSize, 0.0f);
+    akSpecFeat.assign ((size_t) (sattari::dsp::LogSpec::kBins
+                               * sattari::dsp::LogSpec::kFrames), 0.0f);
+    akSpecLastRun = -1;
+    akSpecValid.store (false);
     keyNetLiveValid.store (false, std::memory_order_relaxed);
 
     // Real polyphonic phase-vocoder: preallocate all STFT buffers so the audio
@@ -1074,7 +1118,15 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         // ~58% exact vs ~45% for the profile on real mixes. Absent a sidechain the
         // neural result never validates and we fall back to the pitch-histogram
         // detector, which is the right tool for a monophonic vocal.
-        if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
+        // Spectrogram model first when it has spoken: 72.1 MIREX vs 61.5 for the HPCP
+        // keyNet below, and it is the SAME model Sattari Key publishes from, so AutoKey
+        // and the session bus now agree instead of quietly reporting different keys.
+        if (keyNetSpecPresent && akSpecValid.load (std::memory_order_acquire))
+        {
+            bestRoot = akSpecRoot.load (std::memory_order_relaxed);
+            detectedAutoScale = akSpecMinor.load (std::memory_order_relaxed);
+        }
+        else if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
         {
             bestRoot = keyNetLiveRoot.load (std::memory_order_relaxed);
             detectedAutoScale = keyNetLiveMinor.load (std::memory_order_relaxed);
@@ -1154,6 +1206,19 @@ void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int 
         chromaWritePos = (chromaWritePos + 1) % chromaFftSize;
     }
     chromaSamplesSinceFft += numSamples;
+
+    // Same mono feed also fills the long ring the spectrogram key model reads.
+    if (akSpecRing != nullptr && akSpecRingSize > 0)
+    {
+        int sp = akSpecWritePos.load (std::memory_order_relaxed);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            akSpecRing[(size_t) sp].store (mono[i], std::memory_order_relaxed);
+            sp = (sp + 1) % akSpecRingSize;
+        }
+        akSpecWritePos.store (sp, std::memory_order_release);
+        akSpecFilled.fetch_add (numSamples, std::memory_order_relaxed);
+    }
 
     // Run the FFT roughly every 256 ms (chroma changes slowly; this keeps the
     // CPU cost negligible). Skip if the buffer hasn't seen non-silence yet.
@@ -1247,6 +1312,35 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
                     keyNetLiveRoot.store  (kn.root,          std::memory_order_relaxed);
                     keyNetLiveMinor.store (kn.minor ? 1 : 0, std::memory_order_relaxed);
                     keyNetLiveValid.store (true,             std::memory_order_release);
+                }
+
+                // Drive the SPECTROGRAM model synchronously here too, on the same
+                // sample-counted cadence the worker uses. Without this an offline bounce
+                // would pick its key with the HPCP model while realtime playback used the
+                // spectrogram one — the same project could render in a different key than
+                // it played in. Same 30 s readiness rule; skipped until the ring is full.
+                if (keyNetSpecPresent && akSpecRing != nullptr
+                    && (int) akSpecMono.size() >= akSpecRingSize)
+                {
+                    const long seen = akSpecFilled.load (std::memory_order_relaxed);
+                    const long interval = (long) (kAkSpecIntervalSec * juce::jmax (1.0, currentSampleRate));
+                    if (seen >= (long) akSpecRingSize && (akSpecLastRun < 0 || seen - akSpecLastRun >= interval))
+                    {
+                        akSpecLastRun = seen;
+                        const int sp = akSpecWritePos.load (std::memory_order_acquire);
+                        for (int i = 0; i < akSpecRingSize; ++i)
+                            akSpecMono[(size_t) i] = akSpecRing[(size_t) ((sp + i) % akSpecRingSize)].load (std::memory_order_relaxed);
+                        if (logSpec.compute (akSpecMono.data(), akSpecRingSize, currentSampleRate, akSpecFeat))
+                        {
+                            const auto ks = keyNetSpec.detectTTA (akSpecFeat.data());
+                            if (ks.valid)
+                            {
+                                akSpecRoot.store  (ks.root,          std::memory_order_relaxed);
+                                akSpecMinor.store (ks.minor ? 1 : 0, std::memory_order_relaxed);
+                                akSpecValid.store (true,             std::memory_order_release);
+                            }
+                        }
+                    }
                 }
             }
             else if (keyNetFeatMutex.try_lock())   // real-time: hand to worker, never block

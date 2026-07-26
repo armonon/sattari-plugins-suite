@@ -487,6 +487,26 @@ private:
     std::atomic<int>   keyNetLiveRoot  { 0 };
     std::atomic<int>   keyNetLiveMinor { 0 };
 
+    // Live AutoKey via the SPECTROGRAM model — the same keynet_spec.onnx the Key Map
+    // scan uses and that Sattari Key now publishes from. It measures 72.1 MIREX vs
+    // 61.5 for the HPCP keyNet above, so with both available the spec model wins and
+    // AutoKey agrees with what Sattari Key broadcasts instead of quietly disagreeing.
+    // It wants the ~30 s excerpt it was trained on, hence a long rolling ring rather
+    // than the short chroma FFT; inference is throttled by AUDIO CONSUMED (not by call
+    // count) and its verdict is LATCHED, because it speaks far less often than the
+    // chroma path and must not be overwritten in between.
+    std::unique_ptr<std::atomic<float>[]> akSpecRing;
+    int  akSpecRingSize = 0;
+    std::atomic<int>  akSpecWritePos { 0 };
+    std::atomic<long> akSpecFilled   { 0 };
+    std::vector<float> akSpecMono, akSpecFeat;      // worker scratch, sized in prepare
+    long akSpecLastRun = -1;                        // akSpecFilled when the net last ran
+    std::atomic<bool> akSpecValid { false };
+    std::atomic<int>  akSpecRoot  { 0 };
+    std::atomic<int>  akSpecMinor { 0 };
+    static constexpr double kAkSpecSeconds     = 30.0;
+    static constexpr double kAkSpecIntervalSec = 5.0;
+
     // --- Vibrato preservation ------------------------------------------------
     // Low-passed "note centre" of the detected pitch. Correction snaps the centre
     // to the scale while a fraction of the singer's fast pitch oscillation
