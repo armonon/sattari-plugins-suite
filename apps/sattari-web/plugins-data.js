@@ -26,8 +26,10 @@ window.SATTARI_PLUGINS = [
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Put it on the master. It tells the whole suite what key you're in.",
     what: "Sattari Key listens to your full mix and continuously works out the song's key. It then broadcasts that key to every other Sattari plugin in the session, so Auto Pitch, Harmony, Maqam, VoxKey and Arp all follow automatically.",
-    how: "It builds a chromagram (an FFT of the mix folded into the 12 pitch classes) and runs a 24-key Krumhansl–Schmuckler correlation to pick the best major or minor key. The result is published every ~700 ms to the cross-plugin bus — a lock-free shared channel — so consumers update with zero latency and no MIDI routing.",
+    how: "Two detectors run together on a background thread. An HPCP chromagram places each spectral peak to a fractional pitch class, sums its harmonics and corrects for the track's own tuning — far sharper than folding raw FFT bins, where low-frequency bins are wider than a semitone. On top of that, a neural key model reads a log-spectrogram of the last 30 seconds and votes across all 12 transpositions. The verdict is published to the cross-plugin bus — a lock-free shared channel — so consumers update with no MIDI routing. Measured end-to-end on 150 tracks of the GiantSteps reference set: 61.3% exact key, 65.5 MIREX.",
     features: [
+      "Neural key model + HPCP chroma, not a raw-FFT chromagram",
+      "61.3% exact / 65.5 MIREX measured on 150 GiantSteps tracks",
       "Scans the full mix (chords + bass), not just a solo line",
       "Full 24-key detection: root and major/minor",
       "One authoritative key for the whole session",
