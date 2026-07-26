@@ -50,6 +50,35 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
     writePos.store (0);
     std::fill (running, running + 12, 0.0);
 
+    // HPCP accumulator: warm its whitening buffer here so accumulate() never
+    // allocates, and clear any state carried over from the previous sample rate.
+    hpcp.reserveBins (fftSize / 2 + 1);
+    hpcp.reset();
+
+    // Long ring for the neural model (~30 s of mono at the host rate). Allocated
+    // once per prepare; the audio thread only ever stores into it.
+    specRingSize = juce::jmax (1, (int) (currentSampleRate * kSpecSeconds));
+    specRing = std::make_unique<std::atomic<float>[]> ((size_t) specRingSize);
+    for (int i = 0; i < specRingSize; ++i)
+        specRing[(size_t) i].store (0.0f, std::memory_order_relaxed);
+    specWritePos.store (0);
+    specFilled.store (0);
+    specMono.assign ((size_t) specRingSize, 0.0f);              // worker scratch, sized once
+    specFeat.assign ((size_t) (sattari::dsp::LogSpec::kBins
+                             * sattari::dsp::LogSpec::kFrames), 0.0f);
+    specLastRunSamples = -1;
+
+    // Load the spectrogram key model (72.1 MIREX vs 17.4 for the old linear chroma).
+    // Optional: absent or ONNX-less builds fall back to the HPCP chroma path, which
+    // is still ~5x the old exact-match rate.
+    if (! keyNetSpecPresent)
+    {
+        auto specFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                            .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("keynet_spec.onnx");
+        if (specFile.existsAsFile())
+            keyNetSpecPresent = keyNetSpec.loadModel (specFile.getFullPathName().toStdString());
+    }
+
     workerRunning.store (true, std::memory_order_release);
     worker = std::thread ([this] { workerLoop(); });
 }
@@ -80,14 +109,28 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     // Feed the analysis ring with a mono sum. Audio is NOT modified — Sattari Key
     // is a transparent analyser that just listens to the master.
     int wp = writePos.load (std::memory_order_relaxed);
+    int sp = specWritePos.load (std::memory_order_relaxed);
+    const bool haveSpecRing = (specRing != nullptr && specRingSize > 0);
     for (int i = 0; i < n; ++i)
     {
         float m = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch) m += buffer.getSample (ch, i);
-        ring[(size_t) wp].store (m / (float) nc, std::memory_order_relaxed);
+        m /= (float) nc;
+        ring[(size_t) wp].store (m, std::memory_order_relaxed);
         wp = (wp + 1) % fftSize;
+        // Same mono sum also feeds the long (~30 s) ring the neural key model reads.
+        if (haveSpecRing)
+        {
+            specRing[(size_t) sp].store (m, std::memory_order_relaxed);
+            sp = (sp + 1) % specRingSize;
+        }
     }
     writePos.store (wp, std::memory_order_release);
+    if (haveSpecRing)
+    {
+        specWritePos.store (sp, std::memory_order_release);
+        specFilled.fetch_add (n, std::memory_order_relaxed);
+    }
 }
 
 void SattariSongKeyAudioProcessor::analyseNow()
@@ -96,7 +139,11 @@ void SattariSongKeyAudioProcessor::analyseNow()
     if (rescan.exchange (false))
     {
         std::fill (running, running + 12, 0.0);
+        hpcp.reset();
         runningDetune = 0.0;
+        specFilled.store (0);          // make the net wait for a fresh 30 s window
+        specLastRunSamples = -1;
+        specHaveResult = false;
         pubRoot = -1; candCount = 0;   // let a fresh scan re-commit the key
     }
 
@@ -106,9 +153,13 @@ void SattariSongKeyAudioProcessor::analyseNow()
     std::fill (scratch.begin() + fftSize, scratch.end(), 0.0f);
     fft->performFrequencyOnlyForwardTransform (scratch.data());
 
-    double frame[12] = { 0 };
-    sattari::dsp::accumulateChroma (scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize, frame);
-    sattari::dsp::blendChroma (running, frame, 0.4);
+    // HPCP chroma: sub-bin peak interpolation + harmonic summation + tuning
+    // correction. Replaces accumulateChroma()'s raw nearest-class fold, which sat at
+    // 9% exact on real full mixes because low-frequency bins are wider than a
+    // semitone. The accumulator keeps its own rolling state, so `running` is just a
+    // snapshot of it for the detector (no second smoothing pass).
+    hpcp.accumulate (scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize);
+    hpcp.finish (running);
 
     // Tuning-reference estimate (detune vs A440). For each strong spectral peak in
     // the musical range, measure how far it sits from the nearest equal-tempered
@@ -144,7 +195,49 @@ void SattariSongKeyAudioProcessor::analyseNow()
         }
     }
 
-    const auto k = sattari::dsp::detectKey (running);
+    auto k = sattari::dsp::detectKey (running);
+
+    // Neural override. The spectrogram model is ~16 MIREX points better than the HPCP
+    // chroma above, but it wants a 30 s excerpt (what it was trained on) and a TTA
+    // pass is 12 forward passes — so it runs only once we have a full window, and no
+    // more than every kSpecIntervalSec. Between runs the chroma result stands, which
+    // is also what ships when no model is installed.
+    const long seen = specFilled.load (std::memory_order_relaxed);
+    const long intervalSamples = (long) (kSpecIntervalSec * currentSampleRate);
+    const bool haveWindow = seen >= (long) specRingSize;
+    const bool intervalElapsed = (specLastRunSamples < 0) || (seen - specLastRunSamples >= intervalSamples);
+    if (keyNetSpecPresent && haveWindow && intervalElapsed
+        && specRing != nullptr && (int) specMono.size() >= specRingSize)
+    {
+        specLastRunSamples = seen;
+        const int sp = specWritePos.load (std::memory_order_acquire);
+        for (int i = 0; i < specRingSize; ++i)   // oldest-first linearisation of the ring
+            specMono[(size_t) i] = specRing[(size_t) ((sp + i) % specRingSize)].load (std::memory_order_relaxed);
+
+        if (logSpec.compute (specMono.data(), specRingSize, currentSampleRate, specFeat))
+        {
+            const auto kn = keyNetSpec.detectTTA (specFeat.data());
+            if (kn.valid)
+            {
+                specHaveResult = true;
+                specRoot = kn.root;
+                specMinor = kn.minor;
+                specConfidence = kn.confidence;
+            }
+        }
+    }
+
+    // The net's verdict wins whenever we have one — it is ~16 MIREX points ahead of
+    // the chroma path, and it stays latched between runs so the cheaper detector
+    // can't overwrite it on the cycles in between.
+    if (specHaveResult)
+    {
+        k.valid = true;
+        k.root = specRoot;
+        k.minor = specMinor;
+        k.confidence = specConfidence;
+    }
+
     if (k.valid)
     {
         detRoot.store (k.root);

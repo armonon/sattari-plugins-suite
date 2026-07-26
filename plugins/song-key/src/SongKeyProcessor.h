@@ -7,9 +7,14 @@
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariChromagram.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariHpcpChroma.h>
+#include <sattari_audio_core/SattariLogSpec.h>
+#include <sattari_audio_core/SattariKeyNetSpec.h>
 #include <array>
 #include <atomic>
+#include <memory>
 #include <thread>
+#include <vector>
 
 // =============================================================================
 //  Sattari Key — master-track key scanner + suite key publisher
@@ -83,6 +88,45 @@ private:
     std::atomic<int> writePos { 0 };
     double running[12] = { 0 };                    // background-thread-only
     double runningDetune = 0.0;                    // background-thread-only (cents)
+
+    // --- Key detection engines (worker-thread only) --------------------------
+    // Measured on 500 real GiantSteps tracks (SattariKeyDatasetEval), MIREXx100 /
+    // exact-match: the plain linear accumulateChroma fold this plugin used to run on
+    // scores 17.4 / 9.0% — barely above the ~4% chance rate for 24 keys, because
+    // low-frequency FFT bins are too coarse to separate semitones. Two upgrades, both
+    // already proven elsewhere in the suite, replace it:
+    //   * HpcpChromagram  (tuning-corrected + harmonic sum)   56.6 / 45.2%
+    //   * KeyNetSpec      (spectrogram CNN, needs ~30 s)      72.1 / 67.8%
+    // The neural model is the primary; HPCP is the always-available fallback, so the
+    // plugin is ~5x better than before even with no model installed.
+    sattari::dsp::HpcpChromagram hpcp;
+
+    // Neural key model. It was trained on 30 s excerpts, so a long rolling mono ring
+    // (separate from the 4096-pt FFT ring) feeds it, and inference is throttled — a
+    // TTA pass is 12 forward passes and there is no reason to run it every cycle.
+    sattari::dsp::LogSpec    logSpec;
+    sattari::dsp::KeyNetSpec keyNetSpec;
+    bool keyNetSpecPresent = false;
+    static constexpr double kSpecSeconds     = 30.0;   // model's training excerpt length
+    static constexpr double kSpecIntervalSec = 5.0;    // re-run the net at most this often
+    std::unique_ptr<std::atomic<float>[]> specRing;    // audio thread writes, worker reads
+    int  specRingSize = 0;
+    std::atomic<int>  specWritePos { 0 };
+    std::atomic<long> specFilled   { 0 };              // total samples seen (for readiness)
+    std::vector<float> specMono, specFeat;             // worker scratch (sized in prepare)
+    // Throttle by AUDIO CONSUMED, not by tick count: analyseNow() is called by the
+    // worker every ~700 ms in the plugin but back-to-back by offline harnesses, so a
+    // per-call countdown would fire the net at wildly different rates. Counting
+    // samples makes the cadence identical in both.
+    long specLastRunSamples = -1;                      // specFilled when the net last ran
+    // Latched neural verdict. The net runs every kSpecIntervalSec but analyseNow()
+    // publishes every ~700 ms, so without latching the chroma answer would overwrite
+    // the (much better) neural one on ~6 of every 7 cycles. Once the net has spoken we
+    // keep publishing its verdict until it speaks again.
+    bool specHaveResult = false;
+    int  specRoot = 0;
+    bool specMinor = false;
+    double specConfidence = 0.0;
 
     std::atomic<int>   detRoot { 0 };
     std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };

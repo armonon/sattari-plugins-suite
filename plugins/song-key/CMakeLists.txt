@@ -20,6 +20,11 @@ sattari_add_plugin(
         src/SongKeyProcessor.cpp
         src/SongKeyEditor.cpp)
 
+# The spectrogram key model (keynet_spec.onnx, 72.1 MIREX) runs on the worker thread.
+# Optional: without ONNX the KeyNetSpec wrapper compiles to an inert stub and the
+# plugin falls back to its HPCP chroma detector.
+sattari_enable_onnx(SattariSongKey SATTARI_HAS_ONNX)
+
 # Offline detection proof: feed a chord, assert the chroma->key chain detects it.
 add_executable(SongKeyRender
     EXCLUDE_FROM_ALL
@@ -46,3 +51,6 @@ target_link_libraries(SongKeyRender
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Same for the render tool (it compiles SongKeyProcessor.cpp directly).
+sattari_enable_onnx(SongKeyRender SATTARI_HAS_ONNX)
