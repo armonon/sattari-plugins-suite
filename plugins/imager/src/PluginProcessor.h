@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/modules/ImageModule.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -59,35 +60,10 @@ public:
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
     // Live L/R correlation (-1..+1), updated ~3x/second for the editor.
-    float getCorrelation() const noexcept { return corr.load (std::memory_order_relaxed); }
+    float getCorrelation() const noexcept { return module.currentCorrelation(); }
 
 private:
-    // -- Transposed-direct-form-II biquad (double state). Mirrors plugins/eq. ---
-    struct Biquad
-    {
-        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
-        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-        void reset() noexcept { x1 = x2 = y1 = y2 = 0; }
-        double process (double x) noexcept
-        {
-            const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-            x2 = x1; x1 = x; y2 = y1; y1 = y;
-            return y;
-        }
-        void setLP2 (double f, double sr) noexcept;   // 2nd-order Butterworth LP (Q=1/sqrt2)
-        void setHP2 (double f, double sr) noexcept;   // 2nd-order Butterworth HP
-    };
-
-    // A Linkwitz-Riley 4th-order crossover = two cascaded 2nd-order Butterworths.
-    struct LR4
-    {
-        Biquad a, b;
-        void reset() noexcept { a.reset(); b.reset(); }
-        double process (double x) noexcept { return b.process (a.process (x)); }
-    };
-
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
@@ -98,28 +74,8 @@ private:
     int currentProgram = 0;
     double sampleRate = 44100.0;
 
-    static constexpr int kBands = 3;   // low / mid / high side bands
-
-    // Side 3-band split. lowLP -> low band; a band-limit of (lowLP..highHP);
-    // highHP -> high band. Realised as two LR4 crossovers at loMidHz / midHiHz:
-    //   low  = LR4_LP(loMid)
-    //   high = LR4_HP(midHi)
-    //   mid  = side - low - high   (exact complementary reconstruction)
-    LR4 sideLowLP;    // low  = LP at loMid
-    LR4 sideHighHP;   // high = HP at midHi
-
-    // Elliptical low-mono: a HP on the SIDE only, so everything below the cutoff
-    // stays mono (its side is removed). LR4 for a steep, phase-coherent skirt.
-    LR4 lowMonoHP;
-
-    // Haas/ensemble short delay applied to the widened side (adds spread).
-    std::vector<float> haasRing;
-    int haasCap = 1, haasWrite = 0;
-
-    // Correlation accumulators (mirrors plugins/meter).
-    double corrLL = 0.0, corrRR = 0.0, corrLR = 0.0;
-    int corrCount = 0;
-    std::atomic<float> corr { 0.0f };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::ImageModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariImageAudioProcessor)
 };
