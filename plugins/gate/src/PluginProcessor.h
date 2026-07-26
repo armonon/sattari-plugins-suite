@@ -1,7 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/GateModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -80,55 +80,24 @@ public:
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
     // Lock-free readouts for the editor.
-    float getGainReductionDb() const noexcept { return gainReductionDb.load (std::memory_order_relaxed); }
-    bool  getGateOpen()        const noexcept { return gateOpenPublished.load (std::memory_order_relaxed); }
-    bool  getTempoGateActive() const noexcept { return tempoGateActive.load (std::memory_order_relaxed); }
+    float getGainReductionDb() const noexcept { return module.currentGainReductionDb(); }
+    bool  getGateOpen()        const noexcept { return module.isGateOpen(); }
+    bool  getTempoGateActive() const noexcept { return module.isTempoGateActive(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    bool  boolParam (const char* id) const noexcept { return param (id) > 0.5f; }
-    int   choiceParam (const char* id) const noexcept { return (int) std::round (param (id)); }
 
     // Detector sidechain band-pass (one-pole HP then one-pole LP), per channel-summed.
-    float sidechainFilter (float input, float hpHz, float lpHz) noexcept;
-    double resolveBpm();
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "gate" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    // Detector envelope (fast) and the gain-envelope smoother own the timing.
-    sattari::dsp::EnvelopeFollower detectorFollower;   // rectified peak follower
-    float rmsSquare = 0.0f;                             // running mean-square for RMS mode
-
-    // Gain envelope: a linear 0..1 gate gain, ramped by attack/release toward a
-    // target (1 = open, floor = closed), with a hold counter keeping it open.
-    float currentGateGain = 0.0f;      // 0..1 smoothed gate gain
-    int   holdCounter = 0;             // samples remaining before close is allowed
-    bool  gateOpen = false;            // hysteresis state
-
-    // Sidechain filter state (HP one-pole + LP one-pole).
-    float hpX1 = 0.0f, hpY1 = 0.0f;
-    float lpY1 = 0.0f;
-
-    // Lookahead delay line (main path is delayed so the detector can pre-open).
-    juce::AudioBuffer<float> lookaheadRing;
-    int lookaheadRingPos = 0;
-    int lookaheadRingLen = 1;
-    int maxLookaheadSamples = 0;
-    int reportedLatency = -1;
-
-    // Tempo-gate phase (free-runs off BPM when transport is stopped).
-    double syncPhase = 0.0;
-
-    sattari::xplugin::TempoReader tempoReader;   // cross-plugin TEMPO bus consumer
-
-    std::atomic<float> gainReductionDb   { 0.0f };  // published GR magnitude (>= 0)
-    std::atomic<bool>  gateOpenPublished { false };
-    std::atomic<bool>  tempoGateActive   { false };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    // Parameter IDs are unchanged (empty prefix), so sessions and presets survive.
+    sattari::dsp::GateModule module;
+    int reportedLatency = -1;   // last value published to the host (-1 forces a first publish)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariGateAudioProcessor)
 };

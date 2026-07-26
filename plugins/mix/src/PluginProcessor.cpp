@@ -6,6 +6,7 @@
 #include <sattari_audio_core/modules/PeakModule.h>
 #include <sattari_audio_core/modules/EqModule.h>
 #include <sattari_audio_core/modules/CompModule.h>
+#include <sattari_audio_core/modules/GateModule.h>
 
 SattariMixAudioProcessor::SattariMixAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
@@ -26,6 +27,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeModules()
     v.push_back (std::make_unique<sattari::dsp::CleanModule>());
     v.push_back (std::make_unique<sattari::dsp::CompModule>());
     v.push_back (std::make_unique<sattari::dsp::EqModule>());
+    v.push_back (std::make_unique<sattari::dsp::GateModule>());
     v.push_back (std::make_unique<sattari::dsp::MeterModule>());
     v.push_back (std::make_unique<sattari::dsp::PeakModule>());
     v.push_back (std::make_unique<sattari::dsp::TransientModule>());
