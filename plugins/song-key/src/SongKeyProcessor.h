@@ -66,7 +66,10 @@ public:
     void requestRescan() noexcept { rescan.store (true); }
 
     // Live readout for the editor.
-    struct Detected { bool valid=false; int root=0; bool minor=false; double confidence=0.0; bool publishing=false; double detuneCents=0.0; };
+    // `neural` tells the UI which detector produced this key. Without it a missing
+    // keynet_spec.onnx would silently drop the plugin onto the (weaker) chroma path
+    // with no way for the user to tell — the difference is ~61% vs ~45% exact.
+    struct Detected { bool valid=false; int root=0; bool minor=false; double confidence=0.0; bool publishing=false; double detuneCents=0.0; bool neural=false; };
     Detected detected() const noexcept;
 
     sattari::midi::SattariMidiLearn midiLearn { apvts };
@@ -130,6 +133,7 @@ private:
 
     std::atomic<int>   detRoot { 0 };
     std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
+    std::atomic<bool>  detNeural { false };        // true when the last key came from the neural model
     std::atomic<double> detConf { 0.0 };
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
     std::atomic<double> hostBpm { 0.0 };

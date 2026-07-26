@@ -238,6 +238,7 @@ void SattariSongKeyAudioProcessor::analyseNow()
         k.confidence = specConfidence;
     }
 
+    detNeural.store (specHaveResult);
     if (k.valid)
     {
         detRoot.store (k.root);
@@ -335,6 +336,7 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
     d.confidence = detConf.load();
     d.publishing = publishingNow.load();
     d.detuneCents = detDetuneCents.load();
+    d.neural = detNeural.load();
     return d;
 }
 

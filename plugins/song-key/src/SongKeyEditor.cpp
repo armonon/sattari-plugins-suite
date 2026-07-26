@@ -101,6 +101,15 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (pub ? sattari::brand::kTextPrimary : sattari::brand::kTextMuted));
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.drawText (pub ? "Publishing to suite" : "Not publishing", (int) dot.getRight() + 6, (int) r.getY() + 8, 200, 16, juce::Justification::centredLeft);
+
+    // Which detector produced this key. The neural model lives outside the bundle
+    // (~/Library/Sattari Audio/models/keynet_spec.onnx); if it is missing the plugin
+    // still works but on the weaker chroma path, and without this readout there is no
+    // way to tell. Right-aligned so it never collides with the publishing text.
+    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setColour (juce::Colour (snapshot.neural ? sattari::brand::kSuccess : sattari::brand::kTextFaint));
+    g.drawText (snapshot.neural ? "NEURAL" : "CHROMA",
+                (int) r.getRight() - 86, (int) r.getY() + 8, 72, 16, juce::Justification::centredRight);
 }
 
 void SattariSongKeyAudioProcessorEditor::resized()
