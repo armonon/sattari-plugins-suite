@@ -13,6 +13,13 @@ sattari_add_plugin(
     SLUG mix
     PRODUCT_NAME "Sattari Mix"
     PLUGIN_CODE Mx01
+    # MIDI input makes this an `aumf` music effect rather than a plain `aufx`. It is
+    # declared UP FRONT, before the rack ships, because the AU type is part of the
+    # plugin's identity: switching later makes hosts treat it as a different plugin and
+    # silently drop it from saved sessions. 14 plugins in the suite need MIDI input
+    # (Vocoder's synth carrier, 808, Sub Conjurer, Harmony, Maqam ...), and none of them
+    # could ever become a rack module without this. Costs nothing for audio-only modules.
+    NEEDS_MIDI_INPUT
     EDITOR_WANTS_KEYBOARD_FOCUS
     SOURCES
         src/PluginProcessor.cpp
