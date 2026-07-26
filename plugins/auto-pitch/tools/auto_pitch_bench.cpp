@@ -298,6 +298,14 @@ void runAccuracy()
                 setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
                 setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
                 setParam (a, "vibrato", 0.0f);          setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+                // Transition defaults to 0.5, and by design it RELAXES the retune while a
+                // note sustains so vibrato and natural drift survive. This test measures
+                // settled pitch on a sustained note, i.e. exactly the condition that
+                // relaxation targets — leaving it at the default measured the feature, not
+                // the corrector, and made a deliberately natural sustain look like error.
+                // Zero it here alongside the other naturalness controls (flexTune, vibrato,
+                // classicMode) so this stays a clean measurement of correction accuracy.
+                setParam (a, "transition", 0.0f);
                 const auto out = sattari::harness::renderThrough (p, tone, kSr, kBlock);
                 auditSafety (out, "accuracy");
 
