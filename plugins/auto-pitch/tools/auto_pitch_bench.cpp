@@ -633,7 +633,14 @@ void runVibrato()
     const double depthOff = preserveDepth (0.0f);
     const double depthOn  = preserveDepth (1.0f);
     const double ratio    = inDepth > 1.0e-6 ? depthOn / inDepth : 0.0;
-    const bool   presOk   = (depthOn > depthOff * 1.5) && (ratio > 0.4);
+    // Score by how closely preservation-ON tracks the singer's NATURAL depth, not by
+    // "ON > OFF". The flatten (OFF) path does not collapse to ~0 as one would expect:
+    // at strong+fast retune the shifter chatters on the correcting ratio and a pitch
+    // tracker reads that chatter as inflated wiggle — here OFF measures ~1.7x the
+    // natural depth, so "ON must exceed OFF" marked a correct 110%-retention run as a
+    // failure. Same correction already applied to auto_pitch_render --features.
+    const bool   presOk   = (std::fabs (depthOn - inDepth) < std::fabs (depthOff - inDepth))
+                            && (ratio > 0.4);
     std::printf ("  (a) preservation: input=%.1f ct   OFF=%.1f ct   ON=%.1f ct   retained=%.0f%%   [%s]\n",
                  inDepth, depthOff, depthOn, ratio * 100.0, verdict (presOk, ratio > 0.25));
 
