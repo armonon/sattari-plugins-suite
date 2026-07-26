@@ -99,6 +99,13 @@ public:
         zRing.assign ((size_t) zCap, 0.0f);
 
         reset();
+
+        // The lookahead delay is live from the FIRST sample, so the latency has to be
+        // known here — before the host asks. Deriving it from the parameter (rather
+        // than waiting for process() to record it) is what keeps the reported latency
+        // honest: a host that prepared and immediately compared in-to-out used to see
+        // a lookahead-sized misalignment, because it was told the latency was 0.
+        currentLook.store (lookaheadSamples(), std::memory_order_relaxed);
     }
 
     void reset() override
@@ -120,7 +127,8 @@ public:
         tpDb.store (-100.0f, std::memory_order_relaxed);
         shortLufs.store (-100.0f, std::memory_order_relaxed);
         pushDbOut.store (0.0f, std::memory_order_relaxed);
-        currentLook.store (0, std::memory_order_relaxed);
+        // currentLook is deliberately NOT cleared: a flush is not a latency change, and
+        // zeroing it here would make a mid-stream reset() announce a bogus 0 to the host.
     }
 
     // Current lookahead in samples. The shell publishes this to the host; the audio
@@ -145,8 +153,7 @@ public:
 
         // Lookahead in samples. Recorded for the shell to publish — never announced
         // to the host from here, because that is not realtime-safe.
-        const int look = juce::jlimit (1, maxLookaheadSamples,
-                                       (int) std::lround (lookMs * 0.001 * sr_));
+        const int look = lookaheadSamples (lookMs);
         currentLook.store (look, std::memory_order_relaxed);
 
         // Program-dependent release: one-pole recovery toward unity gain.
@@ -284,6 +291,12 @@ private:
     static float val (std::atomic<float>* p, float fallback) noexcept
     { return p != nullptr ? p->load() : fallback; }
     static float dbToGain (float db) { return juce::Decibels::decibelsToGain (db, -120.0f); }
+
+    // The one place the lookahead time becomes a sample count, so prepare() and
+    // process() can never disagree about how much delay the output actually has.
+    int lookaheadSamples (float lookMs) const noexcept
+    { return juce::jlimit (1, maxLookaheadSamples, (int) std::lround (lookMs * 0.001 * sr_)); }
+    int lookaheadSamples() const noexcept { return lookaheadSamples (val (pLook, 3.0f)); }
 
     std::atomic<float>* pPush = nullptr; std::atomic<float>* pCeil = nullptr;
     std::atomic<float>* pRel = nullptr;  std::atomic<float>* pLook = nullptr;
