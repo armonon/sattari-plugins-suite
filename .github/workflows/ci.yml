@@ -134,6 +134,13 @@ jobs:
           if [ -z "$bin" ]; then echo "::error::render binary ${{ matrix.render }} not found"; exit 1; fi
           echo "Running $bin --smoke"
           "$bin" --smoke
+          # Auto Pitch only: self-contained High Tracking regression (no corpus needed).
+          # Proves the poly engine still follows a corrected note's overtones above 2.5 kHz
+          # into key — the +4.46 pt corpus win, locked so it can't silently regress.
+          if [ "${{ matrix.render }}" = "AutoPitchRender" ]; then
+            echo "Running $bin --hitracktest"
+            "$bin" --hitracktest
+          fi
 
   # ---------------------------------------------------------------------------
   # Root configure + cross-plugin contract. Configuring from the repo root

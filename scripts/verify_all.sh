@@ -106,6 +106,9 @@ esac
 # Input-drive / output-trim split guard: output gain must be a clean post-Style
 # trim, never folded into the saturator drive (portable — no golden compare).
 run "AutoPitchRender(gainstage)" "$RENDER" --gainstage
+# Poly High Tracking: a corrected note's overtones above 2.5 kHz must follow it into
+# key (self-contained; the +4.46 pt corpus win, locked against silent regression).
+run "AutoPitchRender(hitrack)" "$RENDER" --hitracktest
 
 echo "-------------------------------------------"
 echo "  $pass passed, $fail failed"

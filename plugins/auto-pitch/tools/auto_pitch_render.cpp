@@ -650,6 +650,91 @@ int main (int argc, char** argv)
         return ok ? 0 : 1;
     }
 
+    // --hitracktest : SELF-CONTAINED High Tracking regression (no external file; CI-safe).
+    // Synthesises five LOW out-of-C-major tones (black keys, octave 3) rich enough that
+    // their harmonics reach well past 2.5 kHz. Legacy poly picks peaks only up to 2.5 kHz,
+    // so those high overtones are passed through FROZEN at their original (out-of-key)
+    // pitch; High Tracking follows them. The test renders the identical signal with hiTrack
+    // OFF vs ON and asserts the HIGH band (2.5-5 kHz) lands clearly more in C major with it
+    // on — the property behind the +4.46 pt corpus win, locked so it can't silently regress.
+    if (argc > 1 && std::strcmp (argv[1], "--hitracktest") == 0)
+    {
+        const double fsr = 48000.0; const int secs = 4;
+        const int n = (int) (fsr * secs);
+        juce::AudioBuffer<float> in (2, n);
+        in.clear();
+        // C#3 D#3 F#3 G#3 A#3 — all OUT of C major; low enough that h up to ~20 spans 2.5-5k.
+        const double notes[] = { 138.591, 155.563, 184.997, 207.652, 233.082 };
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            float* d = in.getWritePointer (ch);
+            for (int i = 0; i < n; ++i)
+            {
+                const double t = (double) i / fsr;
+                double s = 0.0;
+                for (double f0 : notes)
+                    for (int h = 1; h <= 20; ++h)             // deep harmonic stack -> real 2.5-5k energy
+                        if (f0 * h < 6000.0) s += (0.10 / h) * std::sin (2.0 * juce::MathConstants<double>::pi * f0 * h * t);
+                d[i] = (float) (0.5 * s);
+            }
+        }
+
+        auto renderHi = [&] (float hi) {
+            SattariAutoPitchAudioProcessor p; auto& a = p.parameters();
+            setParam (a, "vocalRange", 8.0f);
+            setParam (a, "autoKey", 0.0f);            setParam (a, "followSongKey", 0.0f);
+            setParam (a, "keyRoot", 0.0f);            setParam (a, "scale", 0.0f);   // C major
+            setParam (a, "neuralPitch", 0.0f);        setParam (a, "polyphonic", 1.0f);
+            setParam (a, "enableCorrection", 1.0f);   setParam (a, "amount", 1.0f);
+            setParam (a, "speed", 0.97f);             setParam (a, "formantPreserve", 0.0f);
+            setParam (a, "doNoHarm", 0.0f);           setParam (a, "style", 0.0f);
+            setParam (a, "polyHFGate", 1.0f);         setParam (a, "tonalFocus", 0.0f);
+            setParam (a, "hiTrack", hi);
+            p.setNonRealtime (true);
+            return sattari::harness::renderThrough (p, in, fsr, 512);
+        };
+        auto outOff = renderHi (0.0f);
+        auto outOn  = renderHi (1.0f);
+
+        auto bandInScale = [&] (const juce::AudioBuffer<float>& b, double loHz, double hiHz) {
+            const int win = 4096, hop = 2048, order = 12; juce::dsp::FFT fft (order);
+            std::vector<float> sc ((size_t) win * 2, 0.0f), hann ((size_t) win);
+            for (int i = 0; i < win; ++i) hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (win - 1));
+            std::array<double,12> pc {};
+            for (int s = 0; s + win < b.getNumSamples(); s += hop) {
+                for (int i = 0; i < win; ++i) { double m = 0.5 * (b.getSample (0, s + i) + b.getSample (1, s + i)); sc[(size_t) i] = (float) m * hann[(size_t) i]; }
+                std::fill (sc.begin() + win, sc.end(), 0.0f); fft.performFrequencyOnlyForwardTransform (sc.data());
+                for (int k = 1; k < win / 2; ++k) { const double f = (double) k * fsr / win; if (f < loHz || f > hiHz) continue; pc[(size_t) (((int) std::llround (69.0 + 12.0 * std::log2 (f / 440.0)) % 12 + 12) % 12)] += (double) sc[(size_t) k]; }
+            }
+            double tot = 0; for (double v : pc) tot += v; if (tot <= 0) return 0.0;
+            const int CMAJ[] = {0,2,4,5,7,9,11}; double fr = 0; for (int d : CMAJ) fr += pc[(size_t) d]; return fr / tot;
+        };
+        auto peakOf = [] (const juce::AudioBuffer<float>& b) { float pk = 0; for (int ch = 0; ch < b.getNumChannels(); ++ch) for (int i = 0; i < b.getNumSamples(); ++i) pk = std::max (pk, std::fabs (b.getSample (ch, i))); return pk; };
+        auto allFinite = [] (const juce::AudioBuffer<float>& b) { for (int ch = 0; ch < b.getNumChannels(); ++ch) { const float* d = b.getReadPointer (ch); for (int i = 0; i < b.getNumSamples(); ++i) if (! std::isfinite (d[i])) return false; } return true; };
+
+        const double hiIn  = bandInScale (in, 2500.0, 5000.0);
+        const double hiOff = bandInScale (outOff, 2500.0, 5000.0);
+        const double hiOn  = bandInScale (outOn, 2500.0, 5000.0);
+        const double loOff = bandInScale (outOff, 80.0, 1600.0);
+        const double loOn  = bandInScale (outOn, 80.0, 1600.0);
+
+        std::printf ("== HIGH TRACKING self-contained regression (C major target) ==\n");
+        std::printf ("  LOW/MID in-scale (80-1600 Hz):  legacy %.1f%%   tracked %.1f%%   (correction works both ways)\n", 100*loOff, 100*loOn);
+        std::printf ("  HIGH   in-scale (2.5k-5k Hz):   input %.1f%%   legacy %.1f%%   tracked %.1f%%   (%+.1f pts)\n",
+                     100*hiIn, 100*hiOff, 100*hiOn, 100*(hiOn - hiOff));
+        std::printf ("  tracked: peak=%.3f (%s)  finite=%s\n", peakOf (outOn), peakOf (outOn) <= 1.0f ? "no clip" : "CLIP", allFinite (outOn) ? "yes" : "NO");
+        // Regression gate: clean, low/mid correction not hurt, and the HIGH band lands clearly
+        // more in key WITH tracking than without (>= 3 pts on this deterministic signal). If a
+        // future change re-freezes the high band or drops the ceiling, hiOn collapses to hiOff.
+        int fails = 0;
+        if (! allFinite (outOn))          { std::fprintf (stderr, "FAIL: non-finite output\n"); ++fails; }
+        if (peakOf (outOn) > 1.0f)        { std::fprintf (stderr, "FAIL: clipping\n"); ++fails; }
+        if (hiOn < hiOff + 0.03)          { std::fprintf (stderr, "FAIL: High Tracking did not pull the high band into key (%.1f vs %.1f pts)\n", 100*hiOn, 100*hiOff); ++fails; }
+        if (loOn < loOff - 0.03)          { std::fprintf (stderr, "FAIL: High Tracking hurt the low/mid tuning\n"); ++fails; }
+        std::printf (fails == 0 ? "Auto Pitch High Tracking regression ok\n" : "Auto Pitch High Tracking regression FAILED (%d)\n", fails);
+        return fails == 0 ? 0 : 1;
+    }
+
     // --tunefile <in.wav> <out.wav> [root scale] : render ONE file through the full poly
     // high-end chain (Polyphonic + High Tracking + Tonal Focus + HF Focus) and write it.
     // Used by the T3 stem-render pipeline to tune each separated tonal stem on its own —
