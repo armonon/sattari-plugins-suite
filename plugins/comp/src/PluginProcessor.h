@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/CompModule.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <atomic>
@@ -65,40 +65,24 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
-    // Lock-free readouts for the editor.
-    float getGainReductionDb() const noexcept { return gainReductionDb.load (std::memory_order_relaxed); }
-    double getEffectiveReleaseMs() const noexcept { return effectiveReleaseMs.load (std::memory_order_relaxed); }
-    bool  getTempoReleaseActive() const noexcept { return tempoReleaseActive.load (std::memory_order_relaxed); }
+    // Lock-free readouts for the editor — now answered by the module, which owns the
+    // DSP and therefore the meters.
+    float getGainReductionDb() const noexcept { return module.currentGainReductionDb(); }
+    double getEffectiveReleaseMs() const noexcept { return module.currentEffectiveReleaseMs(); }
+    bool  getTempoReleaseActive() const noexcept { return module.isTempoReleaseActive(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    bool  boolParam (const char* id) const noexcept { return param (id) > 0.5f; }
-    int   choiceParam (const char* id) const noexcept { return (int) std::round (param (id)); }
-
-    // One-pole high-pass on the detector path (de-emphasises lows before detection).
-    float detectorHighPass (float input, float cutoffHz) noexcept;
-    // Resolve the release time in ms, honouring the tempo-release toggle.
-    double resolveReleaseMs (double userReleaseMs);
-    double resolveBpm();
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "comp" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    // Gain-reduction envelope smoother (dB domain). Detector is instantaneous
-    // peak of the (high-passed) stereo-max, so the follower owns all the timing.
-    sattari::dsp::EnvelopeFollower grSmoother;
-    float smoothedGrDb = 0.0f;        // current smoothed gain reduction (<= 0 dB)
-    float hpX1 = 0.0f, hpY1 = 0.0f;   // detector high-pass state
-
-    sattari::xplugin::TempoReader tempoReader;   // cross-plugin TEMPO bus consumer
-
-    std::atomic<float>  gainReductionDb { 0.0f };     // published GR magnitude (>= 0)
-    std::atomic<double> effectiveReleaseMs { 100.0 }; // resolved release for UI readout
-    std::atomic<bool>   tempoReleaseActive { false };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    // Parameter IDs are unchanged (the standalone links with an empty prefix), so
+    // existing sessions and presets keep working.
+    sattari::dsp::CompModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariCompAudioProcessor)
 };
