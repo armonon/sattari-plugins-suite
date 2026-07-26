@@ -2784,7 +2784,25 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     //    cushion has filled (this is the reported start-up latency); after that
     //    the ring always has enough, so output is continuous — no dry splices.
     if (! rbPrimed && rbFifoCount >= rbCushion)
+    {
+        // Drop the overshoot so the REAL delay equals the REPORTED one. This
+        // threshold can only be tested at block boundaries, and Rubber Band's output
+        // is bursty, so the ring typically crosses rbCushion by a few hundred
+        // samples. In steady state we pop exactly numSamples per block, so whatever
+        // surplus is sitting here at priming never drains — it becomes permanent
+        // latency on top of activeEngineLatencySamples()'s startDelay + rbCushion.
+        // Measured at 48k/512 that was ~239 samples (~5 ms) of UNDER-report, i.e. the
+        // host under-compensated and the tuned track sat late against the dry.
+        // Discarding the surplus (rather than inflating the reported figure) keeps
+        // the pipeline as short as it claims to be.
+        const int overshoot = rbFifoCount - rbCushion;
+        if (overshoot > 0)
+        {
+            rbFifoRead   = (rbFifoRead + overshoot) % rbFifoCap;
+            rbFifoCount -= overshoot;
+        }
         rbPrimed = true;
+    }
 
     if (! rbPrimed)
     {
