@@ -298,6 +298,14 @@ void runAccuracy()
                 setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
                 setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
                 setParam (a, "vibrato", 0.0f);          setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+                // Neural Pitch defaults ON, and its detections arrive from a BACKGROUND
+                // worker whose timing relative to the audio blocks is not reproducible.
+                // Leaving it on made this measurement swing 3.8-5.6 ct mean (max 17-48)
+                // across identical runs, flipping PASS/WARN at random and making any
+                // regression claim meaningless. Off here so the number measures the
+                // corrector. Section 4 covers the neural path's cost separately, and its
+                // real-world accuracy is validated on actual vocals via --file/--diag.
+                setParam (a, "neuralPitch", 0.0f);
                 // Transition defaults to 0.5, and by design it RELAXES the retune while a
                 // note sustains so vibrato and natural drift survive. This test measures
                 // settled pitch on a sustained note, i.e. exactly the condition that
@@ -554,6 +562,11 @@ void runTransition()
         // sustain retune, so this convergence time reflects what Speed does.
         setParam (a, "doNoHarm", 0.0f);         setParam (a, "transition", 0.0f);
         setParam (a, "liveEngine", 1.0f);
+        // Same reason as section 1: the neural detector's async worker made the
+        // buffer-independence spread swing 29-69 ms across identical runs (PASS to
+        // FAIL at random). Convergence timing is exactly what that asynchrony
+        // perturbs, so pin it off to measure the Speed knob rather than the scheduler.
+        setParam (a, "neuralPitch", 0.0f);
         const auto out = sattari::harness::renderThrough (p, sig, kSr, block);
         auditSafety (out, "transition");
 
