@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <sattari_audio_core/SattariHostTransport.h>
 #include <memory>
 #include <vector>
 
@@ -64,6 +65,20 @@ public:
 
     // Reported so a host can sum its active slots into setLatencySamples().
     virtual int latencySamples() const noexcept { return 0; }
+
+    // Host tempo/transport for the coming block. A module cannot reach the playhead
+    // itself — getPlayHead() belongs to AudioProcessor, and a module deliberately has
+    // no AudioProcessor — so whichever shell owns it (standalone plugin or rack host)
+    // reads the transport once per block and pushes it down here BEFORE process().
+    //
+    // Fifteen plugins are tempo-synced (Comp's tempo-release, Echo, Pulse, Space,
+    // Riser, Warble, Arp, Rhythm Genie ...), so without this none of them could be
+    // extracted. Declared as a defaulted no-op rather than a change to process()'s
+    // signature so modules that don't care — and the five already extracted — need no
+    // edit at all.
+    //
+    // Called on the audio thread: implementations must be trivial (store the value).
+    virtual void setTransport (const sattari::host::TransportSnapshot&) noexcept {}
 };
 
 } // namespace sattari::dsp

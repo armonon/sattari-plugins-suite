@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariHostTransport.h>
 #include "PluginEditor.h"
 #include <sattari_audio_core/modules/CleanModule.h>
 #include <sattari_audio_core/modules/MeterModule.h>
@@ -124,13 +125,23 @@ void SattariMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 {
     juce::ScopedNoDenormals noDenormals;
 
+    // Read the transport ONCE and hand it to every module that is about to run. A
+    // module has no AudioProcessor, so it cannot reach getPlayHead() itself; the shell
+    // that owns it has to push tempo down. Tempo-synced modules (Comp's tempo-release,
+    // Echo, Pulse, Space ...) would otherwise silently fall back to 120 BPM in the rack
+    // while their standalone builds followed the host correctly.
+    const auto transport = sattari::host::read (*this);
+
     for (int s = 0; s < kNumSlots; ++s)
     {
         const int sel = (int) apvts.getRawParameterValue (slotParamId (s))->load();
         if (sel <= 0) continue;
         if (apvts.getRawParameterValue (slotBypassParamId (s))->load() > 0.5f) continue;
         if (auto* m = moduleAt (sel - 1))
+        {
+            m->setTransport (transport);
             m->process (buffer, midi);
+        }
     }
 
     // Rack rewired? Flag it and let the message thread publish — telling the host about
