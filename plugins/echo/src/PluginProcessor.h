@@ -1,12 +1,9 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariCrossPluginBus.h>
-#include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/EchoModule.h>
+#include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
-#include <vector>
 
 // =============================================================================
 //  Sattari Echo — tempo-locked rhythmic / ping-pong delay
@@ -17,17 +14,20 @@
 //  filter and optional cross-feed for the classic ping-pong bounce. A
 //  tape-smear diffusion all-pass loosens the repeats, and an input-driven
 //  envelope follower ducks the wet under the dry so the delays stay out of the
-//  way of the source. Fully preallocated in prepareToPlay; allocation-free and
+//  way of the source. Fully preallocated in prepare(); allocation-free and
 //  bounded on the audio thread.
+//
+//  The delay itself lives in sattari::dsp::EchoModule, shared with the Create
+//  rack slot; this shell owns the preset bank and the host plumbing.
 // =============================================================================
 class SattariEchoAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariEchoAudioProcessor();
-    ~SattariEchoAudioProcessor() override;
+    ~SattariEchoAudioProcessor() override = default;   // module stops its own tempo reader
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -53,41 +53,20 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
-    static juce::StringArray divisionChoices();
-    double currentBpm() const noexcept { return lastBpm.load (std::memory_order_relaxed); }
+    static juce::StringArray divisionChoices() { return sattari::dsp::EchoModule::divisionChoices(); }
+    double currentBpm() const noexcept { return module.currentBpm(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    double resolveBpm();
-    double resolveDelaySamples();   // sync division or free ms -> samples (bounded)
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "echo" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    sattari::xplugin::TempoReader tempoReader;   // consumes the cross-plugin tempo bus
-    std::atomic<double> lastBpm { 120.0 };
-
-    // Stereo delay lines (preallocated to a max time in prepareToPlay).
-    std::array<std::vector<float>, 2> delayBuf;
-    int delayLen = 0, delayWrite = 0;
-
-    // Smoothed delay time so retimes/division changes glide instead of clicking.
-    double smoothedDelaySamples = 0.0;
-
-    // Per-channel feedback-loop damping (one-pole LP/HP blend) state.
-    std::array<float, 2> dampLpState { { 0.0f, 0.0f } };
-
-    // Per-channel diffusion all-pass (single stage, short fixed delay) for tape smear.
-    std::array<std::vector<float>, 2> apBuf;
-    int apLen = 0;
-    std::array<int, 2> apPos { { 0, 0 } };
-
-    // Input-driven ducking follower (drives the wet down under the dry).
-    sattari::dsp::EnvelopeFollower duckFollower;
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::EchoModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariEchoAudioProcessor)
 };
