@@ -1,13 +1,18 @@
 #pragma once
 
 // =============================================================================
-//  Sattari Harmony — diatonic voicing core (pure std, no JUCE)
+//  SattariHarmonyVoicing — diatonic voicing core (pure std, no JUCE)
 // -----------------------------------------------------------------------------
 //  Given a lead MIDI note and a key (root + scale), compute a harmony note that
 //  is a number of *scale degrees* away — so a "third above" stays diatonic to
 //  the key (major or minor third depending on where the lead sits), exactly how
 //  a real singer harmonises. Pure-std so it unit-tests on its own, the same way
 //  the rest of the shared core does.
+//
+//  Promoted to core from plugins/harmony/src: Glass Choir reached it through a
+//  relative `../../harmony/src/` include, which is fine between two plugins but
+//  impossible for a core module — and Glass Choir needs to be one. Shared DSP
+//  belongs in core, not behind a path that walks out of one plugin into another.
 // =============================================================================
 
 #include <sattari_audio_core/SattariPitchDetector.h>   // ScaleId, scaleIntervals, snapMidiToScale

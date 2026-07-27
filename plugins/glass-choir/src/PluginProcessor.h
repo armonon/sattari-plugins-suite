@@ -9,7 +9,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>     // SessionReader / TempoReader (consumer only)
 #include <sattari_audio_core/SattariPresetManager.h>      // shared factory-preset bank
 
-#include "../../harmony/src/HarmonyVoicing.h"             // diatonicShift + scaleIdFromChoice/Bus
+#include <sattari_audio_core/SattariHarmonyVoicing.h>    // diatonicShift + scaleIdFromChoice/Bus
 #include <sattari_audio_core/SattariRbFormant.h>          // hi-fi Rubber Band detune+formant (Studio)
 
 #include <array>

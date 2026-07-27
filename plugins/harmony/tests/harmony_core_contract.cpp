@@ -1,6 +1,6 @@
 // Pure-C++ contract for the Sattari Harmony diatonic voicing core. No JUCE.
 // Builds with:  g++ -std=c++17 -Icore/include plugins/harmony/tests/harmony_core_contract.cpp
-#include "../src/HarmonyVoicing.h"
+#include <sattari_audio_core/SattariHarmonyVoicing.h>
 #include <cstdio>
 #include <vector>
 

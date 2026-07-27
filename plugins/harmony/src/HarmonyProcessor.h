@@ -6,7 +6,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include "HarmonyVoicing.h"
+#include <sattari_audio_core/SattariHarmonyVoicing.h>
 #include <array>
 #include <atomic>
 #include <memory>
