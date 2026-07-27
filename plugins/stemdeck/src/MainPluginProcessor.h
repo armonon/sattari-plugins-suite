@@ -590,6 +590,8 @@ private:
     static void releaseTeEngine() noexcept;
 
     void ensureTeWrapperOnMessageThread();
+    void prepareTeWrapper();
+    int  preparedBlockSize = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainPluginProcessor)
 };

@@ -182,7 +182,10 @@ MainPluginProcessor::MainPluginProcessor()
     // Optional trained beat model (beat_this). Absent -> DSP beat grid stands.
     neuralBeat.loadDefaultModel();
     buildMidiTargets();
-    ensureTeWrapperOnMessageThread();
+    // The Tracktion engine is created LAZILY — see ensureTeWrapperOnMessageThread.
+    // Nothing in the current build populates its Edit, so eagerly constructing it
+    // cost startup time and per-block CPU for silence, and was the sole reason a
+    // second plugin instance could not exist.
 }
 
 // ── Channel accessors ────────────────────────────────────────────────────────
@@ -559,6 +562,19 @@ void MainPluginProcessor::releaseTeEngine() noexcept
     gTeEngineClaimed.store (false, std::memory_order_release);
 }
 
+void MainPluginProcessor::prepareTeWrapper()
+{
+    if (teWrapper == nullptr || currentSampleRate <= 0.0 || preparedBlockSize <= 0)
+        return;
+    tracktion::HostedAudioDeviceInterface::Parameters teParams;
+    teParams.sampleRate     = currentSampleRate;
+    teParams.blockSize      = preparedBlockSize;
+    teParams.inputChannels  = getTotalNumInputChannels();
+    teParams.outputChannels = juce::jmax (2, getTotalNumOutputChannels());
+    teWrapper->audioInterface.initialise (teParams);
+    teWrapper->audioInterface.prepareToPlay (currentSampleRate, preparedBlockSize);
+}
+
 void MainPluginProcessor::ensureTeWrapperOnMessageThread()
 {
     if (teWrapper != nullptr || teEngineUnavailable)
@@ -578,7 +594,10 @@ void MainPluginProcessor::ensureTeWrapperOnMessageThread()
     auto create = [this]
     {
         if (teWrapper == nullptr)
+        {
             teWrapper = std::make_unique<TeWrapper>();
+            prepareTeWrapper();   // created after prepareToPlay — prepare it now
+        }
     };
 
     if (juce::MessageManager::getInstance()->isThisTheMessageThread())
@@ -736,17 +755,11 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     midiClipPlayer.prepare (sampleRate, samplesPerBlock);
     metronome.prepare (sampleRate);
-    ensureTeWrapperOnMessageThread();
+    // Record the format so a lazily-created engine can be prepared correctly later;
+    // prepare it now only if it already exists.
+    preparedBlockSize = samplesPerBlock;
     if (teWrapper != nullptr)
-    {
-        tracktion::HostedAudioDeviceInterface::Parameters teParams;
-        teParams.sampleRate    = sampleRate;
-        teParams.blockSize     = samplesPerBlock;
-        teParams.inputChannels  = getTotalNumInputChannels();
-        teParams.outputChannels = juce::jmax (2, getTotalNumOutputChannels());
-        teWrapper->audioInterface.initialise (teParams);
-        teWrapper->audioInterface.prepareToPlay (sampleRate, samplesPerBlock);
-    }
+        prepareTeWrapper();
     // (Per-deck scratch / RTSS / stem-FX / DeckFX now live inside each Channel's
     //  TrackDeckBody and are prepared by Channel::prepare above.)
 }
