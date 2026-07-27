@@ -610,6 +610,26 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A3: measure time-to-playable at real track lengths ─────────────────────────
+add_executable(StemDeckLoadLatency EXCLUDE_FROM_ALL tests/stemdeck_loadlatency.cpp)
+target_include_directories(StemDeckLoadLatency PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckLoadLatency PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckLoadLatency
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckLoadLatency)
+sattari_enable_rubberband(StemDeckLoadLatency SATTARI_STEMDECK_HAS_RUBBERBAND)
+if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    target_include_directories(StemDeckLoadLatency PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(StemDeckLoadLatency PRIVATE ${ONNXRUNTIME_LIB})
+    target_compile_definitions(StemDeckLoadLatency PRIVATE
+        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+endif()
+
 # ── Deck strip render (verify the per-deck control strip styling via PNG) ───────
 add_executable(StemDeckDeckStripRender EXCLUDE_FROM_ALL
     tests/stemdeck_deckstrip_render.cpp
