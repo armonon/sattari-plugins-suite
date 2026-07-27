@@ -11,6 +11,7 @@
 #include <sattari_audio_core/modules/ImageModule.h>
 #include <sattari_audio_core/modules/DeEssModule.h>
 #include <sattari_audio_core/modules/MultibandModule.h>
+#include <sattari_audio_core/modules/PulseModule.h>
 
 SattariMixAudioProcessor::SattariMixAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
@@ -42,6 +43,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeModules()
     v.push_back (std::make_unique<sattari::dsp::MultibandModule>());
     v.push_back (std::make_unique<sattari::dsp::MeterModule>());
     v.push_back (std::make_unique<sattari::dsp::PeakModule>());
+    v.push_back (std::make_unique<sattari::dsp::PulseModule>());
     v.push_back (std::make_unique<sattari::dsp::TransientModule>());
     return v;
 }

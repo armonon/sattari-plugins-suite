@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/modules/PulseModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -58,39 +59,22 @@ public:
     static juce::StringArray rateChoices();
     static juce::StringArray shapeChoices();
 
-    double currentBpm() const noexcept { return lastBpm.load (std::memory_order_relaxed); }
+    double currentBpm() const noexcept { return module.currentBpm(); }
     // 0..1 modulation gain currently applied (for the UI meter/indicator).
-    float  currentGain() const noexcept { return lastGain.load (std::memory_order_relaxed); }
+    float  currentGain() const noexcept { return module.currentGain(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    double resolveBpm();
 
     // Curve lookup: phase in [0,1) -> ducking gain in [0,1]. 1 = untouched,
     // 0 = fully ducked at the beat. `shape` selects the family.
-    static float curveGain (int shape, float phase) noexcept;
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "pulse" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
-
-    sattari::xplugin::TempoReader tempoReader;   // consumes the cross-plugin tempo bus
-
-    // Tempo phase: free-runs from BPM, re-anchored to host PPQ each block while playing.
-    double phase = 0.0;
-
-    // Per-sample gain smoother (one-pole) — kills zipper/step artifacts, esp. Square/Spike.
-    float smoothedGain = 1.0f;
-    float smoothCoeff  = 0.0f;   // set per-block from the Smooth control
-
-    // Optional filter movement: one-pole low-pass modulated by the same curve.
-    float lpStateL = 0.0f, lpStateR = 0.0f;
-
-    std::atomic<double> lastBpm  { 120.0 };
-    std::atomic<float>  lastGain { 1.0f };
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::PulseModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariPulseAudioProcessor)
 };
