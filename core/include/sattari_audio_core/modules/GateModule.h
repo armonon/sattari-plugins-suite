@@ -119,6 +119,11 @@ public:
         transport = t;
     }
 
+    // External key: gate a snare to a trigger, open a pad from a kick. Same rule as
+    // CompModule — a routed sidechain IS the intent, so no extra toggle guards it, and
+    // nullptr reproduces the previous main-signal behaviour exactly.
+    void setSidechain (const juce::AudioBuffer<float>* sc) noexcept override { sidechain = sc; }
+
     // Lookahead delay, in samples, for the rack to sum into its reported latency.
     int latencySamples() const noexcept override
     {
@@ -189,11 +194,25 @@ public:
         float grForMeter = 0.0f;
         bool  anyOpen = false;
 
+        // Only key off the sidechain when it actually covers this block.
+        const bool scActive = sidechain != nullptr
+                              && sidechain->getNumChannels() > 0
+                              && sidechain->getNumSamples() >= n;
+        const int scChans = scActive ? juce::jmin (2, sidechain->getNumChannels()) : 0;
+
         for (int i = 0; i < n; ++i)
         {
             float det = 0.0f;
-            for (int ch = 0; ch < numCh; ++ch)
-                det = std::max (det, std::fabs (buffer.getReadPointer (ch)[i]));
+            if (scActive)
+            {
+                for (int ch = 0; ch < scChans; ++ch)
+                    det = std::max (det, std::fabs (sidechain->getReadPointer (ch)[i]));
+            }
+            else
+            {
+                for (int ch = 0; ch < numCh; ++ch)
+                    det = std::max (det, std::fabs (buffer.getReadPointer (ch)[i]));
+            }
 
             const float filtered = sidechainFilter (det, scHpfHz, scLpfHz);
             const float rectified = std::fabs (filtered);
@@ -383,6 +402,7 @@ private:
     int maxLookaheadSamples = 0;
 
     double syncPhase = 0.0;
+    const juce::AudioBuffer<float>* sidechain = nullptr;   // valid only during process()
     sattari::host::TransportSnapshot transport;
     sattari::xplugin::TempoReader tempoReader;
 

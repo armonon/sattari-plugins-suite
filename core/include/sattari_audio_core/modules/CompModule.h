@@ -98,6 +98,13 @@ public:
         hostHasBpm = t.hasHostBpm;
     }
 
+    // When the shell routes an external key, the detector reads THAT instead of the
+    // main signal — compress a bass to a kick, duck a pad under a vocal. No parameter
+    // guards this: routing a sidechain is itself the user's intent, and an extra
+    // "external" toggle would let a routed key silently do nothing. Unrouted (nullptr)
+    // is the previous behaviour exactly, so nothing changes for existing sessions.
+    void setSidechain (const juce::AudioBuffer<float>* sc) noexcept override { sidechain = sc; }
+
     void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
         if (state == nullptr) return;
@@ -133,14 +140,29 @@ public:
         const float invRatio = 1.0f / ratio;
         const float halfKnee = 0.5f * kneeDb;
 
+        // Only key off the sidechain when it actually covers this block.
+        const bool scActive = sidechain != nullptr
+                              && sidechain->getNumChannels() > 0
+                              && sidechain->getNumSamples() >= n;
+        const int scChans = scActive ? juce::jmin (2, sidechain->getNumChannels()) : 0;
+
         float grForMeter = 0.0f;
 
         for (int i = 0; i < n; ++i)
         {
-            // Stereo-linked detector: max of |L|,|R| keeps the image stable.
+            // Stereo-linked detector: max of |L|,|R| keeps the image stable. Keys off
+            // the external sidechain when one is routed, else the main signal.
             float det = 0.0f;
-            for (int ch = 0; ch < numCh; ++ch)
-                det = std::max (det, std::fabs (buffer.getReadPointer (ch)[i]));
+            if (scActive)
+            {
+                for (int ch = 0; ch < scChans; ++ch)
+                    det = std::max (det, std::fabs (sidechain->getReadPointer (ch)[i]));
+            }
+            else
+            {
+                for (int ch = 0; ch < numCh; ++ch)
+                    det = std::max (det, std::fabs (buffer.getReadPointer (ch)[i]));
+            }
 
             const float filtered = detectorHighPass (det, scHpfHz);
             const float detMag = std::fabs (filtered);
@@ -263,6 +285,7 @@ private:
     float smoothedGrDb = 0.0f;
     float hpX1 = 0.0f, hpY1 = 0.0f;
 
+    const juce::AudioBuffer<float>* sidechain = nullptr;   // valid only during process()
     double hostBpm = 120.0;
     bool   hostHasBpm = false;
     sattari::xplugin::TempoReader tempoReader;
