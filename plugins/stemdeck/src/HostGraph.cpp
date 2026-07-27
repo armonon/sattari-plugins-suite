@@ -21,6 +21,8 @@ juce::File hostDataDirectory()
 }
 }
 
+static bool isSattariPluginFile (const juce::String& fileName);   // defined below
+
 HostGraph::HostGraph()
 {
     // Current JUCE API: do not use deprecated AudioPluginFormatManager::addDefaultFormats().
@@ -30,6 +32,12 @@ HostGraph::HostGraph()
     juce::addHeadlessDefaultFormatsToManager (formatManager);
 #endif
     loadCache();
+
+    // Drop anything non-Sattari left in the cache from an older full scan, so a
+    // third-party plugin can never be listed or instantiated (they crash the host).
+    for (const auto& d : knownPluginList.getTypes())
+        if (! isSattariPluginFile (d.name) && ! d.manufacturerName.containsIgnoreCase ("Sattari"))
+            knownPluginList.removeType (d);
 }
 
 HostGraph::~HostGraph()
@@ -56,7 +64,14 @@ juce::String HostGraph::chainId (Chain chain)
         case Chain::deckD: return "deckD";
         case Chain::mic: return "mic";
         case Chain::master: return "master";
-        case Chain::count: break;
+        default: break;
+    }
+    if (isStemChain (chain))
+    {
+        static const char* const stems[] = { "drums", "bass", "music", "vocals" };
+        const int n = (int) chain - (int) Chain::stemFirst;
+        return juce::String ("deck") + juce::String::charToString ((juce_wchar) ('A' + n / kNumStemsPerDeck))
+             + "." + stems[n % kNumStemsPerDeck];
     }
     return "unknown";
 }
@@ -71,7 +86,14 @@ juce::String HostGraph::chainName (Chain chain)
         case Chain::deckD: return "Deck D Plugin Chain";
         case Chain::mic: return "Mic/Vocal Plugin Chain";
         case Chain::master: return "Master Plugin Chain";
-        case Chain::count: break;
+        default: break;
+    }
+    if (isStemChain (chain))
+    {
+        static const char* const stems[] = { "Drums", "Bass", "Music", "Vocals" };
+        const int n = (int) chain - (int) Chain::stemFirst;
+        return "Deck " + juce::String::charToString ((juce_wchar) ('A' + n / kNumStemsPerDeck))
+             + " " + stems[n % kNumStemsPerDeck] + " FX";
     }
     return "Plugin Chain";
 }
@@ -91,6 +113,7 @@ void HostGraph::initialiseGraph (ChainState& state)
     const juce::ScopedLock lock (state.graphLock);
     state.graph.clear();
     state.pluginNodes.clear();
+    state.pluginCountAtomic.store (0, std::memory_order_relaxed);
     state.inputNode = state.graph.addNode (std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>
                                            (juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
     state.outputNode = state.graph.addNode (std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>
@@ -104,6 +127,7 @@ void HostGraph::initialiseGraph (ChainState& state)
 
     state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
     state.prepared = true;
+    state.live = true;
 }
 
 void HostGraph::prepare (double sampleRate, int blockSize, int channels)
@@ -113,7 +137,18 @@ void HostGraph::prepare (double sampleRate, int blockSize, int channels)
     currentChannels = juce::jlimit (1, 8, channels);
 
     for (auto& chain : chains)
-        initialiseGraph (chain);
+    {
+        // First time: build the I/O pass-through graph.
+        if (! chain.prepared) { initialiseGraph (chain); chain.live = true; continue; }
+
+        // Already built: KEEP the loaded plugins and just re-prepare them at the new
+        // rate/size. Re-initialising here would destroy every loaded FX (and dangle
+        // any open plugin editor) on each device / sample-rate change.
+        const juce::ScopedLock lock (chain.graphLock);
+        chain.graph.setPlayConfigDetails (currentChannels, currentChannels, currentSampleRate, currentBlockSize);
+        chain.graph.prepareToPlay (currentSampleRate, currentBlockSize);
+        chain.live = true;
+    }
 }
 
 void HostGraph::release()
@@ -124,11 +159,12 @@ void HostGraph::release()
         // pluginNodes mid-teardown.
         const juce::ScopedLock lock (chain.graphLock);
         chain.graph.releaseResources();
-        chain.graph.clear();
-        chain.pluginNodes.clear();
-        chain.inputNode = nullptr;
-        chain.outputNode = nullptr;
-        chain.prepared = false;
+        // Deliberately NOT clearing the graph: releaseResources() runs on every audio
+        // stop (device change, settings dialog, quit), and destroying the plugin
+        // processors here leaves any open plugin editor window pointing at freed
+        // memory — its next paint is a use-after-free. Plugins are only destroyed on
+        // explicit removal / clearChain, where the editors are closed first.
+        chain.live = false;
     }
 }
 
@@ -136,13 +172,19 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
 {
     auto& state = stateFor (chain);
 
+    // Fast path: with 16 stem chains added, an empty chain is the overwhelmingly common
+    // case and must cost nothing. This atomic mirrors pluginNodes.size() and lets an
+    // empty chain bail before touching the lock at all.
+    if (state.pluginCountAtomic.load (std::memory_order_relaxed) == 0)
+        return;
+
     // Read prepared/pluginNodes under the lock — the message thread mutates both
     // (initialiseGraph, plugin load, release) while holding graphLock.
     const juce::ScopedTryLock lock (state.graphLock);
     if (! lock.isLocked())
         return;
 
-    if (! state.prepared || state.pluginNodes.isEmpty())
+    if (! state.prepared || ! state.live || state.pluginNodes.isEmpty())
         return;
 
     state.graph.processBlock (audio, midi);
@@ -289,25 +331,15 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
 
             auto& state = stateFor (target);
             if (! state.prepared)
-                initialiseGraph (state);
+                initialiseGraph (state);   // creates fresh input/output nodes (empty pass-through)
 
             const juce::ScopedLock lock (state.graphLock);
-            state.graph.clear();
-            state.pluginNodes.clear();
-            state.inputNode = state.graph.addNode (std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>
-                                                   (juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
-            state.outputNode = state.graph.addNode (std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>
-                                                    (juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
-            auto pluginNode = state.graph.addNode (std::move (instance));
-            if (state.inputNode != nullptr && state.outputNode != nullptr && pluginNode != nullptr)
-            {
-                for (int ch = 0; ch < currentChannels; ++ch)
-                {
-                    state.graph.addConnection ({ { state.inputNode->nodeID, ch }, { pluginNode->nodeID, ch } });
-                    state.graph.addConnection ({ { pluginNode->nodeID, ch }, { state.outputNode->nodeID, ch } });
-                }
+            // Append the new plugin to the END of the serial chain (a rack), rather
+            // than replacing — so multiple Sattari FX stack in order.
+            if (auto pluginNode = state.graph.addNode (std::move (instance)))
                 state.pluginNodes.add (pluginNode);
-            }
+                state.pluginCountAtomic.store (state.pluginNodes.size(), std::memory_order_relaxed);
+            rebuildChainConnections (state);
             state.graph.setPlayConfigDetails (currentChannels, currentChannels, currentSampleRate, currentBlockSize);
             state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
             state.prepared = true;
@@ -320,4 +352,174 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
 void HostGraph::clearChain (Chain chain)
 {
     initialiseGraph (stateFor (chain));
+}
+
+// Is this a Sattari-suite plugin file? We deliberately scan ONLY our own plugins:
+// scanning arbitrary third-party VST3s in-process crashes the host (e.g. Serato
+// Sample calls main-thread-only Text Input Services from the scan thread).
+static bool isSattariPluginFile (const juce::String& fileName)
+{
+    static const char* const kAllow[] = { "AutoPitch", "Auto Pitch", "Metamorph", "Morph EQ",
+                                          "Side Chain Master", "Sub Conjurer", "Vocal Prep" };
+    if (fileName.containsIgnoreCase ("StemDeck")) return false;      // never host ourselves
+    if (fileName.startsWithIgnoreCase ("Sattari")) return true;
+    for (auto* a : kAllow) if (fileName.startsWithIgnoreCase (a)) return true;
+    return false;
+}
+
+HostGraph::ScanResult HostGraph::scanSattariOnly()
+{
+    ScanResult result;
+    auto* vst3 = findFormatByName ("VST3");
+    if (vst3 == nullptr) { result.messages.add ("VST3 format unavailable"); return result; }
+    result.scannedFormats.add ("VST3");
+
+    // ── Dead man's pedal ────────────────────────────────────────────────────────
+    // Scanning happens in-process, so a plugin that crashes on open takes the app
+    // with it. Before opening a plugin we record its path; if that record survives
+    // (i.e. we never got to clear it), that plugin crashed us last time — blacklist
+    // it permanently so FX keeps working instead of dying on every launch.
+    const auto dir       = getCacheFile().getParentDirectory();
+    const auto pedal     = dir.getChildFile ("scan_pedal.txt");
+    const auto blackFile = dir.getChildFile ("blacklist.txt");
+
+    juce::StringArray blacklist;
+    if (blackFile.existsAsFile()) blacklist.addLines (blackFile.loadFileAsString());
+    if (pedal.existsAsFile())
+    {
+        const auto crashed = pedal.loadFileAsString().trim();
+        if (crashed.isNotEmpty() && ! blacklist.contains (crashed))
+        {
+            blacklist.add (crashed);
+            blackFile.replaceWithText (blacklist.joinIntoString ("\n"));
+            result.messages.add ("Blacklisted (crashed last scan): " + juce::File (crashed).getFileName());
+        }
+        pedal.deleteFile();
+    }
+
+    const juce::File dirs[] = {
+        juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Library/Audio/Plug-Ins/VST3"),
+        juce::File ("/Library/Audio/Plug-Ins/VST3")
+    };
+
+    for (const auto& d : dirs)
+    {
+        if (! d.isDirectory()) continue;
+        for (const auto& entry : juce::RangedDirectoryIterator (d, false, "*.vst3",
+                                                                juce::File::findFilesAndDirectories))
+        {
+            const auto file = entry.getFile();
+            if (! isSattariPluginFile (file.getFileNameWithoutExtension())) continue;
+
+            const auto path = file.getFullPathName();
+            if (blacklist.contains (path)) { result.blacklistedFiles.add (file.getFileName()); continue; }
+
+            pedal.replaceWithText (path);          // arm: if we die here, it's this one
+            juce::OwnedArray<juce::PluginDescription> found;
+            vst3->findAllTypesForFile (found, path);
+            pedal.deleteFile();                     // survived: disarm
+
+            for (auto* pd : found)
+                if (pd != nullptr && ! pd->name.containsIgnoreCase ("StemDeck"))
+                {
+                    knownPluginList.addType (*pd);
+                    result.plugins.add (*pd);
+                }
+        }
+    }
+
+    result.messages.add ("Sattari-only scan: " + juce::String (result.plugins.size()) + " plugin(s)");
+    saveCache();
+    return result;
+}
+
+// Wire input -> plugin[0] -> plugin[1] -> ... -> output in series (empty = passthrough).
+void HostGraph::rebuildChainConnections (ChainState& state)
+{
+    for (const auto& c : state.graph.getConnections())
+        state.graph.removeConnection (c);
+
+    juce::Array<juce::AudioProcessorGraph::Node::Ptr> nodes;
+    if (state.inputNode != nullptr) nodes.add (state.inputNode);
+    for (auto& p : state.pluginNodes) if (p != nullptr) nodes.add (p);
+    if (state.outputNode != nullptr) nodes.add (state.outputNode);
+
+    for (int i = 0; i + 1 < nodes.size(); ++i)
+        for (int ch = 0; ch < currentChannels; ++ch)
+            state.graph.addConnection ({ { nodes[i]->nodeID, ch }, { nodes[i + 1]->nodeID, ch } });
+}
+
+int HostGraph::getChainLatencySamples (Chain chain) const
+{
+    auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (! state.prepared || state.pluginNodes.isEmpty())
+        return 0;
+    // Serial chain: the graph reports the summed latency of its path.
+    return juce::jmax (0, state.graph.getLatencySamples());
+}
+
+int HostGraph::getChainPluginCount (Chain chain) const
+{
+    return stateFor (chain).pluginNodes.size();
+}
+
+juce::String HostGraph::getChainPluginName (Chain chain, int index) const
+{
+    const auto& state = stateFor (chain);
+    if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return {};
+    if (auto* proc = state.pluginNodes[index]->getProcessor()) return proc->getName();
+    return {};
+}
+
+juce::AudioProcessor* HostGraph::getChainPluginProcessor (Chain chain, int index) const
+{
+    const auto& state = stateFor (chain);
+    if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return nullptr;
+    return state.pluginNodes[index]->getProcessor();
+}
+
+void HostGraph::moveChainPlugin (Chain chain, int fromIndex, int toIndex)
+{
+    auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    const int n = state.pluginNodes.size();
+    if (! juce::isPositiveAndBelow (fromIndex, n) || ! juce::isPositiveAndBelow (toIndex, n)
+        || fromIndex == toIndex)
+        return;
+    state.pluginNodes.move (fromIndex, toIndex);
+    rebuildChainConnections (state);   // order in the array IS the signal order
+    state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
+}
+
+void HostGraph::setChainPluginBypassed (Chain chain, int index, bool bypassed)
+{
+    auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
+    // Node-level bypass: the graph keeps the connections and passes audio through, so
+    // this neither reallocates nor rebuilds — safe to toggle while audio is running.
+    if (auto* node = state.pluginNodes[index].get())
+        node->setBypassed (bypassed);
+}
+
+bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
+{
+    const auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return false;
+    auto* node = state.pluginNodes[index].get();
+    return node != nullptr && node->isBypassed();
+}
+
+void HostGraph::removeChainPlugin (Chain chain, int index)
+{
+    auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
+    state.graph.removeNode (state.pluginNodes[index]->nodeID);
+    state.pluginNodes.remove (index);
+    state.pluginCountAtomic.store (state.pluginNodes.size(), std::memory_order_relaxed);
+    rebuildChainConnections (state);
+    state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
 }

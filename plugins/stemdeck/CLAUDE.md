@@ -48,13 +48,17 @@ plumbing is proven; the hard DSP is not. See
    `src/BeatSyncEngine.cpp`. Currently a granular key-lock backend; not DAW-validated.
    Rubber Band is available via `sattari_enable_rubberband()` if you want to lean on it
    (it's already linked — GPLv3, see `/LICENSING.md`).
-2. **Plugin-host audio routing** — `src/PluginHostManager.{h,cpp}` deliberately stops at
-   discovery + instantiation; the loaded plugin is **not routed** into `DeckPlayer`/
-   `processBlock`. RT-safety is the hard part: loads are async on a background thread, so
-   processing a swappable instance on the audio thread needs a lock-free swap (don't
-   `new`/`delete` or lock on the audio thread). Read the header comment first.
-3. **Beatgrid / downbeat detection** — `src/TrackAnalysis.cpp` (lightweight Krumhansl
-   chroma key + host-PPQ/BPM beat-offset; no transient/downbeat detection or beatgrid edit).
+2. **Plugin-host audio routing** — DONE via `src/HostGraph.{h,cpp}`: per-chain
+   `AudioProcessorGraph` (deck/mic/master), async off-thread load, series FX rack,
+   RT-safe `processChain` (try-lock, no alloc on the audio thread). Scanning is
+   **Sattari-only** by design (third-party VST3s crash the host mid-scan). The old
+   `PluginHostManager.{h,cpp}` scaffold was orphaned and has been deleted.
+   **Open caveat:** some Sattari guest plugins (Echo, Space) crash in their OWN
+   editor's `resized()` when hosted — that's a bug in `sattari-plugins-main`, not here.
+3. **Beatgrid / downbeat detection** — IMPLEMENTED in `src/TrackAnalysis.cpp`
+   (multiband spectral-flux onset envelope, autocorrelation tempo, Ellis-2007 DP beat
+   tracker, variable-tempo curve, bar-phase downbeat/meter). Not yet DAW-validated on
+   real songs, and there is no user-editable beatgrid UI.
 4. **Notarized installer / onboarding** — `src/MainPluginEditor.cpp` has the standalone
    quick-start rail; packaging via `scripts/package_stemdeck_app_alpha.sh`.
 

@@ -277,7 +277,7 @@ void DeckPlayer::fillRubberBandInput (int numFrames,
             if (! laneData || laneData->audio.getNumSamples() <= 1)
                 continue;
 
-            const float laneGain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, stemLaneGains[(size_t) lane]));
+            const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
             if (laneGain <= 0.00001f)
                 continue;
 
@@ -317,6 +317,10 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
 {
     if (! rubberBand || ! timePitch.pitchPreservingActive || numSamples <= 0)
         return false;
+
+    // Publish this path's latency so the host can keep key-locked decks phase-aligned
+    // with un-key-locked ones (see MainPluginProcessor::refreshLatencyCompensation).
+    timeStretchLatency.store ((int) rubberBand->getLatency(), std::memory_order_relaxed);
 
     const double tempoRatio = juce::jlimit (0.25, 4.0, (double) timePitch.tempoRatio);
     const double timeRatio = juce::jlimit (0.25, 4.0, 1.0 / tempoRatio);
@@ -495,6 +499,9 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
         return;
 #endif
 
+    // Not on the RubberBand path this block -> no time-stretch latency to compensate.
+    timeStretchLatency.store (0, std::memory_order_relaxed);
+
     // Consume any pending user seek (hot cue jump, beat jump, cue set).
     // seekTarget is in reference (source) samples. Under granular key-lock the
     // playhead runs in loop-output coordinates (source ≈ playhead × tempoRatio,
@@ -589,7 +596,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     if (! laneData || laneData->audio.getNumSamples() <= 1)
                         continue;
 
-                    const float laneGain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, stemLaneGains[(size_t) lane]));
+                    const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
                     if (laneGain <= 0.00001f)
                         continue;
 
@@ -617,7 +624,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                 if (! laneData || laneData->audio.getNumSamples() <= 1)
                     continue;
 
-                const float laneGain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, stemLaneGains[(size_t) lane]));
+                const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
                 if (laneGain <= 0.00001f)
                     continue;
 

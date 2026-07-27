@@ -73,6 +73,18 @@ public:
     void beginLoopRoll (double loopLengthSeconds) noexcept;
     void endLoopRoll()   noexcept;
 
+    // Current time-stretch latency in reference samples (0 when key-lock is off).
+    int getTimeStretchLatencySamples() const noexcept { return timeStretchLatency.load (std::memory_order_relaxed); }
+
+    // ── Background-refined analysis (§A3 load latency) ────────────────────────
+    // A deck becomes playable on the fast DSP analysis; the neural grid/key arrive
+    // later and are published here. Atomic shared_ptr swap — same lock-free idiom as
+    // the stem audio — so the hot-swap never interrupts playback.
+    void setRefinedAnalysis (std::shared_ptr<const TrackAnalysis> a) noexcept
+    { std::atomic_store (&refinedAnalysis, std::move (a)); }
+    std::shared_ptr<const TrackAnalysis> getRefinedAnalysis() const noexcept
+    { return std::atomic_load (&refinedAnalysis); }
+
     void process (juce::AudioBuffer<float>& destination,
                   int startSample,
                   int numSamples,
@@ -123,6 +135,12 @@ private:
     double currentSampleRate = 44100.0;
     double playheadSamples = 0.0;
     std::atomic<double> publicPlayheadSamples { 0.0 };
+    // Latency the ACTIVE time-stretch path introduces, in reference samples.
+    // RubberBand (real-time mode) reports a real latency; the plain-resample path is
+    // zero. Published from the audio thread so delay compensation can hold key-locked
+    // decks in phase with un-key-locked ones (a beat-matching correctness issue).
+    std::atomic<int> timeStretchLatency { 0 };
+    std::shared_ptr<const TrackAnalysis> refinedAnalysis;   // atomic_load/store only
     std::atomic<double> pendingSeekSamples    { -1.0 };
     std::atomic<double> loopInRefSamples      { -1.0 };
     std::atomic<double> loopOutRefSamples     { -1.0 };

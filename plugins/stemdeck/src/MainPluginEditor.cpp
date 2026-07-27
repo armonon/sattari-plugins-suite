@@ -4,8 +4,21 @@
 // MainPluginEditorInternal.h.
 #include "MainPluginEditor.h"
 #include "MainPluginEditorInternal.h"
+#include "StructureAnalysis.h"
+#include "KeyChroma.h"
 
 using namespace sdedit;
+
+// Structure-region colours for the overview (intro/build/drop/breakdown/outro).
+static juce::Colour waveStructureColour (const juce::String& label)
+{
+    if (label == "INTRO")     return juce::Colour (0xff4A9EFF);
+    if (label == "BUILD")     return juce::Colour (0xff4AD9C4);
+    if (label == "DROP")      return juce::Colour (0xffD4537E);
+    if (label == "BREAKDOWN") return juce::Colour (0xffB47AFF);
+    if (label == "OUTRO")     return juce::Colour (0xffFFB84A);
+    return juce::Colour (0xff8A8A93);
+}
 
 juce::String MainPluginEditor::deckPrefix (int deckIndex)
 {
@@ -79,6 +92,29 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         repaint();
     };
     addAndMakeVisible (advancedToggle);
+
+    // ── Channel add / remove ────────────────────────────────────────────────
+    // Live, zero-dropout: the engine publishes a new immutable graph snapshot, so
+    // channels already playing are never interrupted (StemDeckChannelDropout gate).
+    setupButton (addChannelButton);
+    addChannelButton.setTooltip ("Add a deck channel (live — playing channels keep playing)");
+    addChannelButton.onClick = [this] { showAddChannelMenu (&addChannelButton); };
+    addAndMakeVisible (addChannelButton);
+
+    setupButton (removeChannelButton);
+    removeChannelButton.setTooltip ("Remove the last deck channel (live)");
+    removeChannelButton.onClick = [this]
+    {
+        if (processorRef.removeChannel (processorRef.getNumChannels() - 1))
+        {
+            refreshChannelStrips();
+            refreshChannelButtons();
+            resized();
+            repaint();
+        }
+    };
+    addAndMakeVisible (removeChannelButton);
+    refreshChannelButtons();
     title.setInterceptsMouseClicks (true, false);
     title.addMouseListener (this, false);
 
@@ -168,13 +204,29 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     syncAllDecksButton.onClick = [this] { showSyncAllDecksMenu(); };
     addAndMakeVisible (syncAllDecksButton);
 
-    // All-deck BPM / Key sync (also on hotkeys B / K).
+    // BEAT SYNC toggle: locks every deck's tempo to the GLOBAL tempo so they play
+    // beat-matched, and makes the Global Tempo knob audibly re-time all synced decks.
+    // Without this, tempo warp is off and the global tempo does nothing to the decks.
     setupButton (syncBpmButton);
-    syncBpmButton.setTooltip ("Warp + downbeat phase-lock all decks to Deck A's tempo (hotkey: B)");
-    syncBpmButton.onClick = [this] { syncBpmAll(); };
+    syncBpmButton.setClickingTogglesState (true);
+    syncBpmButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff4AD9C4).withAlpha (0.35f));
+    syncBpmButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff4AD9C4));
+    syncBpmButton.setTooltip ("BEAT SYNC: lock all decks to the global tempo (beat-match). Turn on, then the Global Tempo knob speeds/slows every synced deck together. (hotkey: B)");
+    syncBpmButton.onClick = [this]
+    {
+        if (syncBpmButton.getToggleState())
+            syncBpmAll();   // seed global tempo from the master deck, enable warp, phase-lock
+        else if (auto* b = processorRef.parameters().getParameter ("beatSync"))
+        {
+            b->setValueNotifyingHost (0.0f);
+            recordStatus.setText ("Beat sync off — decks play at their native tempo", juce::dontSendNotification);
+        }
+    };
     addAndMakeVisible (syncBpmButton);
     setupButton (syncKeyButton);
-    syncKeyButton.setTooltip ("Harmonically match all decks to Deck A's key, Camelot-style (hotkey: K)");
+    syncKeyButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff4AD9C4).withAlpha (0.35f));
+    syncKeyButton.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff4AD9C4));
+    syncKeyButton.setTooltip ("KEY SYNC: harmonically match all decks to the master deck's key, Camelot-style (hotkey: K)");
     syncKeyButton.onClick = [this] { syncKeyAll(); };
     addAndMakeVisible (syncKeyButton);
     setupButton (stemLinkToggle);
@@ -205,19 +257,44 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     clearChainButton.onClick = [this]
     {
         const int chainIndex = pluginChainSelector.getSelectedId() - 1;
+        closeAllPluginWindows();   // clearing destroys the plugin processors
         processorRef.clearHostPluginChain (chainIndex);
         pluginHostMessage.setText ("Cleared " + pluginChainSelector.getText(), juce::dontSendNotification);
+        fxRack.repaint();
     };
+    setupButton (sattariFxButton);
+    sattariFxButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff4AD9C4).withAlpha (0.20f));
+    sattariFxButton.setTooltip ("Add a Sattari-suite effect to the selected chain (deck / mic / master)");
+    sattariFxButton.onClick = [this] { showSattariFxMenu(); };
+    addAndMakeVisible (sattariFxButton);
 
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         auto deckName = deckLabel (i).toUpperCase();
         deckWaves[(size_t) i] = std::make_unique<WaveformDisplay> (thumbnailFormatManager, thumbnailCache, deckName);
-        deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f) { processorRef.loadDeckFileAsync (i, f); });
+        // Focus follows the user's hands: dropping a track on a deck focuses it.
+        deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f)
+                                                 { setFocusedDeck (i); processorRef.loadDeckFileAsync (i, f); });
         // Empty decks show a real call to action; clicking it opens the file chooser.
         deckWaves[(size_t) i]->setShowDropHint (true);
         deckWaves[(size_t) i]->setOnBrowseRequest ([this, i] { openDeckChooser (i); });
         addAndMakeVisible (*deckWaves[(size_t) i]);
+
+        deckWaveRegions[(size_t) i] = std::make_unique<stemdeck::WaveformRegion>();
+        deckWaveRegions[(size_t) i]->onFilesDropped = [this, i] (const juce::StringArray& files)
+        {
+            if (! files.isEmpty()) { setFocusedDeck (i); processorRef.loadDeckFileAsync (i, juce::File (files[0])); }
+        };
+        deckWaveRegions[(size_t) i]->onSeekNorm = [this, i] (float norm)
+        {
+            const double total = processorRef.getDeckTotalSeconds (i);
+            if (total > 0) processorRef.seekDeckSeconds (i, norm * total);
+        };
+        addChildComponent (*deckWaveRegions[(size_t) i]);   // shown only for loaded decks (resized())
+
+        deckStrips[(size_t) i] = std::make_unique<stemdeck::DeckStrip> (i);
+        configureDeckStrip (i);
+        addAndMakeVisible (*deckStrips[(size_t) i]);
 
         setupDeck (deckControls[(size_t) i], deckPrefix (i), u8 ("\xe2\x96\xb6 PLAY"));   // stopped default; timer swaps to STOP
         {
@@ -467,16 +544,19 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
     addAndMakeVisible (tapTempoButton);
 
-    // Universal transport: one button to play / stop every deck at once.
-    setupButton (masterPlayButton);
-    masterPlayButton.setButtonText (u8 ("\xe2\x96\xb6 PLAY ALL"));
-    masterPlayButton.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.22f));
+    // Universal transport: one button to play / stop every deck at once. Self-paints
+    // via ToolButton (pill + vector icon); `isActive` drives the STOP/playing state.
     masterPlayButton.setTooltip ("Play or stop every deck at once");
+    masterPlayButton.isActive = [this]
+    {
+        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+            if (processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f)
+                return true;
+        return false;
+    };
     masterPlayButton.onClick = [this]
     {
-        bool anyPlaying = false;
-        for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
-            anyPlaying = anyPlaying || processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+        const bool anyPlaying = masterPlayButton.isActive();
         const float target = anyPlaying ? 0.0f : 1.0f;   // any playing -> stop all, else start all
         for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
             if (auto* p = processorRef.parameters().getParameter (deckPrefix (i) + "Play"))
@@ -484,20 +564,13 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (masterPlayButton);
 
-    // Prominent top-bar REC: arm/stop capturing the performance (same as the
-    // arrangement-capture Rec). Turns solid red while recording.
-    setupButton (topRecordButton);
-    topRecordButton.setButtonText (u8 ("\xe2\x97\x8f REC"));
-    topRecordButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xffff5f6a).withAlpha (0.16f));
-    topRecordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffff3b47));
-    topRecordButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    // Prominent top-bar REC: arm/stop capturing the performance. Turns solid red
+    // while recording via `isActive`.
     topRecordButton.setTooltip ("Record your performance into the arrangement");
+    topRecordButton.isActive = [this] { return processorRef.isMasterRecording(); };
     topRecordButton.onClick = [this] { toggleRecording(); };
     addAndMakeVisible (topRecordButton);
 
-    setupButton (automixButton);
-    automixButton.setButtonText ("AUTO");
-    automixButton.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.14f));
     automixButton.setTooltip ("Auto-mix: phrase-aligned, tempo- and key-matched transition from the playing deck to the next loaded deck");
     automixButton.onClick = [this] { startAutomix(); };
     addAndMakeVisible (automixButton);
@@ -540,6 +613,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     crossfader.setDoubleClickReturnValue (true, 0.5);
     crossfader.updateText();
+    // The CROSSFADER panel header carries the tabular value; hide the slider's own
+    // textbox so the fader reads as one clean control (no duplicate 0.5 under it).
+    crossfader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     crossfader.setTooltip ("Crossfader: blends the A/C bus into the B/D bus. Double-click to centre.");
 
     // Response curve: Smooth (equal-power blend) · Linear · Sharp (fast crossover) ·
@@ -575,6 +651,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     micMonitor.setButtonText ("Mic monitor");
     setupButton (micMonitor);
     addAndMakeVisible (micMonitor);
+    liveMidiButton.setButtonText ("Live MIDI");
+    setupButton (liveMidiButton);
+    liveMidiButton.setTooltip ("Play a connected MIDI controller through the built-in instrument (into the mix)");
+    addAndMakeVisible (liveMidiButton);
     setupSlider (micGain, false, " dB");
     micGain.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
     setupButton (revealRecordingButton);
@@ -635,7 +715,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (arrZoomFitButton);
     setupButton (arrLoopButton);
     arrLoopButton.setClickingTogglesState (true);
-    arrLoopButton.setTooltip ("Loop the region (drag the ruler to set it)");
+    arrLoopButton.setTooltip ("Loop PLAYBACK of the arrangement region (drag the ruler to set it) — not a loop-record mode");
     arrLoopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     arrLoopButton.onClick = [this] { arrangementView.setLoopEnabled (arrLoopButton.getToggleState()); };
     addAndMakeVisible (arrLoopButton);
@@ -648,10 +728,56 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     pianoRollButton.onClick = [this]
     {
         const bool show = pianoRollButton.getToggleState();
-        if (show) { refreshMixArrangement(); fadeOverlay (mixArrangeView, true); mixArrangeView.toFront (true); }
-        else       fadeOverlay (mixArrangeView, false);
+        if (show) { refreshMixArrangement(); refreshEnergyArc();
+                    fadeOverlay (mixArrangeView, true); fadeOverlay (energyArc, true);
+                    mixArrangeView.toFront (true); energyArc.toFront (true); }
+        else      { fadeOverlay (mixArrangeView, false); fadeOverlay (energyArc, false); }
     };
     addAndMakeVisible (pianoRollButton);
+
+    // Sattari FX rack — occupies the crossfader's slot in the Master Control Band.
+    {
+        // Scope selector replaces the combo box (reference §5: the scope selector IS
+        // the point). Only chains the engine actually has are offered — master, the
+        // four decks and mic. Per-STEM scopes are in the reference but need stem-level
+        // plugin chains in HostGraph, which do not exist; offering them would be a
+        // control that does nothing.
+        refreshFxScopes();
+        fxRack.setScope (0);   // Master
+        fxRack.getPluginCount = [this] { return processorRef.getChainPluginCount (fxRack.currentChainIndex()); };
+        fxRack.getPluginName  = [this] (int i) { return processorRef.getChainPluginName (fxRack.currentChainIndex(), i); };
+        fxRack.onAdd          = [this] { addSattariFxToChain (fxRack.currentChainIndex()); };
+        fxRack.onEdit         = [this] (int i) { openChainPluginEditor (fxRack.currentChainIndex(), i); };
+        fxRack.onRemove       = [this] (int i)
+        {
+            // Close only THIS plugin's editor — removal destroys just that processor.
+            if (auto* p = processorRef.getChainPluginProcessor (fxRack.currentChainIndex(), i))
+                for (int w = pluginWindows.size(); --w >= 0;)
+                    if (pluginWindows[w]->ownedProcessor() == p)
+                        pluginWindows.remove (w);
+
+            processorRef.removeChainPlugin (fxRack.currentChainIndex(), i);
+            fxRack.repaint();
+        };
+        fxRack.isBypassed     = [this] (int i) { return processorRef.isChainPluginBypassed (fxRack.currentChainIndex(), i); };
+        fxRack.onToggleBypass = [this] (int i)
+        {
+            const int c = fxRack.currentChainIndex();
+            processorRef.setChainPluginBypassed (c, i, ! processorRef.isChainPluginBypassed (c, i));
+        };
+        fxRack.onReorder      = [this] (int from, int to)
+        {
+            processorRef.moveChainPlugin (fxRack.currentChainIndex(), from, to);
+            fxRack.repaint();
+        };
+        fxRack.onChainChanged = [this] { fxRack.repaint(); };
+        addAndMakeVisible (fxRack);
+    }
+
+    // ScenePilot energy-arc arranger sits atop the ARRANGER (Auto Director + editable
+    // section energy); the clip timeline is the "Auto Pro Arrangement" underneath.
+    addChildComponent (energyArc);
+    energyArc.onArcEdited = [this] { /* energy edits captured to the arc; applied on export */ };
 
     // Mix arrangement overlay — hidden until the ARRANGER nav is toggled. Waveforms
     // + structure come from the live deck buffers/analysis via these providers.
@@ -748,7 +874,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (aiMasterButton);
     aiMasterButton.setClickingTogglesState (true);
     aiMasterButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
-    aiMasterButton.setTooltip ("AI mastering: auto EQ balance + bus dynamics + loudness targeting");
+    // AI-honesty (UI prompt Part 4 / band 3.1): name the outcome, not the technology.
+    // The label reflects the target picked in the adjacent selector (updated in the timer).
+    aiMasterButton.setButtonText ("Master -14");
+    aiMasterButton.setTooltip ("Auto-master the mix to the selected loudness target (EQ balance + bus dynamics + limiting to the target LUFS)");
     addAndMakeVisible (aiMasterButton);
     aiMasterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         processorRef.parameters(), "smartMasterOn", aiMasterButton);
@@ -759,6 +888,19 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (aiMasterMode);
     aiMasterModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processorRef.parameters(), "smartMasterMode", aiMasterMode);
+
+    // AI-master depth (was hardwired at 0.8). Compact rotary — space in the master
+    // panel is tight, so no textbox; the % shows on drag + in the tooltip.
+    aiMasterAmount.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    aiMasterAmount.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    aiMasterAmount.setPopupDisplayEnabled (true, true, this);
+    aiMasterAmount.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + "%"; };
+    aiMasterAmount.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue() / 100.0; };
+    aiMasterAmount.setTooltip ("AI master depth: how strongly it pushes toward the target (0 = off, 100% = full).");
+    aiMasterAmount.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.7f));
+    addAndMakeVisible (aiMasterAmount);
+    aiMasterAmountAttachment = std::make_unique<SliderAttachment> (
+        processorRef.parameters(), "smartMasterAmount", aiMasterAmount);
 
     // ── Rekordbox XML interop: export library + cues / import cue points ────
     importedCues = RekordboxIO::loadCueStore();
@@ -950,6 +1092,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     hostSyncAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "hostSync", hostSync);
     beatSyncAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "beatSync", beatSync);
     micMonitorAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "micMonitor", micMonitor);
+    liveMidiAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "liveInstrument", liveMidiButton);
     micGainAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "micGain", micGain);
 
     for (int i = 0; i < PadBank::numPads; ++i)
@@ -1065,6 +1208,160 @@ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juc
     addAndMakeVisible (slider);
 }
 
+// Create/refresh a compact strip for every NON-TrackDeck channel and hide the rest.
+// Deck channels keep their full stem panel; inputs/instruments get a per-type strip.
+// Channel type picker (spec §6: "+" opens a type picker). Only the implemented
+// body types are offered; the rest are later build-order steps.
+void MainPluginEditor::showAddChannelMenu (juce::Component* target)
+{
+    juce::PopupMenu m;
+    m.addSectionHeader ("Add channel");
+    m.addItem (1, "Track Deck");
+    m.addItem (2, "Input (mic / line)");
+    m.addItem (3, "MIDI Instrument");
+
+    auto opts = juce::PopupMenu::Options();
+    if (target != nullptr) opts = opts.withTargetComponent (target);
+    else                   opts = opts.withTargetScreenArea (juce::Rectangle<int> (addChannelTileBounds).translated (getScreenX(), getScreenY()));
+
+    m.showMenuAsync (opts,
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            const auto type = r == 2 ? ChannelType::input
+                            : r == 3 ? ChannelType::midiInstrument
+                                     : ChannelType::trackDeck;
+            if (safe->processorRef.addChannel (type) >= 0)
+            {
+                safe->refreshChannelStrips();
+                safe->refreshChannelButtons();
+                safe->resized();
+                safe->repaint();
+            }
+        });
+}
+
+void MainPluginEditor::refreshChannelStrips()
+{
+    const int total = processorRef.getNumChannels();
+    for (int i = 0; i < (int) channelStrips.size(); ++i)
+    {
+        const bool wanted = i < total && processorRef.getChannelType (i) != ChannelType::trackDeck;
+        auto& strip = channelStrips[(size_t) i];
+
+        if (! wanted)
+        {
+            if (strip != nullptr) { strip->setVisible (false); strip->setBounds ({}); }
+            continue;
+        }
+
+        if (strip == nullptr)
+        {
+            strip = std::make_unique<stemdeck::ChannelStrip>();
+            addAndMakeVisible (*strip);
+            const int idx = i;
+            strip->onToggleMonitor = [this, idx]
+            {
+                if (auto* b = processorRef.getChannelBody (idx))
+                    if (auto* in = dynamic_cast<InputBody*> (b))
+                        in->setMonitorEnabled (! in->isMonitorEnabled());
+            };
+            strip->onGainChanged = [this, idx] (float gain)
+            {
+                if (auto* b = processorRef.getChannelBody (idx))
+                {
+                    if (auto* in = dynamic_cast<InputBody*> (b))               in->setInputGain (gain);
+                    else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b)) mi->setGain (gain);
+                }
+            };
+            strip->onEqChanged = [this, idx] (int band, float db)
+            {
+                auto* b = processorRef.getChannelBody (idx);
+                if (b == nullptr) return;
+                auto* in = dynamic_cast<InputBody*> (b);
+                auto* mi = dynamic_cast<MidiInstrumentBody*> (b);
+                if (band == 0)      { if (in) in->setLowDb (db);  else if (mi) mi->setLowDb (db); }
+                else if (band == 1) { if (in) in->setMidDb (db);  else if (mi) mi->setMidDb (db); }
+                else                { if (in) in->setHighDb (db); else if (mi) mi->setHighDb (db); }
+            };
+            strip->onFilterChanged = [this, idx] (float f)
+            {
+                if (auto* b = processorRef.getChannelBody (idx))
+                {
+                    if (auto* in = dynamic_cast<InputBody*> (b))               in->setFilter (f);
+                    else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b)) mi->setFilter (f);
+                }
+            };
+            // Mute/solo live on the Channel FRAME (not the body) so they mean the same
+            // thing for every channel type and solo can be resolved mix-wide.
+            strip->onToggleMute = [this, idx] { processorRef.toggleChannelMute (idx); };
+            strip->onToggleSolo = [this, idx] { processorRef.toggleChannelSolo (idx); };
+            strip->onCycleSource = [this, idx]
+            {
+                auto* b = processorRef.getChannelBody (idx);
+                if (b == nullptr) return;
+                if (auto* in = dynamic_cast<InputBody*> (b))
+                {
+                    // -1 (auto) -> 0 -> 1 -> back to auto: the usual mono-source picks.
+                    const int next = in->getSourceChannel() >= 1 ? -1 : in->getSourceChannel() + 1;
+                    in->setSourceChannel (next);
+                }
+                else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b))
+                    mi->setMidiChannel ((mi->getMidiChannel() + 1) % 17);   // 0 = omni, then 1..16
+            };
+        }
+
+        stemdeck::ChannelStrip::State st;
+        st.type    = processorRef.getChannelType (i);
+        st.name    = processorRef.getChannelName (i);
+        st.accent  = deckAccent (i % MainPluginProcessor::numDecks);
+        st.focused = (i == focusedDeck);
+        if (auto* b = processorRef.getChannelBody (i))
+        {
+            if (auto* in = dynamic_cast<InputBody*> (b))
+            {
+                st.gain = in->getInputGain();
+                st.level = juce::jlimit (0.0f, 1.0f, in->getInputPeak());
+                st.clipping = in->getInputPeak() > 0.99f;
+                st.monitor = in->isMonitorEnabled();
+                st.lowDb = in->getLowDb(); st.midDb = in->getMidDb(); st.highDb = in->getHighDb();
+                st.filter = in->getFilter();
+                st.sourceChannel = in->getSourceChannel();
+                // Receded until this input is actually carrying something: an explicit
+                // device channel was picked, or signal is arriving on the auto source.
+                st.hasContent = in->getSourceChannel() >= 0 || in->getInputPeak() > 0.002f;
+            }
+            else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b))
+            {
+                st.gain = mi->getGain();
+                st.active = mi->isActive();
+                st.level = mi->isActive() ? 0.6f : 0.0f;
+                st.midiChannel = mi->getMidiChannel();
+                st.lowDb = mi->getLowDb(); st.midDb = mi->getMidDb(); st.highDb = mi->getHighDb();
+                st.filter = mi->getFilter();
+                st.hasContent = mi->hasReceivedMidi();
+            }
+        }
+        st.muted  = processorRef.isChannelMuted (i);
+        st.soloed = processorRef.isChannelSoloed (i);
+        strip->setState (st);
+        strip->setVisible (true);
+    }
+}
+
+void MainPluginEditor::refreshChannelButtons()
+{
+    const int total = processorRef.getNumChannels();
+    const int decks = processorRef.getNumTrackDecks();
+    // The engine's parameter pool bounds adding; the editor only draws numDecks deck
+    // strips, so extra TrackDecks beyond that exist in the engine but have no strip.
+    addChannelButton.setEnabled (total < MainPluginProcessor::getMaxChannels());
+    removeChannelButton.setEnabled (total > 1);
+    addChannelButton.setButtonText ("+ CH");
+    removeChannelButton.setButtonText (juce::String (decks) + "D"
+                                       + (total > decks ? "+" + juce::String (total - decks) + "I" : juce::String()));
+}
+
 void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
 {
     using namespace sattari::brand;
@@ -1077,16 +1374,21 @@ void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
     comboBox.setColour (juce::PopupMenu::textColourId,         juce::Colour (kTextPrimary));
     comboBox.setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (kAccent).withAlpha (0.20f));
     comboBox.setColour (juce::PopupMenu::highlightedTextColourId,       juce::Colour (kTextPrimary));
-    addAndMakeVisible (comboBox);
+    // Style only — do NOT steal a combo that already belongs to a sub-panel. This
+    // used to unconditionally addAndMakeVisible(), which reparented e.g. the FX
+    // rack's chain selector onto the editor at (0,0), on top of the nav bar.
+    if (comboBox.getParentComponent() == nullptr)
+        addAndMakeVisible (comboBox);
 }
 
 void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& prefix, const juce::String& playText)
 {
-    controls.play.setButtonText (playText);
+    juce::ignoreUnused (playText);
     setupButton (controls.load);
     setupButton (controls.loadStem);
     setupButton (controls.aiStems);
     setupButton (controls.play);
+    controls.play.setLookAndFeel (&playIconLnF);   // triangle / pause icon, not a text toggle
     setupButton (controls.cue);
     setupComboBox (controls.stemLane);
     setupComboBox (controls.tempoInterpretation);
@@ -1179,22 +1481,16 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
 
     for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
     {
-        auto& slider = controls.stemGains[(size_t) lane];
-        setupSlider (slider, true, " dB");
-        slider.setRange (-60.0, 12.0);
-        // Stem-knob fill tracks the deck's brand accent so each deck reads as a colour.
-        slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        slider.setName (DeckPlayer::stemLaneLabel (lane));
-        slider.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain");
-        // djay-Pro cells: the four separated stems are vertical mini-faders;
-        // the full-mix trim stays a knob (relocated to the SRC tab).
-        if (lane != DeckPlayer::fullMixStem)
-            slider.setSliderStyle (juce::Slider::LinearVertical);
-        addAndMakeVisible (slider);
+        auto& knob = controls.stemGains[(size_t) lane];
+        // StemGainKnob's ctor sets rotary / range 0..200 / unity-at-top / dbl-click 100.
+        knob.setStemColour (stemLaneColour (lane));
+        knob.setName (DeckPlayer::stemLaneLabel (lane));
+        knob.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain (100 = unity, 200 = +6 dB)");
+        addAndMakeVisible (knob);
         controls.stemGainAttachments[(size_t) lane] = std::make_unique<SliderAttachment> (
             processorRef.parameters(),
             prefix + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain",
-            slider);
+            knob);
     }
 }
 
@@ -1341,9 +1637,31 @@ void MainPluginEditor::toggleRecording()
     {
         const auto file = processorRef.stopMasterRecording();
         const auto arrangement = processorRef.getLastArrangementFile();
-        const auto savedMsg = file.existsAsFile()
-                                  ? "Saved: " + file.getFileName() + " + arrangement " + arrangement.getFileName()
-                                  : juce::String ("Recording stopped");
+        auto savedMsg = file.existsAsFile()
+                            ? "Saved: " + file.getFileName() + " + arrangement " + arrangement.getFileName()
+                            : juce::String ("Recording stopped");
+
+        // ── Live MIDI you played during the take -> piano roll, ready to edit ──
+        // Captured in samples and converted to beats here, so the notes stay correct
+        // if the tempo changes later (capture intent, not a baked rendering).
+        {
+            const double bpm = (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load();
+            const auto captured = processorRef.getCapturedMidiNotes (bpm);
+            if (! captured.empty())
+            {
+                std::vector<PianoRollView::Note> notes;
+                notes.reserve (captured.size());
+                for (const auto& c : captured)
+                    notes.push_back ({ c.pitch, c.startBeats, c.lengthBeats, c.velocity });
+
+                pianoRoll.setBpm (bpm > 1.0 ? bpm : 120.0);
+                pianoRoll.setNotes (std::move (notes));
+                savedMsg += " - captured " + juce::String ((int) captured.size()) + " MIDI notes";
+                if (processorRef.didMidiCaptureOverflow())
+                    savedMsg += " (capture buffer full - some events dropped)";
+            }
+        }
+
         recordStatus.setText (savedMsg, juce::dontSendNotification);
         loadLastArrangementIntoView (savedMsg);
         return;
@@ -1521,6 +1839,18 @@ void MainPluginEditor::saveProject()
             if (f == juce::File()) return;
             f = f.withFileExtension ("stemdeck");
             juce::ValueTree root ("STEMDECK_PROJECT");
+            // Versioned so a future schema change can migrate instead of silently
+            // misreading. Files written before versioning have no property -> v1.
+            root.setProperty ("projectVersion", kProjectVersion, nullptr);
+
+            // FULL processor state: parameters, the <CHANNELS> list, deck/stem file
+            // assignments, hot cues and the MIDI map. Without this a saved project
+            // restored an empty mix — the arrangement came back but every deck,
+            // gain, EQ and channel was lost.
+            juce::MemoryBlock processorState;
+            processorRef.getStateInformation (processorState);
+            root.setProperty ("processorState", processorState.toBase64Encoding(), nullptr);
+
             root.appendChild (arrangementView.toState(), nullptr);
             root.appendChild (pianoRoll.toState(), nullptr);
             if (auto xml = root.createXml())
@@ -1543,9 +1873,34 @@ void MainPluginEditor::loadProject()
             if (auto xml = juce::XmlDocument::parse (f))
             {
                 const auto root = juce::ValueTree::fromXml (*xml);
+                const int fileVersion = (int) root.getProperty ("projectVersion", 1);
+                if (fileVersion > kProjectVersion)
+                {
+                    // Refuse rather than silently misread a newer schema.
+                    recordStatus.setText ("Project was saved by a newer StemDeck (v"
+                                          + juce::String (fileVersion) + ") - not loaded",
+                                          juce::dontSendNotification);
+                    return;
+                }
+
+                // Restore the mix first so the arrangement lands on the right decks.
+                // v1 projects have no processorState; they load arrangement-only, as before.
+                const auto encoded = root.getProperty ("processorState").toString();
+                if (encoded.isNotEmpty())
+                {
+                    juce::MemoryBlock processorState;
+                    if (processorState.fromBase64Encoding (encoded) && processorState.getSize() > 0)
+                        processorRef.setStateInformation (processorState.getData(), (int) processorState.getSize());
+                }
+
                 arrangementView.fromState (root.getChildWithName ("ARRANGEMENT"));
                 pianoRoll.fromState (root.getChildWithName ("PIANOROLL"));
-                recordStatus.setText ("Loaded project: " + f.getFileName(), juce::dontSendNotification);
+                refreshChannelButtons();
+                resized();
+                repaint();
+                recordStatus.setText ("Loaded project: " + f.getFileName()
+                                      + (encoded.isNotEmpty() ? "" : " (arrangement only - pre-v2 file)"),
+                                      juce::dontSendNotification);
             }
         });
 }
@@ -1858,7 +2213,9 @@ void MainPluginEditor::runPluginHostScan()
         if (safeThis == nullptr)
             return;
 
-        auto result = safeThis->processorRef.scanPluginHostDefaultLocations (48, true);
+        // Sattari-only. A full third-party scan crashes the host (Serato Sample calls
+        // main-thread-only Text Input Services from the scan thread → SIGTRAP).
+        auto result = safeThis->processorRef.scanSattariPlugins();
         juce::MessageManager::callAsync ([safeThis, result]() mutable
         {
             if (safeThis == nullptr)
@@ -1900,6 +2257,153 @@ void MainPluginEditor::loadSelectedHostPlugin()
         });
 }
 
+void MainPluginEditor::showSattariFxMenu()
+{
+    if (knownHostPlugins.isEmpty())
+    {
+        runPluginHostScan();
+        pluginHostMessage.setText ("Scanning plugins\xe2\x80\xa6 tap SATTARI FX again once done", juce::dontSendNotification);
+        return;
+    }
+
+    // Curate the Sattari suite from the scanned plugins (name or manufacturer).
+    struct Entry { int index; juce::String name; };
+    std::vector<Entry> suite;
+    for (int i = 0; i < knownHostPlugins.size(); ++i)
+    {
+        const auto& d = knownHostPlugins.getReference (i);
+        if (d.name.startsWithIgnoreCase ("Sattari") || d.manufacturerName.containsIgnoreCase ("Sattari")
+            || d.name.equalsIgnoreCase ("AutoPitch") || d.name.containsIgnoreCase ("Morph"))
+            suite.push_back ({ i, d.name });
+    }
+    if (suite.empty())
+    {
+        pluginHostMessage.setText ("No Sattari plugins found \xe2\x80\x94 check your VST3 folder", juce::dontSendNotification);
+        return;
+    }
+
+    const int chainIndex = juce::jmax (0, pluginChainSelector.getSelectedId() - 1);
+    const auto chainName = pluginChainSelector.getText().isNotEmpty() ? pluginChainSelector.getText()
+                                                                      : juce::String ("Deck A");
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Sattari FX  \xe2\x86\x92  " + chainName);
+    for (size_t k = 0; k < suite.size(); ++k)
+        menu.addItem ((int) k + 1, suite[k].name);
+    menu.addSeparator();
+    menu.addItem (9000, "Clear " + chainName + " FX");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sattariFxButton),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), suite, chainIndex, chainName] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            if (r == 9000)
+            {
+                safe->closeAllPluginWindows();   // clearing destroys the processors
+                safe->processorRef.clearHostPluginChain (chainIndex);
+                safe->pluginHostMessage.setText ("Cleared " + chainName + " FX", juce::dontSendNotification);
+                return;
+            }
+            const auto& e = suite[(size_t) (r - 1)];
+            safe->pluginHostMessage.setText ("Loading " + e.name + " \xe2\x86\x92 " + chainName, juce::dontSendNotification);
+            safe->processorRef.loadHostPluginToChainAsync (chainIndex, e.index,
+                [safe, name = e.name, chainName] (bool ok, juce::String msg)
+                {
+                    juce::MessageManager::callAsync ([safe, ok, name, chainName, msg]
+                    {
+                        if (safe == nullptr) return;
+                        safe->pluginHostMessage.setText (ok ? "Loaded " + name + " on " + chainName
+                                                            : "FX load failed: " + msg, juce::dontSendNotification);
+                    });
+                });
+        });
+}
+
+void MainPluginEditor::addSattariFxToChain (int chainIndex)
+{
+    struct Entry { int index; juce::String name; };
+    std::vector<Entry> suite;
+    for (int i = 0; i < knownHostPlugins.size(); ++i)
+    {
+        const auto& d = knownHostPlugins.getReference (i);
+        // Exclude StemDeck itself — hosting the host inside a chain would recurse/fail.
+        if (d.name.equalsIgnoreCase ("Sattari StemDeck") || d.name.equalsIgnoreCase ("StemDeck")) continue;
+        if (d.name.startsWithIgnoreCase ("Sattari") || d.manufacturerName.containsIgnoreCase ("Sattari")
+            || d.name.equalsIgnoreCase ("AutoPitch") || d.name.containsIgnoreCase ("Morph"))
+            suite.push_back ({ i, d.name });
+    }
+
+    // First use: scan, then auto-reopen the menu (no confusing "tap again").
+    if (suite.empty())
+    {
+        if (knownHostPlugins.isEmpty() && ! pluginScanInFlight)
+        {
+            pluginScanInFlight = true;
+            pluginHostMessage.setText ("Scanning your plugins\xe2\x80\xa6", juce::dontSendNotification);
+            juce::Thread::launch ([safe = juce::Component::SafePointer<MainPluginEditor> (this), chainIndex]
+            {
+                if (safe == nullptr) return;
+                auto res = safe->processorRef.scanSattariPlugins();   // Sattari-only: safe
+                juce::MessageManager::callAsync ([safe, chainIndex, n = res.plugins.size(),
+                                                  blocked = res.blacklistedFiles]
+                {
+                    if (safe == nullptr) return;
+                    safe->pluginScanInFlight = false;
+                    safe->refreshHostPluginChoices();
+                    juce::String msg = "Found " + juce::String (n) + " Sattari plugin(s)";
+                    if (! blocked.isEmpty()) msg += "  \xe2\x80\xa2  skipped (crashed before): " + blocked.joinIntoString (", ");
+                    safe->pluginHostMessage.setText (msg, juce::dontSendNotification);
+                    safe->fxRack.setStatus (msg);
+                    safe->addSattariFxToChain (chainIndex);   // reopen with results
+                });
+            });
+            return;
+        }
+        pluginHostMessage.setText ("No Sattari plugins found \xe2\x80\x94 check your VST3 folder", juce::dontSendNotification);
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Add Sattari FX");
+    for (size_t k = 0; k < suite.size(); ++k) menu.addItem ((int) k + 1, suite[k].name);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&fxRack)
+                            .withTargetScreenArea (fxRack.localAreaToGlobal (fxRack.addSlotBounds())),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), suite, chainIndex] (int r)
+        {
+            if (safe == nullptr || r == 0) return;
+            const auto& e = suite[(size_t) (r - 1)];
+            safe->fxRack.setStatus ("Loading " + e.name + "\xe2\x80\xa6");
+            safe->processorRef.loadHostPluginToChainAsync (chainIndex, e.index,
+                [safe, name = e.name] (bool ok, juce::String msg)
+                {
+                    juce::MessageManager::callAsync ([safe, ok, name, msg]
+                    {
+                        if (safe == nullptr) return;
+                        safe->pluginHostMessage.setText (ok ? "Loaded " + name : "FX load failed: " + msg, juce::dontSendNotification);
+                        safe->fxRack.setStatus (ok ? juce::String() : "Failed: " + msg);
+                        safe->fxRack.repaint();
+                    });
+                });
+        });
+}
+
+void MainPluginEditor::openChainPluginEditor (int chainIndex, int pluginIndex)
+{
+    auto* proc = processorRef.getChainPluginProcessor (chainIndex, pluginIndex);
+    if (proc == nullptr) { pluginHostMessage.setText ("Plugin has no editor", juce::dontSendNotification); return; }
+
+    // Already open? Bring it forward rather than co-owning the same editor object.
+    for (auto* w : pluginWindows)
+        if (w->ownedProcessor() == proc) { w->toFront (true); return; }
+
+    auto* win = new stemdeck::PluginEditorWindow (*proc, proc->getName(),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (stemdeck::PluginEditorWindow* w)
+        {
+            juce::MessageManager::callAsync ([safe, w] { if (safe) safe->pluginWindows.removeObject (w); });
+        });
+    pluginWindows.add (win);
+}
+
 MainPluginEditor::~MainPluginEditor()
 {
     stopTimer();
@@ -1913,6 +2417,7 @@ MainPluginEditor::~MainPluginEditor()
     if (fileBrowser != nullptr)
         fileBrowser->removeListener (this);
     browserThread.stopThread (1500);
+    for (auto& dc : deckControls) dc.play.setLookAndFeel (nullptr);   // drop icon LnF before it dies
     setLookAndFeel (nullptr);
 }
 
@@ -2100,7 +2605,75 @@ void MainPluginEditor::mouseDoubleClick (const juce::MouseEvent& e)
         advancedToggle.setToggleState (advancedVisible, juce::dontSendNotification);
         resized();
         repaint();
+        return;
     }
+
+    // Double-clicking a deck's BPM chip opens the unified tempo panel (§5).
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (deckBpmChipBounds[(size_t) i].contains (e.getPosition()))
+        {
+            showTempoPanel (i);
+            return;
+        }
+}
+
+void MainPluginEditor::applyPerStemKeyLock (int deckIndex, int semitones)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)) return;
+    const float st = (float) juce::jlimit (-12, 12, semitones);
+    // Tonal stems get the shift; drums stay at 0 (no pitch). Also clear the whole-deck
+    // KeyTarget so the two key-lock modes don't stack.
+    auto setStemPitch = [&] (int lane, float semis)
+    {
+        if (auto* p = processorRef.parameters().getParameter (deckPrefix (deckIndex) + "Stem" + DeckPlayer::stemLaneId (lane) + "Pitch"))
+            p->setValueNotifyingHost (p->convertTo0to1 (semis));
+    };
+    setStemPitch (DeckPlayer::drumsStem,  0.0f);   // drums untouched
+    setStemPitch (DeckPlayer::bassStem,   st);
+    setStemPitch (DeckPlayer::musicStem,  st);
+    setStemPitch (DeckPlayer::vocalsStem, st);
+    if (auto* kt = processorRef.parameters().getParameter (deckPrefix (deckIndex) + "KeyTarget"))
+        kt->setValueNotifyingHost (kt->convertTo0to1 (0.0f));   // whole-track lock off
+}
+
+void MainPluginEditor::showTempoPanel (int deckIndex)
+{
+    const int deck = juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks) ? deckIndex : focusedDeck;
+    const auto ana = processorRef.getDeckActiveAnalysis (deck);
+    const double detected = ana.detectedBpm > 0.0f ? (double) ana.detectedBpm
+                                                    : (double) deckControls[(size_t) deck].bpm.getValue();
+
+    stemdeck::TempoPanelModel m;
+    m.trackBpm  = detected;
+    m.nativeBpm = detected;
+    m.liveBpm   = (double) deckControls[(size_t) deck].bpm.getValue();   // current playing tempo
+    m.source    = "detected";
+    m.confidence = -1.0f;                       // unknown — the analysis emits no BPM confidence
+    m.dynamic   = ana.tempoCurve.size() > 2;    // has a real drift curve => dynamic material
+
+    // Detected drift curve -> normalised (beat 0..1, bpm).
+    const double totalSamp = ana.durationSeconds * ana.sampleRate;
+    if (totalSamp > 0.0)
+        for (const auto& pt : ana.tempoCurve)
+            m.map.push_back ({ (float) juce::jlimit (0.0, 1.0, pt.first / totalSamp), (double) pt.second });
+
+    // Retroactive lane is the editor-held MASTER lane (normalised); empty until drawn.
+    m.lane = masterTempoLaneNorm;
+    const double total = processorRef.getDeckTotalSeconds (deck);
+    m.playheadNorm = total > 0.0 ? (float) (processorRef.getDeckPlayheadSeconds (deck) / total) : 0.0f;
+
+    auto panel = std::make_unique<stemdeck::TempoPanel>();
+    panel->setSize (720, 240);
+    panel->setModel (m);
+    panel->onLaneChanged = [safe = juce::Component::SafePointer<MainPluginEditor> (this)]
+                           (std::vector<std::pair<float, double>> lane)
+    {
+        if (safe != nullptr) { safe->masterTempoLaneNorm = std::move (lane); safe->refreshMixArrangement(); }
+    };
+
+    auto anchor = ! deckBpmChipBounds[(size_t) deck].isEmpty() ? deckBpmChipBounds[(size_t) deck]
+                                                               : getLocalBounds().withSizeKeepingCentre (720, 240);
+    juce::CallOutBox::launchAsynchronously (std::move (panel), anchor, this);
 }
 
 void MainPluginEditor::setDeckBpm (int deckIndex, double bpm)
@@ -2296,6 +2869,20 @@ void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
         bpmDragStartVal    = masterBpm.getValue();
         return;
     }
+
+    if (! addChannelTileBounds.isEmpty() && addChannelTileBounds.contains (e.getPosition()))
+    {
+        showAddChannelMenu (nullptr);
+        return;
+    }
+
+    // Focus follows the user's hands: clicking a deck panel focuses that deck.
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (deckPanelBounds[(size_t) i].contains (e.getPosition()))
+        {
+            setFocusedDeck (i);
+            return;
+        }
 }
 
 void MainPluginEditor::mouseDrag (const juce::MouseEvent& e)
@@ -2451,12 +3038,44 @@ void MainPluginEditor::paint (juce::Graphics& g)
         g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
         g.setColour (juce::Colour (sdp::kTextMuted));
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-        g.drawText ("HOST TEMPO", juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 2.0f, r.getWidth() - 16.0f, 10.0f),
+        // "HOST TEMPO" is only honest inside a DAW. Standalone has no host and this
+        // chip just mirrors the GLOBAL TEMPO clock, so label it plainly there.
+        const bool inHost = processorRef.wrapperType != juce::AudioProcessor::wrapperType_Standalone
+                         && processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
+        g.drawText (inHost ? "HOST TEMPO" : "TEMPO",
+                    juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 2.0f, r.getWidth() - 16.0f, 10.0f),
                     juce::Justification::centredLeft);
     }
 
     g.setColour (juce::Colour (stemdeck::palette::kHairline).withAlpha (0.5f));
     g.drawHorizontalLine (title.getBounds().getBottom() + 9, 22.0f, (float) getWidth() - 22.0f);
+
+    // --- "+" add-channel tile: the channel model, visible in the layout ---
+    if (! addChannelTileBounds.isEmpty())
+    {
+        namespace sdp = stemdeck::palette;
+        auto r = addChannelTileBounds.toFloat().reduced (2.0f);
+
+        // Dashed outline reads as "empty slot you can fill", distinct from a real panel.
+        juce::Path outline;
+        outline.addRoundedRectangle (r, 10.0f);
+        const float dashes[] { 5.0f, 4.0f };
+        juce::Path dashed;
+        juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.9f));
+        g.fillPath (dashed);
+
+        const auto c = r.getCentre();
+        g.setColour (juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
+        const float armLen = 9.0f, thick = 2.0f;
+        g.fillRoundedRectangle (c.x - armLen, c.y - thick * 0.5f, armLen * 2.0f, thick, 1.0f);
+        g.fillRoundedRectangle (c.x - thick * 0.5f, c.y - armLen, thick, armLen * 2.0f, 1.0f);
+
+        g.setColour (juce::Colour (sdp::kTextMuted));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold).withKerningFactor (0.06f));
+        g.drawText ("CHANNEL", addChannelTileBounds.withTop (addChannelTileBounds.getCentreY() + 16).withHeight (12),
+                    juce::Justification::centred);
+    }
 
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
@@ -2465,9 +3084,30 @@ void MainPluginEditor::paint (juce::Graphics& g)
         if (deckBounds.isEmpty())
             continue;
         const bool deckPlaying = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
-        drawPanel (g, deckBounds, deckAccent (i), 10.0f, deckPlaying);
-        g.setColour (deckAccent (i).withAlpha (0.85f));
-        g.fillRoundedRectangle (deckBounds.removeFromTop (3).toFloat(), 1.5f);
+        // Reference §3: radius-panel (9), and identity carried by a 3px LEFT rail
+        // rather than a top stripe — the same rail an idle channel uses (§4), so a
+        // deck and a channel read as the same kind of object.
+        drawPanel (g, deckBounds, deckAccent (i), stemdeck::tokens::radiusPanel, deckPlaying);
+        {
+            juce::Graphics::ScopedSaveState railClip (g);
+            juce::Path rounded;
+            rounded.addRoundedRectangle (deckBounds.toFloat(), stemdeck::tokens::radiusPanel);
+            g.reduceClipRegion (rounded);
+            g.setColour (deckAccent (i).withAlpha (deckPlaying ? 0.95f : 0.75f));
+            g.fillRect (deckBounds.removeFromLeft (3));
+        }
+
+        // Segmented-control track + the well its active panel sits in.
+        if (const auto strip = deckTabStripBounds[(size_t) i]; ! strip.isEmpty())
+        {
+            g.setColour (stemdeck::tokens::c (stemdeck::tokens::bgWell2));
+            g.fillRoundedRectangle (strip.toFloat(), 8.0f);
+        }
+        if (const auto well = deckTabPanelBounds[(size_t) i]; ! well.isEmpty())
+        {
+            g.setColour (stemdeck::tokens::c (stemdeck::tokens::bgWell));
+            g.fillRoundedRectangle (well.toFloat(), stemdeck::tokens::radiusWell);
+        }
 
         // --- Deck header strip: letter badge + filename + key chip ---
         auto headerBar = deckHeaderBounds[(size_t) i];
@@ -2521,6 +3161,26 @@ void MainPluginEditor::paint (juce::Graphics& g)
             drawChip (bpmChip, bpmText + " BPM");
             headerBar.removeFromRight (6);
 
+            // Separation-source chip (NEURAL / DSP) lives in the header, not over the
+            // VOCALS cell — see 1.1. Honest label of which engine produced the stems.
+            {
+                const bool neural = processorRef.deckHasNeuralStems (i);
+                const bool dsp    = processorRef.isDeckRtssActive (i);
+                if (neural || dsp)
+                {
+                    auto srcChip = headerBar.removeFromRight (46);
+                    const auto srcCol = neural ? juce::Colour (0xff62f5c8) : deckAccent (i);
+                    g.setColour (srcCol.withAlpha (0.14f));
+                    g.fillRoundedRectangle (srcChip.toFloat(), 3.0f);
+                    g.setColour (srcCol.withAlpha (0.8f));
+                    g.drawRoundedRectangle (srcChip.toFloat(), 3.0f, 1.0f);
+                    g.setColour (srcCol.withAlpha (0.95f));
+                    g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                    g.drawText (neural ? "NEURAL" : "DSP", srcChip, juce::Justification::centred);
+                    headerBar.removeFromRight (6);
+                }
+            }
+
             // Filename in the middle slot. A/B/C carry fixed showcase titles to
             // match the mockup; D shows the real file or an empty placeholder.
             static const char* kDemoTitle[4] = {
@@ -2569,22 +3229,8 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 }
             }
 
-            // Honest separation badge: NEURAL (demucs cache) vs DSP (real-time
-            // heuristic), on the VOCALS cell corner.
-            {
-                const bool neural = processorRef.deckHasNeuralStems (i);
-                const bool dsp    = processorRef.isDeckRtssActive (i);
-                if (neural || dsp)
-                {
-                    const auto badgeCol = neural ? juce::Colour (0xff62f5c8) : deckAccent (i);
-                    g.setColour (badgeCol.withAlpha (0.9f));
-                    g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-                    g.drawText (neural ? "NEURAL" : "DSP",
-                                juce::Rectangle<int> (stemBox.getX() + cellW * 4 - 40,
-                                                      stemBox.getY() + 3, 36, 9),
-                                juce::Justification::centredRight);
-                }
-            }
+            // (NEURAL / DSP separation-source badge now lives in the deck header —
+            // see 1.1 — so it no longer collides with the VOCALS cell label.)
         }
     }
 
@@ -2603,7 +3249,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         g.setColour (deckAccent (i).withAlpha (0.92f));
         drawAbove ("VOL",   controls.volume);
         drawAbove ("XF",    controls.fader);
-        drawAbove ("PITCH", controls.pitch);
+        drawAbove ("PIT",   controls.pitch);   // "PITCH" clipped in the 32px fader column — never ellipsize a permanent label
         drawAbove ("LOW",   controls.low);
         drawAbove ("MID",   controls.mid);
         drawAbove ("HIGH",  controls.high);
@@ -2691,6 +3337,74 @@ void MainPluginEditor::paint (juce::Graphics& g)
                     r.withTop (r.getBottom() - 11.0f), juce::Justification::centred);
     }
 
+    // Focused deck marker: a 1px accent edge along the top of its column. Focus is
+    // shown by emphasis, not by resizing, so the four decks stay lined up.
+    if (! deckPanelBounds[(size_t) focusedDeck].isEmpty())
+    {
+        const auto fb = deckPanelBounds[(size_t) focusedDeck].toFloat();
+        g.setColour (deckAccent (focusedDeck).withAlpha (0.9f));
+        g.fillRoundedRectangle (fb.getX() + 2.0f, fb.getY(), fb.getWidth() - 4.0f, 2.0f, 1.0f);
+    }
+
+    // ── Collapsed deck strips (unused in the horizontal layout; kept for the
+    // optional two-deck transition view) ───────────────────────────────────────
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        const auto sb = deckCollapsedBounds[(size_t) i];
+        if (sb.isEmpty()) continue;
+        const bool loaded = deckHasContent (i);
+        const auto accent = deckAccent (i);
+        const float dim = loaded ? 1.0f : 0.4f;
+        const auto r = sb.toFloat();
+
+        g.setColour (juce::Colour (0xff131316));
+        g.fillRoundedRectangle (r, 6.0f);
+        g.setColour (juce::Colour (0xff2A2A30));
+        g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
+
+        // 2px deck accent bar + letter.
+        g.setColour (accent.withAlpha (dim));
+        g.fillRoundedRectangle (r.getX() + 5.0f, r.getY() + 6.0f, 2.0f, r.getHeight() - 12.0f, 1.0f);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (juce::String::charToString ((juce::juce_wchar) ('A' + i)),
+                    juce::Rectangle<int> (sb.getX() + 10, sb.getY(), 14, sb.getHeight()),
+                    juce::Justification::centredLeft);
+
+        // BPM + key on the right (tabular-ish readouts).
+        auto right = sb.reduced (10, 0).removeFromRight (112);
+        g.setColour (juce::Colour (0xffB8B8BE).withAlpha (dim));
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (loaded ? juce::String ((float) deckControls[(size_t) i].bpm.getValue(), 1) : juce::String ("--"),
+                    right.removeFromLeft (54), juce::Justification::centredRight);
+        right.removeFromLeft (6);
+        const auto keyTxt = processorRef.getDeckKeyInfo (i).upToFirstOccurrenceOf (" ", false, false);
+        g.setColour (accent.withAlpha (dim));
+        g.drawText ((loaded && keyTxt.isNotEmpty() && keyTxt != "Key:") ? keyTxt : juce::String ("--"),
+                    right, juce::Justification::centredRight);
+    }
+
+    // ── Master Control Band: bounded-panel frames + headers ─────────────────────
+    {
+        auto panelFrame = [&g] (juce::Rectangle<int> b, const juce::String& header)
+        {
+            if (b.isEmpty()) return;
+            const auto r = b.toFloat();
+            g.setColour (juce::Colour (0xff131316));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (juce::Colour (0xff2A2A30));
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+            if (header.isNotEmpty())
+            {
+                g.setColour (juce::Colour (0xff8A8A93));
+                g.setFont (juce::FontOptions (8.0f, juce::Font::bold).withKerningFactor (0.08f));
+                g.drawText (header, b.reduced (8, 5).withHeight (10), juce::Justification::centredLeft);
+            }
+        };
+        // SCOPE + MASTER FX + MASTER OUT self-draw their own panel look; the SATTARI
+        // FX rack self-draws its own frame in the crossfader's old slot. Frame SYNC.
+        panelFrame (syncPanelBounds, "SYNC");
+    }
+
     // --- MASTER OUTPUT panel: title, stereo segment meters + dB scale ---
     if (! masterOutBounds.isEmpty())
     {
@@ -2722,7 +3436,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             const float bpm = (float) processorRef.parameters().getRawParameterValue ("masterBpm")->load();
             auto valRow = tb.withTrimmedTop (13.0f);
             g.setColour (juce::Colour (sdp::kTextPrimary));
-            g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));   // set-and-forget → smaller than the crossfader value
             g.drawText (juce::String (bpm, 1), valRow.translated (6.0f, -2.0f), juce::Justification::centred);
             g.setColour (juce::Colour (0xff37d98a));
             g.fillRoundedRectangle (valRow.getRight() - 15.0f, valRow.getCentreY() - 6.0f, 8.0f, 8.0f, 1.5f);
@@ -2757,15 +3471,61 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 }
             }
 
-            // dB scale ticks (matches the mockup's 0 / -6 / -16 / -20 readout).
+            // dB scale ticks — standard progression 0 / -6 / -12 / -18 / -24.
             g.setColour (juce::Colour (sdp::kTextMuted));
             g.setFont (juce::FontOptions (8.5f));
-            for (const float tickDb : { 0.0f, -6.0f, -16.0f, -20.0f })
+            for (const float tickDb : { 0.0f, -6.0f, -12.0f, -18.0f, -24.0f })
             {
                 const float tn = juce::jmap (tickDb, -40.0f, 0.0f, 0.0f, 1.0f);
                 const int y = meterArea.getBottom() - (int) (tn * (float) meterArea.getHeight()) - 4;
                 g.drawText (juce::String ((int) tickDb), scaleCol.getX(), y, scaleCol.getWidth(), 8,
                             juce::Justification::centredLeft);
+            }
+        }
+
+        // Live integrated LUFS (primary) + safety-limiter gain reduction. Always on —
+        // the running loudness number matters while mixing, not only at export.
+        if (! masterLufsBounds.isEmpty())
+        {
+            auto lb = masterLufsBounds.toFloat();
+            const double ilufs = processorRef.getLiveIntegratedLufs();
+            const double mlufs = processorRef.getLiveMomentaryLufs();
+            const float  grDb  = processorRef.getLimiterGrDb();
+            const float  ceil  = processorRef.parameters().getRawParameterValue ("limiterCeiling")->load();
+
+            // Integrated LUFS — primary readout.
+            auto top = lb.removeFromTop (17.0f);
+            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            g.drawText ("LUFS-I", top.removeFromLeft (40.0f), juce::Justification::centredLeft);
+            const bool haveI = ilufs > -70.0;
+            g.setColour (juce::Colour (sdp::kTextPrimary));
+            g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            g.drawText (haveI ? juce::String (ilufs, 1) : juce::String (u8 ("\xe2\x80\x93\xe2\x80\x93")),
+                        top, juce::Justification::centredRight);
+
+            // Second row: momentary (small) + limiter GR bar with ceiling.
+            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+            g.drawText (juce::String ("M ") + (mlufs > -70.0 ? juce::String (mlufs, 1) : juce::String ("--")),
+                        lb.removeFromLeft (46.0f), juce::Justification::centredLeft);
+
+            auto grA = lb;
+            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setFont (juce::FontOptions (7.5f));
+            g.drawText ("GR", grA.removeFromLeft (14.0f), juce::Justification::centredLeft);
+            // ceiling caption at the right.
+            auto capA = grA.removeFromRight (46.0f);
+            g.drawText (juce::String ("ceil ") + juce::String (ceil, 1), capA, juce::Justification::centredRight);
+            // amber GR bar (0..6 dB) so heavy limiting is visible peripherally.
+            auto track = grA.reduced (2.0f, 0.0f).withSizeKeepingCentre (grA.getWidth() - 4.0f, 4.0f);
+            g.setColour (juce::Colour (sdp::kHairline));
+            g.fillRoundedRectangle (track, 1.5f);
+            const float grNorm = juce::jlimit (0.0f, 1.0f, grDb / 6.0f);
+            if (grNorm > 0.001f)
+            {
+                g.setColour (juce::Colour (0xffFFB84A));
+                g.fillRoundedRectangle (track.withWidth (track.getWidth() * grNorm), 1.5f);
             }
         }
 
@@ -2805,6 +3565,447 @@ void MainPluginEditor::paint (juce::Graphics& g)
             }
         }
     }
+
+    // ── 1.3 Quiet empty decks: knock the painted chrome of unloaded decks back to
+    // ~40% with a scrim (their child controls are dimmed via setAlpha in the timer).
+    // The waveform stays bright — it's the "drop a track here" call to action.
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        if (deckHasContent (i) || deckPanelBounds[(size_t) i].isEmpty()) continue;
+        auto panel = deckPanelBounds[(size_t) i];
+        if (auto* w = deckWaves[(size_t) i].get())   // don't scrim over the load CTA
+        {
+            g.setColour (juce::Colour (stemdeck::palette::kBackground).withAlpha (0.55f));
+            auto top = panel.withBottom (w->getBounds().getY());
+            auto bot = panel.withTop (w->getBounds().getBottom());
+            g.fillRect (top); g.fillRect (bot);
+        }
+        else
+        {
+            g.setColour (juce::Colour (stemdeck::palette::kBackground).withAlpha (0.55f));
+            g.fillRect (panel);
+        }
+    }
+}
+
+bool MainPluginEditor::deckHasContent (int i) const
+{
+    if (! juce::isPositiveAndBelow (i, MainPluginProcessor::numDecks)) return false;
+    if (processorRef.getDeckPath (i).isNotEmpty()) return true;
+    static const char* kDemo[4] = { "x", "x", "x", "" };   // A/B/C have showcase titles, D does not
+    return showcaseMode && i < 4 && kDemo[i][0] != '\0';
+}
+
+// ── Focus model ───────────────────────────────────────────────────────────────
+// Show/hide a deck's full control surface. Collapsed decks keep only play + cue +
+// a thin overview waveform; everything else is hidden so the focused deck can have
+// the height. Hidden controls keep their attachments, so state survives focus flips.
+void MainPluginEditor::setDeckDetailVisible (int i, bool vis)
+{
+    auto& dc = deckControls[(size_t) i];
+    auto hide = [vis] (juce::Component& c) { c.setVisible (vis); if (! vis) c.setBounds ({}); };
+
+    for (juce::Component* c : { (juce::Component*) &dc.load,      (juce::Component*) &dc.stemLane,
+                                (juce::Component*) &dc.loadStem,  (juce::Component*) &dc.aiStems,
+                                (juce::Component*) &dc.extractMidi, (juce::Component*) &dc.extractDrums,
+                                (juce::Component*) &dc.tempoInterpretation, (juce::Component*) &dc.syncMode,
+                                (juce::Component*) &dc.keyTarget, (juce::Component*) &dc.keyLock,
+                                (juce::Component*) &dc.liveKey,   (juce::Component*) &dc.keyInfo,
+                                (juce::Component*) &dc.stemStatus,
+                                (juce::Component*) &dc.bpm,       (juce::Component*) &dc.beatOffset,
+                                (juce::Component*) &dc.downbeat,  (juce::Component*) &dc.volume,
+                                (juce::Component*) &dc.fader,     (juce::Component*) &dc.pitch,
+                                (juce::Component*) &dc.low,       (juce::Component*) &dc.mid,
+                                (juce::Component*) &dc.high,      (juce::Component*) &dc.filter,
+                                (juce::Component*) &dc.loopIn,    (juce::Component*) &dc.loopOut,
+                                (juce::Component*) &dc.loopToggle,(juce::Component*) &dc.loopHalf,
+                                (juce::Component*) &dc.loopDouble,(juce::Component*) &dc.introEndBtn,
+                                (juce::Component*) &dc.outroStartBtn, (juce::Component*) &dc.slipButton,
+                                (juce::Component*) &dc.reverbMix, (juce::Component*) &dc.echoMix,
+                                (juce::Component*) &dc.macroKnob })
+        hide (*c);
+
+    for (auto& s : dc.stemGains)     hide (s);
+    for (auto& b : dc.hotCues)       hide (b);
+    for (auto& b : dc.beatRollBtns)  hide (b);
+    for (auto& b : dc.beatJumpBack)  hide (b);
+    for (auto& b : dc.beatJumpFwd)   hide (b);
+    for (auto& b : dc.cfSideBtns)    hide (b);
+    for (auto& b : dc.toolTabs)      hide (b);
+    for (auto& s : dc.stemFilt)      hide (s);
+    for (auto& s : dc.stemSend)      hide (s);
+    for (auto& s : dc.stemPitch)     hide (s);
+}
+
+// A collapsed deck: accent bar + letter (painted), play, thin overview waveform with
+// playhead, then BPM/key (painted) and cue. Enough to monitor a deck you're about to
+// bring in — nothing more.
+void MainPluginEditor::layoutCollapsedDeck (int i, juce::Rectangle<int> strip)
+{
+    deckCollapsedBounds[(size_t) i] = strip;
+    deckHeaderBounds[(size_t) i] = {};   // full-deck chrome doesn't paint when collapsed
+    deckStemBounds[(size_t) i]   = {};
+    setDeckDetailVisible (i, false);
+
+    auto& dc = deckControls[(size_t) i];
+    auto r = strip.reduced (8, 6);
+    r.removeFromLeft (22);                       // painted accent bar + deck letter
+
+    dc.play.setVisible (true);
+    dc.play.setBounds (r.removeFromLeft (30).withSizeKeepingCentre (30, 22));
+    r.removeFromLeft (4);
+    dc.cue.setVisible (true);
+    dc.cue.setBounds (r.removeFromLeft (42).withSizeKeepingCentre (42, 22));
+    r.removeFromLeft (8);
+
+    r.removeFromRight (120);                     // painted BPM + key readouts
+    if (auto* w = deckWaves[(size_t) i].get())
+    {
+        w->setVisible (true);
+        w->setBounds (r);                        // thin overview waveform
+    }
+}
+
+// Downsample a buffer to `bins` absolute-peak values (0..1). Runs on a worker thread.
+std::vector<float> MainPluginEditor::extractPeaks (const juce::AudioBuffer<float>& buf, int bins)
+{
+    std::vector<float> out ((size_t) juce::jmax (1, bins), 0.0f);
+    const int n = buf.getNumSamples(), ch = buf.getNumChannels();
+    if (n <= 0 || ch <= 0) return out;
+    for (int b = 0; b < bins; ++b)
+    {
+        const int s0 = (int) ((juce::int64) b * n / bins);
+        const int s1 = juce::jmax (s0 + 1, (int) ((juce::int64) (b + 1) * n / bins));
+        float peak = 0.0f;
+        for (int c = 0; c < ch; ++c)
+        {
+            const float* d = buf.getReadPointer (c);
+            for (int i = s0; i < s1 && i < n; ++i) peak = juce::jmax (peak, std::abs (d[i]));
+        }
+        out[(size_t) b] = juce::jmin (1.0f, peak);
+    }
+    return out;
+}
+
+// Extract overview + per-stem peaks for a deck on a worker thread (no blocking work
+// on the UI thread, §8), then push them to the region on the message thread. Stem
+// columns fall back to the full mix when that lane has no separated audio.
+void MainPluginEditor::refreshDeckWaveData (int i)
+{
+    auto full = processorRef.getDeckLoadedAudio (i);
+    if (full == nullptr || deckWaveRegions[(size_t) i] == nullptr) return;
+
+    // lane order drums/bass/music/vocals (1..4); column order VOX/DRM/BAS/OTH.
+    std::array<std::shared_ptr<const DeckPlayer::LoadedAudio>, 4> st;
+    for (int l = 0; l < 4; ++l) st[(size_t) l] = processorRef.getDeckStemLoadedAudio (i, l + 1);
+
+    const double total = full->audio.getNumSamples() > 0 && full->sourceSampleRate > 0
+                       ? full->audio.getNumSamples() / full->sourceSampleRate : 0.0;
+    const double bpm = (double) processorRef.getDeckActiveAnalysis (i).detectedBpm;
+
+    const double sr = full->sourceSampleRate;
+    auto safe = juce::Component::SafePointer<MainPluginEditor> (this);
+    juce::Thread::launch ([safe, i, full, st, total, bpm, sr]
+    {
+        auto overview = extractPeaks (full->audio, 2048);
+        std::array<std::vector<float>, 4> stemPk;
+        for (int l = 0; l < 4; ++l)
+            if (st[(size_t) l] && st[(size_t) l]->audio.getNumSamples() > 0)
+                stemPk[(size_t) l] = extractPeaks (st[(size_t) l]->audio, 2048);
+
+        // Structure (intro/build/drop/breakdown/outro) from per-bar energy.
+        std::vector<stemdeck::WaveformRegion::StructureRegion> regions;
+        if (bpm > 1.0)
+        {
+            const auto sections = stemdeck::segmentStructure (full->audio, sr, bpm);
+            double lastEnd = 0.0;
+            for (const auto& s : sections) lastEnd = juce::jmax (lastEnd, s.endBeat);
+            if (lastEnd > 0.0)
+                for (const auto& s : sections)
+                    regions.push_back ({ (float) (s.startBeat / lastEnd), (float) (s.endBeat / lastEnd),
+                                         s.label.toLowerCase(), waveStructureColour (s.label) });
+        }
+
+        // Key-over-time (§6.2 Phase 0): chroma key per window -> camelot-labelled bands
+        // so modulations are visible on the overview. Absolute key accuracy is the
+        // user's audio check; the pipeline (windowing/smoothing) is unit-tested.
+        std::vector<stemdeck::WaveformRegion::KeyBand> keyBands;
+        {
+            const auto curve = stemdeck::analyzeKeyCurve (full->audio, sr, 12);
+            for (const auto& seg : stemdeck::segmentKeyCurve (curve, 1.0))
+            {
+                const int num = stemdeck::camelotNumberFor (seg.pitchClass, seg.minor);
+                keyBands.push_back ({ (float) seg.startBeat, (float) seg.endBeat,
+                                      juce::String (num) + (seg.minor ? "A" : "B"),
+                                      juce::Colour::fromHSV ((num - 1) / 12.0f, 0.45f, seg.minor ? 0.7f : 0.9f, 1.0f) });
+            }
+        }
+
+        juce::MessageManager::callAsync ([safe, i, overview = std::move (overview),
+                                          stemPk = std::move (stemPk), regions = std::move (regions),
+                                          keyBands = std::move (keyBands), total, bpm]() mutable
+        {
+            if (safe == nullptr) return;
+            auto* r = safe->deckWaveRegions[(size_t) i].get();
+            if (r == nullptr) return;
+            r->setTotalSeconds (total);
+            if (bpm > 0) r->setBpm (bpm);
+            r->setOverviewPeaks (overview);
+            r->setStructure (regions);
+            r->setKeyBands (keyBands);
+            // Map columns VOX/DRM/BAS/OTH -> lanes vocals/drums/bass/music (st idx 3/0/1/2).
+            const int colToSt[4] = { 3, 0, 1, 2 };
+            for (int col = 0; col < 4; ++col)
+            {
+                auto& pk = stemPk[(size_t) colToSt[col]];
+                r->setStemPeaks (col, pk.empty() ? overview : pk);
+            }
+        });
+    });
+}
+
+void MainPluginEditor::setFocusedDeck (int i)
+{
+    i = juce::jlimit (0, MainPluginProcessor::numDecks - 1, i);
+    if (i == focusedDeck) return;
+    focusedDeck = i;
+    resized();
+    repaint();
+}
+
+// Dim an empty deck's control surface to ~40% (keeping the waveform — the load CTA
+// — bright). Alpha only, so nothing breaks functionally; the scrim in paint()
+// handles the painted chrome. Called from the timer only when the state flips.
+void MainPluginEditor::applyDeckDim (int i, bool loaded)
+{
+    const float a = loaded ? 1.0f : 0.4f;
+    for (auto* c : getChildren())
+    {
+        if (c == nullptr) continue;
+        if (c == deckWaves[(size_t) i].get()) continue;                    // keep the drop target bright
+        if (deckStrips[(size_t) i] && c == deckStrips[(size_t) i].get()) continue;  // strip self-dims
+        if (deckPanelBounds[(size_t) i].contains (c->getBounds()))
+            c->setAlpha (a);
+    }
+}
+
+// ── Per-deck control strip: wire callbacks to the processor ────────────────────
+void MainPluginEditor::configureDeckStrip (int i)
+{
+    auto* strip = deckStrips[(size_t) i].get();
+    if (strip == nullptr) return;
+    auto& cb = strip->callbacks;
+    const auto prefix = deckPrefix (i);
+    auto& apvts = processorRef.parameters();
+
+    auto setFloat = [&apvts] (const juce::String& id, float value)
+    {
+        if (auto* fp = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (id)))
+            fp->setValueNotifyingHost (fp->convertTo0to1 (value));
+    };
+    auto getFloat = [&apvts] (const juce::String& id) -> float
+    {
+        if (auto* v = apvts.getRawParameterValue (id)) return v->load();
+        return 0.0f;
+    };
+    auto setBoolP = [&apvts] (const juce::String& id, bool on)
+    {
+        if (auto* bp = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (id)))
+            bp->setValueNotifyingHost (on ? 1.0f : 0.0f);
+    };
+    auto secPerBeat = [this, i]
+    {
+        const float bpm = processorRef.getDeckActiveAnalysis (i).detectedBpm;
+        return 60.0 / (double) (bpm > 20.0f ? bpm : 120.0f);
+    };
+
+    cb.onRequestFocus = [this, i] { setFocusedDeck (i); };   // single source of truth
+
+    cb.onTogglePlay = [this, prefix]
+    {
+        if (auto* p = processorRef.parameters().getParameter (prefix + "Play"))
+            p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f);
+    };
+
+    // CUE: press = jump to the cue point (setting one at the playhead if none) and
+    // play; release = stop and return to the cue.
+    cb.onCue = [this, i, prefix] (bool press)
+    {
+        auto* play = processorRef.parameters().getParameter (prefix + "Play");
+        if (press)
+        {
+            double cue = processorRef.getHotCue (i, 0);
+            if (cue < 0.0) { processorRef.setHotCue (i, 0, processorRef.getDeckPlayheadSeconds (i)); cue = processorRef.getHotCue (i, 0); }
+            if (cue >= 0.0) processorRef.seekDeckSeconds (i, cue);
+            if (play) play->setValueNotifyingHost (1.0f);
+            stripCueHeld[(size_t) i] = true;
+        }
+        else
+        {
+            if (play) play->setValueNotifyingHost (0.0f);
+            const double cue = processorRef.getHotCue (i, 0);
+            if (cue >= 0.0) processorRef.seekDeckSeconds (i, cue);
+            stripCueHeld[(size_t) i] = false;
+        }
+    };
+
+    // Loop cluster — halve / double the pending length; toggle arms a loop of that
+    // length at the playhead. Re-applies live if the loop is already active.
+    auto reapplyLoop = [this, i, secPerBeat]
+    {
+        if (! processorRef.isDeckLoopActive (i)) return;
+        double in = processorRef.getDeckLoopInSeconds (i);
+        if (in < 0.0) in = processorRef.getDeckPlayheadSeconds (i);
+        processorRef.setDeckLoopSeconds (i, in, in + stripLoopBeats[(size_t) i] * secPerBeat());
+    };
+    cb.onLoopHalve  = [this, i, reapplyLoop] { stripLoopBeats[(size_t) i] = juce::jmax (0.125, stripLoopBeats[(size_t) i] * 0.5);  reapplyLoop(); };
+    cb.onLoopDouble = [this, i, reapplyLoop] { stripLoopBeats[(size_t) i] = juce::jmin (32.0,  stripLoopBeats[(size_t) i] * 2.0);  reapplyLoop(); };
+    cb.onLoopToggle = [this, i, secPerBeat]
+    {
+        if (processorRef.isDeckLoopActive (i)) { processorRef.setDeckLoopActive (i, false); return; }
+        const double in = processorRef.getDeckPlayheadSeconds (i);
+        processorRef.setDeckLoopSeconds (i, in, in + stripLoopBeats[(size_t) i] * secPerBeat());
+        processorRef.setDeckLoopActive (i, true);
+    };
+
+    cb.onBeatJump = [this, i] (int dir) { processorRef.beatJumpDeck (i, (double) (dir * stripJumpBars[(size_t) i])); };
+    cb.onCycleBeatJump = [this, i]
+    {
+        static const int steps[] { 1, 2, 4, 8, 16 };
+        int idx = 0; for (int k = 0; k < 5; ++k) if (steps[k] == stripJumpBars[(size_t) i]) idx = k;
+        stripJumpBars[(size_t) i] = steps[(idx + 1) % 5];
+    };
+
+    cb.onToggleSync = [this, prefix, &apvts]
+    {
+        if (auto* cp = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (prefix + "SyncMode")))
+        {
+            const int cur = cp->getIndex();
+            const int next = cur == 0 ? 1 : 0;   // off <-> first sync mode
+            cp->setValueNotifyingHost (cp->convertTo0to1 ((float) next));
+        }
+    };
+
+    // KEY: click opens the Camelot wheel for this deck; scroll nudges transposition.
+    cb.onOpenKey  = [this, i] { showCamelotWheel (i); };
+    cb.onNudgeKey = [this, prefix, getFloat, setFloat] (int steps)
+    {
+        setFloat (prefix + "Pitch", juce::jlimit (-12.0f, 12.0f, getFloat (prefix + "Pitch") + (float) steps));
+    };
+
+    // MARK: drop a marker (hot cue in the next free slot) at the playhead and flash a
+    // confirmation. This is a cue-marker feature by design — not take/comp capture.
+    cb.onMarkTake = [this, i]
+    {
+        int slot = -1;
+        for (int c = 1; c < MainPluginProcessor::numHotCues; ++c)
+            if (processorRef.getHotCue (i, c) < 0.0) { slot = c; break; }
+        if (slot >= 0) processorRef.setHotCue (i, slot, processorRef.getDeckPlayheadSeconds (i));
+        automixStatusLabel.setText (slot >= 0 ? "Marker set on deck " + juce::String (deckLabel (i))
+                                              : "All marker slots used",
+                                    juce::dontSendNotification);
+    };
+
+    // Stem toggles — mute drops the stem gain to 0% (silence); unmute restores the
+    // saved value. Alt-click solos (mutes every other stem). Percent units, see
+    // StemGain.h: "muted" is 0, not -60 dB.
+    constexpr float kMuted = stemdeck::stemgain::kMin;          // 0 == silence
+    constexpr float kMuteEps = 0.5f;                            // below this reads as muted
+    auto stemGainId = [prefix] (int abstractIdx) { return prefix + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem + abstractIdx) + "Gain"; };
+    cb.onToggleStem = [this, i, stemGainId, getFloat, setFloat] (int idx)
+    {
+        const auto id = stemGainId (idx);
+        if (getFloat (id) <= kMuteEps) setFloat (id, stripSavedStemGain[(size_t) i][(size_t) idx]);
+        else { stripSavedStemGain[(size_t) i][(size_t) idx] = getFloat (id); setFloat (id, kMuted); }
+    };
+    cb.onSoloStem = [this, i, stemGainId, getFloat, setFloat] (int idx)
+    {
+        const bool clearing = stripSolo[(size_t) i] == idx;
+        stripSolo[(size_t) i] = clearing ? -1 : idx;
+        for (int s = 0; s < 4; ++s)
+        {
+            const auto id = stemGainId (s);
+            if (clearing)               setFloat (id, stripSavedStemGain[(size_t) i][(size_t) s]);
+            else if (s == idx)          { if (getFloat (id) <= kMuteEps) setFloat (id, stripSavedStemGain[(size_t) i][(size_t) s]); }
+            else                        { if (getFloat (id) > kMuteEps) stripSavedStemGain[(size_t) i][(size_t) s] = getFloat (id); setFloat (id, kMuted); }
+        }
+    };
+
+    cb.onCycleQuantize = [this, i] { stripQuant[(size_t) i] = (stripQuant[(size_t) i] + 1) % 5; };
+    cb.onToggleSlip    = [this, i] { processorRef.setDeckSlipEnabled (i, ! processorRef.isDeckSlipEnabled (i)); };
+
+    // FX sends: A = echo, B = reverb (real mix params). C is a UI-only placeholder
+    // for a third send rack (pending routing).
+    cb.onToggleFx = [this, i, prefix, getFloat, setFloat] (int which)
+    {
+        if (which == 0) setFloat (prefix + "EchoMix", getFloat (prefix + "EchoMix") > 0.02f ? 0.0f : 0.35f);
+        else if (which == 1) setFloat (prefix + "RevMix", getFloat (prefix + "RevMix") > 0.02f ? 0.0f : 0.35f);
+    };
+
+    strip->onExpandChanged = [this] { resized(); };
+}
+
+// ── Push live processor state into every deck strip ───────────────────────────
+void MainPluginEditor::refreshDeckStrips()
+{
+    auto& apvts = processorRef.parameters();
+    auto getFloat = [&apvts] (const juce::String& id) -> float
+    { if (auto* v = apvts.getRawParameterValue (id)) return v->load(); return 0.0f; };
+
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        auto* strip = deckStrips[(size_t) i].get();
+        if (strip == nullptr) continue;
+        const auto prefix = deckPrefix (i);
+
+        stemdeck::DeckStrip::State s;
+        s.hasTrack = processorRef.getDeckPath (i).isNotEmpty();
+        s.playing  = getFloat (prefix + "Play") > 0.5f;
+        s.cueSet   = processorRef.getHotCue (i, 0) >= 0.0;
+        s.cueHeld  = stripCueHeld[(size_t) i];
+        s.loopActive = processorRef.isDeckLoopActive (i);
+        s.loopArmed  = ! s.loopActive && processorRef.getDeckLoopOutSeconds (i) > processorRef.getDeckLoopInSeconds (i);
+        s.loopBeats  = stripLoopBeats[(size_t) i];
+        s.beatJumpBars = stripJumpBars[(size_t) i];
+
+        if (auto* cp = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (prefix + "SyncMode")))
+        {
+            s.syncOn = cp->getIndex() != 0;
+            const auto phase = processorRef.getDeckSyncPhase (i);   // measured, not faked
+            s.syncLocked  = phase.locked;
+            s.phaseOffset = phase.offset;
+        }
+
+        const auto an = processorRef.getDeckActiveAnalysis (i);
+        if (an.hasKey())
+        {
+            static const int camMaj[] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };
+            static const int camMin[] = { 5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10 };
+            const int num = (an.keyIsMinor ? camMin : camMaj)[an.keyPitchClass % 12];
+            s.keyCamelot = juce::String (num) + (an.keyIsMinor ? "A" : "B");
+            s.keyLowConf = an.keyConfidence < 0.5f;
+        }
+        else { s.keyCamelot = "--"; s.keyLowConf = false; }
+        s.keySemis = (int) std::lround (getFloat (prefix + "Pitch"));
+
+        s.slipOn = processorRef.isDeckSlipEnabled (i);
+        s.quantIndex = stripQuant[(size_t) i];
+
+        for (int k = 0; k < 4; ++k)
+        {
+            const auto id = prefix + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem + k) + "Gain";
+            const float g = getFloat (id);   // percent now (StemGain.h): muted ~ 0, not -60 dB
+            s.stem[(size_t) k] = stripSolo[(size_t) i] == k ? 2 : (g <= 0.5f ? 1 : 0);
+        }
+        s.sepProgress = processorRef.getDeckStemSeparationProgress (i);   // real AI-split job progress
+
+        s.fx = { { getFloat (prefix + "EchoMix") > 0.02f,
+                   getFloat (prefix + "RevMix")  > 0.02f,
+                   false } };   // third send removed (routed no audio)
+        s.focused = (i == focusedDeck);
+
+        strip->setState (s);
+    }
 }
 
 void MainPluginEditor::resized()
@@ -2831,11 +4032,11 @@ void MainPluginEditor::resized()
     header.removeFromLeft (8);
 
     // Universal transport: play/stop every deck at once (prominent, left of title).
-    masterPlayButton.setBounds (header.removeFromLeft (108).withSizeKeepingCentre (108, 34));
+    masterPlayButton.setBounds (header.removeFromLeft (118).withSizeKeepingCentre (118, 34));
     header.removeFromLeft (6);
-    topRecordButton.setBounds (header.removeFromLeft (66).withSizeKeepingCentre (66, 34));
+    topRecordButton.setBounds (header.removeFromLeft (78).withSizeKeepingCentre (78, 34));
     header.removeFromLeft (6);
-    automixButton.setBounds (header.removeFromLeft (52).withSizeKeepingCentre (52, 34));
+    automixButton.setBounds (header.removeFromLeft (84).withSizeKeepingCentre (84, 34));
     header.removeFromLeft (6);
     automixStatusLabel.setBounds (header.removeFromLeft (196).withSizeKeepingCentre (196, 30));
     header.removeFromLeft (10);
@@ -2845,6 +4046,11 @@ void MainPluginEditor::resized()
     header.removeFromRight (6);
     advancedToggle.setVisible (true);
     advancedToggle.setBounds (header.removeFromRight (64).withSizeKeepingCentre (64, 30));
+    header.removeFromRight (6);
+    // Channel count: add / remove a deck channel live.
+    removeChannelButton.setBounds (header.removeFromRight (44).withSizeKeepingCentre (44, 30));
+    header.removeFromRight (4);
+    addChannelButton.setBounds (header.removeFromRight (48).withSizeKeepingCentre (48, 30));
     header.removeFromRight (6);
     savePresetButton.setBounds (header.removeFromRight (108).withSizeKeepingCentre (108, 30));
     header.removeFromRight (8);
@@ -2895,7 +4101,8 @@ void MainPluginEditor::resized()
     // leak into shipping/demo layout even when TOOLS is open.
     juce::Component* pluginHostComps[] = {
         &pluginHostStatus, &pluginChainSelector, &pluginSelector, &loadPluginButton,
-        &clearChainButton, &scanPluginsButton, &reloadPluginCacheButton, &pluginHostMessage };
+        &clearChainButton, &scanPluginsButton, &reloadPluginCacheButton, &pluginHostMessage,
+        &sattariFxButton };
     for (auto* c : pluginHostComps) { c->setVisible (false); c->setBounds ({}); }
 
     if (advancedVisible)
@@ -2915,11 +4122,12 @@ void MainPluginEditor::resized()
        #if STEMDECK_ENABLE_PLUGIN_HOST
         auto fxRow = area.removeFromTop (22);
         pluginChainSelector.setBounds (fxRow.removeFromLeft (130));   fxRow.removeFromLeft (4);
-        pluginSelector.setBounds (fxRow.removeFromLeft (260));        fxRow.removeFromLeft (4);
-        loadPluginButton.setBounds (fxRow.removeFromLeft (66));       fxRow.removeFromLeft (3);
-        clearChainButton.setBounds (fxRow.removeFromLeft (66));       fxRow.removeFromLeft (3);
-        scanPluginsButton.setBounds (fxRow.removeFromLeft (60));      fxRow.removeFromLeft (3);
-        reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (80)); fxRow.removeFromLeft (8);
+        sattariFxButton.setBounds (fxRow.removeFromLeft (86));        fxRow.removeFromLeft (6);
+        pluginSelector.setBounds (fxRow.removeFromLeft (210));        fxRow.removeFromLeft (4);
+        loadPluginButton.setBounds (fxRow.removeFromLeft (60));       fxRow.removeFromLeft (3);
+        clearChainButton.setBounds (fxRow.removeFromLeft (60));       fxRow.removeFromLeft (3);
+        scanPluginsButton.setBounds (fxRow.removeFromLeft (56));      fxRow.removeFromLeft (3);
+        reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (74)); fxRow.removeFromLeft (8);
         pluginHostMessage.setBounds (fxRow);
         area.removeFromTop (6);
        #endif
@@ -2949,13 +4157,106 @@ void MainPluginEditor::resized()
 
     // Deck row gets a fixed band; the arrangement below takes ALL remaining height
     // (so it is large and grows as the window resizes).
-    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() * 40 / 100));
+    // ── Four decks side by side, horizontally ───────────────────────────────────
+    // Equal-width columns across the full band. The band is deliberately tall (52%
+    // of the remaining height) so the waveform — which claims the flexible middle of
+    // each column — gets real height instead of the old ~40px sliver. The focused
+    // deck is marked with an accent edge rather than a different size, so the four
+    // decks stay lined up.
+    // Strips must exist before we assign bounds — resized() runs before the first
+    // timer tick (and does, on construction).
+    refreshChannelStrips();
+
+    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() * 52 / 100));
     const int deckGap = 10;
-    const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
+    // Render only the channels that actually exist: removing a channel widens the
+    // rest, adding one narrows them. Clamped to the deck UIs the editor owns —
+    // channels past that live in the engine but have no strip yet (Step 6 proper).
+    const int visibleDecks = juce::jlimit (1, MainPluginProcessor::numDecks, processorRef.getNumTrackDecks());
+
+    // EVERY channel is a box of the same size in one row — a deck shows its stem
+    // panel, an input/instrument shows its own body. Same frame, different content
+    // (spec §2.1); that consistency is the point of the channel model.
+    const int totalColumns = juce::jlimit (1, MainPluginProcessor::numDecks, processorRef.getNumChannels());
+
+    // Always-visible "+" tile at the end of the row, so the channel model is
+    // discoverable in the layout instead of hidden behind a toolbar button.
+    addChannelTileBounds = {};
+    if (processorRef.getNumChannels() < MainPluginProcessor::getMaxChannels() && decksArea.getWidth() > 400)
+    {
+        addChannelTileBounds = decksArea.removeFromRight (58);
+        decksArea.removeFromRight (deckGap);
+    }
+
+    // An IDLE channel recedes. Reference §4 collapses it in HEIGHT — the panel hugs
+    // ~72px of content and top-aligns, leaving the rest of the row empty — at roughly
+    // a 200px width. That is narrower than a deck (so four loaded decks keep enough
+    // width to render "LOW MID HIGH FILT" rather than "HI..."), but wide enough for
+    // the reference's horizontal header instead of a cramped vertical stack.
+    constexpr int kIdleColumnWidth = 190;
+
+    int idleColumns = 0;
+    for (int col = visibleDecks; col < totalColumns; ++col)
+        if (auto* st = channelStrips[(size_t) col].get())
+            if (st->isIdle()) ++idleColumns;
+
+    const int fullColumns = juce::jmax (1, totalColumns - idleColumns);
+    const int idleTotal   = idleColumns * (kIdleColumnWidth + deckGap);
+    const int deckWidth   = juce::jmax (120, (decksArea.getWidth() - idleTotal
+                                              - deckGap * (fullColumns - 1)) / fullColumns);
+
+    const auto columnWidth = [&] (int col)
+    {
+        if (col >= visibleDecks)
+            if (auto* st = channelStrips[(size_t) col].get())
+                if (st->isIdle()) return kIdleColumnWidth;
+        return deckWidth;
+    };
+
+    // Non-deck channels claim their column first (they sit after the decks, since
+    // addChannel appends), leaving the deck columns for the deck loop below.
+    {
+        auto scan = decksArea;
+        for (int col = 0; col < totalColumns; ++col)
+        {
+            auto colBounds = scan.removeFromLeft (columnWidth (col));
+            if (col < totalColumns - 1) scan.removeFromLeft (deckGap);
+
+            if (col >= visibleDecks)
+                if (auto* st = channelStrips[(size_t) col].get())
+                    if (st->isVisible())
+                    {
+                        // Idle: hug the content height and top-align (the reference's
+                        // align-self:flex-start), at 0.85 opacity. Active: full body.
+                        const bool idle = st->isIdle();
+                        st->setAlpha (idle ? 0.85f : 1.0f);
+                        st->setBounds (idle ? colBounds.withHeight (juce::jmin (stemdeck::ChannelStrip::idleHeight,
+                                                                                colBounds.getHeight()))
+                                            : colBounds);
+                    }
+        }
+    }
+
     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
     {
+        if (deckIndex >= visibleDecks)
+        {
+            // Channel removed — retire its strip entirely.
+            setDeckDetailVisible (deckIndex, false);
+            deckPanelBounds[(size_t) deckIndex]     = {};
+            deckHeaderBounds[(size_t) deckIndex]    = {};
+            deckCollapsedBounds[(size_t) deckIndex] = {};
+            if (auto* strip = deckStrips[(size_t) deckIndex].get()) { strip->setVisible (false); strip->setBounds ({}); }
+            if (auto* w = deckWaves[(size_t) deckIndex].get())       { w->setVisible (false); w->setBounds ({}); }
+            if (auto* r = deckWaveRegions[(size_t) deckIndex].get()) { r->setVisible (false); r->setBounds ({}); }
+            continue;
+        }
+
         auto laneOuter = decksArea.removeFromLeft (deckWidth);
-        decksArea.removeFromLeft (deckGap);
+        if (deckIndex < visibleDecks - 1) decksArea.removeFromLeft (deckGap);
+
+        deckCollapsedBounds[(size_t) deckIndex] = {};   // no collapsed strips in the horizontal layout
+        setDeckDetailVisible (deckIndex, true);
         deckPanelBounds[(size_t) deckIndex] = laneOuter;
         auto lane = laneOuter.reduced (10, 10);
 
@@ -2985,15 +4286,44 @@ void MainPluginEditor::resized()
         lane.removeFromBottom (4);
 
         // Toolbox content (the active tab's controls render here).
-        auto tabContent = lane.removeFromBottom (66);   // fits LOOP (62) + SYNC (64) rows uncropped
+        // Reference §3: the panel is min-height 52 and GROWS to fit its content, so
+        // size the well to the active tab instead of forcing all five into one height.
+        // A fixed 66 left CUE with dead space while SYNC's painted BPM/BEAT/DOWN
+        // labels — drawn 13px above their row — collided with the tab strip above.
+        constexpr int kLabelHeadroom = 13;   // matches drawAbove()'s -13 offset
+        const int wellH = [tab = controls.activeToolTab]
+        {
+            switch (tab)
+            {
+                case DeckControls::TabCue:  return 24 + 2 + 18;                    // cues + intro/outro
+                case DeckControls::TabLoop: return 22 + 2 + 20 + 2 + 16;           // three rows
+                case DeckControls::TabFx:   return kLabelHeadroom + 52;            // DR/BA/MU/VO headers
+                case DeckControls::TabSync: return kLabelHeadroom + 22 + 2 + 20 + 2 + 18;
+                // 38, not 30: the full-mix trim knob renders its value ("100") inside
+                // its own bounds, and a shorter row silently drops that readout.
+                case DeckControls::TabSrc:  return 24 + 2 + 38;
+                default:                    return 66;
+            }
+        }();
+        auto tabContent = lane.removeFromBottom (juce::jmax (52, wellH) + 2 * stemdeck::tokens::gap2);
+        deckTabPanelBounds[(size_t) deckIndex] = tabContent;
+        tabContent = tabContent.reduced (stemdeck::tokens::gap2);   // the well's own padding
         lane.removeFromBottom (3);
 
-        // Toolbox tab strip (CUE / LOOP / FX / SYNC / SRC).
-        auto tabStrip = lane.removeFromBottom (20);
+        // Toolbox tab strip (CUE / LOOP / FX / SYNC / SRC). The strip is a track
+        // (painted in paint()) with the segments inset by its 3px padding; gap-2
+        // between segments, per the reference.
+        auto tabStrip = lane.removeFromBottom (26);
+        deckTabStripBounds[(size_t) deckIndex] = tabStrip;
         {
-            const int tw = tabStrip.getWidth() / DeckControls::NumToolTabs;
+            auto seg = tabStrip.reduced (stemdeck::tokens::gap2);
+            const int tw = seg.getWidth() / DeckControls::NumToolTabs;
             for (int t = 0; t < DeckControls::NumToolTabs; ++t)
-                controls.toolTabs[(size_t) t].setBounds (tabStrip.removeFromLeft (tw).reduced (1, 0));
+            {
+                auto cell = seg.removeFromLeft (t == DeckControls::NumToolTabs - 1 ? seg.getWidth() : tw);
+                controls.toolTabs[(size_t) t].setBounds (cell.withTrimmedRight (
+                    t == DeckControls::NumToolTabs - 1 ? 0 : stemdeck::tokens::gap2));
+            }
         }
         lane.removeFromBottom (8);
 
@@ -3032,29 +4362,64 @@ void MainPluginEditor::resized()
         }
         lane.removeFromBottom (6);
 
-        // STEM SEPARATION — djay-Pro cells: DRUMS/BASS/MUSIC/VOCALS vertical
-        // mini-faders + an FX cell (reverb knob). Painted cell boxes in paint().
-        auto stemStrip = lane.removeFromBottom (72);
-        deckStemBounds[(size_t) deckIndex] = stemStrip;
+        // ── Waveform + stem gain (§2/§3) ─────────────────────────────────────────
+        // Loaded deck: the two-zone WaveformRegion fills the lane and the stem gain
+        // knobs dock DIRECTLY UNDER their columns (vocal knob under the vocal column).
+        // Empty deck: the flat WaveformDisplay is the drop CTA and the old stem cells
+        // stay as the labelled mini-fader strip.
+        const bool loaded = deckHasContent (deckIndex);
+        auto* region = deckWaveRegions[(size_t) deckIndex].get();
+        auto* wave   = deckWaves[(size_t) deckIndex].get();
+
+        if (loaded && region != nullptr)
         {
+            deckStemBounds[(size_t) deckIndex] = {};                 // no painted cells
+            auto knobRow = lane.removeFromBottom (46);
+            region->setVisible (true);
+            region->setBounds (lane);
+            if (wave) { wave->setVisible (false); wave->setBounds ({}); }
+
+            // Dock a knob under each column. Column order is VOX/DRM/BAS/OTH; the stem
+            // lanes are vocals/drums/bass/music.
+            const int colToLane[4] = { DeckPlayer::vocalsStem, DeckPlayer::drumsStem,
+                                       DeckPlayer::bassStem,   DeckPlayer::musicStem };
+            const auto cols = region->columnRects();
+            for (int c = 0; c < 4; ++c)
+            {
+                const auto cr = cols[(size_t) c].translated (region->getX(), 0);
+                const int sz = juce::jmin (40, juce::jmin (cr.getWidth(), knobRow.getHeight()));
+                auto& knob = controls.stemGains[(size_t) colToLane[c]];
+                knob.setVisible (true);
+                knob.setBounds (juce::Rectangle<int> (cr.getX(), knobRow.getY(), cr.getWidth(), knobRow.getHeight())
+                                    .withSizeKeepingCentre (sz, sz));
+            }
+            controls.reverbMix.setVisible (false); controls.reverbMix.setBounds ({});   // reverb -> FX tab
+        }
+        else
+        {
+            // Empty deck: djay-Pro cells — DRUMS/BASS/MUSIC/VOCALS mini-faders + FX.
+            auto stemStrip = lane.removeFromBottom (72);
+            deckStemBounds[(size_t) deckIndex] = stemStrip;
             const int cellW = juce::jmax (28, stemStrip.getWidth() / 5);
             auto cells = stemStrip;
-            for (int s = 0; s < 4; ++s)   // drums..vocals faders
+            for (int s = 0; s < 4; ++s)
             {
                 auto cell = cells.removeFromLeft (cellW).reduced (3, 2);
-                cell.removeFromTop (13);   // painted header
-                controls.stemGains[(size_t) (DeckPlayer::drumsStem + s)].setBounds (cell.reduced (2, 0));
+                cell.removeFromTop (13);
+                auto& knob = controls.stemGains[(size_t) (DeckPlayer::drumsStem + s)];
+                knob.setVisible (true);
+                knob.setBounds (cell.reduced (2, 0));
             }
             auto fxCell = cells.reduced (3, 2);
             fxCell.removeFromTop (13);
-            fxCell.removeFromBottom (10);  // painted "Reverb" caption
+            fxCell.removeFromBottom (10);
+            controls.reverbMix.setVisible (true);
             controls.reverbMix.setBounds (fxCell.reduced (2, 0));
-        }
-        lane.removeFromBottom (6);
+            lane.removeFromBottom (6);
 
-        // Waveform — flexible: everything that's left between header and stems.
-        if (auto* wave = deckWaves[(size_t) deckIndex].get())
-            wave->setBounds (lane);
+            if (region) { region->setVisible (false); region->setBounds ({}); }
+            if (wave)   { wave->setVisible (true);     wave->setBounds (lane); }
+        }
 
         // ---- Active toolbox tab content ----
         switch (controls.activeToolTab)
@@ -3100,9 +4465,16 @@ void MainPluginEditor::resized()
             }
             case DeckControls::TabFx:
             {
-                // Deck-wide FX knobs on the left (echo / macro); reverb lives in
-                // the stem strip's FX cell now.
-                const int knobW = juce::jmin (46, tabContent.getWidth() / 6);
+                // Deck-wide FX knobs on the left. Reverb docks here for LOADED decks
+                // (its stem-strip cell is retired when the waveform region is shown);
+                // empty decks keep reverb in the stem cell, so skip it here.
+                const int knobW = juce::jmin (46, tabContent.getWidth() / (loaded ? 7 : 6));
+                if (loaded)
+                {
+                    controls.reverbMix.setVisible (true);
+                    controls.reverbMix.setBounds (tabContent.removeFromLeft (knobW).reduced (3, 2));
+                    tabContent.removeFromLeft (3);
+                }
                 controls.echoMix  .setBounds (tabContent.removeFromLeft (knobW).reduced (3, 2));
                 tabContent.removeFromLeft (3);
                 controls.macroKnob.setBounds (tabContent.removeFromLeft (knobW).reduced (3, 2));
@@ -3127,6 +4499,7 @@ void MainPluginEditor::resized()
             }
             case DeckControls::TabSync:
             {
+                tabContent.removeFromTop (kLabelHeadroom);   // BPM / BEAT / DOWN labels
                 auto r1 = tabContent.removeFromTop (22);
                 const int w = juce::jmax (44, r1.getWidth() / 3);
                 controls.bpm       .setBounds (r1.removeFromLeft (w).reduced (2, 1));
@@ -3167,59 +4540,69 @@ void MainPluginEditor::resized()
         applyDeckToolTabVisibility (deckIndex);
     }
 
+    // ── Deck control strips: one under each individual deck box ──────────────────
+    // Each strip sits directly beneath its deck column, matching that column's x +
+    // width (compact layout kicks in at this narrower width). 40px collapsed, 76px
+    // when its drawer opens. Play/cue/loop/jump/sync/key/take + drawer.
+    // One transport strip under each individual deck box, matching that column's
+    // x + width (compact layout kicks in at the narrower per-column width).
+    area.removeFromTop (6);
+    int stripBandH = stemdeck::DeckStrip::kCollapsedHeight;
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (auto* s = deckStrips[(size_t) i].get())
+            stripBandH = juce::jmax (stripBandH, s->currentHeight());
+    auto stripBand = area.removeFromTop (stripBandH);
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (auto* strip = deckStrips[(size_t) i].get())
+        {
+            const auto col = deckPanelBounds[(size_t) i];
+            juce::Rectangle<int> b (col.getX(), stripBand.getY(), col.getWidth(), strip->currentHeight());
+            deckStripBounds[(size_t) i] = b;
+            strip->setVisible (true);
+            strip->setBounds (b);
+        }
+
     area.removeFromTop (8);
 
-    // ---- Mixer + GLOBAL MASTER EFFECTS + MASTER OUTPUT band ----
-    auto mixerStrip = area.removeFromTop (150);
-    masterOutBounds = mixerStrip.removeFromRight (juce::jmax (300, mixerStrip.getWidth() * 22 / 100));
-    mixerStrip.removeFromRight (10);
-    // Frosted-glass XY hero panel (full band height) between mix controls and recorder.
-    masterFxPad.setBounds (mixerStrip.removeFromRight (juce::jmax (240, mixerStrip.getWidth() * 24 / 100)).reduced (2, 6));
-    mixerStrip.removeFromRight (12);
-
-    // MIXER block: master scope + surfaced power controls + crossfader flanked by
-    // per-deck channel meters. Rarely-used utilities stay advanced-only.
-    juce::Component* mixExtras[] = { &micGain, &hostSync, &beatSync, &micMonitor,
+    // ── Master Control Band: five bounded panels ────────────────────────────────
+    //   [ SCOPE ] [ SYNC ] [ CROSSFADER (flex) ] [ MASTER FX ] [ MASTER OUT ]
+    // Each panel is a #131316 rounded box (frames painted in paint()); the crossfader
+    // — the most-used control — takes all the remaining width.
+    juce::Component* mixExtras[] = { &micGain, &hostSync, &beatSync, &micMonitor, &liveMidiButton,
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
                                      &razorButton, &bounceEditsButton, &undoButton, &redoButton };
-    auto mixer = mixerStrip.reduced (2, 5);
-    mixerPanel.setBounds (mixer.removeFromLeft (140));
-    auto mixControls = mixer.reduced (10, 8);
+    auto band = area.removeFromTop (150);
+    const int panelGap = 8;
+    scopePanelBounds    = band.removeFromLeft (84);            band.removeFromLeft (panelGap);
+    syncPanelBounds     = band.removeFromLeft (88);            band.removeFromLeft (panelGap);
+    masterOutBounds     = band.removeFromRight (282);          band.removeFromRight (panelGap);
+    masterFxPanelBounds = band.removeFromRight (100);          band.removeFromRight (panelGap);
+    xfPanelBounds       = band;                                // crossfader gets the rest
 
-    // Always-visible power row: BPM SYNC · KEY SYNC · AI MASTER (+mode) · LIMIT.
+    // SCOPE — the master scope component fills the panel.
+    mixerPanel.setBounds (scopePanelBounds.reduced (4));
+
+    // SYNC — two stacked pills; the panel header supplies the word "sync".
     {
-        for (juce::Component* c : { (juce::Component*) &syncBpmButton, (juce::Component*) &syncKeyButton,
-                                    (juce::Component*) &aiMasterButton, (juce::Component*) &aiMasterMode,
-                                    (juce::Component*) &limiter })
-            c->setVisible (true);
-        auto powerRow = mixControls.removeFromTop (26);
-        syncBpmButton.setBounds (powerRow.removeFromLeft (78));   powerRow.removeFromLeft (4);
-        syncKeyButton.setBounds (powerRow.removeFromLeft (78));   powerRow.removeFromLeft (10);
-        aiMasterButton.setBounds (powerRow.removeFromLeft (80));  powerRow.removeFromLeft (4);
-        aiMasterMode.setBounds (powerRow.removeFromLeft (110));   powerRow.removeFromLeft (10);
-        limiter.setBounds (powerRow);   // LIMIT ceiling — label painted alongside
+        for (auto* c : { &syncBpmButton, &syncKeyButton }) c->setVisible (true);
+        auto s = syncPanelBounds.reduced (8);
+        s.removeFromTop (12);   // painted "SYNC" header
+        const int ph = (s.getHeight() - 6) / 2;
+        syncBpmButton.setBounds (s.removeFromTop (ph)); s.removeFromTop (6);
+        syncKeyButton.setBounds (s.removeFromTop (ph));
     }
-    mixControls.removeFromTop (6);
 
-    // Crossfader flanked by per-deck meters: A/C feed the left, B/D the right.
+    // MASTER FX — a single FILTER XY pad (option A: the panel fits the pad).
+    masterFxPad.setBounds (masterFxPanelBounds.reduced (8).withTrimmedTop (12));
+
+    // SATTARI FX RACK — takes the crossfader's flex slot. The crossfader is retired
+    // (studio-first: blend with deck faders + stems), so its controls are hidden.
     {
-        auto xfRow = mixControls;
-        auto leftMeters  = xfRow.removeFromLeft (40);
-        auto rightMeters = xfRow.removeFromRight (40);
-        deckMeterBounds[0] = leftMeters.removeFromTop (leftMeters.getHeight() / 2).reduced (3, 2);   // A
-        deckMeterBounds[2] = leftMeters.reduced (3, 2);                                               // C
-        deckMeterBounds[1] = rightMeters.removeFromTop (rightMeters.getHeight() / 2).reduced (3, 2);  // B
-        deckMeterBounds[3] = rightMeters.reduced (3, 2);                                              // D
-
-        // Curve selector + REV toggle sit on a compact strip above the fader, centred.
-        auto ctrlStrip = xfRow.removeFromTop (22);
-        auto ctrl = ctrlStrip.withSizeKeepingCentre (188, 22);
-        crossfaderCurve.setBounds (ctrl.removeFromLeft (120));
-        ctrl.removeFromLeft (8);
-        crossfaderReverse.setBounds (ctrl);
-        xfRow.removeFromTop (4);
-
-        crossfader.setBounds (xfRow.reduced (8, 0).withSizeKeepingCentre (xfRow.getWidth() - 16, 40));
+        for (auto& mb : deckMeterBounds) mb = {};
+        fxRack.setBounds (xfPanelBounds);
+        for (juce::Component* c : { (juce::Component*) &crossfader, (juce::Component*) &crossfaderCurve,
+                                    (juce::Component*) &crossfaderReverse })
+        { c->setVisible (false); c->setBounds ({}); }
     }
 
     if (advancedVisible)
@@ -3231,6 +4614,7 @@ void MainPluginEditor::resized()
         hostSync.setBounds (util.removeFromLeft (96)); util.removeFromLeft (3);
         beatSync.setBounds (util.removeFromLeft (96)); util.removeFromLeft (3);
         micMonitor.setBounds (util.removeFromLeft (104)); util.removeFromLeft (6);
+        liveMidiButton.setBounds (util.removeFromLeft (94)); util.removeFromLeft (6);
         micGain.setBounds (util.removeFromLeft (84)); util.removeFromLeft (6);
         chip (camelotButton, 44); chip (midiLearnButton, 48); chip (snapToggleButton, 48);
         chip (razorButton, 50); chip (bounceEditsButton, 64); chip (undoButton, 46); chip (redoButton, 46);
@@ -3241,40 +4625,53 @@ void MainPluginEditor::resized()
         for (auto* c : mixExtras) { c->setVisible (false); c->setBounds ({}); }
     }
 
-    // MASTER OUTPUT panel internals: meters | MASTER GAIN | GLOBAL TEMPO/TAP/KeyLock.
+    // MASTER OUT panel internals. Absorbs the LIMIT ceiling (an output-stage control)
+    // and the Master-to-target control + selector (3.1), so they sit with the LUFS
+    // readout they concern instead of floating over the crossfader.
     {
+        for (juce::Component* c : { (juce::Component*) &aiMasterButton, (juce::Component*) &aiMasterMode,
+                                    (juce::Component*) &aiMasterAmount, (juce::Component*) &limiter })
+            c->setVisible (true);
+
         auto mo = masterOutBounds.reduced (12, 8);
-        mo.removeFromTop (16);   // painted "MASTER OUTPUT" title
-        masterMeterBounds = mo.removeFromLeft (76).reduced (0, 4);
+        mo.removeFromTop (15);   // painted "MASTER OUTPUT" title
+        masterMeterBounds = mo.removeFromLeft (38).reduced (0, 2);
         mo.removeFromLeft (8);
-        master.setBounds (mo.removeFromLeft (66).withTrimmedTop (10));
-        mo.removeFromLeft (8);
-        auto tempoCol = mo;
-        // GLOBAL TEMPO is a painted box (label + 120.0 + green square); the slider
-        // itself is hidden but kept for automation/state.
-        masterTempoBounds = tempoCol.removeFromTop (42);
-        masterBpm.setVisible (false);
-        masterBpm.setBounds ({});
-        tempoCol.removeFromTop (6);
-        auto tapRow = tempoCol.removeFromTop (26);
-        tapTempoButton.setBounds (tapRow.removeFromLeft (juce::jmax (44, tapRow.getWidth() / 2 - 3)));
-        tapRow.removeFromLeft (6);
-        keyLockAllButton.setBounds (tapRow);
-        // Reveal / Reload are advanced-only (not in the mockup master panel).
-        if (advancedVisible)
-        {
-            revealRecordingButton.setVisible (true); reloadIntoDecksButton.setVisible (true);
-            auto recRow = tempoCol.withTrimmedTop (4).withHeight (20);
-            revealRecordingButton.setBounds (recRow.removeFromLeft (juce::jmax (44, recRow.getWidth() / 2 - 3)));
-            recRow.removeFromLeft (6);
-            reloadIntoDecksButton.setBounds (recRow);
-        }
-        else
-        {
-            revealRecordingButton.setVisible (false); revealRecordingButton.setBounds ({});
-            reloadIntoDecksButton.setVisible (false); reloadIntoDecksButton.setBounds ({});
-        }
-        // recordStatus is placed in the pads strip (Recording chip) further down.
+        auto col = mo;   // right stack
+
+        // Row 1: MASTER GAIN knob + GLOBAL TEMPO box (painted, small). The knob cell is
+        // ≥60px so its "-14.0 dB" readout isn't clipped to "-14.0...".
+        auto row1 = col.removeFromTop (40);
+        master.setBounds (row1.removeFromLeft (60));
+        row1.removeFromLeft (8);
+        masterTempoBounds = row1;
+        masterBpm.setVisible (false); masterBpm.setBounds ({});
+
+        // Row 2: Master-to-target button + target selector + depth rotary.
+        col.removeFromTop (4);
+        auto row2 = col.removeFromTop (22);
+        aiMasterButton.setBounds (row2.removeFromLeft (74));
+        row2.removeFromLeft (5);
+        aiMasterAmount.setBounds (row2.removeFromRight (22));   // compact depth knob
+        row2.removeFromRight (5);
+        aiMasterMode.setBounds (row2);
+
+        // Row 3: LIMIT ceiling + TAP + Key Lock.
+        col.removeFromTop (4);
+        auto row3 = col.removeFromTop (24);
+        limiter.setBounds (row3.removeFromLeft (66));   // "LIMIT" label painted alongside
+        row3.removeFromLeft (6);
+        tapTempoButton.setBounds (row3.removeFromLeft (juce::jmax (40, row3.getWidth() / 2 - 3)));
+        row3.removeFromLeft (5);
+        keyLockAllButton.setBounds (row3);
+
+        // Row 4: live integrated LUFS (primary) + limiter GR (painted).
+        col.removeFromTop (4);
+        masterLufsBounds = col.removeFromTop (30);
+
+        // Reveal / Reload are advanced-only; park them on the utility row when shown.
+        revealRecordingButton.setVisible (false); revealRecordingButton.setBounds ({});
+        reloadIntoDecksButton.setVisible (false); reloadIntoDecksButton.setBounds ({});
     }
 
     area.removeFromTop (8);
@@ -3288,8 +4685,9 @@ void MainPluginEditor::resized()
         arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
         arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
 
-        auto cluster = labelRow.withSizeKeepingCentre (44 * 4 + 6 * 3, 26);
-        auto tbtn = [&cluster] (juce::Component& c) { c.setBounds (cluster.removeFromLeft (44)); cluster.removeFromLeft (6); };
+        // 56px each so "LAUNCH" / "Record" fit without ellipsizing (was 44 → "Rec...").
+        auto cluster = labelRow.withSizeKeepingCentre (56 * 4 + 6 * 3, 26);
+        auto tbtn = [&cluster] (juce::Component& c) { c.setBounds (cluster.removeFromLeft (56)); cluster.removeFromLeft (6); };
         tbtn (launchAllButton);
         tbtn (playArrButton);
         tbtn (arrRecordButton);
@@ -3298,33 +4696,55 @@ void MainPluginEditor::resized()
         labelRow.removeFromRight (8);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
     }
-    // Performance pads relocate to a compact full-width strip along the bottom,
-    // so the arrangement timeline spans the ENTIRE width above them.
+    // Performance pads relocate to a compact full-width strip along the bottom, so
+    // the arrangement spans the ENTIRE width above them. Empty (§1.3 / Step 5): the
+    // strip collapses to a single-line header and hands its height to the arrangement.
+    bool anyPad = false;
+    for (int i = 0; i < PadBank::numPads; ++i)
+        if (processorRef.getPadPath (i).isNotEmpty()) { anyPad = true; break; }
+    padsCollapsed = ! anyPad;
+
     auto bottom = area;
-    auto samplerStrip = bottom.removeFromBottom (64);
+    auto samplerStrip = bottom.removeFromBottom (anyPad ? 64 : 24);
     bottom.removeFromBottom (8);
     arrangementView.setBounds (bottom);   // full-width arrangement timeline
 
     samplerLabel.setBounds (samplerStrip.removeFromLeft (150));
     samplerStrip.removeFromLeft (6);
     // Recording status chip anchors the right end of the pads strip.
-    recordStatus.setBounds (samplerStrip.removeFromRight (170).reduced (2, 14));
+    recordStatus.setBounds (samplerStrip.removeFromRight (170).reduced (2, anyPad ? 14 : 4));
     samplerStrip.removeFromRight (6);
-    const int padGap = 6;
-    const int padW = juce::jmax (96,
-        (samplerStrip.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
-    for (int i = 0; i < PadBank::numPads; ++i)
-    {
-        auto cell = samplerStrip.removeFromLeft (padW);
-        if (i < PadBank::numPads - 1)
-            samplerStrip.removeFromLeft (padGap);
 
-        auto top = cell.removeFromTop (cell.getHeight() * 58 / 100);
-        pads[(size_t) i].trigger.setBounds (top.reduced (1, 1));
-        cell.removeFromTop (2);
-        pads[(size_t) i].load.setBounds (cell.removeFromLeft (cell.getWidth() * 42 / 100).reduced (1, 0));
-        cell.removeFromLeft (3);
-        pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
+    if (! anyPad)
+    {
+        // Collapsed: hide every pad control; the painted header carries a hint.
+        for (auto& p : pads) { for (juce::Component* c : { (juce::Component*) &p.trigger,
+                                                           (juce::Component*) &p.load,
+                                                           (juce::Component*) &p.gain })
+            { c->setVisible (false); c->setBounds ({}); } }
+    }
+    else
+    {
+        const int padGap = 6;
+        const int padW = juce::jmax (96,
+            (samplerStrip.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
+        for (int i = 0; i < PadBank::numPads; ++i)
+        {
+            auto cell = samplerStrip.removeFromLeft (padW);
+            if (i < PadBank::numPads - 1)
+                samplerStrip.removeFromLeft (padGap);
+
+            for (juce::Component* c : { (juce::Component*) &pads[(size_t) i].trigger,
+                                        (juce::Component*) &pads[(size_t) i].load,
+                                        (juce::Component*) &pads[(size_t) i].gain })
+                c->setVisible (true);
+            auto top = cell.removeFromTop (cell.getHeight() * 58 / 100);
+            pads[(size_t) i].trigger.setBounds (top.reduced (1, 1));
+            cell.removeFromTop (2);
+            pads[(size_t) i].load.setBounds (cell.removeFromLeft (cell.getWidth() * 42 / 100).reduced (1, 0));
+            cell.removeFromLeft (3);
+            pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
+        }
     }
 
     // Piano-roll / mixer overlays cover the decks + arrangement when toggled on.
@@ -3334,7 +4754,39 @@ void MainPluginEditor::resized()
     const auto overlay = getLocalBounds().withTrimmedTop (overlayTop).reduced (8, 6);
     pianoRoll.setBounds (overlay);
     mixerView.setBounds (overlay);
-    mixArrangeView.setBounds (overlay);
+    // ARRANGER: energy arc on top (~34% up to 190px), clip timeline below.
+    {
+        auto arr = overlay;
+        auto arcArea = arr.removeFromTop (juce::jlimit (120, 190, arr.getHeight() * 34 / 100));
+        arr.removeFromTop (6);
+        energyArc.setBounds (arcArea);
+        mixArrangeView.setBounds (arr);
+    }
+}
+
+void MainPluginEditor::refreshEnergyArc()
+{
+    // Auto Director: build the arc from the focused deck's structure analysis.
+    const int deck = focusedDeck;
+    const auto ana = processorRef.getDeckActiveAnalysis (deck);
+    const double total = processorRef.getDeckTotalSeconds (deck);
+    const double bpm = ana.detectedBpm;
+    std::vector<std::tuple<float, float, juce::String>> structNorm;
+    if (total > 0.0 && bpm > 1.0)
+    {
+        const auto audio = processorRef.getDeckLoadedAudio (deck);
+        if (audio && audio->audio.getNumSamples() > 0)
+        {
+            const auto sections = stemdeck::segmentStructure (audio->audio, audio->sourceSampleRate, bpm);
+            double lastEnd = 0.0;
+            for (const auto& s : sections) lastEnd = juce::jmax (lastEnd, s.endBeat);
+            if (lastEnd > 0.0)
+                for (const auto& s : sections)
+                    structNorm.emplace_back ((float) (s.startBeat / lastEnd), (float) (s.endBeat / lastEnd), s.label);
+        }
+    }
+    energyArc.setArc (stemdeck::buildEnergyArc (structNorm));
+    energyArc.setPlayhead (total > 0.0 ? (float) (processorRef.getDeckPlayheadSeconds (deck) / total) : 0.0f);
 }
 
 void MainPluginEditor::refreshMixArrangement()
@@ -3377,6 +4829,17 @@ void MainPluginEditor::refreshMixArrangement()
 
     Event cf; cf.type = EventType::param; cf.deck = 0; cf.atBeat = 0.0; cf.paramId = "crossfader";
     cf.value = juce::jlimit (0.0, 1.0, paramVal ("crossfader")); s.addEvent (cf);
+
+    // Fold the retroactive tempo lane into the session (normalised beat -> beats), so
+    // it re-times this arrangement and anything exported from it (§5.4).
+    if (! masterTempoLaneNorm.empty())
+    {
+        double lastBeat = 0.0;
+        for (const auto& e : s.events) lastBeat = juce::jmax (lastBeat, e.atBeat);
+        const double totalBeats = juce::jmax (16.0, lastBeat);
+        for (const auto& p : masterTempoLaneNorm)
+            s.setTempoPoint ((double) p.first * totalBeats, p.second);
+    }
 
     mixArrangeView.setSession (s);
     // Playhead from the first loaded deck's position.
@@ -3453,6 +4916,53 @@ void MainPluginEditor::timerCallback()
     processorRef.serviceDeferredActions();
     updateAutomixRamp();
     if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
+    if (energyArc.isVisible())      refreshEnergyArc();        // ScenePilot energy arc
+    refreshDeckStrips();                                        // per-deck control strips
+    bool relayout = false;
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)    // 1.3 dim empty decks (on change)
+    {
+        const int loaded = deckHasContent (i) ? 1 : 0;
+        if (deckDimState[(size_t) i] != loaded)
+        {
+            applyDeckDim (i, loaded == 1);
+            deckDimState[(size_t) i] = loaded;
+            relayout = true;   // loaded<->empty flips the waveform region / docked knobs
+        }
+    }
+    // Pads strip collapses/expands when the first pad is loaded or the last cleared.
+    bool anyPad = false;
+    for (int i = 0; i < PadBank::numPads; ++i)
+        if (processorRef.getPadPath (i).isNotEmpty()) { anyPad = true; break; }
+    if (padsCollapsed == anyPad) relayout = true;   // state disagrees with last layout
+    if (relayout) resized();
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)    // two-zone waveform (§2)
+    {
+        auto* region = deckWaveRegions[(size_t) i].get();
+        if (region == nullptr || ! region->isVisible()) continue;
+        // Reload peaks when the deck's content changes (also picks up stems that
+        // finish separating a moment after the full mix loads).
+        const juce::String sig = processorRef.getDeckPath (i) + "|" + juce::String (processorRef.deckHasNeuralStems (i) ? 1 : 0);
+        const int h = sig.hashCode();
+        if (waveDataState[(size_t) i] != h) { waveDataState[(size_t) i] = h; refreshDeckWaveData (i); }
+        // Live playhead.
+        const double total = processorRef.getDeckTotalSeconds (i);
+        region->setPlayheadNorm (total > 0 ? (float) (processorRef.getDeckPlayheadSeconds (i) / total) : 0.0f);
+    }
+    {   // 3.1 Master button names the outcome (target LUFS from the adjacent selector).
+        const int mode = aiMasterMode.getSelectedId();
+        const char* tgt = mode == 2 ? "-9" : (mode == 3 ? "-16" : "-14");
+        const juce::String want = juce::String ("Master ") + tgt;
+        if (aiMasterButton.getButtonText() != want) aiMasterButton.setButtonText (want);
+    }
+    {   // 2.1 SCOPE recedes when there's no signal instead of shouting "-inf dB".
+        const bool sig = juce::jmax (processorRef.getMasterPeak (0), processorRef.getMasterPeak (1)) > 0.0015f;
+        const float a = sig ? 1.0f : 0.45f;
+        if (std::abs (mixerPanel.getAlpha() - a) > 0.01f) mixerPanel.setAlpha (a);
+    }
+    {   // Keep the BEAT SYNC pill reflecting the real beatSync state.
+        const bool bs = processorRef.parameters().getRawParameterValue ("beatSync")->load() > 0.5f;
+        if (syncBpmButton.getToggleState() != bs) syncBpmButton.setToggleState (bs, juce::dontSendNotification);
+    }
 
     // ── Motion: nav underline slides toward the active view's cell ──────────
     {
@@ -3504,6 +5014,9 @@ void MainPluginEditor::timerCallback()
                                                      : juce::Colour (sattari::brand::kPanelRaised));
     }
 
+    // Live input meters / instrument activity on the per-type strips.
+    refreshChannelStrips();
+
     processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();
     tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? u8 ("  \xe2\x96\xb6") : u8 ("  \xe2\x97\xbc")),
@@ -3511,8 +5024,9 @@ void MainPluginEditor::timerCallback()
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
     arrRecordButton.setToggleState (recording, juce::dontSendNotification);
-    topRecordButton.setToggleState (recording, juce::dontSendNotification);
-    topRecordButton.setButtonText (recording ? u8 ("\xe2\x97\x8f REC \xe2\x80\xa2") : u8 ("\xe2\x97\x8f REC"));
+    // topRecordButton self-paints its active (red) state from isActive(); label pulses.
+    topRecordButton.setLabel (recording ? "REC \xe2\x80\xa2" : "REC");
+    topRecordButton.repaint();
 
     // Meters live in the MASTER OUTPUT panel — refresh continuously.
     if (! masterOutBounds.isEmpty())
@@ -3559,9 +5073,8 @@ void MainPluginEditor::timerCallback()
                                     playing);
         if (playing != lastDeckPlayingUI[(size_t) i])
         {
-            // Transport button reflects the action: STOP while playing, PLAY while stopped.
-            deckControls[(size_t) i].play.setButtonText (playing ? u8 ("\xe2\x96\xa0 STOP")
-                                                                  : u8 ("\xe2\x96\xb6 PLAY"));
+            // Play/stop icon follows the toggle state (PlayIconLookAndFeel), no text.
+            deckControls[(size_t) i].play.repaint();
             // Auto-follow: the last deck to START playing becomes the sync master.
             if (playing)
                 setMasterDeck (i);
@@ -3571,13 +5084,13 @@ void MainPluginEditor::timerCallback()
     }
     if (deckPlayChanged)
     {
-        // Universal transport label follows the fleet: STOP ALL if anything plays.
+        // Universal transport follows the fleet: STOP ALL (square) if anything plays,
+        // else PLAY ALL (triangle). ToolButton self-paints the active/red-cyan state.
         bool anyPlaying = false;
         for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
             anyPlaying = anyPlaying || lastDeckPlayingUI[(size_t) i];
-        masterPlayButton.setButtonText (anyPlaying ? u8 ("\xe2\x96\xa0 STOP ALL") : u8 ("\xe2\x96\xb6 PLAY ALL"));
-        masterPlayButton.setColour (juce::TextButton::buttonColourId,
-            juce::Colour (sattari::brand::kAccent).withAlpha (anyPlaying ? 0.45f : 0.22f));
+        masterPlayButton.setIcon (anyPlaying ? stemdeck::ToolIcon::stop : stemdeck::ToolIcon::play);
+        masterPlayButton.setLabel (anyPlaying ? "STOP ALL" : "PLAY ALL");
         repaint();   // refresh the deck-card active glow
     }
 
@@ -3788,21 +5301,82 @@ void MainPluginEditor::setupToolTabs (int deckIndex)
         btn.setButtonText (kLabels[t]);
         setupButton (btn);
         btn.setTooltip (kTips[t]);
-        btn.setColour (juce::TextButton::buttonOnColourId, deckAccent (deckIndex).withAlpha (0.55f));
+        // Reference §3: these are segments of ONE control, not five buttons. The
+        // LookAndFeel's segTab branch draws the active chip; text carries the state
+        // (fg-primary active / fg-tertiary inactive) rather than an accent fill.
+        btn.getProperties().set ("segTab", true);
+        btn.setColour (juce::TextButton::textColourOnId,  stemdeck::tokens::c (stemdeck::tokens::fgPrimary));
+        btn.setColour (juce::TextButton::textColourOffId, stemdeck::tokens::c (stemdeck::tokens::fgTertiary));
         btn.onClick = [this, deckIndex, t] { setDeckToolTab (deckIndex, t); };
         addAndMakeVisible (btn);
     }
     setDeckToolTab (deckIndex, DeckControls::TabCue);
 }
 
+void MainPluginEditor::selectDeckToolTab (int deckIndex, int tab)
+{
+    if (juce::isPositiveAndBelow (deckIndex, (int) deckControls.size())
+        && juce::isPositiveAndBelow (tab, (int) DeckControls::NumToolTabs))
+        setDeckToolTab (deckIndex, tab);
+}
+
+// Reference §5: the scope selector offers master, the focused CHANNEL, and that
+// channel's stems — not all 22 engine chains. Rebuilt whenever focus moves.
+void MainPluginEditor::refreshFxScopes()
+{
+    const int deck = juce::jlimit (0, HostGraph::kNumDecks - 1, focusedDeck);
+    const juce::String letter = juce::String::charToString ((juce_wchar) ('A' + deck));
+
+    juce::StringArray names;
+    juce::Array<int>  chains;
+
+    names.add ("Master");                 chains.add ((int) HostGraph::Chain::master);
+    names.add ("Deck " + letter);         chains.add (deck);
+
+    static const char* const stemTag[4] = { "DRM", "BAS", "MUS", "VOX" };
+    for (int st = 0; st < HostGraph::kNumStemsPerDeck; ++st)
+    {
+        names.add (juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb8 ")) + stemTag[st]);
+        chains.add ((int) HostGraph::stemChain (deck, st));
+    }
+
+    fxRack.setScopes (names, chains);
+    fxRack.setAccent (deckAccent (deck));
+}
+
 void MainPluginEditor::setDeckToolTab (int deckIndex, int tab)
 {
     auto& dc = deckControls[(size_t) deckIndex];
+    const bool changed = dc.activeToolTab != tab;
     dc.activeToolTab = tab;
     for (int t = 0; t < DeckControls::NumToolTabs; ++t)
         dc.toolTabs[(size_t) t].setToggleState (t == tab, juce::dontSendNotification);
     applyDeckToolTabVisibility (deckIndex);
-    resized();
+    resized();   // populates deckTabPanelBounds for the fade below
+
+    if (! changed)
+        return;
+
+    // Reference §3: the swap is a 160ms crossfade, interruptible — "that transition is
+    // where the Apple-clean feel lives". Rather than enumerate every control per tab a
+    // second time (the enumeration in applyDeckToolTabVisibility is already long and
+    // would drift), fade whatever now occupies the tab's well. New controls added to a
+    // tab inherit the transition for free.
+    const auto well = deckTabPanelBounds[(size_t) deckIndex];
+    if (well.isEmpty())
+        return;
+
+    auto& anim = juce::Desktop::getInstance().getAnimator();
+    for (auto* c : getChildren())
+    {
+        if (c == nullptr || ! c->isVisible()) continue;
+        const auto b = c->getBounds();
+        if (b.isEmpty() || ! well.contains (b.getCentre())) continue;
+
+        anim.cancelAnimation (c, false);   // interruptible: pick up from where it is
+        c->setAlpha (0.0f);
+        anim.fadeIn (c, stemdeck::tokens::durState);
+    }
 }
 
 void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
@@ -4209,45 +5783,99 @@ void MainPluginEditor::updateWaveformLoopRegion (int deckIndex)
 
 // ── Camelot wheel popup ───────────────────────────────────────────────────────
 
-void MainPluginEditor::showCamelotWheel (int /*deckIndex*/)
+void MainPluginEditor::showCamelotWheel (int deckIndex)
 {
-    // 12 keys × 2 (major/minor) shown in a grid popup
-    // Columns: C Db D Eb E F F# G Ab A Bb B
-    static const char* const kKeys[] = {
-        "C","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"
-    };
-    static const int kCamelotMaj[] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };   // camelot number
-    static const int kCamelotMin[] = { 5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10 };
+    // Interactive Camelot wheel (§6.1): the geometry IS the control. The focused
+    // deck's key is highlighted, other decks are marked, and clicking a wedge
+    // transposes the focused deck there (Auto Pitch, via its KeyTarget).
+    const int focus = juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)
+                    ? deckIndex : focusedDeck;
 
-    // Selecting a key sets the suite-wide Master Key target (harmonic mixing):
-    // every deck with key-match enabled transposes toward it.
-    const int currentChoice = (int) std::round (
-        processorRef.parameters().getRawParameterValue ("masterKey")->load());
-
-    juce::PopupMenu menu;
-    menu.addSectionHeader ("Master Key Target (Camelot)");
-    menu.addItem (99, "Off - no key matching", true, currentChoice == 0);
-    menu.addSeparator();
-    for (int k = 0; k < 12; ++k)
+    auto slotFor = [] (const TrackAnalysis& a, stemdeck::CamelotSlot& out) -> bool
     {
-        menu.addItem (k + 1,
-                      juce::String (kCamelotMaj[k]) + "B  " + kKeys[k] + " maj   |   "
-                      + juce::String (kCamelotMin[k]) + "A  " + kKeys[k] + " min",
-                      true, currentChoice == k + 1);
-    }
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (camelotButton),
-        [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (int result)
+        if (! a.hasKey()) return false;
+        out.number = stemdeck::camelotNumberFor (a.keyPitchClass, a.keyIsMinor);
+        out.minor  = a.keyIsMinor;
+        return true;
+    };
+
+    auto wheel = std::make_unique<stemdeck::CamelotWheelComponent>();
+    wheel->setSize (320, 360);
+
+    const auto anaF = processorRef.getDeckActiveAnalysis (focus);
+    stemdeck::CamelotSlot cur;
+    const bool haveCur = slotFor (anaF, cur);
+    wheel->setCurrent (cur, haveCur);
+
+    std::vector<stemdeck::CamelotDeckMark> marks;
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        if (d != focus)
         {
-            if (safe == nullptr || result == 0) return;
-            if (auto* p = safe->processorRef.parameters().getParameter ("masterKey"))
+            stemdeck::CamelotSlot s;
+            if (slotFor (processorRef.getDeckActiveAnalysis (d), s))
+                marks.push_back ({ s, deckAccent (d), d, true });
+        }
+    wheel->setOthers (marks);
+
+    // Suggestion with reasoning (§6.1): pick the compatible move that costs the
+    // fewest semitones to line up with another loaded deck.
+    if (haveCur)
+    {
+        const int curPc = stemdeck::pitchClassForCamelot (cur.number, cur.minor);
+        int bestCost = 99; juce::String best;
+        for (const auto& m : marks)
+        {
+            const int mpc = stemdeck::pitchClassForCamelot (m.slot.number, m.slot.minor);
+            const int cost = std::abs (stemdeck::semitoneDistance (curPc, mpc));
+            if (cost > 0 && cost < bestCost)
             {
-                const int choice = result == 99 ? 0 : result;   // 0 = Off, else pitch class + 1
-                p->setValueNotifyingHost (p->convertTo0to1 ((float) choice));
-                safe->recordStatus.setText (choice == 0 ? "Master key matching off"
-                                                        : "Master key target set",
-                                            juce::dontSendNotification);
+                bestCost = cost;
+                best = "Deck " + juce::String::charToString ((juce::juce_wchar) ('A' + m.deckIndex))
+                     + " is " + stemdeck::camelotLabel (m.slot) + " — transpose "
+                     + juce::String (cost) + " semitone" + (cost == 1 ? "" : "s") + " to match.";
             }
-        });
+        }
+        wheel->setSuggestion (best.isNotEmpty() ? best
+                              : "Adjacent wedges are harmonically compatible; across the wheel clashes.");
+    }
+    else
+    {
+        wheel->setSuggestion ("No key detected for this deck yet.");
+    }
+
+    const int curPcForPick = haveCur ? stemdeck::pitchClassForCamelot (cur.number, cur.minor) : -1;
+    wheel->onPick = [safe = juce::Component::SafePointer<MainPluginEditor> (this), focus, curPcForPick]
+                    (stemdeck::CamelotSlot picked, bool perStem)
+    {
+        if (safe == nullptr) return;
+        const int pc = stemdeck::pitchClassForCamelot (picked.number, picked.minor);
+        const juce::String deckL = juce::String::charToString ((juce::juce_wchar) ('A' + focus));
+
+        if (perStem)
+        {
+            // Per-stem key lock (§7 tier-2): pitch the TONAL stems (bass/music/vocals)
+            // by the semitone delta; leave DRUMS unpitched (pitched drums sound wrong).
+            // This is the "polytuning" tier — only possible because we have separation.
+            if (curPcForPick < 0) return;
+            const int delta = TrackAnalyzer::nearestSemitoneDelta (curPcForPick, pc);
+            safe->applyPerStemKeyLock (focus, delta);
+            safe->recordStatus.setText ("Deck " + deckL + " per-stem key lock -> "
+                                        + stemdeck::camelotLabel (picked) + "  (" + (delta >= 0 ? "+" : "")
+                                        + juce::String (delta) + " st, drums untouched)", juce::dontSendNotification);
+        }
+        else
+        {
+            // Whole-track: KeyTarget drives Auto Pitch on the full deck (choice = pc+1).
+            if (auto* p = safe->processorRef.parameters().getParameter (deckPrefix (focus) + "KeyTarget"))
+                p->setValueNotifyingHost (p->convertTo0to1 ((float) (pc + 1)));
+            safe->recordStatus.setText ("Deck " + deckL + " transpose target " + stemdeck::camelotLabel (picked),
+                                        juce::dontSendNotification);
+        }
+    };
+
+    auto anchor = ! deckKeyChipBounds[(size_t) focus].isEmpty() ? deckKeyChipBounds[(size_t) focus]
+                                                                : camelotButton.getBounds();
+    juce::CallOutBox::launchAsynchronously (std::move (wheel), anchor, this);
 }
 
 // ── Library meta info ─────────────────────────────────────────────────────────

@@ -33,9 +33,30 @@ public:
                 s.addSound (new Sound());
             }
         }
+        liveSynth.setCurrentPlaybackSampleRate (sr);   // built-in live-MIDI instrument
+        if (liveSynth.getNumSounds() == 0)
+        {
+            for (int i = 0; i < 16; ++i) liveSynth.addVoice (new Voice());
+            liveSynth.addSound (new Sound());
+        }
         for (auto& g : laneGain) g.store (1.0f, std::memory_order_relaxed);
         scratch.setSize (2, juce::jmax (16, blockSize));
     }
+
+    // Audio thread. Render live incoming MIDI through the built-in synth, mixed into
+    // @p out at @p gain. This is the "plug in a controller and play" instrument — it
+    // works even with no plugin loaded and no clip scheduled.
+    void processLive (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi, int n, float gain)
+    {
+        if (n <= 0) return;
+        scratch.setSize (juce::jmax (1, out.getNumChannels()), n, false, false, true);
+        scratch.clear();
+        liveSynth.renderNextBlock (scratch, midi, 0, n);
+        for (int ch = 0; ch < out.getNumChannels(); ++ch)
+            out.addFrom (ch, 0, scratch, juce::jmin (ch, scratch.getNumChannels() - 1), 0, n, gain);
+    }
+
+    void liveAllNotesOff() { liveSynth.allNotesOff (1, false); }
 
     void setLaneGain (int lane, float g) noexcept
     {
@@ -171,6 +192,7 @@ private:
 
     double sr = 44100.0;
     std::array<juce::Synthesiser, numLanes> synths;
+    juce::Synthesiser liveSynth;   // built-in instrument for live MIDI input
     std::array<std::atomic<float>, numLanes> laneGain;
     std::array<std::shared_ptr<const std::vector<Evt>>, numLanes> active;
     juce::AudioBuffer<float> scratch;

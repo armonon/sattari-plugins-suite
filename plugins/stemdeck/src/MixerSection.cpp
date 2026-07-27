@@ -10,7 +10,7 @@ void MixerSection::paint (juce::Graphics& g)
 
     g.setColour (juce::Colours::white.withAlpha (0.75f));
     g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-    g.drawText ("MIXER", getLocalBounds().removeFromTop (20), juce::Justification::centred);
+    g.drawText ("SCOPE", getLocalBounds().removeFromTop (20), juce::Justification::centred);
 
     // Live master-output scope: scrolling stereo level history, oldest at the left.
     auto scope = area.reduced (10.0f, 6.0f).withTrimmedTop (20.0f);

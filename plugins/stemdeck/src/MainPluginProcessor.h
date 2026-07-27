@@ -16,8 +16,17 @@
 #include "RealTimeStemSeparator.h"
 #include "TransportSync.h"
 #include "WarpEngine.h"
+#include "DeckFX.h"
+#include "Channel.h"
+#include "TrackDeckBody.h"
+#include "InputBody.h"
+#include "MidiInstrumentBody.h"
+#include "MidiCapture.h"
+#include "GraphSnapshot.h"
 #include "MasterFx.h"
 #include "SmartMaster.h"
+#include "LiveLoudnessMeter.h"
+#include "StemGain.h"
 #include "AutomixEngine.h"
 #include "NeuralKeyEngine.h"
 #include "NeuralBeatEngine.h"
@@ -26,7 +35,23 @@
 class MainPluginProcessor final : public juce::AudioProcessor
 {
 public:
-    static constexpr int numDecks = 4;
+    // Number of deck UIs / per-deck banks the app provides. Channels are dynamic
+    // (add/remove at runtime); this is the CEILING for TrackDeck strips and must stay
+    // in sync with PerformanceRecorder::numDecks and ArrangementBuilder::numDecks —
+    // the recorder passes a fixed-size deckFiles array between them.
+    static constexpr int numDecks = 8;
+    // How many channels a fresh session opens with (numDecks is the CEILING, not the
+    // default — opening 8 empty decks would be worse than the familiar 4).
+    static constexpr int kDefaultChannels = 4;
+    // Plugin-state schema. v2 changed stem gain from dB to linear percent — see
+    // StemGain.h. Bump this whenever a stored value's MEANING changes, and add a
+    // migration in setStateInformation; never reinterpret old values in place.
+    static constexpr int kStateVersion = 2;
+
+    // Neural key must clear this to override the DSP result (§A3 confidence gating).
+    // "valid" from the model only means it ran; below this floor the measured DSP
+    // answer is kept and the readout is flagged low-confidence.
+    static constexpr float kNeuralKeyConfidenceFloor = 0.45f;
 
     MainPluginProcessor();
     ~MainPluginProcessor() override;
@@ -120,26 +145,98 @@ public:
     TrackAnalysis getDeckAnalysis (int deckIndex) const;
     TrackAnalysis getDeckLiveAnalysis (int deckIndex) const;
     TrackAnalysis getDeckActiveAnalysis (int deckIndex) const;
+
+    // The DeckPlayer living inside channel `deckIndex` (TrackDeck channels only).
+    // Returns a null fallback for an out-of-range index or a non-TrackDeck channel,
+    // so existing deck-indexed call sites stay safe during the channel migration.
+    DeckPlayer&       deckAt (int deckIndex) noexcept;
+    const DeckPlayer& deckAt (int deckIndex) const noexcept;
+
+    // ── Channel list (message thread) ────────────────────────────────────────
+    // Add/remove is zero-dropout: a new immutable snapshot is published atomically
+    // and a retired channel is reclaimed only after the audio thread has moved on
+    // (see GraphSnapshot.h + the StemDeckChannelDropout gate).
+    int  getNumChannels() const noexcept { return (int) channels.size(); }
+    static constexpr int getMaxChannels() noexcept { return kMaxChannels; }
+    int  addChannel (ChannelType type = ChannelType::trackDeck);   // -> new index, or -1 if full
+    bool removeChannel (int index);
+    // ── Live MIDI capture (edit what you played, after you played it) ────────
+    // Runs alongside master recording; notes are timestamped in samples and
+    // converted to beats on read, so a later tempo change re-renders correctly.
+    std::vector<MidiCapture::CapturedNote> getCapturedMidiNotes (double bpm) const;
+    int  getCapturedMidiEventCount() const noexcept { return midiCapture.getNumEvents(); }
+    bool didMidiCaptureOverflow() const noexcept    { return midiCapture.overflowed(); }
+
+    juce::String getChannelName (int index) const;
+    ChannelType  getChannelType (int index) const;
+    // The channel's body, for type-specific UI (Input gain/monitor, instrument
+    // activity). Message thread only. Returns nullptr for an invalid index.
+    ChannelBody* getChannelBody (int index) const;
+    // Mute / solo live on the Channel frame, so they apply to every channel type and
+    // solo can be arbitrated mix-wide (non-soloed channels drop out of the master).
+    void toggleChannelMute (int index);
+    void toggleChannelSolo (int index);
+    bool isChannelMuted (int index) const;
+    bool isChannelSoloed (int index) const;
+    int          getNumTrackDecks() const;   // leading TrackDeck channels (the deck row)
     // Loaded audio for a deck (for the arrangement view's waveforms). May be null.
     std::shared_ptr<const DeckPlayer::LoadedAudio> getDeckLoadedAudio (int deckIndex) const
-    { return juce::isPositiveAndBelow (deckIndex, numDecks) ? decks[(size_t) deckIndex].getLoadedAudio() : nullptr; }
+    { return juce::isPositiveAndBelow (deckIndex, numDecks) ? deckAt (deckIndex).getLoadedAudio() : nullptr; }
+    // Per-stem loaded audio (offline separation), for the two-zone waveform's stem
+    // columns. Null when that lane has no separated file. lane = drums/bass/music/vocals.
+    std::shared_ptr<const DeckPlayer::LoadedAudio> getDeckStemLoadedAudio (int deckIndex, int lane) const
+    { return juce::isPositiveAndBelow (deckIndex, numDecks) ? deckAt (deckIndex).getStemAudio (lane) : nullptr; }
     void refreshLiveKeyAnalysis();
     juce::String getDeckKeyInfo (int deckIndex) const;
     juce::String getDeckTimePitchStatus (int deckIndex) const;
     juce::String getDeckBeatSyncStatus (int deckIndex) const;
+
+    // Measured beat-phase alignment for the deck's sync ring (message thread).
+    //  offset: signed error to the nearest grid beat, normalised so +/-1.0 == +/-half beat.
+    //  locked: true when a grid-locking mode holds phase; free-drift reports false.
+    //  active: sync is engaged AND the host transport is running.
+    struct DeckSyncPhase { float offset = 0.0f; bool locked = false; bool active = false; };
+    DeckSyncPhase getDeckSyncPhase (int deckIndex) const;
     juce::String getWarpEngineStatus() const;
     juce::StringArray getSupportedPluginHostFormats() const;
     juce::String getPluginHostStatus() const;
     juce::String getStemProviderStatus() const;
+    bool isNeuralStemAvailable() const;   // neural model present → AI split uses the net, not DSP
     juce::String getDeckStemProviderStatus (int deckIndex) const;
+    // 0..1 separation progress for the deck's AI-split ring. Returns 1.0 when no job
+    // is active (idle/complete); a fraction (ready/total core stems, clamped so it
+    // reads as in-progress) while a split is queued or running.
+    float getDeckStemSeparationProgress (int deckIndex) const;
     juce::Array<juce::PluginDescription> getKnownHostPlugins() const;
     juce::File getPluginHostCacheFile() const;
     bool loadPluginHostCache();
     bool savePluginHostCache() const;
     HostGraph::ScanResult scanPluginHostDefaultLocations (int maxPluginsPerFormat = 32, bool recursive = true);
+    // Sattari-only scan — the safe path (third-party plugins crash the host mid-scan).
+    HostGraph::ScanResult scanSattariPlugins() { return hostGraph.scanSattariOnly(); }
     juce::StringArray getPluginHostChainNames() const;
     void loadHostPluginToChainAsync (int chainIndex, int pluginIndex, HostGraph::LoadCallback callback);
     void clearHostPluginChain (int chainIndex);
+    // FX-rack introspection for the Sattari FX panel (chainIndex maps to HostGraph::Chain).
+    int getChainPluginCount (int chainIndex) const { return hostGraph.getChainPluginCount ((HostGraph::Chain) chainIndex); }
+    juce::String getChainPluginName (int chainIndex, int i) const { return hostGraph.getChainPluginName ((HostGraph::Chain) chainIndex, i); }
+    juce::AudioProcessor* getChainPluginProcessor (int chainIndex, int i) const { return hostGraph.getChainPluginProcessor ((HostGraph::Chain) chainIndex, i); }
+    void removeChainPlugin (int chainIndex, int i)
+    {
+        hostGraph.removeChainPlugin ((HostGraph::Chain) chainIndex, i);
+        refreshLatencyCompensation();   // chain latency changed
+    }
+    void moveChainPlugin (int chainIndex, int from, int to)
+    {
+        hostGraph.moveChainPlugin ((HostGraph::Chain) chainIndex, from, to);
+        refreshLatencyCompensation();   // order changed; PDC is unchanged in total but re-read
+    }
+    // Bypass keeps the node in the graph, so chain latency does NOT change — a bypassed
+    // plugin still reports its delay. Deliberately no refreshLatencyCompensation() here.
+    void setChainPluginBypassed (int chainIndex, int i, bool b)
+    { hostGraph.setChainPluginBypassed ((HostGraph::Chain) chainIndex, i, b); }
+    bool isChainPluginBypassed (int chainIndex, int i) const
+    { return hostGraph.isChainPluginBypassed ((HostGraph::Chain) chainIndex, i); }
     juce::String getPadPath (int padIndex) const;
     juce::StringArray getSupportedAudioExtensions() const;
     TransportSync::Snapshot getTransportSnapshot() const { return sync.getSnapshot(); }
@@ -155,6 +252,14 @@ public:
     // Smart mastering readouts for the MASTER OUTPUT panel.
     float getSmartMasterLufs() const noexcept { return smartMaster.getShortTermLufs(); }
     float getSmartMasterGr() const noexcept   { return smartMaster.getGainReductionDb(); }
+
+    // Live BS.1770 loudness (worker thread) + safety-limiter gain reduction, for the
+    // MASTER OUT panel. Integrated accumulates over the session; reset restarts it.
+    double getLiveIntegratedLufs() const noexcept { return liveLoudness.getIntegratedLufs(); }
+    double getLiveMomentaryLufs()  const noexcept { return liveLoudness.getMomentaryLufs(); }
+    double getLivePeakDb()         const noexcept { return liveLoudness.getPeakDb(); }
+    void   resetLiveLoudness() noexcept           { liveLoudness.resetIntegration(); }
+    float  getLimiterGrDb() const noexcept        { return limiterGrDb.load (std::memory_order_relaxed); }
 
     // True when no offline stems are loaded and real-time separation is active.
     bool isDeckRtssActive (int deckIndex) const;
@@ -237,7 +342,14 @@ private:
     static int keyTargetChoiceToPitchClass (int choiceIndex);
 
     void loadAudioAsync (const juce::File& file, std::function<void(std::shared_ptr<const DeckPlayer::LoadedAudio>)> onLoaded);
-    std::shared_ptr<const DeckPlayer::LoadedAudio> loadAudioFile (const juce::File& file);
+    // runNeuralInline=false returns as soon as the fast DSP analysis is done, so the
+    // deck is playable immediately (§A3); pair it with refineAnalysisAsync().
+    std::shared_ptr<const DeckPlayer::LoadedAudio> loadAudioFile (const juce::File& file,
+                                                                  bool runNeuralInline = true);
+    // Run the neural beat/key models off-thread for an already-playing deck and
+    // hot-swap the refined grid/key in. No audio interruption: the refined analysis
+    // is published through an atomic shared_ptr the audio thread reads per block.
+    void refineAnalysisAsync (int deckIndex, const juce::File& file);
     void restoreFileAssignmentsFromState();
     void setStatePathProperty (const juce::Identifier& property, const juce::String& path);
     void applyPremiumStemMix (int deckIndex);
@@ -254,69 +366,10 @@ private:
                               const juce::String& path = {}, const juce::String& details = {});
 
     static juce::String hotCueProperty (int deckIndex, int cueIndex);
+    static void migrateStemGainsDbToPercent (juce::ValueTree& tree);   // v1 dB -> v2 percent
 
-    // Simple per-deck built-in FX (reverb + echo)
-    struct DeckFX
-    {
-        juce::Reverb reverb;
-        std::vector<float> echoL, echoR;
-        int echoWritePos = 0;
-        juce::AudioBuffer<float> wetScratch;   // pre-allocated reverb wet path
-
-        void prepare (double sampleRate, int blockSize = 0)
-        {
-            juce::Reverb::Parameters p;
-            p.roomSize = 0.6f;  p.damping = 0.5f;  p.wetLevel = 1.0f;
-            p.dryLevel = 0.0f;  p.width = 0.8f;     p.freezeMode = 0.0f;
-            reverb.setParameters (p);
-            reverb.setSampleRate (sampleRate);
-            const int echoLen = (int) (sampleRate * 0.5);  // 500 ms max
-            echoL.assign ((size_t) echoLen, 0.0f);
-            echoR.assign ((size_t) echoLen, 0.0f);
-            echoWritePos = 0;
-            wetScratch.setSize (2, juce::jmax (1, blockSize));
-        }
-
-        void process (juce::AudioBuffer<float>& buf, float reverbWet, float echoWet)
-        {
-            if (buf.getNumSamples() == 0) return;
-            const int n = buf.getNumSamples();
-            float* L = buf.getWritePointer (0);
-            float* R = buf.getNumChannels() > 1 ? buf.getWritePointer (1) : L;
-
-            // Echo (300 ms tap, feedback 0.35)
-            if (echoWet > 0.001f && ! echoL.empty())
-            {
-                const int echoLen = (int) echoL.size();
-                const int tapOffset = (int) (echoLen * 0.6f);  // ~300 ms
-                for (int i = 0; i < n; ++i)
-                {
-                    const int readPos = ((echoWritePos - tapOffset) + echoLen) % echoLen;
-                    const float dL = echoL[(size_t) readPos];
-                    const float dR = echoR[(size_t) readPos];
-                    echoL[(size_t) echoWritePos] = L[i] + dL * 0.35f;
-                    echoR[(size_t) echoWritePos] = R[i] + dR * 0.35f;
-                    L[i] += dL * echoWet;
-                    R[i] += dR * echoWet;
-                    echoWritePos = (echoWritePos + 1) % echoLen;
-                }
-            }
-
-            // Reverb (wet path reuses the pre-allocated scratch — no RT alloc)
-            if (reverbWet > 0.001f)
-            {
-                const int wetCh = juce::jmin (2, buf.getNumChannels());
-                wetScratch.setSize (juce::jmax (1, wetCh), n, false, false, true);
-                for (int ch = 0; ch < wetCh; ++ch)
-                    wetScratch.copyFrom (ch, 0, buf, ch, 0, n);
-                reverb.processStereo (wetScratch.getWritePointer (0),
-                                      wetCh > 1 ? wetScratch.getWritePointer (1) : wetScratch.getWritePointer (0),
-                                      n);
-                for (int ch = 0; ch < buf.getNumChannels(); ++ch)
-                    buf.addFrom (ch, 0, wetScratch, juce::jmin (ch, wetCh - 1), 0, n, reverbWet);
-            }
-        }
-    };
+    // Per-deck built-in FX (reverb + echo) now lives in DeckFX.h so a Channel /
+    // TrackDeckBody can own one without depending on the whole processor.
 
     // MIDI notes staged by setMidiNotes() and consumed inside buildAndStartArrangement()
     // to populate the TE MIDI+4OSC synth tracks.  Message-thread only.
@@ -335,40 +388,63 @@ private:
     juce::AudioFormatManager formatManager;
     juce::ThreadPool loadPool { 4 };
 
+    // Async load/stem completion callbacks capture `this` and fire via callAsync on the
+    // message thread. A job can finish and post its closure just as the processor is torn
+    // down; this flag (kept alive by each closure's shared_ptr copy) is cleared FIRST in
+    // the destructor so a late closure skips instead of touching freed state.
+    std::shared_ptr<std::atomic<bool>> aliveFlag { std::make_shared<std::atomic<bool>> (true) };
+
     ArrangementPlayer arrangementPlayer;
     MidiClipPlayer    midiClipPlayer;
     Metronome         metronome;
     juce::int64       lastArrPos = 0;     // for loop-wrap detection (all-notes-off)
     bool              arrWasPlaying = false;
-    std::array<DeckFX, numDecks> deckFX;
-    std::array<RealTimeStemSeparator, numDecks> deckRTSS;
     // Per-deck scratch buffers for RTSS output (allocated in prepareToPlay)
-    std::array<juce::AudioBuffer<float>, numDecks> rtssDrumsBuffers;
-    std::array<juce::AudioBuffer<float>, numDecks> rtssBassBuffers;
-    std::array<juce::AudioBuffer<float>, numDecks> rtssMusicBuffers;
-    std::array<juce::AudioBuffer<float>, numDecks> rtssVocalsBuffers;
 
     std::vector<juce::int64> tapTimes;   // millisecond timestamps of recent taps
     MidiMappingManager midiMapping;
     void buildMidiTargets();
 
-    std::array<DeckPlayer, numDecks> decks;
+    // ── Channels (channel architecture) ──────────────────────────────────────
+    // The per-deck machinery now lives inside Channel/TrackDeckBody. `channels` is
+    // the message-thread authoritative list; `channelGraph` publishes an immutable
+    // snapshot the audio thread iterates lock-free (zero-dropout add/remove).
+    // Bootstrapped with numDecks TrackDeck channels so existing deck-indexed code
+    // keeps working while add/remove is layered on.
+    std::vector<std::shared_ptr<Channel>> channels;
+    ChannelGraph channelGraph;
+    DeckPlayer   nullDeck;   // out-of-range fallback for deckAt()
+    juce::MidiBuffer* currentBlockMidi = nullptr;   // audio thread only: this block's MIDI, for channel FX chains
+    std::atomic<bool> hasInputChannels { false };   // any Input channel present → capture device input
+    MidiCapture       midiCapture;                  // live MIDI recorded during a take
+
+    // Republish `channels` as a new immutable snapshot (message thread only).
+    void publishChannels();
+    // Build a fully-wired channel (body + frame hook) bound to parameter slot `index`.
+    std::shared_ptr<Channel> makeChannel (int index, ChannelType type);
+    // Rebuild the channel list from the persisted <CHANNELS> state child.
+    void restoreChannelsFromState();
+    // Recompute plugin-delay compensation across channels and report total latency to
+    // the host. Call whenever a channel's FX chain or the channel list changes.
+    void refreshLatencyCompensation();
+
     PadBank padBank;
     MasterRecorder masterRecorder;
     MasterRecorder micRecorder;
-    std::array<MasterRecorder, numDecks> deckRecorders;
+    std::array<MasterRecorder, kMaxChannels> deckRecorders;
     PerformanceRecorder performanceRecorder;
     TransportSync sync;
     WarpEngine warpEngine;
     HostGraph hostGraph;
     MasterFx masterFx;
     SmartMaster smartMaster;
+    stemdeck::LiveLoudnessMeter liveLoudness;
+    std::atomic<float> limiterGrDb { 0.0f };   // safety-limiter peak GR (dB), UI-read
     // Per-stem FX (RTSS path): [deck][stemIndex 0..3 = drums/bass/music/vocals].
-    std::array<std::array<MasterFx, 4>, numDecks> stemFx;
     // Post-limiter master peaks for UI metering (decayed on the audio thread).
     std::array<std::atomic<float>, 2> masterPeak { 0.0f, 0.0f };
     // Per-deck peaks (pre-crossfader) for the console channel meters.
-    std::array<std::array<std::atomic<float>, 2>, numDecks> deckPeak {};
+    std::array<std::array<std::atomic<float>, 2>, kMaxChannels> deckPeak {};
     StemProvider stemProvider;
 
     double currentSampleRate = 44100.0;
@@ -380,16 +456,18 @@ private:
     std::atomic<float> talkoverDuckDb       { -12.0f };
     float talkoverEnvelope = 0.0f;   // audio-thread: smoothed mic level [0,1]
     float talkoverDuckGain = 1.0f;   // audio-thread: current duck gain [0,1]
-    std::array<std::atomic<int>, numDecks> liveKeyPitchClass;
-    std::array<std::atomic<int>, numDecks> liveKeyIsMinor;
-    std::array<std::atomic<float>, numDecks> liveKeyConfidence;
-    std::array<int64_t, numDecks> lastLiveKeyAnalysisMs {};
+    std::array<std::atomic<int>, kMaxChannels> liveKeyPitchClass;
+    std::array<std::atomic<int>, kMaxChannels> liveKeyIsMinor;
+    std::array<std::atomic<float>, kMaxChannels> liveKeyConfidence;
+    std::array<int64_t, kMaxChannels> lastLiveKeyAnalysisMs {};
+    // Guards against piling up live-key analysis jobs; the heavy FFT runs on loadPool
+    // (drained in the dtor) instead of the UI timer, so it can't stall the UI.
+    std::array<std::atomic<bool>, kMaxChannels> liveKeyAnalysisInFlight {};
     std::atomic<int64_t> recordingSampleCounter { 0 };
     int64_t transportSampleCounter = 0;
     juce::File lastPerformanceEventLogFile;
     juce::File lastArrangementFile;
-    std::array<juce::File, numDecks> lastDeckRecordingTargets;
-    std::array<juce::AudioBuffer<float>, numDecks> deckScratchBuffers;
+    std::array<juce::File, kMaxChannels> lastDeckRecordingTargets;
     // Pre-allocated audio-thread scratch (sized in prepareToPlay) — avoids per-block
     // heap allocation in the mic-capture and Tracktion-mix paths.
     juce::AudioBuffer<float> micScratch;
@@ -410,8 +488,6 @@ private:
                 || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode;
         }
     };
-    std::array<BeatSyncEngine::TrackBeatGrid, numDecks> cachedBeatGrid;
-    std::array<GridCacheKey, numDecks> cachedGridKey;
 
     // Pre-concatenated APVTS parameter ids per deck. "deck + \"...\"" heap-allocates
     // a juce::String; caching keeps processBlock's per-deck reads allocation-free.
@@ -419,6 +495,8 @@ private:
     {
         juce::String bpm, beatOffset, downbeat, tempoInterp, syncMode, keyTarget, pitch,
                      play, liveKey, keyLock, volume, fader, low, mid, high, filter, revMix, echoMix;
+        juce::String displayName;   // "Deck A" — cached constant, so the audio-thread
+                                    // capture path doesn't rebuild it every block.
         std::array<juce::String, DeckPlayer::numStemLanes> stemGain, stemPitch, stemFilt, stemSend;
     };
     // Trained neural key model (optional). Applied on top of TrackAnalyzer's
@@ -430,7 +508,7 @@ private:
     // Persistent analysis cache — a re-load skips DSP + neural analysis.
     AnalysisCache analysisCache;
 
-    std::array<DeckParamIds, numDecks> deckIds;
+    std::array<DeckParamIds, kMaxChannels> deckIds;
     void cacheDeckParamIds();
 
     // Pad gains were read as getFloatParam("pad" + String(i+1) + "Gain") inside
@@ -458,7 +536,7 @@ private:
         int syncMode = 0;
     };
 
-    std::array<DeckPerformanceState, numDecks> lastDeckPerformanceState;
+    std::array<DeckPerformanceState, kMaxChannels> lastDeckPerformanceState;
     bool lastMicMonitor = false;
     bool lastHostSync = true;
     bool lastBeatSync = false;

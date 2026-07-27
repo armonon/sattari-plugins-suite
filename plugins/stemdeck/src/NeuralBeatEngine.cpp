@@ -1,4 +1,5 @@
 #include "NeuralBeatEngine.h"
+#include "ModelLocator.h"
 
 #if SATTARI_STEMDECK_HAS_ONNX
  #include <onnxruntime_cxx_api.h>
@@ -56,6 +57,8 @@ juce::File NeuralBeatEngine::defaultModelFile()
     const auto env = juce::SystemStats::getEnvironmentVariable ("SATTARI_STEMDECK_BEAT_MODEL", {}).trim();
     if (env.isNotEmpty())
         return juce::File (env);
+    if (const auto bundled = stemdeck::bundledModelFile ("beat-model.onnx"); bundled.existsAsFile())
+        return bundled;
     return configBeatModelFile();
 }
 

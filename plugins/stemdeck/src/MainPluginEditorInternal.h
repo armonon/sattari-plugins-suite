@@ -8,19 +8,33 @@
 // Each editor TU does `using namespace sdedit;` so call sites stay unqualified.
 
 #include "MainPluginEditor.h"
+#include "DesignTokens.h"
 
 namespace sdedit
 {
 inline juce::Colour deckAccent (int deckIndex)
 {
-    // Pulled from the suite brand registry so deck accents read as one family.
-    static const std::array<juce::uint32, 4> colours {
-        sattari::brand::productAccent ("stemdeck"),     // cyan
-        sattari::brand::kAccent,                         // mint
-        sattari::brand::kAccentViolet,                   // violet
-        sattari::brand::productAccent ("royal-chain"),   // gold
-    };
-    return juce::Colour (colours[(size_t) juce::jlimit (0, 3, deckIndex)]);
+    // Accents live in DesignTokens (--deck-a..d), which mirrors tokens.css. This used
+    // to hold its own copy of the table, and it had drifted: D was #FFB84A (that is
+    // --warn-2) where the token is #E8A54A.
+    //
+    // It also CLAMPED with jlimit(0,3), so every channel past the fourth came out
+    // amber — visible the moment channels stopped being exactly four. Wrap instead.
+    return stemdeck::tokens::deckAccent (deckIndex < 0 ? 0 : deckIndex % 4);
+}
+
+// Per-stem colours (perform-screen §9). Lanes are drums/bass/music/vocals (1..4)
+// with the full-mix at 0; the four separated stems map to DRM/BAS/OTH/VOX.
+inline juce::Colour stemLaneColour (int lane)
+{
+    switch (lane)
+    {
+        case DeckPlayer::drumsStem:  return juce::Colour (0xff4A9EFF);   // DRM blue
+        case DeckPlayer::bassStem:   return juce::Colour (0xff4AD9C4);   // BAS teal
+        case DeckPlayer::musicStem:  return juce::Colour (0xff888780);   // OTH neutral
+        case DeckPlayer::vocalsStem: return juce::Colour (0xffD4537E);   // VOX rose
+        default:                     return juce::Colour (0xff8A8A93);   // full mix
+    }
 }
 
 // This build decodes bare `char*` string literals as Latin-1, so any literal with

@@ -57,6 +57,7 @@ sattari_add_plugin(
         src/ArrangementView.cpp
         src/BeatSyncEngine.cpp
         src/DeckPlayer.cpp
+        src/DeckStrip.cpp
         src/EQProcessor.cpp
         src/FilterProcessor.cpp
         src/HostGraph.cpp
@@ -496,8 +497,255 @@ target_link_libraries(StemDeckArrangeApp PRIVATE
     juce::juce_gui_extra juce::juce_graphics
     juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
+# ── Toolbar icon render (verify PLAY/REC/AUTO button styling via PNG) ──────────
+add_executable(StemDeckToolbarRender EXCLUDE_FROM_ALL tests/stemdeck_toolbar_render.cpp)
+add_dependencies(StemDeckToolbarRender SattariStemDeck)
+target_include_directories(StemDeckToolbarRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckToolbarRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckToolbarRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Stem gain knob render (verify the 0/100/200 arc knob via PNG) ───────────────
+add_executable(StemDeckStemKnobRender EXCLUDE_FROM_ALL tests/stemdeck_stemknob_render.cpp)
+add_dependencies(StemDeckStemKnobRender SattariStemDeck)
+target_include_directories(StemDeckStemKnobRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckStemKnobRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckStemKnobRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Stem-scoped FX: per-stem plugin chains must re-sum phase-aligned ───────────
+add_executable(StemDeckStemFx EXCLUDE_FROM_ALL
+    tests/stemdeck_stemfx.cpp
+    src/BeatSyncEngine.cpp
+    src/DeckPlayer.cpp
+    src/EQProcessor.cpp
+    src/FilterProcessor.cpp
+    src/RealTimeStemSeparator.cpp
+    src/TimePitchEngine.cpp
+    src/TrackAnalysis.cpp
+    src/WarpEngine.cpp)
+add_dependencies(StemDeckStemFx SattariStemDeck)
+target_include_directories(StemDeckStemFx PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckStemFx PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckStemFx
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckStemFx)
+sattari_enable_rubberband(StemDeckStemFx SATTARI_STEMDECK_HAS_RUBBERBAND)
+
+# ── Camelot wheel render (verify wheel geometry + Camelot math via PNG) ─────────
+add_executable(StemDeckCamelotRender EXCLUDE_FROM_ALL tests/stemdeck_camelot_render.cpp)
+add_dependencies(StemDeckCamelotRender SattariStemDeck)
+target_include_directories(StemDeckCamelotRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckCamelotRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckCamelotRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Energy-arc arranger render (ScenePilot-style §arranger) ────────────────────
+add_executable(StemDeckEnergyArcRender EXCLUDE_FROM_ALL tests/stemdeck_energyarc_render.cpp)
+add_dependencies(StemDeckEnergyArcRender SattariStemDeck)
+target_include_directories(StemDeckEnergyArcRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckEnergyArcRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckEnergyArcRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Key-lock cores (§6.2 key curve + correction plan) ──────────────────────────
+add_executable(StemDeckKeyLockTest EXCLUDE_FROM_ALL tests/stemdeck_keylock.cpp)
+add_dependencies(StemDeckKeyLockTest SattariStemDeck)
+target_include_directories(StemDeckKeyLockTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckKeyLockTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckKeyLockTest
+    PRIVATE juce::juce_core juce::juce_audio_basics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Tempo panel render (verify §5 tempo map + retroactive lane via PNG) ─────────
+add_executable(StemDeckTempoRender EXCLUDE_FROM_ALL tests/stemdeck_tempo_render.cpp)
+add_dependencies(StemDeckTempoRender SattariStemDeck)
+target_include_directories(StemDeckTempoRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckTempoRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckTempoRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Waveform region render (verify the two-zone §2 layout via PNG) ──────────────
+add_executable(StemDeckWaveformRender EXCLUDE_FROM_ALL tests/stemdeck_waveform_render.cpp)
+add_dependencies(StemDeckWaveformRender SattariStemDeck)
+target_include_directories(StemDeckWaveformRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckWaveformRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckWaveformRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+# ── Whole-editor render (the only PNG gate that shows the UI IN CONTEXT) ───────
+# Links the plugin's SharedCode so it instantiates the real processor + editor.
+add_executable(StemDeckEditorRender EXCLUDE_FROM_ALL tests/stemdeck_editor_render.cpp)
+target_include_directories(StemDeckEditorRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckEditorRender PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)   # runDispatchLoopUntil, to settle async layout
+target_link_libraries(StemDeckEditorRender
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckEditorRender)
+sattari_enable_rubberband(StemDeckEditorRender SATTARI_STEMDECK_HAS_RUBBERBAND)
+if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    target_include_directories(StemDeckEditorRender PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(StemDeckEditorRender PRIVATE ${ONNXRUNTIME_LIB})
+    target_compile_definitions(StemDeckEditorRender PRIVATE
+        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+endif()
+
+# ── Deck strip render (verify the per-deck control strip styling via PNG) ───────
+add_executable(StemDeckDeckStripRender EXCLUDE_FROM_ALL
+    tests/stemdeck_deckstrip_render.cpp
+    src/DeckStrip.cpp)
+add_dependencies(StemDeckDeckStripRender SattariStemDeck)
+target_include_directories(StemDeckDeckStripRender PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckDeckStripRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckDeckStripRender
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
+# ── Bundle the ONNX models into the .app / .vst3 Resources ────────────────────
+# ModelLocator.h searches: env override -> bundle Resources -> ~/Library install.
+# Copying the models in makes a packaged StemDeck self-contained (no manual install),
+# but they are large (neural ~353MB + beat ~84MB), so this is OPT-IN and off by
+# default to keep dev builds fast:
+#     cmake -S plugins/stemdeck -B build/stemdeck -DSTEMDECK_BUNDLE_MODELS=ON
+option(STEMDECK_BUNDLE_MODELS "Copy the ONNX models into the app/plugin bundle Resources" OFF)
+
+if(STEMDECK_BUNDLE_MODELS)
+    set(_sd_model_dir "${CMAKE_CURRENT_LIST_DIR}/../../models")
+    set(_sd_models "")
+    foreach(_m "neural-model.onnx" "beat-model.onnx")
+        if(EXISTS "${_sd_model_dir}/${_m}")
+            list(APPEND _sd_models "${_sd_model_dir}/${_m}")
+        else()
+            message(WARNING "StemDeck: STEMDECK_BUNDLE_MODELS=ON but ${_m} is missing from ${_sd_model_dir} — the app will fall back to the ~/Library install or the DSP path.")
+        endif()
+    endforeach()
+
+    if(_sd_models)
+        # Standalone .app — Contents/Resources (what ModelLocator checks first).
+        add_custom_command(TARGET SattariStemDeck_Standalone POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_BUNDLE_CONTENT_DIR:SattariStemDeck_Standalone>/Resources"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_sd_models}
+                    "$<TARGET_BUNDLE_CONTENT_DIR:SattariStemDeck_Standalone>/Resources"
+            COMMENT "StemDeck: bundling ONNX models into the standalone app")
+
+        if(TARGET SattariStemDeck_VST3)
+            add_custom_command(TARGET SattariStemDeck_VST3 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                        "$<TARGET_BUNDLE_CONTENT_DIR:SattariStemDeck_VST3>/Resources"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_sd_models}
+                        "$<TARGET_BUNDLE_CONTENT_DIR:SattariStemDeck_VST3>/Resources"
+                COMMENT "StemDeck: bundling ONNX models into the VST3")
+        endif()
+        message(STATUS "StemDeck: model bundling ENABLED (${_sd_models})")
+    endif()
+endif()
+
+# ── Mute / solo arbitration contract ───────────────────────────────────────────
+add_executable(StemDeckSolo EXCLUDE_FROM_ALL tests/stemdeck_solo.cpp)
+add_dependencies(StemDeckSolo SattariStemDeck)
+target_include_directories(StemDeckSolo PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckSolo PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckSolo
+    PRIVATE juce::juce_audio_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckSolo)
+
+# ── MIDI capture contract (what you played -> piano roll) ──────────────────────
+add_executable(StemDeckMidiCapture EXCLUDE_FROM_ALL tests/stemdeck_midicapture.cpp)
+add_dependencies(StemDeckMidiCapture SattariStemDeck)
+target_include_directories(StemDeckMidiCapture PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckMidiCapture PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckMidiCapture
+    PRIVATE juce::juce_audio_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckMidiCapture)
+
+# ── Plugin delay compensation contract (§3.3) ──────────────────────────────────
+add_executable(StemDeckPdc EXCLUDE_FROM_ALL tests/stemdeck_pdc.cpp)
+add_dependencies(StemDeckPdc SattariStemDeck)
+target_include_directories(StemDeckPdc PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckPdc PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckPdc
+    PRIVATE juce::juce_audio_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckPdc)
+
+# ── Zero-dropout add/remove-under-playback contract (channel release gate) ─────
+add_executable(StemDeckChannelDropout EXCLUDE_FROM_ALL tests/stemdeck_channel_dropout.cpp)
+add_dependencies(StemDeckChannelDropout SattariStemDeck)
+target_include_directories(StemDeckChannelDropout PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckChannelDropout PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckChannelDropout
+    PRIVATE juce::juce_audio_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckChannelDropout)
+
+# ── TrackDeckBody render test (Step 3): per-deck render via ChannelBody ─────────
+add_executable(StemDeckTrackDeckBody EXCLUDE_FROM_ALL
+    tests/stemdeck_trackdeckbody.cpp
+    src/BeatSyncEngine.cpp
+    src/DeckPlayer.cpp
+    src/EQProcessor.cpp
+    src/FilterProcessor.cpp
+    src/RealTimeStemSeparator.cpp
+    src/TimePitchEngine.cpp
+    src/TrackAnalysis.cpp
+    src/WarpEngine.cpp)
+add_dependencies(StemDeckTrackDeckBody SattariStemDeck)
+target_include_directories(StemDeckTrackDeckBody PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckTrackDeckBody PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckTrackDeckBody
+    PRIVATE juce::juce_audio_utils
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckTrackDeckBody)
+sattari_enable_rubberband(StemDeckTrackDeckBody SATTARI_STEMDECK_HAS_RUBBERBAND)
+
+# ── Channel-architecture scaffolding compile + smoke check (Step 1a) ───────────
+add_executable(StemDeckChannelCompile EXCLUDE_FROM_ALL tests/stemdeck_channel_compile.cpp)
+add_dependencies(StemDeckChannelCompile SattariStemDeck)
+target_include_directories(StemDeckChannelCompile PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckChannelCompile PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckChannelCompile
+    PRIVATE juce::juce_audio_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckChannelCompile)   # JuceHeader.h pulls tracktion_graph
+
 add_executable(StemDeckResamplerTest
     EXCLUDE_FROM_ALL
         tests/stemdeck_resampler.cpp)

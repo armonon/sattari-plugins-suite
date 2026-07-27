@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 
 /**
  * Sample-accurate real-time stem separator (v2 — exact reconstruction).
@@ -57,8 +58,9 @@ public:
                   float* vocalsL, float* vocalsR);
 
     // Tunable thresholds (normalised 0..1)
-    void setDrumsSensitivity (float s) noexcept { drumsSensitivity = juce::jlimit (0.05f, 0.99f, s); }
-    void setVocalsMidWeight  (float w) noexcept { vocalsMidWeight  = juce::jlimit (0.0f,  1.0f,  w); }
+    // Tuning scalars: set from the UI thread, read on the audio thread → atomic (relaxed).
+    void setDrumsSensitivity (float s) noexcept { drumsSensitivity.store (juce::jlimit (0.05f, 0.99f, s), std::memory_order_relaxed); }
+    void setVocalsMidWeight  (float w) noexcept { vocalsMidWeight.store  (juce::jlimit (0.0f,  1.0f,  w), std::memory_order_relaxed); }
 
 private:
     // ── Transposed-Direct-Form-II biquad ──────────────────────────────────────
@@ -109,8 +111,8 @@ private:
     float vMaskSmooth   = 0.0f;
     float drumMaskSmooth = 0.0f;
 
-    float drumsSensitivity = 0.55f;
-    float vocalsMidWeight  = 0.90f;
+    std::atomic<float> drumsSensitivity { 0.55f };
+    std::atomic<float> vocalsMidWeight  { 0.90f };
 
     double sr = 44100.0;
 };

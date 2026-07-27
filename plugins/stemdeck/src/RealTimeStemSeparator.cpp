@@ -101,7 +101,7 @@ void RealTimeStemSeparator::process (const float* inL, const float* inR, int num
 {
     jassert (inL != nullptr && inR != nullptr);
 
-    const float drumThreshold = 1.0f + drumsSensitivity * 4.0f;   // 1.2 .. 5.0
+    const float drumThreshold = 1.0f + drumsSensitivity.load (std::memory_order_relaxed) * 4.0f;   // 1.2 .. 5.0
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -125,7 +125,7 @@ void RealTimeStemSeparator::process (const float* inL, const float* inR, int num
         const float midPow  = vEnvMid  * vEnvMid;
         const float sidePow = vEnvSide * vEnvSide;
         const float dominance = midPow / (midPow + sidePow + 1.0e-9f);
-        const float vMaskRaw  = dominance * vocalsMidWeight;
+        const float vMaskRaw  = dominance * vocalsMidWeight.load (std::memory_order_relaxed);
         vMaskSm += vMaskSmooth * (vMaskRaw - vMaskSm);
 
         const float vocals = vbMid * vMaskSm;   // mono vocal estimate

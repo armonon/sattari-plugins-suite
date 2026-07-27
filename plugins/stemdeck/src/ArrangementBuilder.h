@@ -19,7 +19,7 @@ struct PerformanceEvent
 class ArrangementBuilder
 {
 public:
-    static constexpr int numDecks = 4;
+    static constexpr int numDecks = 8;   // keep in sync with MainPluginProcessor::numDecks
 
     juce::var buildEventLogJson (const std::vector<PerformanceEvent>& events,
                                  int64_t endSample,

@@ -102,6 +102,64 @@ int main()
         check (empty.events.empty() && empty.masterTempo == 120.0, "malformed JSON yields a safe empty session");
     }
 
+    // ── Retroactive tempo lane (§5.4): re-times without touching event beats ────
+    {
+        SessionModel s; s.sampleRate = 48000.0; s.masterTempo = 124.0;
+        const double atConst = s.sampleTimeForBeat (64.0);   // constant 124 baseline
+
+        // Draw the tempo up: 124 at beat 0, ramping to 128 by beat 32, holding after.
+        s.setTempoPoint (0.0, 124.0);
+        s.setTempoPoint (32.0, 128.0);
+        const double atLane = s.sampleTimeForBeat (64.0);
+
+        check (atLane < atConst, "raising the tempo lane pulls a later beat EARLIER in time");
+        check (near (s.bpmAtBeat (0.0), 124.0) && near (s.bpmAtBeat (32.0), 128.0), "lane interpolates its endpoints");
+        check (near (s.bpmAtBeat (16.0), 126.0), "lane interpolates linearly between points");
+        check (near (s.bpmAtBeat (100.0), 128.0), "lane holds flat past the last point");
+        // Empty lane must equal the old constant-tempo formula exactly.
+        SessionModel c; c.sampleRate = 48000.0; c.masterTempo = 124.0;
+        check (near (c.sampleTimeForBeat (64.0), 64.0 * (60.0 / 124.0) * 48000.0),
+               "empty tempo lane == constant-tempo formula");
+        // A flat lane at the master tempo must match the constant formula too.
+        SessionModel f; f.sampleRate = 48000.0; f.masterTempo = 124.0;
+        f.setTempoPoint (0.0, 124.0); f.setTempoPoint (200.0, 124.0);
+        check (near (f.sampleTimeForBeat (64.0), atConst), "flat lane at master tempo matches constant formula");
+        // Round-trip preserves the lane.
+        auto rt = SessionModel::fromJSON (s.toJSON());
+        check (rt.tempoLane.size() == 2 && near (rt.tempoLane.back().bpm, 128.0), "tempo lane survives JSON round-trip");
+    }
+
+    // ── Schema v1 -> v2 stem-gain migration (ONE-WAY DOOR) ─────────────────────
+    // v1 stored dB (0 == unity); v2 stores percent (0 == silence). A v1 session must
+    // migrate, never be reinterpreted, or every stem silently mutes.
+    {
+        auto v1 = juce::String (R"({"schemaVersion":1,"sampleRate":48000.0,"masterTempo":124.0,"createdMs":0,
+            "tracks":[],"regions":[],"events":[
+              {"id":1,"atBeat":0.0,"type":"param","deck":0,"trackId":"","transport":"play","positionBeat":0.0,"paramId":"stemGain0","value":0.0},
+              {"id":2,"atBeat":1.0,"type":"param","deck":0,"trackId":"","transport":"play","positionBeat":0.0,"paramId":"stemGain1","value":-60.0},
+              {"id":3,"atBeat":2.0,"type":"param","deck":0,"trackId":"","transport":"play","positionBeat":0.0,"paramId":"stemGain2","value":12.0},
+              {"id":4,"atBeat":3.0,"type":"param","deck":0,"trackId":"","transport":"play","positionBeat":0.0,"paramId":"fader","value":0.0}]})");
+        auto s = SessionModel::fromJSON (v1);
+        auto valueOf = [&s] (const juce::String& pid) {
+            for (auto& e : s.events) if (e.paramId == pid) return e.value;
+            return -999.0;
+        };
+        check (near (valueOf ("stemGain0"), 100.0), "v1 0 dB migrates to 100% (unity), not silence");
+        check (valueOf ("stemGain1") < 1.0,          "v1 -60 dB migrates to ~0% (silence)");
+        // Note x2.0 is +6.0206 dB, so +6.0 dB is 199.5%; +12 dB is x3.98 and clamps.
+        check (near (valueOf ("stemGain2"), 200.0),  "v1 +12 dB clamps to the 200% (x2.0) ceiling");
+        check (near (valueOf ("fader"), 0.0),        "non-stem-gain params are left untouched by migration");
+
+        // A v2 session must pass through unchanged (no double migration).
+        const auto v2 = s.toJSON();
+        auto again = SessionModel::fromJSON (v2);
+        auto valueOf2 = [&again] (const juce::String& pid) {
+            for (auto& e : again.events) if (e.paramId == pid) return e.value;
+            return -999.0;
+        };
+        check (near (valueOf2 ("stemGain0"), 100.0), "v2 round-trip does not re-migrate stem gains");
+    }
+
     std::cout << (fails == 0 ? "SESSION_OK" : "SESSION_FAIL (" + std::to_string (fails) + ")") << "\n";
     return fails == 0 ? 0 : 1;
 }

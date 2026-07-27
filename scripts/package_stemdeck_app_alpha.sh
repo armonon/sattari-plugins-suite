@@ -60,6 +60,28 @@ if [[ -e "$frameworks_dir/librubberband.3.dylib" && -e "$frameworks_dir/libsampl
   /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_binary" 2>/dev/null || true
 fi
 
+# Optionally bundle the on-device neural models INTO the app so premium AI stem
+# separation and neural beat tracking work with zero manual install. Opt-in because
+# the models are large (~353MB stem + ~84MB beat): set STEMDECK_BUNDLE_MODELS=1.
+# NeuralStemEngine/NeuralBeatEngine::defaultModelFile() look in Contents/Resources.
+if [[ "${STEMDECK_BUNDLE_MODELS:-0}" == "1" ]]; then
+  resources_dir="$app_bundle/Contents/Resources"
+  mkdir -p "$resources_dir"
+  bundle_optional_model() {
+    local src="$repo_root/models/$1"
+    if [[ -f "$src" ]]; then
+      echo "--- bundling model $1 ($(du -h "$src" | cut -f1))"
+      ditto "$src" "$resources_dir/$1"
+    else
+      echo "--- model $1 not found at $src (skipped)"
+    fi
+  }
+  bundle_optional_model "neural-model.onnx"
+  bundle_optional_model "beat-model.onnx"
+else
+  echo "--- STEMDECK_BUNDLE_MODELS!=1: shipping without embedded neural models (users install to ~/Library or set the model env var)"
+fi
+
 /usr/bin/xattr -cr "$app_bundle" || true
 /bin/chmod -R u+rwX,go+rX "$app_bundle"
 codesign --force --deep --sign - "$app_bundle" >/dev/null

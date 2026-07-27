@@ -1,4 +1,5 @@
 #include "NeuralStemEngine.h"
+#include "ModelLocator.h"
 
 #if SATTARI_STEMDECK_HAS_ONNX
  #include <onnxruntime_cxx_api.h>
@@ -20,9 +21,12 @@ juce::File configModelFile()
 
 juce::File NeuralStemEngine::defaultModelFile()
 {
+    // 1) explicit override, 2) model shipped in the bundle, 3) user ~/Library install.
     const auto env = juce::SystemStats::getEnvironmentVariable ("SATTARI_STEMDECK_NEURAL_MODEL", {}).trim();
     if (env.isNotEmpty())
         return juce::File (env);
+    if (const auto bundled = stemdeck::bundledModelFile ("neural-model.onnx"); bundled.existsAsFile())
+        return bundled;
     return configModelFile();
 }
 

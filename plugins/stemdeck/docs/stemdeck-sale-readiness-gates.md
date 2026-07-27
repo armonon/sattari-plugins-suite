@@ -17,11 +17,11 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
 
 ## Explicit non-claims / current blockers
 
-- No bundled on-device stem model in the distributable package yet: premium AI stems currently require the configured offline separator command/Demucs helper and cached files.
+- On-device model bundling is now SUPPORTED (opt-in): `NeuralStemEngine`/`NeuralBeatEngine::defaultModelFile()` search env-var -> app/plugin bundle `Contents/Resources` -> `~/Library` install, and `package_stemdeck_app_alpha.sh` copies `models/*.onnx` into the app when `STEMDECK_BUNDLE_MODELS=1`. Still a product decision to actually ship it: the fp32 stem model is ~353MB (+84MB beat), so the default package stays lean and premium AI stems otherwise need a `~/Library` install or the offline demucs helper. Verified: bundled model is found and loaded (CPU fp32) ahead of the `~/Library` copy.
 - No sale-grade pitch/time engine claim yet: Preserve routes through Rubber Band when linked and otherwise through the internal granular key-lock fallback, while Preserve-off still uses resample fallback and can change pitch/artifact. The synthetic time/pitch benchmark protects routing/regression basics, but real-song listening validation is still required.
 - Live key analysis is lightweight chroma/Krumhansl analysis on the loaded full-mix window, not a commercial-grade polyphonic key detector yet. Validate false positives, CPU/UI stalls, and behavior during breakdowns/modulations.
 - No automatic downbeat/transient detection or editable DJ beatgrid yet; Beat Sync currently follows host PPQ plus each deck's Source BPM and manual Beat Grid Offset.
-- No plugin-host audio routing: a JUCE AudioPluginFormatManager discovery/load scaffold exists, but hosted VST3/AU audio/MIDI routing and UI are not productized.
+- Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: Sattari-only scan, per-chain `AudioProcessorGraph`, series FX rack, RT-safe processChain) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
 - No manual DAW pass completed by this repo-only script.
 - No real listening pass completed by this repo-only script.
 - No installer/notarization/EULA/payment/product-page work.

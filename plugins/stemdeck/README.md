@@ -65,7 +65,7 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - `MainPluginProcessor`
 - `MainPluginEditor`
 - `MasterRecorder`
-- `PluginHostManager` legacy JUCE `AudioPluginFormatManager` scaffold plus current `HostGraph` scan/load scaffold for VST3/AU discovery, chain selection, load/clear, and real-time-safe pass-through fallback when graph mutation is busy
+- `HostGraph` — Sattari-only VST3/AU discovery, per-chain (deck/mic/master) `AudioProcessorGraph`, chain selection, async load/clear, series FX rack, and real-time-safe pass-through fallback when graph mutation is busy
 - `TimePitchEngine` granular key-lock decision seam and `TrackAnalysis` groundwork
 - `RoadmapAdapters` header with placeholder interfaces for stem removal, mic input, and plugin hosting
 

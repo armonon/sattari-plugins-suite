@@ -10,6 +10,7 @@
 #include "MixerSection.h"
 #include "MixerView.h"
 #include "ArrangementView.h"
+#include "ToolbarIcons.h"
 #include "MusicLibraryView.h"
 #include "PianoRollView.h"
 #include "DrumExtractor.h"
@@ -18,14 +19,23 @@
 #include "RekordboxIO.h"
 #include "StemDeckLookAndFeel.h"
 #include "WaveformDisplay.h"
+#include "DeckStrip.h"
+#include "StemGainKnob.h"
+#include "CamelotWheel.h"
+#include "WaveformRegion.h"
+#include "TempoPanel.h"
+#include "SessionModel.h"
+#include "EnergyArc.h"
+#include "SattariFxRack.h"
+#include "ChannelStrip.h"
 #include "XYPad.h"
 
-// Plugin-FX hosting is a scaffold: PluginHostManager discovers + instantiates plugins
-// but their audio is NOT routed into the mix yet. Exposing "Load FX" in a shipping/demo
-// build shows a control that does nothing audible, so keep the whole FX-host UI behind
-// this flag. Flip to 1 (or -DSTEMDECK_ENABLE_PLUGIN_HOST=1) while developing the routing.
+// Plugin-FX hosting: HostGraph discovers + instantiates plugins AND its processChain
+// is now wired into processBlock for every deck, the mic bus, and the master (empty
+// chains pass through). So loaded FX are audible — the UI is enabled. The curated
+// "Sattari FX" loader lives in this panel (showSattariFxMenu).
 #ifndef STEMDECK_ENABLE_PLUGIN_HOST
- #define STEMDECK_ENABLE_PLUGIN_HOST 0
+ #define STEMDECK_ENABLE_PLUGIN_HOST 1
 #endif
 
 class MainPluginEditor final : public juce::AudioProcessorEditor,
@@ -40,6 +50,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
+
+    // Select a deck's segmented tab (CUE/LOOP/FX/SYNC/SRC) from outside the editor.
+    // Exists so StemDeckEditorRender can photograph every tab's panel — a tab whose
+    // content is only reachable by clicking is a tab the PNG gate never checks.
+    void selectDeckToolTab (int deckIndex, int tab);
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -64,7 +79,7 @@ private:
         juce::Label keyInfo;
         juce::Label stemStatus;
         juce::Slider bpm, beatOffset, downbeat, volume, fader, pitch, low, mid, high, filter;
-        std::array<juce::Slider, DeckPlayer::numStemLanes> stemGains;
+        std::array<stemdeck::StemGainKnob, DeckPlayer::numStemLanes> stemGains;   // 0/100/200 knobs (§3)
         std::unique_ptr<ButtonAttachment> playAttachment, keyLockAttachment, liveKeyAttachment;
         std::unique_ptr<ComboBoxAttachment> keyTargetAttachment, tempoInterpretationAttachment, syncModeAttachment;
         std::unique_ptr<SliderAttachment> bpmAttachment, beatOffsetAttachment, downbeatAttachment, volumeAttachment, faderAttachment, pitchAttachment, lowAttachment, midAttachment, highAttachment, filterAttachment;
@@ -433,22 +448,77 @@ private:
     juce::TextButton reloadPluginCacheButton { "Reload Cache" };
     juce::TextButton loadPluginButton { "Load FX" };
     juce::TextButton clearChainButton { "Clear FX" };
+    juce::TextButton sattariFxButton { "SATTARI FX" };   // curated one-click Sattari-suite loader
+    stemdeck::SattariFxRack fxRack;                       // FX-rack panel (replaced the crossfader)
+    juce::OwnedArray<stemdeck::PluginEditorWindow> pluginWindows;
+    void addSattariFxToChain (int chainIndex);           // menu -> load into a specific chain
+    bool pluginScanInFlight = false;
+    void openChainPluginEditor (int chainIndex, int pluginIndex);
+    // Plugin editors hold a raw reference to a processor OWNED BY THE GRAPH. Removing
+    // or clearing a chain destroys that processor, so every open editor must be closed
+    // FIRST or its next paint is a use-after-free.
+    void closeAllPluginWindows() { pluginWindows.clear(); }
     juce::ComboBox pluginChainSelector, pluginSelector;
     juce::Label pluginHostMessage;
     juce::Array<juce::PluginDescription> knownHostPlugins;
     std::array<std::unique_ptr<WaveformDisplay>, MainPluginProcessor::numDecks> deckWaves;
+    // Two-zone waveform (§2), shown for loaded decks in place of the flat WaveformDisplay.
+    std::array<std::unique_ptr<stemdeck::WaveformRegion>, MainPluginProcessor::numDecks> deckWaveRegions;
+    std::array<int, MainPluginProcessor::numDecks> waveDataState { { -1, -1, -1, -1 } };   // reload peaks on change
+    void refreshDeckWaveData (int deckIndex);   // async peak extraction -> region
+    static std::vector<float> extractPeaks (const juce::AudioBuffer<float>& buf, int bins);
     std::array<DeckControls, MainPluginProcessor::numDecks> deckControls;
+
+    // ── Per-deck control strips (Row 1 always visible + Row 2 drawer) ────────────
+    // Stacked full-width beneath the deck row. Wire live state each tick.
+    std::array<std::unique_ptr<stemdeck::DeckStrip>, MainPluginProcessor::numDecks> deckStrips;
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStripBounds {};
+    std::array<int,    MainPluginProcessor::numDecks> stripJumpBars  { { 4, 4, 4, 4 } };
+    std::array<double, MainPluginProcessor::numDecks> stripLoopBeats { { 4.0, 4.0, 4.0, 4.0 } };
+    std::array<int,    MainPluginProcessor::numDecks> stripQuant     { { 3, 3, 3, 3 } };
+    std::array<bool,   MainPluginProcessor::numDecks> stripCueHeld   { {} };
+    // Pre-mute stem gains, in percent (StemGain.h). Defaults to unity — zero would
+    // mean "restore to silence" on the first unmute.
+    std::array<std::array<float, 4>, MainPluginProcessor::numDecks> stripSavedStemGain
+        { { { 100.0f, 100.0f, 100.0f, 100.0f }, { 100.0f, 100.0f, 100.0f, 100.0f },
+            { 100.0f, 100.0f, 100.0f, 100.0f }, { 100.0f, 100.0f, 100.0f, 100.0f } } };
+    std::array<int,    MainPluginProcessor::numDecks> stripSolo      { { -1, -1, -1, -1 } };
+    void configureDeckStrip (int deckIndex);
+    void refreshDeckStrips();
+    bool deckHasContent (int deckIndex) const;   // has a loaded track (or showcase title)
+    void applyDeckDim (int deckIndex, bool loaded);
+
+    // ── Focus model: one deck expands to full height, the rest collapse to strips ──
+    int  focusedDeck = 0;
+    void setFocusedDeck (int deckIndex);
+    void layoutCollapsedDeck (int deckIndex, juce::Rectangle<int> strip);
+    void setDeckDetailVisible (int deckIndex, bool visible);
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckCollapsedBounds {};
+    std::array<int, MainPluginProcessor::numDecks> deckDimState { { -1, -1, -1, -1 } };
+
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStemBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckStemFxBounds {};
+    // Segmented-control track and the well the active tab's panel sits in — painted
+    // in paint() so the tabs read as one control over a recess (reference §3).
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckTabStripBounds {};
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckTabPanelBounds {};
+    // Master Control Band — five bounded panels.
+    juce::Rectangle<int> scopePanelBounds {};   // SCOPE
+    juce::Rectangle<int> syncPanelBounds {};     // SYNC (stacked BPM/KEY pills)
+    juce::Rectangle<int> xfPanelBounds {};       // CROSSFADER
+    juce::Rectangle<int> masterFxPanelBounds {}; // MASTER FX (FILTER pad)
     juce::Rectangle<int> masterOutBounds {};    // MASTER OUTPUT panel (meters/gain/tempo)
     juce::Rectangle<int> masterMeterBounds {};  // stereo meter zone inside it
     juce::Rectangle<int> masterTempoBounds {};  // painted GLOBAL TEMPO box
+    juce::Rectangle<int> masterLufsBounds {};   // live integrated LUFS + limiter GR readout
+    std::array<float, 2> masterMeterHold { { 0.0f, 0.0f } };   // per-channel peak-hold (0..1)
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckMeterBounds {};  // console per-deck meters
     juce::TextButton keyLockAllButton { "Key Lock" };
     juce::TextButton aiMasterButton { "AI Master" };
     juce::ComboBox aiMasterMode;
+    juce::Slider aiMasterAmount;   // depth of the auto-master (smartMasterAmount), was hardwired 0.8
     juce::TextButton rbxExportButton { "RBX Save" };
     juce::TextButton rbxImportButton { "RBX Load" };
     std::unique_ptr<juce::FileChooser> rbxChooser;
@@ -456,6 +526,7 @@ private:
     std::array<juce::String, MainPluginProcessor::numDecks> lastCuePaths;
     void applyImportedCues (int deckIndex);
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> aiMasterAttachment;
+    std::unique_ptr<SliderAttachment> aiMasterAmountAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aiMasterModeAttachment;
     juce::Rectangle<int> headerBarBounds {};
     juce::Rectangle<int> tempoChipBounds {};
@@ -464,11 +535,11 @@ private:
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Cut
     juce::TextButton crossfaderReverse { "REV" };   // hamster / reverse toggle
-    juce::ToggleButton hostSync, beatSync, micMonitor;
+    juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "TAP" };
-    juce::TextButton masterPlayButton;   // header: play/stop ALL decks at once
-    juce::TextButton topRecordButton;    // header: arm/stop capturing the performance
-    juce::TextButton automixButton;      // header: phrase-aligned auto-transition
+    stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "PLAY ALL", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
+    stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "REC",      juce::Colour (0xffff3b47) };   // header: arm/stop capturing
+    stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "AUTO",     juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
     juce::Label      automixStatusLabel; // shows the current transition plan / progress
     juce::TextButton camelotButton { "Key" };
 
@@ -490,7 +561,7 @@ private:
     juce::TextButton razorButton { "Razor" };
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton arrLoopButton { "Loop" };
-    juce::TextButton launchAllButton { ">>>" };
+    juce::TextButton launchAllButton { "LAUNCH" };   // trigger all clip slots at next beat (was cryptic ">>>")
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton arrRecordButton { "Record" };
     juce::TextButton undoButton { "Undo" };
@@ -514,6 +585,8 @@ private:
     // Mix-timeline arrangement overlay (the ARRANGER surface) — draws a live
     // snapshot of the loaded decks: clips, stem-less waveforms, structure, xfader.
     ArrangementView mixArrangeView;
+    stemdeck::EnergyArcArranger energyArc;   // ScenePilot energy-arc (top of the ARRANGER)
+    int energyArcSig = 0;                     // rebuild the arc when the structure changes
     void refreshMixArrangement();   // rebuild the snapshot session from deck state
     juce::TextButton mixerButton { "Mixer" };
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
@@ -535,7 +608,7 @@ private:
     std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment, limiterAttachment, micGainAttachment;
     std::unique_ptr<ComboBoxAttachment> crossfaderCurveAttachment;
     std::unique_ptr<ButtonAttachment> crossfaderReverseAttachment;
-    std::unique_ptr<ButtonAttachment> hostSyncAttachment, beatSyncAttachment, micMonitorAttachment;
+    std::unique_ptr<ButtonAttachment> hostSyncAttachment, beatSyncAttachment, micMonitorAttachment, liveMidiAttachment;
 
     juce::FileChooser deckChooser { "Load a deck track" };
     juce::FileChooser padChooser { "Load a one-shot sample" };
@@ -559,7 +632,23 @@ private:
     // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button
     // in the header (plus title double-click) reveals them.
     bool advancedVisible = false;
+    bool padsCollapsed = false;   // performance-pads strip collapsed when no pad is loaded
+    stemdeck::PlayIconLookAndFeel playIconLnF;   // deck play/stop rendered as an icon
     juce::TextButton advancedToggle { "TOOLS" };
+    // Channel add/remove (channel architecture). Adding/removing is zero-dropout —
+    // the engine swaps an immutable graph snapshot (see GraphSnapshot.h).
+    // Per-type strips for non-TrackDeck channels (Input / MIDI Instrument). Deck
+    // channels keep their full stem panel; these render beside them (spec §6).
+    std::array<std::unique_ptr<stemdeck::ChannelStrip>, MainPluginProcessor::getMaxChannels()> channelStrips;
+    void refreshChannelStrips();
+    // Shared "add channel" type picker. target=nullptr anchors to the in-layout tile.
+    void showAddChannelMenu (juce::Component* target);
+    // The always-visible "+" tile at the end of the channel row — makes the channel
+    // model discoverable instead of hiding it behind a toolbar button.
+    juce::Rectangle<int> addChannelTileBounds;
+
+    juce::TextButton addChannelButton    { "+ CH" };
+    juce::TextButton removeChannelButton { "- CH" };
     // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline
     // blocks). Off by default — real state only; opt-in via the Settings gear.
     bool showcaseMode = false;
@@ -581,8 +670,8 @@ private:
     void showKeyMenuForDeck (int deckIndex);
     void syncBpmAll();   // warp all decks to the master deck's tempo (hotkey B)
     void syncKeyAll();   // harmonically match all decks to the master deck (hotkey K)
-    juce::TextButton syncBpmButton { "BPM SYNC" };
-    juce::TextButton syncKeyButton { "KEY SYNC" };
+    juce::TextButton syncBpmButton { "BPM" };   // in the SYNC panel; header supplies "sync"
+    juce::TextButton syncKeyButton { "KEY" };
     // Master deck = sync reference. Auto-follows the last deck to start playing;
     // click a deck's letter badge to override.
     int masterDeckIndex = 0;
@@ -603,7 +692,14 @@ private:
     void setupDeck (DeckControls& controls, const juce::String& prefix, const juce::String& playText);
     void setupSlider (juce::Slider& slider, bool rotary, const juce::String& suffix = {});
     void setupButton (juce::Button& button);
+    // .stemdeck project schema. v2 added the full processor state (params, channel
+    // list, file assignments); v1 files carry only the arrangement + piano roll and
+    // still load. Bump when a stored value's MEANING changes, and migrate on load.
+    static constexpr int kProjectVersion = 2;
+
     void setupComboBox (juce::ComboBox& comboBox);
+    // Enable/disable the +CH / -CH buttons at the pool limits and show the count.
+    void refreshChannelButtons();
     void openDeckChooser (int deckIndex);
     void openDeckStemChooser (int deckIndex, int stemLaneIndex);
     void applyExtractedMelody (int deckIndex, const std::vector<MelodyExtractor::Note>& notes, bool neural = false);
@@ -613,6 +709,7 @@ private:
     // Toolbox tab helpers
     void setupToolTabs (int deckIndex);
     void setDeckToolTab (int deckIndex, int tab);
+    void refreshFxScopes();
     void applyDeckToolTabVisibility (int deckIndex);
 
     // Hot cue helpers
@@ -639,6 +736,12 @@ private:
 
     // UI helpers
     void showCamelotWheel (int deckIndex);
+    void showTempoPanel (int deckIndex);   // §5 unified tempo panel, opened from the BPM chip
+    void refreshEnergyArc();               // Auto Director: build the arc from structure
+    void applyPerStemKeyLock (int deckIndex, int semitones);   // §7 tier-2: tonal stems only, drums untouched
+    // Retroactive MASTER tempo lane, normalised (beat 0..1, bpm). Edited in the tempo
+    // panel; folded into the session (as beats) when the mix arrangement is built.
+    std::vector<std::pair<float, double>> masterTempoLaneNorm;
     void showLibraryMeta (const juce::File& file);
     void updateMidiLearnUI();
 
@@ -657,6 +760,7 @@ private:
     void bounceArrangementEdits();
     void refreshHostPluginChoices();
     void runPluginHostScan();
+    void showSattariFxMenu();   // curated Sattari-suite FX loader for the selected chain
     void loadSelectedHostPlugin();
     void refreshUserPresets();
     void saveCurrentAsUserPreset();

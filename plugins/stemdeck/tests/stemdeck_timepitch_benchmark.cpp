@@ -77,8 +77,11 @@ juce::AudioBuffer<float> renderCase (const TimePitchDecision& decision, int bloc
     deck.setLoadedAudio (makeSyntheticDjLoop());
 
     std::array<float, DeckPlayer::numStemLanes> stemGains {};
-    stemGains.fill (-60.0f);
-    stemGains[(size_t) DeckPlayer::fullMixStem] = -3.0f;
+    // LINEAR stem gains (see StemGain.h): 0.0 = mute, 1.0 = unity. Predates the
+    // dB->linear migration; the old -60/-3 dB values now clamp to 0.0 = silence,
+    // which would make this benchmark render nothing to listen to. 0.71 ~= -3 dB.
+    stemGains.fill (0.0f);
+    stemGains[(size_t) DeckPlayer::fullMixStem] = 0.71f;
 
     const int totalSamples = (int) sampleRate * renderSeconds;
     juce::AudioBuffer<float> output (2, totalSamples);

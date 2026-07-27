@@ -19,6 +19,15 @@ struct TrackAnalysis
     bool keyIsMinor = false;
     float keyConfidence = 0.0f;
 
+    // Which engine produced each result — user-facing (§A3/§B3: the readout must say
+    // whether the neural model or the DSP fallback won, and flag low confidence).
+    enum class Source { dsp = 0, neural = 1 };
+    Source keySource  = Source::dsp;
+    Source beatSource = Source::dsp;
+    // True when the winning key result sits below the trust floor: the UI shows it
+    // italic/amber rather than presenting a guess as fact.
+    bool keyLowConfidence = false;
+
     bool hasKey() const noexcept { return keyPitchClass >= 0 && keyPitchClass < 12 && keyConfidence > 0.0f; }
     juce::String keyName() const;
 };

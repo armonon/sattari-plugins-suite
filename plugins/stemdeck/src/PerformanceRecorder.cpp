@@ -26,7 +26,9 @@ void PerformanceRecorder::begin (const juce::File& masterFile, double sampleRate
     arrangementFile = withSuffix (masterFile, "-arrangement", ".json");
     {
         const juce::ScopedLock lock (eventLock);
-        events.reserve (8192);
+        // Reserve generous headroom ONCE so logEvent (audio thread) never reallocates.
+        // Events fire only on state changes, so even a long busy set stays well under this.
+        events.reserve (131072);
     }
     active.store (true);
     logEvent (0, "record_start", {}, {}, {}, masterFile.getFullPathName(), "Performance recorder started");
@@ -62,6 +64,10 @@ void PerformanceRecorder::logEvent (int64_t sample,
 
     const juce::ScopedTryLock lock (eventLock);
     if (! lock.isLocked())
+        return;
+    // Never reallocate on the audio thread: if the pre-reserved capacity is somehow
+    // exhausted (pathologically long set), drop the event rather than grow the vector.
+    if (events.size() >= events.capacity())
         return;
     events.push_back (std::move (event));
 }

@@ -1,4 +1,5 @@
 #include "ArrangementView.h"
+#include "DesignTokens.h"
 #include "SessionRender.h"
 
 using namespace stemdeck::session;
@@ -97,9 +98,10 @@ float ArrangementView::beatToX (double beat, juce::Rectangle<int> area) const
 
 juce::Colour ArrangementView::deckColour (int deck)
 {
-    static const juce::Colour c[4] { juce::Colour (0xff2fd8f0), juce::Colour (0xff4ee6a8),
-                                     juce::Colour (0xffb98cff), juce::Colour (0xffe8c25c) };
-    return c[juce::jlimit (0, 3, deck)];
+    // Was a third hand-copied table of the same four colours, and it had drifted
+    // (D was #FFB84A, the token is #E8A54A). Comments claiming "identical to
+    // sdedit::deckAccent" did not keep it identical — only sharing the definition does.
+    return stemdeck::tokens::deckAccent (deck < 0 ? 0 : deck % 4);
 }
 
 void ArrangementView::paint (juce::Graphics& g)

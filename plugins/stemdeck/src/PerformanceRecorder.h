@@ -7,7 +7,7 @@
 class PerformanceRecorder
 {
 public:
-    static constexpr int numDecks = 4;
+    static constexpr int numDecks = 8;   // keep in sync with MainPluginProcessor::numDecks
 
     void begin (const juce::File& masterFile, double sampleRate);
     void reset();

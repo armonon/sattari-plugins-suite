@@ -15,16 +15,36 @@
 
 // StemDeck-local palette. Referenced by the editor's drawPanel() and the paint
 // overrides below. A cool-neutral near-black ground with a cyan accent.
+// A single systematic neutral ramp (Tailwind-zinc style) shared by the LookAndFeel,
+// the editor chrome, and every component. One scale, applied everywhere, is what
+// makes the surface read as cohesive + modern rather than a patchwork of greys.
+#include "DesignTokens.h"
+
 namespace stemdeck::palette
 {
-    inline constexpr juce::uint32 kBackground  = 0xff0b0c0e;   // app ground (near-black)
-    inline constexpr juce::uint32 kPanel       = 0xff101216;   // matte panel
-    inline constexpr juce::uint32 kPanelRaised  = 0xff171a20;   // raised control / button
-    inline constexpr juce::uint32 kPanelDeep    = 0xff08090b;   // recessed track well
-    inline constexpr juce::uint32 kHairline     = 0xff262932;   // divider / border
-    inline constexpr juce::uint32 kGlassEdge     = 0xff2f333c;   // brighter line (kept name for editor compat)
-    inline constexpr juce::uint32 kTextPrimary  = 0xffedf0f4;   // near-white (slight cool)
-    inline constexpr juce::uint32 kTextMuted     = 0xff828892;   // neutral grey
+    // Aliases onto DesignTokens (which mirrors docs/reference/tokens.css) so there is
+    // one definition per colour. These were hand-typed and had drifted from the
+    // reference: kPanel was #131316 (that value is --bg-panel-2, a SUB-panel) and
+    // kPanelDeep was #0B0B0D, i.e. identical to the app ground, so a "recessed well"
+    // was indistinguishable from the background it sat on.
+    namespace T = stemdeck::tokens;
+    inline constexpr juce::uint32 kBackground    = T::bgApp;
+    inline constexpr juce::uint32 kPanel         = T::bgPanel;        // was #131316
+    inline constexpr juce::uint32 kPanelRaised   = T::bgControl;
+    inline constexpr juce::uint32 kControlHover  = T::bgControlHover;
+    inline constexpr juce::uint32 kPanelDeep     = T::bgWell;         // was #0B0B0D (= ground)
+    inline constexpr juce::uint32 kHairline      = T::borderSubtle;
+    inline constexpr juce::uint32 kGlassEdge     = T::fgFaint;        // brighter border (kept name)
+    inline constexpr juce::uint32 kTextPrimary   = T::fgPrimary;
+    inline constexpr juce::uint32 kTextSecondary = T::fgSecondary;
+    inline constexpr juce::uint32 kTextMuted     = T::fgTertiary;
+    inline constexpr juce::uint32 kTextFaint     = T::fgMuted;
+    inline constexpr juce::uint32 kWarn          = T::warn2;          // take marker / hot amber
+
+    // Shared geometry tokens so radii/borders are consistent, not ad-hoc.
+    inline constexpr float kRadius   = T::radiusControl;   // default corner
+    inline constexpr float kRadiusLg = T::radiusPanel;     // panels (was 8, token is 9)
+    inline constexpr float kBorder   = 1.0f;    // hairline stroke
 }
 
 class StemDeckLookAndFeel : public sattari::ui::SattariLookAndFeel
@@ -169,6 +189,26 @@ public:
             return;
         }
 
+        // Segmented-control tab (reference §3): an iOS-style segment inside a
+        // bg-well-2 track. The ACTIVE segment is a raised bg-control chip with no
+        // border; inactive segments are fully transparent so the track shows through.
+        // Drawing a border per segment is what makes a segmented control read as five
+        // separate buttons instead of one control.
+        if (b.getProperties().getWithDefault ("segTab", false))
+        {
+            if (on)
+            {
+                g.setColour (juce::Colour (kPanelRaised));
+                g.fillRoundedRectangle (r, T::radiusControl);
+            }
+            else if (shouldDrawDown || shouldDrawHighlighted)
+            {
+                g.setColour (juce::Colour (kPanelRaised).withAlpha (shouldDrawDown ? 0.55f : 0.30f));
+                g.fillRoundedRectangle (r, T::radiusControl);
+            }
+            return;
+        }
+
         // Performance pads: flat cell, coloured hairline border, subtle colour wash
         // when active/pressed. Colour identity without the rubber skeuomorphism.
         if (const int pcv = (int) b.getProperties().getWithDefault ("padColour", 0); pcv != 0)
@@ -189,19 +229,50 @@ public:
             return;
         }
 
-        const float corner = 7.0f;
-
+        // Clean flat button (Tailwind-style): neutral fill, subtle hover lift, an
+        // accent-tinted fill + accent border only when toggled on. Consistent radius.
+        const float corner = kRadius;
         juce::Colour fill = juce::Colour (kPanelRaised);
-        if (shouldDrawDown)             fill = getAccent().withAlpha (0.28f);
-        else if (on)                    fill = getAccent().withAlpha (0.16f);
-        else if (shouldDrawHighlighted) fill = juce::Colour (kPanelRaised).brighter (0.10f);
+        juce::Colour border = juce::Colour (kHairline);
+        if (on)
+        {
+            fill   = getAccent().withAlpha (shouldDrawDown ? 0.30f : 0.18f);
+            border = getAccent().withAlpha (0.55f);
+        }
+        else if (shouldDrawDown)        { fill = juce::Colour (kControlHover).darker (0.12f); }
+        else if (shouldDrawHighlighted) { fill = juce::Colour (kControlHover); border = juce::Colour (kGlassEdge); }
 
         g.setColour (fill);
         g.fillRoundedRectangle (r, corner);
+        g.setColour (border);
+        g.drawRoundedRectangle (r.reduced (0.5f), corner, kBorder);
+    }
 
-        g.setColour ((on || shouldDrawDown || shouldDrawHighlighted) ? getAccent().withAlpha (0.75f)
-                                                                     : juce::Colour (kHairline));
-        g.drawRoundedRectangle (r, corner, 1.0f);
+    // Clean button text: medium-weight, fg-primary (accent when toggled on), padded.
+    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool over, bool down) override
+    {
+        using namespace stemdeck::palette;
+        const bool on = b.getToggleState();
+
+        // Segmented-control tabs carry state in the CHIP, so their text stays neutral
+        // (fg-primary active / fg-tertiary inactive, medium weight when active) per
+        // the reference. They also set their own text colours, which the general path
+        // below ignores in favour of a hardcoded accent.
+        if (b.getProperties().getWithDefault ("segTab", false))
+        {
+            g.setFont (juce::FontOptions (T::tBody, on ? juce::Font::bold : juce::Font::plain));
+            g.setColour (b.findColour (on ? juce::TextButton::textColourOnId
+                                          : juce::TextButton::textColourOffId)
+                          .withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.4f));
+            g.drawFittedText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred, 1);
+            return;
+        }
+
+        const float fs = juce::jlimit (9.0f, 14.0f, (float) b.getHeight() * 0.5f);
+        g.setFont (juce::FontOptions (fs, juce::Font::plain));
+        g.setColour (on ? getAccent().brighter (0.25f)
+                        : juce::Colour (kTextPrimary).withMultipliedAlpha (b.isEnabled() ? (over || down ? 1.0f : 0.92f) : 0.4f));
+        g.drawFittedText (b.getButtonText(), b.getLocalBounds().reduced (8, 0), juce::Justification::centred, 1);
     }
 
 private:

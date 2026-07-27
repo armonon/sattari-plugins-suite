@@ -17,8 +17,24 @@ public:
         deckD,
         mic,
         master,
-        count
+        // 16 per-stem chains (4 decks x 4 stems), deck-major. Appended AFTER master so
+        // the six original ids keep their numeric values — chainId() strings are
+        // persisted in saved state, and renumbering would silently reassign a user's
+        // FX to a different chain on load.
+        stemFirst,
+        count = stemFirst + 16
     };
+
+    static constexpr int kNumDecks       = 4;
+    static constexpr int kNumStemsPerDeck = 4;   // drums, bass, music, vocals
+
+    // stemIndex is 0..3 (drums, bass, music, vocals) — i.e. DeckPlayer::drumsStem - 1.
+    static constexpr Chain stemChain (int deckIndex, int stemIndex) noexcept
+    {
+        return (Chain) ((int) Chain::stemFirst + deckIndex * kNumStemsPerDeck + stemIndex);
+    }
+    static constexpr bool isStemChain (Chain c) noexcept
+    { return (int) c >= (int) Chain::stemFirst && (int) c < (int) Chain::count; }
 
     struct ScanResult
     {
@@ -43,6 +59,8 @@ public:
     juce::File getCacheFile() const;
 
     ScanResult scanDefaultLocations (int maxPluginsPerFormat = 64, bool recursive = true);
+    // Scan ONLY the Sattari suite (safe: third-party plugins can crash the host mid-scan).
+    ScanResult scanSattariOnly();
     bool loadCache();
     bool saveCache() const;
 
@@ -50,6 +68,20 @@ public:
                                  const juce::PluginDescription& description,
                                  LoadCallback callback);
     void clearChain (Chain chain);
+
+    // Rack introspection (message thread): list loaded plugins + reach their editors.
+    int getChainPluginCount (Chain chain) const;
+    // Latency this chain's loaded plugins introduce, in samples. Drives plugin delay
+    // compensation so channels with FX stay phase-aligned with those without (§3.3).
+    int getChainLatencySamples (Chain chain) const;
+    juce::String getChainPluginName (Chain chain, int index) const;
+    juce::AudioProcessor* getChainPluginProcessor (Chain chain, int index) const;
+    void removeChainPlugin (Chain chain, int index);
+    // Reorder and bypass: pluginNodes is an ordered array that rebuildChainConnections
+    // wires input->[0]->[1]->...->output, so moving an entry IS reordering the chain.
+    void moveChainPlugin (Chain chain, int fromIndex, int toIndex);
+    void setChainPluginBypassed (Chain chain, int index, bool bypassed);
+    bool isChainPluginBypassed (Chain chain, int index) const;
 
     static juce::String chainId (Chain chain);
     static juce::String chainName (Chain chain);
@@ -62,7 +94,11 @@ private:
         juce::AudioProcessorGraph::Node::Ptr outputNode;
         juce::Array<juce::AudioProcessorGraph::Node::Ptr> pluginNodes;
         juce::CriticalSection graphLock;
-        bool prepared = false;
+        bool prepared = false;   // graph built (I/O nodes exist); plugins may be loaded
+        bool live = false;       // prepareToPlay done — safe for processChain
+        // Mirrors pluginNodes.size() for a lock-free "is this chain empty?" check on
+        // the audio thread. Written on the message thread under graphLock.
+        std::atomic<int> pluginCountAtomic { 0 };
     };
 
     juce::AudioPluginFormat* findFormatByName (const juce::String& formatName) const;
@@ -70,6 +106,7 @@ private:
     ChainState& stateFor (Chain chain);
     const ChainState& stateFor (Chain chain) const;
     void initialiseGraph (ChainState& state);
+    void rebuildChainConnections (ChainState& state);   // input -> plugins... -> output
     bool standaloneHostingEnabled() const noexcept;
 
     juce::AudioPluginFormatManager formatManager;

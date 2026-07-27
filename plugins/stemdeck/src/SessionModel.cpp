@@ -1,4 +1,5 @@
 #include "SessionModel.h"
+#include "StemGain.h"
 #include <algorithm>
 
 namespace stemdeck::session
@@ -115,6 +116,15 @@ juce::var SessionModel::toVar() const
     }
     root->setProperty ("tracks", trackArr);
 
+    juce::Array<juce::var> tempoArr;
+    for (const auto& tp : tempoLane)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("atBeat", tp.atBeat); o->setProperty ("bpm", tp.bpm);
+        tempoArr.add (juce::var (o));
+    }
+    root->setProperty ("tempoLane", tempoArr);
+
     juce::Array<juce::var> eventArr;
     for (const auto& e : events)
     {
@@ -188,6 +198,17 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                 }
         s.sortEvents();
 
+        // ── Schema migration (ONE-WAY DOOR, see StemGain.h) ─────────────────────
+        // v1 recorded stem gain in dB (0.0 == unity); v2 records linear percent
+        // (0.0 == silence). Convert on load so an old session replays as performed
+        // instead of muting every stem. Sessions with no schemaVersion are v1.
+        const int fileVersion = root->hasProperty ("schemaVersion")
+                              ? (int) root->getProperty ("schemaVersion") : 1;
+        if (fileVersion < 2)
+            for (auto& e : s.events)
+                if (e.type == EventType::param && isStemGainParamId (e.paramId))
+                    e.value = (double) stemdeck::stemgain::legacyDbToPercent ((float) e.value);
+
         if (auto* ra = root->getProperty ("regions").getArray())
             for (auto& rv : *ra)
                 if (auto* o = rv.getDynamicObject())
@@ -200,8 +221,29 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                     s.nextRegionId = juce::jmax (s.nextRegionId, r.id + 1);
                     s.regions.push_back (std::move (r));
                 }
+
+        if (auto* la = root->getProperty ("tempoLane").getArray())
+            for (auto& lv : *la)
+                if (auto* o = lv.getDynamicObject())
+                {
+                    const double lb = (double) o->getProperty ("bpm");
+                    if (lb > 1.0)   // reject corrupt/0/negative bpm -> avoids inf/NaN sample times
+                        s.tempoLane.push_back ({ (double) o->getProperty ("atBeat"), lb });
+                }
+        std::sort (s.tempoLane.begin(), s.tempoLane.end(),
+                   [] (const TempoPoint& a, const TempoPoint& b) { return a.atBeat < b.atBeat; });
     }
     return s;
+}
+
+void SessionModel::setTempoPoint (double atBeat, double bpm)
+{
+    if (bpm <= 1.0) return;
+    for (auto& tp : tempoLane)
+        if (std::abs (tp.atBeat - atBeat) < 1.0e-6) { tp.bpm = bpm; return; }   // replace at same beat
+    tempoLane.push_back ({ atBeat, bpm });
+    std::sort (tempoLane.begin(), tempoLane.end(),
+               [] (const TempoPoint& a, const TempoPoint& b) { return a.atBeat < b.atBeat; });
 }
 
 SessionModel SessionModel::fromJSON (const juce::String& json)
