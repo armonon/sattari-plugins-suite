@@ -86,7 +86,7 @@ double centroid (const juce::AudioBuffer<float>& b, double sr)
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-   #if ! SATTARI_FACE_HAS_RUBBERBAND
+   #if ! SATTARI_HAS_RUBBERBAND
     std::printf ("Face contract SKIPPED (built without Rubber Band)\n");
     return 0;
    #else

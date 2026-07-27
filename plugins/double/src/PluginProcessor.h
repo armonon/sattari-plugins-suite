@@ -1,12 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariPitchDetector.h>
-#include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/modules/DoubleModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
-#include <vector>
 
 // =============================================================================
 //  Sattari Double — natural vocal doubler / thickener
@@ -55,32 +51,15 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "double" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    sattari::dsp::PitchDetector detector;
-
-    // Two double voices. Each owns a PSOLA shifter, a modulated delay line, and a
-    // slow random-walk drift generator (decorrelated per voice).
-    struct Voice
-    {
-        sattari::dsp::PsolaShifter psola;
-        std::vector<float> delay;    // ring buffer
-        int   writePos = 0;
-        double driftPos = 0.0;       // current drift offset in samples (smoothed)
-        double driftTarget = 0.0;
-        int    driftCountdown = 0;
-        juce::Random rng;
-    };
-    std::array<Voice, 2> voices;
-    std::vector<float> monoScratch, outLScratch, outRScratch, shiftScratch;
-    int delayLen = 0;
+    // Thin wrapper: the standalone plugin and the Vocal rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::DoubleModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariDoubleAudioProcessor)
 };

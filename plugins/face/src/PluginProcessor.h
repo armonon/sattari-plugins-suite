@@ -1,11 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/modules/FaceModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include "RbFormant.h"
-#include <array>
-#include <vector>
 
 // =============================================================================
 //  Sattari Face — formant / gender / character shifter
@@ -16,6 +13,9 @@
 //  move both for full creative transformation. Built on the suite's vendored
 //  Rubber Band engine with a clean output FIFO (no crackle); dry mix is delay-
 //  compensated so blends stay phase-aligned.
+//
+//  The shifter lives in sattari::dsp::FaceModule, shared with the Vocal rack
+//  slot; this shell owns the preset bank and the host plumbing.
 // =============================================================================
 class SattariFaceAudioProcessor final : public juce::AudioProcessor
 {
@@ -53,21 +53,15 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "face" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    std::array<sattari::face::RbFormant, 2> rb;
-    std::vector<float> wetScratch;
-
-    // Dry delay so a dry/wet blend stays phase-aligned with the RB latency.
-    std::array<std::vector<float>, 2> dryDelay;
-    int dryWrite = 0, reportedLatency = 0;
+    // Thin wrapper: the standalone plugin and the Vocal rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::FaceModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariFaceAudioProcessor)
 };

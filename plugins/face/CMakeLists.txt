@@ -18,7 +18,7 @@ sattari_add_plugin(
     SOURCES
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
-sattari_enable_rubberband(SattariFace SATTARI_FACE_HAS_RUBBERBAND)
+sattari_enable_rubberband(SattariFace SATTARI_HAS_RUBBERBAND)
 
 # Functional contract: proves pitch shift moves the fundamental while formant
 # shift changes the timbre, and everything stays finite + non-silent.
@@ -28,7 +28,7 @@ add_executable(FaceContract
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
 add_dependencies(FaceContract SattariFace)
-sattari_enable_rubberband(FaceContract SATTARI_FACE_HAS_RUBBERBAND)
+sattari_enable_rubberband(FaceContract SATTARI_HAS_RUBBERBAND)
 
 target_include_directories(FaceContract
     PRIVATE

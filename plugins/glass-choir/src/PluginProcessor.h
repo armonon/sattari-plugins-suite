@@ -10,7 +10,7 @@
 #include <sattari_audio_core/SattariPresetManager.h>      // shared factory-preset bank
 
 #include "../../harmony/src/HarmonyVoicing.h"             // diatonicShift + scaleIdFromChoice/Bus
-#include "RbFormant.h"                                    // hi-fi Rubber Band detune+formant (Studio)
+#include <sattari_audio_core/SattariRbFormant.h>          // hi-fi Rubber Band detune+formant (Studio)
 
 #include <array>
 #include <atomic>
@@ -177,7 +177,7 @@ private:
     struct DoubleVoice
     {
         sattari::dsp::PsolaShifter psola;
-        sattari::glasschoir::RbFormant rb;
+        sattari::dsp::RbFormant rb;
         std::vector<float> delay;      // per-voice timing delay ring
         int    writePos = 0;
         double driftPos = 0.0, driftTarget = 0.0;
@@ -191,7 +191,7 @@ private:
     struct HarmonyVoice
     {
         sattari::dsp::PsolaShifter psola;
-        sattari::glasschoir::RbFormant rb;
+        sattari::dsp::RbFormant rb;
         double smoothedRatio = 1.0;
         double humanizeCents = 0.0, humanizeTarget = 0.0;
     };

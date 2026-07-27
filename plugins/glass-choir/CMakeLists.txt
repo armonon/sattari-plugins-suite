@@ -18,7 +18,7 @@ sattari_add_plugin(
     SOURCES
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
-sattari_enable_rubberband(SattariGlassChoir GLASSCHOIR_HAS_RUBBERBAND)
+sattari_enable_rubberband(SattariGlassChoir SATTARI_HAS_RUBBERBAND)
 
 # Functional contract: proves the 3-bus ensemble render (Lead/Choir/Atmosphere),
 # the single-out fold-down fallback, the character macro bounded across 3 modes,
@@ -29,7 +29,7 @@ add_executable(GlassChoirContract
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
 add_dependencies(GlassChoirContract SattariGlassChoir)
-sattari_enable_rubberband(GlassChoirContract GLASSCHOIR_HAS_RUBBERBAND)
+sattari_enable_rubberband(GlassChoirContract SATTARI_HAS_RUBBERBAND)
 
 target_include_directories(GlassChoirContract
     PRIVATE

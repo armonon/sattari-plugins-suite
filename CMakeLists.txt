@@ -6,6 +6,7 @@ add_subdirectory(core)
 
 add_subdirectory(plugins/mix)
 add_subdirectory(plugins/create)
+add_subdirectory(plugins/vocal)
 add_subdirectory(plugins/sub-conjurer)
 add_subdirectory(plugins/stemdeck)
 add_subdirectory(plugins/side-chain-master)

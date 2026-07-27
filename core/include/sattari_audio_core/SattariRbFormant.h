@@ -1,20 +1,30 @@
 #pragma once
 
-// Compact real-time Rubber Band engine with independent pitch + formant scaling
-// and a clean output FIFO. Copied verbatim (bit-for-bit DSP) from
-// plugins/face/src/RbFormant.h so Glass Choir can carry its own compile guard
-// (GLASSCHOIR_HAS_RUBBERBAND) without coupling to the Face plugin's define. See
-// that file for the design notes (PitchHighConsistency / OptionEngineFiner /
-// FormantPreserved + the output FIFO that hands the host exactly N samples).
+// SattariRbFormant — compact real-time Rubber Band engine with independent pitch
+// and formant scaling, plus a clean output FIFO.
+//
+// Encapsulates the lessons from the Auto Pitch crackle fix: PitchHighConsistency
+// (no glitch on dynamic changes) and an output FIFO that hands the host exactly N
+// samples per block instead of back-filling with dry signal — the back-fill was
+// the crackle.
+//
+// Promoted to core from plugins/face and plugins/glass-choir, which carried
+// BIT-IDENTICAL copies differing only in namespace and compile guard. That
+// duplication was the blocker for extracting either as a module: a core module
+// cannot depend on a per-plugin macro, so the guard is now one shared name,
+// SATTARI_HAS_RUBBERBAND, set by sattari_enable_rubberband().
+//
+// Without Rubber Band vendored the guard is 0 and every path degrades to a dry
+// copy with zero reported latency, so the tree still builds and runs.
 
 #include <JuceHeader.h>
 #include <vector>
 
-#if GLASSCHOIR_HAS_RUBBERBAND
+#if SATTARI_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
 #endif
 
-namespace sattari::glasschoir
+namespace sattari::dsp
 {
 
 class RbFormant
@@ -24,8 +34,11 @@ public:
     {
         prepared = false;
         blockSize = juce::jmax (1, maxBlock);
-       #if GLASSCHOIR_HAS_RUBBERBAND
+       #if SATTARI_HAS_RUBBERBAND
         using RB = RubberBand::RubberBandStretcher;
+        // R3 (Finer) engine: it has proper independent formant scaling (R2 ignores
+        // setFormantScale at unity pitch). Transient/window options are no-ops on
+        // R3, so we don't set them.
         const auto opts = RB::OptionProcessRealTime
                         | RB::OptionEngineFiner
                         | RB::OptionPitchHighConsistency
@@ -48,7 +61,7 @@ public:
 
     int latencySamples() const noexcept
     {
-       #if GLASSCHOIR_HAS_RUBBERBAND
+       #if SATTARI_HAS_RUBBERBAND
         return prepared ? startDelay + cushion : 0;
        #else
         return 0;
@@ -59,7 +72,7 @@ public:
     // multiplicative (2.0 = up one octave). Falls back to dry copy without RB.
     void process (const float* in, float* out, int n, double pitchScale, double formantScale)
     {
-       #if GLASSCHOIR_HAS_RUBBERBAND
+       #if SATTARI_HAS_RUBBERBAND
         if (! prepared || stretcher == nullptr) { for (int i = 0; i < n; ++i) out[i] = in[i]; return; }
         stretcher->setPitchScale (juce::jlimit (0.25, 4.0, pitchScale));
         stretcher->setFormantScale (juce::jlimit (0.25, 4.0, formantScale));
@@ -91,7 +104,7 @@ public:
     }
 
 private:
-   #if GLASSCHOIR_HAS_RUBBERBAND
+   #if SATTARI_HAS_RUBBERBAND
     void push (const float* src, int n)
     {
         if (count + n > cap) { const int drop = count + n - cap; rd = (rd + drop) % cap; count -= drop; }
@@ -109,4 +122,4 @@ private:
     int blockSize = 512;
 };
 
-} // namespace sattari::glasschoir
+} // namespace sattari::dsp

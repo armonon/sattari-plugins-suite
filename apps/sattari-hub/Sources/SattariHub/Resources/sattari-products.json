@@ -223,6 +223,68 @@
       ]
     },
     {
+      "id": "create",
+      "name": "Sattari Create",
+      "category": "Creative FX rack",
+      "accent": "#9b7bff",
+      "description": "Sattari Create — Creative FX rack.",
+      "formats": [
+        "AU",
+        "VST3"
+      ],
+      "status": "alpha",
+      "version": "0.2.0-six-products",
+      "modules": [
+        {
+          "name": "Sattari Create",
+          "slug": "create"
+        }
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Create.component",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/AU/Sattari Create.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Create.vst3",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/VST3/Sattari Create.vst3"
+        }
+      ]
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "category": "Vocal rack",
+      "accent": "#62f5c8",
+      "description": "Sattari Vocal — Vocal rack.",
+      "formats": [
+        "AU",
+        "VST3"
+      ],
+      "status": "alpha",
+      "version": "0.2.0-six-products",
+      "modules": [
+        {
+          "name": "Sattari Vocal",
+          "slug": "vocal"
+        }
+      ],
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Vocal.component",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/AU/Sattari Vocal.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocal.vst3",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/VST3/Sattari Vocal.vst3"
+        }
+      ]
+    },
+    {
       "id": "stemdeck",
       "name": "Sattari StemDeck",
       "category": "DJ / remix",
