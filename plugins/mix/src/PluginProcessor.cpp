@@ -13,8 +13,12 @@
 
 SattariMixAudioProcessor::SattariMixAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
-          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+          .withInput  ("Input",     juce::AudioChannelSet::stereo(), true)
+          // Optional external key. A channel strip is expected to compress a bass to a
+          // kick or gate a snare to a trigger; without this bus the rack structurally
+          // cannot, and two-signal modules (Align, Side Chain Master) cannot exist at all.
+          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
+          .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "MIX", createLayout())
 {
     // Link every module to its namespaced parameters once, off the audio thread.
@@ -82,7 +86,19 @@ sattari::dsp::SattariModule* SattariMixAudioProcessor::moduleAt (int index) noex
 bool SattariMixAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto o = layouts.getMainOutputChannelSet();
-    return o == juce::AudioChannelSet::stereo() || o == juce::AudioChannelSet::mono();
+    if (o != juce::AudioChannelSet::stereo() && o != juce::AudioChannelSet::mono())
+        return false;
+    if (layouts.getMainInputChannelSet() != o)
+        return false;
+    // The sidechain is optional: disabled, mono or stereo are all fine.
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono()
+            && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void SattariMixAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -142,6 +158,22 @@ void SattariMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // while their standalone builds followed the host correctly.
     const auto transport = sattari::host::read (*this);
 
+    // Resolve the external key ONCE. Absent or disabled -> nullptr, and every module
+    // falls back to keying off the main signal exactly as before.
+    const juce::AudioBuffer<float>* sidechain = nullptr;
+    juce::AudioBuffer<float> scView;
+    if (getBusCount (true) > 1)
+        if (auto* scBus = getBus (true, 1); scBus != nullptr && scBus->isEnabled())
+        {
+            scView = getBusBuffer (buffer, true, 1);
+            if (scView.getNumChannels() > 0 && scView.getNumSamples() > 0)
+                sidechain = &scView;
+        }
+
+    // With a second input bus, `buffer` holds BOTH buses back to back. Modules must
+    // only ever see the main bus, or the rack would process the sidechain as audio.
+    auto mainBus = getBusBuffer (buffer, true, 0);
+
     for (int s = 0; s < kNumSlots; ++s)
     {
         const int sel = (int) apvts.getRawParameterValue (slotParamId (s))->load();
@@ -150,7 +182,8 @@ void SattariMixAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         if (auto* m = moduleAt (sel - 1))
         {
             m->setTransport (transport);
-            m->process (buffer, midi);
+            m->setSidechain (sidechain);
+            m->process (mainBus, midi);
         }
     }
 

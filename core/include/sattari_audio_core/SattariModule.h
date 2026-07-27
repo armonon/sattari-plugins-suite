@@ -79,6 +79,21 @@ public:
     //
     // Called on the audio thread: implementations must be trivial (store the value).
     virtual void setTransport (const sattari::host::TransportSnapshot&) noexcept {}
+
+    // External sidechain for the coming block, or nullptr when the host/rack has none
+    // routed. Same reasoning as setTransport(): a module cannot reach getBusBuffer()
+    // because it has no AudioProcessor, so the shell resolves the bus and hands down a
+    // read-only view before process().
+    //
+    // This is what lets a channel strip do the things a strip is expected to do —
+    // compress a bass to a kick, gate a snare to a trigger, duck a pad under a vocal —
+    // and it is the only route by which inherently two-signal tools (Align's Guide
+    // track, Side Chain Master's external key) can work as rack modules at all.
+    //
+    // Defaulted to a no-op so modules that don't key off anything, and every module
+    // already extracted, need no edit. The pointer is valid ONLY for the duration of
+    // the following process() call — never retain it.
+    virtual void setSidechain (const juce::AudioBuffer<float>*) noexcept {}
 };
 
 } // namespace sattari::dsp
