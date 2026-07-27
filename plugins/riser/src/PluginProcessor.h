@@ -1,12 +1,9 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/modules/RiserModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
-#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <atomic>
-#include <vector>
 
 // =============================================================================
 //  Sattari Riser — tempo-synced riser / downlifter / impact FX
@@ -34,10 +31,10 @@ class SattariRiserAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariRiserAudioProcessor();
-    ~SattariRiserAudioProcessor() override;
+    ~SattariRiserAudioProcessor() override = default;   // module stops its own tempo reader
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -64,64 +61,25 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
-    static juce::StringArray modeChoices();
-    static juce::StringArray lengthChoices();
+    static juce::StringArray modeChoices()   { return sattari::dsp::RiserModule::modeChoices(); }
+    static juce::StringArray lengthChoices() { return sattari::dsp::RiserModule::lengthChoices(); }
 
     // Lock-free UI readouts.
-    double currentBpm()   const noexcept { return lastBpm.load (std::memory_order_relaxed); }
-    float  buildProgress() const noexcept { return progressUi.load (std::memory_order_relaxed); }
-    bool   isBuilding()    const noexcept { return buildingUi.load (std::memory_order_relaxed); }
+    double currentBpm()    const noexcept { return module.currentBpm(); }
+    float  buildProgress() const noexcept { return module.buildProgress(); }
+    bool   isBuilding()    const noexcept { return module.isBuilding(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    double resolveBpm();
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "riser" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    sattari::xplugin::TempoReader tempoReader;   // TEMPO-bus fallback when host reports none
-    std::atomic<double> lastBpm { 120.0 };
-
-    // --- Build engine state (audio thread only) ------------------------------
-    bool   building = false;    // a build is currently in flight
-    double progress = 0.0;      // 0..1 over the chosen bar length
-    double progressPerSample = 0.0;
-    bool   prevArm = false;     // edge-detect the arm toggle
-    bool   prevPlaying = false; // edge-detect host transport start (host-trigger mode)
-
-    // Filtered-noise sweep.
-    juce::dsp::StateVariableTPTFilter<float> noiseFilter;
-    juce::Random rng;
-
-    // Tone oscillator (rising sine for the "tonal" half of the build).
-    double tonephase = 0.0;
-
-    // Pitch-rise on the input: a short delay line read back at a varying rate.
-    std::vector<float> pitchBuf[2];
-    int    pitchLen = 0;
-    int    pitchWriteI = 0;
-    double pitchRead[2] { 0.0, 0.0 };
-
-    // Accelerating stutter (a re-triggered capture-and-hold gate).
-    std::vector<float> stutBuf[2];
-    int    stutLen = 0;
-    int    stutWrite = 0;
-    int    stutGrainSamples = 0;     // current grain length (shrinks as build accelerates)
-    int    stutPos = 0;              // playback position within the current grain
-
-    // Output soft ceiling smoother state (per channel) + a landing "impact" tail.
-    float  impactEnv = 0.0f;         // decays after an Impact landing
-    float  impactPhase = 0.0f;
-
-    std::atomic<float> progressUi { 0.0f };
-    std::atomic<bool>  buildingUi { false };
-
-    void startBuild (double bpm, int lengthBars);
-    void finishBuild();
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::RiserModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariRiserAudioProcessor)
 };

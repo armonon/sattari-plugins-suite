@@ -1,14 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariCrossPluginBus.h>
-#include <sattari_audio_core/SattariPitchDetector.h>
-#include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/modules/ShimmerModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
-#include <atomic>
-#include <vector>
 
 // =============================================================================
 //  Sattari Shimmer — pitch-shifted "shimmer" reverb
@@ -38,10 +32,10 @@ class SattariShimmerAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariShimmerAudioProcessor();
-    ~SattariShimmerAudioProcessor() override;
+    ~SattariShimmerAudioProcessor() override = default;   // module stops its own bus reader
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -67,54 +61,31 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
-    static juce::StringArray intervalChoices();
+    static juce::StringArray intervalChoices() { return sattari::dsp::ShimmerModule::intervalChoices(); }
 
     // Effective key state for the editor's KeyButton (whether Key Snap is on and
     // the key it is following). rootChoices / scaleChoices mirror the KEY bus.
-    static juce::StringArray rootChoices();
-    static juce::StringArray scaleChoices();
-    struct KeyState { bool snapping = false; int root = 0; int scale = 1; };
-    KeyState currentKeyState() const;
+    static juce::StringArray rootChoices()  { return sattari::dsp::ShimmerModule::rootChoices(); }
+    static juce::StringArray scaleChoices() { return sattari::dsp::ShimmerModule::scaleChoices(); }
+    using KeyState = sattari::dsp::ShimmerModule::KeyState;
+    KeyState currentKeyState() const { return module.currentKeyState(); }
 
     // Exposed for the contract: the effective (possibly key-snapped) shimmer
     // interval in semitones for a given base interval + key.
-    int effectiveShimmerSemis (int baseSemis, int keyRoot, sattari::dsp::ScaleId id) const;
+    int effectiveShimmerSemis (int baseSemis, int keyRoot, sattari::dsp::ScaleId id) const
+    { return module.effectiveShimmerSemis (baseSemis, keyRoot, id); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    static int baseSemisFor (int intervalIndex) noexcept;   // 0->+12, 1->+7, 2->+5
-    void resolveKey (int& root, sattari::dsp::ScaleId& id) const;
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "shimmer" };   // after apvts
     int currentProgram = 0;
-    sattari::xplugin::SessionReader sessionReader;   // consumes the KEY bus
-    double sampleRate = 44100.0;
 
-    // Reverb tank, taken as pure wet (Space pattern; own dry/wet mix).
-    juce::Reverb reverb;
-    juce::AudioBuffer<float> dryScratch;   // dry(+pre-delay) held for our mix
-    juce::AudioBuffer<float> tankIn;       // pre-delayed input + shimmer injection
-    juce::AudioBuffer<float> shiftScratch; // shifted wet tail before re-injection
-
-    // Pre-delay line (per channel).
-    std::array<std::vector<float>, 2> preBuf;
-    int preLen = 0, preWrite = 0;
-
-    // Pitch shifter in the feedback path (formant-preserving, per channel).
-    std::vector<sattari::dsp::PsolaShifter> psola;
-
-    // Damping (tone) one-pole LP state on the shimmer feedback, per channel.
-    std::array<float, 2> toneState { { 0.0f, 0.0f } };
-
-    // Held shifted tail from the previous block, re-injected into this block's
-    // tank input (closes the feedback loop without allocating).
-    juce::AudioBuffer<float> fbCarry;
-
-    // Live readout for the UI.
-    std::atomic<int> liveInterval { 0 };   // effective interval in semitones
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::ShimmerModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariShimmerAudioProcessor)
 };

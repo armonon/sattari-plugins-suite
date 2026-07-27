@@ -1,10 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/modules/WarbleModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
-#include <vector>
 
 // =============================================================================
 //  Sattari Warble — tape / vinyl lo-fi character box
@@ -26,10 +24,10 @@ class SattariWarbleAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariWarbleAudioProcessor();
-    ~SattariWarbleAudioProcessor() override;
+    ~SattariWarbleAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -58,46 +56,15 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "warble" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    // --- Modulated fractional delay line (wow + flutter) ---------------------
-    std::array<std::vector<float>, 2> delayBuf;
-    int   delayLen = 0;
-    int   delayWrite = 0;
-    float baseDelaySamples = 0.0f;   // centre delay the modulation swings around
-
-    // LFO phases (shared across channels; a small per-channel offset decorrelates).
-    double wowPhase = 0.0;
-    double flutPhase = 0.0;
-
-    // --- Tone filters (per channel): low-shelf head bump + one-pole high-cut --
-    struct LowShelf
-    {
-        float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
-        float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-        void reset() noexcept { x1 = x2 = y1 = y2 = 0.0f; }
-        void set (double fs, double f, double gainDb) noexcept;
-        float process (float x) noexcept
-        {
-            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-            x2 = x1; x1 = x; y2 = y1; y1 = y;
-            return y;
-        }
-    };
-    std::array<LowShelf, 2> headBump;
-    std::array<float, 2>    hiCutState { { 0.0f, 0.0f } };
-    float hiCutCoeff = 1.0f;   // one-pole LP coefficient for the tape high-cut
-
-    // --- Hiss + crackle noise generators -------------------------------------
-    juce::Random rng { 0x5A77A21 };
-    std::array<float, 2> hissLpState { { 0.0f, 0.0f } };   // shape the white hiss
-    std::array<float, 2> crackleEnv  { { 0.0f, 0.0f } };   // decaying pop envelope
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::WarbleModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariWarbleAudioProcessor)
 };
