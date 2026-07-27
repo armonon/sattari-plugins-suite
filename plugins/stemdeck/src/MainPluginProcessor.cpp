@@ -1799,16 +1799,36 @@ double MainPluginProcessor::getOutroStart (int d) const
 void MainPluginProcessor::clearOutroStart (int d) { setOutroStart (d, -1.0); }
 
 // ── Crossfader side assignment ────────────────────────────────────────────────
+// Crossfader side is read PER CHANNEL PER BLOCK on the audio thread. It used to be
+// stored only as an APVTS ValueTree property, so the read did two forbidden things:
+// it built the property-id String (an allocation — measured at ~16 allocs/block, the
+// dominant RT-safety violation), and it touched a ValueTree that the message thread
+// can mutate concurrently. The tree stays the persisted home; this atomic mirror is
+// what the audio thread reads.
 void MainPluginProcessor::setDeckCfSide (int d, int side)
 {
-    if (juce::isPositiveAndBelow (d, numDecks))
-        apvts.state.setProperty (deckPrefix (d) + "CfSide", juce::jlimit (0, 2, side), nullptr);
+    if (! juce::isPositiveAndBelow (d, numDecks))
+        return;
+    const int clamped = juce::jlimit (0, 2, side);
+    cfSideCache[(size_t) d].store (clamped, std::memory_order_relaxed);
+    apvts.state.setProperty (deckPrefix (d) + "CfSide", clamped, nullptr);
 }
 
 int MainPluginProcessor::getDeckCfSide (int d) const
 {
-    if (! juce::isPositiveAndBelow (d, numDecks)) return d % 2 == 0 ? 0 : 2;
-    return (int) apvts.state.getProperty (deckPrefix (d) + "CfSide", d % 2 == 0 ? 0 : 2);
+    if (! juce::isPositiveAndBelow (d, numDecks))
+        return d % 2 == 0 ? 0 : 2;
+    return cfSideCache[(size_t) d].load (std::memory_order_relaxed);
+}
+
+// Message thread: re-seed the atomics from the tree after a state load.
+void MainPluginProcessor::refreshCfSideCache()
+{
+    for (int d = 0; d < numDecks; ++d)
+        cfSideCache[(size_t) d].store (
+            juce::jlimit (0, 2, (int) apvts.state.getProperty (deckPrefix (d) + "CfSide",
+                                                              d % 2 == 0 ? 0 : 2)),
+            std::memory_order_relaxed);
 }
 
 // ── Loop region ──────────────────────────────────────────────────────────────
@@ -2469,6 +2489,9 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
     restoreChannelsFromState();
     restoreFileAssignmentsFromState();
     midiMapping.deserialize (apvts.state.getProperty ("midiMap").toString());
+
+    // Re-seed the audio-thread cfSide mirror from the freshly loaded tree.
+    refreshCfSideCache();
 }
 
 // Rewrite every "<deck>Stem<lane>Gain" PARAM node from legacy dB to v2 percent.

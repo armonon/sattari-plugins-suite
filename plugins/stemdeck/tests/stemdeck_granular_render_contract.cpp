@@ -220,13 +220,13 @@ void expectDecisionRouting()
     const auto keyLock = TimePitchEngine::decide ({ 1.5f, 0.0f, true });
     if (! keyLock.pitchPreservingActive || keyLock.usingResampleFallback)
         fail ("tempo-change Preserve request did not route to granular key-lock");
-    if (! keyLock.statusLabel.containsIgnoreCase ("granular"))
+    if (! juce::String (keyLock.statusLabel).containsIgnoreCase ("granular"))
         fail ("key-lock decision did not expose granular status text");
 
     const auto fallback = TimePitchEngine::decide ({ 1.5f, 0.0f, false });
     if (fallback.pitchPreservingActive || ! fallback.usingResampleFallback)
         fail ("tempo-change Preserve-off request did not route to resample fallback");
-    if (! fallback.statusLabel.containsIgnoreCase ("fallback"))
+    if (! juce::String (fallback.statusLabel).containsIgnoreCase ("fallback"))
         fail ("fallback decision did not expose fallback status text");
 }
 }

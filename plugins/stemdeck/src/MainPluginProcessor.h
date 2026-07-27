@@ -328,7 +328,8 @@ public:
 
     // Crossfader side assignment per deck: 0=A (left), 1=Center, 2=B (right)
     void setDeckCfSide (int deckIndex, int side);
-    int  getDeckCfSide (int deckIndex) const;
+    int  getDeckCfSide (int deckIndex) const;   // RT-safe: reads an atomic, not the tree
+    void refreshCfSideCache();
 
     // Deck slip mode + loop roll — thin pass-throughs to DeckPlayer
     void setDeckSlipEnabled (int deckIndex, bool on) noexcept;
@@ -576,6 +577,9 @@ private:
         tracktion::HostedAudioDeviceInterface& audioInterface;
         tracktion::ExternalPlayheadSynchroniser playheadSync { *edit };
     };
+
+    // Audio-thread mirror of the persisted deck<N>CfSide properties.
+    std::array<std::atomic<int>, numDecks> cfSideCache {};
 
     std::unique_ptr<TeWrapper> teWrapper;
     // Tracktion Engine is one-per-process. This instance owns it, or it went without.

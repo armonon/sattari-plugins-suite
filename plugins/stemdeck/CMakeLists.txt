@@ -610,6 +610,25 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A2: the audio thread must not allocate (enforced by an operator new hook) ──
+add_executable(StemDeckRtSafety EXCLUDE_FROM_ALL tests/stemdeck_rtsafety.cpp)
+target_include_directories(StemDeckRtSafety PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckRtSafety PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckRtSafety
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckRtSafety)
+sattari_enable_rubberband(StemDeckRtSafety SATTARI_STEMDECK_HAS_RUBBERBAND)
+if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    target_include_directories(StemDeckRtSafety PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(StemDeckRtSafety PRIVATE ${ONNXRUNTIME_LIB})
+    target_compile_definitions(StemDeckRtSafety PRIVATE
+        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+endif()
+
 # ── Multi-instance: a DAW can host two StemDecks in one process ────────────────
 add_executable(StemDeckMultiInstance EXCLUDE_FROM_ALL tests/stemdeck_multiinstance.cpp)
 target_include_directories(StemDeckMultiInstance PRIVATE

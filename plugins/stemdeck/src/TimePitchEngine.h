@@ -21,7 +21,11 @@ struct TimePitchDecision
     float sourceRateMultiplier = 1.0f;
     bool pitchPreservingActive = false;
     bool usingResampleFallback = false;
-    juce::String statusLabel;
+    // const char*, NOT juce::String: decide() runs on the AUDIO THREAD every block,
+    // and every value assigned to it is a string literal. Assigning a literal to a
+    // juce::String allocates — this was the second-largest RT-safety violation after
+    // the cfSide property read. Static storage costs nothing.
+    const char* statusLabel = "";
 };
 
 class TimePitchEngine
