@@ -344,6 +344,11 @@ private:
     void loadAudioAsync (const juce::File& file, std::function<void(std::shared_ptr<const DeckPlayer::LoadedAudio>)> onLoaded);
     // runNeuralInline=false returns as soon as the fast DSP analysis is done, so the
     // deck is playable immediately (§A3); pair it with refineAnalysisAsync().
+    // Decode with no analysis — the only work that must precede audible playback.
+    std::shared_ptr<DeckPlayer::LoadedAudio> decodeAudioFile (const juce::File& file);
+    // Fill a standalone analysis (cache lookup, DSP passes, optional neural key).
+    void analyseInto (TrackAnalysis& out, const juce::AudioBuffer<float>& audio,
+                      double sampleRate, const juce::File& file, bool runNeuralInline);
     std::shared_ptr<const DeckPlayer::LoadedAudio> loadAudioFile (const juce::File& file,
                                                                   bool runNeuralInline = true);
     // Run the neural beat/key models off-thread for an already-playing deck and

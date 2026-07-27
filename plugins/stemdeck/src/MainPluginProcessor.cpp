@@ -3,6 +3,60 @@
 
 namespace
 {
+// Two-phase load (§A3). The single-phase path decodes AND analyses before the deck
+// ever sees audio, so time-to-playable scaled with track length: measured 424ms at
+// 2 minutes and 1365ms at 5, against a 200ms bound. Decode is the only work that has
+// to precede sound; analysis is published afterwards through the deck's refined-
+// analysis channel, which already existed for neural refinement.
+class TwoPhaseAudioLoadJob final : public juce::ThreadPoolJob
+{
+public:
+    using Decoded  = std::shared_ptr<DeckPlayer::LoadedAudio>;
+    TwoPhaseAudioLoadJob (juce::File f,
+                          std::function<Decoded (const juce::File&)> decodeFn,
+                          std::function<void (TrackAnalysis&, const juce::AudioBuffer<float>&, double, const juce::File&)> analyseFn,
+                          std::function<void (std::shared_ptr<const DeckPlayer::LoadedAudio>)> onAudioReady,
+                          std::function<void (std::shared_ptr<const TrackAnalysis>)> onAnalysisReady)
+        : ThreadPoolJob ("StemDeck audio load (2-phase)"), file (std::move (f)),
+          decode (std::move (decodeFn)), analyse (std::move (analyseFn)),
+          onAudio (std::move (onAudioReady)), onAnalysis (std::move (onAnalysisReady)) {}
+
+    JobStatus runJob() override
+    {
+        auto loaded = decode (file);
+        if (loaded == nullptr)
+            return jobHasFinished;
+
+        // PHASE 1 — the deck is playable from here.
+        std::shared_ptr<const DeckPlayer::LoadedAudio> published = loaded;
+        juce::MessageManager::callAsync ([published, cb = onAudio]() mutable
+        { if (cb) cb (std::move (published)); });
+
+        if (shouldExit())
+            return jobHasFinished;
+
+        // PHASE 2 — analysis into a SEPARATE object. `loaded` is now visible to the
+        // audio thread, so filling its analysis field in place would be a race.
+        auto analysis = std::make_shared<TrackAnalysis>();
+        analyse (*analysis, loaded->audio, loaded->sourceSampleRate, file);
+
+        if (shouldExit())
+            return jobHasFinished;
+
+        juce::MessageManager::callAsync (
+            [a = std::shared_ptr<const TrackAnalysis> (std::move (analysis)), cb = onAnalysis]() mutable
+        { if (cb) cb (std::move (a)); });
+        return jobHasFinished;
+    }
+
+private:
+    juce::File file;
+    std::function<Decoded (const juce::File&)> decode;
+    std::function<void (TrackAnalysis&, const juce::AudioBuffer<float>&, double, const juce::File&)> analyse;
+    std::function<void (std::shared_ptr<const DeckPlayer::LoadedAudio>)> onAudio;
+    std::function<void (std::shared_ptr<const TrackAnalysis>)> onAnalysis;
+};
+
 class AudioLoadJob final : public juce::ThreadPoolJob
 {
 public:
@@ -1053,8 +1107,10 @@ void MainPluginProcessor::applyPremiumStemMix (int deckIndex)
     }
 }
 
-std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFile (const juce::File& file,
-                                                                                     bool runNeuralInline)
+// Decode only — no hashing, no analysis. This is the work that has to finish before
+// a deck can make sound, and it is the ONLY work that should stand between dropping a
+// track and hearing it (§A3).
+std::shared_ptr<DeckPlayer::LoadedAudio> MainPluginProcessor::decodeAudioFile (const juce::File& file)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
     if (! reader || reader->lengthInSamples <= 0)
@@ -1066,15 +1122,35 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     loaded->sourceSampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
+    return loaded;
+}
+
+std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFile (const juce::File& file,
+                                                                                     bool runNeuralInline)
+{
+    auto loaded = decodeAudioFile (file);
+    if (loaded == nullptr)
+        return {};
+    analyseInto (loaded->analysis, loaded->audio, loaded->sourceSampleRate, file, runNeuralInline);
+    return loaded;
+}
+
+// Fills a standalone TrackAnalysis. Deliberately NOT a method on LoadedAudio: once
+// audio is published to a deck the audio thread reads it, so analysing "into" the
+// published object would be a data race. The result is handed over separately via
+// DeckPlayer::setRefinedAnalysis, which is an atomic shared_ptr swap.
+void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuffer<float>& audio,
+                                       double sampleRate, const juce::File& file, bool runNeuralInline)
+{
     // ── Persistent analysis cache (build-order #1) ─────────────────────────────
     // Loading runs three full-track analyses (~10 s for 5 min). Most loads in a
     // studio workflow are RE-loads, so a content-hash hit skips all of it. On a
     // miss we run everything, then store the result for next time.
     const juce::String contentHash = AnalysisCache::hashFile (file);
-    if (analysisCache.lookup (contentHash, loaded->analysis))
-        return loaded;   // cache hit — DSP + neural analysis already done previously
+    if (analysisCache.lookup (contentHash, out))
+        return;   // cache hit — DSP + neural analysis already done previously
 
-    loaded->analysis = TrackAnalyzer::analyze (loaded->audio, loaded->sourceSampleRate);
+    out = TrackAnalyzer::analyze (audio, sampleRate);
 
     // ── §A3 LOAD LATENCY ─────────────────────────────────────────────────────
     // The deck is PLAYABLE now, on the DSP analysis. The neural models cost seconds
@@ -1082,26 +1158,26 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     // a playable deck immediately pass runNeuralInline=false and call
     // refineAnalysisAsync() to hot-swap the refined grid/key in later.
     if (! runNeuralInline)
-        return loaded;
+        return;
 
     // Trained beat/downbeat model (beat_this) on top of the DSP grid. When the
     // model is installed its grid wins; without it the Ellis DP tracker stands.
     // Background thread — same additive, fallback-safe pattern as the key model.
     if (neuralBeat.isAvailable())
     {
-        const auto b = neuralBeat.detect (loaded->audio, loaded->sourceSampleRate);
+        const auto b = neuralBeat.detect (audio, sampleRate);
         // NOTE: NeuralBeatEngine::Result carries no confidence, so unlike the key
         // model this cannot be confidence-gated host-side — the grid-length check
         // below is the only sanity filter available. Adding a real gate requires the
         // model to emit an activation-strength score (see the A3 report).
         if (b.valid && b.beatGridSamples.size() >= 4)
         {
-            loaded->analysis.beatSource = TrackAnalysis::Source::neural;
-            loaded->analysis.beatGridSamples = b.beatGridSamples;
-            loaded->analysis.downbeatSample  = b.downbeatSample;
-            loaded->analysis.beatsPerBar     = b.beatsPerBar;
+            out.beatSource = TrackAnalysis::Source::neural;
+            out.beatGridSamples = b.beatGridSamples;
+            out.downbeatSample  = b.downbeatSample;
+            out.beatsPerBar     = b.beatsPerBar;
             if (b.detectedBpm > 1.0f)
-                loaded->analysis.detectedBpm = b.detectedBpm;
+                out.detectedBpm = b.detectedBpm;
         }
     }
 
@@ -1110,7 +1186,7 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
     // it isn't (or ONNX is absent) TrackAnalyzer's key stands. Background thread.
     if (neuralKey.isAvailable())
     {
-        const auto k = neuralKey.detect (loaded->audio, loaded->sourceSampleRate);
+        const auto k = neuralKey.detect (audio, sampleRate);
 
         // CONFIDENCE GATE (§A3). "valid" only means the model ran — it says nothing
         // about whether the answer is any good. Below the floor we KEEP the DSP
@@ -1120,26 +1196,25 @@ std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFil
         // actually sure.
         if (k.valid && k.confidence >= kNeuralKeyConfidenceFloor)
         {
-            loaded->analysis.keyPitchClass = k.root;
-            loaded->analysis.keyIsMinor    = k.minor;
-            loaded->analysis.keyConfidence = k.confidence;
-            loaded->analysis.keySource     = TrackAnalysis::Source::neural;
+            out.keyPitchClass = k.root;
+            out.keyIsMinor    = k.minor;
+            out.keyConfidence = k.confidence;
+            out.keySource     = TrackAnalysis::Source::neural;
         }
         else if (k.valid)
         {
             // Model ran but wasn't confident: DSP stands, and the UI says so.
-            loaded->analysis.keySource        = TrackAnalysis::Source::dsp;
-            loaded->analysis.keyLowConfidence = true;
+            out.keySource        = TrackAnalysis::Source::dsp;
+            out.keyLowConfidence = true;
         }
     }
 
     // Whatever won, flag a weak result so the readout can show it honestly rather
     // than presenting a guess as a fact (§B3 confidence flag).
-    if (loaded->analysis.keyConfidence < kNeuralKeyConfidenceFloor)
-        loaded->analysis.keyLowConfidence = true;
+    if (out.keyConfidence < kNeuralKeyConfidenceFloor)
+        out.keyLowConfidence = true;
 
-    analysisCache.store (contentHash, loaded->analysis);
-    return loaded;
+    analysisCache.store (contentHash, out);
 }
 
 void MainPluginProcessor::loadAudioAsync (const juce::File& file, std::function<void(std::shared_ptr<const DeckPlayer::LoadedAudio>)> onLoaded)
@@ -1286,21 +1361,38 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
     if (! juce::isPositiveAndBelow (deckIndex, numDecks) || ! juce::isPositiveAndBelow (stemLaneIndex, DeckPlayer::numStemLanes))
         return;
 
-    loadAudioAsync (file, [this, deckIndex, stemLaneIndex, path = file.getFullPathName()] (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
+    // §A3: two-phase. Phase 1 publishes decoded audio (deck playable); phase 2
+    // publishes analysis without blocking it.
+    auto onAudioReady = [this, deckIndex, stemLaneIndex, path = file.getFullPathName()] (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
     {
         if (! audio)
             return;
         deckAt (deckIndex).setStemAudio (stemLaneIndex, audio);
         if (stemLaneIndex == DeckPlayer::fullMixStem)
-        {
             deckAt (deckIndex).seekStart();
-            if (audio->analysis.detectedBpm > 1.0f)
-                if (auto* bpm = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (deckPrefix (deckIndex) + "Bpm")))
-                    bpm->setValueNotifyingHost (bpm->convertTo0to1 (juce::jlimit (40.0f, 240.0f, audio->analysis.detectedBpm)));
+        setStatePathProperty (deckStemPathProperty (deckIndex, stemLaneIndex), path);
+        logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed), "track_loaded",
+                             deckNameFor (deckIndex), DeckPlayer::stemLaneId (stemLaneIndex), audio->displayName,
+                             path, "Audio loaded into " + DeckPlayer::stemLaneLabel (stemLaneIndex));
+    };
 
-            // Deck is playable now; refine the grid/key in the background (§A3).
-            refineAnalysisAsync (deckIndex, juce::File (path));
+    auto onAnalysisReady = [this, deckIndex, stemLaneIndex, path = file.getFullPathName(), alive = aliveFlag]
+                           (std::shared_ptr<const TrackAnalysis> analysis)
+    {
+        if (! alive->load (std::memory_order_acquire) || analysis == nullptr)
+            return;
+        if (stemLaneIndex != DeckPlayer::fullMixStem)
+            return;
 
+        deckAt (deckIndex).setRefinedAnalysis (analysis);
+        if (analysis->detectedBpm > 1.0f)
+            if (auto* bpm = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (deckPrefix (deckIndex) + "Bpm")))
+                bpm->setValueNotifyingHost (bpm->convertTo0to1 (juce::jlimit (40.0f, 240.0f, analysis->detectedBpm)));
+
+        // Neural refinement on top of the DSP grid/key, as before.
+        refineAnalysisAsync (deckIndex, juce::File (path));
+
+        {
             stemProvider.requestStemsAsync (juce::File (path), [this, deckIndex, alive = aliveFlag] (StemProvider::Result result)
             {
                 if (! alive->load (std::memory_order_acquire)) return;   // late completion after teardown
@@ -1317,11 +1409,17 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
                     applyPremiumStemMix (deckIndex);
             });
         }
-        setStatePathProperty (deckStemPathProperty (deckIndex, stemLaneIndex), path);
-        logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed), "track_loaded",
-                             deckNameFor (deckIndex), DeckPlayer::stemLaneId (stemLaneIndex), audio->displayName,
-                             path, "Audio loaded into " + DeckPlayer::stemLaneLabel (stemLaneIndex));
-    });
+    };
+
+    // Guard both callbacks: a job finishing during teardown must not run a
+    // this-capturing closure against a freed processor (same contract as loadAudioAsync).
+    loadPool.addJob (new TwoPhaseAudioLoadJob (file,
+        [this] (const juce::File& f) { return decodeAudioFile (f); },
+        [this] (TrackAnalysis& out, const juce::AudioBuffer<float>& audio, double sr, const juce::File& f)
+        { analyseInto (out, audio, sr, f, /*runNeuralInline*/ false); },
+        [alive = aliveFlag, cb = std::move (onAudioReady)] (std::shared_ptr<const DeckPlayer::LoadedAudio> a) mutable
+        { if (alive->load (std::memory_order_acquire)) cb (std::move (a)); },
+        std::move (onAnalysisReady)), true);
 }
 
 void MainPluginProcessor::loadPadFileAsync (int padIndex, const juce::File& file)
