@@ -59,3 +59,7 @@ validation/giantsteps/
 # Key-detection training corpora (fetched via scripts/, multi-GB, not committed)
 validation/gtzan/
 validation/combined/
+
+# Neural model weights (437MB). Reproducible from the documented export
+# pipeline; far too large for git and GitHub rejects >100MB outright.
+models/
