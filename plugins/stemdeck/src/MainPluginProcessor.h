@@ -272,6 +272,11 @@ public:
 
     // Tracktion Engine access — message-thread safe after construction.
     // Returns nullptr only if TE failed to initialise (should never happen).
+    // False when another StemDeck instance in this process owns the single Tracktion
+    // engine. The arrangement transport is unavailable; everything else works.
+    bool hasArrangementEngine() const noexcept { return teWrapper != nullptr; }
+    bool arrangementEngineTakenByOtherInstance() const noexcept { return teEngineUnavailable; }
+
     tracktion::Edit*      getTeEdit()      noexcept { return teWrapper ? teWrapper->edit.get()      : nullptr; }
     tracktion::Engine*    getTeEngine()    noexcept { return teWrapper ? &teWrapper->engine         : nullptr; }
     tracktion::TransportControl* getTeTransport() noexcept
@@ -573,6 +578,12 @@ private:
     };
 
     std::unique_ptr<TeWrapper> teWrapper;
+    // Tracktion Engine is one-per-process. This instance owns it, or it went without.
+    bool ownsTeEngine = false;
+    bool teEngineUnavailable = false;
+
+    static bool claimTeEngine() noexcept;
+    static void releaseTeEngine() noexcept;
 
     void ensureTeWrapperOnMessageThread();
 

@@ -525,12 +525,55 @@ MainPluginProcessor::~MainPluginProcessor()
     // completion closure will see false and skip touching this (soon-freed) processor.
     aliveFlag->store (false, std::memory_order_release);
     loadPool.removeAllJobs (true, 1500);
+
+    // Destroy the engine BEFORE releasing the claim, so a next instance constructing
+    // immediately after can never overlap with this one's teardown.
+    teWrapper.reset();
+    if (ownsTeEngine)
+    {
+        ownsTeEngine = false;
+        releaseTeEngine();
+    }
+}
+
+// Tracktion Engine is one-per-process: constructing a second while the first is alive
+// DEADLOCKS, so a DAW opening two StemDecks froze on the second. This claim makes the
+// engine exclusive — the first instance gets it, later ones run without it.
+//
+// That degradation is safe by construction: every teWrapper use in this file is
+// null-guarded, so a second instance keeps decks, mixer, stems and FX and only loses
+// the Tracktion-backed arrangement transport. Losing a feature beats hanging the host.
+//
+// The claim is released on destruction, so closing the first instance hands the engine
+// to the next one that asks (the sequential case, which already worked).
+static std::atomic<bool> gTeEngineClaimed { false };
+
+bool MainPluginProcessor::claimTeEngine() noexcept
+{
+    bool expected = false;
+    return gTeEngineClaimed.compare_exchange_strong (expected, true, std::memory_order_acq_rel);
+}
+
+void MainPluginProcessor::releaseTeEngine() noexcept
+{
+    gTeEngineClaimed.store (false, std::memory_order_release);
 }
 
 void MainPluginProcessor::ensureTeWrapperOnMessageThread()
 {
-    if (teWrapper != nullptr)
+    if (teWrapper != nullptr || teEngineUnavailable)
         return;
+
+    if (! ownsTeEngine)
+    {
+        if (! claimTeEngine())
+        {
+            // Another instance already owns the engine. Do NOT construct a second.
+            teEngineUnavailable = true;
+            return;
+        }
+        ownsTeEngine = true;
+    }
 
     auto create = [this]
     {
