@@ -1,12 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariEnvelopeFollower.h>
-#include <sattari_audio_core/SattariCrossPluginBus.h>
-#include <sattari_audio_core/SattariPitchDetector.h>   // ScaleId + scaleIntervals + midiToHz
+#include <sattari_audio_core/modules/VocoderModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
 
 // =============================================================================
 //  Sattari Vocoder — classic carrier-synthesis vocoder
@@ -29,10 +25,10 @@ class SattariVocoderAudioProcessor final : public juce::AudioProcessor
 {
 public:
     SattariVocoderAudioProcessor();
-    ~SattariVocoderAudioProcessor() override;
+    ~SattariVocoderAudioProcessor() override = default;   // module stops its own bus reader
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override;
+    void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -59,14 +55,14 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
-    static juce::StringArray rootChoices();
-    static juce::StringArray scaleChoices();
-    static juce::StringArray waveChoices();
-    static juce::StringArray voicingChoices();
+    static juce::StringArray rootChoices()    { return sattari::dsp::VocoderModule::rootChoices(); }
+    static juce::StringArray scaleChoices()   { return sattari::dsp::VocoderModule::scaleChoices(); }
+    static juce::StringArray waveChoices()    { return sattari::dsp::VocoderModule::waveChoices(); }
+    static juce::StringArray voicingChoices() { return sattari::dsp::VocoderModule::voicingChoices(); }
 
     // Effective key state for the editor's KeyButton.
-    struct KeyState { bool following = false; int root = 0; int scale = 1; };
-    KeyState currentKeyState() const;
+    using KeyState = sattari::dsp::VocoderModule::KeyState;
+    KeyState currentKeyState() const { return module.currentKeyState(); }
 
     static constexpr int kMaxBands   = 32;
     static constexpr int kMaxCarrier = 6;   // carrier voices (chord) + unisons
@@ -94,50 +90,15 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-
     void registerFactoryPresets();
-
-    // Resolve the current key (manual params or, when following, the bus).
-    void resolveKey (int& root, sattari::dsp::ScaleId& id) const;
-
-    // Build the set of carrier MIDI notes to play right now: MIDI-held notes if
-    // any, else an in-key chord voicing rooted on the current key. Returns count.
-    int carrierNotes (int* out, int maxOut, int root, sattari::dsp::ScaleId id,
-                      int voicing, int octave) const;
-
-    // Recompute per-band centre frequencies for `bands` bands spanning the vocoder
-    // range (log spaced). Fills bandFreq[0..bands-1].
-    void computeBandFrequencies (int bands) noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "vocoder" };   // after apvts
     int currentProgram = 0;
-    sattari::xplugin::SessionReader sessionReader;
 
-    double sampleRate = 44100.0;
-
-    // Per-band filters (mono modulator detector + carrier shaping bank).
-    std::array<Biquad, kMaxBands> modBP;
-    std::array<Biquad, kMaxBands> carBP;
-    std::array<sattari::dsp::EnvelopeFollower, kMaxBands> bandEnv;
-    std::array<float, kMaxBands> bandFreq { {} };
-    int   activeBands = 16;
-
-    // Carrier synth voices. Each holds a couple of blep oscillators (base + octave
-    // stack via voicing) — kept simple & fixed-size for RT safety.
-    struct Voice { BlepOsc osc; bool active = false; int note = -1; float freq = 0.0f; };
-    std::array<Voice, kMaxCarrier> voices;
-
-    // Held MIDI notes (from the host), newest-priority; -1 = empty.
-    std::array<int, 16> heldMidi { {} };
-    int heldMidiCount = 0;
-
-    // Unvoiced high-pass path (per channel) + carrier makeup smoothing.
-    std::array<Biquad, 2> unvoicedHP;
-
-    // Smoothed control values to avoid zipper on param moves.
-    float smWet = 1.0f, smUnvoiced = 0.3f;
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::VocoderModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariVocoderAudioProcessor)
 };

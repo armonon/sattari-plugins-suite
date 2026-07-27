@@ -1,10 +1,10 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/modules/WarpModule.h>
+#include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <array>
-#include <vector>
 
 // =============================================================================
 //  Sattari Warp — creative vocal transformer
@@ -58,29 +58,11 @@ public:
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
     // Live output level (for the editor's reactive visual). 0..~1.
-    float getOutputLevel() const noexcept { return outLevel.load (std::memory_order_relaxed); }
+    float getOutputLevel() const noexcept { return module.currentOutLevel(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-
     void registerFactoryPresets();
-
-    // --- One RBJ bandpass biquad (a formant resonator) ----------------------
-    struct Biquad
-    {
-        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
-        double z1 = 0, z2 = 0;
-        void setBandpass (double sr, double freq, double q) noexcept;
-        inline float process (float x) noexcept
-        {
-            const double y = b0 * x + z1;
-            z1 = b1 * x - a1 * y + z2;
-            z2 = b2 * x - a2 * y;
-            return (float) y;
-        }
-        void reset() noexcept { z1 = z2 = 0.0; }
-    };
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "warp" };   // after apvts
@@ -88,25 +70,10 @@ private:
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:
-    double sr = 44100.0;
-    std::atomic<float> outLevel { 0.0f };
-    juce::AudioBuffer<float> dryScratch;      // pre-FX copy for the dry/wet blend
 
-    // Per-channel state (stereo).
-    std::array<Biquad, 2> vowelF1, vowelF2;   // two resonators per channel
-    std::array<double, 2> ringPhase { { 0.0, 0.0 } };
-    std::array<float,  2> crushHold  { { 0.0f, 0.0f } };
-    std::array<int,    2> crushCount { { 0, 0 } };
-
-    // Stutter (beat-repeat) buffers, one per channel.
-    std::array<std::vector<float>, 2> stutterBuf;
-    int stutterCap = 0;         // max slice length in samples (allocated)
-    int stutterWrite = 0;       // write cursor into the current capture
-    int stutterPlay = 0;        // playback cursor within the captured slice
-    int stutterLen = 0;         // current slice length
-    int stutterPos = 0;         // samples since last slice boundary
-
-    double hostBpm = 120.0;
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::WarpModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariWarpAudioProcessor)
 };

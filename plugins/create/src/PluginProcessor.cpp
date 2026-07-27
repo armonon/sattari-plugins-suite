@@ -7,7 +7,9 @@
 #include <sattari_audio_core/modules/RiserModule.h>
 #include <sattari_audio_core/modules/ShimmerModule.h>
 #include <sattari_audio_core/modules/SpaceModule.h>
+#include <sattari_audio_core/modules/VocoderModule.h>
 #include <sattari_audio_core/modules/WarbleModule.h>
+#include <sattari_audio_core/modules/WarpModule.h>
 
 // Create's roster. Heat and Pulse appear in Mix as well — a module is DSP, not a
 // product, so the same implementation can sit in more than one rack.
@@ -26,6 +28,8 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeCreateModul
     v.push_back (std::make_unique<sattari::dsp::ShimmerModule>());   // 5
     v.push_back (std::make_unique<sattari::dsp::SpaceModule>());     // 6
     v.push_back (std::make_unique<sattari::dsp::WarbleModule>());    // 7
+    v.push_back (std::make_unique<sattari::dsp::WarpModule>());      // 8
+    v.push_back (std::make_unique<sattari::dsp::VocoderModule>());   // 9
     return v;
 }
 
