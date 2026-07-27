@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/modules/MultibandModule.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <array>
 #include <atomic>
@@ -72,30 +72,19 @@ public:
     // Lock-free readout for the editor: per-band gain reduction magnitude (>= 0 dB).
     float getBandGainReductionDb (int band) const noexcept
     {
-        return bandGrDb[(size_t) juce::jlimit (0, kBands - 1, band)].load (std::memory_order_relaxed);
+        return module.currentBandGrDb (juce::jlimit (0, kBands - 1, band));
     }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    bool  boolParam (const char* id) const noexcept { return param (id) > 0.5f; }
     void registerFactoryPresets();
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "multiband" };   // after apvts
     int currentProgram = 0;
-    double sampleRate = 44100.0;
 
-    // Two crossovers: lr1 splits (low | rest), lr2 splits rest into (mid | high).
-    // Allpass type => the three outputs sum back to the input phase-coherently and
-    // flat, which is the whole point of a recombining multiband.
-    juce::dsp::LinkwitzRileyFilter<float> lr1, lr2;
-
-    // Per-band gain-reduction envelope smoother (dB domain) + its current value.
-    std::array<sattari::dsp::EnvelopeFollower, kBands> grSmoother;
-    std::array<float, kBands> smoothedGrDb { { 0.0f, 0.0f, 0.0f } };   // <= 0 dB
-
-    std::array<std::atomic<float>, kBands> bandGrDb {};   // published GR magnitude (>= 0)
+    // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
+    sattari::dsp::MultibandModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariMultibandAudioProcessor)
 };
