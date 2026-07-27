@@ -31,8 +31,42 @@ SattariVocalAudioProcessor::SattariVocalAudioProcessor()
               // plugin's channel layout.
               .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
               .withOutput ("Output",    juce::AudioChannelSet::stereo(), true),
-          &makeVocalModules)
+          &makeVocalModules, "vocal")
 {
+    registerFactoryPresets();
+}
+
+// Factory presets. "Vocal Master (classic)" is a COLLAPSED PLUGIN: Sattari Vocal
+// Master was a fixed de-ess -> shape -> double chain, and a fixed chain is a
+// preset, not a product. Here the order is no longer welded shut.
+void SattariVocalAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    addChainPreset ("Natural Double",
+        { "deess", "double" },
+        PV{ {"deess.threshold", -30},
+            {"double.detune", 12}, {"double.timing", 18}, {"double.level", 0.6f} });
+
+    addChainPreset ("Wide Stack",
+        { "deess", "double", "face" },
+        PV{ {"double.detune", 16}, {"double.timing", 24}, {"double.width", 1.0f}, {"double.level", 0.75f},
+            {"face.formant", 1.5f}, {"face.mix", 0.4f} });
+
+    addChainPreset ("Gender Shift",
+        { "face" },
+        PV{ {"face.formant", 5}, {"face.mix", 1.0f} });
+
+    addChainPreset ("De-Ess Only",
+        { "deess" },
+        PV{ {"deess.threshold", -32}, {"deess.range", 10} });
+
+    // --- Collapsed plugin ----------------------------------------------------
+    addChainPreset ("Vocal Master (classic)",
+        { "deess", "face", "double" },
+        PV{ {"deess.threshold", -28}, {"deess.range", 8},
+            {"face.formant", 0.0f}, {"face.mix", 0.0f},
+            {"double.detune", 8}, {"double.timing", 14}, {"double.level", 0.35f} });
 }
 
 juce::AudioProcessorEditor* SattariVocalAudioProcessor::createEditor()

@@ -2,6 +2,7 @@
 
 #include <sattari_audio_core/SattariModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 
 #include <functional>
 #include <memory>
@@ -54,11 +55,13 @@ public:
     SattariRackProcessor (juce::String displayName,
                           juce::String stateTreeId,
                           const BusesProperties& buses,
-                          ModuleFactory factory)
+                          ModuleFactory factory,
+                          juce::String presetProductId = {})
         : juce::AudioProcessor (buses),
           name_ (std::move (displayName)),
           factory_ (std::move (factory)),
-          apvts (*this, nullptr, juce::Identifier (stateTreeId), createLayout())
+          apvts (*this, nullptr, juce::Identifier (stateTreeId), createLayout()),
+          presetBank (apvts, presetProductId.isNotEmpty() ? presetProductId : stateTreeId.toLowerCase())
     {
         // Link every module to its namespaced parameters once, off the audio thread.
         for (auto& m : modules)
@@ -74,10 +77,25 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    // Factory presets. A rack preset is just a wiring: which module sits in which
+    // slot, plus the parameters those modules need. That is exactly what the
+    // fixed-chain plugins (Bus, Royal Chain, Vocal Master) were — a hard-coded
+    // slot order — so they collapse into presets here rather than staying as code.
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram_; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets())
+        {
+            currentProgram_ = i;
+            presetBank.loadFactoryPreset (i);
+        }
+    }
+    const juce::String getProgramName (int i) override
+    {
+        const auto names = presetBank.factoryPresetNames();
+        return juce::isPositiveAndBelow (i, names.size()) ? names[i] : juce::String();
+    }
     void changeProgramName (int, const juce::String&) override {}
 
     void releaseResources() override {}
@@ -198,6 +216,47 @@ public:
     static juce::String slotParamId (int slot)       { return "slot" + juce::String (slot + 1); }
     static juce::String slotBypassParamId (int slot) { return "slot" + juce::String (slot + 1) + "bypass"; }
 
+protected:
+    // Register a factory preset from a chain of module ids plus any parameter
+    // overrides. Slot indices are resolved from the LIVE roster by moduleId(), not
+    // hard-coded — so a preset keeps meaning the same chain even as the roster
+    // grows, and a typo'd id fails loudly here at construction instead of silently
+    // loading the wrong processor.
+    void addChainPreset (const juce::String& name,
+                         const juce::StringArray& moduleIds,
+                         sattari::presets::SattariPresetManager::PresetValues params = {})
+    {
+        sattari::presets::SattariPresetManager::PresetValues values;
+
+        // Every slot is written, so a preset always fully defines the chain — a
+        // leftover module from whatever was loaded before can never survive.
+        for (int s = 0; s < kNumSlots; ++s)
+        {
+            float slotValue = 0.0f;   // Empty
+            if (s < moduleIds.size())
+            {
+                const int idx = indexOfModule (moduleIds[s]);
+                jassert (idx >= 0);   // unknown module id in a factory preset
+                if (idx >= 0) slotValue = (float) (idx + 1);
+            }
+            values.push_back ({ slotParamId (s), slotValue });
+            values.push_back ({ slotBypassParamId (s), 0.0f });
+        }
+
+        for (auto& kv : params)
+            values.push_back (kv);
+
+        presetBank.addFactoryPreset (name, std::move (values));
+    }
+
+    int indexOfModule (const juce::String& id) const noexcept
+    {
+        for (int i = 0; i < (int) modules.size(); ++i)
+            if (id == modules[(size_t) i]->moduleId())
+                return i;
+        return -1;
+    }
+
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     {
@@ -259,8 +318,10 @@ private:
 
 protected:
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank;   // declared AFTER apvts
 
 private:
+    int currentProgram_ = 0;
     double sr_ = 44100.0;
     std::atomic<int> pendingLatency_ { 0 };
     int reportedLatency_ = 0;

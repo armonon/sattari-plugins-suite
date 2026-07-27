@@ -43,8 +43,54 @@ SattariCreateAudioProcessor::SattariCreateAudioProcessor()
               // release because adding one later changes the plugin's channel layout.
               .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
               .withOutput ("Output",    juce::AudioChannelSet::stereo(), true),
-          &makeCreateModules)
+          &makeCreateModules, "create")
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: starting chains for the creative rack. Only the parameters a
+// preset cares about are set; everything else keeps its default.
+void SattariCreateAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    addChainPreset ("Ambient Wash",
+        { "space", "shimmer", "echo" },
+        PV{ {"space.size", 0.9f}, {"space.revmix", 0.45f},
+            {"shimmer.shimmer", 0.5f}, {"shimmer.mix", 0.35f},
+            {"echo.feedback", 0.55f}, {"echo.mix", 0.3f} });
+
+    addChainPreset ("Tape Slap",
+        { "warble", "echo" },
+        PV{ {"warble.age", 0.5f},
+            {"echo.sync", 0}, {"echo.timems", 120}, {"echo.feedback", 0.15f}, {"echo.mix", 0.28f} });
+
+    addChainPreset ("EDM Pump",
+        { "pulse", "space" },
+        PV{ {"pulse.depth", 0.85f}, {"pulse.rate", 2},
+            {"space.revmix", 0.25f} });
+
+    addChainPreset ("Robot Vocal",
+        { "warp", "echo" },
+        PV{ {"warp.dose", 0.7f}, {"warp.robotAmt", 0.8f},
+            {"echo.mix", 0.25f} });
+
+    addChainPreset ("Vocoded Pad",
+        { "vocoder", "space", "shimmer" },
+        PV{ {"vocoder.bands", 24}, {"vocoder.voicing", 3},
+            {"space.size", 0.85f}, {"space.revmix", 0.4f},
+            {"shimmer.mix", 0.3f} });
+
+    addChainPreset ("Transition Build",
+        { "riser", "space" },
+        PV{ {"riser.length", 1}, {"riser.mix", 0.85f},
+            {"space.revmix", 0.3f} });
+
+    addChainPreset ("Lo-Fi Grit",
+        { "warble", "heat", "echo" },
+        PV{ {"warble.age", 0.7f}, {"warble.crackle", 0.5f},
+            {"heat.drive", 0.5f},
+            {"echo.mix", 0.2f}, {"echo.tone", -0.4f} });
 }
 
 juce::AudioProcessorEditor* SattariCreateAudioProcessor::createEditor()

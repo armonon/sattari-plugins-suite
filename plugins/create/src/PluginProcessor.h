@@ -31,5 +31,7 @@ public:
     double getTailLengthSeconds() const override { return 6.0; }
 
 private:
+    void registerFactoryPresets();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariCreateAudioProcessor)
 };

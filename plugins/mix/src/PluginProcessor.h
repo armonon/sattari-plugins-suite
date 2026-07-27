@@ -26,5 +26,7 @@ public:
     bool hasEditor() const override { return true; }
 
 private:
+    void registerFactoryPresets();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariMixAudioProcessor)
 };

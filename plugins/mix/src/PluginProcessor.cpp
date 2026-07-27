@@ -55,8 +55,69 @@ SattariMixAudioProcessor::SattariMixAudioProcessor()
               // cannot exist at all.
               .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
               .withOutput ("Output",    juce::AudioChannelSet::stereo(), true),
-          &makeMixModules)
+          &makeMixModules, "mix")
 {
+    registerFactoryPresets();
+}
+
+// Factory presets. Two kinds, and the second is the point of the whole rack:
+//
+//  * ordinary starting chains (Vocal Chain, Drum Bus, ...);
+//  * COLLAPSED PLUGINS — "Bus" and "Royal Chain" were separate plugins whose only
+//    real content was a FIXED order of these same processors. A fixed chain is a
+//    preset, not a product, so they live here now as wiring. The difference for
+//    the user is that the order is no longer welded shut.
+//
+// Only the parameters a preset actually cares about are set; everything else keeps
+// its default, so presets stay valid as modules gain parameters.
+void SattariMixAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    addChainPreset ("Vocal Chain",
+        { "gate", "deess", "eq", "comp", "heat" },
+        PV{ {"gate.threshold", -45}, {"gate.range", 40},
+            {"deess.threshold", -30}, {"deess.range", 8},
+            {"eq.hpf", 90},
+            {"comp.threshold", -18}, {"comp.ratio", 3.0f}, {"comp.attack", 8}, {"comp.release", 120},
+            {"heat.drive", 0.25f} });
+
+    addChainPreset ("Drum Bus",
+        { "transient", "comp", "multiband", "heat", "peak" },
+        PV{ {"transient.attack", 0.35f}, {"transient.sustain", -0.15f},
+            {"comp.threshold", -14}, {"comp.ratio", 4.0f}, {"comp.attack", 15}, {"comp.release", 90},
+            {"heat.drive", 0.3f} });
+
+    addChainPreset ("Master Bus",
+        { "eq", "multiband", "image", "peak", "meter" },
+        PV{ {"eq.hpf", 25},
+            {"peak.ceiling", -1.0f} });
+
+    addChainPreset ("Clean Up",
+        { "clean", "gate", "eq", "deess" },
+        PV{ {"gate.threshold", -50}, {"eq.hpf", 80} });
+
+    addChainPreset ("Duck To Kick",
+        { "sidechain", "eq", "comp" },
+        PV{ {"sidechain.external", 1}, {"sidechain.depth", 8}, {"sidechain.release", 160} });
+
+    // --- Collapsed plugins ---------------------------------------------------
+    addChainPreset ("Bus (classic)",
+        { "eq", "comp", "heat", "image", "peak" },
+        PV{ {"eq.hpf", 30},
+            {"comp.threshold", -16}, {"comp.ratio", 2.5f}, {"comp.attack", 20}, {"comp.release", 150},
+            {"heat.drive", 0.2f},
+            {"image.width", 1.1f},
+            {"peak.ceiling", -0.3f} });
+
+    addChainPreset ("Royal Chain (classic)",
+        { "gate", "deess", "eq", "comp", "multiband", "heat", "peak" },
+        PV{ {"gate.threshold", -48}, {"gate.range", 35},
+            {"deess.threshold", -32}, {"deess.range", 10},
+            {"eq.hpf", 95},
+            {"comp.threshold", -20}, {"comp.ratio", 3.5f}, {"comp.attack", 6}, {"comp.release", 110},
+            {"heat.drive", 0.3f},
+            {"peak.ceiling", -0.5f} });
 }
 
 juce::AudioProcessorEditor* SattariMixAudioProcessor::createEditor()
