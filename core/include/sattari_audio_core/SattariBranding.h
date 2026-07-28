@@ -84,6 +84,7 @@ inline const std::vector<Product>& products()
         { "mix",               "Sattari Mix",         "Mix rack",         kAccent },
         { "create",            "Sattari Create",      "Creative FX rack", kAccentViolet },
         { "vocal",             "Sattari Vocal",       "Vocal rack",       kAccent },
+        { "stack",             "Sattari Stack",       "Instrument rack",  kAccentAmber },
         { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
         { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
         { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },

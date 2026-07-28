@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/modules/ChopModule.h>
 #include <sattari_audio_core/SattariOnsetCurve.h>
 #include <sattari_audio_core/SattariSliceTable.h>
 
@@ -15,6 +16,10 @@
 //  I/O. The loaded source + its slice list are published as an IMMUTABLE snapshot; the
 //  audio thread takes a reference under a try-lock and reads it. Every snapshot is
 //  retained for the session, so a buffer is never freed on the audio thread.
+//
+//  This shell keeps everything on the MESSAGE thread — loading, analysis, slicing,
+//  the §3 editing gestures. The playback voices live in sattari::dsp::ChopModule,
+//  shared with a Sattari Stack layer, and the two halves meet at setSource().
 // =============================================================================
 class SattariChopAudioProcessor final : public juce::AudioProcessor
 {
@@ -56,17 +61,11 @@ public:
     double sourceLengthSeconds() const noexcept;
 
     // Lowest MIDI note; slice i is triggered by kBaseNote + i.
-    static constexpr int kBaseNote = 36;          // C1
+    static constexpr int kBaseNote = sattari::dsp::ChopModule::kBaseNote;   // C1
 
-    // Snapshot for the editor's waveform + markers (message thread reads).
-    struct Source : juce::ReferenceCountedObject
-    {
-        juce::AudioBuffer<float> audio;
-        double sr = 44100.0;
-        juce::String name;
-        std::vector<std::pair<std::int64_t, std::int64_t>> slices;   // [start,end)
-        using Ptr = juce::ReferenceCountedObjectPtr<Source>;
-    };
+    // Snapshot for the editor's waveform + markers (message thread reads). The type
+    // is the module's, so the hand-off needs no conversion.
+    using Source = sattari::dsp::ChopModule::Source;
     Source::Ptr snapshot() const;                 // may be nullptr
 
     // --- §3 editing gestures (message thread). snap=true applies onset magnetism then a
@@ -94,31 +93,15 @@ private:
     std::vector<float> monoScratch;
     juce::String loadedPath;
 
-    // Published snapshot (audio thread reads under try-lock).
+    // The message-thread copy of what was last published. The module holds the
+    // audio-thread reference and the session-long retain.
     Source::Ptr current;
-    juce::ReferenceCountedArray<Source> retained;
-    mutable juce::SpinLock sourceLock;
 
     juce::AudioFormatManager formatManager;
 
-    // --- Voices ---------------------------------------------------------------
-    static constexpr int kMaxVoices = 32;
-    struct Voice
-    {
-        Source::Ptr src;
-        int    slice = -1;
-        double pos = 0.0;
-        float  gain = 1.0f;
-        float  env = 0.0f;       // short attack/release ramp, avoids clicks
-        bool   releasing = false;
-        bool   active = false;
-        int    note = -1;
-    };
-    std::array<Voice, kMaxVoices> voices;
-    int voiceCounter = 0;
-
-    void startVoice (int sliceIndex, int note, float velocity);
-    void stopVoicesForNote (int note);
+    // Thin wrapper: the standalone plugin and a Stack layer run the SAME voices.
+    // Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::ChopModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariChopAudioProcessor)
 };

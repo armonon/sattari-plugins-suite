@@ -13,14 +13,9 @@ constexpr int   kZeroSearch = 256;    // samples either side to find a zero cros
 
 APVTS::ParameterLayout SattariChopAudioProcessor::createParameterLayout()
 {
-    using FloatP = juce::AudioParameterFloat;
-    std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
-    auto unit = [] { return juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f); };
-
-    // The load-bearing control (§2.2): re-thresholds the stored onset curve live.
-    p.push_back (std::make_unique<FloatP> (juce::ParameterID { "sensitivity", 1 }, "Sensitivity", unit(), 0.5f));
-    p.push_back (std::make_unique<FloatP> (juce::ParameterID { "output",      1 }, "Output",      unit(), 0.8f));
-
+    // Parameters come from the module: one source of truth for both shells.
+    sattari::dsp::SattariModule::ParamList p;
+    sattari::dsp::ChopModule().addParameters (p, "");
     return { p.begin(), p.end() };
 }
 
@@ -32,10 +27,11 @@ SattariChopAudioProcessor::SattariChopAudioProcessor()
     formatManager.registerBasicFormats();
 }
 
-void SattariChopAudioProcessor::prepareToPlay (double sampleRate, int)
+void SattariChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    for (auto& v : voices) { v.active = false; v.releasing = false; v.env = 0.0f; v.pos = 0.0; }
+    module.link (apvts, "");
+    module.prepare (sampleRate, juce::jmax (1, samplesPerBlock), getTotalNumOutputChannels());
 }
 
 bool SattariChopAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -47,8 +43,7 @@ bool SattariChopAudioProcessor::isBusesLayoutSupported (const BusesLayout& layou
 // --- Source loading + slicing (message thread) ---------------------------------
 SattariChopAudioProcessor::Source::Ptr SattariChopAudioProcessor::snapshot() const
 {
-    const juce::SpinLock::ScopedLockType sl (sourceLock);
-    return current;
+    return module.snapshot();
 }
 
 bool SattariChopAudioProcessor::hasSource() const noexcept { return current != nullptr; }
@@ -61,9 +56,10 @@ double SattariChopAudioProcessor::sourceLengthSeconds() const noexcept
 
 void SattariChopAudioProcessor::publish (Source::Ptr s)
 {
-    retained.add (s);                                   // never freed on the audio thread
-    const juce::SpinLock::ScopedLockType sl (sourceLock);
+    // The module owns the audio-thread reference and the session-long retain, so
+    // publishing is a single hand-off. We keep our own copy for the editor.
     current = s;
+    module.setSource (std::move (s));
 }
 
 // §3.2: slice boundaries always resolve to a nearby zero crossing. Non-negotiable —
@@ -208,84 +204,10 @@ void SattariChopAudioProcessor::deleteSliceNear (std::int64_t sample)
     republishFromTable();
 }
 
-// --- Voices --------------------------------------------------------------------
-void SattariChopAudioProcessor::startVoice (int sliceIndex, int note, float velocity)
-{
-    Source::Ptr s;
-    {
-        const juce::SpinLock::ScopedTryLockType sl (sourceLock);
-        if (! sl.isLocked() || current == nullptr) return;
-        s = current;
-    }
-    if (sliceIndex < 0 || sliceIndex >= (int) s->slices.size()) return;
-
-    // Free voice, else steal the oldest.
-    int idx = -1;
-    for (int i = 0; i < kMaxVoices; ++i) if (! voices[(size_t) i].active) { idx = i; break; }
-    if (idx < 0) { idx = voiceCounter % kMaxVoices; }
-    voiceCounter = (voiceCounter + 1) % (kMaxVoices * 4);
-
-    auto& v = voices[(size_t) idx];
-    v.src = s;
-    v.slice = sliceIndex;
-    v.pos = (double) s->slices[(std::size_t) sliceIndex].first;
-    v.gain = juce::jlimit (0.0f, 1.0f, velocity);
-    v.env = 0.0f;
-    v.releasing = false;
-    v.active = true;
-    v.note = note;
-}
-
-void SattariChopAudioProcessor::stopVoicesForNote (int note)
-{
-    for (auto& v : voices) if (v.active && v.note == note) v.releasing = true;
-}
-
 void SattariChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    const int numSamples = buffer.getNumSamples();
-    buffer.clear();
-
-    for (const auto meta : midi)
-    {
-        const auto m = meta.getMessage();
-        if (m.isNoteOn())       startVoice (m.getNoteNumber() - kBaseNote, m.getNoteNumber(), m.getFloatVelocity());
-        else if (m.isNoteOff()) stopVoicesForNote (m.getNoteNumber());
-    }
-
-    const float outGain = 0.2f + 1.0f * juce::jlimit (0.0f, 1.0f, apvts.getRawParameterValue ("output")->load());
-    const int outCh = buffer.getNumChannels();
-
-    for (auto& v : voices)
-    {
-        if (! v.active || v.src == nullptr) continue;
-        const auto& src = v.src->audio;
-        const auto bounds = v.src->slices[(std::size_t) v.slice];
-        const int srcCh = src.getNumChannels();
-        // Resample if the file's rate differs from the session's.
-        const double rate = v.src->sr / (currentSampleRate > 0.0 ? currentSampleRate : 44100.0);
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const std::int64_t idx = (std::int64_t) v.pos;
-            if (idx + 1 >= bounds.second) { v.active = false; break; }
-
-            v.env += v.releasing ? -kEnvRate : kEnvRate;
-            v.env = juce::jlimit (0.0f, 1.0f, v.env);
-            if (v.releasing && v.env <= 0.0f) { v.active = false; break; }
-
-            const float frac = (float) (v.pos - (double) idx);
-            const float amp = v.gain * v.env * outGain;
-            for (int ch = 0; ch < outCh; ++ch)
-            {
-                const float* d = src.getReadPointer (juce::jmin (ch, srcCh - 1));
-                const float s0 = d[idx], s1 = d[idx + 1];
-                buffer.getWritePointer (ch)[i] += (s0 + frac * (s1 - s0)) * amp;
-            }
-            v.pos += rate;
-        }
-    }
+    module.process (buffer, midi);
 }
 
 void SattariChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)

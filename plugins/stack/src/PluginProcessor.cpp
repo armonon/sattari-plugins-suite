@@ -1,20 +1,20 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <sattari_audio_core/modules/ChopModule.h>
+
 // Stack's roster — the suite's INSTRUMENTS (aumu), never its effects.
 //
 // !! THIS ORDER IS FROZEN FROM THE FIRST RELEASE. APPEND ONLY. !!
 // A layer stores an INDEX into this list (0 = Empty, N = modules[N-1]).
 //
-// Empty today: every instrument in the suite (Chop, Granulator, Rhythm Genie)
-// still carries message-thread file loading and a lock-guarded published
-// snapshot, which is a materially bigger extraction than any effect module and
-// is the next piece of work. The HOST ships first and deliberately so — its AU
-// type and layering contract are one-way doors, and getting those wrong after
-// instruments exist would cost every saved session.
+// Granulator and Rhythm Genie append here next; both are larger and carry more
+// message-thread machinery than Chop did.
 static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeStackModules()
 {
-    return {};
+    std::vector<std::unique_ptr<sattari::dsp::SattariModule>> v;
+    v.push_back (std::make_unique<sattari::dsp::ChopModule>());   // 1
+    return v;
 }
 
 SattariStackAudioProcessor::SattariStackAudioProcessor()
@@ -26,11 +26,28 @@ SattariStackAudioProcessor::SattariStackAudioProcessor()
     registerFactoryPresets();
 }
 
-// Presets land with the instruments — a stack preset names instruments, and there
-// are none in the roster yet. The mechanism (addStackPreset) is in the base and is
-// exercised by the other three racks' equivalent.
+// Factory presets. A stack preset is a set of LAYERS, and each layer is a
+// placement — instrument, level, pan, key range, transpose — because that is what
+// distinguishes a split from an octave layer from a plain unison double.
+//
+// A layer holding Chop plays nothing until a sample is loaded into it; these set
+// up the ARRANGEMENT, which is the part a preset can meaningfully carry.
 void SattariStackAudioProcessor::registerFactoryPresets()
 {
+    // Single layer, full range — the plain starting point.
+    addStackPreset ("Single", { { "chop", -6.0f, 0.0f, 0, 127, 0 } });
+
+    // SPLIT: the same instrument twice, either side of C3 (MIDI 60), the lower
+    // half dropped an octave. This is the shape a stack exists for.
+    addStackPreset ("Split at C3",
+        { { "chop", -6.0f, -0.2f,  0,  59, -12 },
+          { "chop", -6.0f,  0.2f, 60, 127,   0 } });
+
+    // OCTAVE LAYER: one instrument doubled an octave up, quieter and panned apart
+    // so the double reads as width rather than as a second note.
+    addStackPreset ("Octave Layer",
+        { { "chop",  -6.0f, -0.3f, 0, 127,  0 },
+          { "chop", -12.0f,  0.3f, 0, 127, 12 } });
 }
 
 juce::AudioProcessorEditor* SattariStackAudioProcessor::createEditor()
