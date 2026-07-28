@@ -1,8 +1,31 @@
-# Sattari Suite — Inventory (Phase 0)
+# Sattari Suite — Inventory
 
-**41 plugins**, audited from source. This maps every plugin onto the **6-product** consolidation
-(Brain · Vocal · Create · Composer · Mix · StemDeck). The 41 become *modules* underneath the 6
-products — a presentation/bundling change, not a code merge (see [BUS-HUB-PROTOCOL.md](BUS-HUB-PROTOCOL.md)).
+**STATUS: the consolidation is no longer a bundling story — it is real code.**
+28 plugins' DSP now lives in `core/include/sattari_audio_core/modules/` as
+`SattariModule` implementations, and FOUR shipping rack hosts load them:
+
+| Host | AU | Kind | Modules | Presets |
+|---|---|---|---|---|
+| Sattari Mix    | `aumf Mx01` | chain (dynamics/mix) | 14 | 7 |
+| Sattari Create | `aumf Cr01` | chain (creative FX)  | 10 | 8 |
+| Sattari Vocal  | `aumf Vcl1` | chain (vocal)        |  4 | 6 |
+| Sattari Stack  | `aumu Stk1` | **layer** (instruments) | 3 | 5 |
+
+There is exactly ONE copy of each module's DSP: the standalone plugin is a thin
+wrapper (empty parameter prefix, so saved sessions keep working) and a rack slot
+uses prefix `"<id>."`. A fix lands in both shells at once and they cannot drift.
+
+Mix/Create/Vocal CHAIN their slots. Stack LAYERS them — every layer gets the same
+MIDI, renders in parallel, and the results sum, with per-layer level/pan/key-range/
+transpose. Chaining instruments would be meaningless (each would overwrite the
+previous), which is why it is a separate host and a separate AU type.
+
+**Collapsed into presets, not code:** Bus, Royal Chain and Vocal Master were fixed
+orders of these same processors. They ship as "… (classic)" presets in Mix/Vocal,
+with the order no longer welded shut.
+
+The table below is the original Phase-0 audit of the 41 individual plugins, kept
+because it is still the map of which plugin belongs to which product.
 
 Legend: **Code** = AU subtype · **Bus** = R(reads) / P(publishes) the cross-plugin bus · **Syn** = instrument.
 
@@ -78,6 +101,17 @@ Legend: **Code** = AU subtype · **Bus** = R(reads) / P(publishes) the cross-plu
 
 ### Product counts
 Brain 3 · Vocal 10 · Create 11 · Composer 4 (VoxKey shared with Vocal) · Mix 13 · StemDeck 1 → **41 unique**.
+
+### Extraction status (28 modules)
+Align, Chop, Clean, Comp, DeEss, Double, Echo, EightOhEight, Eq, Face, Gate, GlassChoir,
+Granulator, Heat, Image, Meter, Multiband, Peak, Pulse, Riser, RhythmGenie, Shimmer,
+SideChainMaster, Space, Transient, Vocoder, Warble, Warp.
+
+**Deliberately NOT racked** — flagships and standalone tools whose value is not a slot:
+Auto Pitch (ONNX + worker thread + Rubber Band + Key Map), Morph, VoxSynth, StemDeck,
+Harmony, Maqam, Sub Conjurer, VoxKey, Arp, Scaler. Brain stays Key + Scope + Tuner
+(pass-through analysers). VoxSynth in particular needs AUDIO input, so it could never be
+a MIDI stack layer.
 
 ### Notes / judgement calls
 - **VoxKey** spans Vocal (it's a vocal tool) and Composer (it emits MIDI). List under both; ships in whichever bundle, wired once.
