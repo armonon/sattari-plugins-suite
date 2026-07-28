@@ -30,10 +30,46 @@ pass=0
 
 hr() { printf '%s\n' "-------------------------------------------------------------"; }
 
+# --- 0. Make the contracts hermetic -----------------------------------------
+#  The contracts are NOT self-contained: any plugin that follows the cross-plugin
+#  TEMPO bus (Echo, Space, Pulse, Riser, Warp, Granulator, Side Chain Master...)
+#  falls back to it when the host reports no tempo — and a contract harness has no
+#  playhead, so the bus ALWAYS wins there.
+#
+#  That makes the suite order-dependent in a way that looks like a DSP bug: auval
+#  instantiating Rhythm Genie publishes a live BPM to the bus, and a contract run
+#  afterwards then measures a 1/8 note at THAT tempo instead of the 120 it assumes.
+#  Observed: Echo failed 4 checks inside the gate while passing standalone.
+#
+#  JUCE resolves the bus path through getpwuid, NOT $HOME, so redirecting HOME does
+#  not isolate it. The directory has to be moved aside for real, and restored no
+#  matter how we exit.
+#
+#  Stashing ONCE is not enough: 19 of the contracts touch the bus themselves and
+#  several PUBLISH to it (SattariCrossPluginBus, Brain, AutoPitch, Comp...), so a
+#  contract that runs later reads what an earlier one wrote. The bus is therefore
+#  cleared before EVERY contract, which is the only way to make each one measure
+#  its own DSP rather than its predecessor's side effects.
+BUS_DIR="$HOME/Library/Sattari Audio/cross-plugin"
+BUS_STASH="$(mktemp -d)/cross-plugin"
+restore_bus() {
+    if [ -d "$BUS_STASH" ]; then
+        rm -rf "$BUS_DIR"                       # drop anything the run created
+        mkdir -p "$(dirname "$BUS_DIR")"
+        mv "$BUS_STASH" "$BUS_DIR"
+    fi
+}
+trap restore_bus EXIT INT TERM
+if [ -d "$BUS_DIR" ]; then
+    mv "$BUS_DIR" "$BUS_STASH"
+    echo "cross-plugin bus stashed for the contract run (restored on exit)"
+fi
+
 # --- 1. Contracts ------------------------------------------------------------
 hr; echo "CONTRACTS"; hr
 while IFS= read -r exe; do
     name="$(basename "$exe")"
+    rm -rf "$BUS_DIR"          # see above: per-contract, not once per run
     out="$("$exe" 2>&1)"
     rc=$?
     last="$(printf '%s' "$out" | tail -1)"
@@ -46,6 +82,9 @@ while IFS= read -r exe; do
 done < <(find "$BUILD" -type f -perm -111 -name '*Contract' 2>/dev/null | sort)
 
 # --- 2. auval ----------------------------------------------------------------
+#  Restore the bus BEFORE auval: auval exercises the real plugins, and a plugin
+#  that publishes to the bus should be publishing to the real one.
+restore_bus
 hr; echo "auval (type read from each Info.plist)"; hr
 for comp in "$COMPONENTS"/*.component; do
     [ -d "$comp" ] || continue
