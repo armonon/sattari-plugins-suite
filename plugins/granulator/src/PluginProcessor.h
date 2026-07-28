@@ -8,7 +8,7 @@
 #include <sattari_audio_core/SattariRealtime.h>          // AtomicSnapshot
 #include <sattari_audio_core/SattariPresetManager.h>
 
-#include "SourceSample.h"
+#include <sattari_audio_core/SattariGranSourceSample.h>
 
 #include <array>
 #include <atomic>

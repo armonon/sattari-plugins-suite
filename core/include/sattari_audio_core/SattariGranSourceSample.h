@@ -1,5 +1,10 @@
 #pragma once
 
+// Promoted to core from plugins/granulator/src: a core module cannot reach a
+// plugin-local header, and GranulatorModule needs this type. Fourth time this
+// blocker has appeared (RbFormant, HarmonyVoicing, RhythmPatterns, now this) —
+// shared DSP types belong in core from the start.
+
 // =============================================================================
 //  Sattari Granulator — immutable source-sample model
 // -----------------------------------------------------------------------------
