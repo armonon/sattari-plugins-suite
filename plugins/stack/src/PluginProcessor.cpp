@@ -2,18 +2,21 @@
 #include "PluginEditor.h"
 
 #include <sattari_audio_core/modules/ChopModule.h>
+#include <sattari_audio_core/modules/RhythmGenieModule.h>
 
 // Stack's roster — the suite's INSTRUMENTS (aumu), never its effects.
 //
 // !! THIS ORDER IS FROZEN FROM THE FIRST RELEASE. APPEND ONLY. !!
 // A layer stores an INDEX into this list (0 = Empty, N = modules[N-1]).
 //
-// Granulator and Rhythm Genie append here next; both are larger and carry more
-// message-thread machinery than Chop did.
+// Granulator appends here next (1441 lines, the biggest).
+//
+// !! THIS ORDER IS FROZEN. APPEND ONLY. !!
 static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeStackModules()
 {
     std::vector<std::unique_ptr<sattari::dsp::SattariModule>> v;
-    v.push_back (std::make_unique<sattari::dsp::ChopModule>());   // 1
+    v.push_back (std::make_unique<sattari::dsp::ChopModule>());          // 1
+    v.push_back (std::make_unique<sattari::dsp::RhythmGenieModule>());   // 2
     return v;
 }
 
@@ -48,6 +51,12 @@ void SattariStackAudioProcessor::registerFactoryPresets()
     addStackPreset ("Octave Layer",
         { { "chop",  -6.0f, -0.3f, 0, 127,  0 },
           { "chop", -12.0f,  0.3f, 0, 127, 12 } });
+
+    // Kit + sampler together — the case layering exists for. The drum lanes sit in
+    // their own key range so the two never fight for the same notes.
+    addStackPreset ("Kit + Sampler",
+        { { "rhythmgenie", -6.0f, 0.0f,  0,  47, 0 },
+          { "chop",        -8.0f, 0.0f, 48, 127, 0 } });
 }
 
 juce::AudioProcessorEditor* SattariStackAudioProcessor::createEditor()

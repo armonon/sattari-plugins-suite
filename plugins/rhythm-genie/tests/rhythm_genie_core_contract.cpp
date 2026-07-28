@@ -1,6 +1,6 @@
 // Pure-C++ contract for the Rhythm Genie pattern core. No JUCE.
 // g++ -std=c++17 -Icore/include plugins/rhythm-genie/tests/rhythm_genie_core_contract.cpp
-#include "../src/RhythmPatterns.h"
+#include <sattari_audio_core/SattariRhythmPatterns.h>
 #include <cstdio>
 
 using namespace sattari::rhythm;

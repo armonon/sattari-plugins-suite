@@ -1,5 +1,9 @@
 #pragma once
 
+// Promoted to core from plugins/rhythm-genie/src: a core module cannot reach a
+// plugin-local header, and RhythmGenieModule needs these patterns. Same move as
+// SattariHarmonyVoicing.h.
+
 // =============================================================================
 //  Sattari Rhythm Genie — pattern core (pure std, no JUCE)
 // -----------------------------------------------------------------------------
