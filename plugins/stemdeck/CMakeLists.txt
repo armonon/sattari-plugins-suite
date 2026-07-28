@@ -610,6 +610,16 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A1 phase 3: dispatch and replay are the same code path ────────────────────
+add_executable(StemDeckDispatch EXCLUDE_FROM_ALL tests/stemdeck_dispatch.cpp)
+add_dependencies(StemDeckDispatch SattariStemDeck)
+target_include_directories(StemDeckDispatch PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckDispatch PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckDispatch
+    PRIVATE juce::juce_core
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
 # ── A4: live input/output through a REAL audio device (loopback) ──────────────
 add_executable(StemDeckLiveIO EXCLUDE_FROM_ALL tests/stemdeck_liveio.cpp)
 target_include_directories(StemDeckLiveIO PRIVATE

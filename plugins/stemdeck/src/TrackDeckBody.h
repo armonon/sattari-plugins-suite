@@ -126,11 +126,35 @@ public:
                             params.downbeat, params.tempoInterp, params.syncMode };
         if (gridDirty || key != cachedKey)
         {
-            cachedGrid = BeatSyncEngine::makeGrid (analysis, params.bpm, params.beatOffset, params.downbeat,
-                                                   BeatSyncEngine::tempoInterpretationFromChoice (params.tempoInterp),
-                                                   BeatSyncEngine::syncModeFromChoice (params.syncMode));
-            cachedKey  = key;
-            gridDirty  = false;
+            // Prefer a grid built on the MESSAGE thread. makeGrid sorts and copies
+            // vectors, i.e. it allocates, and building it here would do that mid-render.
+            // Publishing is an atomic shared_ptr swap (same idiom as setStemAudio).
+            if (auto pub = std::atomic_load (&publishedGrid))
+                if (! (pub->key != key))   // GridKey defines only !=
+                {
+                    // HOLD the published grid rather than copying it: assigning to
+                    // cachedGrid copies its vectors, which allocates — the very thing
+                    // publishing was meant to avoid. A shared_ptr assignment is just a
+                    // refcount bump.
+                    heldGrid  = std::move (pub);
+                    cachedKey = key;
+                    gridDirty = false;
+                }
+
+            if (gridDirty || key != cachedKey)
+            {
+                // Fallback: a parameter the user just moved changed the grid inputs and
+                // no prebuilt grid matches yet. This still allocates on the audio thread
+                // and is a known remaining hazard — see StemDeckRtSafety. It is reached
+                // only on a live parameter change, never on analysis refinement, which
+                // is the path that fires on every track load.
+                cachedGrid = BeatSyncEngine::makeGrid (analysis, params.bpm, params.beatOffset, params.downbeat,
+                                                       BeatSyncEngine::tempoInterpretationFromChoice (params.tempoInterp),
+                                                       BeatSyncEngine::syncModeFromChoice (params.syncMode));
+                cachedKey  = key;
+                gridDirty  = false;
+                heldGrid.reset();   // the locally-built grid wins
+            }
         }
 
         const bool hostTempoSync = params.hostSync && ctx.transport.bpm > 1.0;
@@ -149,7 +173,8 @@ public:
         const float matchShift = (keyHas && targetKey >= 0)
                                ? (float) TrackAnalyzer::nearestSemitoneDelta (keyPc, targetKey) : 0.0f;
 
-        const auto warpPlan = warp.makePlan (ctx.transport, cachedGrid,
+        const auto& gridInUse = heldGrid != nullptr ? heldGrid->grid : cachedGrid;
+        const auto warpPlan = warp.makePlan (ctx.transport, gridInUse,
                                              deckAudio ? deckAudio->sourceSampleRate : preparedRate,
                                              deckAudio ? (double) deckAudio->audio.getNumSamples() : 0.0,
                                              params.pitch + matchShift,
@@ -357,6 +382,28 @@ private:
     const TrackAnalysis fallbackAnalysis {};   // referenced when nothing is loaded
     BeatSyncEngine::TrackBeatGrid cachedGrid;
     GridKey cachedKey;
+
+public:
+    // Message thread: build the grid for these inputs and publish it, so the audio
+    // thread finds it ready instead of building it mid-render.
+    struct PublishedGrid { GridKey key; BeatSyncEngine::TrackBeatGrid grid; };
+
+    void publishGridForAnalysis (const TrackAnalysis& analysis,
+                                 const void* audioPtr, const void* refinedPtr,
+                                 float bpm, float beatOffset, float downbeat,
+                                 int tempoInterp, int syncMode)
+    {
+        auto pg = std::make_shared<PublishedGrid>();
+        pg->key  = GridKey { audioPtr, refinedPtr, bpm, beatOffset, downbeat, tempoInterp, syncMode };
+        pg->grid = BeatSyncEngine::makeGrid (analysis, bpm, beatOffset, downbeat,
+                                             BeatSyncEngine::tempoInterpretationFromChoice (tempoInterp),
+                                             BeatSyncEngine::syncModeFromChoice (syncMode));
+        std::atomic_store (&publishedGrid, std::shared_ptr<const PublishedGrid> (std::move (pg)));
+    }
+
+private:
+    std::shared_ptr<const PublishedGrid> publishedGrid;   // message thread publishes
+    std::shared_ptr<const PublishedGrid> heldGrid;        // audio thread holds (no copy)
     bool    gridDirty = true;
     double  preparedRate = 44100.0;
     int     preparedChannels = 2;

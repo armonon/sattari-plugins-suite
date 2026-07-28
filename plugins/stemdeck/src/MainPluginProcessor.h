@@ -31,6 +31,7 @@
 #include "NeuralKeyEngine.h"
 #include "NeuralBeatEngine.h"
 #include "AnalysisCache.h"
+#include "EventDispatcher.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor
 {
@@ -176,6 +177,15 @@ public:
     // solo can be arbitrated mix-wide (non-soloed channels drop out of the master).
     void toggleChannelMute (int index);
     void toggleChannelSolo (int index);
+
+    // ── A1 phase 3: event dispatch ───────────────────────────────────────────
+    // The single mutator for converted controls. applyEvent() is used by BOTH the
+    // live path and replay, which is what makes a replay reproduce a performance.
+    stemdeck::events::Dispatcher& dispatcher() noexcept { return *eventDispatcher; }
+    void applyEvent (const stemdeck::events::Event& e);
+    // The raw mutation behind ParamId::cfSide. Called only by applyEvent (live and
+    // replay) and by state load; never directly by a control.
+    void applyDeckCfSide (int deckIndex, int side);
     bool isChannelMuted (int index) const;
     bool isChannelSoloed (int index) const;
     int          getNumTrackDecks() const;   // leading TrackDeck channels (the deck row)
@@ -580,6 +590,7 @@ private:
 
     // Audio-thread mirror of the persisted deck<N>CfSide properties.
     std::array<std::atomic<int>, numDecks> cfSideCache {};
+    std::unique_ptr<stemdeck::events::Dispatcher> eventDispatcher;
 
     std::unique_ptr<TeWrapper> teWrapper;
     // Tracktion Engine is one-per-process. This instance owns it, or it went without.

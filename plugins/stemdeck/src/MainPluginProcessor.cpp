@@ -152,11 +152,18 @@ inline std::pair<float, float> crossfaderBusGains (float x, int curve, bool reve
 }
 }
 
+// Constructed before anything can dispatch. applyEvent is a member, so the
+// dispatcher can be handed a stable callable for the processor's whole lifetime.
 MainPluginProcessor::MainPluginProcessor()
     : AudioProcessor (BusesProperties().withInput ("Mic / Input", juce::AudioChannelSet::stereo(), true)
                                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    // The dispatcher's applier is a member function, so it stays valid for the
+    // processor's whole lifetime and is the same callable live and on replay.
+    eventDispatcher = std::make_unique<stemdeck::events::Dispatcher> (
+        [this] (const stemdeck::events::Event& e) { applyEvent (e); });
+
     formatManager.registerBasicFormats();
 #if JUCE_USE_MP3AUDIOFORMAT
     formatManager.registerFormat (new juce::MP3AudioFormat(), true);
@@ -405,18 +412,64 @@ ChannelBody* MainPluginProcessor::getChannelBody (int index) const
     return nullptr;
 }
 
+// ── A1 phase 3: converted controls ───────────────────────────────────────────
+// These no longer mutate state directly. They emit an event; applyEvent() performs
+// the change. Replay calls applyEvent() with the same event and therefore takes the
+// identical path — that equivalence is the whole basis of the gate.
 void MainPluginProcessor::toggleChannelMute (int index)
 {
-    if (juce::isPositiveAndBelow (index, (int) channels.size()))
-        if (auto& ch = channels[(size_t) index])
-            ch->setMuted (! ch->isMuted());
+    if (! juce::isPositiveAndBelow (index, (int) channels.size())) return;
+    auto& ch = channels[(size_t) index];
+    if (ch == nullptr) return;
+
+    stemdeck::events::Scope sc;
+    sc.kind    = stemdeck::events::ScopeKind::channel;
+    sc.channel = index;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::channelMute,
+                                    ch->isMuted() ? 0.0 : 1.0);
 }
 
 void MainPluginProcessor::toggleChannelSolo (int index)
 {
-    if (juce::isPositiveAndBelow (index, (int) channels.size()))
-        if (auto& ch = channels[(size_t) index])
-            ch->setSoloed (! ch->isSoloed());
+    if (! juce::isPositiveAndBelow (index, (int) channels.size())) return;
+    auto& ch = channels[(size_t) index];
+    if (ch == nullptr) return;
+
+    stemdeck::events::Scope sc;
+    sc.kind    = stemdeck::events::ScopeKind::channel;
+    sc.channel = index;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::channelSolo,
+                                    ch->isSoloed() ? 0.0 : 1.0);
+}
+
+// The ONE place converted state changes. Live dispatch and replay both land here.
+void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
+{
+    using namespace stemdeck::events;
+    if (e.type != EventType::param) return;
+
+    const int idx = (int) e.scope.channel;
+    switch (e.param.id)
+    {
+        case ParamId::channelMute:
+            if (juce::isPositiveAndBelow (idx, (int) channels.size()))
+                if (auto& c = channels[(size_t) idx]) c->setMuted (e.param.value > 0.5);
+            break;
+
+        case ParamId::channelSolo:
+            if (juce::isPositiveAndBelow (idx, (int) channels.size()))
+                if (auto& c = channels[(size_t) idx]) c->setSoloed (e.param.value > 0.5);
+            break;
+
+        case ParamId::cfSide:
+            applyDeckCfSide (idx, (int) e.param.value);
+            break;
+
+        default:
+            // Not yet converted. Deliberately silent: Dispatcher::ownsParam() is the
+            // single source of truth for what phase 3 has actually covered.
+            break;
+    }
 }
 
 bool MainPluginProcessor::isChannelMuted (int index) const
@@ -1419,6 +1472,24 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
             analysisCache.store (hash, *refined);
         }
 
+        // Build the beat grid for this analysis HERE, on a worker thread, and publish
+        // it. Otherwise the audio thread discovers the analysis changed and rebuilds
+        // the grid mid-render — makeGrid sorts and copies vectors, so that allocates.
+        // StemDeckRtSafety catches exactly this.
+        if (auto* tdb = dynamic_cast<TrackDeckBody*> (
+                juce::isPositiveAndBelow (deckIndex, (int) channels.size()) && channels[(size_t) deckIndex]
+                    ? channels[(size_t) deckIndex]->getBody() : nullptr))
+        {
+            const auto deckAudio = deckAt (deckIndex).getStemAudio (DeckPlayer::fullMixStem);
+            const auto pfx = deckPrefix (deckIndex);
+            tdb->publishGridForAnalysis (*refined, deckAudio.get(), refined.get(),
+                                         getFloatParam (pfx + "Bpm"),
+                                         getFloatParam (pfx + "BeatOffset"),
+                                         getFloatParam (pfx + "Downbeat"),
+                                         (int) std::round (getFloatParam (pfx + "TempoInterpretation")),
+                                         (int) std::round (getFloatParam (pfx + "SyncMode")));
+        }
+
         // Hot-swap: atomic publish, picked up on the next block. No audio interruption.
         deckAt (deckIndex).setRefinedAnalysis (refined);
         return juce::ThreadPoolJob::jobHasFinished;
@@ -1833,6 +1904,16 @@ void MainPluginProcessor::clearOutroStart (int d) { setOutroStart (d, -1.0); }
 // what the audio thread reads.
 void MainPluginProcessor::setDeckCfSide (int d, int side)
 {
+    if (! juce::isPositiveAndBelow (d, numDecks)) return;
+    stemdeck::events::Scope sc;
+    sc.kind    = stemdeck::events::ScopeKind::channel;
+    sc.channel = d;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::cfSide,
+                                    (double) juce::jlimit (0, 2, side));
+}
+
+void MainPluginProcessor::applyDeckCfSide (int d, int side)
+{
     if (! juce::isPositiveAndBelow (d, numDecks))
         return;
     const int clamped = juce::jlimit (0, 2, side);
@@ -1850,6 +1931,8 @@ int MainPluginProcessor::getDeckCfSide (int d) const
 // Message thread: re-seed the atomics from the tree after a state load.
 void MainPluginProcessor::refreshCfSideCache()
 {
+    // Direct, NOT dispatched: loading a session is not a gesture the user performed,
+    // and recording it into a capture would inject phantom events.
     for (int d = 0; d < numDecks; ++d)
         cfSideCache[(size_t) d].store (
             juce::jlimit (0, 2, (int) apvts.state.getProperty (deckPrefix (d) + "CfSide",
