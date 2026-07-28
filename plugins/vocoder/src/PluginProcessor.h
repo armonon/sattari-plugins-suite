@@ -67,27 +67,6 @@ public:
     static constexpr int kMaxBands   = 32;
     static constexpr int kMaxCarrier = 6;   // carrier voices (chord) + unisons
 
-    // --- Direct-form-II-transpose biquad (mirrors Sattari EQ) -----------------
-    struct Biquad
-    {
-        double b0=1,b1=0,b2=0,a1=0,a2=0, x1=0,x2=0,y1=0,y2=0;
-        void reset() noexcept { x1=x2=y1=y2=0; }
-        double process (double x) noexcept
-        { const double y=b0*x+b1*x1+b2*x2-a1*y1-a2*y2; x2=x1;x1=x;y2=y1;y1=y; return y; }
-        void setBandpass (double f, double Q, double sr) noexcept;
-        void setHP (double f, double sr) noexcept;
-    };
-
-    // --- Band-limited (polyBLEP) saw / pulse oscillator -----------------------
-    struct BlepOsc
-    {
-        double phase = 0.0, inc = 0.0;
-        void setFreq (double hz, double sr) noexcept { inc = (sr > 0.0) ? hz / sr : 0.0; }
-        void reset() noexcept { phase = 0.0; }
-        // wave: 0 = saw, 1 = pulse (50%). Returns roughly [-1, 1].
-        float next (int wave) noexcept;
-    };
-
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void registerFactoryPresets();
