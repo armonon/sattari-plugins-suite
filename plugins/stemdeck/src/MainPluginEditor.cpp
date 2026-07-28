@@ -1294,6 +1294,18 @@ void MainPluginEditor::refreshChannelStrips()
             };
             // Mute/solo live on the Channel FRAME (not the body) so they mean the same
             // thing for every channel type and solo can be resolved mix-wide.
+            strip->onRemove = [this, idx]
+            {
+                // Remove THIS channel, not the last one. Refresh the strips and the
+                // header counter, then relayout so the survivors take the freed width.
+                if (processorRef.removeChannel (idx))
+                {
+                    refreshChannelStrips();
+                    refreshChannelButtons();
+                    resized();
+                    repaint();
+                }
+            };
             strip->onToggleMute = [this, idx] { processorRef.toggleChannelMute (idx); };
             strip->onToggleSolo = [this, idx] { processorRef.toggleChannelSolo (idx); };
             strip->onCycleSource = [this, idx]
@@ -4188,30 +4200,14 @@ void MainPluginEditor::resized()
         decksArea.removeFromRight (deckGap);
     }
 
-    // An IDLE channel recedes. Reference §4 collapses it in HEIGHT — the panel hugs
-    // ~72px of content and top-aligns, leaving the rest of the row empty — at roughly
-    // a 200px width. That is narrower than a deck (so four loaded decks keep enough
-    // width to render "LOW MID HIGH FILT" rather than "HI..."), but wide enough for
-    // the reference's horizontal header instead of a cramped vertical stack.
-    constexpr int kIdleColumnWidth = 190;
+    // Every channel gets an EQUAL, FULL column — decks and input/instrument alike.
+    // An earlier build collapsed idle channels to a slim strip (reference §4); that was
+    // removed on request. Uniform sizing also means removing a channel simply widens
+    // the rest, so paring the session back to a single deck fills the row.
+    const int deckWidth = juce::jmax (120,
+        (decksArea.getWidth() - deckGap * (totalColumns - 1)) / juce::jmax (1, totalColumns));
 
-    int idleColumns = 0;
-    for (int col = visibleDecks; col < totalColumns; ++col)
-        if (auto* st = channelStrips[(size_t) col].get())
-            if (st->isIdle()) ++idleColumns;
-
-    const int fullColumns = juce::jmax (1, totalColumns - idleColumns);
-    const int idleTotal   = idleColumns * (kIdleColumnWidth + deckGap);
-    const int deckWidth   = juce::jmax (120, (decksArea.getWidth() - idleTotal
-                                              - deckGap * (fullColumns - 1)) / fullColumns);
-
-    const auto columnWidth = [&] (int col)
-    {
-        if (col >= visibleDecks)
-            if (auto* st = channelStrips[(size_t) col].get())
-                if (st->isIdle()) return kIdleColumnWidth;
-        return deckWidth;
-    };
+    const auto columnWidth = [deckWidth] (int) { return deckWidth; };
 
     // Non-deck channels claim their column first (they sit after the decks, since
     // addChannel appends), leaving the deck columns for the deck loop below.
@@ -4226,13 +4222,8 @@ void MainPluginEditor::resized()
                 if (auto* st = channelStrips[(size_t) col].get())
                     if (st->isVisible())
                     {
-                        // Idle: hug the content height and top-align (the reference's
-                        // align-self:flex-start), at 0.85 opacity. Active: full body.
-                        const bool idle = st->isIdle();
-                        st->setAlpha (idle ? 0.85f : 1.0f);
-                        st->setBounds (idle ? colBounds.withHeight (juce::jmin (stemdeck::ChannelStrip::idleHeight,
-                                                                                colBounds.getHeight()))
-                                            : colBounds);
+                        st->setAlpha (1.0f);
+                        st->setBounds (colBounds);   // full column, loaded or not
                     }
         }
     }

@@ -51,14 +51,12 @@ public:
 
     ChannelStrip() = default;
 
-    // A receded channel: nothing loaded and nothing arriving. The layout gives these
-    // a slim column so they never crowd loaded channels (reference: "IDLE — recedes").
+    // Nothing loaded and nothing arriving. Now only affects the caption and the
+    // source CTA — NOT the size. See paint().
     bool isIdle() const noexcept
     { return ! state.hasContent && ! state.active && state.level <= 0.001f; }
 
-    // Height an idle panel hugs (reference: padding 11 + header 16 + gap + 30-tall
-    // hint/CTA row + padding 11). The row top-aligns it and leaves the rest empty.
-    static constexpr int idleHeight = 11 + 16 + 4 + 30 + 11;
+
 
     // Hit targets the host wires up.
     std::function<void()>      onToggleMonitor;
@@ -83,12 +81,11 @@ public:
         const auto textPri = T::c (T::fgPrimary);
         const auto textSec = T::c (T::fgTertiary);
 
-        // ── IDLE RECEDES ─────────────────────────────────────────────────────
-        // Reference: "ACTIVE — full body" vs "IDLE — recedes". An empty channel
-        // must never be as loud as a loaded one. Idle draws at reduced contrast and
-        // shows only its identity + a single call to action.
-        if (isIdle())
-        { paintIdle (g, getLocalBounds()); return; }
+        // Channels are ALWAYS drawn at full size, loaded or not. The reference's
+        // idle-collapse (a short receded strip) was built and then removed on request:
+        // an input you are about to arm should look like a channel, not a placeholder,
+        // and a half-height strip made the row read as broken rather than tidy.
+        // isIdle() survives only to pick the "no signal"/"waiting" caption below.
 
         g.setColour (panel);
         g.fillRoundedRectangle (r, T::radiusPanel);
@@ -111,6 +108,14 @@ public:
         g.setColour (state.accent);
         g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         g.drawText (badge, badgeR, juce::Justification::centred);
+
+        // Remove target: every channel carries its own, so a middle input can be
+        // dropped without removing the ones after it.
+        auto closeR = header.removeFromRight (16);
+        removeBounds = closeR;
+        g.setColour (T::c (T::fgMuted));
+        g.setFont (juce::FontOptions (T::tControl));
+        g.drawText ("x", closeR, juce::Justification::centred);
 
         header.removeFromLeft (6);
         g.setColour (textPri);
@@ -282,9 +287,8 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         const auto p = e.getPosition();
-        // An idle strip draws only its CTA, so no other hit region is live.
-        if (isIdle())
-        { if (chooseBounds.contains (p) && onCycleSource) onCycleSource(); return; }
+        if (removeBounds.contains (p)) { if (onRemove) onRemove(); return; }
+        if (isIdle() && chooseBounds.contains (p) && onCycleSource) { onCycleSource(); return; }
         if (muteBounds.contains (p))   { if (onToggleMute)   onToggleMute();   return; }
         if (soloBounds.contains (p))   { if (onToggleSolo)   onToggleSolo();   return; }
         if (sourceBounds.contains (p)) { if (onCycleSource)  onCycleSource();  return; }
@@ -467,6 +471,7 @@ private:
     juce::Rectangle<int> gainBounds, actionBounds, filterBounds, muteBounds, soloBounds, sourceBounds;
     std::array<juce::Rectangle<int>, 3> eqBounds {};
     mutable juce::Rectangle<int> chooseBounds;
+    mutable juce::Rectangle<int> removeBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChannelStrip)
 };
