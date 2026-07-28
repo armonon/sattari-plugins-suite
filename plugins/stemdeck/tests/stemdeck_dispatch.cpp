@@ -165,12 +165,19 @@ int main()
         check (Dispatcher::ownsParam (ParamId::channelGain), "channelGain is converted");
         check (Dispatcher::ownsParam (ParamId::gainStem),    "gainStem is converted");
         check (Dispatcher::ownsParam (ParamId::masterGain),  "masterGain is converted");
-        // Still unconverted, and saying so is the point: a replay that claims these
-        // are covered would silently drop them.
-        check (! Dispatcher::ownsParam (ParamId::inputGain),
-               "inputGain is NOT converted - ownsParam still tells the truth");
+        check (Dispatcher::ownsParam (ParamId::inputGain),    "inputGain is converted");
+        check (Dispatcher::ownsParam (ParamId::insertBypass), "insertBypass is converted");
+
+        // The three that remain, each for a reason rather than an oversight:
+        //   stemMute/stemSolo — no engine state exists to capture yet
+        //   insertParam       — needs a stable cross-session id for a third-party
+        //                       plugin's own parameter, which the schema does not solve
+        check (! Dispatcher::ownsParam (ParamId::stemMute),
+               "stemMute is NOT converted - no engine state exists to capture");
+        check (! Dispatcher::ownsParam (ParamId::stemSolo),
+               "stemSolo is NOT converted - same reason");
         check (! Dispatcher::ownsParam (ParamId::insertParam),
-               "insertParam is NOT converted");
+               "insertParam is NOT converted - needs a stable third-party param id");
         check (! Dispatcher::isFullyConverted(),
                "isFullyConverted() reports FALSE - phase 3 is genuinely incomplete");
     }

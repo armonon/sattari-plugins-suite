@@ -472,6 +472,36 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             applyDeckCfSide (idx, (int) e.param.value);
             break;
 
+        // ── Input / instrument channels ──────────────────────────────────────
+        // No APVTS parameter behind these: they live on the channel BODY, so they
+        // are applied directly here rather than through the bridge.
+        case ParamId::inputGain:
+        case ParamId::inputMonitor:
+        case ParamId::inputSource:
+            if (auto* in = dynamic_cast<InputBody*> (bodyAt (idx)))
+            {
+                if (e.param.id == ParamId::inputGain)         in->setInputGain ((float) e.param.value);
+                else if (e.param.id == ParamId::inputMonitor) in->setMonitorEnabled (e.param.value > 0.5);
+                else                                          in->setSourceChannel ((int) e.param.value);
+            }
+            break;
+
+        case ParamId::instGain:
+        case ParamId::instMidiChannel:
+            if (auto* mi = dynamic_cast<MidiInstrumentBody*> (bodyAt (idx)))
+            {
+                if (e.param.id == ParamId::instGain) mi->setGain ((float) e.param.value);
+                else                                 mi->setMidiChannel ((int) e.param.value);
+            }
+            break;
+
+        // ── FX insert bypass ─────────────────────────────────────────────────
+        // Scope carries the chain in `channel` and the insert POSITION in `index`,
+        // because HostGraph addresses inserts positionally.
+        case ParamId::insertBypass:
+            setChainPluginBypassed (idx, (int) e.param.index, e.param.value > 0.5);
+            break;
+
         default:
         {
             // APVTS-backed params: write the parameter with the guard set so the
@@ -711,7 +741,8 @@ const GlobalMap kGlobals[] = {
     { "master",         stemdeck::events::ParamId::masterGain },
     { "limiterCeiling", stemdeck::events::ParamId::limiterCeiling },
     { "masterKey",      stemdeck::events::ParamId::masterKey },
-    { "crossfader",     stemdeck::events::ParamId::crossfader },
+    { "crossfader",      stemdeck::events::ParamId::crossfader },
+    { "crossfaderCurve", stemdeck::events::ParamId::crossfaderCurve },
 };
 } // namespace
 
@@ -800,6 +831,46 @@ void MainPluginProcessor::parameterChanged (const juce::String& parameterID, flo
         return;
 
     eventDispatcher->dispatchParam (m.scope, m.id, (double) newValue);
+}
+
+
+// ── Dispatch helpers for body-backed controls (A1 phase 3) ───────────────────
+// The editor calls these instead of reaching into a body's setter. Every one of them
+// goes through the dispatcher, so the gesture is captured and replays identically.
+namespace
+{
+stemdeck::events::Scope channelScope (int index)
+{
+    stemdeck::events::Scope sc;
+    sc.kind    = stemdeck::events::ScopeKind::channel;
+    sc.channel = index;
+    return sc;
+}
+} // namespace
+
+void MainPluginProcessor::setInputGainDispatched (int c, float linear)
+{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputGain, (double) linear); }
+
+void MainPluginProcessor::setInputMonitorDispatched (int c, bool on)
+{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputMonitor, on ? 1.0 : 0.0); }
+
+void MainPluginProcessor::setInputSourceDispatched (int c, int deviceChannel)
+{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputSource, (double) deviceChannel); }
+
+void MainPluginProcessor::setInstGainDispatched (int c, float linear)
+{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::instGain, (double) linear); }
+
+void MainPluginProcessor::setInstMidiChannelDispatched (int c, int midiChannel)
+{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::instMidiChannel, (double) midiChannel); }
+
+void MainPluginProcessor::setInsertBypassDispatched (int chainIndex, int insertPos, bool bypassed)
+{
+    stemdeck::events::Scope sc;
+    sc.kind    = stemdeck::events::ScopeKind::insert;
+    sc.channel = chainIndex;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::insertBypass,
+                                    bypassed ? 1.0 : 0.0, stemdeck::events::GestureFlag::none,
+                                    (std::uint32_t) insertPos);
 }
 
 juce::String MainPluginProcessor::deckPrefix (int deckIndex)

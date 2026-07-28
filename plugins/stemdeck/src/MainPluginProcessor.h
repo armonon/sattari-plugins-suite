@@ -187,6 +187,20 @@ public:
     // The raw mutation behind ParamId::cfSide. Called only by applyEvent (live and
     // replay) and by state load; never directly by a control.
     void applyDeckCfSide (int deckIndex, int side);
+    ChannelBody* bodyAt (int index) noexcept
+    {
+        return juce::isPositiveAndBelow (index, (int) channels.size()) && channels[(size_t) index]
+             ? channels[(size_t) index]->getBody() : nullptr;
+    }
+
+    // Dispatch helpers for controls with no APVTS parameter behind them, so the
+    // editor emits an event instead of poking a body setter directly.
+    void setInputGainDispatched      (int channelIndex, float linear);
+    void setInputMonitorDispatched   (int channelIndex, bool on);
+    void setInputSourceDispatched    (int channelIndex, int deviceChannel);
+    void setInstGainDispatched       (int channelIndex, float linear);
+    void setInstMidiChannelDispatched(int channelIndex, int midiChannel);
+    void setInsertBypassDispatched   (int chainIndex, int insertPos, bool bypassed);
 
     // ── APVTS -> event bridge (A1 phase 3) ───────────────────────────────────
     // Most controls are APVTS-attached: the UI moves a slider and the attachment

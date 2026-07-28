@@ -133,12 +133,24 @@ public:
             case ParamId::limiterCeiling:
             case ParamId::masterKey:
             case ParamId::crossfader:
+            case ParamId::crossfaderCurve:
+            // Body-backed (no APVTS parameter): applied directly in applyEvent.
+            case ParamId::inputGain:
+            case ParamId::inputMonitor:
+            case ParamId::inputSource:
+            case ParamId::instGain:
+            case ParamId::instMidiChannel:
+            case ParamId::insertBypass:
                 return true;
 
-            // NOT converted: stem mute/solo, crossfader curve, input and instrument
-            // controls, and FX insert params. These have no APVTS parameter or no
-            // mapping yet, and naming them here would make a replay look complete
-            // while silently dropping their gestures.
+            // NOT converted, and each for a REASON rather than an oversight:
+            //   stemMute / stemSolo — no engine state exists. WaveformRegion has a
+            //     display flag only, so there is nothing to capture or replay yet.
+            //   insertParam — a hosted plugin's own parameters. Capturing these means
+            //     addressing a third-party parameter index stably across sessions,
+            //     which the schema does not yet solve.
+            // Naming them here would make a replay look complete while silently
+            // dropping their gestures.
             default:
                 return false;
         }
