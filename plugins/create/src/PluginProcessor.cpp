@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 
 #include <sattari_audio_core/modules/EchoModule.h>
+#include <sattari_audio_core/modules/EightOhEightModule.h>
 #include <sattari_audio_core/modules/HeatModule.h>
 #include <sattari_audio_core/modules/PulseModule.h>
 #include <sattari_audio_core/modules/RiserModule.h>
@@ -30,6 +31,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeCreateModul
     v.push_back (std::make_unique<sattari::dsp::WarbleModule>());    // 7
     v.push_back (std::make_unique<sattari::dsp::WarpModule>());      // 8
     v.push_back (std::make_unique<sattari::dsp::VocoderModule>());   // 9
+    v.push_back (std::make_unique<sattari::dsp::EightOhEightModule>());  // 10
     return v;
 }
 
@@ -85,6 +87,11 @@ void SattariCreateAudioProcessor::registerFactoryPresets()
         { "riser", "space" },
         PV{ {"riser.length", 1}, {"riser.mix", 0.85f},
             {"space.revmix", 0.3f} });
+
+    addChainPreset ("808 Sub Layer",
+        { "eightoheight", "heat" },
+        PV{ {"eightoheight.blend", 0.6f}, {"eightoheight.decay", 0.5f},
+            {"heat.drive", 0.2f} });
 
     addChainPreset ("Lo-Fi Grit",
         { "warble", "heat", "echo" },

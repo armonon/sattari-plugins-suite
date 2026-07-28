@@ -1,9 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/modules/EightOhEightModule.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
-#include <sattari_audio_core/SattariPitchDetector.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 
 // =============================================================================
@@ -25,7 +24,7 @@ public:
     ~Sattari808AudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override { sessionReader.stop(); }
+    void releaseResources() override {}   // the module stops its own bus reader
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -54,7 +53,7 @@ public:
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
     // Lock-free readout for the editor: the current 808 body frequency in Hz.
-    float currentBodyHz() const noexcept { return displayHz.load (std::memory_order_relaxed); }
+    float currentBodyHz() const noexcept { return module.currentBodyHz(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -66,32 +65,10 @@ private:
 public:
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 private:
-    sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Tune to Key"
 
-    double currentSampleRate = 44100.0;
-
-    // Shared low-frequency pitch tracker, decimated on a hop counter.
-    sattari::dsp::PitchDetector pitchDetector;
-    int analysisHop = 512;
-    int analysisAccumulator = 0;
-
-    // 808 body oscillator + amp-decay envelope state.
-    float oscillatorPhase = 0.0f;
-    float smoothedHz = 55.0f;    // glided oscillator frequency (per-sample)
-    float targetHz = 55.0f;      // block target the oscillator glides toward
-    float ampEnv = 0.0f;         // retriggering amp-decay envelope [0, 1]
-    float clickEnv = 0.0f;       // short attack click transient [0, 1]
-
-    // Gate/retrigger tracking on the input level.
-    float inputEnvFast = 0.0f;   // fast input follower for gating
-    bool  noteActive = false;    // true while the input holds a note
-
-    float limiterState = 1.0f;
-    float limiterRecoveryCoeff = 0.001f;
-
-    std::vector<float> monoScratch;
-
-    std::atomic<float> displayHz { 55.0f };
+    // Thin wrapper: the standalone plugin and the Create rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::EightOhEightModule module;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Sattari808AudioProcessor)
 };
