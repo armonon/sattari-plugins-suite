@@ -4,6 +4,7 @@
 #include <sattari_audio_core/modules/DeEssModule.h>
 #include <sattari_audio_core/modules/DoubleModule.h>
 #include <sattari_audio_core/modules/FaceModule.h>
+#include <sattari_audio_core/modules/GlassChoirModule.h>
 
 // Vocal's roster. De-Ess is also in Mix — a module is DSP, not a product.
 //
@@ -17,6 +18,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeVocalModule
     v.push_back (std::make_unique<sattari::dsp::DeEssModule>());   // 1
     v.push_back (std::make_unique<sattari::dsp::DoubleModule>());  // 2
     v.push_back (std::make_unique<sattari::dsp::FaceModule>());    // 3
+    v.push_back (std::make_unique<sattari::dsp::GlassChoirModule>());   // 4
     return v;
 }
 
@@ -60,6 +62,10 @@ void SattariVocalAudioProcessor::registerFactoryPresets()
     addChainPreset ("De-Ess Only",
         { "deess" },
         PV{ {"deess.threshold", -32}, {"deess.range", 10} });
+
+    addChainPreset ("Ensemble",
+        { "deess", "glasschoir" },
+        PV{ {"glasschoir.character", 0.35f}, {"glasschoir.choirLevel", -2} });
 
     // --- Collapsed plugin ----------------------------------------------------
     addChainPreset ("Vocal Master (classic)",

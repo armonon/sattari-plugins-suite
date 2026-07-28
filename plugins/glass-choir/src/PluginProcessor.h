@@ -2,19 +2,8 @@
 
 #include <JuceHeader.h>
 
-#include <sattari_audio_core/SattariAudioCore.h>
-#include <sattari_audio_core/SattariPitchDetector.h>      // YIN detector, ScaleId, diatonic helpers
-#include <sattari_audio_core/SattariPsolaShifter.h>       // low-latency formant-preserving detune
-#include <sattari_audio_core/SattariEnvelopeFollower.h>   // atmosphere ducking keyed off the lead
-#include <sattari_audio_core/SattariCrossPluginBus.h>     // SessionReader / TempoReader (consumer only)
-#include <sattari_audio_core/SattariPresetManager.h>      // shared factory-preset bank
-
-#include <sattari_audio_core/SattariHarmonyVoicing.h>    // diatonicShift + scaleIdFromChoice/Bus
-#include <sattari_audio_core/SattariRbFormant.h>          // hi-fi Rubber Band detune+formant (Studio)
-
-#include <array>
-#include <atomic>
-#include <vector>
+#include <sattari_audio_core/modules/GlassChoirModule.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 
 // =============================================================================
 //  Sattari Glass Choir — vocal-ensemble EFFECT (audio in, NOT a synth)
@@ -94,186 +83,42 @@ public:
     juce::AudioProcessorValueTreeState& parameters() noexcept { return apvts; }
 
     // Menu choice lists (shared by the layout + the KeyButton config).
-    static juce::StringArray modeChoices();          // Studio / Choir / Glass
-    static juce::StringArray voiceCountChoices();     // 2 / 4 / 8
-    static juce::StringArray engineChoices();         // Live (PSOLA) / Studio (RB)
-    static juce::StringArray rootChoices();           // C..B
-    static juce::StringArray scaleChoices();          // Major..MinPent (maps to ScaleId)
-    static juce::StringArray intervalChoices();       // Oct-down..Oct-up
-    static int  intervalDegrees (int choiceIndex) noexcept;   // choice -> diatonic degree
+    static juce::StringArray modeChoices()       { return sattari::dsp::GlassChoirModule::modeChoices(); }
+    static juce::StringArray voiceCountChoices() { return sattari::dsp::GlassChoirModule::voiceCountChoices(); }
+    static juce::StringArray engineChoices()     { return sattari::dsp::GlassChoirModule::engineChoices(); }
+    static juce::StringArray rootChoices()       { return sattari::dsp::GlassChoirModule::rootChoices(); }
+    static juce::StringArray scaleChoices()      { return sattari::dsp::GlassChoirModule::scaleChoices(); }
+    static juce::StringArray intervalChoices()   { return sattari::dsp::GlassChoirModule::intervalChoices(); }
+    static int  intervalDegrees (int i) noexcept { return sattari::dsp::GlassChoirModule::intervalDegrees (i); }
 
     // --- KEY story (drives the shared header KeyButton) -----------------------
-    bool isFollowingBusKey() const noexcept { return followingBus.load (std::memory_order_relaxed); }
-    int  effectiveRoot()     const noexcept { return effKeyRoot.load (std::memory_order_relaxed); }
-    int  effectiveScale()    const noexcept { return effKeyScale.load (std::memory_order_relaxed); }
+    bool isFollowingBusKey() const noexcept { return module.isFollowingBusKey(); }
+    int  effectiveRoot()     const noexcept { return module.effectiveRoot(); }
+    int  effectiveScale()    const noexcept { return module.effectiveScale(); }
 
     // --- Live viz atomics (audio -> UI) --------------------------------------
-    float leadLevelDb()  const noexcept { return leadDb.load (std::memory_order_relaxed); }
-    float choirLevelDb() const noexcept { return choirDbAtomic.load (std::memory_order_relaxed); }
-    float atmosLevelDb() const noexcept { return atmosDb.load (std::memory_order_relaxed); }
-    float duckGainNow()  const noexcept { return duckGr.load (std::memory_order_relaxed); }
-    float characterNow() const noexcept { return charAtomic.load (std::memory_order_relaxed); }
+    float leadLevelDb()  const noexcept { return module.leadLevelDb(); }
+    float choirLevelDb() const noexcept { return module.choirLevelDb(); }
+    float atmosLevelDb() const noexcept { return module.atmosLevelDb(); }
+    float duckGainNow()  const noexcept { return module.duckGainNow(); }
+    float characterNow() const noexcept { return module.characterNow(); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-    float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void registerFactoryPresets();
 
-    // --- CHARACTER macro ------------------------------------------------------
-    // The per-block anchor evaluation (HUMAN 0 -> MASSIVE .5 -> DESTROYED 1). Every
-    // "eff*" field is the effective, macro-driven value the DSP actually uses; the
-    // user knobs act as ceilings/offsets on top (see resolveCharacter()).
-    struct CharacterState
-    {
-        int   voiceCount   = 4;
-        float detuneSpread = 12.0f;   // cents
-        float timing       = 16.0f;   // ms
-        float humanize     = 0.35f;
-        float formantSpread = 2.0f;   // semitones
-        float harmonyMix   = 0.5f;
-        float alignAmount  = 0.7f;
-        float pitchTighten = 0.6f;
-        float destroyMix   = 0.0f;
-        float drive        = 0.35f;
-        float crush        = 0.2f;
-        float ringAmt      = 0.15f;
-        float trailsMix    = 0.0f;
-        float trailReverse = 0.5f;
-        float reverbMix    = 0.3f;
-        float duckAmount   = 0.6f;
-        float width        = 1.2f;
-    };
-    CharacterState resolveCharacter() const noexcept;
-
-    // Resolve the effective (root, scale) from the followKey param + song-key bus.
-    void resolveKey (int& root, sattari::dsp::ScaleId& scale,
-                     int& scaleChoiceOut, bool& fromBus) const;
-
-    // tanh soft-ceiling limiter on the bounded final output.
-    static float softCeiling (float x) noexcept;
-
-    // =========================================================================
-    //  State
-    // =========================================================================
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "glass-choir" };   // after apvts
-    int    currentProgram = 0;
-    double sampleRate = 44100.0;
-    int    preparedBlockSize = 512;
+    int currentProgram = 0;
 
-    // --- Lead pitch tracking (YIN) — drives PSOLA grain spacing + harmony MIDI --
-    sattari::dsp::PitchDetector detector;
-    int   analysisHop = 0, analysisCounter = 0;
-    int   leadMidiLive = -1;
-    bool  voicedLive = false;
-    float leadHzSmoothed = 0.0f;
-    double periodSamples = 300.0;   // detected fundamental period (fallback ~150 Hz)
+    // Thin wrapper: the standalone plugin and the Vocal rack slot run the SAME
+    // module. Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::GlassChoirModule module;
 
-    // --- Per-voice ensemble double engines -----------------------------------
-    // Each double has BOTH a PSOLA shifter (Live/Glass, low-latency) and an
-    // RbFormant (Studio, hi-fi). Only one is used per block by engine quality; both
-    // are prepared up front. Timing-drift random-walk + a delay ring per voice
-    // (the Sattari Double pattern).
-    struct DoubleVoice
-    {
-        sattari::dsp::PsolaShifter psola;
-        sattari::dsp::RbFormant rb;
-        std::vector<float> delay;      // per-voice timing delay ring
-        int    writePos = 0;
-        double driftPos = 0.0, driftTarget = 0.0;
-        int    driftCountdown = 0;
-        juce::Random rng;
-    };
-    std::array<DoubleVoice, kMaxDoubles> doubles;
-    int delayLen = 0;
-
-    // --- Harmony voices (diatonic, RbFormant when RB available else PSOLA) -----
-    struct HarmonyVoice
-    {
-        sattari::dsp::PsolaShifter psola;
-        sattari::dsp::RbFormant rb;
-        double smoothedRatio = 1.0;
-        double humanizeCents = 0.0, humanizeTarget = 0.0;
-    };
-    std::array<HarmonyVoice, kNumHarmony> harmony;
-    juce::Random humanizeRng;
-
-    // --- Reverb (Freeverb pure-wet) on the choir -> atmosphere ---------------
-    juce::Reverb reverb;
-
-    // --- Ducking follower keyed off |lead| -----------------------------------
-    sattari::dsp::EnvelopeFollower duckFollower;
-
-    // --- Imager-style width filters (M/S low-mono on choir + atmosphere) ------
-    // 2nd-order Butterworth HP for the elliptical low-mono side strip. One per
-    // widened bus (choir, atmosphere).
-    struct Biquad
-    {
-        double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
-        void reset() noexcept { z1 = z2 = 0.0; }
-        void setHP2 (double f, double sr) noexcept;
-        inline double process (double x) noexcept
-        {
-            const double y = b0 * x + z1;
-            z1 = b1 * x - a1 * y + z2;
-            z2 = b2 * x - a2 * y;
-            return y;
-        }
-    };
-    std::array<Biquad, 2> lowMonoHP;   // [0]=choir, [1]=atmosphere
-
-    // --- Warp-style DESTROY chain state (parallel tap) ------------------------
-    // Vowel bandpass resonators (F1/F2), ring-mod phase, bit/SR crush hold.
-    struct DestroyBiquad
-    {
-        double b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
-        void reset() noexcept { z1 = z2 = 0.0; }
-        void setBandpass (double sr, double freq, double q) noexcept;
-        inline float process (float x) noexcept
-        {
-            const double y = b0 * (double) x + z1;
-            z1 = b1 * (double) x - a1 * y + z2;
-            z2 = b2 * (double) x - a2 * y;
-            return (float) y;
-        }
-    };
-    std::array<DestroyBiquad, 2> destroyF1, destroyF2;   // per channel (L/R)
-    std::array<double, 2> destroyRingPhase { { 0.0, 0.0 } };
-    std::array<float, 2>  crushHold { { 0.0f, 0.0f } };
-    std::array<int, 2>    crushCount { { 0, 0 } };
-
-    // --- Reverse-delay TRAIL (v1 simple; full granular trail = v2) ------------
-    // A stereo ring recorded from the choir; a read head walks it in reverse over
-    // trailSizeMs, blended by trailsMix.
-    std::array<std::vector<float>, 2> trailRing;
-    int    trailCap = 0, trailWrite = 0;
-    double trailReadPos = 0.0;
-
-    // --- Preallocated per-block scratch (sized in prepareToPlay) --------------
-    std::vector<float> monoLead;      // mono-summed lead
-    std::vector<float> shiftScratch;  // one voice's shifted signal
-    juce::AudioBuffer<float> choirBuf;   // 2 x block — ensemble + harmony sum
-    juce::AudioBuffer<float> atmosBuf;   // 2 x block — reverb wet
-    juce::AudioBuffer<float> destroyBuf; // 2 x block — parallel destroy tap
-    juce::AudioBuffer<float> reverbDry;  // 2 x block — pre-reverb copy for pure-wet mix
-
-    // --- Lead dry-delay ring (aligns lead to max engine latency) --------------
-    std::array<std::vector<float>, 2> leadDelay;
-    int leadDelayWrite = 0;
-    int reportedLatency = 0;
-
-    // --- Cross-plugin buses (consumer only) ----------------------------------
-    sattari::xplugin::SessionReader sessionReader;   // song-key bus (Follow Song Key)
-    sattari::xplugin::TempoReader   tempoReader;     // tempo bus (synced trail fallback)
-
-    // --- KEY status mirrored for the editor (updated each block) -------------
-    std::atomic<bool> followingBus { false };
-    std::atomic<int>  effKeyRoot { 0 };
-    std::atomic<int>  effKeyScale { 0 };
-
-    // --- Live viz atomics -----------------------------------------------------
-    std::atomic<float> leadDb { -100.0f }, choirDbAtomic { -100.0f }, atmosDb { -100.0f };
-    std::atomic<float> duckGr { 1.0f }, charAtomic { 0.35f };
+    // The Choir / Atmosphere stems. The module writes them only because THIS
+    // shell hands them over; a rack slot does not, and gets the folded mix.
+    juce::AudioBuffer<float> choirOut, atmosOut;
+    int reportedLatencyPublished = -1;   // last value published to the host
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariGlassChoirAudioProcessor)
 };
