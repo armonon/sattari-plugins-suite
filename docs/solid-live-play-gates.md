@@ -24,7 +24,32 @@ Part A passes.
 deterministic replay of it. Replaying a captured session must reproduce it
 sample-identically.
 
-**Status: SCHEMA AGREED (2026-07-27). Implementation not started.**
+**Status: PASSING on a first end-to-end run, with real caveats. Phases 1, 2, 3, 5 done.**
+
+`StemDeckReplayHash` performs a scripted set of gestures while rendering and hashing
+every output sample, then replays the captured stream into a FRESH processor and
+hashes again:
+
+```
+live hash   dceaa0aa2a8ebab8
+replay hash dceaa0aa2a8ebab8   -> sample-identical
+```
+
+**What that does and does not mean.** It exercises 11 events across 600 blocks at a
+fixed 512-sample block size, covering channel gain, EQ, filter, mute, crossfader and
+master gain. It does NOT yet cover a long session, dense continuous gestures, stem or
+insert automation, or any of the three unconverted ParamIds. A green light here means
+the mechanism is sound, not that every performance replays.
+
+**Blocking bug found by this test:** destroying a MainPluginProcessor while neural
+refinement is still running on a pool thread SIGSEGVs inside
+`onnxruntime::RunSince`. The harness leaks its processors and exits via `_Exit` to
+avoid it. This is almost certainly the same crash previously misattributed to
+"constructing a second processor" during the A3 work. It needs fixing before ship:
+the engines must outlive, or be joined before, any inference in flight.
+
+Phase 4 (rendering reads session state rather than APVTS) is not done. Phase 3 is
+26/29 ParamIds — see `Dispatcher::ownsParam`.
 
 [`event-stream-schema.md`](event-stream-schema.md) is accepted — see its §0 for the
 decision record. Both open questions are closed: analysis IS pinned via

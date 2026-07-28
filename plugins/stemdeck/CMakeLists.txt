@@ -610,6 +610,25 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A1 phase 5: THE GATE — replay must be sample-identical to the live pass ────
+add_executable(StemDeckReplayHash EXCLUDE_FROM_ALL tests/stemdeck_replayhash.cpp)
+target_include_directories(StemDeckReplayHash PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckReplayHash PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckReplayHash
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckReplayHash)
+sattari_enable_rubberband(StemDeckReplayHash SATTARI_STEMDECK_HAS_RUBBERBAND)
+if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    target_include_directories(StemDeckReplayHash PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(StemDeckReplayHash PRIVATE ${ONNXRUNTIME_LIB})
+    target_compile_definitions(StemDeckReplayHash PRIVATE
+        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+endif()
+
 # ── A1 phase 3: dispatch and replay are the same code path ────────────────────
 add_executable(StemDeckDispatch EXCLUDE_FROM_ALL tests/stemdeck_dispatch.cpp)
 add_dependencies(StemDeckDispatch SattariStemDeck)
