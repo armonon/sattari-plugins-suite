@@ -79,6 +79,44 @@ Three full-track analyses can't be made fast — make them non-blocking.
 - Fluidity is frame timing: GPU waveforms, 60fps floor, 150–250ms interruptible transitions, no UI-thread blocking ever, optimistic UI.
 - Visual language djay is beatable on: stem-colored waveforms, structure markers, transitions as visible objects, a real dark aesthetic, typography as hierarchy (BPM/key large, rest recedes).
 
+**How layout is enforced.** `plugins/stemdeck/src/LayoutStack.h` is a constraint
+solver: rows and columns declare `min` / `preferred` / `grow` / `priority`, and it
+shrinks lowest-priority-first and sheds whole items rather than ever overlapping
+them. It exists because hand-rolled `removeFromX(<literal>)` chains silently
+produced overlapping header controls and starved the stem waveform to a sliver at
+1280x800. Verify layout changes with `StemDeckEditorRender` **at 1280x800**, not
+just at 1680x1050 — the narrow case is where it breaks.
+
+**Surfaces.** PERFORM is channels + master band + pads. ARRANGER is the energy
+arc, the edit toolbar and the capture timeline. The arrangement used to be a
+footer on the perform screen — the product's central claim rendered at the
+smallest size on screen, competing for vertical space with the thing it was
+meant to support. It owns its own surface now, and the perform screen gave the
+reclaimed height to the channels.
+
+**Three tiers of visual weight.** A channel strip carries ~40 interactive
+controls; at one prominence there is no entry point for the eye. See
+`applyDeckControlWeights()`:
+- **Hero** — play, cue, level, filter, crossfade assign. The five things reached
+  for without looking.
+- **Standard** — EQ, pitch, stem gains, sync numerics. Set deliberately.
+- **Recessed** — tab strip, cue pads, per-stem FX grid, beat-jump. Navigation and
+  configuration, not performance.
+
+It is rendering weight only: every control keeps the same hit target. When you
+add a control, put it in a tier — an untiered control defaults to full weight and
+competes with the transport.
+
+**An idle channel is a drop target, not a cockpit.** Unloaded track decks take a
+narrow fixed column and render the drop CTA; they do not render a full inert
+control surface. Width goes to the channels doing work.
+
+**One noun: "channel."** A channel is a track deck, an audio input, or a MIDI
+instrument. The add button, the add tile, the count readout and the arranger
+lanes all say channel. Do not reintroduce "deck" as a UI noun — the mismatch
+(`+ CH` / `CHANNEL` / `DECK A` / "four deck lanes" beside five lanes) reads as
+instability even when a user cannot articulate why.
+
 ---
 
 ## 6. Engineering constraints
@@ -90,12 +128,44 @@ Timing quality matters most (heard repeatedly on good speakers). Phase-locked ma
 
 ---
 
-## 7. Known open issues in the neural stack (from last review)
+## 7. Neural stack status
 
-1. **Load latency.** `makeLoadedAudio` runs three full-track analyses in series before a deck is ready (DSP analyze + chunked beat sweep ~2.3 s/min + 12-inference `detectTTA`). 5-min track → 10+ s. **Fix:** return playable on the DSP result; run neural on a background queue and hot-swap the grid when it lands.
-2. **Unconditional neural override** (`MainPluginProcessor.cpp:835/851`) — neural replaces DSP whenever merely valid; KeyNet confidence computed but unchecked. **Fix:** gate on a confidence floor and **surface which engine won in the UI**.
-3. **Downsample aliasing.** `LagrangeInterpolator` 44.1→22.05 kHz, no anti-alias pre-filter.
-4. **Naive peak-picking** (fixed 0.4 threshold). Port beat_this's DBN; will fail on ambient intros/breakdowns.
+Items 1–3 below were open at the last review and are now closed. Read the caveats:
+"closed" means the mechanism is in place and gated by a test, **not** that it has
+been measured on real music.
+
+1. ~~**Load latency.**~~ **DONE.** Decks return playable on the DSP result;
+   neural runs on `loadPool` and hot-swaps via `refineAnalysisAsync`. Measured by
+   `StemDeckLoadLatency` — a 300 s track is playable in **32 ms** and refined at
+   617 ms, against a 200 ms bound. *Synthetic signals only.*
+2. ~~**Unconditional neural override.**~~ **DONE for key, blocked for beat.**
+   The key model is gated on `kNeuralKeyConfidenceFloor`; below it the DSP answer
+   stands. The beat model **cannot** be gated the same way — `NeuralBeatEngine::Result`
+   carries no confidence, so a grid-length sanity check is the only filter
+   available. Exposing a real beat confidence requires a change to the model
+   wrapper. The deck header surfaces NEURAL/DSP for the *separation* source;
+   which engine won the *grid/key* is still not surfaced.
+3. ~~**Downsample aliasing.**~~ **DONE, UNVERIFIED.** A 6th-order Butterworth
+   pre-filter now runs before the 22.05 kHz decimation. `LagrangeInterpolator`
+   interpolates but does not band-limit, so everything above 11.025 kHz was
+   folding down into the band the model reads — cymbals and hats, i.e. exactly
+   the transients driving the onset envelope. The synthetic beat tests are
+   unchanged by the fix, which is expected: they contain no HF content to alias.
+   **This one can only be judged on real material.**
+4. **Naive peak-picking** (fixed 0.4 threshold) — **STILL OPEN.** Port beat_this's
+   DBN; will fail on ambient intros/breakdowns. This is the remaining real defect
+   in the beat path and it is a multi-week job, not a patch.
+
+**Teardown (added since the last review).** Destroying a processor while neural
+refinement was in flight SIGSEGV'd inside `onnxruntime::RunSince`. Teardown now
+cancels cooperatively, terminates in-flight `Session::Run` calls, and joins the
+pools while the engines are still alive; `StemDeckReplayHash` probes it. One gap
+remains: `NeuralStemEngine::separate()` is a single blocking call with no cancel
+hook, so a full-track in-process separation still cannot be interrupted.
+
+**Verified clean (don't re-litigate):** concurrency (`loadPool{4}` + shared engines —
+local buffers + thread-safe `Session::Run`); fallback safety (additive; no model →
+DSP stands); chunking fix (commit `02fac82`).
 
 **Verified clean (don't re-litigate):** concurrency (`loadPool{4}` + shared engines — local buffers + thread-safe `Session::Run`); fallback safety (additive; no model → DSP stands); chunking fix (commit `02fac82`).
 
@@ -122,12 +192,31 @@ StemDeck is the host; the 42-plugin suite is its library (solves the 42-SKU prob
 ---
 
 ## 10. Build order
-1. **Analysis cache (SQLite, content-hashed)** — most loads instant for least work.
-2. **Capture event format + session schema** — the one-way door.
-3. **Fix the two open review issues** (load latency + confidence gating/surface which engine won).
-4. **Real-corpus test gate in CI** — before features. Non-negotiable.
-5. Basic arrangement view (ugly but correct) — prove the data model.
-6. Demucs two-tier + pre-separation cache.
+
+**Done** (each has a test target; all on synthetic material unless noted):
+
+1. ~~Analysis cache (SQLite, content-hashed)~~ — `AnalysisCache.{h,cpp}` over real
+   `sqlite3`; `StemDeckAnalysisCacheTest`.
+2. ~~Capture event format + session schema~~ — the one-way door, and it held.
+   `EventStream.h`, `docs/event-stream-schema.md`, `docs/session-schema.md`.
+   `StemDeckReplayHash` proves replay is **sample-identical** to the live pass.
+3. ~~Fix the two open review issues~~ — see §7. Load latency is measured and
+   closed; key confidence gating is in, beat gating is blocked on the model
+   wrapper rather than skipped.
+
+**Next — and item 4 is now the thing actually holding everything up:**
+
+4. **Real-corpus test gate in CI** — before features. Non-negotiable, and now the
+   binding constraint: every number in this document comes from synthetic
+   signals. §7's anti-alias fix, the beat tracker, the load-latency figures and
+   the replay gate have *all* only been exercised on generated tones. This is the
+   process failure named in §7 repeating itself — the gate is what converts the
+   rest of this list from "implemented" to "works".
+5. Basic arrangement view (ugly but correct) — partly there (`ArrangementView`,
+   `ArrangementBuilder`, the arrange lanes in the editor); the data model is
+   proven by the replay gate.
+6. Demucs two-tier + pre-separation cache. Also: give `NeuralStemEngine::separate()`
+   a cancel hook (§7) — its `onProgress` callback is the place.
 7. Library DB + rekordbox/Serato/Traktor import.
 8. MIDI learn mapping.
 9. Time-stretch engine (blocks tempo re-export).
