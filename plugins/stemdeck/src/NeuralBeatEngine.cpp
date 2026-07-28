@@ -135,8 +135,40 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
         if ((i & 0x3ffff) == 0 && cancelled()) return r;
     }
 
-    // ── Resample to 22.05 kHz (the model's rate) ──────────────────────────────
+    // ── Anti-alias pre-filter ─────────────────────────────────────────────────
+    // LagrangeInterpolator is an INTERPOLATOR, not a decimator: it has no
+    // band-limiting of its own, so decimating 44.1/48 kHz straight to 22.05 kHz
+    // folded everything above 11.025 kHz back down into the audible band. Hi-hats,
+    // cymbals and general HF energy — exactly the content whose transients drive
+    // the onset envelope — aliased onto the low frequencies the beat model reads.
+    //
+    // A 6th-order Butterworth (three biquads at the standard Q triplet) below the
+    // new Nyquist is cheap next to the model itself and removes the fold-down.
+    // Only needed when actually downsampling; at or below 22.05 kHz there is no
+    // image to remove and filtering would just cost bandwidth.
     const double ratio = sampleRate / kModelSampleRate;                 // in-samples per out-sample
+    if (ratio > 1.0)
+    {
+        // 0.90 x the target Nyquist: enough transition band for a 6th-order roll-off
+        // to be well down by 11.025 kHz without eating usable cymbal energy.
+        //
+        // These are causal biquads, so they add group delay and therefore shift the
+        // detected beat positions. At a ~9.9 kHz cutoff the low-frequency group
+        // delay is a few samples — well under a millisecond against beats spaced
+        // ~500 ms apart — so it is not worth a zero-phase forward/reverse pass here.
+        const double cutoff = 0.90 * (kModelSampleRate * 0.5);
+        static constexpr double kButterworthQ[3] { 0.51763809, 0.70710678, 1.93185165 };
+
+        for (const double q : kButterworthQ)
+        {
+            if (cancelled()) return r;
+            juce::IIRFilter lp;
+            lp.setCoefficients (juce::IIRCoefficients::makeLowPass (sampleRate, cutoff, (float) q));
+            lp.processSamples (mono.data(), (int) mono.size());
+        }
+    }
+
+    // ── Resample to 22.05 kHz (the model's rate) ──────────────────────────────
     const int outLen = (int) std::floor ((double) n / ratio);
     if (outLen < 64) return r;
     std::vector<float> rs ((size_t) outLen);

@@ -23,6 +23,14 @@ public:
 
     JobStatus runJob() override
     {
+        // ThreadPool::removeAllJobs(interruptRunningJobs=true, ...) works by making
+        // shouldExit() return true — a job that never asks is not interruptible, and
+        // the pool simply waits for it. This job used to never ask, so the -1 (wait
+        // forever) join in StemProvider::shutdown() could block for the whole
+        // separation: up to the separator's 45-minute timeout, with the host frozen.
+        if (shouldExit())
+            return jobHasFinished;
+
         auto result = provider.inspectCache (sourceFile);
         provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, true, provider.getSeparatorCommand().trim().isNotEmpty(), u8 ("Preparing premium offline stem cache\xe2\x80\xa6")));
         if (! result.allCoreStemsReady)
@@ -37,13 +45,22 @@ public:
                 done = onProgressiveStem
                      ? provider.runNeuralSeparationStreaming (sourceFile, result.cacheDirectory, playheadSample, onProgressiveStem, message)
                      : provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
-            if (! done)
+            if (! done && ! shouldExit())
             {
                 juce::String cliMsg;
-                if (StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), sourceFile, result.cacheDirectory, cliMsg))
+                if (StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), sourceFile,
+                                                       result.cacheDirectory, cliMsg,
+                                                       [this] { return shouldExit(); }))
                     done = true;
                 message = message.isNotEmpty() ? message + u8 (" \xe2\x80\xa2 ") + cliMsg : cliMsg;
             }
+
+            // A cancelled job publishes nothing: its cache is half-written and the
+            // owning processor is being destroyed, so the completion callback must
+            // not fire against it.
+            if (shouldExit())
+                return jobHasFinished;
+
             if (done)
                 result = provider.inspectCache (sourceFile);
 
@@ -529,7 +546,8 @@ void StemProvider::writeManifest (const Result& result) const
 bool StemProvider::runSeparatorCommand (const juce::String& command,
                                         const juce::File& sourceFile,
                                         const juce::File& cacheDirectory,
-                                        juce::String& message)
+                                        juce::String& message,
+                                        const std::function<bool()>& shouldCancel)
 {
     if (command.trim().isEmpty())
     {
@@ -581,6 +599,16 @@ bool StemProvider::runSeparatorCommand (const juce::String& command,
     while (process.isRunning())
     {
         output += process.readAllProcessOutput();
+        // Shutdown must not wait on a separation. The only other exit from this
+        // loop is the 45-minute timeout, so without this a plugin being removed
+        // from a host would block its message thread for as long as demucs runs.
+        if (shouldCancel && shouldCancel())
+        {
+            process.kill();
+            message = "Offline separator cancelled.";
+            tempDirectory.deleteRecursively();
+            return false;
+        }
         if (juce::Time::getMillisecondCounter() - startMs > timeoutMs)
         {
             process.kill();

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <functional>
 #include <map>
 #include "DeckPlayer.h"
 #include "RoadmapAdapters.h"
@@ -83,7 +84,13 @@ public:
 
     Result inspectCache (const juce::File& sourceFile) const;
     Status getStatusForSource (const juce::File& sourceFile) const;
-    static bool runSeparatorCommand (const juce::String& command, const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
+    // `shouldCancel` is polled while waiting on the external separator. When it goes
+    // true the child process is KILLED and the call returns false. Without this the
+    // wait is bounded only by a 45-minute timeout, so a shutdown that joins the pool
+    // would block for as long as the separation takes.
+    static bool runSeparatorCommand (const juce::String& command, const juce::File& sourceFile,
+                                     const juce::File& cacheDirectory, juce::String& message,
+                                     const std::function<bool()>& shouldCancel = {});
 
     // On-device neural separation (ONNX Runtime). Writes the 4 core-stem WAVs into
     // cacheDirectory. Preferred over the CLI when a model is loaded. Returns false
