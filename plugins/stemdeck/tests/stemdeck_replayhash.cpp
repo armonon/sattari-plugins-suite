@@ -22,12 +22,25 @@
 #include <iomanip>
 #include <vector>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 using namespace stemdeck::events;
 
 namespace
 {
 int failures = 0;
+
+void setBeatModelEnvironment (const char* value)
+{
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_STEMDECK_BEAT_MODEL", value != nullptr ? value : "");
+   #else
+    if (value != nullptr) setenv ("SATTARI_STEMDECK_BEAT_MODEL", value, 1);
+    else                  unsetenv ("SATTARI_STEMDECK_BEAT_MODEL");
+   #endif
+}
+
 void check (bool ok, const juce::String& what)
 {
     std::cout << (ok ? "  ok   " : "  FAIL ") << what << std::endl;
@@ -114,13 +127,9 @@ void loadAndSettle (MainPluginProcessor& p, const juce::File& track)
 {
     p.loadDeckFileAsync (0, track);
 
-    // Wait for the REFINED analysis to land before rendering. Two reasons:
-    //
-    // 1. Determinism (§6.2). If refinement arrives mid-render in one pass and not the
-    //    other, the two passes use different beat grids and the hashes differ for a
-    //    reason that has nothing to do with the event stream.
-    // 2. Stability. Neural inference runs on a pool thread and crashes if the
-    //    processor is destroyed underneath it — see the note in the gates doc.
+    // Wait for the REFINED analysis to land before rendering. If refinement arrives
+    // mid-render in one pass and not the other, the two passes use different beat
+    // grids and the hashes differ for a reason unrelated to the event stream.
     const double deadline = juce::Time::getMillisecondCounterHiRes() + 20000.0;
     while (p.deckAt (0).getRefinedAnalysis() == nullptr
            && juce::Time::getMillisecondCounterHiRes() < deadline)
@@ -145,17 +154,21 @@ int main (int argc, char** argv)
 
     const auto track = makeTrack (20.0, 44100);
 
+    // Keep both determinism passes on the same immediate DSP analysis. Neural beat
+    // refinement is intentionally asynchronous and can land in one pass before the
+    // other; the separate shutdown probe below restores the real model and exercises
+    // cancellation during an actual ONNX run.
+    const char* previousBeatModel = std::getenv ("SATTARI_STEMDECK_BEAT_MODEL");
+    const bool hadBeatModelOverride = previousBeatModel != nullptr;
+    const std::string savedBeatModel = hadBeatModelOverride ? previousBeatModel : "";
+    setBeatModelEnvironment ("/__stemdeck_replayhash_dsp_only__.onnx");
+
     std::vector<Event> stream;
     Hasher liveHash;
 
-    // NOTE: both processors are leaked deliberately and the harness exits with
-    // _Exit. Destroying a MainPluginProcessor while neural refinement is still
-    // running on a pool thread SIGSEGVs inside onnxruntime::RunSince — a real
-    // shutdown race in the product, recorded in the gates doc. Leaking here keeps
-    // THIS test measuring replay determinism instead of dying on that bug.
     // ── Pass 1: perform and capture ──────────────────────────────────────────
     {
-        auto& proc = *new MainPluginProcessor();
+        MainPluginProcessor proc;
         proc.prepareToPlay (kSampleRate, kBlockSize);
         loadAndSettle (proc, track);
         check (proc.deckAt (0).getStemAudio (DeckPlayer::fullMixStem) != nullptr, "pass 1: track loaded");
@@ -184,6 +197,7 @@ int main (int argc, char** argv)
         proc.dispatcher().endCapture();
         stream = proc.dispatcher().takeRecorded();
     }
+    check (true, "pass 1: processor teardown completed");
 
     check (! stream.empty(), "captured " + juce::String ((int) stream.size()) + " events");
     info ("live hash   " + juce::String::toHexString ((juce::int64) liveHash.h));
@@ -191,7 +205,7 @@ int main (int argc, char** argv)
     // ── Pass 2: fresh processor, replay the stream ───────────────────────────
     Hasher replayHash;
     {
-        auto& proc = *new MainPluginProcessor();
+        MainPluginProcessor proc;
         proc.prepareToPlay (kSampleRate, kBlockSize);
         loadAndSettle (proc, track);
         check (proc.deckAt (0).getStemAudio (DeckPlayer::fullMixStem) != nullptr, "pass 2: track loaded");
@@ -224,6 +238,7 @@ int main (int argc, char** argv)
         check (next == sorted.size(), "every captured event was applied ("
                + juce::String ((int) next) + "/" + juce::String ((int) sorted.size()) + ")");
     }
+    check (true, "pass 2: processor teardown completed");
 
     info ("replay hash " + juce::String::toHexString ((juce::int64) replayHash.h));
 
@@ -236,7 +251,26 @@ int main (int argc, char** argv)
         std::cout << "\n  A1 is not closed. The stream, the applier, or something in the\n"
                      "  render path is non-deterministic. Do not treat the gate as passed.\n";
 
+    setBeatModelEnvironment (hadBeatModelOverride ? savedBeatModel.c_str() : nullptr);
+
+    // Regression probe for the old onnxruntime::RunSince shutdown crash. Publish
+    // the DSP analysis (which schedules neural refinement), then immediately destroy
+    // the processor while that refinement is likely in flight. The destructor must
+    // cancel at a chunk boundary and join the pool before releasing the ONNX engines.
+    {
+        MainPluginProcessor proc;
+        proc.prepareToPlay (kSampleRate, kBlockSize);
+        proc.loadDeckFileAsync (0, track);
+        const double deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+        while (proc.deckAt (0).getRefinedAnalysis() == nullptr
+               && juce::Time::getMillisecondCounterHiRes() < deadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
+        check (proc.deckAt (0).getRefinedAnalysis() != nullptr,
+               "shutdown probe: refinement job was scheduled");
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (25);
+    }
+    check (true, "shutdown probe: in-flight jobs cancelled and joined");
+
     std::cout << (failures == 0 ? "REPLAYHASH_OK" : "REPLAYHASH_FAILED") << std::endl;
-    std::cout.flush();
-    std::_Exit (failures == 0 ? 0 : 1);
+    return failures == 0 ? 0 : 1;
 }

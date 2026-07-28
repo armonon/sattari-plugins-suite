@@ -22,6 +22,7 @@
 // =============================================================================
 
 #include <JuceHeader.h>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -56,7 +57,15 @@ public:
     // BLOCKING — background thread only. Resamples to 22.05 kHz, runs the model,
     // peak-picks the beat/downbeat activations, and returns a grid in input-rate
     // samples. Returns an invalid Result if unavailable or the audio is too short.
-    Result detect (const juce::AudioBuffer<float>& audio, double sampleRate);
+    // The optional cancellation probe is checked between preparation stages and
+    // ONNX chunks. Inference itself is blocking, but a closing app will now leave
+    // after the current ~30-second model chunk instead of running the whole track.
+    Result detect (const juce::AudioBuffer<float>& audio, double sampleRate,
+                   std::function<bool()> shouldCancel = {});
+
+    // Thread-safe. Interrupts any Session::Run calls currently executing so owning
+    // processors do not have to wait for a whole model chunk during shutdown.
+    void cancelPending() noexcept;
 
 private:
     struct Impl;

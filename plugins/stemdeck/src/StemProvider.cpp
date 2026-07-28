@@ -149,7 +149,22 @@ StemProvider::StemProvider()
 
 StemProvider::~StemProvider()
 {
-    pool.removeAllJobs (true, 3000);
+    shutdown();
+}
+
+void StemProvider::shutdown()
+{
+    {
+        const juce::ScopedLock lock (lifecycleLock);
+        if (shuttingDown)
+            return;
+        shuttingDown = true;
+    }
+
+    // A timeout here used to let the owning processor continue tearing down while
+    // a provider callback could still enqueue analysis work. Join fully: separation
+    // is off the message thread, and lifetime safety takes priority during shutdown.
+    pool.removeAllJobs (true, -1);
 }
 
 bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message)
@@ -336,7 +351,12 @@ void StemProvider::requestStemsAsync (const juce::File& sourceFile, Callback cal
     const auto result = inspectCache (sourceFile);
     updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),
                                                 result.allCoreStemsReady ? "Premium stems already cached." : "Queued premium AI stem split."));
-    pool.addJob (new StemJob (*this, sourceFile, std::move (callback)), true);
+    {
+        const juce::ScopedLock lock (lifecycleLock);
+        if (shuttingDown)
+            return;
+        pool.addJob (new StemJob (*this, sourceFile, std::move (callback)), true);
+    }
 }
 
 void StemProvider::requestStemsStreamingAsync (const juce::File& sourceFile,
@@ -357,7 +377,13 @@ void StemProvider::requestStemsStreamingAsync (const juce::File& sourceFile,
     const auto result = inspectCache (sourceFile);
     updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),
                                                 result.allCoreStemsReady ? juce::String ("Premium stems already cached.") : u8 ("Splitting AI stems from the playhead\xe2\x80\xa6")));
-    pool.addJob (new StemJob (*this, sourceFile, std::move (onComplete), playheadSample, std::move (onProgressiveStem)), true);
+    {
+        const juce::ScopedLock lock (lifecycleLock);
+        if (shuttingDown)
+            return;
+        pool.addJob (new StemJob (*this, sourceFile, std::move (onComplete),
+                                  playheadSample, std::move (onProgressiveStem)), true);
+    }
 }
 
 StemProvider::Result StemProvider::inspectCache (const juce::File& sourceFile) const

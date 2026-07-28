@@ -57,6 +57,11 @@ public:
     StemProvider();
     ~StemProvider() override;
 
+    // Stop accepting work and join every worker. MainPluginProcessor calls this
+    // before draining its audio-analysis pool because a stem completion can enqueue
+    // decoded-stem work there.
+    void shutdown();
+
     juce::String getName() const override { return "StemDeck offline cached StemProvider"; }
     bool isAvailable() const override { return true; }
 
@@ -100,6 +105,8 @@ private:
     juce::String separatorCommand;
     NeuralStemEngine neuralEngine;
     juce::ThreadPool pool { 2 };
+    juce::CriticalSection lifecycleLock;
+    bool shuttingDown = false;
     mutable juce::CriticalSection statusLock;
     std::map<juce::String, Status> statusByHash;
 

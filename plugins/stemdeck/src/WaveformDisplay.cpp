@@ -1,21 +1,21 @@
 #include "WaveformDisplay.h"
+#include "DesignTokens.h"
 #include <sattari_audio_core/SattariBranding.h>
 
 namespace
 {
 juce::Colour accentForTitle (const juce::String& title)
 {
-    using namespace sattari::brand;
-    if (title.containsIgnoreCase ("B")) return juce::Colour (kAccent);
-    if (title.containsIgnoreCase ("C")) return juce::Colour (kAccentViolet);
-    if (title.containsIgnoreCase ("D")) return juce::Colour (productAccent ("royal-chain"));
-    return juce::Colour (productAccent ("stemdeck"));
+    const auto deck = title.trim().getLastCharacter();
+    if (deck >= 'A' && deck <= 'D')
+        return stemdeck::tokens::deckAccent ((int) (deck - 'A'));
+    return stemdeck::tokens::deckAccent (0);
 }
 
-static const juce::Colour kDrumsColour  { 0xFFE05A2B };
-static const juce::Colour kBassColour   { 0xFF4A90E2 };
-static const juce::Colour kMusicColour  { 0xFF5BBF7A };
-static const juce::Colour kVocalsColour { 0xFFD44FC8 };
+static const juce::Colour kDrumsColour  { stemdeck::tokens::stemDrm };
+static const juce::Colour kBassColour   { stemdeck::tokens::stemBas };
+static const juce::Colour kMusicColour  { stemdeck::tokens::stemOth };
+static const juce::Colour kVocalsColour { stemdeck::tokens::stemVox };
 
 // Standard 8-cue colours (Pioneer-style)
 static const std::array<juce::Colour, 8> kCueColours {{
@@ -389,14 +389,34 @@ void WaveformDisplay::paint (juce::Graphics& g)
         }
         if (showDropHint)
         {
-            g.setColour (juce::Colour (kTextPrimary).withAlpha (0.75f));
-            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-            g.drawText ("Drop a track here", zone.withTrimmedBottom (zone.getHeight() * 0.42f).toNearestInt(),
-                        juce::Justification::centredBottom);
+            const float iconSize = juce::jlimit (22.0f, 38.0f, zone.getHeight() * 0.18f);
+            const auto icon = juce::Rectangle<float> (iconSize, iconSize)
+                                  .withCentre ({ zone.getCentreX(), zone.getCentreY() - zone.getHeight() * 0.18f });
+            g.setColour (accent.withAlpha (0.12f));
+            g.fillEllipse (icon);
+            g.setColour (accent.withAlpha (0.88f));
+            g.drawEllipse (icon.reduced (0.5f), 1.2f);
+            g.drawLine (icon.getCentreX(), icon.getY() + iconSize * 0.27f,
+                        icon.getCentreX(), icon.getBottom() - iconSize * 0.27f, 1.8f);
+            g.drawLine (icon.getX() + iconSize * 0.27f, icon.getCentreY(),
+                        icon.getRight() - iconSize * 0.27f, icon.getCentreY(), 1.8f);
+
+            auto copy = zone.withTop (icon.getBottom() + 8.0f);
+            g.setColour (juce::Colour (kTextPrimary).withAlpha (0.92f));
+            g.setFont (juce::FontOptions (juce::jlimit (12.0f, 16.0f, zone.getWidth() * 0.055f),
+                                          juce::Font::bold));
+            g.drawText ("LOAD TRACK", copy.withHeight (22.0f).toNearestInt(),
+                        juce::Justification::centred);
             g.setColour (juce::Colour (kTextMuted));
-            g.setFont (juce::FontOptions (10.0f));
-            g.drawText ("or click to browse", zone.withTrimmedTop (zone.getHeight() * 0.55f).toNearestInt(),
-                        juce::Justification::centredTop);
+            g.setFont (juce::FontOptions (9.5f));
+            g.drawText ("Drop audio here or click to browse",
+                        copy.withTop (copy.getY() + 23.0f).withHeight (16.0f).toNearestInt(),
+                        juce::Justification::centred);
+            g.setColour (juce::Colour (kTextFaint));
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            g.drawText ("WAV  /  AIFF  /  FLAC  /  MP3",
+                        copy.withTop (copy.getY() + 42.0f).withHeight (14.0f).toNearestInt(),
+                        juce::Justification::centred);
         }
     }
 
@@ -489,12 +509,6 @@ void WaveformDisplay::paint (juce::Graphics& g)
         g.drawLine (playheadX, wave.getY() - 1.0f, playheadX, wave.getBottom() + 1.0f, 1.4f);
         juce::ignoreUnused (tLen);
     }
-    else if (totalLen <= 0.0)
-    {
-        g.setColour (juce::Colour (kTextPrimary).withAlpha (0.30f));
-        g.drawLine (wave.getCentreX(), wave.getY() - 1.0f, wave.getCentreX(), wave.getBottom() + 1.0f, 1.0f);
-    }
-
     // ── Play / pause glyph ───────────────────────────────────────────────────
     if (totalLen > 0.0)
     {

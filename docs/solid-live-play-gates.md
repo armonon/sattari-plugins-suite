@@ -41,12 +41,14 @@ master gain. It does NOT yet cover a long session, dense continuous gestures, st
 insert automation, or any of the three unconverted ParamIds. A green light here means
 the mechanism is sound, not that every performance replays.
 
-**Blocking bug found by this test:** destroying a MainPluginProcessor while neural
-refinement is still running on a pool thread SIGSEGVs inside
-`onnxruntime::RunSince`. The harness leaks its processors and exits via `_Exit` to
-avoid it. This is almost certainly the same crash previously misattributed to
-"constructing a second processor" during the A3 work. It needs fixing before ship:
-the engines must outlive, or be joined before, any inference in flight.
+**Shutdown race found and fixed by this test:** destroying a
+`MainPluginProcessor` while neural refinement was still running on a pool thread
+SIGSEGVed inside `onnxruntime::RunSince`. Teardown now raises a cooperative
+cancellation flag, actively terminates any current beat-model `Session::Run`, polls
+for cancellation between preparation stages and chunks, and destroys the joined
+analysis pool before releasing either neural engine.
+The harness now destroys both replay processors normally and includes a dedicated
+in-flight-refinement teardown probe; it no longer leaks them or exits via `_Exit`.
 
 Phase 4 (rendering reads session state rather than APVTS) is not done. Phase 3 is
 26/29 ParamIds — see `Dispatcher::ownsParam`.

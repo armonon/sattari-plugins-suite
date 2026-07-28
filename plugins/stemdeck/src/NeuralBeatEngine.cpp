@@ -5,6 +5,7 @@
  #include <onnxruntime_cxx_api.h>
  #include <algorithm>
  #include <cmath>
+ #include <mutex>
 
 namespace
 {
@@ -23,6 +24,37 @@ struct NeuralBeatEngine::Impl
     Ort::SessionOptions options;
     std::string inputName, beatName, downName;
     bool ready = false;
+    std::mutex activeRunsMutex;
+    std::vector<std::shared_ptr<Ort::RunOptions>> activeRuns;
+    std::atomic<bool> cancellationRequested { false };
+
+    std::shared_ptr<Ort::RunOptions> beginRun()
+    {
+        auto run = std::make_shared<Ort::RunOptions>();
+        const std::lock_guard<std::mutex> lock (activeRunsMutex);
+        activeRuns.push_back (run);
+        if (cancellationRequested.load (std::memory_order_acquire))
+            run->SetTerminate();
+        return run;
+    }
+
+    void endRun (const std::shared_ptr<Ort::RunOptions>& run)
+    {
+        const std::lock_guard<std::mutex> lock (activeRunsMutex);
+        activeRuns.erase (std::remove (activeRuns.begin(), activeRuns.end(), run), activeRuns.end());
+    }
+
+    void cancelPending() noexcept
+    {
+        cancellationRequested.store (true, std::memory_order_release);
+        std::vector<std::shared_ptr<Ort::RunOptions>> runs;
+        {
+            const std::lock_guard<std::mutex> lock (activeRunsMutex);
+            runs = activeRuns;   // keep every options object alive while terminating it
+        }
+        for (const auto& run : runs)
+            try { run->SetTerminate(); } catch (...) {}
+    }
 
     bool load (const juce::File& modelFile, juce::String& message)
     {
@@ -68,11 +100,20 @@ bool NeuralBeatEngine::loadDefaultModel()
     return impl->load (defaultModelFile(), msg);
 }
 
-NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float>& audio, double sampleRate)
+void NeuralBeatEngine::cancelPending() noexcept
+{
+    if (impl != nullptr)
+        impl->cancelPending();
+}
+
+NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float>& audio, double sampleRate,
+                                                   std::function<bool()> shouldCancel)
 {
     Result r;
     if (! isAvailable() || sampleRate <= 0.0 || audio.getNumSamples() < (int) sampleRate)   // need >= ~1s
         return r;
+
+    const auto cancelled = [&shouldCancel] { return shouldCancel && shouldCancel(); };
 
     // ── Mono sum ──────────────────────────────────────────────────────────────
     const int n  = audio.getNumSamples();
@@ -80,10 +121,19 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     std::vector<float> mono ((size_t) n, 0.0f);
     for (int c = 0; c < ch; ++c)
     {
+        if (cancelled()) return r;
         const auto* d = audio.getReadPointer (c);
-        for (int i = 0; i < n; ++i) mono[(size_t) i] += d[i];
+        for (int i = 0; i < n; ++i)
+        {
+            mono[(size_t) i] += d[i];
+            if ((i & 0x3ffff) == 0 && cancelled()) return r;
+        }
     }
-    for (auto& v : mono) v /= (float) ch;
+    for (size_t i = 0; i < mono.size(); ++i)
+    {
+        mono[i] /= (float) ch;
+        if ((i & 0x3ffff) == 0 && cancelled()) return r;
+    }
 
     // ── Resample to 22.05 kHz (the model's rate) ──────────────────────────────
     const double ratio = sampleRate / kModelSampleRate;                 // in-samples per out-sample
@@ -91,9 +141,11 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     if (outLen < 64) return r;
     std::vector<float> rs ((size_t) outLen);
     {
+        if (cancelled()) return r;
         juce::LagrangeInterpolator interp;                              // decent quality, RT-clean
         interp.process (ratio, mono.data(), rs.data(), outLen);
     }
+    if (cancelled()) return r;
 
     // ── Chunked inference ─────────────────────────────────────────────────────
     // beat_this has a fixed usable sequence length and is designed to run on
@@ -118,6 +170,7 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
 
         for (int startSamp = 0; startSamp < (int) rs.size(); startSamp += stride)
         {
+            if (cancelled()) return r;
             const int len = juce::jmin (chunkSamples, (int) rs.size() - startSamp);
             if (len < kHop * 8) break;                                 // trailing scrap
             const int startFrame = startSamp / kHop;
@@ -125,7 +178,19 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
             std::array<int64_t, 1> shape { (int64_t) len };
             auto input = Ort::Value::CreateTensor<float> (mem, rs.data() + startSamp, (size_t) len,
                                                           shape.data(), shape.size());
-            auto outs = impl->session->Run (Ort::RunOptions { nullptr }, inNames, &input, 1, outNames, 2);
+            auto runOptions = impl->beginRun();
+            std::vector<Ort::Value> outs;
+            try
+            {
+                outs = impl->session->Run (*runOptions, inNames, &input, 1, outNames, 2);
+            }
+            catch (...)
+            {
+                impl->endRun (runOptions);
+                return r;
+            }
+            impl->endRun (runOptions);
+            if (cancelled()) return r;
             if (outs.size() < 2) return r;
 
             const float* bp = outs[0].GetTensorData<float>();
@@ -223,6 +288,8 @@ juce::File NeuralBeatEngine::defaultModelFile()
              .getChildFile ("StemProvider").getChildFile ("beat-model.onnx");
 }
 bool NeuralBeatEngine::loadDefaultModel() { return false; }
-NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float>&, double) { return {}; }
+NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float>&, double,
+                                                   std::function<bool()>) { return {}; }
+void NeuralBeatEngine::cancelPending() noexcept {}
 
 #endif

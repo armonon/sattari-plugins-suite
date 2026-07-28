@@ -443,7 +443,9 @@ private:
 
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioFormatManager formatManager;
-    juce::ThreadPool loadPool { 4 };
+    // Owned explicitly so the destructor can destroy the worker threads while the
+    // neural engines they invoke are still alive.
+    std::unique_ptr<juce::ThreadPool> loadPool { std::make_unique<juce::ThreadPool> (4) };
 
     // Async load/stem completion callbacks capture `this` and fire via callAsync on the
     // message thread. A job can finish and post its closure just as the processor is torn

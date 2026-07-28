@@ -2998,7 +2998,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
     // --- Nav bar: icon above label per cell (LIBRARY/DECKS/MIXER/ARRANGER/PERFORMANCE) ---
     {
-        static const char* navLabels[5] = { "LIBRARY", "DECKS", "MIXER", "ARRANGER", "FILES" };
+        static const char* navLabels[5] = { "LIBRARY", "PERFORM", "MIXER", "ARRANGER", "FILES" };
         const juce::Button* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
                                            &pianoRollButton, &toggleBrowserButton };
         for (int i = 0; i < 5; ++i)
@@ -3144,6 +3144,17 @@ void MainPluginEditor::paint (juce::Graphics& g)
             }
             headerBar.removeFromLeft (8);
 
+            if (! deckHasContent (i))
+            {
+                deckBpmChipBounds[(size_t) i] = {};
+                deckKeyChipBounds[(size_t) i] = {};
+                g.setColour (juce::Colour (stemdeck::palette::kTextMuted).withAlpha (0.72f));
+                g.setFont (juce::FontOptions (9.0f, juce::Font::bold).withKerningFactor (0.06f));
+                g.drawText ("READY FOR AUDIO", headerBar.reduced (2, 0),
+                            juce::Justification::centredLeft);
+            }
+            else
+            {
             // Right-aligned, interactive BPM + Key chips (drag BPM, click Key).
             const auto bpmValue   = deckControls[(size_t) i].bpm.getValue();
             const auto bpmText    = juce::String (bpmValue, 1);
@@ -3208,6 +3219,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.setColour (juce::Colour (stemdeck::palette::kTextPrimary).withAlpha ((useDemo || file.isNotEmpty()) ? 0.92f : 0.45f));
             g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
             g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
+            }
         }
 
         // --- STEM SEPARATION centerpiece: accent-tinted module + per-stem labels ---
@@ -3578,26 +3590,9 @@ void MainPluginEditor::paint (juce::Graphics& g)
         }
     }
 
-    // ── 1.3 Quiet empty decks: knock the painted chrome of unloaded decks back to
-    // ~40% with a scrim (their child controls are dimmed via setAlpha in the timer).
-    // The waveform stays bright — it's the "drop a track here" call to action.
-    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
-    {
-        if (deckHasContent (i) || deckPanelBounds[(size_t) i].isEmpty()) continue;
-        auto panel = deckPanelBounds[(size_t) i];
-        if (auto* w = deckWaves[(size_t) i].get())   // don't scrim over the load CTA
-        {
-            g.setColour (juce::Colour (stemdeck::palette::kBackground).withAlpha (0.55f));
-            auto top = panel.withBottom (w->getBounds().getY());
-            auto bot = panel.withTop (w->getBounds().getBottom());
-            g.fillRect (top); g.fillRect (bot);
-        }
-        else
-        {
-            g.setColour (juce::Colour (stemdeck::palette::kBackground).withAlpha (0.55f));
-            g.fillRect (panel);
-        }
-    }
+    // Empty decks are already reduced to a single actionable load surface in
+    // resized(). No scrim is needed: the old overlay made even the primary empty
+    // action look disabled, which is the opposite of progressive disclosure.
 }
 
 bool MainPluginEditor::deckHasContent (int i) const
@@ -3785,19 +3780,16 @@ void MainPluginEditor::setFocusedDeck (int i)
     repaint();
 }
 
-// Dim an empty deck's control surface to ~40% (keeping the waveform — the load CTA
-// — bright). Alpha only, so nothing breaks functionally; the scrim in paint()
-// handles the painted chrome. Called from the timer only when the state flips.
+// Keep the live/empty transition explicit. Empty controls are now removed from
+// layout rather than merely faded, so the remaining load target stays fully legible.
 void MainPluginEditor::applyDeckDim (int i, bool loaded)
 {
-    const float a = loaded ? 1.0f : 0.4f;
+    juce::ignoreUnused (loaded);
     for (auto* c : getChildren())
     {
         if (c == nullptr) continue;
-        if (c == deckWaves[(size_t) i].get()) continue;                    // keep the drop target bright
-        if (deckStrips[(size_t) i] && c == deckStrips[(size_t) i].get()) continue;  // strip self-dims
         if (deckPanelBounds[(size_t) i].contains (c->getBounds()))
-            c->setAlpha (a);
+            c->setAlpha (1.0f);
     }
 }
 
@@ -4247,7 +4239,8 @@ void MainPluginEditor::resized()
         if (deckIndex < visibleDecks - 1) decksArea.removeFromLeft (deckGap);
 
         deckCollapsedBounds[(size_t) deckIndex] = {};   // no collapsed strips in the horizontal layout
-        setDeckDetailVisible (deckIndex, true);
+        const bool loaded = deckHasContent (deckIndex);
+        setDeckDetailVisible (deckIndex, loaded);
         deckPanelBounds[(size_t) deckIndex] = laneOuter;
         auto lane = laneOuter.reduced (10, 10);
 
@@ -4257,6 +4250,36 @@ void MainPluginEditor::resized()
         auto headerStrip = lane.removeFromTop (22);
         deckHeaderBounds[(size_t) deckIndex] = headerStrip;
         lane.removeFromTop (6);
+
+        // Progressive disclosure: an empty channel is a large, calm load target,
+        // not a disabled copy of the entire performance surface. The waveform
+        // owns the whole body and opens the chooser on click. Once audio lands,
+        // resized() runs again and reveals the complete deck in place.
+        if (! loaded)
+        {
+            deckStemBounds[(size_t) deckIndex]    = {};
+            deckTabStripBounds[(size_t) deckIndex] = {};
+            deckTabPanelBounds[(size_t) deckIndex] = {};
+            deckStemFxBounds[(size_t) deckIndex] = {};
+            controls.play.setVisible (false); controls.play.setBounds ({});
+            controls.cue .setVisible (false); controls.cue .setBounds ({});
+
+            if (auto* region = deckWaveRegions[(size_t) deckIndex].get())
+            {
+                region->setVisible (false);
+                region->setBounds ({});
+            }
+            if (auto* wave = deckWaves[(size_t) deckIndex].get())
+            {
+                wave->setVisible (true);
+                wave->setAlpha (1.0f);
+                wave->setBounds (lane.reduced (2, 2));
+            }
+            continue;
+        }
+
+        controls.play.setVisible (true);
+        controls.cue .setVisible (true);
 
         // ---- Bottom-up fixed sections; the waveform claims the flexible middle ----
 
@@ -4358,7 +4381,6 @@ void MainPluginEditor::resized()
         // knobs dock DIRECTLY UNDER their columns (vocal knob under the vocal column).
         // Empty deck: the flat WaveformDisplay is the drop CTA and the old stem cells
         // stay as the labelled mini-fader strip.
-        const bool loaded = deckHasContent (deckIndex);
         auto* region = deckWaveRegions[(size_t) deckIndex].get();
         auto* wave   = deckWaves[(size_t) deckIndex].get();
 
@@ -4531,29 +4553,20 @@ void MainPluginEditor::resized()
         applyDeckToolTabVisibility (deckIndex);
     }
 
-    // ── Deck control strips: one under each individual deck box ──────────────────
-    // Each strip sits directly beneath its deck column, matching that column's x +
-    // width (compact layout kicks in at this narrower width). 40px collapsed, 76px
-    // when its drawer opens. Play/cue/loop/jump/sync/key/take + drawer.
-    // One transport strip under each individual deck box, matching that column's
-    // x + width (compact layout kicks in at the narrower per-column width).
-    area.removeFromTop (6);
-    int stripBandH = stemdeck::DeckStrip::kCollapsedHeight;
-    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
-        if (auto* s = deckStrips[(size_t) i].get())
-            stripBandH = juce::jmax (stripBandH, s->currentHeight());
-    auto stripBand = area.removeFromTop (stripBandH);
+    // The full deck already exposes transport, cues, loops, sync and key tools.
+    // A second transport strip immediately below it duplicated those controls,
+    // consumed vertical space, and left two competing places to perform the same
+    // action. Keep DeckStrip available as a component/test seam, but retire the
+    // duplicate from this assembled full-column surface.
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
         if (auto* strip = deckStrips[(size_t) i].get())
         {
-            const auto col = deckPanelBounds[(size_t) i];
-            juce::Rectangle<int> b (col.getX(), stripBand.getY(), col.getWidth(), strip->currentHeight());
-            deckStripBounds[(size_t) i] = b;
-            strip->setVisible (true);
-            strip->setBounds (b);
+            deckStripBounds[(size_t) i] = {};
+            strip->setVisible (false);
+            strip->setBounds ({});
         }
 
-    area.removeFromTop (8);
+    area.removeFromTop (10);
 
     // ── Master Control Band: five bounded panels ────────────────────────────────
     //   [ SCOPE ] [ SYNC ] [ CROSSFADER (flex) ] [ MASTER FX ] [ MASTER OUT ]

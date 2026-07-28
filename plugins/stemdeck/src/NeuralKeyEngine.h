@@ -26,6 +26,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <functional>
 #include <vector>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -66,11 +67,13 @@ public:
     };
 
     // BLOCKING — background thread only (does a full-file FFT sweep + inference).
-    Result detect (const juce::AudioBuffer<float>& audio, double sampleRate)
+    Result detect (const juce::AudioBuffer<float>& audio, double sampleRate,
+                   std::function<bool()> shouldCancel = {})
     {
         Result r;
         if (! isAvailable() || audio.getNumSamples() < kFftSize || sampleRate <= 0.0)
             return r;
+        const auto cancelled = [&shouldCancel] { return shouldCancel && shouldCancel(); };
 
         // Mono sum (matches fileChromaHpcpCov's caller).
         const int n  = audio.getNumSamples();
@@ -78,13 +81,23 @@ public:
         std::vector<float> mono ((size_t) n, 0.0f);
         for (int c = 0; c < ch; ++c)
         {
+            if (cancelled()) return r;
             const auto* d = audio.getReadPointer (c);
-            for (int i = 0; i < n; ++i) mono[(size_t) i] += d[i];
+            for (int i = 0; i < n; ++i)
+            {
+                mono[(size_t) i] += d[i];
+                if ((i & 0x3ffff) == 0 && cancelled()) return r;
+            }
         }
-        for (auto& v : mono) v /= (float) ch;
+        for (size_t i = 0; i < mono.size(); ++i)
+        {
+            mono[i] /= (float) ch;
+            if ((i & 0x3ffff) == 0 && cancelled()) return r;
+        }
 
         double mean[12]; double cov[12][12];
-        chromaHpcpCov (mono, sampleRate, mean, cov);
+        if (! chromaHpcpCov (mono, sampleRate, mean, cov, shouldCancel))
+            return r;
 
         // Pack: mean(12) then covariance upper-triangle incl. diagonal (78) = 90.
         float feat[90]; int fi = 0;
@@ -104,8 +117,9 @@ public:
 
 private:
     // Verbatim port of core/tools/key_dataset_eval.cpp :: fileChromaHpcpCov.
-    void chromaHpcpCov (const std::vector<float>& mono, double sampleRate,
-                        double mean[12], double cov[12][12])
+    bool chromaHpcpCov (const std::vector<float>& mono, double sampleRate,
+                        double mean[12], double cov[12][12],
+                        const std::function<bool()>& shouldCancel)
     {
         const double binHz = sampleRate / (double) kFftSize;
         const int hop = kFftSize / 2;
@@ -123,6 +137,8 @@ private:
         int frames = 0;
         for (juce::int64 start = 0; start == 0 || start + kFftSize <= n; start += hop)
         {
+            if (shouldCancel && shouldCancel())
+                return false;
             for (int i = 0; i < kFftSize; ++i)
             {
                 const juce::int64 idx = start + i;
@@ -157,6 +173,7 @@ private:
                 for (int j = 0; j < 12; ++j)
                     cov[i][j] = cov[i][j] / frames - mean[i] * mean[j];
         }
+        return true;
     }
 
     sattari::dsp::KeyNet keyNet;

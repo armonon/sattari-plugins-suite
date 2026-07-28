@@ -627,7 +627,21 @@ MainPluginProcessor::~MainPluginProcessor()
     // Clear the alive flag BEFORE draining pools: any job that already posted its
     // completion closure will see false and skip touching this (soon-freed) processor.
     aliveFlag->store (false, std::memory_order_release);
-    loadPool.removeAllJobs (true, 1500);
+    neuralBeat.cancelPending();
+    // The provider can enqueue decoded-stem jobs on loadPool. Stop that producer
+    // first so the analysis pool has a closed, finite set of work to drain.
+    stemProvider.shutdown();
+    // Neural inference cannot be destroyed underneath Ort::Session::Run. The old
+    // 1.5 s timeout allowed member teardown to continue while a full-track job was
+    // still inside ONNX, producing a repeatable RunSince use-after-free. Jobs now
+    // poll aliveFlag between chunks, and teardown waits for the current chunk to
+    // return. Destroying the pool here (rather than at automatic member teardown)
+    // guarantees its worker threads are gone while both neural engines still exist.
+    if (loadPool != nullptr)
+    {
+        loadPool->removeAllJobs (true, -1);
+        loadPool.reset();
+    }
 
     // Destroy the engine BEFORE releasing the claim, so a next instance constructing
     // immediately after can never overlap with this one's teardown.
@@ -1481,7 +1495,9 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
     // Background thread — same additive, fallback-safe pattern as the key model.
     if (neuralBeat.isAvailable())
     {
-        const auto b = neuralBeat.detect (audio, sampleRate);
+        const auto b = neuralBeat.detect (audio, sampleRate,
+                                          [alive = aliveFlag]
+                                          { return ! alive->load (std::memory_order_acquire); });
         // NOTE: NeuralBeatEngine::Result carries no confidence, so unlike the key
         // model this cannot be confidence-gated host-side — the grid-length check
         // below is the only sanity filter available. Adding a real gate requires the
@@ -1502,7 +1518,9 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
     // it isn't (or ONNX is absent) TrackAnalyzer's key stands. Background thread.
     if (neuralKey.isAvailable())
     {
-        const auto k = neuralKey.detect (audio, sampleRate);
+        const auto k = neuralKey.detect (audio, sampleRate,
+                                         [alive = aliveFlag]
+                                         { return ! alive->load (std::memory_order_acquire); });
 
         // CONFIDENCE GATE (§A3). "valid" only means the model ran — it says nothing
         // about whether the answer is any good. Below the floor we KEEP the DSP
@@ -1550,7 +1568,7 @@ void MainPluginProcessor::loadAudioAsync (const juce::File& file, std::function<
             cb (std::move (audio));
     };
 
-    loadPool.addJob (new AudioLoadJob (file,
+    loadPool->addJob (new AudioLoadJob (file,
         [this] (const juce::File& f) { return loadAudioFile (f, /*runNeuralInline*/ false); },
         std::move (guarded)), true);
 }
@@ -1623,7 +1641,7 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
     if (! file.existsAsFile() || (! neuralBeat.isAvailable() && ! neuralKey.isAvailable()))
         return;
 
-    loadPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+    loadPool->addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
         [this, deckIndex, file, alive = aliveFlag]() -> juce::ThreadPoolJob::JobStatus
     {
         if (! alive->load (std::memory_order_acquire))
@@ -1637,7 +1655,9 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
         if (neuralBeat.isAvailable())
         {
-            const auto b = neuralBeat.detect (audio->audio, audio->sourceSampleRate);
+            const auto b = neuralBeat.detect (audio->audio, audio->sourceSampleRate,
+                                              [alive]
+                                              { return ! alive->load (std::memory_order_acquire); });
             if (b.valid && b.beatGridSamples.size() >= 4)
             {
                 refined->beatGridSamples = b.beatGridSamples;
@@ -1650,7 +1670,9 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
         if (neuralKey.isAvailable())
         {
-            const auto k = neuralKey.detect (audio->audio, audio->sourceSampleRate);
+            const auto k = neuralKey.detect (audio->audio, audio->sourceSampleRate,
+                                             [alive]
+                                             { return ! alive->load (std::memory_order_acquire); });
             if (k.valid && k.confidence >= kNeuralKeyConfidenceFloor)
             {
                 refined->keyPitchClass    = k.root;
@@ -1760,7 +1782,7 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
 
     // Guard both callbacks: a job finishing during teardown must not run a
     // this-capturing closure against a freed processor (same contract as loadAudioAsync).
-    loadPool.addJob (new TwoPhaseAudioLoadJob (file,
+    loadPool->addJob (new TwoPhaseAudioLoadJob (file,
         [this] (const juce::File& f) { return decodeAudioFile (f); },
         [this] (TrackAnalysis& out, const juce::AudioBuffer<float>& audio, double sr, const juce::File& f)
         { analyseInto (out, audio, sr, f, /*runNeuralInline*/ false); },
@@ -2396,7 +2418,7 @@ void MainPluginProcessor::refreshLiveKeyAnalysis()
 
         // Run the heavy chroma FFT off the UI thread. loadPool is drained in the dtor,
         // so deckAt (i) stays valid for the job's lifetime; aliveFlag is belt-and-braces.
-        loadPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        loadPool->addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
             [this, i, alive = aliveFlag]() -> juce::ThreadPoolJob::JobStatus
         {
             if (alive->load (std::memory_order_acquire))
