@@ -32,11 +32,23 @@ public:
     // middle / end). Fast even for large files; robust to moves/renames.
     static juce::String hashFile (const juce::File& audioFile);
 
-    // Returns true and fills `out` on a hit (schema-version matched).
-    bool lookup (const juce::String& contentHash, TrackAnalysis& out) const;
+    // The same content hash as a 64-bit value, for the event stream's trackLoad
+    // payload. Derived from the string form so the two can never disagree.
+    static uint64_t hashFile64 (const juce::File& audioFile);
+    static uint64_t hashToUint64 (const juce::String& contentHash);
 
-    // Insert or replace the cached analysis for this hash.
+    // Returns true and fills `out` on a hit. analysisVersion 0 means "the highest
+    // version stored"; any other value asks for that EXACT analysis, which is what a
+    // replay does — it must not silently get a newer, different one (§6.2).
+    bool lookup (const juce::String& contentHash, TrackAnalysis& out,
+                 uint32_t analysisVersion = 0) const;
+
+    // Store this analysis under (hash, analysis.analysisVersion). Storing a refined
+    // result does NOT destroy the earlier one a captured session may depend on.
     void store (const juce::String& contentHash, const TrackAnalysis& analysis);
+
+    // Highest analysisVersion stored for this hash, or 0 if none.
+    uint32_t latestVersion (const juce::String& contentHash) const;
 
     int64_t count() const;
 

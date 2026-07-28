@@ -28,6 +28,15 @@ struct TrackAnalysis
     // italic/amber rather than presenting a guess as fact.
     bool keyLowConfidence = false;
 
+    // ── §6.2 analysis pinning (A1) ───────────────────────────────────────────
+    // Which ANALYSIS of this material this is. 1 = the first-pass DSP result the deck
+    // becomes playable on; each background refinement publishes a higher version.
+    // A replay must use the version that was in force during the live pass, so the
+    // cache stores every version rather than overwriting — refinement lands at an
+    // unpredictable moment (measured 0.6-5s), and recomputing makes replay diverge
+    // intermittently rather than cleanly.
+    uint32_t analysisVersion = 1;
+
     bool hasKey() const noexcept { return keyPitchClass >= 0 && keyPitchClass < 12 && keyConfidence > 0.0f; }
     juce::String keyName() const;
 };

@@ -65,10 +65,16 @@ struct AnalysisCache::Impl
         }
         exec ("PRAGMA journal_mode=WAL;");
         exec ("PRAGMA synchronous=NORMAL;");
+        // §6.2: keyed on (hash, avers), NOT hash alone. A background refinement
+        // publishes a higher analysis version; overwriting would destroy the exact
+        // analysis a captured session replays against. The old single-key table is
+        // dropped rather than migrated — this is a cache, it rebuilds.
+        exec ("DROP TABLE IF EXISTS analysis_v1_singlekey;");
         exec ("CREATE TABLE IF NOT EXISTS analysis ("
-              "hash TEXT PRIMARY KEY, version INTEGER, sr REAL, dur REAL, rms REAL, bpm REAL, "
+              "hash TEXT, avers INTEGER, version INTEGER, sr REAL, dur REAL, rms REAL, bpm REAL, "
               "downbeat REAL, bpb INTEGER, key_pc INTEGER, key_min INTEGER, key_conf REAL, "
-              "grid BLOB, transients BLOB, tempo BLOB, created INTEGER);");
+              "grid BLOB, transients BLOB, tempo BLOB, created INTEGER, "
+              "PRIMARY KEY (hash, avers));");
     }
     ~Impl() { if (db) sqlite3_close (db); }
 
@@ -120,18 +126,22 @@ juce::String AnalysisCache::hashFile (const juce::File& f)
     return juce::String::toHexString ((juce::int64) h).paddedLeft ('0', 16);
 }
 
-bool AnalysisCache::lookup (const juce::String& hash, TrackAnalysis& out) const
+bool AnalysisCache::lookup (const juce::String& hash, TrackAnalysis& out, uint32_t wantVersion) const
 {
     if (! isOpen() || hash.isEmpty()) return false;
     const juce::ScopedLock sl (impl->lock);
 
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2 (impl->db,
-            "SELECT version,sr,dur,rms,bpm,downbeat,bpb,key_pc,key_min,key_conf,grid,transients,tempo "
-            "FROM analysis WHERE hash=?;", -1, &st, nullptr) != SQLITE_OK)
+            // wantVersion 0 = newest; otherwise the EXACT analysis asked for. A replay
+            // must never be silently handed a newer, different one.
+            "SELECT version,sr,dur,rms,bpm,downbeat,bpb,key_pc,key_min,key_conf,grid,transients,tempo,avers "
+            "FROM analysis WHERE hash=? AND (?2=0 OR avers=?2) "
+            "ORDER BY avers DESC LIMIT 1;", -1, &st, nullptr) != SQLITE_OK)
         return false;
 
     sqlite3_bind_text (st, 1, hash.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int  (st, 2, (int) wantVersion);
     bool hit = false;
     if (sqlite3_step (st) == SQLITE_ROW && sqlite3_column_int (st, 0) == kSchemaVersion)
     {
@@ -147,6 +157,7 @@ bool AnalysisCache::lookup (const juce::String& hash, TrackAnalysis& out) const
         out.beatGridSamples        = unpackDoubles (sqlite3_column_blob (st, 10), sqlite3_column_bytes (st, 10));
         out.transientAnchorSamples = unpackDoubles (sqlite3_column_blob (st, 11), sqlite3_column_bytes (st, 11));
         out.tempoCurve             = unpackCurve   (sqlite3_column_blob (st, 12), sqlite3_column_bytes (st, 12));
+        out.analysisVersion = (uint32_t) sqlite3_column_int (st, 13);
         hit = true;
     }
     sqlite3_finalize (st);
@@ -161,8 +172,8 @@ void AnalysisCache::store (const juce::String& hash, const TrackAnalysis& a)
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2 (impl->db,
             "INSERT OR REPLACE INTO analysis "
-            "(hash,version,sr,dur,rms,bpm,downbeat,bpb,key_pc,key_min,key_conf,grid,transients,tempo,created) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);", -1, &st, nullptr) != SQLITE_OK)
+            "(hash,avers,version,sr,dur,rms,bpm,downbeat,bpb,key_pc,key_min,key_conf,grid,transients,tempo,created) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);", -1, &st, nullptr) != SQLITE_OK)
         return;
 
     const auto grid  = packDoubles (a.beatGridSamples);
@@ -170,23 +181,58 @@ void AnalysisCache::store (const juce::String& hash, const TrackAnalysis& a)
     const auto curve = packCurve  (a.tempoCurve);
 
     sqlite3_bind_text   (st, 1,  hash.toRawUTF8(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int    (st, 2,  kSchemaVersion);
-    sqlite3_bind_double (st, 3,  a.sampleRate);
-    sqlite3_bind_double (st, 4,  a.durationSeconds);
-    sqlite3_bind_double (st, 5,  a.rmsDb);
-    sqlite3_bind_double (st, 6,  a.detectedBpm);
-    sqlite3_bind_double (st, 7,  a.downbeatSample);
-    sqlite3_bind_int    (st, 8,  a.beatsPerBar);
-    sqlite3_bind_int    (st, 9,  a.keyPitchClass);
-    sqlite3_bind_int    (st, 10, a.keyIsMinor ? 1 : 0);
-    sqlite3_bind_double (st, 11, a.keyConfidence);
-    sqlite3_bind_blob   (st, 12, grid.getData(),  (int) grid.getSize(),  SQLITE_TRANSIENT);
-    sqlite3_bind_blob   (st, 13, trans.getData(), (int) trans.getSize(), SQLITE_TRANSIENT);
-    sqlite3_bind_blob   (st, 14, curve.getData(), (int) curve.getSize(), SQLITE_TRANSIENT);
-    sqlite3_bind_int64  (st, 15, (sqlite3_int64) juce::Time::currentTimeMillis());
+    sqlite3_bind_int    (st, 2,  (int) juce::jmax (1u, a.analysisVersion));
+    sqlite3_bind_int    (st, 3,  kSchemaVersion);
+    sqlite3_bind_double (st, 4,  a.sampleRate);
+    sqlite3_bind_double (st, 5,  a.durationSeconds);
+    sqlite3_bind_double (st, 6,  a.rmsDb);
+    sqlite3_bind_double (st, 7,  a.detectedBpm);
+    sqlite3_bind_double (st, 8,  a.downbeatSample);
+    sqlite3_bind_int    (st, 9,  a.beatsPerBar);
+    sqlite3_bind_int    (st, 10, a.keyPitchClass);
+    sqlite3_bind_int    (st, 11, a.keyIsMinor ? 1 : 0);
+    sqlite3_bind_double (st, 12, a.keyConfidence);
+    sqlite3_bind_blob   (st, 13, grid.getData(),  (int) grid.getSize(),  SQLITE_TRANSIENT);
+    sqlite3_bind_blob   (st, 14, trans.getData(), (int) trans.getSize(), SQLITE_TRANSIENT);
+    sqlite3_bind_blob   (st, 15, curve.getData(), (int) curve.getSize(), SQLITE_TRANSIENT);
+    sqlite3_bind_int64  (st, 16, (sqlite3_int64) juce::Time::currentTimeMillis());
 
     sqlite3_step (st);
     sqlite3_finalize (st);
+}
+
+uint64_t AnalysisCache::hashToUint64 (const juce::String& contentHash)
+{
+    // FNV-1a over the string form, so the 64-bit id in the event stream and the text
+    // key in the cache can never disagree about which material they mean.
+    uint64_t h = 1469598103934665603ULL;
+    for (auto* p = contentHash.toRawUTF8(); p != nullptr && *p != 0; ++p)
+    {
+        h ^= (uint64_t) (unsigned char) *p;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+uint64_t AnalysisCache::hashFile64 (const juce::File& audioFile)
+{
+    return hashToUint64 (hashFile (audioFile));
+}
+
+uint32_t AnalysisCache::latestVersion (const juce::String& hash) const
+{
+    if (! isOpen()) return 0;
+    const juce::ScopedLock sl (impl->lock);
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2 (impl->db, "SELECT MAX(avers) FROM analysis WHERE hash=?;",
+                            -1, &st, nullptr) != SQLITE_OK)
+        return 0;
+    sqlite3_bind_text (st, 1, hash.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    uint32_t v = 0;
+    if (sqlite3_step (st) == SQLITE_ROW)
+        v = (uint32_t) sqlite3_column_int (st, 0);
+    sqlite3_finalize (st);
+    return v;
 }
 
 int64_t AnalysisCache::count() const

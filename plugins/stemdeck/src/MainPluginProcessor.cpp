@@ -1270,6 +1270,10 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
     if (out.keyConfidence < kNeuralKeyConfidenceFloor)
         out.keyLowConfidence = true;
 
+    // The first-pass DSP analysis the deck becomes playable on is ALWAYS version 1.
+    // Refinements are 2+, so a trackLoad event recording version 1 pins this exact
+    // result no matter what lands later.
+    out.analysisVersion = 1;
     analysisCache.store (contentHash, out);
 }
 
@@ -1405,9 +1409,18 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
         if (! alive->load (std::memory_order_acquire))
             return juce::ThreadPoolJob::jobHasFinished;
 
+        // §6.2: publish this as a NEW analysis version rather than overwriting the
+        // first-pass result. A session captured before refinement landed replays
+        // against the grid and key it actually performed to; overwriting would hand
+        // that replay a different grid and make it diverge.
+        {
+            const auto hash = AnalysisCache::hashFile (file);
+            refined->analysisVersion = juce::jmax (2u, analysisCache.latestVersion (hash) + 1u);
+            analysisCache.store (hash, *refined);
+        }
+
         // Hot-swap: atomic publish, picked up on the next block. No audio interruption.
         deckAt (deckIndex).setRefinedAnalysis (refined);
-        analysisCache.store (AnalysisCache::hashFile (file), *refined);
         return juce::ThreadPoolJob::jobHasFinished;
     }));
 }
