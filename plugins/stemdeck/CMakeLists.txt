@@ -610,6 +610,25 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A4: live input/output through a REAL audio device (loopback) ──────────────
+add_executable(StemDeckLiveIO EXCLUDE_FROM_ALL tests/stemdeck_liveio.cpp)
+target_include_directories(StemDeckLiveIO PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckLiveIO PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckLiveIO
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckLiveIO)
+sattari_enable_rubberband(StemDeckLiveIO SATTARI_STEMDECK_HAS_RUBBERBAND)
+if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    target_include_directories(StemDeckLiveIO PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+    target_link_libraries(StemDeckLiveIO PRIVATE ${ONNXRUNTIME_LIB})
+    target_compile_definitions(StemDeckLiveIO PRIVATE
+        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+endif()
+
 # ── A1 phase 1: event stream round-trips exactly and refuses what it must ──────
 add_executable(StemDeckEventStream EXCLUDE_FROM_ALL tests/stemdeck_eventstream.cpp)
 add_dependencies(StemDeckEventStream SattariStemDeck)

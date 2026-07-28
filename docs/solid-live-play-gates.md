@@ -121,11 +121,30 @@ outstanding, and it also feeds A1 §6.2.
 
 **Gate.** Live input works on a real audio interface.
 
-**Status: NOT VERIFIED. Cannot be closed without hardware.**
+**Status: PARTIALLY VERIFIED on a real device (loopback). Physical-interface items
+remain.**
 
-This is the only gate that cannot be closed in software. Everything below is built and
-renders correctly in offline tests driven by **synthetic buffers** — not one real sample
-from a real device has been through it.
+Run `StemDeckLiveIO [deviceNameSubstring]` (default: BlackHole). It opens a real
+CoreAudio device for input AND output, drives StemDeck from the device callback, plays
+a tone from a deck, and requires it to arrive back having left the process and returned
+through the driver. Measured:
+
+| check | result |
+|---|---|
+| device opens, real sr/buffer negotiated | 48000 Hz / 256 |
+| callbacks running under load | 571 |
+| audio completes a ROUND TRIP through the driver | peak 0.2535 |
+| round-trip latency | **10.7 ms** (2 buffers) |
+| worst callback gap vs 5.33 ms period | 5.40 ms — no stall |
+| sample-rate change 48000 -> 44100 mid-session | survived, callbacks resumed |
+
+**Device behaviour worth knowing:** BlackHole does not run its callback while the
+stream is idle. "No callbacks during silence" is a property of that driver, not a
+fault, so the harness records it rather than asserting it. Three of the first four
+failures in this harness were the harness's own bugs — measuring load time as
+round-trip latency, sampling a counter that `audioDeviceAboutToStart` had just zeroed,
+and asking for an 8000 Hz rate no user would pick. Verify the instrument before
+believing the measurement.
 
 What exists: `InputBody` (gain, monitor, source channel, peak, real EQ + filter), the
 per-type `ChannelStrip` with meter/clip and a receding idle state, and the channel frame's
@@ -133,12 +152,13 @@ mute/solo.
 
 What closing A4 requires, on real hardware:
 
-- [ ] Real interface at a real buffer size; an `input` channel with a device channel selected
-- [ ] Signal arrives: meter moves, monitor on/off does what it says, source cycling picks
-      the physical channel it claims
-- [ ] Latency low enough to perform against
-- [ ] No feedback loop when monitoring
-- [ ] Survives a device change mid-session: sample-rate switch, unplug/replug
+- [x] Real device at a real buffer size; an `input` channel present — `StemDeckLiveIO`
+- [x] Signal arrives, having gone through the driver both ways — `StemDeckLiveIO`
+- [x] Latency low enough to perform against — 10.7 ms measured
+- [x] Survives a sample-rate change mid-session — 48k -> 44.1k, callbacks resumed
+- [ ] **Physical interface**: mic preamp, phantom power, unplug/replug mid-session
+- [ ] **Monitor path**: no feedback loop with a real mic in the room
+- [ ] **Source cycling** picks the physical channel it claims, on a multi-channel box
 - [ ] Captured input lands correctly in the recording, not just the monitor path
 
 > The brief may have had acceptance criteria beyond "live input on real hardware"; that
