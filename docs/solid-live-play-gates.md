@@ -24,23 +24,16 @@ Part A passes.
 deterministic replay of it. Replaying a captured session must reproduce it
 sample-identically.
 
-**Status: NOT STARTED. Blocked on review — this is the one-way door.**
+**Status: SCHEMA AGREED (2026-07-27). Implementation not started.**
 
-The schema is drafted at [`event-stream-schema.md`](event-stream-schema.md) and has not
-been agreed. Nothing should be coded against it until it is: every control in the live
-surface writes to this stream and the whole arrangement editor reads it, so changing it
-after either half exists breaks both.
+[`event-stream-schema.md`](event-stream-schema.md) is accepted — see its §0 for the
+decision record. Both open questions are closed: analysis IS pinned via
+`contentHash` + `analysisVersion` (§6.2), and cross-block-size determinism is NOT
+required. Code may now be written against it.
 
-Two things in the draft need a decision:
-
-1. **§6.2 — pinning analysis.** Replay must use the *same* beat grid and key as the live
-   pass. Neural refinement lands asynchronously, so the analysis actually used has to be
-   recorded and replayed, not recomputed. Without this A1 cannot pass, and it will fail
-   *intermittently* rather than cleanly — the worst failure shape to debug.
-2. **Open question — cross-block-size determinism.** The draft fixes a block size for the
-   hash test, because IIR state evolves per block. Requiring identity *across* block
-   sizes is a much stronger constraint that effectively forbids per-block-dependent DSP.
-   Recommendation in the draft: **no**.
+Phases are in the schema's §11. The order matters: **analysis pinning is phase 2, before
+the dispatch inversion**, because it is the item most likely to invalidate assumptions
+and the hardest to retrofit.
 
 **Relevant measurement.** `StemDeckLoadLatency` shows background refinement landing at
 ~0.6–5s depending on track length, and previously "not within 30s". That variance is

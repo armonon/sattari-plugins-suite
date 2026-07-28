@@ -1,6 +1,28 @@
-# StemDeck Event Stream — schema v1 (DRAFT FOR REVIEW)
+# StemDeck Event Stream — schema v1 (ACCEPTED)
 
-**Status: proposal. Not implemented. Do not code against this until it is agreed.**
+**Status: agreed 2026-07-27. Not yet implemented. Code may now be written against
+this.** Changing anything below after implementation starts breaks both the live
+surface and the arrangement editor — see §10 for what is safe to change and what is not.
+
+---
+
+## 0. Review record
+
+The five questions this document actually turns on, and the answers given.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Capture **intent** (gestures replayed through the engine) rather than resulting audio? | **Yes** |
+| 2 | Address targets by **opaque id**, never list index? | **Yes** |
+| 3 | §6.2 — pin the analysis actually used, via `trackLoad` carrying `contentHash` + `analysisVersion`, with the refined analysis written into the session? | **Yes, as proposed** |
+| 4 | Require **cross-block-size** bit-identity? | **No** — the hash test fixes a block size |
+| 5 | Closed, append-only vocabulary; refuse unknown enum values on load? | **Yes** |
+
+Q3 is the one that decides whether A1 can pass at all: neural refinement lands
+asynchronously (measured 0.6-5s by `StemDeckLoadLatency`, and previously not within
+30s), so a replay that recomputes analysis diverges *intermittently* rather than
+cleanly. Q4 was the most expensive line in the document; answering no keeps
+per-block-dependent DSP legal.
 
 This is the **one-way door**. Every control in the live surface writes to this stream,
 and the arrangement editor is a deterministic replay of it. Changing it after either
@@ -188,9 +210,11 @@ constraint on the engine, not just the schema:
 5. **Channel order canonical.** Replay iterates channels in id order, not creation or
    list order.
 
-> **Open question for review:** (3) means the hash test must fix a block size. Do we
-> also want *cross-block-size* determinism? That is a much stronger requirement — it
-> effectively forbids per-block-dependent DSP — and I do not recommend it.
+> **RESOLVED (Q4, 2026-07-27): no cross-block-size determinism.** The hash test fixes
+> a block size and identity is only guaranteed at that size. Requiring identity across
+> block sizes would permanently forbid per-block-dependent DSP; the cost was judged not
+> worth it. A replay must therefore record the block size it was captured at and refuse
+> to verify against a different one rather than silently comparing.
 
 ---
 
@@ -224,3 +248,41 @@ building the replay + hash harness is the bulk. Item §6.2 (pinning analysis) ma
 the hardest part and is easy to miss until the hash test fails intermittently.
 
 **Review this before any of it is coded.**
+
+
+---
+
+## 10. What is safe to change now that this is agreed
+
+**Safe:** appending to `EventType` or `ParamId`; adding a payload struct; adding fields
+to the header. All are backward-compatible reads.
+
+**Breaking — needs a `schemaVersion` bump and a migration:** renumbering or reusing any
+enum value; changing a payload field's type or meaning; changing `(atSample, seq)`
+ordering semantics; changing what `Scope` addresses.
+
+**Not covered by a version bump:** the decisions in §0. Reversing Q1 (intent vs audio)
+or Q2 (id vs index) is not a migration, it is a rewrite of both halves.
+
+---
+
+## 11. Implementation phases
+
+Sequenced so each lands something verifiable. Honest total: **3-5 weeks**, and the
+schema itself is only the first few days.
+
+1. **Types + storage** — the structs, the binary reader/writer, `schemaVersion` refusal
+   on load. Verifiable with a round-trip test, no engine changes.
+2. **Analysis pinning (§6.2)** — `contentHash` + `analysisVersion` on `trackLoad`, and
+   persist the refined analysis into the session. Do this EARLY: it is the item most
+   likely to invalidate assumptions, and the hardest to retrofit.
+3. **Dispatch inversion** — ~40 control call sites stop mutating APVTS directly and emit
+   events instead. The bulk of the work. Incremental: one control group at a time, with
+   the old path removed as each lands.
+4. **Rendering reads session state** rather than APVTS.
+5. **Replay + hash harness** — the actual A1 gate. Render a captured session twice at a
+   fixed block size and compare sample-exactly.
+
+Determinism prerequisites (§6.1-6.5) are constraints on 3-5, not a separate phase:
+no wall-clock, no `Random`, no uninitialised state, FTZ/DAZ identical, channels
+iterated in id order.
