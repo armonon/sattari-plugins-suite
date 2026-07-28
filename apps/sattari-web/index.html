@@ -1,1134 +1,504 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sattari Audio — Professional Plugin Suite for Mac</title>
-  <meta name="description" content="A complete Mac audio plugin suite — six products (Brain, Vocal, Create, Composer, Mix, StemDeck) built from 40 modules, all sharing one live session key over the Sattari cross-plugin bus." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <style>
-    /* ─── tokens ─────────────────────────────────────────────── */
-    :root {
-      --bg:        #07090f;
-      --bg2:       #0d111c;
-      --bg3:       #131928;
-      --border:    #1c2438;
-      --mint:      #62f5c8;
-      --mint-dim:  rgba(98,245,200,.12);
-      --mint-glow: rgba(98,245,200,.35);
-      --white:     #edf2ff;
-      --sub:       #7a8baa;
-      --mono:      'JetBrains Mono', monospace;
-      --sans:      'Inter', system-ui, sans-serif;
-      --radius:    14px;
-      --radius-sm: 8px;
-    }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sattari Audio — Four racks. One session key.</title>
+<meta name="description" content="A Mac plugin suite built around four racks — Mix, Create, Vocal and Stack — that load 28 shared modules, plus standalone flagships. Every plugin follows one live session key." />
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Sattari — light theme. The font stack is deliberately the
+   system one, so it renders as SF Pro on macOS/iOS: that is what
+   makes it feel native rather than merely "Apple-ish".
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --ink:      #1d1d1f;
+  --ink-2:    #6e6e73;
+  --ink-3:    #86868b;
+  --bg:       #ffffff;
+  --bg-2:     #f5f5f7;
+  --line:     #d2d2d7;
+  --line-2:   #e8e8ed;
+  --accent:   #0071e3;
+  --accent-h: #0077ed;
+  --mint:     #00a37a;   /* the Sattari mark, darkened for contrast on white */
+  --radius:   18px;
+  --radius-l: 28px;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+          "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--ink);
+  line-height:1.47;letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  overflow-x:hidden;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+img{display:block;max-width:100%}
+.wrap{max-width:1024px;margin:0 auto;padding:0 22px}
+.narrow{max-width:720px;margin:0 auto}
 
-    /* ─── reset ──────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: var(--sans);
-      background: var(--bg);
-      color: var(--white);
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-    a { color: inherit; text-decoration: none; }
-    img { display: block; max-width: 100%; }
+.nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.72);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--line-2)}
+.nav-in{max-width:1024px;margin:0 auto;padding:0 22px;height:48px;
+  display:flex;align-items:center;justify-content:space-between}
+.brand{font-size:19px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.brand:hover{text-decoration:none}
+.brand span{color:var(--mint)}
+.nav-links{display:flex;gap:28px;align-items:center}
+.nav-links a{font-size:12px;color:var(--ink);opacity:.85}
+.nav-links a:hover{opacity:1;text-decoration:none}
+@media(max-width:760px){.nav-links{display:none}}
 
-    /* ─── nav ────────────────────────────────────────────────── */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 5vw;
-      height: 64px;
-      background: rgba(7,9,15,.8);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-logo {
-      display: flex; align-items: center; gap: 10px;
-      font-weight: 800; font-size: 1.05rem; letter-spacing: -.01em;
-    }
-    .nav-logo .dot {
-      width: 26px; height: 26px; border-radius: 50%;
-      background: var(--mint);
-      box-shadow: 0 0 14px var(--mint-glow);
-      flex-shrink: 0;
-    }
-    .nav-links {
-      display: flex; gap: 36px; list-style: none;
-    }
-    .nav-links a {
-      font-size: .875rem; font-weight: 500; color: var(--sub);
-      transition: color .2s;
-    }
-    .nav-links a:hover { color: var(--white); }
-    .nav-cta {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 9px 20px; border-radius: 50px;
-      background: var(--mint); color: #07090f;
-      font-size: .85rem; font-weight: 700; letter-spacing: .01em;
-      transition: box-shadow .2s, transform .15s;
-    }
-    .nav-cta:hover {
-      box-shadow: 0 0 22px var(--mint-glow);
-      transform: translateY(-1px);
-    }
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:12px 24px;
+  border-radius:980px;font-size:17px;transition:background .2s}
+.btn:hover{background:var(--accent-h);text-decoration:none}
+.btn-ghost{display:inline-block;color:var(--accent);font-size:17px;padding:12px 0}
 
-    /* ─── hero ───────────────────────────────────────────────── */
-    .hero {
-      position: relative; overflow: hidden;
-      min-height: 100vh;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center;
-      padding: 120px 5vw 80px;
-    }
-    /* cymatic SVG canvas behind hero */
-    .hero-canvas {
-      position: absolute; inset: 0; z-index: 0;
-      opacity: .55;
-    }
-    .hero-canvas svg { width: 100%; height: 100%; }
+.hero{padding:100px 0 88px;text-align:center}
+.hero h1{font-size:clamp(40px,7vw,74px);font-weight:600;line-height:1.05;
+  letter-spacing:-.03em;margin-bottom:20px}
+.hero .sub{font-size:clamp(19px,2.4vw,25px);color:var(--ink-2);letter-spacing:-.01em;
+  max-width:660px;margin:0 auto 34px;line-height:1.4}
+.hero-cta{display:flex;gap:26px;justify-content:center;align-items:center;flex-wrap:wrap}
+.hero-note{margin-top:22px;font-size:13px;color:var(--ink-3)}
 
-    /* radial gradient overlay */
-    .hero::after {
-      content: '';
-      position: absolute; inset: 0; z-index: 1;
-      background: radial-gradient(ellipse 80% 60% at 50% 40%, transparent 30%, var(--bg) 100%);
-      pointer-events: none;
-    }
-    .hero-content { position: relative; z-index: 2; max-width: 860px; }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 5px 14px; border-radius: 50px;
-      border: 1px solid rgba(98,245,200,.3);
-      background: var(--mint-dim);
-      font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
-      color: var(--mint); margin-bottom: 32px;
-    }
-    .hero-badge .pulse {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--mint);
-      animation: pulse 2s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%,100% { opacity: 1; transform: scale(1); }
-      50%      { opacity: .4; transform: scale(.7); }
-    }
-    h1 {
-      font-size: clamp(2.6rem, 6.5vw, 5.2rem);
-      font-weight: 900; line-height: 1.07; letter-spacing: -.035em;
-      margin-bottom: 28px;
-    }
-    h1 .accent { color: var(--mint); }
-    .hero-sub {
-      font-size: clamp(1rem, 2.2vw, 1.22rem);
-      color: var(--sub); line-height: 1.65;
-      max-width: 620px; margin: 0 auto 44px;
-    }
-    .hero-actions {
-      display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
-    }
-    .btn-primary {
-      display: inline-flex; align-items: center; gap: 9px;
-      padding: 14px 32px; border-radius: 50px;
-      background: var(--mint); color: #07090f;
-      font-weight: 700; font-size: .95rem;
-      transition: box-shadow .2s, transform .15s;
-    }
-    .btn-primary:hover {
-      box-shadow: 0 0 36px var(--mint-glow);
-      transform: translateY(-2px);
-    }
-    .btn-secondary {
-      display: inline-flex; align-items: center; gap: 9px;
-      padding: 14px 32px; border-radius: 50px;
-      border: 1px solid var(--border);
-      color: var(--sub); font-weight: 600; font-size: .95rem;
-      transition: border-color .2s, color .2s;
-    }
-    .btn-secondary:hover { border-color: var(--mint); color: var(--white); }
+.stats{background:var(--bg-2);padding:52px 0}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center}
+.stat b{display:block;font-size:clamp(30px,4.4vw,44px);font-weight:600;letter-spacing:-.02em}
+.stat span{font-size:13px;color:var(--ink-2)}
+@media(max-width:760px){.stats-grid{grid-template-columns:repeat(2,1fr);gap:32px}}
 
-    /* hero stats strip */
-    .hero-stats {
-      position: relative; z-index: 2;
-      display: flex; gap: 0; justify-content: center; flex-wrap: wrap;
-      margin-top: 64px;
-    }
-    .stat {
-      padding: 0 40px;
-      border-right: 1px solid var(--border);
-      text-align: center;
-    }
-    .stat:last-child { border-right: none; }
-    .stat-num { font-size: 2rem; font-weight: 900; color: var(--mint); letter-spacing: -.02em; }
-    .stat-label { font-size: .78rem; color: var(--sub); margin-top: 4px; letter-spacing: .04em; text-transform: uppercase; }
+.sec{padding:96px 0}
+.sec.grey{background:var(--bg-2)}
+.sec-head{text-align:center;margin-bottom:56px}
+.sec-head h2{font-size:clamp(30px,4.4vw,46px);font-weight:600;letter-spacing:-.025em;margin-bottom:14px}
+.sec-head p{font-size:19px;color:var(--ink-2);max-width:640px;margin:0 auto;line-height:1.5}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mint);margin-bottom:12px}
 
-    /* ─── section chrome ─────────────────────────────────────── */
-    section { padding: 100px 5vw; }
-    .section-label {
-      font-size: .78rem; font-weight: 700; letter-spacing: .1em;
-      text-transform: uppercase; color: var(--mint);
-      margin-bottom: 14px;
-    }
-    h2 {
-      font-size: clamp(1.8rem, 3.5vw, 2.8rem);
-      font-weight: 800; line-height: 1.15; letter-spacing: -.03em;
-      margin-bottom: 20px;
-    }
-    .section-intro {
-      font-size: 1.05rem; color: var(--sub); line-height: 1.7;
-      max-width: 580px; margin-bottom: 64px;
-    }
+.rack{background:#fff;border:1px solid var(--line-2);border-radius:var(--radius-l);
+  padding:44px;margin-bottom:26px}
+.rack-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;
+  flex-wrap:wrap;margin-bottom:8px}
+.rack h3{font-size:31px;font-weight:600;letter-spacing:-.02em}
+.rack .kind{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:980px;padding:5px 12px;white-space:nowrap}
+.rack .lede{font-size:19px;color:var(--ink-2);margin-bottom:26px;max-width:640px;line-height:1.5}
+.rack h4{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);margin:26px 0 12px}
+.rack p{color:var(--ink-2);margin-bottom:14px;line-height:1.6}
+.rack p strong{color:var(--ink);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:13px;background:var(--bg-2);border:1px solid var(--line-2);
+  border-radius:8px;padding:6px 11px;color:var(--ink)}
+.chip.preset{background:transparent;border-style:dashed;color:var(--ink-2)}
+@media(max-width:760px){.rack{padding:30px 22px}.rack h3{font-size:26px}}
 
-    /* ─── feature cards (top 3) ──────────────────────────────── */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 20px;
-    }
-    .feature-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 32px;
-      transition: border-color .2s, box-shadow .2s;
-    }
-    .feature-card:hover {
-      border-color: rgba(98,245,200,.4);
-      box-shadow: 0 0 32px rgba(98,245,200,.06);
-    }
-    .feature-icon {
-      width: 46px; height: 46px; border-radius: 12px;
-      background: var(--mint-dim);
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 20px;
-      font-size: 1.3rem;
-    }
-    .feature-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; }
-    .feature-card p { font-size: .9rem; color: var(--sub); line-height: 1.65; }
+.rows{display:grid;gap:1px;background:var(--line-2);border:1px solid var(--line-2);
+  border-radius:var(--radius);overflow:hidden}
+.row{background:#fff;padding:28px 30px}
+.row h5{font-size:17px;font-weight:600;margin-bottom:7px}
+.row p{font-size:15px;color:var(--ink-2);line-height:1.6}
+@media(min-width:760px){.rows{grid-template-columns:1fr 1fr}}
 
-    /* ─── plugin grid ────────────────────────────────────────── */
-    .plugins-section { background: var(--bg2); }
-    .filter-bar {
-      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 40px;
-    }
-    .filter-btn {
-      padding: 7px 16px; border-radius: 50px;
-      border: 1px solid var(--border); background: transparent;
-      color: var(--sub); font-size: .82rem; font-weight: 500;
-      cursor: pointer; font-family: var(--sans);
-      transition: all .2s;
-    }
-    .filter-btn.active, .filter-btn:hover {
-      border-color: var(--mint); color: var(--mint);
-      background: var(--mint-dim);
-    }
-    .plugins-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 18px;
-    }
-    .plugin-card {
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 26px;
-      display: flex; flex-direction: column; gap: 14px;
-      transition: border-color .2s, transform .2s, box-shadow .2s;
-      cursor: pointer;
-    }
-    .plugin-card:hover {
-      border-color: rgba(98,245,200,.35);
-      transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(0,0,0,.35), 0 0 0 1px rgba(98,245,200,.08);
-    }
-    .plugin-card[data-hidden="true"] { display: none; }
-    .plugin-header {
-      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-    }
-    .plugin-icon {
-      width: 42px; height: 42px; border-radius: 10px;
-      background: var(--mint-dim);
-      border: 1px solid rgba(98,245,200,.2);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.2rem; flex-shrink: 0;
-    }
-    .plugin-meta { flex: 1; min-width: 0; }
-    .plugin-name {
-      font-size: .975rem; font-weight: 700; line-height: 1.3;
-      margin-bottom: 4px;
-    }
-    .plugin-cat {
-      font-size: .75rem; color: var(--sub); font-weight: 500;
-      letter-spacing: .03em;
-    }
-    .plugin-desc {
-      font-size: .85rem; color: var(--sub); line-height: 1.6;
-      flex: 1;
-    }
-    .plugin-footer {
-      display: flex; align-items: center; justify-content: space-between;
-      padding-top: 14px; border-top: 1px solid var(--border);
-    }
-    .format-tags { display: flex; gap: 6px; flex-wrap: wrap; }
-    .tag {
-      font-family: var(--mono);
-      font-size: .7rem; font-weight: 500;
-      padding: 3px 8px; border-radius: 4px;
-      background: rgba(255,255,255,.05);
-      border: 1px solid var(--border);
-      color: var(--sub);
-    }
-    .tag.mint {
-      background: var(--mint-dim);
-      border-color: rgba(98,245,200,.25);
-      color: var(--mint);
-    }
-    .status-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: rgba(98,245,200,.5);
-    }
+.filter-bar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:36px}
+.filter-btn{font-family:inherit;font-size:14px;cursor:pointer;background:#fff;
+  border:1px solid var(--line);color:var(--ink);border-radius:980px;padding:7px 17px;transition:all .18s}
+.filter-btn:hover{border-color:var(--ink-3)}
+.filter-btn.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:16px}
+.card{display:block;background:#fff;border:1px solid var(--line-2);
+  border-radius:var(--radius);padding:22px;transition:.2s}
+.card:hover{border-color:var(--ink-3);transform:translateY(-2px);text-decoration:none}
+.card .ico{font-size:26px;margin-bottom:12px}
+.card h3{font-size:16px;font-weight:600;margin-bottom:5px;color:var(--ink)}
+.card .cat{font-size:12px;color:var(--mint);margin-bottom:9px;font-weight:500}
+.card .tag{font-size:14px;color:var(--ink-2);line-height:1.5}
+.grid-empty{grid-column:1/-1;text-align:center;padding:56px;color:var(--ink-2)}
 
-    /* ─── key bus feature section ────────────────────────────── */
-    .bus-section {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 80px; align-items: center;
-    }
-    @media (max-width: 860px) { .bus-section { grid-template-columns: 1fr; } }
-    .bus-visual {
-      position: relative;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 36px;
-      overflow: hidden;
-    }
-    .bus-visual::before {
-      content: '';
-      position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
-      width: 200px; height: 200px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(98,245,200,.18) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .bus-node-center {
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 24px;
-    }
-    .bus-center-ring {
-      width: 64px; height: 64px; border-radius: 50%;
-      border: 2px solid var(--mint);
-      box-shadow: 0 0 24px var(--mint-glow), inset 0 0 16px rgba(98,245,200,.15);
-      display: flex; align-items: center; justify-content: center;
-      font-size: .72rem; font-weight: 700; color: var(--mint);
-      letter-spacing: .05em; text-align: center; line-height: 1.2;
-    }
-    .bus-spokes {
-      display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
-    }
-    .bus-spoke {
-      background: rgba(255,255,255,.03);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 10px 12px;
-      font-size: .78rem; color: var(--sub);
-      text-align: center;
-      position: relative;
-    }
-    .bus-spoke::before {
-      content: '';
-      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-      width: 1px; height: 12px; top: -13px;
-      background: linear-gradient(to bottom, transparent, rgba(98,245,200,.4));
-    }
-    .bus-spoke.active { border-color: rgba(98,245,200,.3); color: var(--white); }
-    .bus-line-up {
-      width: 1px; height: 24px; background: linear-gradient(to bottom, rgba(98,245,200,.4), transparent);
-      margin: 0 auto 0;
-    }
-    .bus-copy h2 { margin-bottom: 16px; }
-    .bus-copy p { color: var(--sub); line-height: 1.7; margin-bottom: 20px; font-size: 1rem; }
-    .feature-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-    .feature-list li {
-      display: flex; align-items: flex-start; gap: 12px;
-      font-size: .9rem; color: var(--sub); line-height: 1.5;
-    }
-    .feature-list li::before {
-      content: '→';
-      color: var(--mint); flex-shrink: 0; margin-top: 1px;
-    }
+.callout{background:var(--ink);color:#fff;border-radius:var(--radius-l);
+  padding:64px 48px;text-align:center}
+.callout h2{font-size:clamp(28px,4vw,42px);font-weight:600;letter-spacing:-.025em;margin-bottom:18px}
+.callout p{font-size:19px;color:#b8b8bd;max-width:640px;margin:0 auto 12px;line-height:1.55}
+.callout .mono{font-family:var(--mono);font-size:13px;color:#8e8e93;margin-top:26px}
+@media(max-width:760px){.callout{padding:44px 24px}}
 
-    /* ─── live demos ─────────────────────────────────────────── */
-    .demos {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
-      margin-top: 2.4rem;
-    }
-    @media (max-width: 860px) { .demos { grid-template-columns: 1fr; } }
-    .demo-card {
-      background: linear-gradient(180deg, rgba(20,22,27,.9), rgba(10,11,15,.9));
-      border: 1px solid var(--hairline, #272a31);
-      border-radius: 16px;
-      padding: 18px;
-      opacity: 0; transform: translateY(18px);
-      transition: opacity .5s ease, transform .5s ease, border-color .3s ease, box-shadow .3s ease;
-    }
-    .demo-card.in { opacity: 1; transform: none; }
-    .demo-card:hover {
-      border-color: rgba(98,245,200,.4);
-      box-shadow: 0 12px 40px rgba(0,0,0,.5);
-      transform: translateY(-4px);
-    }
-    .demo-card.amber:hover { border-color: rgba(245,162,75,.5); }
-    .demo-canvas-wrap {
-      position: relative; width: 100%; aspect-ratio: 16 / 10;
-      border-radius: 10px; overflow: hidden; background: #07090f;
-    }
-    .demo-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
-    .demo-badge {
-      position: absolute; top: 10px; left: 10px;
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: .62rem; font-weight: 700; letter-spacing: .09em;
-      text-transform: uppercase; color: rgba(255,255,255,.72);
-      background: rgba(0,0,0,.45); padding: 4px 8px; border-radius: 6px;
-      backdrop-filter: blur(4px);
-    }
-    .demo-badge .live-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--mint, #62f5c8); box-shadow: 0 0 8px var(--mint, #62f5c8);
-      animation: livePulse 1.6s ease-in-out infinite;
-    }
-    .demo-card.amber .demo-badge .live-dot { background: #f5a24b; box-shadow: 0 0 8px #f5a24b; }
-    @keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-    .demo-title { font-weight: 700; font-size: 1rem; margin: 14px 0 4px; }
-    .demo-sub { font-size: .82rem; color: var(--text-muted, #8b93a1); line-height: 1.4; }
-    .demo-note {
-      text-align: center; font-size: .74rem; color: var(--text-faint, #555c69);
-      margin-top: 1.4rem; font-style: italic;
-    }
+details{border-bottom:1px solid var(--line-2);padding:20px 0}
+details summary{font-size:18px;font-weight:500;cursor:pointer;list-style:none;
+  display:flex;justify-content:space-between;align-items:center;gap:16px}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:"+";font-size:24px;color:var(--ink-3);font-weight:300}
+details[open] summary::after{content:"–"}
+details p{margin-top:12px;color:var(--ink-2);line-height:1.65;font-size:16px}
 
-    /* ─── download CTA ───────────────────────────────────────── */
-    .cta-section {
-      text-align: center;
-      background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 50%, var(--bg) 100%);
-      position: relative; overflow: hidden;
-    }
-    .cta-section::before {
-      content: '';
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-      width: 600px; height: 600px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(98,245,200,.07) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .cta-section .section-label { justify-content: center; display: flex; }
-    .cta-section h2 { max-width: 600px; margin: 0 auto 20px; }
-    .cta-section p { color: var(--sub); max-width: 480px; margin: 0 auto 40px; line-height: 1.7; }
-    .cta-section .hero-actions { margin-top: 0; }
-    .platform-note {
-      margin-top: 24px;
-      font-size: .8rem; color: var(--sub);
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-    }
-    .platform-note svg { opacity: .5; }
-
-    /* ─── footer ─────────────────────────────────────────────── */
-    footer {
-      padding: 48px 5vw;
-      border-top: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 24px;
-    }
-    .footer-logo {
-      display: flex; align-items: center; gap: 10px;
-      font-weight: 800; font-size: .95rem;
-    }
-    .footer-logo .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--mint); }
-    .footer-links { display: flex; gap: 28px; flex-wrap: wrap; }
-    .footer-links a { font-size: .85rem; color: var(--sub); transition: color .2s; }
-    .footer-links a:hover { color: var(--white); }
-    .footer-copy { font-size: .8rem; color: var(--sub); }
-
-    /* ─── cymatic ring animation ─────────────────────────────── */
-    @keyframes ringExpand {
-      0%   { r: 0; opacity: .6; }
-      100% { r: 420; opacity: 0; }
-    }
-    .cymatic-ring {
-      animation: ringExpand var(--dur, 6s) ease-out infinite;
-      animation-delay: var(--delay, 0s);
-      fill: none;
-      stroke: rgba(98,245,200,.18);
-      stroke-width: 1;
-    }
-
-    /* ─── scrollbar ──────────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-    /* ─── keyboard focus (a11y) ──────────────────────────────── */
-    a:focus-visible, button:focus-visible {
-      outline: 2px solid var(--mint);
-      outline-offset: 3px;
-      border-radius: 4px;
-    }
-
-    /* ─── plugin grid empty / error state ────────────────────── */
-    .grid-empty {
-      grid-column: 1 / -1;
-      text-align: center;
-      padding: 56px 20px;
-      color: var(--sub);
-      font-size: .95rem;
-    }
-    .grid-empty strong { color: var(--white); font-weight: 600; }
-
-    /* ─── mobile menu ────────────────────────────────────────── */
-    .nav-toggle {
-      display: none;
-      background: transparent; border: 1px solid var(--border);
-      border-radius: 10px; width: 40px; height: 40px;
-      align-items: center; justify-content: center; cursor: pointer;
-      color: var(--white);
-    }
-    .nav-menu {
-      position: fixed; top: 64px; left: 0; right: 0; z-index: 99;
-      background: rgba(7,9,15,.96);
-      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-      display: none; flex-direction: column; padding: 8px 5vw 16px;
-    }
-    .nav-menu.open { display: flex; }
-    .nav-menu a {
-      padding: 14px 4px; font-size: .95rem; font-weight: 500; color: var(--sub);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-menu a:last-child { border-bottom: none; }
-    .nav-menu a:hover, .nav-menu a:active { color: var(--white); }
-
-    /* ─── mobile ─────────────────────────────────────────────── */
-    @media (max-width: 680px) {
-      .nav-links { display: none; }
-      .nav-toggle { display: inline-flex; }
-      .nav .nav-cta { display: none; }          /* the CTA lives in the menu on mobile */
-      .stat { padding: 0 18px 0 0; margin-right: 18px; }
-      .stat-num { font-size: 1.6rem; }
-      footer { flex-direction: column; align-items: flex-start; }
-    }
-
-    /* ─── reduced motion ─────────────────────────────────────── */
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: .001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: .001ms !important;
-        scroll-behavior: auto !important;
-      }
-      .plugin-card, .feature-card { opacity: 1 !important; transform: none !important; }
-    }
-  </style>
+footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
+.foot-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  font-size:12px;color:var(--ink-3)}
+.foot-in a{color:var(--ink-2)}
+</style>
 </head>
 <body>
 
-<!-- ══ NAV ══════════════════════════════════════════════════════ -->
-<nav>
-  <div class="nav-logo">
-    <div class="dot"></div>
-    Sattari Audio
+<nav class="nav">
+  <div class="nav-in">
+    <a class="brand" href="#top">Sattari<span>.</span></a>
+    <div class="nav-links">
+      <a href="#racks">Racks</a>
+      <a href="#bus">Session key</a>
+      <a href="#flagships">Flagships</a>
+      <a href="#plugins">All plugins</a>
+      <a href="#download">Download</a>
+    </div>
   </div>
-  <ul class="nav-links">
-    <li><a href="#plugins">Plugins</a></li>
-    <li><a href="#key-bus">Key Bus</a></li>
-    <li><a href="#download">Download</a></li>
-    <li><a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a></li>
-  </ul>
-  <a href="#download" class="nav-cta">
-    <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Get the Hub
-  </a>
-  <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false" aria-controls="navMenu">
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-  </button>
 </nav>
 
-<!-- mobile dropdown menu -->
-<div class="nav-menu" id="navMenu">
-  <a href="#plugins">Plugins</a>
-  <a href="#key-bus">Key Bus</a>
-  <a href="#download">Download</a>
-  <a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a>
-  <a href="#download" style="color:var(--mint);font-weight:600">↓ Get the Hub</a>
-</div>
-
-<!-- ══ HERO ══════════════════════════════════════════════════════ -->
-<section class="hero" id="home">
-  <!-- animated cymatic rings -->
-  <div class="hero-canvas" aria-hidden="true">
-    <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:0s"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:1.4s"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:2.8s"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:4.2s"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:7s;--delay:5.6s"/>
-      <!-- secondary offset rings -->
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:0s;stroke:rgba(98,245,200,.08)"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:2.75s;stroke:rgba(98,245,200,.08)"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:5.5s;stroke:rgba(98,245,200,.08)"/>
-      <circle cx="600" cy="340" class="cymatic-ring" style="--dur:11s;--delay:8.25s;stroke:rgba(98,245,200,.08)"/>
-      <!-- chladni-style spokes -->
-      <line x1="600" y1="340" x2="600" y2="-60" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="600" y2="740" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="1200" y2="340" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="0" y2="340" stroke="rgba(98,245,200,.06)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="1100" y2="-40" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="100" y2="740" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="1100" y2="740" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
-      <line x1="600" y1="340" x2="100" y2="-40" stroke="rgba(98,245,200,.04)" stroke-width="1"/>
-    </svg>
-  </div>
-
-  <div class="hero-content">
-    <div class="hero-badge">
-      <div class="pulse"></div>
-      Alpha — Mac AU &amp; VST3
-    </div>
-    <h1>
-      The <span class="accent">complete audio</span><br />
-      plugin suite for creators
-    </h1>
-    <p class="hero-sub">
-      One brain runs your session. One plugin finishes your vocal. Everything else follows. Forty-six plugins — vocal, harmony, drums, mixing, stems — all sharing one live musical brain over the Sattari session bus.
+<header class="hero" id="top">
+  <div class="wrap">
+    <h1>Four racks.<br>One session key.</h1>
+    <p class="sub">
+      A Mac plugin suite where the processors are shared, not duplicated —
+      28 modules that load into four racks, and every plugin in the session
+      already knows what key you're in.
     </p>
-    <div class="hero-actions">
-      <a href="#download" class="btn-primary">
-        <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Download Sattari Hub
-      </a>
-      <a href="#plugins" class="btn-secondary">
-        Browse Plugins →
-      </a>
+    <div class="hero-cta">
+      <a class="btn" href="#download">Download the suite</a>
+      <a class="btn-ghost" href="#racks">See how it works&nbsp;›</a>
     </div>
+    <p class="hero-note">macOS · Audio Unit &amp; VST3 · Universal (Apple silicon + Intel)</p>
   </div>
+</header>
 
-  <div class="hero-stats">
-    <div class="stat">
-      <div class="stat-num">46</div>
-      <div class="stat-label">Plugins</div>
-    </div>
-    <div class="stat">
-      <div class="stat-num">AU+VST3</div>
-      <div class="stat-label">Formats</div>
-    </div>
-    <div class="stat">
-      <div class="stat-num">1</div>
-      <div class="stat-label">Session Brain</div>
-    </div>
-    <div class="stat">
-      <div class="stat-num">Mac</div>
-      <div class="stat-label">Platform</div>
-    </div>
+<section class="stats">
+  <div class="wrap stats-grid">
+    <div class="stat"><b>4</b><span>racks</span></div>
+    <div class="stat"><b>28</b><span>shared modules</span></div>
+    <div class="stat"><b>40+</b><span>plugins</span></div>
+    <div class="stat"><b>1</b><span>session key</span></div>
   </div>
 </section>
 
-<!-- ══ INTRODUCTION — what this is, what's here, what's coming ═══ -->
-<section id="start-here">
-  <p class="section-label">Start here</p>
-  <h2>What Sattari Audio is</h2>
-  <p class="section-intro">
-    Sattari Audio is a complete production suite for Mac — <strong>46 plugins</strong> that share one live
-    understanding of your session. Put Sattari Key on your master and it works out what key you're in; from
-    that moment Auto Pitch, Harmony, Maqam, VoxKey, Arp and the rest simply follow. No routing, no MIDI
-    plumbing, no typing the key into six windows. That shared brain is the whole idea — the plugins are
-    useful on their own, and they get better together.
-  </p>
-
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-icon">🎤</div>
-      <h3>Finish a vocal</h3>
-      <p><strong>Auto Pitch</strong> tunes it — transparent or hard-snapped, always in key, with optional
-      neural pitch tracking for breathy takes. Then <strong>De-Ess</strong>, <strong>Double</strong>,
-      <strong>Face</strong> and <strong>Morph</strong> shape the character, and <strong>Glass Choir</strong>
-      turns one take into a section.</p>
+<section class="sec">
+  <div class="wrap narrow">
+    <div class="sec-head">
+      <div class="eyebrow">The idea</div>
+      <h2>One copy of every processor</h2>
+      <p>Most suites ship the same compressor three times over. Ours exists once.</p>
     </div>
-    <div class="feature-card">
-      <div class="feature-icon">🎹</div>
-      <h3>Write and arrange</h3>
-      <p><strong>Key</strong> and <strong>Brain</strong> read the session. <strong>Harmony</strong>,
-      <strong>Maqam</strong>, <strong>Scaler</strong> and <strong>Arp</strong> write parts that are already
-      in key. <strong>VoxKey</strong> and <strong>VoxSynth</strong> turn your voice into MIDI — or into the
-      instrument itself.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🥁</div>
-      <h3>Build the beat</h3>
-      <p><strong>Rhythm Genie</strong> is a full drum instrument — synth kit, tap pads, an editable grid and
-      a live looper. <strong>Chop</strong> slices any loop onto your keyboard. <strong>808</strong> and
-      <strong>Sub Conjurer</strong> handle the low end, <strong>StemDeck</strong> pulls stems out of finished
-      records.</p>
-    </div>
-  </div>
-
-  <h2 style="margin-top:3.5rem">What's coming</h2>
-  <p class="section-intro">
-    Being straight with you about where this is and isn't. The suite is in <strong>alpha</strong>: it is not
-    notarized by Apple yet, so macOS will warn you on first launch, and it hasn't been through a full
-    real-world mixing campaign. Everything here builds, validates against Apple's <code>auval</code>, and is
-    covered by automated tests — but "tested" is not the same as "road-tested," and we'd rather say so.
-  </p>
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-icon">✍️</div>
-      <h3>Chop's editing surface</h3>
-      <p>Chop already slices on transients with a live sensitivity control. Next is the part that makes a
-      sampler worth using: grab a marker, move it, delete it, snap it to the hit — plus per-slice pitch,
-      filter and choke groups.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">📦</div>
-      <h3>Six hosts, not forty-six windows</h3>
-      <p>The plugins are consolidating into six racks — Brain, Vocal, Create, Composer, Mix and StemDeck —
-      so a channel strip is one instance instead of five. Sattari Mix is the first, already hosting five
-      modules. The standalone plugins aren't going anywhere.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🔏</div>
-      <h3>Signed, presets, Windows</h3>
-      <p>Notarization so it installs without warnings. Factory presets across the whole suite rather than a
-      handful. And once the Mac build is settled, a Windows VST3 pass.</p>
-    </div>
+    <p style="font-size:18px;color:var(--ink-2);line-height:1.7;margin-bottom:18px">
+      Every processor is a <strong style="color:var(--ink)">module</strong> — the DSP with the
+      plugin-ness removed. A module loads two ways: as its own plugin, or as a slot in a rack.
+      Both run the identical code, so an improvement lands in both at once and they cannot drift apart.
+    </p>
+    <p style="font-size:18px;color:var(--ink-2);line-height:1.7">
+      It also means your sessions survive. A module keeps the same parameter names whether it runs
+      standalone or inside a rack, so projects saved before the racks existed still open exactly as
+      you left them.
+    </p>
   </div>
 </section>
 
-<!-- ══ LIVE DEMOS ════════════════════════════════════════════════ -->
-<section id="in-action">
-  <p class="section-label">See it in action</p>
-  <h2>What the tools actually do</h2>
-  <p class="section-intro">Interactive previews of three flagships — the real behaviour, running live in your browser.</p>
+<section class="sec grey" id="racks">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The racks</div>
+      <h2>Build the chain, don't buy it</h2>
+      <p>Four hosts. Pick a module per slot, reorder it, bypass it. Nothing is welded shut.</p>
+    </div>
 
-  <div class="demos">
-    <div class="demo-card amber" data-demo="chop">
-      <div class="demo-canvas-wrap">
-        <div class="demo-badge"><span class="live-dot"></span>Live preview</div>
-        <canvas id="demoChop"></canvas>
+    <article class="rack">
+      <div class="rack-top">
+        <h3>Sattari Mix</h3>
+        <span class="kind">8 slots · in series · AU + VST3</span>
       </div>
-      <div class="demo-title">Sattari Chop</div>
-      <div class="demo-sub">Detects the hits, slices between them, plays the slices back — drag Sensitivity, the markers move.</div>
-    </div>
-
-    <div class="demo-card" data-demo="pitch">
-      <div class="demo-canvas-wrap">
-        <div class="demo-badge"><span class="live-dot"></span>Live preview</div>
-        <canvas id="demoPitch"></canvas>
+      <p class="lede">The channel strip you assemble yourself — dynamics, tone and metering, in
+        whatever order the source actually needs.</p>
+      <p>Each of the eight slots holds one module and has its own bypass. Slot 1 feeds slot 2, and so
+        on down the chain — so you can gate before you compress, or compress before you gate, without
+        owning two different plugins.</p>
+      <p><strong>An external sidechain runs through the whole rack.</strong> Route a kick into it and
+        the compressor ducks a bass to it; the gate opens a pad from it. There's no routing toggle to
+        forget — a routed key <em>is</em> the intent.</p>
+      <h4>The 14 modules</h4>
+      <div class="chips">
+        <span class="chip">Clean</span><span class="chip">Comp</span><span class="chip">De-Ess</span>
+        <span class="chip">EQ</span><span class="chip">Gate</span><span class="chip">Heat</span>
+        <span class="chip">Image</span><span class="chip">Multiband</span><span class="chip">Meter</span>
+        <span class="chip">Peak</span><span class="chip">Pulse</span><span class="chip">Transient</span>
+        <span class="chip">Side Chain</span><span class="chip">Align</span>
       </div>
-      <div class="demo-title">Sattari Auto Pitch</div>
-      <div class="demo-sub">A drifting take (grey) snapped to the notes in the key (green) — transparent to hard-tuned.</div>
-    </div>
-
-    <div class="demo-card" data-demo="genie">
-      <div class="demo-canvas-wrap">
-        <div class="demo-badge"><span class="live-dot"></span>Live preview</div>
-        <canvas id="demoGenie"></canvas>
+      <h4>Starting points</h4>
+      <div class="chips">
+        <span class="chip preset">Vocal Chain</span><span class="chip preset">Drum Bus</span>
+        <span class="chip preset">Master Bus</span><span class="chip preset">Clean Up</span>
+        <span class="chip preset">Duck To Kick</span><span class="chip preset">Bus (classic)</span>
+        <span class="chip preset">Royal Chain (classic)</span>
       </div>
-      <div class="demo-title">Sattari Rhythm Genie</div>
-      <div class="demo-sub">An editable 8-lane grid driving the synth kit, with the playhead sweeping the pattern.</div>
-    </div>
-  </div>
+      <p style="margin-top:16px;font-size:15px">
+        The last two were separate plugins. Their only real content was a fixed order of these same
+        processors — so they're presets now, and the order is yours to change.
+      </p>
+    </article>
 
-  <p class="demo-note">These are in-browser representations of how each plugin behaves — not screenshots of the app windows.</p>
-</section>
-
-<!-- ══ 3 FEATURE CARDS ═══════════════════════════════════════════ -->
-<section id="features">
-  <p class="section-label">Why Sattari Audio</p>
-  <h2>Built different. Works together.</h2>
-  <p class="section-intro">Every plugin in the suite shares context — when Sattari Key detects the song key from your master bus, every other plugin knows it instantly.</p>
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-icon">🔗</div>
-      <h3>Cross-Plugin Key Bus</h3>
-      <p>Place Sattari Key on your master. It broadcasts the detected key to every plugin in the session — Auto Pitch, Harmony, Maqam, VoxKey, Arp all follow in realtime. No manual key entry.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🎙</div>
-      <h3>Complete Vocal Stack</h3>
-      <p>From raw to radio-ready in one suite: Royal Chain strip → Vocal Master cleanup → Auto Pitch correction → Harmony Engine diatonic voices. All session-aware.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🧬</div>
-      <h3>AI Stem Separation</h3>
-      <p>StemDeck's ONNX-powered Demucs pipeline and Vocal Master's AI isolation seam let you pull stems apart in your DAW without leaving your session.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ══ SIX PRODUCTS ══════════════════════════════════════════════ -->
-<section id="products">
-  <p class="section-label">The Suite</p>
-  <h2>Six products. One brain.</h2>
-  <p class="section-intro">Stop thinking in plugin counts. Everything is organized into six products — led by <strong>Brain</strong>, which runs the session so the rest just follow.</p>
-  <div class="features-grid" style="margin-top:2rem">
-    <div class="feature-card">
-      <div class="feature-icon">🧠</div>
-      <h3>Brain <span style="font-size:.7rem;color:var(--mint);font-weight:700">FREE</span></h3>
-      <p>Detects and broadcasts your session — key, chord, tempo, sections — so every other plugin follows with no manual entry.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">Key · Bus · Tuner</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🎤</div>
-      <h3>Vocal <span style="font-size:.7rem;color:var(--mint);font-weight:700">FLAGSHIP</span></h3>
-      <p>Everything to finish a vocal — from invisible tuning to stacked choirs to full destruction — in one Brain-aware chain.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">Auto Pitch · Harmony · Maqam · Vocal Master · Royal Chain · VoxKey · Double · Face · De-Ess · Glass Choir</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">✨</div>
-      <h3>Create</h3>
-      <p>Creative FX and sound design: granular, reverb, delay, saturation, lo-fi, risers, subs and a vocoder — all tempo/key aware.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">Warp · Granulator · Space · Echo · Shimmer · Heat · Warble · Pulse · Riser · 808 · Vocoder</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🎹</div>
-      <h3>Composer</h3>
-      <p>MIDI and generative tools that write in your key and lock to your groove — arps, chords, drums, voice-to-MIDI.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">Arp · Rhythm Genie · Scaler · VoxKey</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🎛</div>
-      <h3>Mix</h3>
-      <p>Mix and master utilities: dynamics, EQ, metering, imaging, alignment, de-noise — with a true-peak limiter to finish.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">EQ · Comp · Multiband · Gate · Transient · Meter · Peak · Side Chain · Sub Conjurer · Imager · Align · Clean · Scope</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">🥁</div>
-      <h3>StemDeck</h3>
-      <p>ONNX/Demucs stem separation as a standalone app and plugin — pull a mix apart without leaving your session.</p>
-      <p style="font-size:.78rem;opacity:.6;margin-top:.6rem">Demucs pipeline</p>
-    </div>
-  </div>
-</section>
-
-<!-- ══ PLUGINS GRID (all modules) ════════════════════════════════ -->
-<section class="plugins-section" id="plugins">
-  <p class="section-label">Under the hood</p>
-  <h2>Every module, à la carte.</h2>
-  <p class="section-intro">The six products are built from these modules. Filter to browse — every one installs via the Sattari Hub.</p>
-
-  <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by category">
-    <button class="filter-btn active" data-cat="all" aria-pressed="true">All</button>
-    <button class="filter-btn" data-cat="Vocal" aria-pressed="false">Vocal</button>
-    <button class="filter-btn" data-cat="MIDI" aria-pressed="false">MIDI</button>
-    <button class="filter-btn" data-cat="Mix" aria-pressed="false">Mix</button>
-    <button class="filter-btn" data-cat="Key" aria-pressed="false">Key</button>
-    <button class="filter-btn" data-cat="Stem" aria-pressed="false">Stem</button>
-  </div>
-
-  <div class="plugins-grid" id="pluginsGrid"></div>
-</section>
-
-<!-- ══ KEY BUS DEEP-DIVE ══════════════════════════════════════════ -->
-<section id="key-bus">
-  <div class="bus-section">
-    <div class="bus-visual">
-      <div class="bus-node-center">
-        <div class="bus-center-ring">SATTARI<br/>KEY</div>
+    <article class="rack">
+      <div class="rack-top">
+        <h3>Sattari Create</h3>
+        <span class="kind">8 slots · in series · AU + VST3</span>
       </div>
-      <div class="bus-line-up"></div>
-      <div class="bus-spokes">
-        <div class="bus-spoke active">Auto Pitch</div>
-        <div class="bus-spoke active">Harmony</div>
-        <div class="bus-spoke active">Maqam</div>
-        <div class="bus-spoke active">VoxKey</div>
-        <div class="bus-spoke active">Arp</div>
-        <div class="bus-spoke">+ 9 more</div>
+      <p class="lede">Time, space and damage — reverb, delay, shimmer, tape, risers and vocoding
+        in one rack.</p>
+      <p>The same eight-slot chain as Mix, different cabinet. Reverbs and delays are tempo-locked:
+        they follow the host, and when the host reports no tempo they fall back to the suite's own
+        tempo bus rather than guessing 120.</p>
+      <p><strong>Heat and Pulse appear here and in Mix.</strong> That isn't a duplicate — it's the
+        same module in two rosters. A module is DSP, not a product.</p>
+      <h4>The 10 modules</h4>
+      <div class="chips">
+        <span class="chip">Echo</span><span class="chip">Heat</span><span class="chip">Pulse</span>
+        <span class="chip">Riser</span><span class="chip">Shimmer</span><span class="chip">Space</span>
+        <span class="chip">Warble</span><span class="chip">Warp</span><span class="chip">Vocoder</span>
+        <span class="chip">808</span>
       </div>
-    </div>
-    <div class="bus-copy">
-      <p class="section-label">Cross-Plugin Key Bus</p>
-      <h2>Set the key once. Every plugin follows.</h2>
-      <p>The Sattari cross-plugin session bus is a lock-free shared memory channel that runs across every plugin instance in your session. Sattari Key publishes the detected key every 700 ms — all key-aware plugins subscribe and update immediately.</p>
-      <p>No MIDI routing. No parameter automation. No manual key entry across 10 plugins.</p>
-      <ul class="feature-list">
-        <li>24-key Krumhansl–Schmuckler detection — major <em>and</em> minor</li>
-        <li>Manual override on any plugin without affecting others</li>
-        <li>Works across AU and VST3 in the same session</li>
-        <li>Zero latency: lock-free atomic reads on the audio thread</li>
-      </ul>
+      <h4>Starting points</h4>
+      <div class="chips">
+        <span class="chip preset">Ambient Wash</span><span class="chip preset">Tape Slap</span>
+        <span class="chip preset">EDM Pump</span><span class="chip preset">Robot Vocal</span>
+        <span class="chip preset">Vocoded Pad</span><span class="chip preset">Transition Build</span>
+        <span class="chip preset">808 Sub Layer</span><span class="chip preset">Lo-Fi Grit</span>
+      </div>
+    </article>
+
+    <article class="rack">
+      <div class="rack-top">
+        <h3>Sattari Vocal</h3>
+        <span class="kind">8 slots · in series · AU + VST3</span>
+      </div>
+      <p class="lede">Finish the vocal — de-essing, doubling, formant shaping and full ensemble,
+        in one place.</p>
+      <p>Glass Choir lives here as a module: one Character macro walks a single voice from
+        <em>human</em> through <em>massive</em> to <em>destroyed</em>. Standalone it gives you three
+        separate output stems — lead, choir and atmosphere. In a rack slot those fold together, which
+        is exactly what it already does when a host gives it a single output.</p>
+      <h4>The 4 modules</h4>
+      <div class="chips">
+        <span class="chip">De-Ess</span><span class="chip">Double</span>
+        <span class="chip">Face</span><span class="chip">Glass Choir</span>
+      </div>
+      <h4>Starting points</h4>
+      <div class="chips">
+        <span class="chip preset">Natural Double</span><span class="chip preset">Wide Stack</span>
+        <span class="chip preset">Gender Shift</span><span class="chip preset">De-Ess Only</span>
+        <span class="chip preset">Ensemble</span><span class="chip preset">Vocal Master (classic)</span>
+      </div>
+    </article>
+
+    <article class="rack">
+      <div class="rack-top">
+        <h3>Sattari Stack</h3>
+        <span class="kind">4 layers · in parallel · AU instrument</span>
+      </div>
+      <p class="lede">The instrument rack — and the one that works differently on purpose.</p>
+      <p><strong>Stack layers rather than chains.</strong> Chaining instruments is meaningless: each
+        would write over the last, so only the final slot would be audible. Instead all four layers
+        receive the same MIDI, render at the same time, and sum.</p>
+      <p>That only works musically if each layer has its own placement, so every one carries
+        <strong>level, pan, key range and transpose</strong>. The key range is what turns a stack into
+        a <em>split</em> — drums below C3, sampler above — or an <em>octave layer</em>, rather than
+        four instruments in unison.</p>
+      <p>Latency is the <strong>maximum</strong> of the active layers, not the sum, because they run
+        side by side. Any layer reporting less than the worst is delayed to match — otherwise a fast
+        instrument arrives early against a slow one and the stack flams on every transient.</p>
+      <h4>The 3 instruments</h4>
+      <div class="chips">
+        <span class="chip">Chop — slicing sampler</span>
+        <span class="chip">Rhythm Genie — drum kit + sequencer</span>
+        <span class="chip">Granulator — two-layer granular</span>
+      </div>
+      <h4>Starting points</h4>
+      <div class="chips">
+        <span class="chip preset">Single</span><span class="chip preset">Split at C3</span>
+        <span class="chip preset">Octave Layer</span><span class="chip preset">Kit + Sampler</span>
+        <span class="chip preset">Full Stack</span>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="sec" id="bus">
+  <div class="wrap">
+    <div class="callout">
+      <h2>Every plugin knows the key</h2>
+      <p>Put Sattari Key on the master. It listens to the whole mix, works out the key, and publishes
+        it to every other Sattari plugin in the session.</p>
+      <p>Auto Pitch, Harmony, Maqam, VoxKey, Arp, Scaler, Shimmer and Sub Conjurer all follow it —
+        no MIDI routing, no sends, nothing to type in twice. Change the key once and the session
+        moves with you.</p>
+      <p class="mono">61.3% exact key · 65.5 MIREX · measured on 150 GiantSteps tracks</p>
     </div>
   </div>
 </section>
 
-<!-- ══ DOWNLOAD ═══════════════════════════════════════════════════ -->
-<section class="cta-section" id="download">
-  <p class="section-label">Get Started</p>
-  <h2>Download the Sattari Hub</h2>
-  <p>One app installs the whole suite and keeps it current. The Hub reads a live update feed, detects which plugins you already have, downloads only what's new, and installs everything to the right Library folders — then checks for updates every launch.</p>
-  <div class="hero-actions">
-    <a href="downloads/SattariHub.zip" download class="btn-primary">
-      <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Download Sattari Hub
-    </a>
-    <a href="https://sattarimusic.com" target="_blank" rel="noopener" class="btn-secondary">
-      sattarimusic.com →
-    </a>
+<section class="sec grey" id="flagships">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Standalone by design</div>
+      <h2>The ones that stay their own plugin</h2>
+      <p>Not everything belongs in a slot. These are deep enough that a rack row couldn't hold them —
+        so they didn't get one.</p>
+    </div>
+    <div class="rows">
+      <div class="row"><h5>Auto Pitch</h5>
+        <p>Realtime correction from invisible to hard-tuned, formant-preserving, with a polyphonic
+          mode that tunes whole chords and follows their overtones into key.</p></div>
+      <div class="row"><h5>Sattari Key</h5>
+        <p>The session's authority on key — a neural model plus an HPCP chromagram, publishing to
+          every other plugin.</p></div>
+      <div class="row"><h5>Morph</h5>
+        <p>Voice character and in-key echo. Deep enough to deserve its own window.</p></div>
+      <div class="row"><h5>VoxSynth</h5>
+        <p>Your voice as the instrument. It needs an audio input, which is exactly why it could never
+          be a MIDI layer in Stack.</p></div>
+      <div class="row"><h5>Harmony &amp; Maqam</h5>
+        <p>Diatonic harmony voices and microtonal / maqam correction, both following the session key.</p></div>
+      <div class="row"><h5>VoxKey, Arp &amp; Scaler</h5>
+        <p>Voice-to-MIDI, a key-aware arpeggiator, and key-following chords — MIDI tools rather than
+          audio processors.</p></div>
+    </div>
   </div>
-  <p class="platform-note">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M8 2C4.69 2 2 4.69 2 8s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10.5A4.5 4.5 0 1 1 8 3.5a4.5 4.5 0 0 1 0 9z" fill="currentColor"/>
-    </svg>
-    macOS 13+ · Universal (Apple Silicon &amp; Intel) · installs AU &amp; VST3
-  </p>
-  <p class="platform-note" style="margin-top:10px; font-size:.76rem;">
-    Alpha build — unsigned. First launch: right-click the app → <strong style="color:var(--white)">Open</strong>, then confirm.
-  </p>
 </section>
 
-<!-- ══ FOOTER ════════════════════════════════════════════════════ -->
+<section class="sec" id="plugins">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Everything</div>
+      <h2>All plugins</h2>
+      <p>Open any one for what it does, how it works, and its full feature list.</p>
+    </div>
+    <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by category">
+      <button class="filter-btn active" data-cat="all" aria-pressed="true">All</button>
+      <button class="filter-btn" data-cat="Vocal" aria-pressed="false">Vocal</button>
+      <button class="filter-btn" data-cat="MIDI" aria-pressed="false">MIDI</button>
+      <button class="filter-btn" data-cat="Mix" aria-pressed="false">Mix</button>
+      <button class="filter-btn" data-cat="Key" aria-pressed="false">Key</button>
+      <button class="filter-btn" data-cat="Stem" aria-pressed="false">Stem</button>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+</section>
+
+<section class="sec grey">
+  <div class="wrap narrow">
+    <div class="sec-head"><h2>Details</h2></div>
+    <details>
+      <summary>Will my old sessions still open?</summary>
+      <p>Yes. Every module keeps the parameter names it had as a standalone plugin, so a project saved
+        before the racks existed loads exactly as you left it. The standalone plugins are all still
+        there too — the racks are an addition, not a replacement.</p>
+    </details>
+    <details>
+      <summary>What happened to Bus, Royal Chain and Vocal Master?</summary>
+      <p>They were fixed orders of processors the suite already had. Rather than keep three plugins
+        whose only content was a chain someone else chose, they ship as presets — "Bus (classic)",
+        "Royal Chain (classic)" and "Vocal Master (classic)". Same starting point, and now you can
+        reorder it.</p>
+    </details>
+    <details>
+      <summary>Why is Stack a separate plugin from the other racks?</summary>
+      <p>Because an instrument and an effect are different plugin types to the host, and because
+        instruments have to be layered rather than chained. Both are decisions that can't be reversed
+        later without breaking saved sessions, so Stack was built as its own host from the start.</p>
+    </details>
+    <details>
+      <summary>Do I need Sattari Key for the rest to work?</summary>
+      <p>No. Every key-aware plugin has a manual key control and works fine on its own. Sattari Key
+        just means you set it once, in one place, and everything follows.</p>
+    </details>
+    <details>
+      <summary>What formats and machines?</summary>
+      <p>macOS, as Audio Unit and VST3, built Universal for both Apple silicon and Intel. Most plugins
+        also ship a Standalone app, and every plugin passes Apple's
+        <span style="font-family:var(--mono);font-size:14px">auval</span> validation.</p>
+    </details>
+  </div>
+</section>
+
+<section class="sec" id="download">
+  <div class="wrap narrow" style="text-align:center">
+    <div class="eyebrow">Get it</div>
+    <h2 style="font-size:clamp(30px,4.4vw,46px);font-weight:600;letter-spacing:-.025em;margin-bottom:16px">
+      Download the suite</h2>
+    <p style="font-size:19px;color:var(--ink-2);margin-bottom:32px;line-height:1.5">
+      The Sattari Hub installs everything and keeps it up to date.</p>
+    <a class="btn" href="downloads/SattariHub.zip">Download Sattari Hub</a>
+    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">macOS · Universal · AU + VST3</p>
+  </div>
+</section>
+
 <footer>
-  <div class="footer-logo">
-    <div class="dot"></div>
-    Sattari Audio
+  <div class="wrap foot-in">
+    <div>© <span id="yr"></span> Sattari Audio</div>
+    <div><a href="#racks">Racks</a> · <a href="#plugins">Plugins</a> · <a href="#download">Download</a></div>
   </div>
-  <div class="footer-links">
-    <a href="#plugins">Plugins</a>
-    <a href="#key-bus">Key Bus</a>
-    <a href="#download">Download</a>
-    <a href="https://sattarimusic.com" target="_blank" rel="noopener">sattarimusic.com</a>
-  </div>
-  <div class="footer-copy">© 2025 Sattari Music. All rights reserved.</div>
 </footer>
 
 <script src="plugins-data.js"></script>
 <script>
-  const grid = document.getElementById('pluginsGrid');
-  const plugins = window.SATTARI_PLUGINS || [];
+document.getElementById('yr').textContent = new Date().getFullYear();
 
-  // ── render the plugin grid (with a load-failure fallback) ─────
+(function () {
+  var plugins = window.SATTARI_PLUGINS || [];
+  var grid = document.getElementById('grid');
+
   if (!plugins.length) {
     grid.innerHTML = '<div class="grid-empty"><strong>Couldn’t load the plugin list.</strong><br>Please refresh the page.</div>';
-  } else {
-    plugins.forEach(p => {
-      const tags = p.formats.map(f =>
-        `<span class="tag${(f==='AU'||f==='VST3') ? ' mint' : ''}">${f}</span>`).join('');
-      const a = document.createElement('a');
-      a.className = 'plugin-card';
-      a.href = `plugin.html?id=${p.id}`;
-      a.dataset.cats = p.cats;
-      a.setAttribute('aria-label', `${p.name} — how it works`);
-      a.innerHTML = `
-        <div class="plugin-header">
-          <div class="plugin-icon">${p.icon}</div>
-          <div class="plugin-meta">
-            <div class="plugin-name">${p.name}</div>
-            <div class="plugin-cat">${p.category}</div>
-          </div>
-          <div class="status-dot"></div>
-        </div>
-        <p class="plugin-desc">${p.tagline}</p>
-        <div class="plugin-footer">
-          <div class="format-tags">${tags}</div>
-          <span style="font-size:.8rem;font-weight:600;color:var(--mint)">How it works →</span>
-        </div>`;
-      grid.appendChild(a);
-    });
+    return;
   }
 
-  // empty-state node shown when a filter matches nothing
-  const emptyMsg = document.createElement('div');
-  emptyMsg.className = 'grid-empty';
-  emptyMsg.style.display = 'none';
-  emptyMsg.innerHTML = 'No plugins in this category yet.';
-  grid.appendChild(emptyMsg);
+  var cards = plugins.map(function (p) {
+    var a = document.createElement('a');
+    a.className = 'card';
+    a.href = 'plugin.html?id=' + encodeURIComponent(p.id);
+    a.dataset.cats = p.cats || '';
+    a.innerHTML =
+      '<div class="ico">' + (p.icon || '●') + '</div>' +
+      '<h3>' + p.name + '</h3>' +
+      '<div class="cat">' + (p.category || '') + '</div>' +
+      '<div class="tag">' + (p.tagline || '') + '</div>';
+    grid.appendChild(a);
+    return a;
+  });
 
-  // ── plugin category filter (robust to the entrance animation) ─
-  const filterBar   = document.getElementById('filterBar');
-  const pluginCards = [...document.querySelectorAll('.plugin-card')];
+  var empty = document.createElement('div');
+  empty.className = 'grid-empty';
+  empty.textContent = 'No plugins in this category yet.';
+  empty.style.display = 'none';
+  grid.appendChild(empty);
 
-  function applyFilter(cat) {
-    let shown = 0;
-    pluginCards.forEach(card => {
-      const cats = card.dataset.cats || '';
-      const hide = (cat !== 'all' && !cats.includes(cat));
-      card.dataset.hidden = hide ? 'true' : 'false';
-      if (!hide) shown++;
-    });
-    emptyMsg.style.display = shown ? 'none' : 'block';
-  }
-
-  filterBar.addEventListener('click', e => {
-    const btn = e.target.closest('.filter-btn');
+  document.getElementById('filterBar').addEventListener('click', function (e) {
+    var btn = e.target.closest('.filter-btn');
     if (!btn) return;
-    filterBar.querySelectorAll('.filter-btn').forEach(b => {
-      b.classList.remove('active');
-      b.setAttribute('aria-pressed', 'false');
+    var cat = btn.dataset.cat;
+
+    document.querySelectorAll('.filter-btn').forEach(function (b) {
+      var on = b === btn;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    btn.classList.add('active');
-    btn.setAttribute('aria-pressed', 'true');
-    applyFilter(btn.dataset.cat);
-  });
 
-  // ── mobile menu ───────────────────────────────────────────────
-  const navToggle = document.getElementById('navToggle');
-  const navMenu   = document.getElementById('navMenu');
-  const closeMenu = () => { navMenu.classList.remove('open'); navToggle.setAttribute('aria-expanded','false'); };
-  navToggle.addEventListener('click', () => {
-    const open = navMenu.classList.toggle('open');
-    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-  });
-  navMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMenu));
-
-  // ── smooth scroll offset for fixed nav (closes the mobile menu) ─
-  document.querySelectorAll('a[href^="#"]').forEach(a => {
-    a.addEventListener('click', e => {
-      const target = document.querySelector(a.getAttribute('href'));
-      if (!target) return;
-      e.preventDefault();
-      closeMenu();
-      window.scrollTo({ top: target.getBoundingClientRect().top + scrollY - 72, behavior: 'smooth' });
+    var shown = 0;
+    cards.forEach(function (c) {
+      var show = cat === 'all' || (c.dataset.cats || '').indexOf(cat) !== -1;
+      c.style.display = show ? '' : 'none';
+      if (show) shown++;
     });
+    empty.style.display = shown ? 'none' : '';
   });
-
-  // ── nav shadow on scroll ──────────────────────────────────────
-  const nav = document.querySelector('nav');
-  window.addEventListener('scroll', () => {
-    nav.style.boxShadow = scrollY > 20
-      ? '0 1px 0 rgba(98,245,200,.08), 0 4px 24px rgba(0,0,0,.5)'
-      : 'none';
-  }, { passive: true });
-
-  // ── gentle entrance for the (unfiltered) feature cards only ───
-  // Plugin cards stay visible by default — they're filtered, so animating their
-  // visibility risks stranding a filtered-in card invisible. Keeping them static is
-  // both more reliable and calmer than a 40-card scroll cascade.
-  const featureCards = [...document.querySelectorAll('.feature-card')];
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if ('IntersectionObserver' in window && !reduceMotion) {
-    const reveal = c => { c.style.opacity = '1'; c.style.transform = 'none'; };
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(en => { if (en.isIntersecting) { reveal(en.target); observer.unobserve(en.target); } });
-    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
-    featureCards.forEach((card, i) => {
-      card.style.opacity = '0';
-      card.style.transform = 'translateY(16px)';
-      card.style.transition = `opacity .4s ease ${Math.min(i,5) * 55}ms, transform .4s ease ${Math.min(i,5) * 55}ms`;
-      observer.observe(card);
-    });
-    setTimeout(() => featureCards.forEach(reveal), 1500);   // safety net
-  }
-
-  // ── live plugin demos (canvas) ────────────────────────────────
-  (function () {
-    try {
-      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const MINT = '#62f5c8';
-
-      function setup (canvas) {
-        const wrap = canvas.parentElement;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        let dims = { w: 0, h: 0 };
-        function resize () {
-          dims = { w: wrap.clientWidth, h: wrap.clientHeight };
-          canvas.width = Math.max(1, dims.w * dpr);
-          canvas.height = Math.max(1, dims.h * dpr);
-          canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
-        }
-        resize();
-        window.addEventListener('resize', resize, { passive: true });
-        return { ctx: canvas.getContext('2d'), get w () { return dims.w; }, get h () { return dims.h; } };
-      }
-      function rng (seed) { return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
-      function roundRect (ctx, x, y, w, h, r) {
-        ctx.beginPath(); ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-      }
-      function register (canvas, draw) {
-        draw(1200);                       // always paint one frame, so the demo is never blank
-        if (reduce || !('IntersectionObserver' in window) || !('requestAnimationFrame' in window)) return;
-        let raf = 0, visible = false;
-        function loop (now) { if (!visible) return; draw(now || performance.now()); raf = requestAnimationFrame(loop); }
-        new IntersectionObserver(es => es.forEach(e => {
-          visible = e.isIntersecting;
-          cancelAnimationFrame(raf);
-          if (visible) raf = requestAnimationFrame(loop);
-        }), { threshold: 0.15 }).observe(canvas);
-      }
-
-      // Chop — waveform, slice markers, sweeping playhead
-      const chop = document.getElementById('demoChop');
-      if (chop) {
-        const s = setup(chop), r = rng(7);
-        const peaks = Array.from({ length: 120 }, () => 0.15 + 0.85 * Math.pow(r(), 1.5));
-        const markers = [0, 14, 23, 38, 52, 61, 77, 90, 104];
-        register(chop, t => {
-          const ctx = s.ctx, w = s.w, h = s.h; ctx.clearRect(0, 0, w, h);
-          const mid = h * 0.52, amp = h * 0.34, bw = w / peaks.length, phx = ((t * 0.00013) % 1) * w;
-          for (let i = 0; i < peaks.length; i++) {
-            const x = i * bw, a = peaks[i] * amp;
-            ctx.fillStyle = x < phx ? 'rgba(245,162,75,.85)' : 'rgba(139,147,161,.5)';
-            ctx.fillRect(x, mid - a, Math.max(1, bw - 1), a * 2);
-          }
-          markers.forEach(mi => { const x = mi * bw; ctx.strokeStyle = 'rgba(245,162,75,.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, 4); ctx.lineTo(x, h - 4); ctx.stroke(); });
-          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(phx, 0); ctx.lineTo(phx, h); ctx.stroke();
-        });
-      }
-
-      // Auto Pitch — drifting take snapped to the key
-      const pitch = document.getElementById('demoPitch');
-      if (pitch) {
-        const s = setup(pitch), lines = 7;
-        const curve = (p, t) => 0.5 + 0.3 * Math.sin(p * 7 + t * 0.0011) + 0.06 * Math.sin(p * 23 + t * 0.002);
-        register(pitch, t => {
-          const ctx = s.ctx, w = s.w, h = s.h; ctx.clearRect(0, 0, w, h);
-          const top = h * 0.12, span = h * 0.76, snap = v => { const i = Math.round(v * (lines - 1)); return top + i * (span / (lines - 1)); };
-          for (let i = 0; i < lines; i++) { const y = top + i * (span / (lines - 1)); ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-          ctx.beginPath(); ctx.strokeStyle = 'rgba(139,147,161,.7)'; ctx.lineWidth = 1.5;
-          for (let x = 0; x <= w; x += 4) { const b = Math.min(1, Math.max(0, curve(x / w, t))); const y = top + (1 - b) * span; x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); } ctx.stroke();
-          ctx.beginPath(); ctx.strokeStyle = MINT; ctx.lineWidth = 2;
-          for (let x = 0; x <= w; x += 4) { const b = Math.min(1, Math.max(0, curve(x / w, t))); const y = snap(1 - b); x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); } ctx.stroke();
-          const p = (t * 0.00016) % 1, x = p * w, y = snap(1 - Math.min(1, Math.max(0, curve(p, t))));
-          ctx.globalAlpha = .3; ctx.fillStyle = MINT; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
-          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
-        });
-      }
-
-      // Rhythm Genie — 8-lane grid with a sweeping playhead
-      const genie = document.getElementById('demoGenie');
-      if (genie) {
-        const s = setup(genie), rows = 8, cols = 16, r = rng(19);
-        const grid = Array.from({ length: rows }, (_, y) => Array.from({ length: cols }, (_, x) =>
-          y === 0 ? x % 4 === 0 : y === 1 ? (x === 4 || x === 12) : y === 2 ? x % 2 === 0 : r() < 0.12));
-        const colors = [MINT, '#7dd3fc', '#34d8b4', '#8ce0d0', '#f5c862', '#f57d9c', '#c89cf5', '#9cf5c8'];
-        register(genie, t => {
-          const ctx = s.ctx, w = s.w, h = s.h; ctx.clearRect(0, 0, w, h);
-          const gx = 6, gy = 6, gw = w - 12, gh = h - 12, cw = gw / cols, ch = gh / rows, pc = Math.floor((t * 0.002) % cols);
-          ctx.fillStyle = 'rgba(98,245,200,.10)'; ctx.fillRect(gx + pc * cw, gy, cw, gh);
-          for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-            const cx = gx + x * cw + 1, cy = gy + y * ch + 1, cwi = cw - 2, chi = ch - 2;
-            ctx.fillStyle = x % 4 === 0 ? 'rgba(255,255,255,.06)' : 'rgba(255,255,255,.03)'; roundRect(ctx, cx, cy, cwi, chi, 2); ctx.fill();
-            if (grid[y][x]) { const on = x === pc; ctx.fillStyle = on ? '#fff' : colors[y % colors.length]; ctx.globalAlpha = on ? 1 : .85; roundRect(ctx, cx, cy, cwi, chi, 2); ctx.fill(); ctx.globalAlpha = 1; }
-          }
-        });
-      }
-
-      // reveal the demo cards on scroll
-      const cards = [...document.querySelectorAll('.demo-card')];
-      if ('IntersectionObserver' in window && !reduce) {
-        const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: 0.1 });
-        cards.forEach((c, i) => { c.style.transitionDelay = (i * 90) + 'ms'; io.observe(c); });
-        setTimeout(() => cards.forEach(c => c.classList.add('in')), 1500);
-      } else cards.forEach(c => c.classList.add('in'));
-    } catch (e) {
-      document.querySelectorAll('.demo-card').forEach(c => c.classList.add('in'));
-    }
-  })();
+})();
 </script>
-
 </body>
 </html>

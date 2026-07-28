@@ -1,70 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sattari Audio — Plugin</title>
-  <meta name="description" content="How it works and what it does — a Sattari Audio plugin." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <style>
-    :root{
-      --bg:#07090f; --bg2:#0d111c; --bg3:#131928; --border:#1c2438;
-      --mint:#62f5c8; --mint-dim:rgba(98,245,200,.12); --mint-glow:rgba(98,245,200,.35);
-      --white:#edf2ff; --sub:#7a8baa; --mono:'JetBrains Mono',monospace; --sans:'Inter',system-ui,sans-serif;
-    }
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html{scroll-behavior:smooth}
-    body{font-family:var(--sans);background:var(--bg);color:var(--white);-webkit-font-smoothing:antialiased;overflow-x:hidden}
-    a{color:inherit;text-decoration:none}
-    nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
-      padding:0 5vw;height:64px;background:rgba(7,9,15,.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
-    .nav-logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.05rem;letter-spacing:-.01em}
-    .nav-logo .dot{width:26px;height:26px;border-radius:50%;background:var(--mint);box-shadow:0 0 14px var(--mint-glow)}
-    .nav-cta{display:inline-flex;align-items:center;gap:8px;padding:9px 20px;border-radius:50px;background:var(--mint);color:#07090f;font-size:.85rem;font-weight:700;transition:box-shadow .2s,transform .15s}
-    .nav-cta:hover{box-shadow:0 0 22px var(--mint-glow);transform:translateY(-1px)}
-    .wrap{max-width:920px;margin:0 auto;padding:120px 5vw 100px}
-    .back{display:inline-flex;align-items:center;gap:8px;color:var(--sub);font-size:.85rem;font-weight:500;margin-bottom:36px;transition:color .2s}
-    .back:hover{color:var(--mint)}
-    .head{display:flex;align-items:flex-start;gap:22px;margin-bottom:14px}
-    .icon{width:70px;height:70px;border-radius:16px;background:var(--mint-dim);border:1px solid rgba(98,245,200,.25);
-      display:flex;align-items:center;justify-content:center;font-size:2rem;flex-shrink:0}
-    .cat{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--mint);margin-bottom:8px}
-    h1{font-size:clamp(2rem,5vw,3rem);font-weight:900;line-height:1.05;letter-spacing:-.03em}
-    .tagline{font-size:1.15rem;color:var(--sub);line-height:1.6;margin:26px 0 30px;max-width:640px}
-    .tags{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:52px}
-    .tag{font-family:var(--mono);font-size:.72rem;font-weight:500;padding:4px 10px;border-radius:5px;background:var(--mint-dim);border:1px solid rgba(98,245,200,.25);color:var(--mint)}
-    .section{margin-bottom:44px}
-    .label{font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mint);margin-bottom:14px}
-    .section p{font-size:1.08rem;line-height:1.8;color:#c4cde0}
-    .feature-list{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}
-    @media(max-width:640px){.feature-list{grid-template-columns:1fr}}
-    .feature-list li{display:flex;align-items:flex-start;gap:12px;font-size:.96rem;color:#c4cde0;line-height:1.5}
-    .feature-list li::before{content:'→';color:var(--mint);flex-shrink:0;margin-top:1px;font-weight:700}
-    .card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:30px 32px}
-    .cta{margin-top:56px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
-    .btn-primary{display:inline-flex;align-items:center;gap:9px;padding:13px 28px;border-radius:50px;background:var(--mint);color:#07090f;font-weight:700;font-size:.92rem;transition:box-shadow .2s,transform .15s}
-    .btn-primary:hover{box-shadow:0 0 30px var(--mint-glow);transform:translateY(-2px)}
-    .btn-ghost{display:inline-flex;align-items:center;gap:9px;padding:13px 28px;border-radius:50px;border:1px solid var(--border);color:var(--sub);font-weight:600;font-size:.92rem;transition:border-color .2s,color .2s}
-    .btn-ghost:hover{border-color:var(--mint);color:var(--white)}
-    .more{margin-top:70px;border-top:1px solid var(--border);padding-top:34px}
-    .more-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:18px}
-    .more-card{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-size:.86rem;font-weight:600;transition:border-color .2s,transform .2s}
-    .more-card:hover{border-color:rgba(98,245,200,.4);transform:translateY(-2px)}
-    .more-card .mi{font-size:1.1rem}
-    footer{padding:40px 5vw;border-top:1px solid var(--border);text-align:center;color:var(--sub);font-size:.82rem}
-    a:focus-visible,button:focus-visible{outline:2px solid var(--mint);outline-offset:3px;border-radius:4px}
-    @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.001ms!important;scroll-behavior:auto!important}}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sattari Audio — Plugin</title>
+<meta name="description" content="How it works and what it does — a Sattari Audio plugin." />
+<style>
+/* Light theme, shared vocabulary with index.html. System font stack so it
+   renders as SF Pro on macOS/iOS. */
+:root{
+  --ink:#1d1d1f; --ink-2:#6e6e73; --ink-3:#86868b;
+  --bg:#ffffff; --bg-2:#f5f5f7; --line:#d2d2d7; --line-2:#e8e8ed;
+  --accent:#0071e3; --accent-h:#0077ed; --mint:#00a37a;
+  --radius:18px;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.47;
+  letter-spacing:-.01em;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.72);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--line-2)}
+.nav-in{max-width:860px;margin:0 auto;padding:0 22px;height:48px;
+  display:flex;align-items:center;justify-content:space-between}
+.brand{font-size:19px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.brand:hover{text-decoration:none}
+.brand span{color:var(--mint)}
+.nav-in .cta{font-size:12px;color:var(--accent)}
+
+.wrap{max-width:860px;margin:0 auto;padding:56px 22px 96px}
+.back{display:inline-block;font-size:14px;color:var(--ink-2);margin-bottom:34px}
+.back:hover{color:var(--ink);text-decoration:none}
+
+.head{display:flex;align-items:flex-start;gap:20px;margin-bottom:18px}
+.icon{width:66px;height:66px;border-radius:16px;background:var(--bg-2);
+  border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;
+  font-size:30px;flex-shrink:0}
+.cat{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mint);margin-bottom:8px}
+h1{font-size:clamp(32px,5.5vw,48px);font-weight:600;line-height:1.06;letter-spacing:-.03em}
+.tagline{font-size:21px;color:var(--ink-2);line-height:1.5;margin:22px 0 24px;max-width:640px}
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:52px}
+.tag{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:980px;
+  background:var(--bg-2);border:1px solid var(--line-2);color:var(--ink-2)}
+
+.section{margin-bottom:42px}
+.label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-3);margin-bottom:14px}
+.card{background:var(--bg-2);border:1px solid var(--line-2);border-radius:var(--radius);
+  padding:30px 32px}
+.card p{font-size:17px;line-height:1.72;color:var(--ink-2)}
+.feature-list{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:13px 28px}
+@media(max-width:640px){.feature-list{grid-template-columns:1fr}}
+.feature-list li{display:flex;align-items:flex-start;gap:11px;font-size:15px;
+  color:var(--ink-2);line-height:1.55}
+.feature-list li::before{content:'';flex-shrink:0;width:5px;height:5px;border-radius:50%;
+  background:var(--mint);margin-top:9px}
+
+.cta-row{margin-top:52px;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:12px 24px;
+  border-radius:980px;font-size:17px;transition:background .2s}
+.btn:hover{background:var(--accent-h);text-decoration:none}
+.btn-ghost{font-size:17px;color:var(--accent)}
+
+.more{margin-top:72px;border-top:1px solid var(--line-2);padding-top:34px}
+.more-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+  gap:10px;margin-top:18px}
+.more-card{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fff;
+  border:1px solid var(--line-2);border-radius:12px;font-size:14px;color:var(--ink);
+  transition:.2s}
+.more-card:hover{border-color:var(--ink-3);transform:translateY(-2px);text-decoration:none}
+.more-card .mi{font-size:17px}
+
+footer{border-top:1px solid var(--line-2);padding:40px 22px;text-align:center;
+  color:var(--ink-3);font-size:12px;background:var(--bg-2)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.001ms!important;scroll-behavior:auto!important}}
+</style>
 </head>
 <body>
-<nav>
-  <a href="index.html" class="nav-logo"><span class="dot"></span> Sattari Audio</a>
-  <a href="index.html#download" class="nav-cta">
-    <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Get the Hub
-  </a>
+
+<nav class="nav">
+  <div class="nav-in">
+    <a class="brand" href="index.html">Sattari<span>.</span></a>
+    <a class="cta" href="index.html#download">Download&nbsp;›</a>
+  </div>
 </nav>
 
 <main class="wrap" id="main">
@@ -72,65 +97,60 @@
   <div id="content"></div>
 </main>
 
-<footer>© 2025 Sattari Music. All rights reserved.</footer>
+<footer>© <span id="yr"></span> Sattari Audio</footer>
 
 <script src="plugins-data.js"></script>
 <script>
-  const params = new URLSearchParams(location.search);
-  const id = params.get('id');
-  const all = window.SATTARI_PLUGINS || [];
-  const p = all.find(x => x.id === id);
-  const el = document.getElementById('content');
+document.getElementById('yr').textContent = new Date().getFullYear();
+
+(function () {
+  var id  = new URLSearchParams(location.search).get('id');
+  var all = window.SATTARI_PLUGINS || [];
+  var p   = all.filter(function (x) { return x.id === id; })[0];
+  var el  = document.getElementById('content');
 
   if (!p) {
-    el.innerHTML = '<h1>Plugin not found</h1><p class="tagline">Head back to the <a style="color:var(--mint)" href="index.html#plugins">plugin list</a>.</p>';
-  } else {
-    document.title = p.name + ' — Sattari Audio';
-    const tags = p.formats.map(f => `<span class="tag">${f}</span>`).join('');
-    const feats = p.features.map(f => `<li>${f}</li>`).join('');
-    const others = all.filter(x => x.id !== p.id)
-      .map(x => `<a class="more-card" href="plugin.html?id=${x.id}"><span class="mi">${x.icon}</span>${x.name.replace('Sattari ','')}</a>`).join('');
-
-    el.innerHTML = `
-      <div class="head">
-        <div class="icon">${p.icon}</div>
-        <div>
-          <div class="cat">${p.category}</div>
-          <h1>${p.name}</h1>
-        </div>
-      </div>
-      <p class="tagline">${p.tagline}</p>
-      <div class="tags">${tags}</div>
-
-      <div class="section">
-        <div class="label">What it does</div>
-        <div class="card"><p>${p.what}</p></div>
-      </div>
-
-      <div class="section">
-        <div class="label">How it works</div>
-        <div class="card"><p>${p.how}</p></div>
-      </div>
-
-      <div class="section">
-        <div class="label">Key features</div>
-        <ul class="feature-list">${feats}</ul>
-      </div>
-
-      <div class="cta">
-        <a class="btn-primary" href="index.html#download">
-          <svg width="16" height="16" fill="none" viewBox="0 0 16 16"><path d="M8 1v9M3 10l5 5 5-5" stroke="#07090f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Download via the Hub
-        </a>
-        <a class="btn-ghost" href="index.html#plugins">Browse all plugins →</a>
-      </div>
-
-      <div class="more">
-        <div class="label">More in the suite</div>
-        <div class="more-grid">${others}</div>
-      </div>
-    `;
+    el.innerHTML = '<h1>Plugin not found</h1>' +
+      '<p class="tagline">Head back to the <a href="index.html#plugins">plugin list</a>.</p>';
+    return;
   }
+
+  document.title = p.name + ' — Sattari Audio';
+
+  var tags  = (p.formats  || []).map(function (f) { return '<span class="tag">' + f + '</span>'; }).join('');
+  var feats = (p.features || []).map(function (f) { return '<li>' + f + '</li>'; }).join('');
+  var others = all.filter(function (x) { return x.id !== p.id; })
+    .map(function (x) {
+      return '<a class="more-card" href="plugin.html?id=' + encodeURIComponent(x.id) + '">' +
+             '<span class="mi">' + (x.icon || '●') + '</span>' +
+             x.name.replace('Sattari ', '') + '</a>';
+    }).join('');
+
+  el.innerHTML =
+    '<div class="head">' +
+      '<div class="icon">' + (p.icon || '●') + '</div>' +
+      '<div><div class="cat">' + (p.category || '') + '</div><h1>' + p.name + '</h1></div>' +
+    '</div>' +
+    '<p class="tagline">' + (p.tagline || '') + '</p>' +
+    '<div class="tags">' + tags + '</div>' +
+
+    '<div class="section"><div class="label">What it does</div>' +
+      '<div class="card"><p>' + (p.what || '') + '</p></div></div>' +
+
+    '<div class="section"><div class="label">How it works</div>' +
+      '<div class="card"><p>' + (p.how || '') + '</p></div></div>' +
+
+    (feats ? '<div class="section"><div class="label">Key features</div>' +
+      '<ul class="feature-list">' + feats + '</ul></div>' : '') +
+
+    '<div class="cta-row">' +
+      '<a class="btn" href="index.html#download">Download via the Hub</a>' +
+      '<a class="btn-ghost" href="index.html#plugins">Browse all plugins&nbsp;›</a>' +
+    '</div>' +
+
+    '<div class="more"><div class="label">More in the suite</div>' +
+      '<div class="more-grid">' + others + '</div></div>';
+})();
 </script>
 </body>
 </html>
