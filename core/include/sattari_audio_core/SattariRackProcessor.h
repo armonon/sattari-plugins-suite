@@ -154,7 +154,15 @@ public:
         if (getBusCount (true) > 1)
             if (auto* scBus = getBus (true, 1); scBus != nullptr && scBus->isEnabled())
             {
-                scView = getBusBuffer (buffer, true, 1);
+                // setDataToReferTo, NOT assignment: AudioBuffer::operator= calls
+                // setSize(..., avoidReallocating=false), so it REALLOCATES AND COPIES
+                // on every block — an allocation on the audio thread. This re-points
+                // at the host's channels and owns nothing.
+                {
+                    auto sc = getBusBuffer (buffer, true, 1);
+                    scView.setDataToReferTo (sc.getArrayOfWritePointers(),
+                                            sc.getNumChannels(), sc.getNumSamples());
+                }
                 if (scView.getNumChannels() > 0 && scView.getNumSamples() > 0)
                     sidechain = &scView;
             }

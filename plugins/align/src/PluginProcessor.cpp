@@ -83,7 +83,15 @@ void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (getBusCount (true) > 1)
         if (auto* sc = getBus (true, 1); sc != nullptr && sc->isEnabled())
         {
-            guideView = getBusBuffer (buffer, true, 1);
+                // setDataToReferTo, NOT assignment: AudioBuffer::operator= calls
+                // setSize(..., avoidReallocating=false), so it REALLOCATES AND COPIES
+                // on every block — an allocation on the audio thread. This re-points
+                // at the host's channels and owns nothing.
+            {
+                auto g = getBusBuffer (buffer, true, 1);
+                guideView.setDataToReferTo (g.getArrayOfWritePointers(),
+                                            g.getNumChannels(), g.getNumSamples());
+            }
             if (guideView.getNumChannels() > 0 && guideView.getNumSamples() > 0)
                 guide = &guideView;
         }

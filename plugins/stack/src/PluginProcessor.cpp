@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 
 #include <sattari_audio_core/modules/ChopModule.h>
+#include <sattari_audio_core/modules/GranulatorModule.h>
 #include <sattari_audio_core/modules/RhythmGenieModule.h>
 
 // Stack's roster — the suite's INSTRUMENTS (aumu), never its effects.
@@ -17,6 +18,7 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeStackModule
     std::vector<std::unique_ptr<sattari::dsp::SattariModule>> v;
     v.push_back (std::make_unique<sattari::dsp::ChopModule>());          // 1
     v.push_back (std::make_unique<sattari::dsp::RhythmGenieModule>());   // 2
+    v.push_back (std::make_unique<sattari::dsp::GranulatorModule>());    // 3
     return v;
 }
 
@@ -57,6 +59,13 @@ void SattariStackAudioProcessor::registerFactoryPresets()
     addStackPreset ("Kit + Sampler",
         { { "rhythmgenie", -6.0f, 0.0f,  0,  47, 0 },
           { "chop",        -8.0f, 0.0f, 48, 127, 0 } });
+
+    // Three instruments at once, which is what four layers are for: drums low, a
+    // sampler in the middle, granular texture on top an octave up and panned wide.
+    addStackPreset ("Full Stack",
+        { { "rhythmgenie", -7.0f,  0.0f,  0,  47,  0 },
+          { "chop",        -9.0f, -0.2f, 48,  83,  0 },
+          { "granulator", -10.0f,  0.3f, 60, 127, 12 } });
 }
 
 juce::AudioProcessorEditor* SattariStackAudioProcessor::createEditor()

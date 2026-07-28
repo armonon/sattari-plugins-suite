@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include <sattari_audio_core/modules/GranulatorModule.h>
 #include <sattari_audio_core/SattariGranularEngine.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>   // ScaleId, snapMidiToScale
@@ -58,8 +59,8 @@ public:
     ~SattariGranulatorAudioProcessor() override;
 
     // Layer identity used across the processor + editor interface.
-    enum class Layer { A = 0, B = 1 };
-    static constexpr int kNumLayers = 2;
+    using Layer = sattari::dsp::GranulatorModule::Layer;
+    static constexpr int kNumLayers = sattari::dsp::GranulatorModule::kNumLayers;
 
     // --- AudioProcessor -------------------------------------------------------
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -107,7 +108,7 @@ public:
 
     // Prefix ("A_"/"B_") for a per-layer APVTS id on a given layer. The editor
     // uses this to (re)bind its per-layer widgets when the selected layer flips.
-    static const char* layerPrefix (Layer layer) noexcept { return layer == Layer::B ? "B_" : "A_"; }
+    static const char* layerPrefix (Layer layer) noexcept { return sattari::dsp::GranulatorModule::layerPrefix (layer); }
 
     // Build a full per-layer APVTS id: layerParamId(Layer::B, "grainSize") -> "B_grainSize".
     // Returns a juce::String so callers can hand it straight to an attachment.
@@ -149,7 +150,7 @@ public:
     // a fresh SourceSample once `captureSecs` of audio have accumulated (or on
     // disarm). Momentary: `armCapture` mirrors the captureArm param.
     void armCapture (bool arm) noexcept;
-    bool isCapturing() const noexcept { return capture.armed.load (std::memory_order_relaxed); }
+    bool isCapturing() const noexcept { return module.captureArmed(); }
     // 0..1 progress of the in-flight capture (for a UI meter); 0 when idle.
     float captureProgress() const noexcept;
     // Drain any completed capture on the message thread (call from the editor
@@ -169,33 +170,29 @@ public:
     // each layer's frame; the editor draws the selected layer's sparks.
     sattari::dsp::SattariGranularEngine::GrainVizFrame vizFrame (Layer layer) const noexcept
     {
-        return viz[(size_t) layer].load();
+        return module.vizFor (layer).load();
     }
 
     // --- KEY story (drives the shared header KeyButton) -----------------------
-    bool isFollowingBusKey() const noexcept { return followingBus.load (std::memory_order_relaxed); }
-    int  effectiveKeyRoot() const noexcept  { return effKeyRoot.load (std::memory_order_relaxed); }
-    int  effectiveKeyScale() const noexcept { return effKeyScale.load (std::memory_order_relaxed); }
+    bool isFollowingBusKey() const noexcept { return module.isFollowingBusKey(); }
+    int  effectiveKeyRoot() const noexcept  { return module.effectiveRoot(); }
+    int  effectiveKeyScale() const noexcept { return module.effectiveScale(); }
 
     // Menu choice lists (shared by the layout + the KeyButton config).
-    static juce::StringArray keyRootChoices();
-    static juce::StringArray keyScaleChoices();   // maps to ScaleId via scaleIdFromChoice
-    static juce::StringArray divisionChoices();    // File-Position / LFO tempo grid
+    static juce::StringArray keyRootChoices()  { return sattari::dsp::GranulatorModule::keyRootChoices(); }
+    static juce::StringArray keyScaleChoices() { return sattari::dsp::GranulatorModule::keyScaleChoices(); }   // maps to ScaleId via scaleIdFromChoice
+    static juce::StringArray divisionChoices() { return sattari::dsp::GranulatorModule::divisionChoices(); }    // File-Position / LFO tempo grid
 
     // Map a UI scale-choice index -> ScaleId (Major/Minor/Penta.../HarmMinor).
-    static sattari::dsp::ScaleId scaleIdFromChoice (int choice) noexcept;
+    static sattari::dsp::ScaleId scaleIdFromChoice (int c) noexcept { return sattari::dsp::GranulatorModule::scaleIdFromChoice (c); }
     // Map the cross-plugin bus scale code (0=major,1=minor,2=chromatic) -> ScaleId.
-    static sattari::dsp::ScaleId scaleIdFromBus (int busScale) noexcept;
+    static sattari::dsp::ScaleId scaleIdFromBus (int b) noexcept { return sattari::dsp::GranulatorModule::scaleIdFromBus (b); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void registerFactoryPresets();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
-    // Raw value of a per-layer param on a specific layer (A_/B_ prefixed).
     float layerParam (Layer layer, const char* baseId) const noexcept;
-
-    // Assemble a layer's EngineParams from its per-layer + the shared globals.
-    sattari::dsp::SattariGranularEngine::EngineParams gatherParams (Layer layer) const noexcept;
 
     // Build the immutable dsp-facing source the engine consumes from an
     // editor-facing source (identical fields, different namespace).
@@ -203,8 +200,8 @@ private:
         toDspSource (const std::shared_ptr<const sattari::granulator::SourceSample>& s);
 
     // Publish a freshly-built editor-facing source into a layer: pushes the old
-    // one onto that layer's undo stack, atomic-stores the new pair, and hands the
-    // dsp view to that layer's engine. Message thread only.
+    // one onto that layer's undo stack, keeps the editor copy, and hands the dsp
+    // view to the module. Message thread only.
     void publishSource (Layer layer,
                         std::shared_ptr<const sattari::granulator::SourceSample> next,
                         bool pushUndo);
@@ -218,141 +215,51 @@ private:
         makeTrimmed (const sattari::granulator::SourceSample& src, float start01, float end01);
     static std::shared_ptr<const sattari::granulator::SourceSample>
         makeMonoFold (const sattari::granulator::SourceSample& src);
-    // Downmix/pick channels per the srcMono choice (0 Stereo,1 Mono,2 Left,3 Right).
     static std::shared_ptr<const sattari::granulator::SourceSample>
         applyChannelMode (const std::shared_ptr<const sattari::granulator::SourceSample>& src, int mode);
 
-    // Build a SourceSample from a raw interleaved-by-channel capture (msg thread).
     std::shared_ptr<const sattari::granulator::SourceSample>
         buildCaptureSource (const std::vector<float>& mono, int lengthSamples, double captureSr) const;
 
-    // tanh soft-ceiling limiter applied to the blended two-layer mix.
-    static float softCeiling (float x) noexcept;
-
     // =========================================================================
-    //  Per-layer state (source slots, engines, undo, viz) — indexed by Layer.
+    //  MESSAGE-THREAD per-layer state. The engine and the dsp-facing source live
+    //  in the module; what stays here is everything the audio thread never
+    //  touches — the editor's copy, undo history, and file bookkeeping.
     // =========================================================================
-    struct LayerState
+    struct LayerMsg
     {
-        sattari::dsp::SattariGranularEngine engine;
-
-        // Double-buffered immutable source. `msg` is the editor-facing copy;
-        // `dsp` is the field-for-field dsp mirror handed to the engine. Both
-        // swapped together via std::atomic_store (C++17 free functions).
         std::shared_ptr<const sattari::granulator::SourceSample> sourceMsg;
-        std::shared_ptr<const sattari::dsp::SourceSample>        sourceDsp;
-
-        // Bounded undo stack of prior editor-facing sources (message thread only).
         std::vector<std::shared_ptr<const sattari::granulator::SourceSample>> undoStack;
-
-        // Loaded-file bookkeeping for preset recall (path + content hash).
         juce::String sourcePath;
         juce::String sourceHash;
     };
     static constexpr int kMaxUndo = 8;
 
-    LayerState& L (Layer layer) noexcept { return layers[(size_t) layer]; }
-    const LayerState& L (Layer layer) const noexcept { return layers[(size_t) layer]; }
+    LayerMsg& L (Layer layer) noexcept { return layerMsg[(size_t) layer]; }
+    const LayerMsg& L (Layer layer) const noexcept { return layerMsg[(size_t) layer]; }
 
-    // =========================================================================
-    //  Live-capture ring (audio-thread writer / message-thread drainer).
-    // =========================================================================
-    struct CaptureRing
-    {
-        // Preallocated in prepareToPlay to the max capture length (8 s * sr).
-        std::vector<float> data;                 // mono ring storage
-        int   capacity = 0;                      // == data.size()
-        std::atomic<int>  writePos { 0 };        // audio-thread write cursor
-        std::atomic<int>  filled   { 0 };        // samples written since arm (<= target)
-        std::atomic<int>  target   { 0 };        // samples to capture before "done"
-        std::atomic<bool> armed    { false };    // audio thread writes while true
-        std::atomic<bool> done     { false };    // set by audio thread at target
-        std::atomic<int>  targetLayer { 0 };     // Layer to publish into (latched at arm)
-        double captureSr = 48000.0;              // sr the ring is recorded at
-    } capture;
-
-    // =========================================================================
-    //  State
-    // =========================================================================
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "granulator" };   // after apvts
     int currentProgram = 0;
     double sampleRate = 44100.0;
 
-    std::array<LayerState, kNumLayers> layers;
+    // Thin wrapper: the standalone plugin and a Stack layer run the SAME engine.
+    // Parameter IDs are unchanged (empty prefix), so sessions survive.
+    sattari::dsp::GranulatorModule module;
 
-    // Preallocated per-layer render scratch (sized in prepareToPlay so the audio
-    // thread never allocates). Each layer renders here, then blends into `buffer`.
-    juce::AudioBuffer<float> layerScratch;   // 2 x maxBlockSize
-
-    // --- Built-in reverb on the BLENDED two-layer output ---------------------
-    // A global Freeverb-based reverb applied AFTER the morph blend and BEFORE the
-    // master volume. juce::Reverb scales dry *2 and wet *3 internally, so its
-    // dry/wet is not a clean crossfade — we take a PURE wet from it (dryLevel 0)
-    // and do our own dry/wet against a saved dry copy, mirroring plugins/space.
-    // reverbMix == 0 is then an EXACT pass-through. `reverbDry` holds the pre-verb
-    // signal; both are sized in prepareToPlay so the audio thread never allocates.
-    juce::Reverb             reverb;
-    juce::AudioBuffer<float> reverbDry;      // 2 x maxBlockSize (pre-reverb copy)
+    std::array<LayerMsg, kNumLayers> layerMsg;
 
     juce::AudioFormatManager formats;
 
-    // Cross-plugin buses + host transport.
-    sattari::xplugin::SessionReader sessionReader;   // KEY bus (Follow Song Key)
-    sattari::xplugin::TempoReader   tempoReader;     // TEMPO bus (bpm fallback)
-
-    // Lock-free audio -> UI publish of each layer's granulation viz frame.
-    std::array<sattari::rt::AtomicSnapshot<sattari::dsp::SattariGranularEngine::GrainVizFrame>,
-               kNumLayers> viz;
-
-    // KEY status mirrored for the editor (updated each block).
-    std::atomic<bool> followingBus { false };
-    std::atomic<int>  effKeyRoot { 0 };
-    std::atomic<int>  effKeyScale { 0 };
-
-    // captureArm edge detection (message thread reads the param; audio thread
-    // never allocates). The editor pulses captureArm; serviceCapture() reacts.
+    // captureArm edge detection (message thread reads the param).
     bool lastArmParam = false;
 
-    // --- Per-note expression (MPE) drive state (audio thread only) -----------
-    // Latest pitch-bend wheel value per MIDI channel, stored as the WHEEL fraction
-    // (-1..+1) so the semitone amount is (fraction * bendRange) resolved per block
-    // from the `bendRange` param. MPE spreads notes across channels 2..16, so a
-    // per-channel bend maps to per-note bend; classic MIDI uses channel 1 only.
-    // `mpeMode` (param) selects the default bend range convention: classic 2 st
-    // vs. the MPE ±48 st spec — but the actual range comes from the `bendRange`
-    // param (default 2 st) so a plain host with the wheel behaves musically.
-    // Channel pressure / poly aftertouch map to per-note pressure via
-    // setVoicePressure / setPressureAllHeld.
-    static constexpr float kMpeBendRangeSemis = 48.0f;   // MPE full-spec range
-    std::array<float, 16> channelBendFrac {};            // per-channel wheel -1..+1
+    // Key-broadcast throttle — message thread only, so it stays out of the module.
+    int         lastBroadcastRoot  = -1;
+    int         lastBroadcastScale = -1;
+    juce::int64 lastBroadcastMs    = 0;
+    juce::int64 broadcastId        = 0;   // monotonically-increasing session id
 
-    // --- Publish-to-key-bus (broadcastKey) — audio -> message hand-off -------
-    // When broadcastKey is on (and NOT following), playing the granulator DRIVES
-    // the suite's key: the AUDIO thread resolves the current (key-snapped) root +
-    // scale that a note-on would produce and stashes it in these lock-free atomics
-    // (NO file I/O on the audio thread). The MESSAGE thread (editor timer, via
-    // serviceKeyBroadcast()) reads them, throttles, and calls publishSession so
-    // other Sattari plugins follow. broadcastWant* carry the intended pair;
-    // broadcastActive gates publishing on "broadcastKey on AND a note is sounding
-    // AND not following" (feedback guard). lastBroadcast* / broadcastId live on the
-    // message thread and only re-publish when the pair actually changes.
-    std::atomic<int>  broadcastWantRoot  { -1 };
-    std::atomic<int>  broadcastWantScale { -1 };   // 0=major,1=minor bus code
-    std::atomic<bool> broadcastActive    { false };
-    int         lastBroadcastRoot  = -1;   // message thread
-    int         lastBroadcastScale = -1;   // message thread
-    juce::int64 lastBroadcastMs    = 0;    // message thread throttle
-    juce::int64 broadcastId = 0;           // monotonically-increasing session id
-
-    // --- Transient bus edge detection (audio thread) -------------------------
-    // We poll tempoReader.current().transientId each block; when it advances AND
-    // the `transientTrigger` param is on, an external onset fired (Rhythm Genie /
-    // Side Chain published) — re-fire the grain cloud on both engines via
-    // triggerAccent (strength from `transientSens`) so grains lock to the pulse.
-    juce::int64 lastTransientId = 0;
-
-    // Version tag written into saved state so future format changes stay safe.
     static constexpr int kStateVersion = 2;   // 1 == legacy single-layer
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariGranulatorAudioProcessor)
