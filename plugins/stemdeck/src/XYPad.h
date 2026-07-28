@@ -91,7 +91,7 @@ public:
         g.fillEllipse (dx - 9.0f, dy - 9.0f, 18.0f, 18.0f);
         g.setColour (accent);
         g.fillEllipse (dx - 5.0f, dy - 5.0f, 10.0f, 10.0f);
-        g.setColour (juce::Colour (stemdeck::palette::kTextPrimary));
+        g.setColour (juce::Colour (stemdeck::tokens::fgPrimary));
         g.fillEllipse (dx - 2.0f, dy - 2.0f, 4.0f, 4.0f);
     }
 

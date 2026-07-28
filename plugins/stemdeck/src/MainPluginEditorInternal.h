@@ -94,11 +94,11 @@ inline juce::uint32 padSpectrum (int i)
 inline void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent,
                 float corner = 10.0f, bool active = false)
 {
-    namespace sdp = stemdeck::palette;
+    namespace sdp = stemdeck::tokens;
     const auto r = bounds.toFloat();
 
     // Flat matte card.
-    g.setColour (juce::Colour (sdp::kPanel));
+    g.setColour (juce::Colour (sdp::bgPanel));
     g.fillRoundedRectangle (r, corner);
 
     // Single border: neutral hairline at rest, accent only when active. No sheen.
@@ -109,7 +109,7 @@ inline void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Col
     }
     else
     {
-        g.setColour (juce::Colour (sdp::kHairline));
+        g.setColour (juce::Colour (sdp::borderSubtle));
         g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
     }
 }

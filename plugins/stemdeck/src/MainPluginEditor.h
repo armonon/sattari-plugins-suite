@@ -214,6 +214,21 @@ private:
         bool hasArrangement() const noexcept { return mode == Mode::Finished; }
         const LaneClips& getClips() const noexcept { return clips; }
         int getSelectedLane() const noexcept { return selectedLane; }
+
+        // How many channel lanes actually exist. numLanes is the POOL SIZE (8);
+        // rendering all of it meant the arranger showed CH A..CH H while the header
+        // said "6 CH" — the channel model never propagated down here. Lanes beyond
+        // this are neither drawn nor hit-tested.
+        void setVisibleLanes (int n)
+        {
+            const int clamped = juce::jlimit (1, numLanes, n);
+            if (clamped == visibleLanes) return;
+            visibleLanes = clamped;
+            for (int i = clamped; i < numLanes; ++i)
+                laneRects[(size_t) i] = {};
+            repaint();
+        }
+        int getVisibleLanes() const noexcept { return visibleLanes; }
         void updateClipAfterBounce (int laneIndex, const juce::File& newFile, double newDuration);
         void resetSelectedClipEdits();
         void resetClipEdits (int laneIndex);
@@ -370,6 +385,7 @@ private:
         LaneClips clips {};
         std::array<juce::Rectangle<int>, numEditableLanes> laneRects {};
         std::array<DeckAutomation, numLanes> deckAutomation;
+        int visibleLanes = numLanes;   // see setVisibleLanes()
         int selectedLane = -1;
         int selectedClip = -1;
         bool razorMode = false;
@@ -486,7 +502,9 @@ private:
     void configureDeckStrip (int deckIndex);
     void refreshDeckStrips();
     bool deckHasContent (int deckIndex) const;   // has a loaded track (or showcase title)
-    void applyDeckDim (int deckIndex, bool loaded);
+    // Hero / standard / recessed rendering weight for a channel's ~40 controls.
+    // Rendering only — hit targets and behaviour are unchanged.
+    void applyDeckControlWeights (int deckIndex);
 
     // ── Focus model: one deck expands to full height, the rest collapse to strips ──
     int  focusedDeck = 0;
@@ -566,6 +584,13 @@ private:
     juce::TextButton arrRecordButton { "Record" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
+    // The ARRANGER surface owns ~14 components (transport, edit tools, zoom, the
+    // timeline itself) whose visibility follows the nav toggle rather than the
+    // perform layout. Kept out of resized() so that stays about the perform screen.
+    void layoutArrangerSurface (juce::Rectangle<int> bounds);
+    // Enforces "one primary surface at a time": blanks the perform screen so an
+    // overlay (ARRANGER / MIXER / piano roll) does not show decks through its gaps.
+    void hidePerformSurface();
     void toggleArrangementPlayback();
     void saveProject();
     void loadProject();
@@ -661,7 +686,17 @@ private:
     void mouseUp   (const juce::MouseEvent&) override;          // disarms BPM-chip drag
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     // Interactive deck header chips + all-deck sync.
+    // These are HIT TARGETS (mouseDown/mouseDrag/mouseWheelMove read them, and the
+    // tempo panel and Camelot wheel anchor their popups to them), so they are
+    // computed in the LAYOUT pass — see layoutDeckHeaderChips(). They used to be
+    // assigned inside paint(), which meant a click could only land correctly if a
+    // paint had already run at the current size: between a resize and the next
+    // paint, every chip hit-test used stale geometry.
+    void layoutDeckHeaderChips (int deckIndex);
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckBpmChipBounds {}, deckKeyChipBounds {};
+    // Row 1 of the deck header: the track name owns the full column width. Row 2
+    // carries the numerics + the NEURAL/DSP provenance chip.
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckNameBounds {}, deckSrcChipBounds {};
     int    bpmDragDeck = -1;
     int    bpmDragStartY = 0;
     double bpmDragStartVal = 120.0;

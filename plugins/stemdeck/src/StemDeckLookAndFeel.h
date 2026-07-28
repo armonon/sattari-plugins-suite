@@ -20,13 +20,29 @@
 // makes the surface read as cohesive + modern rather than a patchwork of greys.
 #include "DesignTokens.h"
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DEPRECATED — do not use in new code. Reach for stemdeck::tokens directly.
+//
+// This namespace is a set of pure ALIASES onto DesignTokens; every value here is
+// identical to its token, so there is no colour drift left to fix. What remained
+// was a naming problem: two names for one system meant a reader could not tell
+// which was authoritative, and the editor mixed both (28 palette references
+// against 12 token ones in MainPluginEditor.cpp alone).
+//
+// Every call site outside this file now names a token. What is left below exists
+// only for the `using namespace stemdeck::palette` blocks in the LookAndFeel
+// overrides further down, which reference these as bare identifiers. When those
+// are converted, delete this namespace entirely.
+//
+//   kBackground -> bgApp        kHairline      -> borderSubtle
+//   kPanel      -> bgPanel      kGlassEdge     -> fgFaint
+//   kPanelRaised-> bgControl    kTextPrimary   -> fgPrimary
+//   kPanelDeep  -> bgWell       kTextSecondary -> fgSecondary
+//   kControlHover->bgControlHover  kTextMuted  -> fgTertiary
+//   kWarn       -> warn2        kTextFaint     -> fgMuted
+// ─────────────────────────────────────────────────────────────────────────────
 namespace stemdeck::palette
 {
-    // Aliases onto DesignTokens (which mirrors docs/reference/tokens.css) so there is
-    // one definition per colour. These were hand-typed and had drifted from the
-    // reference: kPanel was #131316 (that value is --bg-panel-2, a SUB-panel) and
-    // kPanelDeep was #0B0B0D, i.e. identical to the app ground, so a "recessed well"
-    // was indistinguishable from the background it sat on.
     namespace T = stemdeck::tokens;
     inline constexpr juce::uint32 kBackground    = T::bgApp;
     inline constexpr juce::uint32 kPanel         = T::bgPanel;        // was #131316
@@ -282,7 +298,7 @@ private:
     {
         g.setColour (col);
         g.fillRoundedRectangle (cap, 2.0f);
-        g.setColour (juce::Colour (stemdeck::palette::kTextPrimary).withAlpha (0.92f));
+        g.setColour (juce::Colour (stemdeck::tokens::fgPrimary).withAlpha (0.92f));
         if (cap.getWidth() >= cap.getHeight())   // horizontal handle → bright top edge
             g.fillRect (cap.getX() + 1.5f, cap.getY() + 1.0f, cap.getWidth() - 3.0f, 1.3f);
         else                                     // vertical handle → bright left edge

@@ -1662,7 +1662,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat();
 
     // djay-Pro-style arrangement panel: OLED-cold deep navy.
-    const auto panelBase = juce::Colour (stemdeck::palette::kPanelDeep).darker (0.12f);
+    const auto panelBase = juce::Colour (stemdeck::tokens::bgWell).darker (0.12f);
     g.setColour (panelBase);
     g.fillRoundedRectangle (bounds, 10.0f);
 
@@ -1767,8 +1767,10 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     }
     g.restoreState();
 
-    // Lanes area.
-    const int lanesTotal = numEditableLanes;
+    // Lanes area. Height is divided by the lanes actually SHOWN (master + the
+    // existing channels), not by the pool size — dividing by the pool left the
+    // drawn lanes squeezed into the top with dead space beneath them.
+    const int lanesTotal = visibleLanes + 1;
     const int laneGap = 2;
     const int laneAreaHeight = area.getHeight();
     const int laneHeight = juce::jmax (16, (laneAreaHeight - laneGap * (lanesTotal - 1)) / lanesTotal);
@@ -2172,19 +2174,23 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     drawLane (masterLaneRect, "MASTER", juce::Colour (kAccent), masterThumb.get(), masterFile, masterLane);
     area.removeFromTop (laneGap);
 
-    for (int i = 0; i < numLanes; ++i)
+    for (int i = 0; i < visibleLanes; ++i)
     {
         auto laneRect = area.removeFromTop (laneHeight);
-        drawLane (laneRect, "DECK " + juce::String::charToString ((juce_wchar) ('A' + i)),
+        drawLane (laneRect, "CH " + juce::String::charToString ((juce_wchar) ('A' + i)),
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
-        if (i < numLanes - 1)
+        if (i < visibleLanes - 1)
             area.removeFromTop (laneGap);
     }
+    // Lanes past the channel count are not drawn, so their cached rectangles must
+    // not linger — laneAtY()/hitTestAt() read these to route clicks.
+    for (int i = visibleLanes; i < numLanes; ++i)
+        laneRects[(size_t) i] = {};
 
     // Clip launcher slot-state overlay: WaitingToStart = pulsing amber, Running = solid green.
     {
         const bool blink = ((juce::Time::currentTimeMillis() / 220) % 2) == 0;
-        for (int i = 0; i < numLanes; ++i)
+        for (int i = 0; i < visibleLanes; ++i)
         {
             const auto st = slotStates[(size_t) i];
             if (st == SlotState::Idle) continue;

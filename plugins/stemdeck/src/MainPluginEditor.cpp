@@ -4,6 +4,7 @@
 // MainPluginEditorInternal.h.
 #include "MainPluginEditor.h"
 #include "MainPluginEditorInternal.h"
+#include "LayoutStack.h"
 #include "StructureAnalysis.h"
 #include "KeyChroma.h"
 
@@ -723,25 +724,33 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (pianoRollButton);
     pianoRollButton.setClickingTogglesState (true);
     pianoRollButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
-    // ARRANGER nav → the mix-timeline overlay (the new arrangement surface). The
-    // per-clip piano roll still opens separately via onEditMidiClip.
+    // ARRANGER nav → the full arrangement surface: energy arc, edit toolbar and the
+    // capture timeline. This used to be a footer on the perform screen, which is
+    // where the product's whole argument was living. The per-clip piano roll still
+    // opens separately via onEditMidiClip.
     pianoRollButton.onClick = [this]
     {
         const bool show = pianoRollButton.getToggleState();
-        if (show) { refreshMixArrangement(); refreshEnergyArc();
-                    fadeOverlay (mixArrangeView, true); fadeOverlay (energyArc, true);
-                    mixArrangeView.toFront (true); energyArc.toFront (true); }
-        else      { fadeOverlay (mixArrangeView, false); fadeOverlay (energyArc, false); }
+        // resized() routes through layoutArrangerSurface(), which shows or hides the
+        // arranger's controls from this toggle — so lay out BEFORE fading in, or the
+        // first frame of the fade is the previous size.
+        resized();
+        if (show) { refreshEnergyArc();
+                    fadeOverlay (arrangementView, true); fadeOverlay (energyArc, true);
+                    arrangementView.toFront (true); energyArc.toFront (true); }
+        else      { fadeOverlay (arrangementView, false); fadeOverlay (energyArc, false); }
     };
     addAndMakeVisible (pianoRollButton);
 
     // Sattari FX rack — occupies the crossfader's slot in the Master Control Band.
     {
         // Scope selector replaces the combo box (reference §5: the scope selector IS
-        // the point). Only chains the engine actually has are offered — master, the
-        // four decks and mic. Per-STEM scopes are in the reference but need stem-level
-        // plugin chains in HostGraph, which do not exist; offering them would be a
-        // control that does nothing.
+        // the point). Only chains the engine actually has are offered.
+        //
+        // (This comment used to say per-stem plugin chains "do not exist". They do:
+        // HostGraph declares 16 of them — 4 decks x 4 stems, appended after master
+        // so the original chain ids keep their persisted numeric values — and
+        // MainPluginProcessor drives them from TrackDeckBody::onStemFx.)
         refreshFxScopes();
         fxRack.setScope (0);   // Master
         fxRack.getPluginCount = [this] { return processorRef.getChainPluginCount (fxRack.currentChainIndex()); };
@@ -823,7 +832,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     mixerButton.onClick = [this]
     {
         const bool on = mixerButton.getToggleState();
-        if (on) { pianoRollButton.setToggleState (false, juce::dontSendNotification); fadeOverlay (pianoRoll, false); fadeOverlay (mixArrangeView, false); }
+        if (on) { pianoRollButton.setToggleState (false, juce::dontSendNotification); fadeOverlay (pianoRoll, false); fadeOverlay (arrangementView, false); fadeOverlay (energyArc, false); resized(); }
         fadeOverlay (mixerView, on);
         if (on) mixerView.toFront (true);
     };
@@ -844,8 +853,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     navDecksButton.onClick = [this]
     {
         fadeOverlay (pianoRoll, false);
-        fadeOverlay (mixArrangeView, false);
+        fadeOverlay (arrangementView, false);
+        fadeOverlay (energyArc, false);
         pianoRollButton.setToggleState (false, juce::dontSendNotification);
+        resized();
         fadeOverlay (mixerView, false);
         mixerButton.setToggleState (false, juce::dontSendNotification);
         if (toggleLibraryButton.getToggleState()) { toggleLibraryButton.setToggleState (false, juce::dontSendNotification); toggleLibrary(); }
@@ -1037,7 +1048,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
     // Launch-all: queue clip[0] of every occupied deck lane at next beat
     setupButton (launchAllButton);
-    launchAllButton.setTooltip ("Queue all deck lanes to launch at the next beat");
+    launchAllButton.setTooltip ("Queue every channel lane to launch at the next beat");
     launchAllButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff1d5c40));
     launchAllButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.92f));
     launchAllButton.onClick = [this] { arrangementView.triggerAllSlots(); };
@@ -1080,7 +1091,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     recordStatus.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (recordStatus);
     arrangementView.initialise (thumbnailFormatManager, thumbnailCache);
-    arrangementView.setIdle ("Hit Record to capture your set across four deck lanes.");
+    arrangementView.setIdle ("Hit Record to capture your set across every channel lane.");
     addAndMakeVisible (arrangementView);
 
     crossfaderAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "crossfader", crossfader);
@@ -1369,9 +1380,19 @@ void MainPluginEditor::refreshChannelButtons()
     // strips, so extra TrackDecks beyond that exist in the engine but have no strip.
     addChannelButton.setEnabled (total < MainPluginProcessor::getMaxChannels());
     removeChannelButton.setEnabled (total > 1);
-    addChannelButton.setButtonText ("+ CH");
-    removeChannelButton.setButtonText (juce::String (decks) + "D"
-                                       + (total > decks ? "+" + juce::String (total - decks) + "I" : juce::String()));
+    // ONE noun. The model is "channel" (a channel is a track deck, an input, or a
+    // MIDI instrument), so the buttons, the add-tile and the arranger lanes all say
+    // channel. The old readout was "4D+2I", which is only legible if you already
+    // know the architecture — the count is what a user actually wants, and the
+    // breakdown belongs in the tooltip.
+    addChannelButton.setButtonText ("+ CHANNEL");
+    removeChannelButton.setButtonText (juce::String (total) + " CH");
+    addChannelButton.setTooltip ("Add a channel — track deck, audio input, or MIDI instrument");
+    removeChannelButton.setTooltip (
+        juce::String (total) + " channels: " + juce::String (decks) + " track deck"
+        + (decks == 1 ? "" : "s")
+        + (total > decks ? ", " + juce::String (total - decks) + " input/instrument" : juce::String())
+        + "  \xe2\x80\xa2  click to remove the last one");
 }
 
 void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
@@ -2990,9 +3011,9 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // --- Header bar: flat, no backdrop. Thin hairline underline only. ---
     if (! headerBarBounds.isEmpty())
     {
-        namespace sdp = stemdeck::palette;
+        namespace sdp = stemdeck::tokens;
         const auto r = headerBarBounds.toFloat();
-        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.6f));
+        g.setColour (juce::Colour (sdp::borderSubtle).withAlpha (0.6f));
         g.fillRect (juce::Rectangle<float> (r.getX() + 4.0f, r.getBottom() - 1.0f, r.getWidth() - 8.0f, 1.0f));
     }
 
@@ -3006,7 +3027,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             const auto cell = navRects[(size_t) i];
             if (cell.isEmpty()) continue;
             const bool active = navBtns[i]->getToggleState();
-            const auto col = active ? deckAccent (0) : juce::Colour (stemdeck::palette::kTextMuted);
+            const auto col = active ? deckAccent (0) : juce::Colour (stemdeck::tokens::fgTertiary);
             auto icon = cell.withHeight (22).translated (0, 3).toFloat().reduced ((cell.getWidth() - 22) * 0.5f, 0.0f);
             drawNavIcon (g, i, icon, col.withAlpha (active ? 0.95f : 0.7f));
             g.setColour (col.withAlpha (active ? 0.98f : 0.72f));
@@ -3042,13 +3063,13 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // --- Tempo chip in the right cluster ---
     if (! tempoChipBounds.isEmpty())
     {
-        namespace sdp = stemdeck::palette;
+        namespace sdp = stemdeck::tokens;
         const auto r = tempoChipBounds.toFloat();
-        g.setColour (juce::Colour (sdp::kPanelDeep));
+        g.setColour (juce::Colour (sdp::bgWell));
         g.fillRoundedRectangle (r, 6.0f);
         g.setColour (deckAccent (0).withAlpha (0.45f));
         g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
-        g.setColour (juce::Colour (sdp::kTextMuted));
+        g.setColour (juce::Colour (sdp::fgTertiary));
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
         // "HOST TEMPO" is only honest inside a DAW. Standalone has no host and this
         // chip just mirrors the GLOBAL TEMPO clock, so label it plainly there.
@@ -3059,13 +3080,13 @@ void MainPluginEditor::paint (juce::Graphics& g)
                     juce::Justification::centredLeft);
     }
 
-    g.setColour (juce::Colour (stemdeck::palette::kHairline).withAlpha (0.5f));
+    g.setColour (juce::Colour (stemdeck::tokens::borderSubtle).withAlpha (0.5f));
     g.drawHorizontalLine (title.getBounds().getBottom() + 9, 22.0f, (float) getWidth() - 22.0f);
 
     // --- "+" add-channel tile: the channel model, visible in the layout ---
     if (! addChannelTileBounds.isEmpty())
     {
-        namespace sdp = stemdeck::palette;
+        namespace sdp = stemdeck::tokens;
         auto r = addChannelTileBounds.toFloat().reduced (2.0f);
 
         // Dashed outline reads as "empty slot you can fill", distinct from a real panel.
@@ -3074,7 +3095,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         const float dashes[] { 5.0f, 4.0f };
         juce::Path dashed;
         juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.9f));
+        g.setColour (juce::Colour (sdp::borderSubtle).withAlpha (0.9f));
         g.fillPath (dashed);
 
         const auto c = r.getCentre();
@@ -3083,7 +3104,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         g.fillRoundedRectangle (c.x - armLen, c.y - thick * 0.5f, armLen * 2.0f, thick, 1.0f);
         g.fillRoundedRectangle (c.x - thick * 0.5f, c.y - armLen, thick, armLen * 2.0f, 1.0f);
 
-        g.setColour (juce::Colour (sdp::kTextMuted));
+        g.setColour (juce::Colour (sdp::fgTertiary));
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold).withKerningFactor (0.06f));
         g.drawText ("CHANNEL", addChannelTileBounds.withTop (addChannelTileBounds.getCentreY() + 16).withHeight (12),
                     juce::Justification::centred);
@@ -3122,16 +3143,19 @@ void MainPluginEditor::paint (juce::Graphics& g)
         }
 
         // --- Deck header strip: letter badge + filename + key chip ---
-        auto headerBar = deckHeaderBounds[(size_t) i];
-        if (! headerBar.isEmpty())
+        // The badge / BPM / key rectangles are HIT TARGETS and are computed by
+        // layoutDeckHeaderChips() during resized(); paint() only reads them.
+        if (! deckHeaderBounds[(size_t) i].isEmpty())
         {
+            namespace T = stemdeck::tokens;
+
+            // ── Row 1: identity ──────────────────────────────────────────────
             const juce::String letter = juce::String::charToString ((juce_wchar) ('A' + i));
-            auto badge = headerBar.removeFromLeft (22);
-            deckBadgeBounds[(size_t) i] = badge;   // click to set master deck
+            const auto badge = deckBadgeBounds[(size_t) i];
             g.setColour (deckAccent (i).withAlpha (0.95f));
             g.fillRoundedRectangle (badge.toFloat(), 4.0f);
             g.setColour (juce::Colours::black.withAlpha (0.85f));
-            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             g.drawText (letter, badge, juce::Justification::centred);
             // Master-deck indicator: bright white ring around the letter badge
             // (this deck is the BPM/Key sync reference). Click any badge to change.
@@ -3142,83 +3166,81 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 g.setColour (juce::Colours::white.withAlpha (0.95f));
                 g.drawRoundedRectangle (badge.toFloat().expanded (1.5f), 5.0f, 1.6f);
             }
-            headerBar.removeFromLeft (8);
 
-            if (! deckHasContent (i))
+            // The track name is HERO tier: it is the strip's identity and now owns
+            // the full column width on its own row, at tName rather than sharing a
+            // 22px row with three chips (which left it about six characters).
+            const auto nameBox = deckNameBounds[(size_t) i];
+            if (! nameBox.isEmpty())
             {
-                deckBpmChipBounds[(size_t) i] = {};
-                deckKeyChipBounds[(size_t) i] = {};
-                g.setColour (juce::Colour (stemdeck::palette::kTextMuted).withAlpha (0.72f));
-                g.setFont (juce::FontOptions (9.0f, juce::Font::bold).withKerningFactor (0.06f));
-                g.drawText ("READY FOR AUDIO", headerBar.reduced (2, 0),
-                            juce::Justification::centredLeft);
-            }
-            else
-            {
-            // Right-aligned, interactive BPM + Key chips (drag BPM, click Key).
-            const auto bpmValue   = deckControls[(size_t) i].bpm.getValue();
-            const auto bpmText    = juce::String (bpmValue, 1);
-            const auto detectKey  = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
-            const int  keyChoice  = (int) std::round (processorRef.parameters().getRawParameterValue (deckPrefix (i) + "KeyTarget")->load());
-            const bool detectValid = detectKey.isNotEmpty() && detectKey != "Key:" && detectKey != "unknown";
-            const auto keyText     = keyChoice > 0 ? processorRef.getKeyTargetChoices()[keyChoice]
-                                                   : (detectValid ? detectKey : u8 ("\xe2\x80\x94"));
-
-            auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text)
-            {
-                g.setColour (juce::Colour (stemdeck::palette::kPanelDeep));
-                g.fillRoundedRectangle (chip.toFloat(), 3.0f);
-                g.setColour (deckAccent (i).withAlpha (0.7f));   // brighter = interactive
-                g.drawRoundedRectangle (chip.toFloat(), 3.0f, 1.0f);
-                g.setColour (deckAccent (i).withAlpha (0.95f));
-                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-                g.drawText (text, chip.reduced (6, 0), juce::Justification::centredRight);
-            };
-
-            auto keyChip = headerBar.removeFromRight (juce::jmin (58, headerBar.getWidth() / 3));
-            deckKeyChipBounds[(size_t) i] = keyChip;
-            drawChip (keyChip, u8 ("\xe2\x99\xa9 ") + keyText);
-            headerBar.removeFromRight (4);
-            auto bpmChip = headerBar.removeFromRight (juce::jmin (80, headerBar.getWidth() / 3));
-            deckBpmChipBounds[(size_t) i] = bpmChip;
-            drawChip (bpmChip, bpmText + " BPM");
-            headerBar.removeFromRight (6);
-
-            // Separation-source chip (NEURAL / DSP) lives in the header, not over the
-            // VOCALS cell — see 1.1. Honest label of which engine produced the stems.
-            {
-                const bool neural = processorRef.deckHasNeuralStems (i);
-                const bool dsp    = processorRef.isDeckRtssActive (i);
-                if (neural || dsp)
+                if (! deckHasContent (i))
                 {
-                    auto srcChip = headerBar.removeFromRight (46);
-                    const auto srcCol = neural ? juce::Colour (0xff62f5c8) : deckAccent (i);
-                    g.setColour (srcCol.withAlpha (0.14f));
-                    g.fillRoundedRectangle (srcChip.toFloat(), 3.0f);
-                    g.setColour (srcCol.withAlpha (0.8f));
-                    g.drawRoundedRectangle (srcChip.toFloat(), 3.0f, 1.0f);
-                    g.setColour (srcCol.withAlpha (0.95f));
-                    g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-                    g.drawText (neural ? "NEURAL" : "DSP", srcChip, juce::Justification::centred);
-                    headerBar.removeFromRight (6);
+                    g.setColour (juce::Colour (T::fgMuted).withAlpha (0.8f));
+                    g.setFont (juce::FontOptions (T::tSmall, juce::Font::bold).withKerningFactor (T::trackLabel));
+                    g.drawText ("EMPTY", nameBox, juce::Justification::centredLeft);
+                }
+                else
+                {
+                    static const char* kDemoTitle[4] = {
+                        "Moneyplagg & MealThePred\xe2\x80\xa6",
+                        "Life is real controlle way",
+                        "Moneyplagg & MealThePred\xe2\x80\xa6",
+                        "" };
+                    const auto path = processorRef.getDeckPath (i);
+                    const auto file = juce::File (path).getFileNameWithoutExtension();
+                    const bool useDemo = showcaseMode && i < 4 && kDemoTitle[i][0] != '\0';
+                    const auto display = useDemo ? juce::String (juce::CharPointer_UTF8 (kDemoTitle[i]))
+                                                 : (file.isNotEmpty() ? file : juce::String ("Untitled"));
+                    g.setColour (juce::Colour (T::fgPrimary).withAlpha (0.95f));
+                    g.setFont (juce::FontOptions (T::tName, juce::Font::bold));
+                    g.drawText (display, nameBox, juce::Justification::centredLeft, true);
                 }
             }
 
-            // Filename in the middle slot. A/B/C carry fixed showcase titles to
-            // match the mockup; D shows the real file or an empty placeholder.
-            static const char* kDemoTitle[4] = {
-                "Moneyplagg & MealThePred\xe2\x80\xa6",
-                "Life is real controlle way",
-                "Moneyplagg & MealThePred\xe2\x80\xa6",
-                "" };
-            const auto path = processorRef.getDeckPath (i);
-            const auto file = juce::File (path).getFileName();
-            const bool useDemo = showcaseMode && i < 4 && kDemoTitle[i][0] != '\0';
-            const auto display = useDemo ? u8 (kDemoTitle[i])
-                                         : (file.isNotEmpty() ? file : u8 ("\xe2\x80\x94 empty deck \xe2\x80\x94"));
-            g.setColour (juce::Colour (stemdeck::palette::kTextPrimary).withAlpha ((useDemo || file.isNotEmpty()) ? 0.92f : 0.45f));
-            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-            g.drawText (display, headerBar.reduced (2, 0), juce::Justification::centredLeft, true);
+            // ── Row 2: the numerics ──────────────────────────────────────────
+            if (deckHasContent (i))
+            {
+                const auto bpmValue   = deckControls[(size_t) i].bpm.getValue();
+                const auto detectKey  = deckControls[(size_t) i].keyInfo.getText().upToFirstOccurrenceOf (" ", false, false);
+                const int  keyChoice  = (int) std::round (processorRef.parameters().getRawParameterValue (deckPrefix (i) + "KeyTarget")->load());
+                const bool detectValid = detectKey.isNotEmpty() && detectKey != "Key:" && detectKey != "unknown";
+                const auto keyText     = keyChoice > 0 ? processorRef.getKeyTargetChoices()[keyChoice]
+                                                       : (detectValid ? detectKey : juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")));
+
+                // Interactive chips read brighter than static ones — that IS the
+                // affordance (drag the BPM, click the key).
+                auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text, float size)
+                {
+                    g.setColour (juce::Colour (T::bgWell));
+                    g.fillRoundedRectangle (chip.toFloat(), T::radiusPill);
+                    g.setColour (deckAccent (i).withAlpha (0.55f));
+                    g.drawRoundedRectangle (chip.toFloat().reduced (0.5f), T::radiusPill, 1.0f);
+                    g.setColour (deckAccent (i));
+                    g.setFont (juce::FontOptions (size, juce::Font::bold));
+                    g.drawText (text, chip.reduced (5, 0), juce::Justification::centred);
+                };
+
+                if (const auto bpmChip = deckBpmChipBounds[(size_t) i]; ! bpmChip.isEmpty())
+                    drawChip (bpmChip, juce::String (bpmValue, 1), T::tControl);
+                if (const auto keyChip = deckKeyChipBounds[(size_t) i]; ! keyChip.isEmpty())
+                    drawChip (keyChip, juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xa9 ")) + keyText, T::tBody);
+
+                // Separation provenance (NEURAL / DSP) is RECESSED tier: honest about
+                // which engine produced the stems, but it is not a control.
+                if (const auto srcChip = deckSrcChipBounds[(size_t) i]; ! srcChip.isEmpty())
+                {
+                    const bool neural = processorRef.deckHasNeuralStems (i);
+                    const bool dsp    = processorRef.isDeckRtssActive (i);
+                    if (neural || dsp)
+                    {
+                        const auto srcCol = neural ? juce::Colour (0xff62f5c8) : juce::Colour (T::fgTertiary);
+                        g.setColour (srcCol.withAlpha (0.10f));
+                        g.fillRoundedRectangle (srcChip.toFloat(), T::radiusPill);
+                        g.setColour (srcCol.withAlpha (0.65f));
+                        g.setFont (juce::FontOptions (T::tCaption, juce::Font::bold).withKerningFactor (T::trackLabel));
+                        g.drawText (neural ? "NEURAL" : "DSP", srcChip, juce::Justification::centred);
+                    }
+                }
             }
         }
 
@@ -3246,7 +3268,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
                 if (s == 4)   // FX cell caption under the reverb knob (C = Delay, per mockup)
                 {
-                    g.setColour (juce::Colour (stemdeck::palette::kTextMuted));
+                    g.setColour (juce::Colour (stemdeck::tokens::fgTertiary));
                     g.setFont (juce::FontOptions (8.5f));
                     g.drawText (i == 2 ? "Delay" : "Reverb", cell.withTop (cell.getBottom() - 11).translated (0, -1),
                                 juce::Justification::centred);
@@ -3266,7 +3288,11 @@ void MainPluginEditor::paint (juce::Graphics& g)
         auto drawAbove = [&g] (const juce::String& text, const juce::Component& component)
         {
             if (! component.isVisible()) return;   // tab-hidden controls draw no stray label
-            auto r = component.getBounds().withHeight (12).translated (0, -13);
+            // Expanded horizontally because the label belongs to the CELL, not to the
+            // knob inside it. An EQ knob is ~16px wide at a four-channel layout, so
+            // measuring the label against the knob ellipsized "HIGH" to "HI…" —
+            // which breaks the same rule that made PITCH into "PIT" two lines below.
+            auto r = component.getBounds().withHeight (12).translated (0, -13).expanded (7, 0);
             g.drawText (text, r, juce::Justification::centred);
         };
 
@@ -3330,7 +3356,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         const auto mb = deckMeterBounds[(size_t) d];
         if (mb.isEmpty()) continue;
         const auto r = mb.toFloat();
-        g.setColour (juce::Colour (stemdeck::palette::kPanelDeep));
+        g.setColour (juce::Colour (stemdeck::tokens::bgWell));
         g.fillRoundedRectangle (r, 3.0f);
 
         auto barZone = r.reduced (2.0f).withTrimmedBottom (11.0f);   // reserve bottom for the letter
@@ -3432,13 +3458,13 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // --- MASTER OUTPUT panel: title, stereo segment meters + dB scale ---
     if (! masterOutBounds.isEmpty())
     {
-        namespace sdp = stemdeck::palette;
+        namespace sdp = stemdeck::tokens;
         const auto r = masterOutBounds.toFloat();
-        g.setColour (juce::Colour (sdp::kPanel));
+        g.setColour (juce::Colour (sdp::bgPanel));
         g.fillRoundedRectangle (r, 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.04f));
         g.fillRoundedRectangle (r.withHeight (r.getHeight() * 0.35f).reduced (3.0f, 2.0f), 8.0f);
-        g.setColour (juce::Colour (sdp::kHairline).withAlpha (0.9f));
+        g.setColour (juce::Colour (sdp::borderSubtle).withAlpha (0.9f));
         g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
 
         g.setColour (juce::Colour (kAccent));
@@ -3450,16 +3476,16 @@ void MainPluginEditor::paint (juce::Graphics& g)
         if (! masterTempoBounds.isEmpty())
         {
             const auto tb = masterTempoBounds.toFloat();
-            g.setColour (juce::Colour (sdp::kPanelDeep));
+            g.setColour (juce::Colour (sdp::bgWell));
             g.fillRoundedRectangle (tb, 5.0f);
-            g.setColour (juce::Colour (sdp::kHairline));
+            g.setColour (juce::Colour (sdp::borderSubtle));
             g.drawRoundedRectangle (tb.reduced (0.5f), 5.0f, 1.0f);
-            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setColour (juce::Colour (sdp::fgTertiary));
             g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
             g.drawText ("GLOBAL TEMPO", tb.withHeight (11.0f).translated (0.0f, 3.0f), juce::Justification::centred);
             const float bpm = (float) processorRef.parameters().getRawParameterValue ("masterBpm")->load();
             auto valRow = tb.withTrimmedTop (13.0f);
-            g.setColour (juce::Colour (sdp::kTextPrimary));
+            g.setColour (juce::Colour (sdp::fgPrimary));
             g.setFont (juce::FontOptions (12.0f, juce::Font::bold));   // set-and-forget → smaller than the crossfader value
             g.drawText (juce::String (bpm, 1), valRow.translated (6.0f, -2.0f), juce::Justification::centred);
             g.setColour (juce::Colour (0xff37d98a));
@@ -3496,7 +3522,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             }
 
             // dB scale ticks — standard progression 0 / -6 / -12 / -18 / -24.
-            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setColour (juce::Colour (sdp::fgTertiary));
             g.setFont (juce::FontOptions (8.5f));
             for (const float tickDb : { 0.0f, -6.0f, -12.0f, -18.0f, -24.0f })
             {
@@ -3519,23 +3545,23 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
             // Integrated LUFS — primary readout.
             auto top = lb.removeFromTop (17.0f);
-            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setColour (juce::Colour (sdp::fgTertiary));
             g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
             g.drawText ("LUFS-I", top.removeFromLeft (40.0f), juce::Justification::centredLeft);
             const bool haveI = ilufs > -70.0;
-            g.setColour (juce::Colour (sdp::kTextPrimary));
+            g.setColour (juce::Colour (sdp::fgPrimary));
             g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
             g.drawText (haveI ? juce::String (ilufs, 1) : juce::String (u8 ("\xe2\x80\x93\xe2\x80\x93")),
                         top, juce::Justification::centredRight);
 
             // Second row: momentary (small) + limiter GR bar with ceiling.
-            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setColour (juce::Colour (sdp::fgTertiary));
             g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
             g.drawText (juce::String ("M ") + (mlufs > -70.0 ? juce::String (mlufs, 1) : juce::String ("--")),
                         lb.removeFromLeft (46.0f), juce::Justification::centredLeft);
 
             auto grA = lb;
-            g.setColour (juce::Colour (sdp::kTextMuted));
+            g.setColour (juce::Colour (sdp::fgTertiary));
             g.setFont (juce::FontOptions (7.5f));
             g.drawText ("GR", grA.removeFromLeft (14.0f), juce::Justification::centredLeft);
             // ceiling caption at the right.
@@ -3543,7 +3569,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.drawText (juce::String ("ceil ") + juce::String (ceil, 1), capA, juce::Justification::centredRight);
             // amber GR bar (0..6 dB) so heavy limiting is visible peripherally.
             auto track = grA.reduced (2.0f, 0.0f).withSizeKeepingCentre (grA.getWidth() - 4.0f, 4.0f);
-            g.setColour (juce::Colour (sdp::kHairline));
+            g.setColour (juce::Colour (sdp::borderSubtle));
             g.fillRoundedRectangle (track, 1.5f);
             const float grNorm = juce::jlimit (0.0f, 1.0f, grDb / 6.0f);
             if (grNorm > 0.001f)
@@ -3782,15 +3808,69 @@ void MainPluginEditor::setFocusedDeck (int i)
 
 // Keep the live/empty transition explicit. Empty controls are now removed from
 // layout rather than merely faded, so the remaining load target stays fully legible.
-void MainPluginEditor::applyDeckDim (int i, bool loaded)
+// ── Three tiers of visual weight ────────────────────────────────────────────
+// A channel strip carries roughly forty interactive controls. Rendered at one
+// prominence they give the eye no entry point: the PLAY button competes for
+// attention with the CUE/LOOP/FX/SYNC/SRC tab row and the 1–8 cue pads, so
+// finding the transport under pressure is a search rather than a glance.
+//
+// In a perform context about five controls need to be instantly hittable —
+// play, cue, level, filter, and the crossfade assign. Those are HERO. The
+// things you set and leave (EQ, pitch, stem gains) are STANDARD. The things
+// that are navigation or configuration rather than performance (the tab strip,
+// cue pads, per-stem FX grid, beat-jump) are RECESSED.
+//
+// This is purely a rendering weight — every control keeps exactly the same hit
+// target and behaviour. It costs nothing functionally and transforms the scan.
+void MainPluginEditor::applyDeckControlWeights (int i)
 {
-    juce::ignoreUnused (loaded);
-    for (auto* c : getChildren())
-    {
-        if (c == nullptr) continue;
-        if (deckPanelBounds[(size_t) i].contains (c->getBounds()))
-            c->setAlpha (1.0f);
-    }
+    if (! juce::isPositiveAndBelow (i, MainPluginProcessor::numDecks))
+        return;
+
+    constexpr float kHero = 1.0f, kStandard = 0.86f, kRecessed = 0.62f;
+
+    auto& c = deckControls[(size_t) i];
+    auto set = [] (juce::Component& comp, float a) { if (comp.isVisible()) comp.setAlpha (a); };
+
+    // HERO — the five things reached for without looking.
+    set (c.play,   kHero);
+    set (c.cue,    kHero);
+    set (c.volume, kHero);
+    set (c.filter, kHero);
+    for (auto& b : c.cfSideBtns) set (b, kHero);
+
+    // STANDARD — set once, adjusted deliberately.
+    set (c.low, kStandard); set (c.mid, kStandard); set (c.high, kStandard);
+    set (c.fader, kStandard); set (c.pitch, kStandard);
+    for (auto& k : c.stemGains) set (k, kStandard);
+    set (c.bpm, kStandard); set (c.beatOffset, kStandard); set (c.downbeat, kStandard);
+
+    // RECESSED — navigation and configuration, not performance.
+    for (auto& t : c.toolTabs)      set (t, kRecessed);
+    for (auto& h : c.hotCues)       set (h, kRecessed);
+    for (auto& b : c.beatRollBtns)  set (b, kRecessed);
+    for (auto& b : c.beatJumpBack)  set (b, kRecessed);
+    for (auto& b : c.beatJumpFwd)   set (b, kRecessed);
+    for (auto& s : c.stemFilt)      set (s, kRecessed);
+    for (auto& s : c.stemSend)      set (s, kRecessed);
+    for (auto& s : c.stemPitch)     set (s, kRecessed);
+    set (c.introEndBtn, kRecessed);
+    set (c.outroStartBtn, kRecessed);
+    set (c.loopIn, kRecessed); set (c.loopOut, kRecessed); set (c.loopHalf, kRecessed);
+    set (c.loopDouble, kRecessed);
+    set (c.reverbMix, kRecessed); set (c.echoMix, kRecessed);
+    set (c.tempoInterpretation, kRecessed); set (c.syncMode, kRecessed); set (c.keyTarget, kRecessed);
+    set (c.load, kRecessed); set (c.loadStem, kRecessed); set (c.stemLane, kRecessed);
+    set (c.extractMidi, kRecessed); set (c.extractDrums, kRecessed);
+
+    // LOOP and Slip stay STANDARD — they are performance controls, just not in
+    // the top five, and recessing them would hide a live loop's on-state.
+    set (c.loopToggle, kStandard);
+    set (c.slipButton, kStandard);
+    set (c.aiStems, kStandard);
+    set (c.keyLock, kStandard);
+    set (c.liveKey, kStandard);
+    set (c.macroKnob, kStandard);
 }
 
 // ── Per-deck control strip: wire callbacks to the processor ────────────────────
@@ -4012,60 +4092,172 @@ void MainPluginEditor::refreshDeckStrips()
     }
 }
 
+// Geometry for the three interactive chips in a deck's header strip: the letter
+// badge (click = make this the sync master), the BPM chip (click/drag/wheel) and
+// the key chip (click = key menu).
+//
+// These are hit targets, so they must be a product of the LAYOUT pass. They used
+// to be assigned as a side effect of paint(): mouseDown() and friends read
+// rectangles that only existed once a paint had run at the current size, so any
+// click arriving between a resize and the next paint was tested against stale
+// geometry. Deriving them here makes the layout the single source of truth and
+// leaves paint() a pure function of it.
+void MainPluginEditor::layoutDeckHeaderChips (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return;
+
+    const auto idx = (size_t) deckIndex;
+    auto headerBar = deckHeaderBounds[idx];
+
+    deckBadgeBounds[idx]   = {};
+    deckBpmChipBounds[idx] = {};
+    deckKeyChipBounds[idx] = {};
+    deckNameBounds[idx]    = {};
+    deckSrcChipBounds[idx] = {};
+
+    if (headerBar.isEmpty())
+        return;
+
+    // TWO ROWS. One row could not hold badge + name + three chips at a ~230px
+    // column: the chips were sized by `jmin(x, width/3)` taken in sequence, so the
+    // BPM chip collapsed to ~39px ("120.2…") and the track name was left ~21px
+    // ("ang…"). Meanwhile an EMPTY channel gave "READY FOR AUDIO" the full width —
+    // the most informative text on the strip was the most starved, and the least
+    // informative was the most generous.
+    //
+    // Row 1 is identity: badge + track name, which now gets the whole width.
+    // Row 2 is the numerics: BPM and key, which a DJ reads constantly and which
+    // therefore deserve a real size rather than a 39px sliver.
+    auto row1 = headerBar.removeFromTop (juce::jmin (20, headerBar.getHeight()));
+    deckBadgeBounds[idx] = row1.removeFromLeft (20);
+    row1.removeFromLeft (stemdeck::tokens::gap5);
+    deckNameBounds[idx] = row1;
+
+    // An empty channel shows its drop target instead of chips — nothing to hit.
+    if (! deckHasContent (deckIndex) || headerBar.getHeight() <= 2)
+        return;
+
+    headerBar.removeFromTop (stemdeck::tokens::gap1);
+    auto row2 = headerBar;
+
+    // BPM is the number read most, so it leads and keeps the larger cell.
+    const int bpmW = juce::jmin (76, juce::jmax (48, row2.getWidth() * 40 / 100));
+    deckBpmChipBounds[idx] = row2.removeFromLeft (bpmW);
+    row2.removeFromLeft (stemdeck::tokens::gap3);
+
+    const int keyW = juce::jmin (52, juce::jmax (34, row2.getWidth() * 45 / 100));
+    deckKeyChipBounds[idx] = row2.removeFromLeft (keyW);
+    row2.removeFromLeft (stemdeck::tokens::gap3);
+
+    // NEURAL / DSP is provenance, not a control: recessed tier, and the first
+    // thing to go when the row is tight.
+    if (row2.getWidth() >= 40)
+        deckSrcChipBounds[idx] = row2.removeFromRight (juce::jmin (44, row2.getWidth()));
+}
+
 void MainPluginEditor::resized()
 {
     auto area = getLocalBounds().reduced (24);
     auto header = area.removeFromTop (50);
     headerBarBounds = header;
 
-    // Left cluster: djay-Pro nav — icon-above-label cells (icon + text painted
-    // in paint(); the button itself is a naked click target).
+    // ── Header: ONE priority stack, left to right ────────────────────────────
+    // This used to be three independent passes — removeFromLeft for the nav and
+    // transport, removeFromRight for the tools cluster, and "whatever's left" for
+    // the title. Their fixed widths sum to 1528px, so on a 1280-wide window (a
+    // 1232px bar) the two passes overran each other by ~296px and removeFromRight
+    // silently clamped: the presets combo painted straight over the tempo chip.
+    //
+    // Expressing the bar as a single stack makes that impossible — LayoutStack
+    // sheds whole items, lowest priority first, and never returns overlapping
+    // rectangles. Priorities read as "what does a DJ lose last": the transport
+    // and the deck nav outrank the tempo readout, which outranks the preset
+    // plumbing, which outranks the wordmark.
     {
+        namespace L = stemdeck::layout;
+        namespace T = stemdeck::tokens;
+
+        enum HdrIdx { hNav0, hNav1, hNav2, hNav3, hNav4, hPlay, hRec, hAuto, hAutoStatus,
+                      hTitle, hTempo, hPresets, hSavePreset, hAddCh, hRemoveCh, hTools,
+                      hSettings, hNumItems };
+
+        const std::vector<L::Item> items {
+            L::Item::fixed (66, /*pri*/ 9, T::gap3),   // LIBRARY
+            L::Item::fixed (58, /*pri*/ 9, T::gap3),   // PERFORM
+            L::Item::fixed (56, /*pri*/ 8, T::gap3),   // MIXER
+            L::Item::fixed (66, /*pri*/ 8, T::gap3),   // ARRANGER
+            L::Item::fixed (92, /*pri*/ 6, T::gap6),   // FILES — first nav cell to go
+            L::Item::fixed (118, /*pri*/ 10, T::gap5), // PLAY ALL — transport never sheds
+            L::Item::fixed (78,  /*pri*/ 10, T::gap5), // REC
+            L::Item::fixed (84,  /*pri*/ 7, T::gap5),  // AUTO
+            // Status prose shrinks before anything else disappears.
+            L::Item::flexible (90, 196, 0.0f, /*pri*/ 4, T::gap6),
+            // The wordmark is branding: min 0, soaks up leftover, sheds silently.
+            L::Item::flexible (0, 0, 1.0f, /*pri*/ 1, T::gap6),
+            L::Item::fixed (150, /*pri*/ 8, T::gap6),  // TEMPO chip — BPM is load-bearing
+            L::Item::fixed (160, /*pri*/ 2, T::gap6),  // user presets
+            L::Item::fixed (108, /*pri*/ 3, T::gap5),  // Save Preset
+            L::Item::fixed (82,  /*pri*/ 5, T::gap3),  // + CHANNEL
+            L::Item::fixed (52,  /*pri*/ 5, T::gap5),  // channel count
+            L::Item::fixed (64,  /*pri*/ 6, T::gap5),  // TOOLS
+            L::Item::fixed (32,  /*pri*/ 6, 0),        // gear
+        };
+        static_assert (hNumItems == 17, "header item count must match the priority table");
+        jassert ((int) items.size() == hNumItems);
+
+        const auto cells = L::columns (header, items);
+
+        // Nav cells keep their 46px tall click target and feed navRects, which
+        // paint() uses for the icon/label and the sliding underline.
         juce::Component* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
                                         &pianoRollButton, &toggleBrowserButton };
-        const int widths[5] = { 66, 58, 56, 66, 92 };
         for (int i = 0; i < 5; ++i)
         {
-            auto cell = header.removeFromLeft (widths[i]).withSizeKeepingCentre (widths[i], 46);
-            navRects[(size_t) i] = cell;
-            navBtns[i]->setBounds (cell);
-            header.removeFromLeft (4);
+            const auto cell = cells[(size_t) (hNav0 + i)];
+            const auto sized = cell.isEmpty() ? juce::Rectangle<int>()
+                                              : cell.withSizeKeepingCentre (cell.getWidth(), 46);
+            navRects[(size_t) i] = sized;
+            navBtns[i]->setBounds (sized);
+            navBtns[i]->setVisible (! sized.isEmpty());
         }
+
+        // Height is per-item (34 for transport, 30 for chrome, 28 for the combo);
+        // an empty cell means the item was shed, so it gets empty bounds.
+        auto place = [&cells] (juce::Component& c, int idx, int h)
+        {
+            const auto cell = cells[(size_t) idx];
+            if (cell.isEmpty()) { c.setVisible (false); c.setBounds ({}); return; }
+            c.setVisible (true);
+            c.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), h));
+        };
+
+        place (masterPlayButton,    hPlay,       34);
+        place (topRecordButton,     hRec,        34);
+        place (automixButton,       hAuto,       34);
+        place (automixStatusLabel,  hAutoStatus, 30);
+        place (savePresetButton,    hSavePreset, 30);
+        place (userPresets,         hPresets,    28);
+        place (addChannelButton,    hAddCh,      30);
+        place (removeChannelButton, hRemoveCh,   30);
+        place (advancedToggle,      hTools,      30);
+        place (settingsButton,      hSettings,   30);
+
+        // The tempo chip is painted, not a Component; tempoLabel sits inside it.
+        const auto tempoCell = cells[(size_t) hTempo];
+        tempoChipBounds = tempoCell.isEmpty() ? juce::Rectangle<int>()
+                                              : tempoCell.withSizeKeepingCentre (tempoCell.getWidth(), 30);
+        tempoLabel.setBounds (tempoChipBounds.isEmpty() ? juce::Rectangle<int>()
+                                                        : tempoChipBounds.reduced (10, 0));
+        tempoLabel.setVisible (! tempoChipBounds.isEmpty());
+
+        // A Label WRAPS when its text does not fit, so a narrow title cell rendered
+        // "StemDec / k PRO" across two lines rather than degrading. The wordmark is
+        // the lowest-priority thing in the bar: below its legible width it goes.
+        const auto titleCell = cells[(size_t) hTitle];
+        title.setBounds (titleCell.getWidth() >= 96 ? titleCell : juce::Rectangle<int>());
+        subtitle.setBounds ({});   // mode line retired from the header (mockup layout)
     }
-    subtitle.setBounds ({});   // mode line retired from the header (mockup layout)
-    header.removeFromLeft (8);
-
-    // Universal transport: play/stop every deck at once (prominent, left of title).
-    masterPlayButton.setBounds (header.removeFromLeft (118).withSizeKeepingCentre (118, 34));
-    header.removeFromLeft (6);
-    topRecordButton.setBounds (header.removeFromLeft (78).withSizeKeepingCentre (78, 34));
-    header.removeFromLeft (6);
-    automixButton.setBounds (header.removeFromLeft (84).withSizeKeepingCentre (84, 34));
-    header.removeFromLeft (6);
-    automixStatusLabel.setBounds (header.removeFromLeft (196).withSizeKeepingCentre (196, 30));
-    header.removeFromLeft (10);
-
-    // Right cluster: settings gear / TOOLS / save / user presets / tempo chip.
-    settingsButton.setBounds (header.removeFromRight (32).withSizeKeepingCentre (32, 30));
-    header.removeFromRight (6);
-    advancedToggle.setVisible (true);
-    advancedToggle.setBounds (header.removeFromRight (64).withSizeKeepingCentre (64, 30));
-    header.removeFromRight (6);
-    // Channel count: add / remove a deck channel live.
-    removeChannelButton.setBounds (header.removeFromRight (44).withSizeKeepingCentre (44, 30));
-    header.removeFromRight (4);
-    addChannelButton.setBounds (header.removeFromRight (48).withSizeKeepingCentre (48, 30));
-    header.removeFromRight (6);
-    savePresetButton.setBounds (header.removeFromRight (108).withSizeKeepingCentre (108, 30));
-    header.removeFromRight (8);
-    userPresets.setBounds (header.removeFromRight (160).withSizeKeepingCentre (160, 28));
-    header.removeFromRight (10);
-    tempoChipBounds = header.removeFromRight (150).withSizeKeepingCentre (150, 30);
-    tempoLabel.setBounds (tempoChipBounds.reduced (10, 0));
-    header.removeFromRight (12);
-
-    // Centre: title fills whatever remains.
-    title.setBounds (header);
 
     // View-switcher strip removed (the mockup has no transport row under the title).
 
@@ -4098,7 +4290,7 @@ void MainPluginEditor::resized()
         &standaloneWorkflowGuide,
         &masterKeyLabel, &masterKey, &syncAllDecksButton,
         &rbxExportButton, &rbxImportButton, &saveProjButton, &openProjButton,
-        &metronomeButton, &talkoverButton, &overlapModeButton };
+        &metronomeButton, &talkoverButton };   // overlapMode moved to the ARRANGER toolbar
 
     // FX plugin-host controls: only shown when the hosting path is actually wired
     // (see STEMDECK_ENABLE_PLUGIN_HOST). Kept out of the array above so they never
@@ -4145,8 +4337,7 @@ void MainPluginEditor::resized()
         saveProjButton.setBounds (keyRow.removeFromLeft (90));        keyRow.removeFromLeft (6);
         openProjButton.setBounds (keyRow.removeFromLeft (90));        keyRow.removeFromLeft (12);
         metronomeButton.setBounds (keyRow.removeFromLeft (54));       keyRow.removeFromLeft (6);
-        talkoverButton.setBounds (keyRow.removeFromLeft (54));        keyRow.removeFromLeft (6);
-        overlapModeButton.setBounds (keyRow.removeFromLeft (44));
+        talkoverButton.setBounds (keyRow.removeFromLeft (54));
         area.removeFromTop (6);
     }
     else
@@ -4171,7 +4362,14 @@ void MainPluginEditor::resized()
     // timer tick (and does, on construction).
     refreshChannelStrips();
 
-    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() * 52 / 100));
+    // The perform screen is now three fixed-purpose bands, so allocate explicitly
+    // rather than by percentage. The master band and the pad strip take what they
+    // need and the CHANNELS take everything else — they are the point of this
+    // screen, and under the old 52% rule they were capped while a footer grew.
+    constexpr int kMasterBandH = 128;
+    constexpr int kPadStripH   = 132;
+    const int reservedBelow = kMasterBandH + kPadStripH + stemdeck::tokens::gap6 * 2;
+    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() - reservedBelow));
     const int deckGap = 10;
     // Render only the channels that actually exist: removing a channel widens the
     // rest, adding one narrows them. Clamped to the deck UIs the editor owns —
@@ -4192,14 +4390,64 @@ void MainPluginEditor::resized()
         decksArea.removeFromRight (deckGap);
     }
 
-    // Every channel gets an EQUAL, FULL column — decks and input/instrument alike.
-    // An earlier build collapsed idle channels to a slim strip (reference §4); that was
-    // removed on request. Uniform sizing also means removing a channel simply widens
-    // the rest, so paring the session back to a single deck fills the row.
-    const int deckWidth = juce::jmax (120,
-        (decksArea.getWidth() - deckGap * (totalColumns - 1)) / juce::jmax (1, totalColumns));
+    // ── Column widths: an idle channel is a drop target, not a cockpit ───────
+    // Equal widths (the previous rule) meant an empty channel claimed as much of
+    // the row as a channel you were actually mixing on. With one track loaded and
+    // three empty, three quarters of the perform surface was dashed rectangle
+    // while the working channel's EQ knobs were squeezed to ~16px.
+    //
+    // An idle TRACK DECK now takes a narrow fixed column — enough for its header
+    // and a legible drop target — and hands the difference to the channels doing
+    // work. Input and MIDI-instrument channels are never "idle": they carry live
+    // meters, so they always count as active.
+    constexpr int kIdleColumnW = 132;
+    // A channel strip stops becoming more usable past roughly this width — its
+    // controls just stretch. Without a cap, one loaded channel beside three idle
+    // ones ballooned to ~1130px and gave itself a 610px-wide PLAY button, which
+    // is the same "space in the wrong place" failure as the footer, inverted.
+    constexpr int kMaxChannelW = 344;
 
-    const auto columnWidth = [deckWidth] (int) { return deckWidth; };
+    int idleCols = 0;
+    for (int c = 0; c < visibleDecks; ++c)
+        if (! deckHasContent (c)) ++idleCols;
+
+    const int totalGaps  = deckGap * juce::jmax (0, totalColumns - 1);
+    const int avail      = decksArea.getWidth() - totalGaps;
+    const int activeCols = totalColumns - idleCols;
+
+    // Equal columns when nothing is loaded — an all-idle row should fill the
+    // width rather than huddle at the left.
+    int activeW = juce::jlimit (120, kMaxChannelW, avail / juce::jmax (1, totalColumns));
+    int idleW   = activeW;
+
+    if (idleCols > 0 && activeCols > 0)
+    {
+        const int candidate = (avail - idleCols * kIdleColumnW) / activeCols;
+        if (candidate > kIdleColumnW)
+        {
+            activeW = juce::jlimit (120, kMaxChannelW, candidate);
+            // Hand any slack left by the cap back to the idle columns, so a capped
+            // row still fills the width instead of trailing dead space.
+            idleW = juce::jlimit (kIdleColumnW, activeW,
+                                  (avail - activeCols * activeW) / juce::jmax (1, idleCols));
+        }
+    }
+
+    const int deckWidth = activeW;   // width of a channel that is doing work
+
+    const auto columnWidth = [this, activeW, idleW, visibleDecks] (int col)
+    {
+        const bool idle = col < visibleDecks && ! deckHasContent (col);
+        return idle ? idleW : activeW;
+    };
+
+    // Centre the row when the caps leave it narrower than the band.
+    {
+        int used = totalGaps;
+        for (int c = 0; c < totalColumns; ++c) used += columnWidth (c);
+        if (const int slack = decksArea.getWidth() - used; slack > 0)
+            decksArea.removeFromLeft (slack / 2);
+    }
 
     // Non-deck channels claim their column first (they sit after the decks, since
     // addChannel appends), leaving the deck columns for the deck loop below.
@@ -4229,13 +4477,14 @@ void MainPluginEditor::resized()
             deckPanelBounds[(size_t) deckIndex]     = {};
             deckHeaderBounds[(size_t) deckIndex]    = {};
             deckCollapsedBounds[(size_t) deckIndex] = {};
+            layoutDeckHeaderChips (deckIndex);   // clears the chip hit targets too
             if (auto* strip = deckStrips[(size_t) deckIndex].get()) { strip->setVisible (false); strip->setBounds ({}); }
             if (auto* w = deckWaves[(size_t) deckIndex].get())       { w->setVisible (false); w->setBounds ({}); }
             if (auto* r = deckWaveRegions[(size_t) deckIndex].get()) { r->setVisible (false); r->setBounds ({}); }
             continue;
         }
 
-        auto laneOuter = decksArea.removeFromLeft (deckWidth);
+        auto laneOuter = decksArea.removeFromLeft (columnWidth (deckIndex));
         if (deckIndex < visibleDecks - 1) decksArea.removeFromLeft (deckGap);
 
         deckCollapsedBounds[(size_t) deckIndex] = {};   // no collapsed strips in the horizontal layout
@@ -4246,9 +4495,10 @@ void MainPluginEditor::resized()
 
         auto& controls = deckControls[(size_t) deckIndex];
 
-        // Header strip (badge + filename + chips — painted in paint()).
-        auto headerStrip = lane.removeFromTop (22);
+        // Header strip: two rows (identity, then numerics) — see layoutDeckHeaderChips.
+        auto headerStrip = lane.removeFromTop (38);
         deckHeaderBounds[(size_t) deckIndex] = headerStrip;
+        layoutDeckHeaderChips (deckIndex);   // hit targets — geometry belongs here, not in paint()
         lane.removeFromTop (6);
 
         // Progressive disclosure: an empty channel is a large, calm load target,
@@ -4272,8 +4522,15 @@ void MainPluginEditor::resized()
             if (auto* wave = deckWaves[(size_t) deckIndex].get())
             {
                 wave->setVisible (true);
-                wave->setAlpha (1.0f);
-                wave->setBounds (lane.reduced (2, 2));
+                // RECESSED tier. An idle channel is an invitation, not a subject:
+                // letting the drop target fill its whole column made three empty
+                // channels the heaviest thing on the screen. Cap and centre it so
+                // the column can still absorb layout slack without the emptiness
+                // shouting louder than the channel actually playing.
+                wave->setAlpha (0.72f);
+                wave->setBounds (lane.reduced (2, 2)
+                                     .withSizeKeepingCentre (juce::jmin (lane.getWidth() - 4, 210),
+                                                             juce::jmin (lane.getHeight() - 4, 260)));
             }
             continue;
         }
@@ -4281,29 +4538,20 @@ void MainPluginEditor::resized()
         controls.play.setVisible (true);
         controls.cue .setVisible (true);
 
-        // ---- Bottom-up fixed sections; the waveform claims the flexible middle ----
-
-        // Status row (key / stem provider status).
-        // Deck footer status text removed for the clean 1:1 view (advanced only).
-        auto statusRow = lane.removeFromBottom (advancedVisible ? 13 : 0);
-        if (advancedVisible)
-        {
-            controls.keyInfo.setVisible (true); controls.stemStatus.setVisible (true);
-            controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
-            controls.stemStatus.setBounds (statusRow);
-        }
-        else
-        {
-            controls.keyInfo.setVisible (false);   controls.keyInfo.setBounds ({});
-            controls.stemStatus.setVisible (false); controls.stemStatus.setBounds ({});
-        }
-        lane.removeFromBottom (4);
-
-        // Toolbox content (the active tab's controls render here).
-        // Reference §3: the panel is min-height 52 and GROWS to fit its content, so
-        // size the well to the active tab instead of forcing all five into one height.
-        // A fixed 66 left CUE with dead space while SYNC's painted BPM/BEAT/DOWN
-        // labels — drawn 13px above their row — collided with the tab strip above.
+        // ---- Deck lane: ONE priority stack, top to bottom ----------------------
+        //
+        // This was a bottom-up chain of removeFromBottom(<literal>) with the
+        // waveform silently inheriting whatever was left. The chrome below the
+        // waveform is ~311px fixed, so at the 378px minimum band height the
+        // waveform got 67px — about 17px per stem lane — and the stem-coloured
+        // waveform, the Tier-1 differentiator, collapsed into four flat bars.
+        // Chrome took 82% of the deck exactly when space was scarce.
+        //
+        // Now every row declares a floor, a preferred size and a priority, and
+        // LayoutStack shrinks the LOWEST priority first. The waveform has the
+        // highest priority AND a hard floor, so the chrome gives up its slack
+        // before the waveform gives up anything. Same 378px band now yields a
+        // ~123px waveform with every row still present.
         constexpr int kLabelHeadroom = 13;   // matches drawAbove()'s -13 offset
         const int wellH = [tab = controls.activeToolTab]
         {
@@ -4319,30 +4567,89 @@ void MainPluginEditor::resized()
                 default:                    return 66;
             }
         }();
-        auto tabContent = lane.removeFromBottom (juce::jmax (52, wellH) + 2 * stemdeck::tokens::gap2);
+
+        juce::Rectangle<int> tabContent, tabStrip, mixBand, transport, knobRow, statusRow;
+        {
+            namespace L = stemdeck::layout;
+            namespace T = stemdeck::tokens;
+
+            // The waveform's floor. Below this the four stem columns cannot show
+            // envelope structure and the display stops carrying information.
+            constexpr int kWaveFloor = 110;
+
+            enum { dWave, dKnobs, dTransport, dMix, dTabStrip, dTabContent, dStatus, dNumRows };
+            const std::vector<L::Item> rowSpec {
+                // Signature row: highest priority and a hard floor, but it ASKS for
+                // only its floor and then grows into whatever is left over. Asking
+                // for a large preferred size instead would squeeze the chrome even
+                // on a roomy window — that cost the CUE tab its intro/outro row at
+                // 1680x1050, where there was plenty of space for both.
+                L::Item::flexible (kWaveFloor, kWaveFloor, 1.0f, /*pri*/ 10, T::gap5),
+                L::Item::flexible (32, 46, 0.0f, /*pri*/ 7, T::gap5),   // stem gain knobs
+                L::Item::fixed    (28,           /*pri*/ 9, T::gap5),   // PLAY / CUE — must stay
+                L::Item::flexible (62, 78, 0.0f, /*pri*/ 8, T::gap6),   // EQ + faders
+                L::Item::fixed    (26,           /*pri*/ 5, T::gap2),   // tab strip
+                // The tab well shrinks to its first row (the 8 hot cues) before
+                // anything else is sacrificed — losing cues beats losing the wave.
+                L::Item::flexible (26, juce::jmax (52, wellH) + 2 * T::gap2, 0.0f, /*pri*/ 4, T::gap3),
+                L::Item::fixed    (advancedVisible ? 13 : 0, /*pri*/ 1, 0),
+            };
+            jassert ((int) rowSpec.size() == dNumRows);
+
+            const auto r = L::rows (lane, rowSpec);
+            lane       = r[dWave];        // the waveform region owns what it won
+            knobRow    = r[dKnobs];
+            transport  = r[dTransport];
+            mixBand    = r[dMix].isEmpty() ? juce::Rectangle<int>()
+                                           : r[dMix].withTrimmedTop (kLabelHeadroom + 1);
+            tabStrip   = r[dTabStrip];
+            tabContent = r[dTabContent];
+            statusRow  = r[dStatus];
+        }
+
+        // Status row (key / stem provider status).
+        // Deck footer status text removed for the clean 1:1 view (advanced only).
+        if (advancedVisible && ! statusRow.isEmpty())
+        {
+            controls.keyInfo.setVisible (true); controls.stemStatus.setVisible (true);
+            controls.keyInfo   .setBounds (statusRow.removeFromLeft (statusRow.getWidth() / 2));
+            controls.stemStatus.setBounds (statusRow);
+        }
+        else
+        {
+            controls.keyInfo.setVisible (false);   controls.keyInfo.setBounds ({});
+            controls.stemStatus.setVisible (false); controls.stemStatus.setBounds ({});
+        }
+
+        // Toolbox content (the active tab's controls render here).
+        // Reference §3: the panel is min-height 52 and GROWS to fit its content, so
+        // size the well to the active tab instead of forcing all five into one height.
         deckTabPanelBounds[(size_t) deckIndex] = tabContent;
-        tabContent = tabContent.reduced (stemdeck::tokens::gap2);   // the well's own padding
-        lane.removeFromBottom (3);
+        if (! tabContent.isEmpty())
+            tabContent = tabContent.reduced (stemdeck::tokens::gap2);   // the well's own padding
 
         // Toolbox tab strip (CUE / LOOP / FX / SYNC / SRC). The strip is a track
         // (painted in paint()) with the segments inset by its 3px padding; gap-2
         // between segments, per the reference.
-        auto tabStrip = lane.removeFromBottom (26);
         deckTabStripBounds[(size_t) deckIndex] = tabStrip;
+        if (! tabStrip.isEmpty())
         {
             auto seg = tabStrip.reduced (stemdeck::tokens::gap2);
             const int tw = seg.getWidth() / DeckControls::NumToolTabs;
             for (int t = 0; t < DeckControls::NumToolTabs; ++t)
             {
                 auto cell = seg.removeFromLeft (t == DeckControls::NumToolTabs - 1 ? seg.getWidth() : tw);
+                controls.toolTabs[(size_t) t].setVisible (true);
                 controls.toolTabs[(size_t) t].setBounds (cell.withTrimmedRight (
                     t == DeckControls::NumToolTabs - 1 ? 0 : stemdeck::tokens::gap2));
             }
         }
-        lane.removeFromBottom (8);
+        else
+        {
+            for (auto& tab : controls.toolTabs) { tab.setVisible (false); tab.setBounds ({}); }
+        }
 
         // Mix band: EQ knobs (left) + VOL / FADER / PITCH vertical faders (right).
-        auto mixBand = lane.removeFromBottom (78).withTrimmedTop (14);   // 14px headroom for the painted VOL/XF/PITCH labels
         {
             const int faderColW = 32, fgap = 4;
             auto fadersCol = mixBand.removeFromRight (faderColW * 3 + fgap * 2);
@@ -4360,10 +4667,8 @@ void MainPluginEditor::resized()
             fadersCol.removeFromLeft (fgap);
             controls.pitch .setBounds (fadersCol.reduced (3, 2));
         }
-        lane.removeFromBottom (6);
 
         // Transport row — PLAY + CUE + 3 tiny CF-assign buttons on the right
-        auto transport = lane.removeFromBottom (28);
         {
             auto cfCol = transport.removeFromRight (54);
             transport.removeFromRight (4);
@@ -4374,7 +4679,6 @@ void MainPluginEditor::resized()
             controls.play.setBounds (transport.removeFromLeft (w * 58 / 100).reduced (1, 0));
             controls.cue .setBounds (transport.reduced (1, 0));
         }
-        lane.removeFromBottom (6);
 
         // ── Waveform + stem gain (§2/§3) ─────────────────────────────────────────
         // Loaded deck: the two-zone WaveformRegion fills the lane and the stem gain
@@ -4387,7 +4691,6 @@ void MainPluginEditor::resized()
         if (loaded && region != nullptr)
         {
             deckStemBounds[(size_t) deckIndex] = {};                 // no painted cells
-            auto knobRow = lane.removeFromBottom (46);
             region->setVisible (true);
             region->setBounds (lane);
             if (wave) { wave->setVisible (false); wave->setBounds ({}); }
@@ -4410,8 +4713,13 @@ void MainPluginEditor::resized()
         }
         else
         {
+            // Fallback: a loaded deck with no WaveformRegion. The stem strip needs
+            // more height than the docked-knob row, so reclaim that row — the two
+            // are adjacent, so their union is exactly the space both would occupy.
+            auto avail = knobRow.isEmpty() ? lane : lane.getUnion (knobRow);
+
             // Empty deck: djay-Pro cells — DRUMS/BASS/MUSIC/VOCALS mini-faders + FX.
-            auto stemStrip = lane.removeFromBottom (72);
+            auto stemStrip = avail.removeFromBottom (juce::jmin (72, avail.getHeight() / 2));
             deckStemBounds[(size_t) deckIndex] = stemStrip;
             const int cellW = juce::jmax (28, stemStrip.getWidth() / 5);
             auto cells = stemStrip;
@@ -4428,13 +4736,22 @@ void MainPluginEditor::resized()
             fxCell.removeFromBottom (10);
             controls.reverbMix.setVisible (true);
             controls.reverbMix.setBounds (fxCell.reduced (2, 0));
-            lane.removeFromBottom (6);
+            avail.removeFromBottom (stemdeck::tokens::gap5);
 
             if (region) { region->setVisible (false); region->setBounds ({}); }
-            if (wave)   { wave->setVisible (true);     wave->setBounds (lane); }
+            if (wave)   { wave->setVisible (true);     wave->setBounds (avail); }
         }
 
         // ---- Active toolbox tab content ----
+        // The well shrinks under pressure and can shed entirely; skip the content
+        // pass rather than laying controls out inside a zero-height rectangle.
+        if (tabContent.isEmpty())
+        {
+            applyDeckToolTabVisibility (deckIndex);
+            applyDeckControlWeights (deckIndex);
+            continue;
+        }
+
         switch (controls.activeToolTab)
         {
             case DeckControls::TabCue:
@@ -4551,6 +4868,7 @@ void MainPluginEditor::resized()
         }
 
         applyDeckToolTabVisibility (deckIndex);
+        applyDeckControlWeights (deckIndex);
     }
 
     // The full deck already exposes transport, cues, loops, sync and key tools.
@@ -4575,25 +4893,37 @@ void MainPluginEditor::resized()
     juce::Component* mixExtras[] = { &micGain, &hostSync, &beatSync, &micMonitor, &liveMidiButton,
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
                                      &razorButton, &bounceEditsButton, &undoButton, &redoButton };
-    auto band = area.removeFromTop (150);
+    // SCOPE and SYNC used to sit side by side, spending 180px of width between
+    // them on a near-empty scope reading "-inf dB" and two oversized buttons that
+    // read as unfinished placeholders — the exact inverse of the channel strips,
+    // which were packing forty controls into 230px. Stacking them into one 128px
+    // column halves that footprint and gives the width back to the FX rack.
+    auto band = area.removeFromTop (kMasterBandH);
     const int panelGap = 8;
-    scopePanelBounds    = band.removeFromLeft (84);            band.removeFromLeft (panelGap);
-    syncPanelBounds     = band.removeFromLeft (88);            band.removeFromLeft (panelGap);
+    {
+        auto leftCol = band.removeFromLeft (128);
+        band.removeFromLeft (panelGap);
+        scopePanelBounds = leftCol.removeFromTop (leftCol.getHeight() * 52 / 100);
+        leftCol.removeFromTop (stemdeck::tokens::gap4);
+        syncPanelBounds = leftCol;
+    }
     masterOutBounds     = band.removeFromRight (282);          band.removeFromRight (panelGap);
     masterFxPanelBounds = band.removeFromRight (100);          band.removeFromRight (panelGap);
-    xfPanelBounds       = band;                                // crossfader gets the rest
+    xfPanelBounds       = band;                                // the FX rack gets the rest
 
     // SCOPE — the master scope component fills the panel.
     mixerPanel.setBounds (scopePanelBounds.reduced (4));
 
-    // SYNC — two stacked pills; the panel header supplies the word "sync".
+    // SYNC — BPM and KEY side by side. They were full-height stacked buttons,
+    // which made two occasional actions the largest controls in the region.
     {
         for (auto* c : { &syncBpmButton, &syncKeyButton }) c->setVisible (true);
-        auto s = syncPanelBounds.reduced (8);
-        s.removeFromTop (12);   // painted "SYNC" header
-        const int ph = (s.getHeight() - 6) / 2;
-        syncBpmButton.setBounds (s.removeFromTop (ph)); s.removeFromTop (6);
-        syncKeyButton.setBounds (s.removeFromTop (ph));
+        auto s = syncPanelBounds.reduced (7);
+        s.removeFromTop (11);   // painted "SYNC" header
+        const int pw = (s.getWidth() - stemdeck::tokens::gap4) / 2;
+        syncBpmButton.setBounds (s.removeFromLeft (pw));
+        s.removeFromLeft (stemdeck::tokens::gap4);
+        syncKeyButton.setBounds (s.removeFromLeft (pw));
     }
 
     // MASTER FX — a single FILTER XY pad (option A: the panel fits the pad).
@@ -4620,8 +4950,10 @@ void MainPluginEditor::resized()
         micMonitor.setBounds (util.removeFromLeft (104)); util.removeFromLeft (6);
         liveMidiButton.setBounds (util.removeFromLeft (94)); util.removeFromLeft (6);
         micGain.setBounds (util.removeFromLeft (84)); util.removeFromLeft (6);
-        chip (camelotButton, 44); chip (midiLearnButton, 48); chip (snapToggleButton, 48);
-        chip (razorButton, 50); chip (bounceEditsButton, 64); chip (undoButton, 46); chip (redoButton, 46);
+        // Snap / razor / bounce / undo / redo moved to the ARRANGER toolbar — they
+        // edit the arrangement, so hiding them behind TOOLS on the perform screen
+        // meant the editing surface had no visible undo.
+        chip (camelotButton, 44); chip (midiLearnButton, 48);
         area.removeFromTop (6);
     }
     else
@@ -4678,94 +5010,225 @@ void MainPluginEditor::resized()
         reloadIntoDecksButton.setVisible (false); reloadIntoDecksButton.setBounds ({});
     }
 
-    area.removeFromTop (8);
+    area.removeFromTop (stemdeck::tokens::gap6);
+
+    // ── PERFORM footer: the performance pads ─────────────────────────────────
+    // This strip used to be the arrangement-capture timeline. That put the
+    // product's central claim — perform it, then edit it — in a footer, at the
+    // smallest and least developed size on the screen, while the pads (a
+    // hands-on perform control) were squeezed into a 24px collapsed header
+    // beneath it. Both were in the wrong place.
+    //
+    // The arrangement now owns the whole ARRANGER surface (see the overlay block
+    // below). The pads get the perform footer, at a size you can actually hit.
     {
-        // djay-Pro transport: label left, centred >>> ▶ ● Loop cluster, zoom right.
-        auto labelRow = area.removeFromTop (28);
-        arrangementLabel.setBounds (labelRow.removeFromLeft (labelRow.getWidth() * 28 / 100));
-        auto zoomBox = labelRow.removeFromRight (128);
-        arrZoomFitButton.setBounds (zoomBox.removeFromRight (40).reduced (1, 2));
-        zoomBox.removeFromRight (4);
-        arrZoomInButton .setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
-        arrZoomOutButton.setBounds (zoomBox.removeFromRight (32).reduced (1, 2));
+        bool anyPad = false;
+        for (int i = 0; i < PadBank::numPads; ++i)
+            if (processorRef.getPadPath (i).isNotEmpty()) { anyPad = true; break; }
+        padsCollapsed = ! anyPad;
 
-        // 56px each so "LAUNCH" / "Record" fit without ellipsizing (was 44 → "Rec...").
-        auto cluster = labelRow.withSizeKeepingCentre (56 * 4 + 6 * 3, 26);
-        auto tbtn = [&cluster] (juce::Component& c) { c.setBounds (cluster.removeFromLeft (56)); cluster.removeFromLeft (6); };
-        tbtn (launchAllButton);
-        tbtn (playArrButton);
-        tbtn (arrRecordButton);
-        tbtn (arrLoopButton);
-
-        labelRow.removeFromRight (8);
+        // Bounded: the pads are a footer, not the subject. Left unbounded they took
+        // whatever the channels did not, and eight 200px pads with hollow centres is
+        // the same low-density mistake the old SCOPE panel was making.
+        auto padArea = area.removeFromTop (juce::jmin (area.getHeight(), kPadStripH));
+        auto labelRow = padArea.removeFromTop (20);
+        samplerLabel.setBounds (labelRow.removeFromLeft (150));
+        labelRow.removeFromLeft (stemdeck::tokens::gap5);
+        recordStatus.setBounds (labelRow.removeFromRight (190).reduced (2, 2));
+        labelRow.removeFromRight (stemdeck::tokens::gap5);
         libraryMetaLabel.setBounds (labelRow);   // MIDI-learn / status feedback
-    }
-    // Performance pads relocate to a compact full-width strip along the bottom, so
-    // the arrangement spans the ENTIRE width above them. Empty (§1.3 / Step 5): the
-    // strip collapses to a single-line header and hands its height to the arrangement.
-    bool anyPad = false;
-    for (int i = 0; i < PadBank::numPads; ++i)
-        if (processorRef.getPadPath (i).isNotEmpty()) { anyPad = true; break; }
-    padsCollapsed = ! anyPad;
+        padArea.removeFromTop (stemdeck::tokens::gap4);
 
-    auto bottom = area;
-    auto samplerStrip = bottom.removeFromBottom (anyPad ? 64 : 24);
-    bottom.removeFromBottom (8);
-    arrangementView.setBounds (bottom);   // full-width arrangement timeline
-
-    samplerLabel.setBounds (samplerStrip.removeFromLeft (150));
-    samplerStrip.removeFromLeft (6);
-    // Recording status chip anchors the right end of the pads strip.
-    recordStatus.setBounds (samplerStrip.removeFromRight (170).reduced (2, anyPad ? 14 : 4));
-    samplerStrip.removeFromRight (6);
-
-    if (! anyPad)
-    {
-        // Collapsed: hide every pad control; the painted header carries a hint.
-        for (auto& p : pads) { for (juce::Component* c : { (juce::Component*) &p.trigger,
-                                                           (juce::Component*) &p.load,
-                                                           (juce::Component*) &p.gain })
-            { c->setVisible (false); c->setBounds ({}); } }
-    }
-    else
-    {
-        const int padGap = 6;
-        const int padW = juce::jmax (96,
-            (samplerStrip.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
+        // Pads are HERO-tier: one of the few things struck under pressure, so they
+        // get real height rather than the leftover sliver they used to live in.
+        const int padGap = stemdeck::tokens::gap5;
+        const int padW = juce::jmax (72,
+            (padArea.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
         for (int i = 0; i < PadBank::numPads; ++i)
         {
-            auto cell = samplerStrip.removeFromLeft (padW);
+            auto cell = padArea.removeFromLeft (padW);
             if (i < PadBank::numPads - 1)
-                samplerStrip.removeFromLeft (padGap);
+                padArea.removeFromLeft (padGap);
 
             for (juce::Component* c : { (juce::Component*) &pads[(size_t) i].trigger,
                                         (juce::Component*) &pads[(size_t) i].load,
                                         (juce::Component*) &pads[(size_t) i].gain })
                 c->setVisible (true);
-            auto top = cell.removeFromTop (cell.getHeight() * 58 / 100);
+
+            // The trigger keeps the bulk; load/gain are recessed beneath it.
+            auto top = cell.removeFromTop (juce::jmax (28, cell.getHeight() * 64 / 100));
             pads[(size_t) i].trigger.setBounds (top.reduced (1, 1));
-            cell.removeFromTop (2);
+            cell.removeFromTop (stemdeck::tokens::gap1);
             pads[(size_t) i].load.setBounds (cell.removeFromLeft (cell.getWidth() * 42 / 100).reduced (1, 0));
-            cell.removeFromLeft (3);
+            cell.removeFromLeft (stemdeck::tokens::gap2);
             pads[(size_t) i].gain.setBounds (cell.reduced (1, 0));
         }
     }
 
-    // Piano-roll / mixer overlays cover the decks + arrangement when toggled on.
+    // Piano-roll / mixer overlays cover the decks + footer when toggled on.
     // Anchor to the actual deck-strip top (not a hardcoded offset) so header/nav
     // stay visible even if the upper sections change height.
     const int overlayTop = deckPanelBounds[0].isEmpty() ? 252 : deckPanelBounds[0].getY();
     const auto overlay = getLocalBounds().withTrimmedTop (overlayTop).reduced (8, 6);
     pianoRoll.setBounds (overlay);
     mixerView.setBounds (overlay);
-    // ARRANGER: energy arc on top (~34% up to 190px), clip timeline below.
+
+    // ── ARRANGER: the arrangement is the surface, not a footer ───────────────
+    // Energy arc across the top, the editing toolbar under it, and the capture
+    // timeline taking everything that remains. mixArrangeView (a read-only
+    // snapshot of the same material) is no longer shown here — arrangementView
+    // is the editable one, and two timelines stacked was the confusion.
+    layoutArrangerSurface (overlay);
+
+    // "One primary surface at a time" has to be ENFORCED, not just intended.
+    // The overlays are opaque only where a component actually sits, so the gaps
+    // between them — the arranger's toolbar row, for instance — were showing the
+    // deck waveforms straight through from the perform screen underneath.
+    if (pianoRollButton.getToggleState() || mixerButton.getToggleState() || pianoRoll.isVisible())
+        hidePerformSurface();
+}
+
+// Hide every perform-screen control so an overlay surface reads as its own
+// screen. resized() lays the perform surface out unconditionally and then calls
+// this, which keeps the layout logic in one place at the cost of one extra pass.
+void MainPluginEditor::hidePerformSurface()
+{
+    auto hide = [] (juce::Component& c) { c.setVisible (false); c.setBounds ({}); };
+
+    for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
-        auto arr = overlay;
-        auto arcArea = arr.removeFromTop (juce::jlimit (120, 190, arr.getHeight() * 34 / 100));
-        arr.removeFromTop (6);
-        energyArc.setBounds (arcArea);
-        mixArrangeView.setBounds (arr);
+        auto& c = deckControls[(size_t) d];
+        for (juce::Component* comp : { (juce::Component*) &c.play,     (juce::Component*) &c.cue,
+                                       (juce::Component*) &c.volume,   (juce::Component*) &c.fader,
+                                       (juce::Component*) &c.pitch,    (juce::Component*) &c.low,
+                                       (juce::Component*) &c.mid,      (juce::Component*) &c.high,
+                                       (juce::Component*) &c.filter,   (juce::Component*) &c.bpm,
+                                       (juce::Component*) &c.beatOffset, (juce::Component*) &c.downbeat,
+                                       (juce::Component*) &c.reverbMix, (juce::Component*) &c.echoMix,
+                                       (juce::Component*) &c.macroKnob, (juce::Component*) &c.load,
+                                       (juce::Component*) &c.loadStem,  (juce::Component*) &c.aiStems,
+                                       (juce::Component*) &c.stemLane,  (juce::Component*) &c.keyInfo,
+                                       (juce::Component*) &c.stemStatus, (juce::Component*) &c.extractMidi,
+                                       (juce::Component*) &c.extractDrums, (juce::Component*) &c.keyLock,
+                                       (juce::Component*) &c.liveKey,   (juce::Component*) &c.loopToggle,
+                                       (juce::Component*) &c.loopIn,    (juce::Component*) &c.loopOut,
+                                       (juce::Component*) &c.loopHalf,  (juce::Component*) &c.loopDouble,
+                                       (juce::Component*) &c.slipButton, (juce::Component*) &c.introEndBtn,
+                                       (juce::Component*) &c.outroStartBtn, (juce::Component*) &c.tempoInterpretation,
+                                       (juce::Component*) &c.syncMode,  (juce::Component*) &c.keyTarget })
+            hide (*comp);
+
+        for (auto& b : c.hotCues)      hide (b);
+        for (auto& b : c.toolTabs)     hide (b);
+        for (auto& b : c.beatRollBtns) hide (b);
+        for (auto& b : c.beatJumpBack) hide (b);
+        for (auto& b : c.beatJumpFwd)  hide (b);
+        for (auto& b : c.cfSideBtns)   hide (b);
+        for (auto& s : c.stemGains)    hide (s);
+        for (auto& s : c.stemFilt)     hide (s);
+        for (auto& s : c.stemSend)     hide (s);
+        for (auto& s : c.stemPitch)    hide (s);
+
+        if (auto* w = deckWaves[(size_t) d].get())       hide (*w);
+        if (auto* r = deckWaveRegions[(size_t) d].get()) hide (*r);
+        if (auto* s = deckStrips[(size_t) d].get())      hide (*s);
+
+        // Painted regions are keyed off these rectangles, so clearing them stops
+        // paint() drawing deck panels, chips and stem cells behind the overlay.
+        deckPanelBounds[(size_t) d]    = {};
+        deckHeaderBounds[(size_t) d]   = {};
+        deckStemBounds[(size_t) d]     = {};
+        deckStemFxBounds[(size_t) d]   = {};
+        deckTabStripBounds[(size_t) d] = {};
+        deckTabPanelBounds[(size_t) d] = {};
+        deckMeterBounds[(size_t) d]    = {};
+        layoutDeckHeaderChips (d);
     }
+
+    for (auto& strip : channelStrips)
+        if (auto* s = strip.get()) hide (*s);
+
+    for (auto& p : pads) { hide (p.trigger); hide (p.load); hide (p.gain); }
+
+    for (juce::Component* comp : { (juce::Component*) &mixerPanel,   (juce::Component*) &fxRack,
+                                   (juce::Component*) &masterFxPad,  (juce::Component*) &syncBpmButton,
+                                   (juce::Component*) &syncKeyButton, (juce::Component*) &master,
+                                   (juce::Component*) &limiter,      (juce::Component*) &aiMasterButton,
+                                   (juce::Component*) &aiMasterMode, (juce::Component*) &aiMasterAmount,
+                                   (juce::Component*) &tapTempoButton, (juce::Component*) &keyLockAllButton,
+                                   (juce::Component*) &samplerLabel, (juce::Component*) &recordStatus })
+        hide (*comp);
+
+    addChannelTileBounds = {};
+    scopePanelBounds = syncPanelBounds = xfPanelBounds = {};
+    masterFxPanelBounds = masterOutBounds = masterMeterBounds = {};
+    masterTempoBounds = masterLufsBounds = {};
+}
+
+// Lays out the ARRANGER surface inside `bounds`, and hides every one of its
+// controls when the ARRANGER view is not the active one. Split out of resized()
+// because it owns a self-contained set of ~14 components whose visibility is
+// driven by the nav toggle rather than by the perform layout.
+void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
+{
+    namespace T = stemdeck::tokens;
+
+    juce::Component* arrangerControls[] = {
+        &arrangementLabel, &launchAllButton, &playArrButton, &arrRecordButton, &arrLoopButton,
+        &arrZoomOutButton, &arrZoomInButton, &arrZoomFitButton,
+        &snapToggleButton, &razorButton, &overlapModeButton,
+        &undoButton, &redoButton, &bounceEditsButton };
+
+    const bool showing = pianoRollButton.getToggleState();
+    if (! showing || bounds.isEmpty())
+    {
+        for (auto* c : arrangerControls) { c->setVisible (false); c->setBounds ({}); }
+        arrangementView.setVisible (false);
+        arrangementView.setBounds ({});
+        return;
+    }
+
+    for (auto* c : arrangerControls) c->setVisible (true);
+    arrangementView.setVisible (true);
+
+    // Energy arc is context, not the subject: cap it so the timeline keeps the
+    // room. It was taking up to 190px of a footer-sized region before.
+    auto arcArea = bounds.removeFromTop (juce::jlimit (84, 150, bounds.getHeight() * 22 / 100));
+    energyArc.setBounds (arcArea);
+    bounds.removeFromTop (T::gap5);
+
+    // Toolbar: title left, transport centred, edit tools + zoom right.
+    auto bar = bounds.removeFromTop (28);
+    arrangementLabel.setBounds (bar.removeFromLeft (juce::jmin (200, bar.getWidth() / 4)));
+
+    auto zoomBox = bar.removeFromRight (112);
+    arrZoomFitButton.setBounds (zoomBox.removeFromRight (36).reduced (1, 2));
+    zoomBox.removeFromRight (T::gap2);
+    arrZoomInButton .setBounds (zoomBox.removeFromRight (30).reduced (1, 2));
+    arrZoomOutButton.setBounds (zoomBox.removeFromRight (30).reduced (1, 2));
+    bar.removeFromRight (T::gap6);
+
+    // Edit tools were TOOLS-only before, which meant undo/redo for the
+    // arrangement were hidden behind a toggle on a surface dedicated to editing.
+    auto tools = bar.removeFromRight (juce::jmin (330, bar.getWidth() / 2));
+    auto chip = [&tools] (juce::Component& c, int w)
+    {
+        c.setBounds (tools.removeFromLeft (w).withSizeKeepingCentre (w, 24));
+        tools.removeFromLeft (T::gap2);
+    };
+    chip (snapToggleButton, 46); chip (razorButton, 48); chip (overlapModeButton, 52);
+    chip (undoButton, 44); chip (redoButton, 44); chip (bounceEditsButton, 62);
+
+    // 56px each so "LAUNCH" / "Record" fit without ellipsizing (was 44 → "Rec...").
+    auto cluster = bar.withSizeKeepingCentre (juce::jmin (bar.getWidth(), 56 * 4 + T::gap5 * 3), 26);
+    auto tbtn = [&cluster] (juce::Component& c) { c.setBounds (cluster.removeFromLeft (56)); cluster.removeFromLeft (T::gap5); };
+    tbtn (launchAllButton);
+    tbtn (playArrButton);
+    tbtn (arrRecordButton);
+    tbtn (arrLoopButton);
+
+    bounds.removeFromTop (T::gap4);
+    arrangementView.setBounds (bounds);   // the timeline takes everything left
 }
 
 void MainPluginEditor::refreshEnergyArc()
@@ -4923,14 +5386,16 @@ void MainPluginEditor::timerCallback()
     if (energyArc.isVisible())      refreshEnergyArc();        // ScenePilot energy arc
     refreshDeckStrips();                                        // per-deck control strips
     bool relayout = false;
-    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)    // 1.3 dim empty decks (on change)
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         const int loaded = deckHasContent (i) ? 1 : 0;
         if (deckDimState[(size_t) i] != loaded)
         {
-            applyDeckDim (i, loaded == 1);
             deckDimState[(size_t) i] = loaded;
-            relayout = true;   // loaded<->empty flips the waveform region / docked knobs
+            // Loaded<->empty flips the waveform region, the docked knobs AND the
+            // column width (an idle channel is a narrow drop target), so this needs
+            // a full relayout — which re-applies the control weights on its way out.
+            relayout = true;
         }
     }
     // Pads strip collapses/expands when the first pad is loaded or the last cleared.
@@ -5061,6 +5526,9 @@ void MainPluginEditor::timerCallback()
     {
         // Project tempo (MASTER BPM) drives the arrangement grid + the piano roll.
         const auto bpm = juce::jlimit (40.0, 240.0, (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+        // Keep the arranger's lane count tied to the real channel count, so adding
+        // or removing a channel is reflected on both surfaces.
+        arrangementView.setVisibleLanes (processorRef.getNumTrackDecks());
         arrangementView.setSnap (snapToggleButton.getToggleState(), 0.25, bpm);
         pianoRoll.setBpm (bpm);
     }
@@ -5139,7 +5607,7 @@ void MainPluginEditor::timerCallback()
     }
     else if (! arrangementView.hasArrangement())
     {
-        arrangementView.setIdle ("Hit Record to capture your set across four deck lanes.");
+        arrangementView.setIdle ("Hit Record to capture your set across every channel lane.");
     }
 
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
@@ -5337,10 +5805,15 @@ void MainPluginEditor::refreshFxScopes()
     names.add ("Master");                 chains.add ((int) HostGraph::Chain::master);
     names.add ("Deck " + letter);         chains.add (deck);
 
+    // The stem scopes belong to the FOCUSED deck, so they must SAY which deck.
+    // Labelled "▸ VOX" alone, the rack silently re-points at a different channel
+    // when focus changes and the tab strip looks identical either way — which is
+    // most of why "put a filter on the vocal of channel B" is hard to answer.
+    // See docs/fx-signal-path.md.
     static const char* const stemTag[4] = { "DRM", "BAS", "MUS", "VOX" };
     for (int st = 0; st < HostGraph::kNumStemsPerDeck; ++st)
     {
-        names.add (juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb8 ")) + stemTag[st]);
+        names.add (letter + juce::String (juce::CharPointer_UTF8 (" \xe2\x96\xb8 ")) + stemTag[st]);
         chains.add ((int) HostGraph::stemChain (deck, st));
     }
 

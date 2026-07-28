@@ -507,6 +507,18 @@ target_link_libraries(StemDeckToolbarRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
+# ── Layout constraint solver (pure geometry — no editor, no audio, fast) ───────
+# Guards the two regressions LayoutStack was written to kill: header items
+# overlapping at narrow widths, and the stem waveform being starved by chrome.
+add_executable(StemDeckLayout EXCLUDE_FROM_ALL tests/stemdeck_layout.cpp)
+add_dependencies(StemDeckLayout SattariStemDeck)
+target_include_directories(StemDeckLayout PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckLayout PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckLayout
+    PRIVATE juce::juce_gui_basics juce::juce_graphics
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 # ── Stem gain knob render (verify the 0/100/200 arc knob via PNG) ───────────────
 add_executable(StemDeckStemKnobRender EXCLUDE_FROM_ALL tests/stemdeck_stemknob_render.cpp)
 add_dependencies(StemDeckStemKnobRender SattariStemDeck)
