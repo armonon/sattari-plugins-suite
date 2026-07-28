@@ -33,7 +33,8 @@
 #include "AnalysisCache.h"
 #include "EventDispatcher.h"
 
-class MainPluginProcessor final : public juce::AudioProcessor
+class MainPluginProcessor final : public juce::AudioProcessor,
+                                  private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     // Number of deck UIs / per-deck banks the app provides. Channels are dynamic
@@ -186,6 +187,27 @@ public:
     // The raw mutation behind ParamId::cfSide. Called only by applyEvent (live and
     // replay) and by state load; never directly by a control.
     void applyDeckCfSide (int deckIndex, int side);
+
+    // ── APVTS -> event bridge (A1 phase 3) ───────────────────────────────────
+    // Most controls are APVTS-attached: the UI moves a slider and the attachment
+    // writes the parameter. Converting those one call site at a time would mean
+    // unpicking every attachment. Instead the processor listens, and turns a
+    // parameter change into an event — one bridge converts them all.
+    //
+    // applyEvent writes the parameter back with `applyingEvent` set, so the
+    // resulting notification is not re-dispatched into an infinite loop.
+    void parameterChanged (const juce::String& parameterID, float newValue) override;
+
+    struct ParamMapping
+    {
+        bool valid = false;
+        stemdeck::events::ParamId id {};
+        stemdeck::events::Scope   scope;
+    };
+    static ParamMapping mapApvtsId (const juce::String& apvtsId);
+    static juce::String apvtsIdFor (const stemdeck::events::Event& e);
+
+    std::atomic<bool> applyingEvent { false };
     bool isChannelMuted (int index) const;
     bool isChannelSoloed (int index) const;
     int          getNumTrackDecks() const;   // leading TrackDeck channels (the deck row)

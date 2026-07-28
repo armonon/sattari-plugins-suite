@@ -110,10 +110,35 @@ public:
         // gestures it claims to carry.
         switch (id)
         {
+            // Direct conversions (no APVTS parameter behind them).
             case ParamId::channelMute:
             case ParamId::channelSolo:
             case ParamId::cfSide:
+            // Routed by the APVTS bridge in MainPluginProcessor. Each of these has a
+            // mapping in BOTH directions (mapApvtsId / apvtsIdFor); a one-way mapping
+            // would capture without replaying, or replay without capturing.
+            case ParamId::channelGain:
+            case ParamId::eqLow:
+            case ParamId::eqMid:
+            case ParamId::eqHigh:
+            case ParamId::filter:
+            case ParamId::pitchSemitones:
+            case ParamId::keyLockOn:
+            case ParamId::keyTarget:
+            case ParamId::bpmSource:
+            case ParamId::tempoInterp:
+            case ParamId::syncMode:
+            case ParamId::gainStem:
+            case ParamId::masterGain:
+            case ParamId::limiterCeiling:
+            case ParamId::masterKey:
+            case ParamId::crossfader:
                 return true;
+
+            // NOT converted: stem mute/solo, crossfader curve, input and instrument
+            // controls, and FX insert params. These have no APVTS parameter or no
+            // mapping yet, and naming them here would make a replay look complete
+            // while silently dropping their gestures.
             default:
                 return false;
         }

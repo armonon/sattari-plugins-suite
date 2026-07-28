@@ -164,6 +164,13 @@ MainPluginProcessor::MainPluginProcessor()
     eventDispatcher = std::make_unique<stemdeck::events::Dispatcher> (
         [this] (const stemdeck::events::Event& e) { applyEvent (e); });
 
+    // Listen to every parameter that maps to a ParamId, so moving a control emits an
+    // event without unpicking its SliderAttachment.
+    for (auto* p : getParameters())
+        if (auto* wid = dynamic_cast<juce::AudioProcessorParameterWithID*> (p))
+            if (mapApvtsId (wid->paramID).valid)
+                apvts.addParameterListener (wid->paramID, this);
+
     formatManager.registerBasicFormats();
 #if JUCE_USE_MP3AUDIOFORMAT
     formatManager.registerFormat (new juce::MP3AudioFormat(), true);
@@ -466,9 +473,19 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             break;
 
         default:
-            // Not yet converted. Deliberately silent: Dispatcher::ownsParam() is the
-            // single source of truth for what phase 3 has actually covered.
+        {
+            // APVTS-backed params: write the parameter with the guard set so the
+            // resulting notification is not dispatched straight back.
+            const auto apvtsId = apvtsIdFor (e);
+            if (apvtsId.isNotEmpty())
+                if (auto* p = apvts.getParameter (apvtsId))
+                {
+                    applyingEvent.store (true, std::memory_order_release);
+                    p->setValueNotifyingHost (p->convertTo0to1 ((float) e.param.value));
+                    applyingEvent.store (false, std::memory_order_release);
+                }
             break;
+        }
     }
 }
 
@@ -664,6 +681,125 @@ void MainPluginProcessor::ensureTeWrapperOnMessageThread()
         juce::MessageManager::callAsync ([&] { create(); done.signal(); });
         done.wait (-1);
     }
+}
+
+
+// ── APVTS <-> event mapping (A1 phase 3) ─────────────────────────────────────
+// One table, used in BOTH directions, so a parameter and its event can never drift
+// apart: mapApvtsId turns a parameter change into an event, apvtsIdFor turns an
+// event back into the parameter to write. A mapping present in one direction only
+// would make a control capture but not replay, or replay but not capture.
+namespace
+{
+struct DeckSuffixMap { const char* suffix; stemdeck::events::ParamId id; };
+const DeckSuffixMap kDeckSuffixes[] = {
+    { "Volume",              stemdeck::events::ParamId::channelGain },
+    { "Low",                 stemdeck::events::ParamId::eqLow },
+    { "Mid",                 stemdeck::events::ParamId::eqMid },
+    { "High",                stemdeck::events::ParamId::eqHigh },
+    { "Filter",              stemdeck::events::ParamId::filter },
+    { "Pitch",               stemdeck::events::ParamId::pitchSemitones },
+    { "KeyLock",             stemdeck::events::ParamId::keyLockOn },
+    { "KeyTarget",           stemdeck::events::ParamId::keyTarget },
+    { "Bpm",                 stemdeck::events::ParamId::bpmSource },
+    { "TempoInterpretation", stemdeck::events::ParamId::tempoInterp },
+    { "SyncMode",            stemdeck::events::ParamId::syncMode },
+};
+
+struct GlobalMap { const char* id; stemdeck::events::ParamId pid; };
+const GlobalMap kGlobals[] = {
+    { "master",         stemdeck::events::ParamId::masterGain },
+    { "limiterCeiling", stemdeck::events::ParamId::limiterCeiling },
+    { "masterKey",      stemdeck::events::ParamId::masterKey },
+    { "crossfader",     stemdeck::events::ParamId::crossfader },
+};
+} // namespace
+
+MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::String& id)
+{
+    using namespace stemdeck::events;
+    ParamMapping m;
+
+    for (const auto& g : kGlobals)
+        if (id == g.id)
+        {
+            m.valid = true; m.id = g.pid; m.scope.kind = ScopeKind::master;
+            return m;
+        }
+
+    if (! id.startsWith ("deck") || id.length() < 5)
+        return m;
+
+    const int deck = id[4] - 'A';
+    if (! juce::isPositiveAndBelow (deck, numDecks))
+        return m;
+
+    const auto rest = id.substring (5);
+
+    // Per-stem gain: "Stem<lane>Gain" -> stem scope.
+    if (rest.startsWith ("Stem") && rest.endsWith ("Gain"))
+    {
+        const auto laneId = rest.substring (4, rest.length() - 4);
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+            if (laneId.equalsIgnoreCase (DeckPlayer::stemLaneId (lane)))
+            {
+                m.valid = true;
+                m.id = ParamId::gainStem;
+                m.scope.kind     = ScopeKind::stem;
+                m.scope.channel  = deck;
+                m.scope.stemLane = (StemLane) lane;
+                return m;
+            }
+        return m;   // full-mix trim is not a stem lane
+    }
+
+    for (const auto& d : kDeckSuffixes)
+        if (rest == d.suffix)
+        {
+            m.valid = true; m.id = d.id;
+            m.scope.kind = ScopeKind::channel; m.scope.channel = deck;
+            return m;
+        }
+    return m;
+}
+
+juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e)
+{
+    using namespace stemdeck::events;
+    if (e.type != EventType::param) return {};
+
+    for (const auto& g : kGlobals)
+        if (e.param.id == g.pid) return g.id;
+
+    const int deck = (int) e.scope.channel;
+    if (! juce::isPositiveAndBelow (deck, numDecks)) return {};
+    const auto pfx = deckPrefix (deck);
+
+    if (e.param.id == ParamId::gainStem)
+    {
+        const int lane = (int) e.scope.stemLane;
+        if (lane >= 1 && lane < DeckPlayer::numStemLanes)
+            return pfx + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain";
+        return {};
+    }
+
+    for (const auto& d : kDeckSuffixes)
+        if (e.param.id == d.id) return pfx + d.suffix;
+    return {};
+}
+
+void MainPluginProcessor::parameterChanged (const juce::String& parameterID, float newValue)
+{
+    // Re-entrancy guard: applyEvent writes the parameter, which notifies us straight
+    // back. Without this, replaying one event would dispatch a new one forever.
+    if (applyingEvent.load (std::memory_order_acquire))
+        return;
+
+    const auto m = mapApvtsId (parameterID);
+    if (! m.valid || eventDispatcher == nullptr)
+        return;
+
+    eventDispatcher->dispatchParam (m.scope, m.id, (double) newValue);
 }
 
 juce::String MainPluginProcessor::deckPrefix (int deckIndex)

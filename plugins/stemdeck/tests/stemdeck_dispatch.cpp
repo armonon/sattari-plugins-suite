@@ -162,8 +162,15 @@ int main()
         check (Dispatcher::ownsParam (ParamId::channelMute), "channelMute is converted");
         check (Dispatcher::ownsParam (ParamId::channelSolo), "channelSolo is converted");
         check (Dispatcher::ownsParam (ParamId::cfSide),      "cfSide is converted");
-        check (! Dispatcher::ownsParam (ParamId::channelGain),
-               "channelGain is NOT yet converted - ownsParam tells the truth");
+        check (Dispatcher::ownsParam (ParamId::channelGain), "channelGain is converted");
+        check (Dispatcher::ownsParam (ParamId::gainStem),    "gainStem is converted");
+        check (Dispatcher::ownsParam (ParamId::masterGain),  "masterGain is converted");
+        // Still unconverted, and saying so is the point: a replay that claims these
+        // are covered would silently drop them.
+        check (! Dispatcher::ownsParam (ParamId::inputGain),
+               "inputGain is NOT converted - ownsParam still tells the truth");
+        check (! Dispatcher::ownsParam (ParamId::insertParam),
+               "insertParam is NOT converted");
         check (! Dispatcher::isFullyConverted(),
                "isFullyConverted() reports FALSE - phase 3 is genuinely incomplete");
     }
