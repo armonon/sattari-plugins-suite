@@ -610,6 +610,16 @@ if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
         SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
 endif()
 
+# ── A1 phase 1: event stream round-trips exactly and refuses what it must ──────
+add_executable(StemDeckEventStream EXCLUDE_FROM_ALL tests/stemdeck_eventstream.cpp)
+add_dependencies(StemDeckEventStream SattariStemDeck)
+target_include_directories(StemDeckEventStream PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckEventStream PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckEventStream
+    PRIVATE juce::juce_core
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
 # ── A2: the audio thread must not allocate (enforced by an operator new hook) ──
 add_executable(StemDeckRtSafety EXCLUDE_FROM_ALL tests/stemdeck_rtsafety.cpp)
 target_include_directories(StemDeckRtSafety PRIVATE
