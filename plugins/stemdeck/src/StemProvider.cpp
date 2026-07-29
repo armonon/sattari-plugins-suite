@@ -43,8 +43,11 @@ public:
             bool done = false;
             if (provider.neuralAvailable())
                 done = onProgressiveStem
-                     ? provider.runNeuralSeparationStreaming (sourceFile, result.cacheDirectory, playheadSample, onProgressiveStem, message)
-                     : provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
+                     ? provider.runNeuralSeparationStreaming (sourceFile, result.cacheDirectory, playheadSample,
+                                                              onProgressiveStem, message,
+                                                              [this] { return shouldExit(); })
+                     : provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message,
+                                                     [this] { return shouldExit(); });
             if (! done && ! shouldExit())
             {
                 juce::String cliMsg;
@@ -178,13 +181,15 @@ void StemProvider::shutdown()
         shuttingDown = true;
     }
 
+    neuralEngine.cancelPending();
     // A timeout here used to let the owning processor continue tearing down while
     // a provider callback could still enqueue analysis work. Join fully: separation
     // is off the message thread, and lifetime safety takes priority during shutdown.
     pool.removeAllJobs (true, -1);
 }
 
-bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message)
+bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory,
+                                        juce::String& message, const std::function<bool()>& shouldCancel)
 {
     if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
 
@@ -199,7 +204,7 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
     const double sr = reader->sampleRate;
 
     juce::AudioBuffer<float> d, b, m, v;
-    if (! neuralEngine.separate (input, sr, d, b, m, v, nullptr, message))
+    if (! neuralEngine.separate (input, sr, d, b, m, v, nullptr, message, shouldCancel))
         return false;
 
     cacheDirectory.createDirectory();
@@ -224,7 +229,8 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
 
 bool StemProvider::runNeuralSeparationStreaming (const juce::File& sourceFile, const juce::File& cacheDirectory,
                                                  juce::int64 playheadSample,
-                                                 const ProgressiveStemCallback& onProgressiveStem, juce::String& message)
+                                                 const ProgressiveStemCallback& onProgressiveStem, juce::String& message,
+                                                 const std::function<bool()>& shouldCancel)
 {
     if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
 
@@ -277,7 +283,8 @@ bool StemProvider::runNeuralSeparationStreaming (const juce::File& sourceFile, c
     };
 
     juce::String sepMsg;
-    if (! neuralEngine.separateStreaming (input, sr, playheadSample, onSegment, nullptr, sepMsg))
+    if (! neuralEngine.separateStreaming (input, sr, playheadSample, onSegment, nullptr, sepMsg,
+                                          shouldCancel))
     {
         message = sepMsg.isNotEmpty() ? sepMsg : juce::String ("neural streaming separation failed");
         return false;

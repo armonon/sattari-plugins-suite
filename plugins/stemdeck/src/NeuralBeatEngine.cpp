@@ -245,23 +245,83 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     }
     catch (const std::exception&) { return r; }
 
-    // ── Peak-pick beats ───────────────────────────────────────────────────────
-    // Frame f -> time (f * hop / modelRate) sec -> input-rate sample.
+    // ── Tempo-continuity decoding ─────────────────────────────────────────────
+    // A fixed 0.4 peak threshold fragments a grid whenever a breakdown is quieter
+    // than a chorus. Decode one globally coherent path instead: estimate the beat
+    // period from activation autocorrelation, choose its best phase, then snap each
+    // predicted beat to the strongest nearby activation. This is the small,
+    // deterministic Viterbi/DBN-style decoder used by the app when madmom is not
+    // embedded: emission strength competes with a strong tempo-continuity prior.
     const double fps = kModelSampleRate / (double) kHop;
     const double secPerFrame = 1.0 / fps;
-    const int minGap = juce::jmax (1, (int) std::floor (fps * 60.0 / 200.0));   // <= 200 BPM
-    std::vector<int> beatFrames;
-    for (int i = 1; i < T - 1; ++i)
+    const int minLag = juce::jmax (1, (int) std::floor (fps * 60.0 / 200.0));
+    const int maxLag = juce::jmax (minLag + 1, (int) std::ceil (fps * 60.0 / 60.0));
+
+    std::vector<float> sortedActivation = beatAct;
+    std::sort (sortedActivation.begin(), sortedActivation.end());
+    const float activationMedian = sortedActivation[sortedActivation.size() / 2];
+
+    int bestLag = 0;
+    double bestPeriodScore = -1.0;
+    for (int lag = minLag; lag <= maxLag; ++lag)
     {
-        if (beatAct[(size_t) i] > 0.4f
-            && beatAct[(size_t) i] >= beatAct[(size_t) (i - 1)]
-            && beatAct[(size_t) i] >  beatAct[(size_t) (i + 1)])
+        double score = 0.0;
+        int terms = 0;
+        for (int i = lag; i < T; ++i)
         {
-            if (beatFrames.empty() || i - beatFrames.back() >= minGap)
-                beatFrames.push_back (i);
+            score += (double) beatAct[(size_t) i] * beatAct[(size_t) (i - lag)];
+            ++terms;
         }
+        // Normalise for track length and use a very gentle 120-BPM prior only to
+        // break half/double-tempo ties; the activations remain authoritative.
+        const double bpm = 60.0 * fps / (double) lag;
+        const double prior = std::exp (-0.5 * std::pow (std::log2 (bpm / 120.0) / 1.5, 2.0));
+        score = terms > 0 ? score / (double) terms * (0.9 + 0.1 * prior) : 0.0;
+        if (score > bestPeriodScore) { bestPeriodScore = score; bestLag = lag; }
+    }
+    if (bestLag <= 0) return r;
+
+    int bestPhase = 0;
+    double bestPhaseScore = -1.0;
+    for (int phase = 0; phase < bestLag; ++phase)
+    {
+        double score = 0.0;
+        int terms = 0;
+        for (int f = phase; f < T; f += bestLag) { score += beatAct[(size_t) f]; ++terms; }
+        score = terms > 0 ? score / (double) terms : 0.0;
+        if (score > bestPhaseScore) { bestPhaseScore = score; bestPhase = phase; }
+    }
+
+    std::vector<int> beatFrames;
+    const int snapRadius = juce::jmax (1, bestLag / 5);
+    for (int predicted = bestPhase; predicted < T; predicted += bestLag)
+    {
+        const int lo = juce::jmax (0, predicted - snapRadius);
+        const int hi = juce::jmin (T - 1, predicted + snapRadius);
+        int strongest = lo;
+        for (int f = lo + 1; f <= hi; ++f)
+            if (beatAct[(size_t) f] > beatAct[(size_t) strongest])
+                strongest = f;
+        if (beatFrames.empty() || strongest > beatFrames.back())
+            beatFrames.push_back (strongest);
     }
     if ((int) beatFrames.size() < 4) return r;
+
+    double selectedStrength = 0.0;
+    double intervalError = 0.0;
+    for (size_t i = 0; i < beatFrames.size(); ++i)
+    {
+        selectedStrength += beatAct[(size_t) beatFrames[i]];
+        if (i > 0)
+        {
+            const double observed = (double) (beatFrames[i] - beatFrames[i - 1]);
+            intervalError += std::abs (observed - bestLag) / (double) bestLag;
+        }
+    }
+    const double meanStrength = selectedStrength / (double) beatFrames.size();
+    const double regularity = 1.0 / (1.0 + intervalError / (double) juce::jmax<size_t> (1, beatFrames.size() - 1));
+    r.confidence = (float) juce::jlimit (0.0, 1.0,
+        ((meanStrength - activationMedian) / juce::jmax (0.05, 1.0 - (double) activationMedian)) * regularity);
 
     for (int f : beatFrames)
         r.beatGridSamples.push_back ((double) f * secPerFrame * sampleRate);
@@ -277,9 +337,13 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     // ── Downbeat + meter ──────────────────────────────────────────────────────
     // Downbeats are the beats with the strongest 'down' activation. Meter = the
     // rounded median gap (in beats) between consecutive strong downbeats.
+    std::vector<float> sortedDown = downAct;
+    std::sort (sortedDown.begin(), sortedDown.end());
+    const float downThreshold = juce::jlimit (0.25f, 0.65f,
+                                              sortedDown[sortedDown.size() * 3 / 4]);
     std::vector<int> downbeatIdx;
     for (size_t bi = 0; bi < beatFrames.size(); ++bi)
-        if (downAct[(size_t) beatFrames[bi]] > 0.4f)
+        if (downAct[(size_t) beatFrames[bi]] >= downThreshold)
             downbeatIdx.push_back ((int) bi);
 
     if (! downbeatIdx.empty())

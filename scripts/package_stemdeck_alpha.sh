@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workspace_root="$(cd "$repo_root/../.." && pwd)"
 build_dir="${BUILD_DIR:-$repo_root/build/stemdeck}"
 out_root="${1:-$workspace_root/deliverables/sattari-test-builds}"
-version="${STEMDECK_VERSION:-0.3.8-premium-ai-stems}"
+version="${STEMDECK_VERSION:-0.5.0-studio-workflow}"
 package_dir="$out_root/stemdeck-plugin-alpha-v$version"
 release_dir="$build_dir/SattariStemDeck_artefacts/Release"
 

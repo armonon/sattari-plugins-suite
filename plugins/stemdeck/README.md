@@ -1,4 +1,4 @@
-# Sattari StemDeck v0.4.3 standalone app alpha
+# Sattari StemDeck v0.5.0 standalone app alpha
 
 Truth label: **standalone Mac DJ app alpha / internal pre-alpha engine** — JUCE/CMake Standalone + VST3 builds exist, but the product direction is app-first. The local gate builds the Standalone app/VST3 and runs deterministic contracts for architecture, offline stem command wiring, beat-sync, live-key, arrangement export, plugin-host pass-through, key-lock rendering, and a synthetic time/pitch benchmark listening pack. Not sale-ready yet: needs real-song/DAW listening validation, long-session soak testing, notarized installer/onboarding, plugin-host UX/state polish, and product-grade stem progress/cancel UX.
 
@@ -82,6 +82,28 @@ One-command local StemDeck gate:
 ./scripts/validate_stemdeck.sh
 ```
 
+ONNX inference is opt-in so a developer Homebrew install can never leak into a
+shipping binary:
+
+```bash
+cmake -S plugins/stemdeck -B build/stemdeck -G Ninja \
+  -DSATTARI_USE_ONNX=ON -DONNXRUNTIME_ROOT=/path/to/deployable/onnxruntime
+```
+
+The configured runtime must meet the deployment-floor check, and the app packager
+copies the exact linked ONNX Runtime dylib into `Contents/Frameworks`. Default builds
+use the DSP fallbacks and link no ONNX library.
+
+Render every top-level editor destination for visual review:
+
+```bash
+./scripts/render_stemdeck_surfaces.sh build/stemdeck build/stemdeck-surfaces
+```
+
+Real-music accuracy is a separate, manifest-driven gate because synthetic tones are
+not acceptable evidence. See `tests/corpus/README.md`; CI runs it when the licensed
+corpus archive secret is configured and otherwise reports accuracy as uncertified.
+
 The gate also builds and runs `StemDeckGranularRenderContract`, a deterministic synthetic-audio contract that checks the Preserve-on granular route renders finite non-silent audio, keeps tempo-change pitch below the Preserve-off resample fallback, and raises zero-crossing rate for an octave pitch shift. This is **not** a substitute for real-song/DAW listening validation, but it protects the internal key-lock path from silent or misrouted regressions.
 
 The gate also runs `StemDeckArchitectureContract`, which protects the pre-alpha seams for warp planning, arrangement/event-log JSON, offline stem cache boundaries, configured separator command execution, and empty plugin-chain pass-through.
@@ -106,7 +128,7 @@ Manual validation report template:
 Truth-labeled standalone app alpha package:
 
 ```bash
-BUILD_DIR="$PWD/build/stemdeck-app" STEMDECK_APP_VERSION="0.4.3-djay-ui-reference" ./scripts/package_stemdeck_app_alpha.sh
+BUILD_DIR="$PWD/build/stemdeck-app" STEMDECK_APP_VERSION="0.5.0-studio-workflow" ./scripts/package_stemdeck_app_alpha.sh
 ```
 
 Truth-labeled plugin/app alpha package:
@@ -135,5 +157,9 @@ Latest validation log/report: `plugins/stemdeck/logs/2026-05-23-host-scan-valida
 - JUCE plugin-host format discovery/load scaffolding exists for VST3/AU builds, but plugin UI, preset/state UX, chain reorder/bypass/remove polish, and broad third-party plugin compatibility testing are not implemented yet.
 - No file-browser library, MIDI pad/controller mapping, installer, or sale-ready packaging yet.
 - Keyboard pad triggering requires the editor/Standalone window to have keyboard focus.
-- Audio loading copies full files into memory; fine for MVP, but long DJ sets need streaming or smart caching.
+- Normal songs retain the decoded buffer for low-latency manipulation. Files longer
+  than ten minutes use a two-minute analysis/visual preview plus a bounded 30-second
+  background-filled playback window, so hour-long DJ sets no longer scale resident
+  playback memory with their duration. A distant seek may briefly output silence
+  while its window is filled; cache prefetch/crossfade polish remains.
 - Manual DAW/listening smoke test still required before calling this a DAW-validated candidate.

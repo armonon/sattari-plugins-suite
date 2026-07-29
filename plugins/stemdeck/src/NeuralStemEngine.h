@@ -46,7 +46,8 @@ public:
                    juce::AudioBuffer<float>& outMusic,
                    juce::AudioBuffer<float>& outVocals,
                    const std::function<void(float)>& onProgress,
-                   juce::String& message);
+                   juce::String& message,
+                   std::function<bool()> shouldCancel = {});
 
     // Streaming / look-ahead separation. Tiles the track into model-window-sized
     // segments and separates them in PLAYHEAD-FIRST order (the segment under
@@ -66,7 +67,11 @@ public:
                             int64_t playheadSample,
                             const SegmentCallback& onSegment,
                             const std::function<void(float)>& onProgress,
-                            juce::String& message);
+                            juce::String& message,
+                            std::function<bool()> shouldCancel = {});
+
+    // Interrupts active ONNX Session::Run calls during shutdown/cancel.
+    void cancelPending() noexcept;
 
 private:
     struct Impl;

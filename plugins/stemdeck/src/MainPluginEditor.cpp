@@ -3990,29 +3990,15 @@ void MainPluginEditor::configureDeckStrip (int i)
                                     juce::dontSendNotification);
     };
 
-    // Stem toggles — mute drops the stem gain to 0% (silence); unmute restores the
-    // saved value. Alt-click solos (mutes every other stem). Percent units, see
-    // StemGain.h: "muted" is 0, not -60 dB.
-    constexpr float kMuted = stemdeck::stemgain::kMin;          // 0 == silence
-    constexpr float kMuteEps = 0.5f;                            // below this reads as muted
-    auto stemGainId = [prefix] (int abstractIdx) { return prefix + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem + abstractIdx) + "Gain"; };
-    cb.onToggleStem = [this, i, stemGainId, getFloat, setFloat] (int idx)
+    // Stem switches are event-owned processor state. This preserves intent across
+    // capture/replay instead of inferring it from editor-only gain bookkeeping.
+    cb.onToggleStem = [this, i] (int idx)
     {
-        const auto id = stemGainId (idx);
-        if (getFloat (id) <= kMuteEps) setFloat (id, stripSavedStemGain[(size_t) i][(size_t) idx]);
-        else { stripSavedStemGain[(size_t) i][(size_t) idx] = getFloat (id); setFloat (id, kMuted); }
+        processorRef.setStemMutedDispatched (i, idx, ! processorRef.isStemMuted (i, idx));
     };
-    cb.onSoloStem = [this, i, stemGainId, getFloat, setFloat] (int idx)
+    cb.onSoloStem = [this, i] (int idx)
     {
-        const bool clearing = stripSolo[(size_t) i] == idx;
-        stripSolo[(size_t) i] = clearing ? -1 : idx;
-        for (int s = 0; s < 4; ++s)
-        {
-            const auto id = stemGainId (s);
-            if (clearing)               setFloat (id, stripSavedStemGain[(size_t) i][(size_t) s]);
-            else if (s == idx)          { if (getFloat (id) <= kMuteEps) setFloat (id, stripSavedStemGain[(size_t) i][(size_t) s]); }
-            else                        { if (getFloat (id) > kMuteEps) stripSavedStemGain[(size_t) i][(size_t) s] = getFloat (id); setFloat (id, kMuted); }
-        }
+        processorRef.setStemSoloedDispatched (i, idx, ! processorRef.isStemSoloed (i, idx));
     };
 
     cb.onCycleQuantize = [this, i] { stripQuant[(size_t) i] = (stripQuant[(size_t) i] + 1) % 5; };
@@ -4077,9 +4063,8 @@ void MainPluginEditor::refreshDeckStrips()
 
         for (int k = 0; k < 4; ++k)
         {
-            const auto id = prefix + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::drumsStem + k) + "Gain";
-            const float g = getFloat (id);   // percent now (StemGain.h): muted ~ 0, not -60 dB
-            s.stem[(size_t) k] = stripSolo[(size_t) i] == k ? 2 : (g <= 0.5f ? 1 : 0);
+            s.stem[(size_t) k] = processorRef.isStemSoloed (i, k) ? 2
+                              : processorRef.isStemMuted (i, k) ? 1 : 0;
         }
         s.sepProgress = processorRef.getDeckStemSeparationProgress (i);   // real AI-split job progress
 
@@ -5277,7 +5262,7 @@ void MainPluginEditor::refreshMixArrangement()
         TrackRef t; t.id = juce::String (d); t.path = processorRef.getDeckPath (d);
         if (auto a = processorRef.getDeckLoadedAudio (d))
         {
-            t.durationSec = a->audio.getNumSamples() / juce::jmax (1.0, a->sourceSampleRate);
+            t.durationSec = a->numSourceSamples() / juce::jmax (1.0, a->sourceSampleRate);
             t.bpm = a->analysis.detectedBpm; t.keyPitchClass = a->analysis.keyPitchClass; t.keyIsMinor = a->analysis.keyIsMinor;
         }
         s.addTrack (t);
@@ -5508,7 +5493,8 @@ void MainPluginEditor::timerCallback()
             repaint (mb);
 
     // DECKS nav chip reads active when no overlay view is open.
-    navDecksButton.setToggleState (! pianoRoll.isVisible() && ! mixerView.isVisible()
+    navDecksButton.setToggleState (! pianoRollButton.getToggleState()
+                                     && ! pianoRoll.isVisible() && ! mixerView.isVisible()
                                      && ! libraryVisible && ! browserVisible,
                                    juce::dontSendNotification);
 

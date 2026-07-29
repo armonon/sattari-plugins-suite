@@ -113,6 +113,8 @@ public:
             // Direct conversions (no APVTS parameter behind them).
             case ParamId::channelMute:
             case ParamId::channelSolo:
+            case ParamId::stemMute:
+            case ParamId::stemSolo:
             case ParamId::cfSide:
             // Routed by the APVTS bridge in MainPluginProcessor. Each of these has a
             // mapping in BOTH directions (mapApvtsId / apvtsIdFor); a one-way mapping
@@ -143,9 +145,7 @@ public:
             case ParamId::insertBypass:
                 return true;
 
-            // NOT converted, and each for a REASON rather than an oversight:
-            //   stemMute / stemSolo — no engine state exists. WaveformRegion has a
-            //     display flag only, so there is nothing to capture or replay yet.
+            // NOT converted:
             //   insertParam — a hosted plugin's own parameters. Capturing these means
             //     addressing a third-party parameter index stably across sessions,
             //     which the schema does not yet solve.

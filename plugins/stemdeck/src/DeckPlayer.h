@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include "BeatSyncEngine.h"
+#include "ChunkedAudioFile.h"
 #include "EQProcessor.h"
 #include "FilterProcessor.h"
 #include "TimePitchEngine.h"
@@ -33,10 +34,19 @@ public:
     struct LoadedAudio
     {
         juce::AudioBuffer<float> audio;
+        std::shared_ptr<ChunkedAudioFile> streamed;
+        juce::int64 logicalLengthSamples = 0;
         double sourceSampleRate = 44100.0;
         juce::String path;
         juce::String displayName;
         TrackAnalysis analysis;
+
+        juce::int64 numSourceSamples() const noexcept
+        {
+            return logicalLengthSamples > 0 ? logicalLengthSamples
+                 : streamed != nullptr ? streamed->lengthInSamples()
+                 : audio.getNumSamples();
+        }
     };
 
     static juce::String stemLaneId (int laneIndex);
@@ -102,7 +112,7 @@ public:
                   const BeatSyncEngine::PlaybackPlan& beatSyncPlan);
 
 private:
-    static float readInterpolated (const juce::AudioBuffer<float>& audio, int channel, double position);
+    static float readInterpolated (const LoadedAudio& audio, int channel, double position);
     static double wrapPosition (double position, double length);
     static float hannWindow (double phase, double size);
     static double referenceSampleRateFor (const std::array<std::shared_ptr<const LoadedAudio>, numStemLanes>& laneAudio);

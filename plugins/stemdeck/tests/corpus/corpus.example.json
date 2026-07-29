@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "minimumTracks": 5,
+  "minimumMinutes": 20,
+  "tracks": [
+    {
+      "file": "audio/replace-with-licensed-track.wav",
+      "label": "Artist - Title",
+      "sourceType": "real_music",
+      "expectedBpm": 124.0,
+      "bpmTolerance": 2.0,
+      "expectedKeyPitchClass": 9,
+      "expectedKeyMinor": true,
+      "expectedMeter": 4,
+      "minimumDurationSeconds": 120
+    }
+  ]
+}

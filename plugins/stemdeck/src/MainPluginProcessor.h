@@ -54,6 +54,7 @@ public:
     // "valid" from the model only means it ran; below this floor the measured DSP
     // answer is kept and the readout is flagged low-confidence.
     static constexpr float kNeuralKeyConfidenceFloor = 0.45f;
+    static constexpr float kNeuralBeatConfidenceFloor = 0.35f;
 
     MainPluginProcessor();
     ~MainPluginProcessor() override;
@@ -200,6 +201,10 @@ public:
     void setInputSourceDispatched    (int channelIndex, int deviceChannel);
     void setInstGainDispatched       (int channelIndex, float linear);
     void setInstMidiChannelDispatched(int channelIndex, int midiChannel);
+    void setStemMutedDispatched      (int deckIndex, int stemIndex, bool muted);
+    void setStemSoloedDispatched     (int deckIndex, int stemIndex, bool soloed);
+    bool isStemMuted                 (int deckIndex, int stemIndex) const;
+    bool isStemSoloed                (int deckIndex, int stemIndex) const;
     void setInsertBypassDispatched   (int chainIndex, int insertPos, bool bypassed);
 
     // ── APVTS -> event bridge (A1 phase 3) ───────────────────────────────────
@@ -518,6 +523,12 @@ private:
     std::array<std::atomic<int>, kMaxChannels> liveKeyPitchClass;
     std::array<std::atomic<int>, kMaxChannels> liveKeyIsMinor;
     std::array<std::atomic<float>, kMaxChannels> liveKeyConfidence;
+    // Event-owned stem switch state. Gains remain the audio truth, while these fields
+    // preserve the user's mute/solo intent and the pre-switch gain to restore.
+    // Message thread only: live dispatch and replay both enter through applyEvent().
+    std::array<std::array<float, HostGraph::kNumStemsPerDeck>, numDecks> stemRestoreGain {};
+    std::array<std::array<bool, HostGraph::kNumStemsPerDeck>, numDecks> stemMuted {};
+    std::array<int, numDecks> stemSoloLane {};
     std::array<int64_t, kMaxChannels> lastLiveKeyAnalysisMs {};
     // Guards against piling up live-key analysis jobs; the heavy FFT runs on loadPool
     // (drained in the dtor) instead of the UI timer, so it can't stall the UI.

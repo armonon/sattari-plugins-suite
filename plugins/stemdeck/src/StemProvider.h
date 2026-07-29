@@ -95,14 +95,16 @@ public:
     // On-device neural separation (ONNX Runtime). Writes the 4 core-stem WAVs into
     // cacheDirectory. Preferred over the CLI when a model is loaded. Returns false
     // (with message) so callers fall back to the demucs CLI.
-    bool runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
+    bool runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory,
+                              juce::String& message, const std::function<bool()>& shouldCancel = {});
 
     // Streaming variant: separates playhead-first and calls onProgressiveStem with an
     // immutable per-lane snapshot as each segment lands, then writes the WAV cache so
     // the next load is instant. Returns false (with message) to fall back to the CLI.
     bool runNeuralSeparationStreaming (const juce::File& sourceFile, const juce::File& cacheDirectory,
                                        juce::int64 playheadSample,
-                                       const ProgressiveStemCallback& onProgressiveStem, juce::String& message);
+                                       const ProgressiveStemCallback& onProgressiveStem, juce::String& message,
+                                       const std::function<bool()>& shouldCancel = {});
     bool neuralAvailable() const { return neuralEngine.isAvailable(); }
 
 private:

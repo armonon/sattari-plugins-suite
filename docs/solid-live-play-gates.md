@@ -37,8 +37,9 @@ replay hash dceaa0aa2a8ebab8   -> sample-identical
 
 **What that does and does not mean.** It exercises 11 events across 600 blocks at a
 fixed 512-sample block size, covering channel gain, EQ, filter, mute, crossfader and
-master gain. It does NOT yet cover a long session, dense continuous gestures, stem or
-insert automation, or any of the three unconverted ParamIds. A green light here means
+master gain. It does NOT yet cover a long session, dense continuous gestures, or
+hosted-plugin parameter automation. Stem mute/solo now have processor-owned state and
+replay through the same dispatcher as live clicks. A green light here means
 the mechanism is sound, not that every performance replays.
 
 **Shutdown race found and fixed by this test:** destroying a
@@ -51,7 +52,8 @@ The harness now destroys both replay processors normally and includes a dedicate
 in-flight-refinement teardown probe; it no longer leaks them or exits via `_Exit`.
 
 Phase 4 (rendering reads session state rather than APVTS) is not done. Phase 3 is
-26/29 ParamIds — see `Dispatcher::ownsParam`.
+28/29 ParamIds — only stable hosted-plugin parameter addressing remains; see
+`Dispatcher::ownsParam`.
 
 [`event-stream-schema.md`](event-stream-schema.md) is accepted — see its §0 for the
 decision record. Both open questions are closed: analysis IS pinned via
@@ -138,9 +140,10 @@ analysis follows on `DeckPlayer::setRefinedAnalysis`.
   but not real music. Real tracks may analyse slower.
 
 **Second half of A3 — model confidence.** Key detection gates on
-`kNeuralKeyConfidenceFloor` and flags a low-confidence result rather than presenting a
-guess as fact. **The beat model still has no confidence to gate on.** That is
-outstanding, and it also feeds A1 §6.2.
+`kNeuralKeyConfidenceFloor`. Neural beat decoding now estimates a coherent tempo path
+from activation autocorrelation, reports strength/regularity confidence, and must
+clear `kNeuralBeatConfidenceFloor` before it can replace the DSP grid. Low-confidence
+neural results leave the measured DSP result in force.
 
 ---
 

@@ -189,6 +189,8 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyPitchClass[(size_t) i].store (-1, std::memory_order_relaxed);
         liveKeyIsMinor[(size_t) i].store (0, std::memory_order_relaxed);
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
+        stemRestoreGain[(size_t) i].fill (100.0f);
+        stemSoloLane[(size_t) i] = -1;
     }
     cacheDeckParamIds();
     // Optional trained key model (shared with Auto-Pitch). Absent -> DSP key stands.
@@ -467,6 +469,65 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             if (juce::isPositiveAndBelow (idx, (int) channels.size()))
                 if (auto& c = channels[(size_t) idx]) c->setSoloed (e.param.value > 0.5);
             break;
+
+        case ParamId::stemMute:
+        case ParamId::stemSolo:
+        {
+            const int stem = (int) e.scope.stemLane - (int) StemLane::drums;
+            if (! juce::isPositiveAndBelow (idx, numDecks)
+                || ! juce::isPositiveAndBelow (stem, HostGraph::kNumStemsPerDeck))
+                break;
+
+            auto parameterFor = [this, idx] (int s) -> juce::RangedAudioParameter*
+            {
+                const int lane = DeckPlayer::drumsStem + s;
+                return apvts.getParameter (deckPrefix (idx) + "Stem"
+                                           + DeckPlayer::stemLaneId (lane) + "Gain");
+            };
+            auto writeGain = [this, &parameterFor] (int s, float percent)
+            {
+                if (auto* p = parameterFor (s))
+                {
+                    applyingEvent.store (true, std::memory_order_release);
+                    p->setValueNotifyingHost (p->convertTo0to1 (percent));
+                    applyingEvent.store (false, std::memory_order_release);
+                }
+            };
+
+            constexpr float muteEpsilon = 0.5f;
+            const bool enabled = e.param.value > 0.5;
+            if (e.param.id == ParamId::stemMute)
+            {
+                if (auto* p = parameterFor (stem))
+                {
+                    const float current = p->convertFrom0to1 (p->getValue());
+                    if (enabled && current > muteEpsilon)
+                        stemRestoreGain[(size_t) idx][(size_t) stem] = current;
+                }
+                stemMuted[(size_t) idx][(size_t) stem] = enabled;
+                writeGain (stem, enabled ? stemdeck::stemgain::kMin
+                                         : stemRestoreGain[(size_t) idx][(size_t) stem]);
+            }
+            else
+            {
+                stemSoloLane[(size_t) idx] = enabled ? stem : -1;
+                for (int s = 0; s < HostGraph::kNumStemsPerDeck; ++s)
+                {
+                    if (auto* p = parameterFor (s))
+                    {
+                        const float current = p->convertFrom0to1 (p->getValue());
+                        if (current > muteEpsilon)
+                            stemRestoreGain[(size_t) idx][(size_t) s] = current;
+                    }
+
+                    const bool shouldMute = enabled ? s != stem
+                                                    : stemMuted[(size_t) idx][(size_t) s];
+                    writeGain (s, shouldMute ? stemdeck::stemgain::kMin
+                                             : stemRestoreGain[(size_t) idx][(size_t) s]);
+                }
+            }
+            break;
+        }
 
         case ParamId::cfSide:
             applyDeckCfSide (idx, (int) e.param.value);
@@ -876,6 +937,46 @@ void MainPluginProcessor::setInstGainDispatched (int c, float linear)
 
 void MainPluginProcessor::setInstMidiChannelDispatched (int c, int midiChannel)
 { eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::instMidiChannel, (double) midiChannel); }
+
+namespace
+{
+stemdeck::events::Scope stemScope (int deckIndex, int stemIndex)
+{
+    stemdeck::events::Scope sc;
+    sc.kind     = stemdeck::events::ScopeKind::stem;
+    sc.channel  = deckIndex;
+    sc.stemLane = (stemdeck::events::StemLane) (DeckPlayer::drumsStem + stemIndex);
+    return sc;
+}
+} // namespace
+
+void MainPluginProcessor::setStemMutedDispatched (int deckIndex, int stemIndex, bool muted)
+{
+    eventDispatcher->dispatchParam (stemScope (deckIndex, stemIndex),
+                                    stemdeck::events::ParamId::stemMute,
+                                    muted ? 1.0 : 0.0);
+}
+
+void MainPluginProcessor::setStemSoloedDispatched (int deckIndex, int stemIndex, bool soloed)
+{
+    eventDispatcher->dispatchParam (stemScope (deckIndex, stemIndex),
+                                    stemdeck::events::ParamId::stemSolo,
+                                    soloed ? 1.0 : 0.0);
+}
+
+bool MainPluginProcessor::isStemMuted (int deckIndex, int stemIndex) const
+{
+    return juce::isPositiveAndBelow (deckIndex, numDecks)
+        && juce::isPositiveAndBelow (stemIndex, HostGraph::kNumStemsPerDeck)
+        && stemMuted[(size_t) deckIndex][(size_t) stemIndex];
+}
+
+bool MainPluginProcessor::isStemSoloed (int deckIndex, int stemIndex) const
+{
+    return juce::isPositiveAndBelow (deckIndex, numDecks)
+        && juce::isPositiveAndBelow (stemIndex, HostGraph::kNumStemsPerDeck)
+        && stemSoloLane[(size_t) deckIndex] == stemIndex;
+}
 
 void MainPluginProcessor::setInsertBypassDispatched (int chainIndex, int insertPos, bool bypassed)
 {
@@ -1447,8 +1548,25 @@ std::shared_ptr<DeckPlayer::LoadedAudio> MainPluginProcessor::decodeAudioFile (c
         return {};
 
     auto loaded = std::make_shared<DeckPlayer::LoadedAudio>();
-    loaded->audio.setSize ((int) juce::jmin<int64> (reader->numChannels, 2), (int) reader->lengthInSamples);
-    reader->read (&loaded->audio, 0, (int) reader->lengthInSamples, 0, true, true);
+    loaded->logicalLengthSamples = reader->lengthInSamples;
+    constexpr double longFileSeconds = 10.0 * 60.0;
+    constexpr double previewSeconds  = 2.0 * 60.0;
+    const bool useStreaming = reader->lengthInSamples > (juce::int64) (reader->sampleRate * longFileSeconds)
+                           || reader->lengthInSamples > std::numeric_limits<int>::max();
+    const auto retainedSamples = useStreaming
+        ? juce::jmin<juce::int64> (reader->lengthInSamples,
+                                   (juce::int64) std::llround (reader->sampleRate * previewSeconds))
+        : reader->lengthInSamples;
+
+    loaded->audio.setSize ((int) juce::jmin<int64> (reader->numChannels, 2),
+                           (int) retainedSamples);
+    reader->read (&loaded->audio, 0, (int) retainedSamples, 0, true, true);
+    if (useStreaming)
+    {
+        loaded->streamed = ChunkedAudioFile::create (file);
+        if (loaded->streamed == nullptr)
+            return {}; // never publish a truncated preview as if it were the full file
+    }
     loaded->sourceSampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
@@ -1498,11 +1616,8 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
         const auto b = neuralBeat.detect (audio, sampleRate,
                                           [alive = aliveFlag]
                                           { return ! alive->load (std::memory_order_acquire); });
-        // NOTE: NeuralBeatEngine::Result carries no confidence, so unlike the key
-        // model this cannot be confidence-gated host-side — the grid-length check
-        // below is the only sanity filter available. Adding a real gate requires the
-        // model to emit an activation-strength score (see the A3 report).
-        if (b.valid && b.beatGridSamples.size() >= 4)
+        if (b.valid && b.confidence >= kNeuralBeatConfidenceFloor
+            && b.beatGridSamples.size() >= 4)
         {
             out.beatSource = TrackAnalysis::Source::neural;
             out.beatGridSamples = b.beatGridSamples;
@@ -1658,7 +1773,8 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
             const auto b = neuralBeat.detect (audio->audio, audio->sourceSampleRate,
                                               [alive]
                                               { return ! alive->load (std::memory_order_acquire); });
-            if (b.valid && b.beatGridSamples.size() >= 4)
+            if (b.valid && b.confidence >= kNeuralBeatConfidenceFloor
+                && b.beatGridSamples.size() >= 4)
             {
                 refined->beatGridSamples = b.beatGridSamples;
                 refined->downbeatSample  = b.downbeatSample;
@@ -2329,7 +2445,7 @@ double MainPluginProcessor::getDeckTotalSeconds (int deckIndex) const
     const auto audio = deckAt (deckIndex).getLoadedAudio();
     if (audio == nullptr || audio->sourceSampleRate <= 0.0)
         return 0.0;
-    return (double) audio->audio.getNumSamples() / audio->sourceSampleRate;
+    return (double) audio->numSourceSamples() / audio->sourceSampleRate;
 }
 
 juce::StringArray MainPluginProcessor::getStemLaneLabels() const
@@ -2493,7 +2609,7 @@ juce::String MainPluginProcessor::getDeckTimePitchStatus (int deckIndex) const
                                                 BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
     const auto plan = warpEngine.makePlan (sync.getSnapshot(), grid,
                                            audio ? audio->sourceSampleRate : currentSampleRate,
-                                           audio ? (double) audio->audio.getNumSamples() : 0.0,
+                                           audio ? (double) audio->numSourceSamples() : 0.0,
                                            getFloatParam (deck + "Pitch") + matchShift,
                                            getBoolParam (deck + "KeyLock"),
                                            getBoolParam ("hostSync") && getBoolParam ("beatSync"));
@@ -2517,7 +2633,7 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
     const auto transport = sync.getSnapshot();
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio ? audio->sourceSampleRate : currentSampleRate,
-                                                        audio ? (double) audio->audio.getNumSamples() : 0.0,
+                                                        audio ? (double) audio->numSourceSamples() : 0.0,
                                                         getBoolParam ("hostSync") && getBoolParam ("beatSync"));
 
     juce::String text = plan.statusLabel;
@@ -2537,7 +2653,7 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
         return r;
 
     const auto audio = deckAt (deckIndex).getLoadedAudio();
-    if (audio == nullptr || audio->sourceSampleRate <= 0.0 || audio->audio.getNumSamples() <= 1)
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0 || audio->numSourceSamples() <= 1)
         return r;
 
     // Rebuild the SAME grid + plan the audio path uses so the readout matches reality.
@@ -2551,7 +2667,7 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
     const auto transport = sync.getSnapshot();
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio->sourceSampleRate,
-                                                        (double) audio->audio.getNumSamples(),
+                                                        (double) audio->numSourceSamples(),
                                                         getBoolParam ("hostSync") && getBoolParam ("beatSync"));
 
     r.active = plan.syncEnabled;
@@ -2564,7 +2680,7 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
 
     // Where the grid says this beat should be (strict interpretation), vs where the
     // deck's playhead actually is. Difference in beats, wrapped to the nearest beat.
-    const double sourceLen = (double) audio->audio.getNumSamples();
+    const double sourceLen = (double) audio->numSourceSamples();
     const double correctedBeat = transport.ppqPosition
                                + (double) grid.manualGridCorrectionBeats
                                - grid.downbeatPositionBeats;

@@ -3,7 +3,7 @@
 // actually show up on screen -- inconsistent radii, mismatched button weights,
 // crowded panels -- only appear in context. This is that gate.
 //
-//   StemDeckEditorRender [out.png] [W] [H]
+//   StemDeckEditorRender [out.png] [W] [H] [channels] [typed] [tab] [loaded] [surface]
 //     default ~/Desktop/StemDeck-demo/editor.png at 1680x1050
 #include "MainPluginProcessor.h"
 #include "MainPluginEditor.h"
@@ -79,6 +79,20 @@ int main (int argc, char** argv)
             const int tab = juce::String (argv[6]).getIntValue();
             for (int d = 0; d < proc.getNumTrackDecks(); ++d)
                 mpe->selectDeckToolTab (d, tab);
+        }
+
+    // Optional 8th arg: primary surface name. The prior gate photographed only
+    // DECKS, leaving four top-level navigation destinations visually untested.
+    if (argc >= 9)
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+        {
+            const auto surface = juce::String (argv[8]).toLowerCase();
+            using S = MainPluginEditor::PrimarySurface;
+            mpe->selectPrimarySurface (surface == "library"     ? S::library
+                                     : surface == "mixer"       ? S::mixer
+                                     : surface == "arranger"    ? S::arranger
+                                     : surface == "performance" ? S::performance
+                                                                 : S::decks);
         }
 
     // One message pass so async layout / initial timers settle before we paint.

@@ -10,7 +10,7 @@ Validates the standalone StemDeck macOS app bundle for local alpha release gates
 - ad-hoc/deep codesign verification passes;
 - Info.plist is a macOS APPL bundle with optional EXPECTED_STEMDECK_APP_VERSION;
 - binary has no absolute /opt/homebrew dylib links;
-- @rpath Rubber Band / libsamplerate links are backed by bundled Frameworks dylibs;
+- @rpath Rubber Band / libsamplerate / ONNX links are backed by bundled Frameworks dylibs;
 - binary has @executable_path/../Frameworks rpath when @rpath dylibs are used;
 - bundled dylibs do not point back to /opt/homebrew and expose @rpath install ids.
 EOF
@@ -71,14 +71,18 @@ fi
 
 uses_rubberband=false
 uses_samplerate=false
+uses_onnx=false
 if grep -q '@rpath/librubberband\.3\.dylib' <<<"$binary_links"; then
   uses_rubberband=true
 fi
 if grep -q '@rpath/libsamplerate\.0\.dylib' <<<"$binary_links"; then
   uses_samplerate=true
 fi
+if grep -q '@rpath/libonnxruntime.*\.dylib' <<<"$binary_links"; then
+  uses_onnx=true
+fi
 
-if [[ "$uses_rubberband" == true || "$uses_samplerate" == true ]]; then
+if [[ "$uses_rubberband" == true || "$uses_samplerate" == true || "$uses_onnx" == true ]]; then
   [[ -d "$frameworks" ]] || fail "@rpath dylibs are used but Contents/Frameworks is missing"
   otool -l "$binary" | grep -q '@executable_path/../Frameworks' || fail "binary uses @rpath dylibs but lacks @executable_path/../Frameworks rpath"
 fi
@@ -104,9 +108,15 @@ fi
 if [[ "$uses_samplerate" == true ]]; then
   check_bundled_dylib "libsamplerate.0.dylib"
 fi
+if [[ "$uses_onnx" == true ]]; then
+  onnx_name="$(sed -n 's|.*@rpath/\\(libonnxruntime[^[:space:]]*\\.dylib\\).*|\\1|p' <<<"$binary_links" | head -1)"
+  [[ -n "$onnx_name" ]] || fail "could not resolve bundled ONNX Runtime name"
+  check_bundled_dylib "$onnx_name"
+fi
 
 printf 'StemDeck app bundle validation OK\n'
 printf 'app: %s\n' "$app"
 printf 'version: %s\n' "$bundle_version"
 printf 'rubberband_bundled: %s\n' "$uses_rubberband"
 printf 'libsamplerate_bundled: %s\n' "$uses_samplerate"
+printf 'onnxruntime_bundled: %s\n' "$uses_onnx"

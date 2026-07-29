@@ -92,13 +92,16 @@ int main (int argc, char** argv)
     std::cout << "Performed " << session.events.size() << " events, "
               << session.tracks.size() << " tracks, at " << performTempo << " BPM.\n\n";
 
+    bool ok = true;
+    juce::AudioBuffer<float> performedMix, fasterMix;
+
     // ── Render at the performed tempo ───────────────────────────────────────────
     {
-        const auto mix = SessionRenderer::render (session, provider);
+        performedMix = SessionRenderer::render (session, provider);
         const auto wav = outDir.getChildFile ("mix-124bpm.wav");
-        SessionExport::writeWav (mix, SR, wav, 24);
-        const auto m = stemdeck::LoudnessMeter::measure (mix, SR);
-        std::cout << "[render @ 124 BPM]  " << (double) mix.getNumSamples() / SR << " s  ->  "
+        ok = SessionExport::writeWav (performedMix, SR, wav, 24) && ok;
+        const auto m = stemdeck::LoudnessMeter::measure (performedMix, SR);
+        std::cout << "[render @ 124 BPM]  " << (double) performedMix.getNumSamples() / SR << " s  ->  "
                   << wav.getFullPathName() << "\n"
                   << "   integrated " << juce::String (m.integratedLufs, 1) << " LUFS,  true-peak "
                   << juce::String (m.truePeakDb, 1) << " dBTP\n\n";
@@ -107,11 +110,11 @@ int main (int argc, char** argv)
     // ── Re-export the SAME session at 128 BPM (the headline feature) ────────────
     {
         auto faster = session; faster.setMasterTempo (128.0);
-        const auto mix = SessionRenderer::render (faster, provider);
+        fasterMix = SessionRenderer::render (faster, provider);
         const auto wav = outDir.getChildFile ("mix-128bpm.wav");
-        SessionExport::writeWav (mix, SR, wav, 24);
-        const auto m = stemdeck::LoudnessMeter::measure (mix, SR);
-        std::cout << "[re-export @ 128 BPM]  " << (double) mix.getNumSamples() / SR << " s  ->  "
+        ok = SessionExport::writeWav (fasterMix, SR, wav, 24) && ok;
+        const auto m = stemdeck::LoudnessMeter::measure (fasterMix, SR);
+        std::cout << "[re-export @ 128 BPM]  " << (double) fasterMix.getNumSamples() / SR << " s  ->  "
                   << wav.getFullPathName() << "\n"
                   << "   integrated " << juce::String (m.integratedLufs, 1) << " LUFS,  true-peak "
                   << juce::String (m.truePeakDb, 1) << " dBTP\n"
@@ -121,12 +124,25 @@ int main (int argc, char** argv)
     // ── Tracklist + cue ─────────────────────────────────────────────────────────
     const auto tl = SessionExport::tracklist (session);
     const auto cue = SessionExport::cueSheet (session, "mix-124bpm.wav");
-    outDir.getChildFile ("tracklist.txt").replaceWithText (tl);
-    outDir.getChildFile ("mix.cue").replaceWithText (cue);
-    session.saveTo (outDir.getChildFile ("session.json"));
+    ok = outDir.getChildFile ("tracklist.txt").replaceWithText (tl) && ok;
+    ok = outDir.getChildFile ("mix.cue").replaceWithText (cue) && ok;
+    ok = session.saveTo (outDir.getChildFile ("session.json")) && ok;
+
+    // Binding vertical-slice assertions: this executable is both a listenable demo
+    // and a CI gate. It proves the same captured intent can be re-timed and exported
+    // with the complete deliverable set, rather than testing those layers only in
+    // separate fixtures.
+    ok = performedMix.getNumSamples() > fasterMix.getNumSamples() && ok;
+    ok = performedMix.getNumSamples() > 0 && fasterMix.getNumSamples() > 0 && ok;
+    ok = tl.contains ("track-a.wav") && tl.contains ("track-b.wav") && ok;
+    ok = cue.contains ("TRACK 01 AUDIO") && cue.contains ("TRACK 02 AUDIO") && ok;
+    for (const auto& name : { "mix-124bpm.wav", "mix-128bpm.wav", "tracklist.txt",
+                              "mix.cue", "session.json" })
+        ok = outDir.getChildFile (name).existsAsFile() && ok;
 
     std::cout << "Tracklist:\n" << tl << "\n";
     std::cout << "Cue sheet:\n" << cue << "\n";
     std::cout << "Wrote WAVs, tracklist.txt, mix.cue, session.json to:\n   " << outDir.getFullPathName() << "\n";
-    return 0;
+    std::cout << (ok ? "VERTICAL_SLICE_OK\n" : "VERTICAL_SLICE_FAILED\n");
+    return ok ? 0 : 1;
 }

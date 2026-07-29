@@ -56,6 +56,11 @@ public:
     // content is only reachable by clicking is a tab the PNG gate never checks.
     void selectDeckToolTab (int deckIndex, int tab);
 
+    enum class PrimarySurface { decks, library, mixer, arranger, performance };
+    // Deterministic surface selection for render/interaction gates. This deliberately
+    // uses the same callbacks as nav clicks, so tests cannot exercise a fake layout.
+    void selectPrimarySurface (PrimarySurface surface);
+
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -493,12 +498,6 @@ private:
     std::array<double, MainPluginProcessor::numDecks> stripLoopBeats { { 4.0, 4.0, 4.0, 4.0 } };
     std::array<int,    MainPluginProcessor::numDecks> stripQuant     { { 3, 3, 3, 3 } };
     std::array<bool,   MainPluginProcessor::numDecks> stripCueHeld   { {} };
-    // Pre-mute stem gains, in percent (StemGain.h). Defaults to unity — zero would
-    // mean "restore to silence" on the first unmute.
-    std::array<std::array<float, 4>, MainPluginProcessor::numDecks> stripSavedStemGain
-        { { { 100.0f, 100.0f, 100.0f, 100.0f }, { 100.0f, 100.0f, 100.0f, 100.0f },
-            { 100.0f, 100.0f, 100.0f, 100.0f }, { 100.0f, 100.0f, 100.0f, 100.0f } } };
-    std::array<int,    MainPluginProcessor::numDecks> stripSolo      { { -1, -1, -1, -1 } };
     void configureDeckStrip (int deckIndex);
     void refreshDeckStrips();
     bool deckHasContent (int deckIndex) const;   // has a loaded track (or showcase title)

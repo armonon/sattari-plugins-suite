@@ -6,6 +6,8 @@
  #include <coreml_provider_factory.h>
  #include <vector>
  #include <cmath>
+ #include <mutex>
+ #include <algorithm>
 #endif
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,10 +54,42 @@ struct NeuralStemEngine::Impl
     int64_t numSources = 4;
     bool ready = false;
     bool usingCpu = true;          // CoreML fp16 overflows the STFT reductions
+    std::mutex activeRunsMutex;
+    std::vector<std::shared_ptr<Ort::RunOptions>> activeRuns;
+    std::atomic<bool> cancellationRequested { false };
+
+    std::shared_ptr<Ort::RunOptions> beginRun()
+    {
+        auto run = std::make_shared<Ort::RunOptions>();
+        const std::lock_guard<std::mutex> lock (activeRunsMutex);
+        activeRuns.push_back (run);
+        if (cancellationRequested.load (std::memory_order_acquire))
+            run->SetTerminate();
+        return run;
+    }
+
+    void endRun (const std::shared_ptr<Ort::RunOptions>& run)
+    {
+        const std::lock_guard<std::mutex> lock (activeRunsMutex);
+        activeRuns.erase (std::remove (activeRuns.begin(), activeRuns.end(), run), activeRuns.end());
+    }
+
+    void cancelPending() noexcept
+    {
+        cancellationRequested.store (true, std::memory_order_release);
+        std::vector<std::shared_ptr<Ort::RunOptions>> runs;
+        {
+            const std::lock_guard<std::mutex> lock (activeRunsMutex);
+            runs = activeRuns;
+        }
+        for (const auto& run : runs)
+            try { run->SetTerminate(); } catch (...) {}
+    }
 
     bool load (const juce::File& modelFile, juce::String& message)
     {
         ready = false;
+        cancellationRequested.store (false, std::memory_order_release);
         if (! modelFile.existsAsFile())
         {
             message = "Neural model not found: " + modelFile.getFullPathName();
@@ -103,8 +137,12 @@ struct NeuralStemEngine::Impl
 
     // Run one window [2, N] through the model; writes 4 stems [2, N] to `outWin`.
     bool runWindow (const float* interleavedLR, int64_t n,
-                    std::array<std::vector<float>, 4>& outWin)
+                    std::array<std::vector<float>, 4>& outWin,
+                    const std::function<bool()>& shouldCancel)
     {
+        if ((shouldCancel && shouldCancel())
+            || cancellationRequested.load (std::memory_order_acquire))
+            return false;
         // Model input layout: [batch=1, channels=2, samples=n], de-interleaved.
         std::vector<float> input ((size_t) (2 * n), 0.0f);
         for (int64_t i = 0; i < n; ++i)
@@ -118,7 +156,18 @@ struct NeuralStemEngine::Impl
                                                          inShape.data(), inShape.size());
         const char* inNames[]  = { inputName.c_str() };
         const char* outNames[] = { outputName.c_str() };
-        auto outputs = session->Run (Ort::RunOptions { nullptr }, inNames, &inTensor, 1, outNames, 1);
+        auto runOptions = beginRun();
+        std::vector<Ort::Value> outputs;
+        try
+        {
+            outputs = session->Run (*runOptions, inNames, &inTensor, 1, outNames, 1);
+        }
+        catch (...)
+        {
+            endRun (runOptions);
+            throw;
+        }
+        endRun (runOptions);
         if (outputs.empty()) return false;
 
         // Output layout: [1, sources, channels, samples].
@@ -155,13 +204,20 @@ bool NeuralStemEngine::loadModel (const juce::File& modelFile, juce::String& mes
     return impl->load (modelFile, message);
 }
 
+void NeuralStemEngine::cancelPending() noexcept
+{
+    if (impl != nullptr)
+        impl->cancelPending();
+}
+
 bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /*sampleRate*/,
                                  juce::AudioBuffer<float>& outDrums,
                                  juce::AudioBuffer<float>& outBass,
                                  juce::AudioBuffer<float>& outMusic,
                                  juce::AudioBuffer<float>& outVocals,
                                  const std::function<void(float)>& onProgress,
-                                 juce::String& message)
+                                 juce::String& message,
+                                 std::function<bool()> shouldCancel)
 {
     if (! isAvailable()) { message = "Neural engine has no model loaded"; return false; }
 
@@ -184,6 +240,7 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
     {
         for (int64_t start = 0; start < total; start += hop)
         {
+            if (shouldCancel && shouldCancel()) { message = "Neural separation cancelled"; return false; }
             const int64_t n = juce::jmin<int64_t> (win, total - start);
             for (int64_t i = 0; i < win; ++i)
             {
@@ -193,7 +250,7 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
                 interleaved[(size_t) (2 * i)]     = l;
                 interleaved[(size_t) (2 * i + 1)] = r;
             }
-            if (! impl->runWindow (interleaved.data(), win, outWin))
+            if (! impl->runWindow (interleaved.data(), win, outWin, shouldCancel))
             { message = "Inference failed"; return false; }
 
             for (int64_t i = 0; i < n; ++i)
@@ -217,6 +274,8 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
         // Normalise the overlap-add.
         for (int i = 0; i < total; ++i)
         {
+            if ((i & 0x3ffff) == 0 && shouldCancel && shouldCancel())
+            { message = "Neural separation cancelled"; return false; }
             const float g = norm[(size_t) i] > 1.0e-6f ? 1.0f / norm[(size_t) i] : 1.0f;
             for (auto* b : outs) { b->setSample (0, i, b->getSample (0, i) * g); b->setSample (1, i, b->getSample (1, i) * g); }
         }
@@ -233,7 +292,8 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
                                           int64_t playheadSample,
                                           const SegmentCallback& onSegment,
                                           const std::function<void(float)>& onProgress,
-                                          juce::String& message)
+                                          juce::String& message,
+                                          std::function<bool()> shouldCancel)
 {
     if (! isAvailable()) { message = "Neural engine has no model loaded"; return false; }
 
@@ -261,6 +321,7 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
     {
         for (size_t k = 0; k < order.size(); ++k)
         {
+            if (shouldCancel && shouldCancel()) { message = "Neural streaming separation cancelled"; return false; }
             const int64_t segStart = order[k] * win;
             const int64_t n = juce::jmin (win, total - segStart);   // last segment is short
             for (int64_t i = 0; i < win; ++i)
@@ -271,7 +332,7 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
                 interleaved[(size_t) (2 * i)]     = l;
                 interleaved[(size_t) (2 * i + 1)] = r;
             }
-            if (! impl->runWindow (interleaved.data(), win, outWin))
+            if (! impl->runWindow (interleaved.data(), win, outWin, shouldCancel))
             { message = "Inference failed"; return false; }
 
             for (int s = 0; s < 4; ++s)
@@ -307,11 +368,14 @@ bool NeuralStemEngine::loadModel (const juce::File&, juce::String& message)
 bool NeuralStemEngine::separate (const juce::AudioBuffer<float>&, double,
                                  juce::AudioBuffer<float>&, juce::AudioBuffer<float>&,
                                  juce::AudioBuffer<float>&, juce::AudioBuffer<float>&,
-                                 const std::function<void(float)>&, juce::String& message)
+                                 const std::function<void(float)>&, juce::String& message,
+                                 std::function<bool()>)
 { message = "Built without ONNX Runtime"; return false; }
 bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>&, double, int64_t,
                                           const SegmentCallback&,
-                                          const std::function<void(float)>&, juce::String& message)
+                                          const std::function<void(float)>&, juce::String& message,
+                                          std::function<bool()>)
 { message = "Built without ONNX Runtime"; return false; }
+void NeuralStemEngine::cancelPending() noexcept {}
 
 #endif

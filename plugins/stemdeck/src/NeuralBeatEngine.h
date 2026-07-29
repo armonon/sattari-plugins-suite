@@ -49,6 +49,7 @@ public:
     {
         bool valid = false;
         float detectedBpm = 0.0f;
+        float confidence = 0.0f;             // activation strength + grid regularity
         double downbeatSample = 0.0;         // in the INPUT sample rate
         int beatsPerBar = 4;
         std::vector<double> beatGridSamples; // input-rate sample positions

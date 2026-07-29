@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 
+# ONNX is an explicit shipping choice.  In particular, merely having Homebrew's
+# onnxruntime installed must not silently make a supposedly portable StemDeck
+# depend on /opt/homebrew (or inherit that dylib's deployment floor).
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
+
 # StemDeck links ONNX Runtime for on-device neural separation. Homebrew ships it
 # arm64-only, so the suite-default universal build (SATTARI_UNIVERSAL=ON) fails
 # to link with "Undefined symbols for architecture x86_64". If a universal build
@@ -8,7 +13,7 @@ cmake_minimum_required(VERSION 3.22)
 # and an explicit -DCMAKE_OSX_ARCHITECTURES=... always wins.
 # Must run before SattariDeploymentTarget.cmake (which sets the universal pair)
 # and before project() so the compiler checks use the right arch.
-if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+if(APPLE AND SATTARI_USE_ONNX AND NOT CMAKE_OSX_ARCHITECTURES)
     execute_process(COMMAND uname -m
                     OUTPUT_VARIABLE _sd_host_arch OUTPUT_STRIP_TRAILING_WHITESPACE)
     foreach(_sd_ort "/opt/homebrew/lib/libonnxruntime.dylib" "/usr/local/lib/libonnxruntime.dylib")
@@ -56,6 +61,7 @@ sattari_add_plugin(
         src/ArrangementBuilder.cpp
         src/ArrangementView.cpp
         src/BeatSyncEngine.cpp
+        src/ChunkedAudioFile.cpp
         src/DeckPlayer.cpp
         src/DeckStrip.cpp
         src/EQProcessor.cpp
@@ -63,6 +69,7 @@ sattari_add_plugin(
         src/HostGraph.cpp
         src/MainPluginEditor.cpp
         src/MainPluginEditor_Arrangement.cpp
+        src/MainPluginEditor_Surfaces.cpp
         src/MainPluginProcessor.cpp
         src/MasterRecorder.cpp
         src/MixerSection.cpp
@@ -121,28 +128,40 @@ function(stemdeck_link_tracktion TARGET)
 endfunction()
 
 # ── Optional: on-device neural stem separation via ONNX Runtime ───────────────
-# Enables in-process, CoreML-accelerated neural demixing when ONNX Runtime is
-# present. The app still builds + runs (RTSS + demucs-CLI fallback) without it.
-find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
-          PATH_SUFFIXES onnxruntime
-          PATHS /opt/homebrew/include /usr/local/include)
-find_library(ONNXRUNTIME_LIB onnxruntime
-             PATHS /opt/homebrew/lib /usr/local/lib)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    message(STATUS "StemDeck: ONNX Runtime found — on-device neural separation ENABLED (${ONNXRUNTIME_LIB})")
-    target_include_directories(SattariStemDeck PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(SattariStemDeck PRIVATE ${ONNXRUNTIME_LIB})
-    # SATTARI_HAS_ONNX is the suite-wide guard used by the shared core headers
-    # (SattariKeyNet). NeuralKeyEngine needs it to compile the real inference path.
-    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+# Off by default. Enabling it routes through the suite-wide helper, which checks
+# the dylib's real LC_BUILD_VERSION floor and refuses a lying shipping binary.
+sattari_enable_onnx(SattariStemDeck SATTARI_STEMDECK_HAS_ONNX)
+if(SATTARI_USE_ONNX AND ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+    set(STEMDECK_ONNX_ENABLED ON)
+    # SATTARI_HAS_ONNX is the guard used by shared neural-key headers.
+    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_HAS_ONNX=1)
+    message(STATUS "StemDeck: on-device neural separation ENABLED (${ONNXRUNTIME_LIB})")
 else()
-    message(STATUS "StemDeck: ONNX Runtime not found — neural separation uses demucs-CLI + RTSS fallback")
+    set(STEMDECK_ONNX_ENABLED OFF)
+    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_HAS_ONNX=0)
+    message(STATUS "StemDeck: neural runtime disabled — using Demucs CLI + RTSS/DSP fallbacks")
 endif()
+
+# Test executables link SharedCode but compile their own translation unit with
+# the same feature guards. Keep that wiring in one place so a target cannot
+# accidentally re-enable a Homebrew runtime just because it was discovered.
+function(stemdeck_enable_onnx TARGET)
+    if(STEMDECK_ONNX_ENABLED)
+        target_include_directories(${TARGET} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+        target_link_libraries(${TARGET} PRIVATE ${ONNXRUNTIME_LIB})
+        target_compile_definitions(${TARGET} PRIVATE
+            SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
+    else()
+        target_compile_definitions(${TARGET} PRIVATE
+            SATTARI_STEMDECK_HAS_ONNX=0 SATTARI_HAS_ONNX=0)
+    endif()
+endfunction()
 
 add_executable(StemDeckGranularRenderContract
     EXCLUDE_FROM_ALL
         tests/stemdeck_granular_render_contract.cpp
         src/BeatSyncEngine.cpp
+        src/ChunkedAudioFile.cpp
         src/DeckPlayer.cpp
         src/EQProcessor.cpp
         src/FilterProcessor.cpp
@@ -178,6 +197,7 @@ target_link_libraries(StemDeckGranularRenderContract
 add_executable(StemDeckTimePitchBenchmark
     EXCLUDE_FROM_ALL
         tests/stemdeck_timepitch_benchmark.cpp
+        src/ChunkedAudioFile.cpp
         src/DeckPlayer.cpp
         src/EQProcessor.cpp
         src/FilterProcessor.cpp
@@ -217,6 +237,7 @@ add_executable(StemDeckArchitectureContract
         tests/stemdeck_architecture_contract.cpp
         src/ArrangementBuilder.cpp
         src/BeatSyncEngine.cpp
+        src/ChunkedAudioFile.cpp
         src/DeckPlayer.cpp
         src/EQProcessor.cpp
         src/FilterProcessor.cpp
@@ -274,6 +295,22 @@ target_link_libraries(StemDeckBeatDetectTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckBeatDetectTest)
 
+# ── Real full-length music accuracy gate (manifest + private/licensed audio) ──
+add_executable(StemDeckCorpusGate
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_corpus.cpp
+        src/TrackAnalysis.cpp)
+add_dependencies(StemDeckCorpusGate SattariStemDeck)
+target_include_directories(StemDeckCorpusGate PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckCorpusGate PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckCorpusGate
+    PRIVATE juce::juce_audio_formats juce::juce_dsp
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckCorpusGate)
+
 # ── Key-detection accuracy check (chroma + tuning comp. + profile correlation) ─
 add_executable(StemDeckKeyDetectTest
     EXCLUDE_FROM_ALL
@@ -325,6 +362,19 @@ target_link_libraries(StemDeckAnalysisCacheTest
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckAnalysisCacheTest)
+
+# ── Long-file bounded cache (background I/O, immutable RT snapshots) ──────────
+add_executable(StemDeckLongAudioTest
+    EXCLUDE_FROM_ALL
+        tests/stemdeck_long_audio.cpp
+        src/ChunkedAudioFile.cpp)
+target_include_directories(StemDeckLongAudioTest PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckLongAudioTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckLongAudioTest
+    PRIVATE juce::juce_audio_formats
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+           juce::juce_recommended_warning_flags)
 
 # ── Session schema round-trip (capture format: regions, tempo re-time, JSON) ───
 add_executable(StemDeckSessionTest
@@ -533,6 +583,7 @@ target_link_libraries(StemDeckStemKnobRender
 add_executable(StemDeckStemFx EXCLUDE_FROM_ALL
     tests/stemdeck_stemfx.cpp
     src/BeatSyncEngine.cpp
+    src/ChunkedAudioFile.cpp
     src/DeckPlayer.cpp
     src/EQProcessor.cpp
     src/FilterProcessor.cpp
@@ -615,12 +666,7 @@ target_link_libraries(StemDeckEditorRender
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckEditorRender)
 sattari_enable_rubberband(StemDeckEditorRender SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckEditorRender PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckEditorRender PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckEditorRender PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckEditorRender)
 
 # ── A1 phase 5: THE GATE — replay must be sample-identical to the live pass ────
 add_executable(StemDeckReplayHash EXCLUDE_FROM_ALL tests/stemdeck_replayhash.cpp)
@@ -634,12 +680,7 @@ target_link_libraries(StemDeckReplayHash
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckReplayHash)
 sattari_enable_rubberband(StemDeckReplayHash SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckReplayHash PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckReplayHash PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckReplayHash PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckReplayHash)
 
 # ── A1 phase 3: dispatch and replay are the same code path ────────────────────
 add_executable(StemDeckDispatch EXCLUDE_FROM_ALL tests/stemdeck_dispatch.cpp)
@@ -663,12 +704,7 @@ target_link_libraries(StemDeckLiveIO
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckLiveIO)
 sattari_enable_rubberband(StemDeckLiveIO SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckLiveIO PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckLiveIO PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckLiveIO PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckLiveIO)
 
 # ── A1 phase 1: event stream round-trips exactly and refuses what it must ──────
 add_executable(StemDeckEventStream EXCLUDE_FROM_ALL tests/stemdeck_eventstream.cpp)
@@ -692,12 +728,7 @@ target_link_libraries(StemDeckRtSafety
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckRtSafety)
 sattari_enable_rubberband(StemDeckRtSafety SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckRtSafety PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckRtSafety PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckRtSafety PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckRtSafety)
 
 # ── Multi-instance: a DAW can host two StemDecks in one process ────────────────
 add_executable(StemDeckMultiInstance EXCLUDE_FROM_ALL tests/stemdeck_multiinstance.cpp)
@@ -712,12 +743,7 @@ target_link_libraries(StemDeckMultiInstance
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckMultiInstance)
 sattari_enable_rubberband(StemDeckMultiInstance SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckMultiInstance PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckMultiInstance PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckMultiInstance PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckMultiInstance)
 
 # ── A3: measure time-to-playable at real track lengths ─────────────────────────
 add_executable(StemDeckLoadLatency EXCLUDE_FROM_ALL tests/stemdeck_loadlatency.cpp)
@@ -732,12 +758,7 @@ target_link_libraries(StemDeckLoadLatency
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckLoadLatency)
 sattari_enable_rubberband(StemDeckLoadLatency SATTARI_STEMDECK_HAS_RUBBERBAND)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    target_include_directories(StemDeckLoadLatency PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(StemDeckLoadLatency PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(StemDeckLoadLatency PRIVATE
-        SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
-endif()
+stemdeck_enable_onnx(StemDeckLoadLatency)
 
 # ── Deck strip render (verify the per-deck control strip styling via PNG) ───────
 add_executable(StemDeckDeckStripRender EXCLUDE_FROM_ALL
@@ -845,6 +866,7 @@ stemdeck_link_tracktion(StemDeckChannelDropout)
 add_executable(StemDeckTrackDeckBody EXCLUDE_FROM_ALL
     tests/stemdeck_trackdeckbody.cpp
     src/BeatSyncEngine.cpp
+    src/ChunkedAudioFile.cpp
     src/DeckPlayer.cpp
     src/EQProcessor.cpp
     src/FilterProcessor.cpp
@@ -891,7 +913,7 @@ target_link_libraries(StemDeckResamplerTest
 # ── Neural separation smoke test (real audio → 4 stems via ONNX Runtime) ───────
 # Exercises the app's exact NeuralStemEngine + ORT path headlessly. Only built
 # when ONNX Runtime is present.
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
+if(STEMDECK_ONNX_ENABLED)
     add_executable(StemDeckNeuralSmoke
         EXCLUDE_FROM_ALL
             tests/stemdeck_neural_smoke.cpp

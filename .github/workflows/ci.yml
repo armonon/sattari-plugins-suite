@@ -132,13 +132,43 @@ jobs:
       - name: Build + run DSP accuracy tests
         run: |
           set -e
-          for t in StemDeckBeatDetectTest StemDeckKeyDetectTest StemDeckAutomixTest StemDeckResamplerTest StemDeckAnalysisCacheTest StemDeckSessionTest StemDeckCaptureTest StemDeckRenderTest StemDeckRendererTest StemDeckExportTest StemDeckLoudnessTest StemDeckStructureTest; do
+          for t in StemDeckBeatDetectTest StemDeckKeyDetectTest StemDeckAutomixTest StemDeckResamplerTest StemDeckAnalysisCacheTest StemDeckLongAudioTest StemDeckSessionTest StemDeckCaptureTest StemDeckRenderTest StemDeckRendererTest StemDeckExportTest StemDeckLoudnessTest StemDeckStructureTest; do
             cmake --build build/stemdeck --target "$t" -j3
             bin="$(find build/stemdeck -type f -name "$t" -perm +111 | head -n1)"
             if [ -z "$bin" ]; then echo "::error::$t binary not found"; exit 1; fi
             echo "── Running $t"
             "$bin"
           done
+
+      - name: Run capture → edit → retime → export vertical slice
+        run: |
+          cmake --build build/stemdeck --target StemDeckSessionDemo -j3
+          bin="$(find build/stemdeck -type f -name StemDeckSessionDemo -perm +111 | head -n1)"
+          test -n "$bin"
+          "$bin" "$RUNNER_TEMP/stemdeck-vertical-slice"
+
+      - name: Build real-corpus gate
+        run: cmake --build build/stemdeck --target StemDeckCorpusGate -j3
+
+      # The corpus contains licensed/private full-length music and is therefore
+      # supplied by repository infrastructure rather than committed. Once the
+      # secret URL is configured this becomes a hard CI gate; until then CI says
+      # explicitly that accuracy is not certified instead of substituting tones.
+      - name: Run real full-length music corpus
+        env:
+          STEMDECK_CORPUS_ARCHIVE_URL: ${{ secrets.STEMDECK_CORPUS_ARCHIVE_URL }}
+        run: |
+          if [ -z "$STEMDECK_CORPUS_ARCHIVE_URL" ]; then
+            echo "::warning::STEMDECK_CORPUS_ARCHIVE_URL is not configured; real-music accuracy remains uncertified"
+            exit 0
+          fi
+          mkdir -p build/stemdeck/real-corpus
+          curl --fail --location --silent --show-error \
+            "$STEMDECK_CORPUS_ARCHIVE_URL" -o build/stemdeck/real-corpus/corpus.tar.gz
+          tar -xzf build/stemdeck/real-corpus/corpus.tar.gz -C build/stemdeck/real-corpus
+          manifest="$(find build/stemdeck/real-corpus -name corpus.json -print -quit)"
+          test -n "$manifest"
+          build/stemdeck/StemDeckCorpusGate "$manifest" build/stemdeck/real-corpus-report.json
 
   # ---------------------------------------------------------------------------
   # Root configure + cross-plugin contract. Configuring from the repo root

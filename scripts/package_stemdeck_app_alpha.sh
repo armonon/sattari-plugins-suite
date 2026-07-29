@@ -5,7 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workspace_root="$(cd "$repo_root/../.." && pwd)"
 build_dir="${BUILD_DIR:-$repo_root/build/stemdeck-app}"
 out_root="${1:-$workspace_root/deliverables/sattari-test-builds}"
-version="${STEMDECK_APP_VERSION:-0.4.3-djay-ui-reference}"
+version="${STEMDECK_APP_VERSION:-0.5.0-studio-workflow}"
+use_onnx="${SATTARI_USE_ONNX:-OFF}"
 package_dir="$out_root/stemdeck-app-alpha-v$version"
 release_dir="$build_dir/SattariStemDeck_artefacts/Release"
 app_src="$release_dir/Standalone/Sattari StemDeck.app"
@@ -15,7 +16,17 @@ cd "$repo_root"
 mkdir -p "$out_root"
 ./scripts/validate_sources.sh
 
-cmake -S plugins/stemdeck -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake_args=(
+  -S plugins/stemdeck
+  -B "$build_dir"
+  -G Ninja
+  -DCMAKE_BUILD_TYPE=Release
+  "-DSATTARI_USE_ONNX=$use_onnx"
+)
+if [[ -n "${ONNXRUNTIME_ROOT:-}" ]]; then
+  cmake_args+=("-DONNXRUNTIME_ROOT=$ONNXRUNTIME_ROOT")
+fi
+cmake "${cmake_args[@]}"
 cmake --build "$build_dir" --config Release --target SattariStemDeck_Standalone -j "${JOBS:-4}"
 cmake --build "$build_dir" --config Release --target StemDeckGranularRenderContract -j "${JOBS:-4}"
 echo "--- StemDeck granular render contract"
@@ -58,6 +69,26 @@ if [[ -e "$frameworks_dir/librubberband.3.dylib" && -e "$frameworks_dir/libsampl
   /usr/bin/install_name_tool -change "/opt/homebrew/opt/rubberband/lib/librubberband.3.dylib" "@rpath/librubberband.3.dylib" "$app_binary" || true
   /usr/bin/install_name_tool -change "/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.dylib" "@rpath/libsamplerate.0.dylib" "$app_binary" || true
   /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_binary" 2>/dev/null || true
+fi
+
+# A neural build is allowed only with an explicitly selected, deployment-floor
+# compatible runtime (CMake enforces that). Make that runtime self-contained just
+# like Rubber Band: copy the exact dylib the binary linked, rewrite the load
+# command to @rpath, then let the bundle validator prove there are no machine-local
+# paths left. Ordinary packages have SATTARI_USE_ONNX=OFF and skip this entirely.
+onnx_link="$(otool -L "$app_binary" | awk '/libonnxruntime.*\\.dylib/{print $1; exit}')"
+if [[ -n "$onnx_link" ]]; then
+  [[ -f "$onnx_link" ]] || {
+    echo "linked ONNX Runtime does not exist: $onnx_link" >&2
+    exit 1
+  }
+  onnx_real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$onnx_link")"
+  onnx_name="$(basename "$onnx_link")"
+  ditto "$onnx_real" "$frameworks_dir/$onnx_name"
+  /usr/bin/install_name_tool -id "@rpath/$onnx_name" "$frameworks_dir/$onnx_name"
+  /usr/bin/install_name_tool -change "$onnx_link" "@rpath/$onnx_name" "$app_binary"
+  /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_binary" 2>/dev/null || true
+  echo "--- bundled ONNX Runtime: $onnx_name"
 fi
 
 # Optionally bundle the on-device neural models INTO the app so premium AI stem
@@ -195,6 +226,9 @@ EOF_README
   fi
   if [[ -e "$frameworks_dir/libsamplerate.0.dylib" ]]; then
     echo "bundled_dylib: Contents/Frameworks/libsamplerate.0.dylib"
+  fi
+  if [[ -n "$onnx_link" ]]; then
+    echo "bundled_dylib: Contents/Frameworks/$onnx_name"
   fi
   echo "app: Sattari StemDeck/Sattari StemDeck.app"
 } > "$package_dir/MANIFEST.txt"

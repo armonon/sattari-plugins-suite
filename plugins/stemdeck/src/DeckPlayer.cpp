@@ -168,7 +168,7 @@ double DeckPlayer::getPlayheadReferenceSamples() const noexcept
 TrackAnalysis DeckPlayer::analyzeFullMixAroundPlayhead (double windowSeconds) const
 {
     auto audio = getLoadedAudio();
-    if (! audio || audio->audio.getNumSamples() <= 1 || audio->sourceSampleRate <= 0.0)
+    if (! audio || audio->numSourceSamples() <= 1 || audio->sourceSampleRate <= 0.0)
         return {};
 
     std::array<std::shared_ptr<const LoadedAudio>, numStemLanes> laneAudio;
@@ -177,26 +177,34 @@ TrackAnalysis DeckPlayer::analyzeFullMixAroundPlayhead (double windowSeconds) co
 
     const double referenceSampleRate = referenceSampleRateFor (laneAudio);
     const double fullMixPosition = getPlayheadReferenceSamples() * audio->sourceSampleRate / referenceSampleRate;
-    const int windowSamples = juce::jlimit (4096, audio->audio.getNumSamples(),
+    const int sourceSamples = (int) juce::jmin<juce::int64> (std::numeric_limits<int>::max(),
+                                                              audio->numSourceSamples());
+    const int windowSamples = juce::jlimit (4096, sourceSamples,
                                            (int) std::round (juce::jlimit (2.0, 24.0, windowSeconds) * audio->sourceSampleRate));
     const int halfWindow = windowSamples / 2;
-    const int startSample = juce::jlimit (0, juce::jmax (0, audio->audio.getNumSamples() - windowSamples),
+    const int startSample = juce::jlimit (0, juce::jmax (0, sourceSamples - windowSamples),
                                          (int) std::round (fullMixPosition) - halfWindow);
 
-    juce::AudioBuffer<float> window (audio->audio.getNumChannels(), windowSamples);
+    const int sourceChannels = audio->streamed != nullptr ? audio->streamed->numChannels()
+                                                          : audio->audio.getNumChannels();
+    juce::AudioBuffer<float> window (juce::jmax (1, sourceChannels), windowSamples);
     for (int ch = 0; ch < window.getNumChannels(); ++ch)
-        window.copyFrom (ch, 0, audio->audio, ch, startSample, windowSamples);
+        for (int i = 0; i < windowSamples; ++i)
+            window.setSample (ch, i, readInterpolated (*audio, ch, startSample + i));
 
     return TrackAnalyzer::analyze (window, audio->sourceSampleRate);
 }
 
-float DeckPlayer::readInterpolated (const juce::AudioBuffer<float>& audio, int channel, double position)
+float DeckPlayer::readInterpolated (const LoadedAudio& audio, int channel, double position)
 {
+    if (audio.streamed != nullptr)
+        return audio.streamed->readInterpolated (channel, position);
+
     // 16-tap Blackman-windowed sinc (see Interpolation.h): near-transparent
     // sample-rate conversion and granular reads, and still bit-exact when the
     // position lands on an integer sample (sinc(0) is a unit delta), so
     // matched-rate no-stretch playback remains a pass-through.
-    return stemdeck::readSinc (audio, channel, position);
+    return stemdeck::readSinc (audio.audio, channel, position);
 }
 
 double DeckPlayer::wrapPosition (double position, double length)
@@ -221,7 +229,7 @@ float DeckPlayer::hannWindow (double phase, double size)
 double DeckPlayer::referenceSampleRateFor (const std::array<std::shared_ptr<const LoadedAudio>, numStemLanes>& laneAudio)
 {
     for (const auto& audio : laneAudio)
-        if (audio && audio->sourceSampleRate > 0.0 && audio->audio.getNumSamples() > 1)
+        if (audio && audio->sourceSampleRate > 0.0 && audio->numSourceSamples() > 1)
             return audio->sourceSampleRate;
 
     return 44100.0;
@@ -233,10 +241,10 @@ double DeckPlayer::longestReferenceLengthFor (const std::array<std::shared_ptr<c
     double longest = 0.0;
     for (const auto& audio : laneAudio)
     {
-        if (! audio || audio->audio.getNumSamples() <= 1 || audio->sourceSampleRate <= 0.0)
+        if (! audio || audio->numSourceSamples() <= 1 || audio->sourceSampleRate <= 0.0)
             continue;
 
-        const double lengthInReferenceSamples = (double) audio->audio.getNumSamples() * referenceSampleRate / audio->sourceSampleRate;
+        const double lengthInReferenceSamples = (double) audio->numSourceSamples() * referenceSampleRate / audio->sourceSampleRate;
         longest = juce::jmax (longest, lengthInReferenceSamples);
     }
 
@@ -274,7 +282,7 @@ void DeckPlayer::fillRubberBandInput (int numFrames,
         for (int lane = 0; lane < numStemLanes; ++lane)
         {
             const auto& laneData = laneAudio[(size_t) lane];
-            if (! laneData || laneData->audio.getNumSamples() <= 1)
+            if (! laneData || laneData->numSourceSamples() <= 1)
                 continue;
 
             const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
@@ -282,10 +290,12 @@ void DeckPlayer::fillRubberBandInput (int numFrames,
                 continue;
 
             const double lanePosition = wrapPosition (sourceReferencePosition * laneData->sourceSampleRate / referenceSampleRate,
-                                                      (double) laneData->audio.getNumSamples());
+                                                      (double) laneData->numSourceSamples());
 
-            const float left = laneGain * readInterpolated (laneData->audio, 0, lanePosition);
-            const float right = laneGain * readInterpolated (laneData->audio, laneData->audio.getNumChannels() > 1 ? 1 : 0, lanePosition);
+            const int laneChannels = laneData->streamed != nullptr ? laneData->streamed->numChannels()
+                                                                   : laneData->audio.getNumChannels();
+            const float left = laneGain * readInterpolated (*laneData, 0, lanePosition);
+            const float right = laneGain * readInterpolated (*laneData, laneChannels > 1 ? 1 : 0, lanePosition);
 
             rubberBandInput.addSample (0, i, left);
             if (channels > 1)
@@ -444,7 +454,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
     for (int lane = 0; lane < numStemLanes; ++lane)
     {
         laneAudio[(size_t) lane] = getStemAudio (lane);
-        hasAnyAudio = hasAnyAudio || (laneAudio[(size_t) lane] && laneAudio[(size_t) lane]->audio.getNumSamples() > 1);
+        hasAnyAudio = hasAnyAudio || (laneAudio[(size_t) lane] && laneAudio[(size_t) lane]->numSourceSamples() > 1);
     }
 
     if (! shouldPlay || ! hasAnyAudio)
@@ -593,7 +603,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                 for (int lane = 0; lane < numStemLanes; ++lane)
                 {
                     const auto& laneData = laneAudio[(size_t) lane];
-                    if (! laneData || laneData->audio.getNumSamples() <= 1)
+                    if (! laneData || laneData->numSourceSamples() <= 1)
                         continue;
 
                     const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
@@ -603,10 +613,12 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     // Each lane reads at its own pitch ratio (independent stem pitch).
                     const double sourceReferencePosition = wrapPosition (grainIndex * grainHop * tempoRatio
                                                                          + phase * lanePitchRatio[(size_t) lane], sourceLength);
-                    const double laneLength = (double) laneData->audio.getNumSamples();
+                    const double laneLength = (double) laneData->numSourceSamples();
                     const double lanePosition = wrapPosition (sourceReferencePosition * laneData->sourceSampleRate / referenceSampleRate, laneLength);
-                    left += grainWeight * laneGain * readInterpolated (laneData->audio, 0, lanePosition);
-                    right += grainWeight * laneGain * readInterpolated (laneData->audio, laneData->audio.getNumChannels() > 1 ? 1 : 0, lanePosition);
+                    const int laneChannels = laneData->streamed != nullptr ? laneData->streamed->numChannels()
+                                                                           : laneData->audio.getNumChannels();
+                    left += grainWeight * laneGain * readInterpolated (*laneData, 0, lanePosition);
+                    right += grainWeight * laneGain * readInterpolated (*laneData, laneChannels > 1 ? 1 : 0, lanePosition);
                 }
             }
 
@@ -621,7 +633,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
             for (int lane = 0; lane < numStemLanes; ++lane)
             {
                 const auto& laneData = laneAudio[(size_t) lane];
-                if (! laneData || laneData->audio.getNumSamples() <= 1)
+                if (! laneData || laneData->numSourceSamples() <= 1)
                     continue;
 
                 const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
@@ -629,9 +641,11 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     continue;
 
                 const double lanePosition = wrapPosition (playheadSamples * laneData->sourceSampleRate / referenceSampleRate,
-                                                          (double) laneData->audio.getNumSamples());
-                left += laneGain * readInterpolated (laneData->audio, 0, lanePosition);
-                right += laneGain * readInterpolated (laneData->audio, laneData->audio.getNumChannels() > 1 ? 1 : 0, lanePosition);
+                                                          (double) laneData->numSourceSamples());
+                const int laneChannels = laneData->streamed != nullptr ? laneData->streamed->numChannels()
+                                                                       : laneData->audio.getNumChannels();
+                left += laneGain * readInterpolated (*laneData, 0, lanePosition);
+                right += laneGain * readInterpolated (*laneData, laneChannels > 1 ? 1 : 0, lanePosition);
             }
         }
 
