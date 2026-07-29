@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariRealtime.h>
 #include <vector>
 
 class SattariArpAudioProcessor final : public juce::AudioProcessor
@@ -77,6 +78,16 @@ public:
     // (root comes from the bus when Follow Song Key is on and a session is live).
     struct KeyState { bool following = false; int root = 0; int scale = 0; };
     KeyState currentKeyState() const;
+
+    struct UiState
+    {
+        int step = 0;
+        int velocity = 0;
+        int heldNotes = 0;
+        bool running = false;
+        double bpm = 120.0;
+    };
+    UiState currentUiState() const noexcept { return uiState.load(); }
 private:
 
     juce::AudioProcessorValueTreeState apvts;
@@ -116,6 +127,7 @@ private:
     juce::MidiBuffer scratchOutput;            // reused output buffer (avoids per-block MidiBuffer alloc)
 
     juce::Random random;
+    sattari::rt::AtomicSnapshot<UiState> uiState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariArpAudioProcessor)
 };

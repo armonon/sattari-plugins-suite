@@ -3,6 +3,7 @@
 // non-silent SUB-band tone (not mid content), and (2) stays quiet on silence
 // (the envelope gate closes — no runaway self-oscillation).
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
 
@@ -69,9 +70,19 @@ void measure (const juce::AudioBuffer<float>& b, double sr, double& rms, double&
 }
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (argc == 3 && juce::String (argv[1]) == "--render-ui")
+    {
+        SubConjurerAudioProcessor processor;
+        const juce::File destination (argv[2]);
+        const bool ok = sattari::test::renderEditorToPng (processor, destination);
+        std::printf ("%s %s\n", ok ? "rendered" : "FAIL render",
+                     destination.getFullPathName().toRawUTF8());
+        return ok ? 0 : 1;
+    }
     const double sr = 48000.0;
     int fails = 0;
 

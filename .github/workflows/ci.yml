@@ -146,6 +146,15 @@ jobs:
           echo "Running $bin"
           "$bin"
 
+      - name: Render editor visual contract
+        if: ${{ matrix.uiRender == true }}
+        run: |
+          bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.test }}' -perm +111 | head -n1)"
+          image="$RUNNER_TEMP/${{ matrix.plugin }}-editor.png"
+          "$bin" --render-ui "$image"
+          test -s "$image"
+          file "$image" | grep -q 'PNG image data'
+
       # Render harness in --smoke mode: proves the real audio path produces
       # finite, non-silent output. A strict null-test against the golden runs
       # locally (same machine + Rubber Band); it is intentionally NOT a CI gate

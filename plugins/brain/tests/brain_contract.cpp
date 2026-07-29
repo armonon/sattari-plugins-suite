@@ -15,6 +15,7 @@
 // (with a timeout), the same pattern the bus's SessionReader contract uses.
 #include "BrainProcessor.h"
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
 #include <chrono>
@@ -47,9 +48,19 @@ bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMe
 }
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (argc == 3 && juce::String (argv[1]) == "--render-ui")
+    {
+        SattariBrainAudioProcessor processor;
+        const juce::File destination (argv[2]);
+        const bool ok = sattari::test::renderEditorToPng (processor, destination);
+        std::printf ("%s %s\n", ok ? "rendered" : "FAIL render",
+                     destination.getFullPathName().toRawUTF8());
+        return ok ? 0 : 1;
+    }
 
     int fails = 0;
     auto check = [&fails] (bool ok, const char* what)

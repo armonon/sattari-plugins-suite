@@ -17,7 +17,12 @@ CI = ROOT / "config/ci-matrix.generated.json"
 BRAND_ENTRY = re.compile(
     r'\{\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*(k\w+)\s*\},'
 )
-ACCENTS = {"mint": "kAccent", "violet": "kAccentViolet", "amber": "kAccentAmber"}
+ACCENTS = {
+    "mint": "kAccent",
+    "violet": "kAccentViolet",
+    "amber": "kAccentAmber",
+    "blue": "kAccentBlue",
+}
 
 
 def main() -> int:

@@ -572,7 +572,7 @@
       "id": "sattari-arp",
       "name": "Sattari Arp",
       "category": "MIDI / creative",
-      "accent": "#62f5c8",
+      "accent": "#9b7bff",
       "description": "Sattari Arp \u2014 MIDI / creative.",
       "formats": [
         "AU",
@@ -1529,7 +1529,7 @@
       "id": "brain",
       "name": "Sattari Brain",
       "category": "Session brain",
-      "accent": "#62f5c8",
+      "accent": "#68a7ff",
       "description": "Sattari Brain \u2014 Session brain.",
       "formats": [
         "AU",

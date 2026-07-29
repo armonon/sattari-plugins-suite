@@ -5,14 +5,25 @@
 // 0.25 quarter / (120/60) bps = 0.125 s = exactly 6000 samples, so consecutive
 // note-ons must be 6000 samples apart (within rounding).
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 
 #include <cmath>
 #include <cstdio>
 #include <vector>
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (argc == 3 && juce::String (argv[1]) == "--render-ui")
+    {
+        SattariArpAudioProcessor processor;
+        const juce::File destination (argv[2]);
+        const bool ok = sattari::test::renderEditorToPng (processor, destination);
+        std::printf ("%s %s\n", ok ? "rendered" : "FAIL render",
+                     destination.getFullPathName().toRawUTF8());
+        return ok ? 0 : 1;
+    }
 
     SattariArpAudioProcessor proc;
     const double sr    = 48000.0;

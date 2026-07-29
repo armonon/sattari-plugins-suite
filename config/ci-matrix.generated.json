@@ -23,15 +23,19 @@
       "test": "SattariStackLayerContract"
     },
     {
-      "plugin": "sub-conjurer"
+      "plugin": "sub-conjurer",
+      "test": "SubConjurerContract",
+      "uiRender": true
     },
     {
       "plugin": "sattari-arp",
-      "test": "SattariArpTimingContract"
+      "test": "SattariArpTimingContract",
+      "uiRender": true
     },
     {
       "plugin": "brain",
-      "test": "BrainContract"
+      "test": "BrainContract",
+      "uiRender": true
     }
   ]
 }

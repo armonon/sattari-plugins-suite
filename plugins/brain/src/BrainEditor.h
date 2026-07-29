@@ -2,21 +2,10 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
-#include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariStudio.h>
 #include "BrainProcessor.h"
 
-// =============================================================================
-//  Sattari Brain — editor
-// -----------------------------------------------------------------------------
-//  A clear, sectioned panel in the shared SattariLookAndFeel:
-//    * a big detected-key / confidence / reference / tempo readout,
-//    * a manual key override,
-//    * a reference-tuning override,
-//    * the editable SessionState controls (chord, time sig, swing, section,
-//      energy, maqam) and the Publish master switch.
-//  Functional over fancy — every control is directly the thing it edits.
-// =============================================================================
 class SattariBrainAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                private juce::Timer
 {
@@ -33,40 +22,50 @@ private:
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     void timerCallback() override;
-    void setupCombo (juce::ComboBox&, const juce::StringArray&);
-    void setupSlider (juce::Slider&, const juce::String& suffix = {});
-    static void styleCaption (juce::Label&, const juce::String&);
+    void setupCombo (juce::ComboBox&, const juce::StringArray&, const juce::String&);
+    void setupSlider (juce::Slider&, const juce::String&, const juce::String& suffix = {});
+    void setupCaption (juce::Label&, const juce::String&);
+    void paintSessionHero (juce::Graphics&);
 
-    SattariBrainAudioProcessor& processor;
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("brain") };
+    SattariBrainAudioProcessor& audioProcessor;
+    const juce::Colour accent {
+        sattari::brand::productAccent ("brain")
+    };
+    sattari::studio::LookAndFeel lookAndFeel {
+        sattari::brand::productAccent ("brain")
+    };
+    sattari::studio::Header header {
+        "Sattari Brain", "SESSION INTELLIGENCE", accent
+    };
 
-    juce::Label title, subtitle;
+    juce::ToggleButton publishToggle { "Publish to suite" };
+    juce::TextButton rescanButton { "Analyse now" };
+    juce::TextButton midiLearnButton { "MIDI learn" };
 
-    // Master + detection controls.
-    juce::ToggleButton publishToggle { "Publish to Suite" };
-    juce::TextButton   rescanButton   { "Re-scan" };
-    juce::TextButton   midiLearnButton { "MIDI Learn" };
+    juce::ToggleButton manualToggle { "Manual key" };
+    juce::ComboBox manualRootBox, manualScaleBox;
+    juce::ToggleButton refOverrideToggle { "Reference override" };
+    juce::Slider referenceSlider;
+    juce::Label capManualRoot, capManualScale, capRef;
 
-    // Manual key override.
-    juce::ToggleButton manualToggle { "Manual Key" };
-    juce::ComboBox     manualRootBox, manualScaleBox;
-
-    // Reference tuning override.
-    juce::ToggleButton refOverrideToggle { "Reference" };
-    juce::Slider       referenceSlider;
-    juce::Label        capRef;
-
-    // Editable SessionState.
     juce::ComboBox chordRootBox, chordQualityBox, sectionBox, timeSigDenBox;
-    juce::Slider   timeSigNumSlider, swingSlider, energySlider, maqamSlider;
-    juce::Label    capChordRoot, capChordQ, capSection, capTsNum, capTsDen, capSwing, capEnergy, capMaqam;
+    juce::Slider timeSigNumSlider, swingSlider, energySlider, maqamSlider;
+    juce::Label capChordRoot, capChordQ, capSection, capTsNum, capTsDen,
+                capSwing, capEnergy, capMaqam;
+
+    sattari::studio::MetricCard tempoMetric { "Tempo" };
+    sattari::studio::MetricCard tuningMetric { "Reference" };
+    sattari::studio::MetricCard meterMetric { "Meter" };
 
     std::unique_ptr<ButtonAttachment> publishAtt, manualAtt, refOverrideAtt;
-    std::unique_ptr<ComboAttachment>  manualRootAtt, manualScaleAtt, chordRootAtt, chordQualityAtt, sectionAtt, timeSigDenAtt;
-    std::unique_ptr<SliderAttachment> referenceAtt, timeSigNumAtt, swingAtt, energyAtt, maqamAtt;
+    std::unique_ptr<ComboAttachment> manualRootAtt, manualScaleAtt,
+                                     chordRootAtt, chordQualityAtt,
+                                     sectionAtt, timeSigDenAtt;
+    std::unique_ptr<SliderAttachment> referenceAtt, timeSigNumAtt,
+                                      swingAtt, energyAtt, maqamAtt;
 
     SattariBrainAudioProcessor::Detected snapshot;
-    juce::Rectangle<int> keyArea;
+    juce::Rectangle<int> heroArea, tuningArea, contextArea, confidenceArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariBrainAudioProcessorEditor)
 };

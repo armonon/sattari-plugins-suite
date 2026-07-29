@@ -160,6 +160,24 @@ if(BUILD_TESTING)
         endif()
     endforeach()
 
+    foreach(ui_product IN ITEMS
+            "BrainContract;brain"
+            "SattariArpTimingContract;sattari-arp"
+            "SubConjurerContract;sub-conjurer")
+        list(GET ui_product 0 ui_target)
+        list(GET ui_product 1 ui_slug)
+        if(TARGET ${ui_target})
+            add_test(
+                NAME ${ui_target}EditorRender
+                COMMAND $<TARGET_FILE:${ui_target}>
+                    --render-ui
+                    ${CMAKE_BINARY_DIR}/validation/ui/${ui_slug}.png)
+            set_tests_properties(
+                ${ui_target}EditorRender
+                PROPERTIES LABELS "ui;render;non-stemdeck")
+        endif()
+    endforeach()
+
     if(TARGET SongKeyRender)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
         set_tests_properties(SongKeyRenderSmoke PROPERTIES LABELS "render;non-stemdeck")

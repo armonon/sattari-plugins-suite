@@ -40,9 +40,21 @@ public:
         juce::String hint { "click: follow / set by hand" };
     };
 
-    KeyButton() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+    KeyButton()
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setWantsKeyboardFocus (true);
+        setAccessible (true);
+        setTitle ("Musical key");
+        setDescription ("Follow the suite key or choose a key manually");
+    }
 
-    void setConfig (Config c) { config = std::move (c); repaint(); }
+    void setConfig (Config c)
+    {
+        config = std::move (c);
+        setDescription (config.hint);
+        repaint();
+    }
 
     // Callbacks (any may be left null). onManualKey passes a root index and a
     // scale index into config.scaleNames.
@@ -92,8 +104,29 @@ public:
 
     void mouseDown (const juce::MouseEvent&) override
     {
-        pressed = true; repaint();
+        showMenu();
+    }
 
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::returnKey
+            || key == juce::KeyPress::spaceKey)
+        {
+            showMenu();
+            return true;
+        }
+        return false;
+    }
+
+    void mouseUp    (const juce::MouseEvent&) override { pressed = false; repaint(); }
+    void mouseEnter (const juce::MouseEvent&) override { hover = true;  repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
+
+private:
+    void showMenu()
+    {
+        pressed = true;
+        repaint();
         juce::PopupMenu menu;
         if (config.showAutoKey) menu.addItem (1, config.autoLabel,   true, mode == Mode::Auto);
         if (config.showFollow)  menu.addItem (2, config.followLabel, true, mode == Mode::Follow);
@@ -124,12 +157,6 @@ public:
                 }
             });
     }
-
-    void mouseUp    (const juce::MouseEvent&) override { pressed = false; repaint(); }
-    void mouseEnter (const juce::MouseEvent&) override { hover = true;  repaint(); }
-    void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
-
-private:
     static constexpr int kManualBase = 100;
 
     juce::String rootLabel (int i) const

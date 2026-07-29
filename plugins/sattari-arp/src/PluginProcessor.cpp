@@ -267,6 +267,13 @@ void SattariArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         renderArp (scratchOutput, cursor, buffer.getNumSamples() - cursor);
 
     midi.swapWith (scratchOutput);
+    uiState.store ({
+        stepCounter & 15,
+        currentStepVelocity,
+        (int) heldNotes.size(),
+        hasHeldNotes(),
+        currentBpm
+    });
 }
 
 void SattariArpAudioProcessor::handleInputMidi (const juce::MidiMessage& message, int samplePosition, juce::MidiBuffer& output)

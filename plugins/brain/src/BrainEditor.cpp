@@ -1,79 +1,111 @@
 #include "BrainEditor.h"
 
+#include <cmath>
+
 namespace
 {
-juce::String rootName (int pc) { static const char* n[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
-                                 return n[((pc % 12) + 12) % 12]; }
+juce::String rootName (int pc)
+{
+    static const char* names[] = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    return names[((pc % 12) + 12) % 12];
+}
 }
 
-SattariBrainAudioProcessorEditor::SattariBrainAudioProcessorEditor (SattariBrainAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+SattariBrainAudioProcessorEditor::SattariBrainAudioProcessorEditor (
+    SattariBrainAudioProcessor& p)
+    : AudioProcessorEditor (&p), audioProcessor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (600, 640);
+    setResizable (true, true);
+    setResizeLimits (760, 590, 1280, 900);
+    setSize (960, 680);
+    setTitle ("Sattari Brain");
+    setDescription ("Authoritative musical context for the Sattari suite");
 
-    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Brain");
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Session brain - detects, edits & publishes the whole SessionState to the suite");
-    addAndMakeVisible (title);
-    addAndMakeVisible (subtitle);
+    addAndMakeVisible (header);
 
-    // Master + detection controls.
+    publishToggle.setTitle ("Publish session context");
+    publishToggle.setDescription ("Make Brain the active suite session authority");
     addAndMakeVisible (publishToggle);
-    publishAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "brainPublish", publishToggle);
+    publishAtt = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "brainPublish", publishToggle);
 
-    rescanButton.onClick = [this] { processor.requestRescan(); };
+    rescanButton.setTitle ("Analyse now");
+    rescanButton.setDescription ("Request a new musical analysis");
+    rescanButton.onClick = [this] { audioProcessor.requestRescan(); };
     addAndMakeVisible (rescanButton);
 
     midiLearnButton.onClick = [this]
     {
-        sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
+        sattari::midi::showLearnPopup (
+            audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
     };
     addAndMakeVisible (midiLearnButton);
 
-    // Manual key override.
     addAndMakeVisible (manualToggle);
-    manualAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "brainManual", manualToggle);
-    setupCombo (manualRootBox,  SattariBrainAudioProcessor::rootChoices());
-    setupCombo (manualScaleBox, SattariBrainAudioProcessor::scaleChoices());
-    manualRootAtt  = std::make_unique<ComboAttachment> (processor.parameters(), "brainManualRoot",  manualRootBox);
-    manualScaleAtt = std::make_unique<ComboAttachment> (processor.parameters(), "brainManualScale", manualScaleBox);
+    manualAtt = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "brainManual", manualToggle);
+    setupCaption (capManualRoot, "Root");
+    setupCaption (capManualScale, "Mode");
+    setupCombo (manualRootBox, SattariBrainAudioProcessor::rootChoices(), "Manual root");
+    setupCombo (manualScaleBox, SattariBrainAudioProcessor::scaleChoices(), "Manual mode");
+    manualRootAtt = std::make_unique<ComboAttachment> (
+        audioProcessor.parameters(), "brainManualRoot", manualRootBox);
+    manualScaleAtt = std::make_unique<ComboAttachment> (
+        audioProcessor.parameters(), "brainManualScale", manualScaleBox);
 
-    // Reference tuning override.
     addAndMakeVisible (refOverrideToggle);
-    refOverrideAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "brainRefOverride", refOverrideToggle);
-    styleCaption (capRef, "Reference A (Hz)");
-    setupSlider (referenceSlider, " Hz");
-    referenceAtt = std::make_unique<SliderAttachment> (processor.parameters(), "brainReferenceHz", referenceSlider);
+    refOverrideAtt = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "brainRefOverride", refOverrideToggle);
+    setupCaption (capRef, "Reference A");
+    setupSlider (referenceSlider, "Reference A", " Hz");
+    referenceAtt = std::make_unique<SliderAttachment> (
+        audioProcessor.parameters(), "brainReferenceHz", referenceSlider);
 
-    // Editable SessionState — combos.
-    styleCaption (capChordRoot, "Chord Root");
-    styleCaption (capChordQ,    "Chord Quality");
-    styleCaption (capSection,   "Section");
-    styleCaption (capTsDen,     "Time Sig Den");
-    setupCombo (chordRootBox,    SattariBrainAudioProcessor::chordRootChoices());
-    setupCombo (chordQualityBox, SattariBrainAudioProcessor::chordQualityChoices());
-    setupCombo (sectionBox,      SattariBrainAudioProcessor::sectionChoices());
-    setupCombo (timeSigDenBox,   SattariBrainAudioProcessor::timeSigDenChoices());
-    chordRootAtt    = std::make_unique<ComboAttachment> (processor.parameters(), "brainChordRoot",    chordRootBox);
-    chordQualityAtt = std::make_unique<ComboAttachment> (processor.parameters(), "brainChordQuality", chordQualityBox);
-    sectionAtt      = std::make_unique<ComboAttachment> (processor.parameters(), "brainSection",      sectionBox);
-    timeSigDenAtt   = std::make_unique<ComboAttachment> (processor.parameters(), "brainTimeSigDen",   timeSigDenBox);
+    setupCaption (capChordRoot, "Chord root");
+    setupCaption (capChordQ, "Quality");
+    setupCaption (capSection, "Section");
+    setupCaption (capTsNum, "Meter");
+    setupCaption (capTsDen, "Division");
+    setupCaption (capSwing, "Swing");
+    setupCaption (capEnergy, "Energy");
+    setupCaption (capMaqam, "Maqam");
 
-    // Editable SessionState — sliders.
-    styleCaption (capTsNum,  "Time Sig Num");
-    styleCaption (capSwing,  "Swing");
-    styleCaption (capEnergy, "Energy");
-    styleCaption (capMaqam,  "Maqam Id");
-    setupSlider (timeSigNumSlider);
-    setupSlider (swingSlider);
-    setupSlider (energySlider);
-    setupSlider (maqamSlider);
-    timeSigNumAtt = std::make_unique<SliderAttachment> (processor.parameters(), "brainTimeSigNum", timeSigNumSlider);
-    swingAtt      = std::make_unique<SliderAttachment> (processor.parameters(), "brainSwing",      swingSlider);
-    energyAtt     = std::make_unique<SliderAttachment> (processor.parameters(), "brainEnergy",     energySlider);
-    maqamAtt      = std::make_unique<SliderAttachment> (processor.parameters(), "brainMaqam",      maqamSlider);
+    setupCombo (chordRootBox, SattariBrainAudioProcessor::chordRootChoices(), "Chord root");
+    setupCombo (chordQualityBox, SattariBrainAudioProcessor::chordQualityChoices(), "Chord quality");
+    setupCombo (sectionBox, SattariBrainAudioProcessor::sectionChoices(), "Arrangement section");
+    setupCombo (timeSigDenBox, SattariBrainAudioProcessor::timeSigDenChoices(), "Time signature denominator");
+    setupSlider (timeSigNumSlider, "Time signature numerator");
+    setupSlider (swingSlider, "Session swing");
+    setupSlider (energySlider, "Arrangement energy");
+    setupSlider (maqamSlider, "Maqam identifier");
 
-    startTimerHz (12);
+    auto& params = audioProcessor.parameters();
+    chordRootAtt = std::make_unique<ComboAttachment> (
+        params, "brainChordRoot", chordRootBox);
+    chordQualityAtt = std::make_unique<ComboAttachment> (
+        params, "brainChordQuality", chordQualityBox);
+    sectionAtt = std::make_unique<ComboAttachment> (
+        params, "brainSection", sectionBox);
+    timeSigDenAtt = std::make_unique<ComboAttachment> (
+        params, "brainTimeSigDen", timeSigDenBox);
+    timeSigNumAtt = std::make_unique<SliderAttachment> (
+        params, "brainTimeSigNum", timeSigNumSlider);
+    swingAtt = std::make_unique<SliderAttachment> (
+        params, "brainSwing", swingSlider);
+    energyAtt = std::make_unique<SliderAttachment> (
+        params, "brainEnergy", energySlider);
+    maqamAtt = std::make_unique<SliderAttachment> (
+        params, "brainMaqam", maqamSlider);
+
+    addAndMakeVisible (tempoMetric);
+    addAndMakeVisible (tuningMetric);
+    addAndMakeVisible (meterMetric);
+
+    startTimerHz (15);
+    timerCallback();
 }
 
 SattariBrainAudioProcessorEditor::~SattariBrainAudioProcessorEditor()
@@ -82,160 +114,232 @@ SattariBrainAudioProcessorEditor::~SattariBrainAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-void SattariBrainAudioProcessorEditor::setupCombo (juce::ComboBox& c, const juce::StringArray& items)
+void SattariBrainAudioProcessorEditor::setupCombo (
+    juce::ComboBox& box, const juce::StringArray& items, const juce::String& title)
 {
-    c.addItemList (items, 1);
-    addAndMakeVisible (c);
+    box.addItemList (items, 1);
+    box.setTitle (title);
+    box.setDescription ("Choose " + title.toLowerCase());
+    addAndMakeVisible (box);
 }
 
-void SattariBrainAudioProcessorEditor::setupSlider (juce::Slider& s, const juce::String& suffix)
+void SattariBrainAudioProcessorEditor::setupSlider (
+    juce::Slider& slider, const juce::String& title, const juce::String& suffix)
 {
-    s.setSliderStyle (juce::Slider::LinearHorizontal);
-    s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
-    s.setTextValueSuffix (suffix);
-    addAndMakeVisible (s);
+    slider.setSliderStyle (juce::Slider::LinearHorizontal);
+    slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 66, 22);
+    slider.setTextValueSuffix (suffix);
+    slider.setTitle (title);
+    slider.setDescription ("Adjust " + title.toLowerCase());
+    addAndMakeVisible (slider);
 }
 
-void SattariBrainAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
+void SattariBrainAudioProcessorEditor::setupCaption (
+    juce::Label& label, const juce::String& text)
 {
-    l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (sattari::brand::kLabelSize));
-    l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    sattari::studio::styleFieldLabel (label, text);
+    addAndMakeVisible (label);
 }
 
 void SattariBrainAudioProcessorEditor::timerCallback()
 {
-    snapshot = processor.detected();
+    snapshot = audioProcessor.detected();
+    const bool manual = audioProcessor.parameters()
+                            .getRawParameterValue ("brainManual")->load() > 0.5f;
+    const bool publishing = snapshot.publishing;
+    header.setStatus (publishing ? "SUITE AUTHORITY" : "LOCAL ONLY", publishing);
+
+    tempoMetric.setValue (
+        snapshot.bpm > 0.0 ? juce::String (snapshot.bpm, 1) : "--",
+        snapshot.bpm > 0.0 ? "BPM" : "waiting for host");
+
+    const bool refOverride = audioProcessor.parameters()
+                                 .getRawParameterValue ("brainRefOverride")->load() > 0.5f;
+    const double ref = refOverride
+        ? (double) audioProcessor.parameters()
+              .getRawParameterValue ("brainReferenceHz")->load()
+        : 440.0 * std::pow (2.0, snapshot.detuneCents / 1200.0);
+    tuningMetric.setValue (juce::String (ref, 1), refOverride ? "Hz · manual" : "Hz · detected");
+
+    meterMetric.setValue (
+        snapshot.tsNum > 0 && snapshot.tsDen > 0
+            ? juce::String (snapshot.tsNum) + "/" + juce::String (snapshot.tsDen)
+            : "--",
+        snapshot.tsNum > 0 ? "host meter" : "not reported");
+
+    manualRootBox.setEnabled (manual);
+    manualScaleBox.setEnabled (manual);
+    referenceSlider.setEnabled (refOverride);
     repaint();
 }
 
 void SattariBrainAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+    sattari::studio::paintCanvas (g, getLocalBounds(), accent);
+    sattari::studio::paintSurface (g, heroArea.toFloat(), true);
+    sattari::studio::paintSurface (g, tuningArea.toFloat());
+    sattari::studio::paintSurface (g, contextArea.toFloat(), true);
 
-    const auto accent = juce::Colour (sattari::brand::kAccent);
-    auto r = keyArea.toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanelDeep));
-    g.fillRoundedRectangle (r, 14.0f);
-    g.setColour (juce::Colour (sattari::brand::kHairline));
-    g.drawRoundedRectangle (r.reduced (0.5f), 14.0f, 1.0f);
+    sattari::studio::paintSectionTitle (
+        g, tuningArea.reduced (16).removeFromTop (18),
+        "Overrides", "explicit values win over analysis");
+    sattari::studio::paintSectionTitle (
+        g, contextArea.reduced (16).removeFromTop (18),
+        "Session context", "one coherent publish");
 
-    const bool manual = processor.parameters().getRawParameterValue ("brainManual")->load() > 0.5f;
+    paintSessionHero (g);
+}
 
-    // Big key readout.
-    juce::String big = "--", mode = "listening...";
+void SattariBrainAudioProcessorEditor::paintSessionHero (juce::Graphics& g)
+{
+    const bool manual = audioProcessor.parameters()
+                            .getRawParameterValue ("brainManual")->load() > 0.5f;
+    juce::String key = "--";
+    juce::String mode = "LISTENING";
     if (manual)
     {
-        big  = rootName ((int) std::round (processor.parameters().getRawParameterValue ("brainManualRoot")->load()));
-        mode = processor.parameters().getRawParameterValue ("brainManualScale")->load() > 0.5f ? "minor (manual)" : "major (manual)";
+        const int root = (int) std::round (audioProcessor.parameters()
+                                               .getRawParameterValue ("brainManualRoot")->load());
+        key = rootName (root);
+        mode = audioProcessor.parameters()
+                   .getRawParameterValue ("brainManualScale")->load() > 0.5f
+             ? "MINOR · MANUAL" : "MAJOR · MANUAL";
     }
     else if (snapshot.valid)
     {
-        big  = rootName (snapshot.root);
-        mode = snapshot.minor ? "minor" : "major";
+        key = rootName (snapshot.root);
+        mode = snapshot.minor ? "MINOR · DETECTED" : "MAJOR · DETECTED";
     }
 
-    auto keyBox = keyArea;
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (54.0f, juce::Font::bold));
-    g.drawText (big, keyBox.removeFromTop (74).withTrimmedTop (8), juce::Justification::centred);
+    auto hero = heroArea.reduced (22);
+    auto top = hero.removeFromTop (34);
+    g.setColour (sattari::studio::colour::tertiary);
+    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    g.drawText ("CURRENT MUSICAL CONTEXT", top,
+                juce::Justification::centredLeft, false);
+
+    const float dialSize = juce::jmin (190.0f, (float) hero.getHeight() - 82.0f);
+    auto dial = juce::Rectangle<float> (dialSize, dialSize)
+                    .withCentre ({ (float) hero.getCentreX(),
+                                   (float) hero.getY() + dialSize * 0.5f + 4.0f });
+
+    g.setColour (sattari::studio::colour::surfaceHigh);
+    g.fillEllipse (dial);
+    g.setColour (sattari::studio::colour::separator);
+    g.drawEllipse (dial.reduced (0.5f), 1.0f);
+
+    const float confidence = manual
+        ? 1.0f
+        : juce::jlimit (0.0f, 1.0f, (float) snapshot.confidence * 3.0f);
+    juce::Path track, value;
+    const auto centre = dial.getCentre();
+    const float radius = dial.getWidth() * 0.5f - 7.0f;
+    const float start = juce::MathConstants<float>::pi * 0.75f;
+    const float end = juce::MathConstants<float>::pi * 2.25f;
+    track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, end, true);
+    value.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
+                         start, start + confidence * (end - start), true);
+    g.setColour (sattari::studio::colour::separator);
+    g.strokePath (track, juce::PathStrokeType (4.0f));
     g.setColour (accent);
-    g.setFont (juce::FontOptions (18.0f));
-    g.drawText (mode, keyBox.removeFromTop (22), juce::Justification::centred);
+    g.strokePath (value, juce::PathStrokeType (
+        4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    // Confidence bar.
-    auto barArea = keyBox.removeFromTop (14).reduced (48, 3).toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanel));
-    g.fillRoundedRectangle (barArea, 3.0f);
-    const float conf = juce::jlimit (0.0f, 1.0f, (float) snapshot.confidence * 3.0f);
-    g.setColour (accent.withAlpha (0.85f));
-    g.fillRoundedRectangle (barArea.withWidth (barArea.getWidth() * conf), 3.0f);
+    g.setColour (sattari::studio::colour::text);
+    g.setFont (juce::FontOptions (58.0f, juce::Font::bold));
+    g.drawText (key, dial.withTrimmedBottom (35.0f).toNearestInt(),
+                juce::Justification::centred, false);
+    g.setColour (accent);
+    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    g.drawText (mode, dial.withTrimmedTop (112.0f).toNearestInt(),
+                juce::Justification::centredTop, false);
 
-    // Reference / tempo / time-signature line.
-    const bool refOverride = processor.parameters().getRawParameterValue ("brainRefOverride")->load() > 0.5f;
-    const double refHz = refOverride
-        ? (double) processor.parameters().getRawParameterValue ("brainReferenceHz")->load()
-        : 440.0 * std::pow (2.0, snapshot.detuneCents / 1200.0);
-    juce::String info = "A = " + juce::String (refHz, 1) + " Hz";
-    if (snapshot.bpm > 0.0) info += "   -   " + juce::String (snapshot.bpm, 1) + " BPM";
-    if (snapshot.tsNum > 0 && snapshot.tsDen > 0)
-        info += "   -   host " + juce::String (snapshot.tsNum) + "/" + juce::String (snapshot.tsDen);
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (12.5f));
-    g.drawText (info, keyBox.removeFromTop (20), juce::Justification::centred);
-
-    // Publishing status dot.
-    const bool pub = snapshot.publishing;
-    g.setColour (pub ? juce::Colour (sattari::brand::kSuccess) : juce::Colour (sattari::brand::kTextFaint));
-    auto dot = juce::Rectangle<float> (r.getX() + 14.0f, r.getY() + 12.0f, 9.0f, 9.0f);
-    g.fillEllipse (dot);
-    g.setColour (juce::Colour (pub ? sattari::brand::kTextPrimary : sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-    g.drawText (pub ? "Publishing SessionState" : "Not publishing",
-                (int) dot.getRight() + 6, (int) r.getY() + 8, 220, 16, juce::Justification::centredLeft);
+    const juce::String confidenceText = manual
+        ? "EXPLICIT AUTHORITY"
+        : snapshot.valid
+            ? juce::String ((int) std::round (confidence * 100.0f)) + "% CONFIDENCE"
+            : "ANALYSING AUDIO";
+    g.setColour (sattari::studio::colour::secondary);
+    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.drawText (confidenceText,
+                juce::Rectangle<int> (hero.getX(), (int) dial.getBottom() + 6,
+                                      hero.getWidth(), 18),
+                juce::Justification::centred, false);
 }
 
 void SattariBrainAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (18);
+    auto area = getLocalBounds().reduced ((int) sattari::studio::metric::outerMargin);
+    header.setBounds (area.removeFromTop (sattari::studio::metric::headerHeight));
 
-    auto top = area.removeFromTop (58);
-    title.setBounds (top.removeFromTop (34));
-    subtitle.setBounds (top.removeFromTop (20));
-    area.removeFromTop (6);
+    auto command = area.removeFromTop (sattari::studio::metric::commandHeight);
+    publishToggle.setBounds (command.removeFromLeft (170));
+    midiLearnButton.setBounds (command.removeFromRight (104));
+    command.removeFromRight (8);
+    rescanButton.setBounds (command.removeFromRight (112));
+    area.removeFromTop ((int) sattari::studio::metric::gap);
 
-    // Status row: publish (left), rescan + MIDI learn (right).
-    auto statusRow = area.removeFromTop (28);
-    publishToggle.setBounds (statusRow.removeFromLeft (180));
-    midiLearnButton.setBounds (statusRow.removeFromRight (96));
-    statusRow.removeFromRight (8);
-    rescanButton.setBounds (statusRow.removeFromRight (84));
-    area.removeFromTop (8);
+    auto left = area.removeFromLeft ((int) std::round (area.getWidth() * 0.57));
+    area.removeFromLeft ((int) sattari::studio::metric::gap);
+    contextArea = area;
 
-    keyArea = area.removeFromTop (150);
-    area.removeFromTop (12);
+    heroArea = left.removeFromTop (juce::jmax (280, left.getHeight() - 190));
+    left.removeFromTop ((int) sattari::studio::metric::gap);
+    tuningArea = left;
 
-    // Manual key override.
-    auto manualRow = area.removeFromTop (28);
-    manualToggle.setBounds (manualRow.removeFromLeft (150));
+    auto metrics = heroArea.reduced (16);
+    metrics = metrics.removeFromBottom (64);
+    const int metricGap = 8;
+    const int metricWidth = (metrics.getWidth() - metricGap * 2) / 3;
+    tempoMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    tuningMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    meterMetric.setBounds (metrics);
+
+    auto overrides = tuningArea.reduced (16);
+    overrides.removeFromTop (28);
+    auto manualRow = overrides.removeFromTop (52);
+    manualToggle.setBounds (manualRow.removeFromLeft (142).withSizeKeepingCentre (142, 26));
+    auto rootCell = manualRow.removeFromLeft (90);
+    capManualRoot.setBounds (rootCell.removeFromTop (16));
+    manualRootBox.setBounds (rootCell);
     manualRow.removeFromLeft (8);
-    manualRootBox.setBounds (manualRow.removeFromLeft (70));
-    manualRow.removeFromLeft (8);
-    manualScaleBox.setBounds (manualRow.removeFromLeft (100));
-    area.removeFromTop (10);
+    auto scaleCell = manualRow.removeFromLeft (120);
+    capManualScale.setBounds (scaleCell.removeFromTop (16));
+    manualScaleBox.setBounds (scaleCell);
 
-    // Reference override.
-    auto refRow = area.removeFromTop (28);
-    refOverrideToggle.setBounds (refRow.removeFromLeft (120));
-    capRef.setBounds (refRow.removeFromLeft (110));
+    overrides.removeFromTop (8);
+    auto refRow = overrides.removeFromTop (52);
+    refOverrideToggle.setBounds (
+        refRow.removeFromLeft (142).withSizeKeepingCentre (142, 26));
+    capRef.setBounds (refRow.removeFromTop (16));
     referenceSlider.setBounds (refRow);
-    area.removeFromTop (12);
 
-    // Helper: a caption + control on one row.
-    auto labelledRow = [&area] (juce::Label& cap, juce::Component& ctrl, int rowH = 26)
+    auto context = contextArea.reduced (16);
+    context.removeFromTop (30);
+    const int rowGap = 10;
+    const int cellGap = 10;
+    const int rowHeight = juce::jmax (52, (context.getHeight() - rowGap * 3) / 4);
+
+    auto placePair = [&context, rowHeight] (
+        juce::Label& aLabel, juce::Component& a,
+        juce::Label& bLabel, juce::Component& b)
     {
-        auto row = area.removeFromTop (rowH);
-        cap.setBounds (row.removeFromLeft (110));
-        ctrl.setBounds (row);
-        area.removeFromTop (8);
+        auto row = context.removeFromTop (rowHeight);
+        const int width = (row.getWidth() - cellGap) / 2;
+        auto leftCell = row.removeFromLeft (width);
+        row.removeFromLeft (cellGap);
+        auto rightCell = row;
+        aLabel.setBounds (leftCell.removeFromTop (17));
+        a.setBounds (leftCell.removeFromTop (32));
+        bLabel.setBounds (rightCell.removeFromTop (17));
+        b.setBounds (rightCell.removeFromTop (32));
+        context.removeFromTop (10);
     };
 
-    labelledRow (capChordRoot, chordRootBox);
-    labelledRow (capChordQ,    chordQualityBox);
-    labelledRow (capSection,   sectionBox);
-
-    // Time signature: numerator slider + denominator combo on one row.
-    {
-        auto row = area.removeFromTop (26);
-        capTsNum.setBounds (row.removeFromLeft (110));
-        auto denBox = row.removeFromRight (150);
-        capTsDen.setBounds (denBox.removeFromLeft (86));
-        timeSigDenBox.setBounds (denBox);
-        timeSigNumSlider.setBounds (row.removeFromLeft (row.getWidth() - 8));
-        area.removeFromTop (8);
-    }
-
-    labelledRow (capSwing,  swingSlider);
-    labelledRow (capEnergy, energySlider);
-    labelledRow (capMaqam,  maqamSlider);
+    placePair (capChordRoot, chordRootBox, capChordQ, chordQualityBox);
+    placePair (capSection, sectionBox, capMaqam, maqamSlider);
+    placePair (capTsNum, timeSigNumSlider, capTsDen, timeSigDenBox);
+    placePair (capSwing, swingSlider, capEnergy, energySlider);
 }

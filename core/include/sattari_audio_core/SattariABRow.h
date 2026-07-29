@@ -22,21 +22,29 @@ public:
     explicit SattariABRow (sattari::presets::SattariPresetManager& mgr)
         : manager (mgr)
     {
-        auto stylePill = [] (juce::Button& b) {
-            b.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kPanelRaised));
-            b.setColour (juce::TextButton::textColourOnId, juce::Colour (sattari::brand::kTextPrimary));
-            b.setColour (juce::TextButton::textColourOffId, juce::Colour (sattari::brand::kTextMuted));
+        auto stylePill = [] (juce::Button& button) {
+            button.setColour (juce::TextButton::buttonColourId, juce::Colour (sattari::brand::kPanelRaised));
+            button.setColour (juce::TextButton::textColourOnId, juce::Colour (sattari::brand::kTextPrimary));
+            button.setColour (juce::TextButton::textColourOffId, juce::Colour (sattari::brand::kTextMuted));
         };
         stylePill (a); stylePill (b); stylePill (swap);
+        a.setTitle ("Compare slot A");
+        b.setTitle ("Compare slot B");
+        swap.setTitle ("Swap compare slots");
+        a.setDescription ("Capture or recall parameter state A");
+        b.setDescription ("Capture or recall parameter state B");
+        swap.setDescription ("Exchange parameter states A and B");
 
         a.onClick = [this] {
             if (active != 1 && manager.hasSlotA()) { manager.recallSlotA(); active = 1; }
             else { manager.captureSlotA(); active = 1; }
+            updateSelection();
             repaint();
         };
         b.onClick = [this] {
             if (active != 2 && manager.hasSlotB()) { manager.recallSlotB(); active = 2; }
             else { manager.captureSlotB(); active = 2; }
+            updateSelection();
             repaint();
         };
         swap.onClick = [this] { manager.swapSlots(); repaint(); };
@@ -60,6 +68,12 @@ public:
     }
 
 private:
+    void updateSelection()
+    {
+        a.setToggleState (active == 1, juce::dontSendNotification);
+        b.setToggleState (active == 2, juce::dontSendNotification);
+    }
+
     sattari::presets::SattariPresetManager& manager;
     juce::TextButton a { "A" }, b { "B" }, swap { "x" };
     int active = 0;

@@ -41,6 +41,7 @@ inline constexpr std::uint32_t kHairline     = 0xff272a31; // 1px separators / k
 inline constexpr std::uint32_t kAccent       = 0xff62f5c8; // signature mint (default)
 inline constexpr std::uint32_t kAccentViolet = 0xff9b7bff; // secondary highlight
 inline constexpr std::uint32_t kAccentAmber  = 0xfff5a24b; // sampler / slicing lane
+inline constexpr std::uint32_t kAccentBlue   = 0xff68a7ff; // session / analysis
 inline constexpr std::uint32_t kTextPrimary  = 0xffeef1f6;
 inline constexpr std::uint32_t kTextMuted     = 0xff8b93a1;
 inline constexpr std::uint32_t kTextFaint     = 0xff555c69;

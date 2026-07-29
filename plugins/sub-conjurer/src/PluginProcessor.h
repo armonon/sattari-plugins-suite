@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariRealtime.h>
 
 class SubConjurerAudioProcessor final : public juce::AudioProcessor
 {
@@ -42,6 +43,17 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
+    struct UiState
+    {
+        float frequencyHz = 55.0f;
+        float envelope = 0.0f;
+        float limiterGain = 1.0f;
+        float inputPeak = 0.0f;
+        float outputPeak = 0.0f;
+        bool followingKey = false;
+    };
+    UiState currentUiState() const noexcept { return uiState.load(); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void registerFactoryPresets();
@@ -71,6 +83,7 @@ private:
     int analysisHop = 512;
     int analysisAccumulator = 0;
     float limiterRecoveryCoeff = 0.001f;
+    sattari::rt::AtomicSnapshot<UiState> uiState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubConjurerAudioProcessor)
 };

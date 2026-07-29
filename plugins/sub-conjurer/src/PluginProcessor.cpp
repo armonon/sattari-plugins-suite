@@ -215,10 +215,15 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     // 808 mode leans harder for the classic distorted-sub growl.
     const float satK = 1.0f + saturation * (mode == 3 ? 5.0f : 3.0f);
     const float satNorm = std::tanh (satK);
+    float inputPeak = 0.0f;
+    float outputPeak = 0.0f;
+    float lastEnvelope = 0.0f;
 
     for (int i = 0; i < numSamples; ++i)
     {
         const float envelope = envelopeFollower.processRectified (monoScratch[(size_t) i]);
+        lastEnvelope = envelope;
+        inputPeak = juce::jmax (inputPeak, std::abs (monoScratch[(size_t) i]));
 
         smoothedHz += glideCoeff * (targetHz - smoothedHz);
         const float phaseInc = twoPi * smoothedHz / (float) currentSampleRate;
@@ -246,8 +251,18 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
             auto* out = buffer.getWritePointer (ch);
             const float dry = subOnly ? 0.0f : out[i] * dryMix;
             out[i] = juce::jlimit (-0.98f, 0.98f, dry + sub);
+            outputPeak = juce::jmax (outputPeak, std::abs (out[i]));
         }
     }
+
+    uiState.store ({
+        smoothedHz,
+        lastEnvelope,
+        limiterState,
+        inputPeak,
+        outputPeak,
+        apvts.getRawParameterValue ("followKey")->load() > 0.5f
+    });
 }
 
 juce::AudioProcessorEditor* SubConjurerAudioProcessor::createEditor()

@@ -30,6 +30,7 @@ ACCENTS = {
     "mint": "kAccent",
     "violet": "kAccentViolet",
     "amber": "kAccentAmber",
+    "blue": "kAccentBlue",
 }
 
 
@@ -117,6 +118,7 @@ def generate() -> None:
                 "mint": "#62f5c8",
                 "violet": "#9b7bff",
                 "amber": "#f5a24b",
+                "blue": "#68a7ff",
             }[product["accent"]],
             "description": f"{product['name']} — {product['category']}.",
             "formats": ["AU", "VST3", "Standalone"],
