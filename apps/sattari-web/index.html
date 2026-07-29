@@ -116,7 +116,13 @@ img{display:block;max-width:100%}
 .card{display:block;background:#fff;border:1px solid var(--line-2);
   border-radius:var(--radius);padding:22px;transition:.2s}
 .card:hover{border-color:var(--ink-3);transform:translateY(-2px);text-decoration:none}
-.card .ico{font-size:26px;margin-bottom:12px}
+/* Product mark. Sized in a tinted tile so 46 different drawings still line up
+   optically; the SVG inherits colour from .ico, so hovering warms the whole set. */
+.card .ico{width:42px;height:42px;border-radius:11px;background:var(--bg-2);
+  border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;
+  margin-bottom:14px;color:var(--ink);transition:color .18s,background .18s,border-color .18s}
+.card .ico svg{width:24px;height:24px;display:block}
+.card:hover .ico{background:#fff;border-color:var(--ink-3)}
 .card h3{font-size:16px;font-weight:600;margin-bottom:5px;color:var(--ink)}
 .card .cat{font-size:12px;color:var(--mint);margin-bottom:9px;font-weight:500}
 .card .tag{font-size:14px;color:var(--ink-2);line-height:1.5}
@@ -141,6 +147,82 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 .foot-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
   font-size:12px;color:var(--ink-3)}
 .foot-in a{color:var(--ink-2)}
+
+/* ── motion ──────────────────────────────────────────────── */
+.reveal{opacity:0;transform:translateY(24px);
+  transition:opacity .7s cubic-bezier(.22,.61,.36,1),transform .7s cubic-bezier(.22,.61,.36,1)}
+.reveal.in{opacity:1;transform:none}
+
+/* ── the builder ─────────────────────────────────────────── */
+.builder{background:#fff;border:1px solid var(--line-2);border-radius:var(--radius-l);
+  padding:40px;overflow:hidden}
+.b-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.b-tab{font-family:inherit;font-size:14px;cursor:pointer;background:#fff;
+  border:1px solid var(--line);color:var(--ink);border-radius:980px;padding:7px 17px;transition:all .18s}
+.b-tab:hover{border-color:var(--ink-3)}
+.b-tab.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+.b-mode{font-size:14px;color:var(--ink-2);margin:14px 0 22px;min-height:42px;line-height:1.5}
+.b-mode b{color:var(--ink)}
+
+.b-stage{display:grid;gap:26px}
+@media(min-width:820px){.b-stage{grid-template-columns:1fr 1fr}}
+
+.b-col h4{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);margin-bottom:12px}
+.b-pool{display:flex;flex-wrap:wrap;gap:8px}
+.b-mod{font-family:inherit;font-size:13px;cursor:pointer;background:var(--bg-2);
+  border:1px solid var(--line-2);border-radius:8px;padding:7px 12px;color:var(--ink);
+  transition:.16s}
+.b-mod:hover:not(:disabled){border-color:var(--ink);transform:translateY(-1px)}
+.b-mod:disabled{opacity:.32;cursor:default}
+
+.b-chain{display:flex;flex-direction:column;gap:8px}
+.b-slot{display:flex;align-items:center;gap:12px;background:var(--bg-2);
+  border:1px dashed var(--line);border-radius:12px;padding:12px 14px;min-height:48px;
+  transition:.2s}
+.b-slot.full{background:#fff;border-style:solid;border-color:var(--ink);cursor:pointer}
+.b-slot.full:hover{border-color:#c00;background:#fff5f5}
+.b-slot .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);width:16px;flex-shrink:0}
+.b-slot .nm{font-size:15px;font-weight:500}
+.b-slot .empty{font-size:14px;color:var(--ink-3)}
+.b-slot .x{margin-left:auto;font-size:16px;color:var(--ink-3);line-height:1}
+.b-slot.full:hover .x{color:#c00}
+.b-arrow{text-align:center;font-size:12px;color:var(--ink-3);line-height:1;margin:-2px 0}
+.b-parallel{border-left:2px solid var(--mint);padding-left:14px;margin-left:6px}
+.b-sum{font-size:12px;color:var(--mint);margin-top:8px;font-weight:500}
+.b-reset{margin-top:18px;font-size:14px;color:var(--accent);cursor:pointer;
+  background:none;border:none;font-family:inherit;padding:0}
+.b-reset:hover{text-decoration:underline}
+@media(max-width:760px){.builder{padding:26px 20px}}
+
+/* ── search ──────────────────────────────────────────────── */
+.search-wrap{max-width:420px;margin:0 auto 20px;position:relative}
+.search{width:100%;font-family:inherit;font-size:16px;padding:11px 16px;
+  border:1px solid var(--line);border-radius:980px;background:#fff;color:var(--ink);
+  outline:none;transition:border-color .2s}
+.search:focus{border-color:var(--accent)}
+.search::placeholder{color:var(--ink-3)}
+.search-count{text-align:center;font-size:13px;color:var(--ink-3);margin-bottom:22px;min-height:18px}
+
+/* ── bus diagram ─────────────────────────────────────────── */
+.bus-viz{margin:36px auto 0;max-width:520px}
+.bus-viz svg{width:100%;height:auto;overflow:visible}
+.bus-viz .spoke{stroke:#5a5a60;stroke-width:1.5}
+.bus-viz .pulse{stroke:var(--mint);stroke-width:2;stroke-linecap:round;
+  stroke-dasharray:6 130;stroke-dashoffset:0}
+.bus-viz .node{fill:#2c2c2e;stroke:#48484a;stroke-width:1}
+.bus-viz .node-t{fill:#e8e8ed;font-size:9px;font-family:var(--sans);text-anchor:middle}
+.bus-viz .hub{fill:var(--mint)}
+.bus-viz .hub-t{fill:#0b0b0c;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--sans)}
+@media(prefers-reduced-motion:no-preference){
+  .bus-viz .pulse{animation:flow 2.6s linear infinite}
+}
+@keyframes flow{to{stroke-dashoffset:-136}}
+
+@media(prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;transition:none}
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
 </style>
 </head>
 <body>
@@ -329,9 +411,44 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   </div>
 </section>
 
-<section class="sec" id="bus">
+<!-- ── interactive builder ───────────────────────────────── -->
+<section class="sec" id="try">
   <div class="wrap">
-    <div class="callout">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Try it</div>
+      <h2>Build a chain</h2>
+      <p>Click modules to drop them into slots. Switch to Stack and watch the same
+        interaction become parallel instead of serial.</p>
+    </div>
+
+    <div class="builder reveal">
+      <div class="b-tabs" id="bTabs" role="tablist" aria-label="Choose a rack">
+        <button class="b-tab active" data-rack="mix"    role="tab" aria-selected="true">Mix</button>
+        <button class="b-tab"        data-rack="create" role="tab" aria-selected="false">Create</button>
+        <button class="b-tab"        data-rack="vocal"  role="tab" aria-selected="false">Vocal</button>
+        <button class="b-tab"        data-rack="stack"  role="tab" aria-selected="false">Stack</button>
+      </div>
+      <p class="b-mode" id="bMode"></p>
+
+      <div class="b-stage">
+        <div class="b-col">
+          <h4 id="bPoolLabel">Modules</h4>
+          <div class="b-pool" id="bPool"></div>
+          <button class="b-reset" id="bReset" type="button">Clear</button>
+        </div>
+        <div class="b-col">
+          <h4 id="bChainLabel">Signal chain</h4>
+          <div class="b-chain" id="bChain"></div>
+          <p class="b-sum" id="bSum" hidden>↓ all layers sum to one output</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec grey" id="bus">
+  <div class="wrap">
+    <div class="callout reveal">
       <h2>Every plugin knows the key</h2>
       <p>Put Sattari Key on the master. It listens to the whole mix, works out the key, and publishes
         it to every other Sattari plugin in the session.</p>
@@ -339,11 +456,22 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
         no MIDI routing, no sends, nothing to type in twice. Change the key once and the session
         moves with you.</p>
       <p class="mono">61.3% exact key · 65.5 MIREX · measured on 150 GiantSteps tracks</p>
+
+      <div class="bus-viz" aria-hidden="true">
+        <svg viewBox="0 0 460 200" role="img">
+          <!-- spokes from the hub out to each follower -->
+          <g id="busSpokes"></g>
+          <circle class="hub" cx="230" cy="100" r="38"/>
+          <text class="hub-t" x="230" y="97">SATTARI</text>
+          <text class="hub-t" x="230" y="110">KEY</text>
+          <g id="busNodes"></g>
+        </svg>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="sec grey" id="flagships">
+<section class="sec" id="flagships">
   <div class="wrap">
     <div class="sec-head">
       <div class="eyebrow">Standalone by design</div>
@@ -379,6 +507,11 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <h2>All plugins</h2>
       <p>Open any one for what it does, how it works, and its full feature list.</p>
     </div>
+    <div class="search-wrap">
+      <input class="search" id="search" type="search" autocomplete="off"
+             placeholder="Search plugins — try “reverb” or “key”" aria-label="Search plugins" />
+    </div>
+    <div class="search-count" id="searchCount"></div>
     <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by category">
       <button class="filter-btn active" data-cat="all" aria-pressed="true">All</button>
       <button class="filter-btn" data-cat="Vocal" aria-pressed="false">Vocal</button>
@@ -447,6 +580,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 </footer>
 
 <script src="plugins-data.js"></script>
+<script src="logos.js"></script>
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 
@@ -465,7 +599,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     a.href = 'plugin.html?id=' + encodeURIComponent(p.id);
     a.dataset.cats = p.cats || '';
     a.innerHTML =
-      '<div class="ico">' + (p.icon || '●') + '</div>' +
+      '<div class="ico">' + SATTARI_LOGO(p.id) + '</div>' +
       '<h3>' + p.name + '</h3>' +
       '<div class="cat">' + (p.category || '') + '</div>' +
       '<div class="tag">' + (p.tagline || '') + '</div>';
@@ -479,24 +613,238 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   empty.style.display = 'none';
   grid.appendChild(empty);
 
+  // Category + free-text search are applied together, so neither silently
+  // overrides the other — filtering to "Vocal" then typing "reverb" narrows
+  // within Vocal rather than jumping back to everything.
+  var activeCat = 'all';
+  var query = '';
+  var countEl = document.getElementById('searchCount');
+
+  function apply() {
+    var shown = 0;
+    cards.forEach(function (c, i) {
+      var p = plugins[i];
+      var hay = (p.name + ' ' + (p.category || '') + ' ' + (p.tagline || '') + ' ' +
+                 (p.cats || '')).toLowerCase();
+      var okCat = activeCat === 'all' || (c.dataset.cats || '').indexOf(activeCat) !== -1;
+      var okQ = !query || hay.indexOf(query) !== -1;
+      var show = okCat && okQ;
+      c.style.display = show ? '' : 'none';
+      if (show) shown++;
+    });
+    empty.style.display = shown ? 'none' : '';
+    countEl.textContent = (query || activeCat !== 'all')
+      ? shown + ' of ' + plugins.length + ' plugins'
+      : '';
+  }
+
   document.getElementById('filterBar').addEventListener('click', function (e) {
     var btn = e.target.closest('.filter-btn');
     if (!btn) return;
-    var cat = btn.dataset.cat;
-
+    activeCat = btn.dataset.cat;
     document.querySelectorAll('.filter-btn').forEach(function (b) {
       var on = b === btn;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
+    apply();
+  });
 
-    var shown = 0;
-    cards.forEach(function (c) {
-      var show = cat === 'all' || (c.dataset.cats || '').indexOf(cat) !== -1;
-      c.style.display = show ? '' : 'none';
-      if (show) shown++;
+  document.getElementById('search').addEventListener('input', function (e) {
+    query = e.target.value.trim().toLowerCase();
+    apply();
+  });
+})();
+
+/* ── scroll reveals ─────────────────────────────────────────
+   Everything starts visible in markup terms; the class is only
+   added when motion is allowed, so a reduced-motion or
+   no-JS visitor never ends up with invisible content.        */
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || !('IntersectionObserver' in window)) return;
+
+  var targets = document.querySelectorAll(
+    '.sec-head, .rack, .rows, .builder, .callout, .grid, .filter-bar, details, .stats-grid');
+  targets.forEach(function (t) { t.classList.add('reveal'); });
+
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
     });
-    empty.style.display = shown ? 'none' : '';
+  }, { rootMargin: '0px 0px -8% 0px', threshold: .08 });
+
+  targets.forEach(function (t) { io.observe(t); });
+})();
+
+/* ── counting stats ─────────────────────────────────────── */
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var nums = document.querySelectorAll('.stat b');
+  if (!nums.length) return;
+  if (reduce || !('IntersectionObserver' in window)) return;
+
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (!en.isIntersecting) return;
+      var el = en.target;
+      io.unobserve(el);
+      var raw = el.textContent;                    // e.g. "40+"
+      var target = parseInt(raw, 10);
+      var suffix = raw.replace(/[0-9]/g, '');
+      if (isNaN(target)) return;
+      var t0 = null, dur = 900;
+      function step(ts) {
+        if (!t0) t0 = ts;
+        var p = Math.min(1, (ts - t0) / dur);
+        var eased = 1 - Math.pow(1 - p, 3);        // ease-out cubic
+        el.textContent = Math.round(target * eased) + (p === 1 ? suffix : '');
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    });
+  }, { threshold: .6 });
+
+  nums.forEach(function (n) { io.observe(n); });
+})();
+
+/* ── the chain builder ──────────────────────────────────────
+   The point it makes is structural: Mix/Create/Vocal put slots
+   in SERIES, Stack puts layers in PARALLEL. Same click, two
+   different diagrams — which is easier to see than to read.  */
+(function () {
+  var RACKS = {
+    mix: { slots: 8, series: true, label: 'Signal chain',
+      note: '<b>In series.</b> Slot 1 feeds slot 2, and so on — so the order is the sound. ' +
+            'Gate before compress, or compress before gate, from the same rack.',
+      mods: ['Clean','Comp','De-Ess','EQ','Gate','Heat','Image','Multiband','Meter','Peak',
+             'Pulse','Transient','Side Chain','Align'] },
+    create: { slots: 8, series: true, label: 'Signal chain',
+      note: '<b>In series.</b> Time, space and damage. Heat and Pulse are the same module ' +
+            'Mix uses — one implementation, two rosters.',
+      mods: ['Echo','Heat','Pulse','Riser','Shimmer','Space','Warble','Warp','Vocoder','808'] },
+    vocal: { slots: 8, series: true, label: 'Signal chain',
+      note: '<b>In series.</b> Finish the vocal — de-ess, double, reshape, then the full ' +
+            'Glass Choir ensemble.',
+      mods: ['De-Ess','Double','Face','Glass Choir'] },
+    stack: { slots: 4, series: false, label: 'Layers (all play together)',
+      note: '<b>In parallel.</b> Every layer receives the same MIDI and they sum. Chaining ' +
+            'instruments would leave only the last one audible — so Stack layers instead.',
+      mods: ['Chop','Rhythm Genie','Granulator'] }
+  };
+
+  var tabs = document.getElementById('bTabs');
+  if (!tabs) return;
+  var poolEl = document.getElementById('bPool');
+  var chainEl = document.getElementById('bChain');
+  var modeEl = document.getElementById('bMode');
+  var sumEl = document.getElementById('bSum');
+  var chainLabel = document.getElementById('bChainLabel');
+  var current = 'mix';
+  var filled = [];
+
+  function render() {
+    var r = RACKS[current];
+    modeEl.innerHTML = r.note;
+    chainLabel.textContent = r.label;
+    sumEl.hidden = r.series || filled.length < 2;
+
+    poolEl.innerHTML = '';
+    r.mods.forEach(function (m) {
+      var b = document.createElement('button');
+      b.className = 'b-mod';
+      b.type = 'button';
+      b.textContent = m;
+      b.disabled = filled.length >= r.slots;
+      b.addEventListener('click', function () {
+        if (filled.length < r.slots) { filled.push(m); render(); }
+      });
+      poolEl.appendChild(b);
+    });
+
+    chainEl.innerHTML = '';
+    chainEl.className = 'b-chain' + (r.series ? '' : ' b-parallel');
+    for (var i = 0; i < r.slots; i++) {
+      var slot = document.createElement('div');
+      var name = filled[i];
+      slot.className = 'b-slot' + (name ? ' full' : '');
+      slot.innerHTML = '<span class="n">' + (i + 1) + '</span>' +
+        (name ? '<span class="nm">' + name + '</span><span class="x">×</span>'
+              : '<span class="empty">' + (r.series ? 'empty slot' : 'empty layer') + '</span>');
+      if (name) {
+        slot.title = 'Remove';
+        (function (idx) {
+          slot.addEventListener('click', function () { filled.splice(idx, 1); render(); });
+        })(i);
+      }
+      chainEl.appendChild(slot);
+
+      // Only a series rack gets the flow arrow between slots — the parallel
+      // rack shows a shared left rail instead.
+      if (r.series && i < r.slots - 1) {
+        var ar = document.createElement('div');
+        ar.className = 'b-arrow';
+        ar.textContent = '↓';
+        chainEl.appendChild(ar);
+      }
+    }
+  }
+
+  tabs.addEventListener('click', function (e) {
+    var b = e.target.closest('.b-tab');
+    if (!b) return;
+    current = b.dataset.rack;
+    filled = [];
+    [].forEach.call(tabs.querySelectorAll('.b-tab'), function (t) {
+      var on = t === b;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    render();
+  });
+
+  document.getElementById('bReset').addEventListener('click', function () {
+    filled = []; render();
+  });
+
+  // Seed with a recognisable chain so the idea reads before any click.
+  filled = ['Gate', 'De-Ess', 'EQ', 'Comp'];
+  render();
+})();
+
+/* ── session-key diagram ────────────────────────────────── */
+(function () {
+  var spokes = document.getElementById('busSpokes');
+  var nodes = document.getElementById('busNodes');
+  if (!spokes) return;
+
+  var followers = ['Auto Pitch','Harmony','Maqam','VoxKey','Arp','Scaler','Shimmer','Sub Conjurer'];
+  var cx = 230, cy = 100, rx = 190, ry = 78;
+
+  followers.forEach(function (name, i) {
+    var a = (Math.PI * 2 * i) / followers.length - Math.PI / 2;
+    var x = cx + Math.cos(a) * rx;
+    var y = cy + Math.sin(a) * ry;
+
+    ['spoke', 'pulse'].forEach(function (cls) {
+      var l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      l.setAttribute('class', cls);
+      l.setAttribute('x1', cx); l.setAttribute('y1', cy);
+      l.setAttribute('x2', x);  l.setAttribute('y2', y);
+      if (cls === 'pulse') l.style.animationDelay = (i * 0.18) + 's';
+      spokes.appendChild(l);
+    });
+
+    var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('class', 'node');
+    c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 21);
+    nodes.appendChild(c);
+
+    var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('class', 'node-t');
+    t.setAttribute('x', x); t.setAttribute('y', y + 3);
+    t.textContent = name.length > 9 ? name.split(' ')[0] : name;
+    nodes.appendChild(t);
   });
 })();
 </script>

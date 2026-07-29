@@ -2,7 +2,7 @@
 // Each entry renders both a card on index.html and a full page on plugin.html?id=<id>.
 window.SATTARI_PLUGINS = [
   {
-    id: "auto-pitch", name: "Sattari Auto Pitch", icon: "🎤",
+    id: "auto-pitch", name: "Sattari Auto Pitch",
     category: "Vocal tuning", cats: "Vocal Key",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Realtime pitch correction — transparent to hard-tuned, always in key.",
@@ -21,7 +21,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "song-key", name: "Sattari Key", icon: "🔑",
+    id: "song-key", name: "Sattari Key",
     category: "Key detection", cats: "Key",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Put it on the master. It tells the whole suite what key you're in.",
@@ -37,7 +37,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "voxkey", name: "Sattari VoxKey", icon: "🎵",
+    id: "voxkey", name: "Sattari VoxKey",
     category: "Voice-to-MIDI", cats: "Vocal MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Sing it, hum it, beatbox it — get MIDI out for any instrument.",
@@ -52,7 +52,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "royal-chain", name: "Sattari Royal Chain", icon: "👑",
+    id: "royal-chain", name: "Sattari Royal Chain",
     category: "Vocal chain", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "A whole vocal channel strip in one plugin — with a living visualizer.",
@@ -66,7 +66,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "harmony", name: "Sattari Harmony", icon: "🎼",
+    id: "harmony", name: "Sattari Harmony",
     category: "Vocal harmony engine", cats: "Vocal Key",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Up to four diatonic harmony voices + choir, locked to the song key.",
@@ -80,7 +80,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "maqam", name: "Sattari Maqam", icon: "🌙",
+    id: "maqam", name: "Sattari Maqam",
     category: "Microtonal tuning", cats: "Vocal Key",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Quarter-tone pitch correction for Arabic, Persian & Turkish modes.",
@@ -94,7 +94,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "vocal-master", name: "Sattari Vocal Master", icon: "✨",
+    id: "vocal-master", name: "Sattari Vocal Master",
     category: "Vocal cleanup + master", cats: "Vocal Stem",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Isolate the voice, clean it, and finish it — one chain.",
@@ -108,7 +108,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "stemdeck", name: "Sattari StemDeck", icon: "🎚",
+    id: "stemdeck", name: "Sattari StemDeck",
     category: "Stem performance", cats: "Stem",
     formats: ["AU", "Standalone"],
     tagline: "Split any track into stems, mix them live, record the arrangement.",
@@ -122,7 +122,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "rhythm-genie", name: "Sattari Rhythm Genie", icon: "🥁",
+    id: "rhythm-genie", name: "Sattari Rhythm Genie",
     category: "MIDI drum generator", cats: "MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Pick a groove, dial density and swing, feed any drum sampler.",
@@ -136,7 +136,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "sattari-arp", name: "Sattari Arp", icon: "🎹",
+    id: "sattari-arp", name: "Sattari Arp",
     category: "MIDI arpeggiator", cats: "MIDI Key",
     formats: ["AU", "VST3"],
     tagline: "A diatonic arpeggiator that follows the session key.",
@@ -150,7 +150,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "bus", name: "Sattari Bus", icon: "📊",
+    id: "bus", name: "Sattari Bus",
     category: "Bus / mix", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "The last thing on every bus: glue, tone, drive, width, ceiling.",
@@ -164,7 +164,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "side-chain-master", name: "Side Chain Master", icon: "🔄",
+    id: "side-chain-master", name: "Side Chain Master",
     category: "Mix utility", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Precision ducking — musical pump or tight EDM sidechain.",
@@ -178,7 +178,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "sub-conjurer", name: "Sub Conjurer", icon: "⚡",
+    id: "sub-conjurer", name: "Sub Conjurer",
     category: "Low-end utility", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Club-ready sub and low-end that translates on any system.",
@@ -192,7 +192,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "warp", name: "Sattari Warp", icon: "🌀",
+    id: "warp", name: "Sattari Warp",
     category: "Creative vocal FX", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Vocal transformer — one Dose knob takes you from subtle character to fully mangled.",
@@ -208,7 +208,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "tuner", name: "Sattari Tuner", icon: "🎯",
+    id: "tuner", name: "Sattari Tuner",
     category: "Tuning", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Precision instrument & vocal tuner — big note readout with a steady strobe needle.",
@@ -224,7 +224,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "double", name: "Sattari Double", icon: "👥",
+    id: "double", name: "Sattari Double",
     category: "Vocal doubler", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Instant natural doubles — the sound of tracking a part twice, from one take.",
@@ -240,7 +240,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "deess", name: "Sattari De-Ess", icon: "🫧",
+    id: "deess", name: "Sattari De-Ess",
     category: "Dynamics", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Tame harsh 'ess' sounds without dulling the whole vocal.",
@@ -256,7 +256,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "face", name: "Sattari Face", icon: "🎭",
+    id: "face", name: "Sattari Face",
     category: "Creative vocal FX", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Change the voice, not the notes — independent pitch and formant.",
@@ -272,7 +272,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "transient", name: "Sattari Transient", icon: "⚡",
+    id: "transient", name: "Sattari Transient",
     category: "Dynamics", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Add punch or soften the hit — reshape the envelope, not the level.",
@@ -287,7 +287,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "meter", name: "Sattari Meter", icon: "📊",
+    id: "meter", name: "Sattari Meter",
     category: "Metering", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Loudness, true-peak and correlation — know exactly where your mix sits.",
@@ -302,7 +302,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "eq", name: "Sattari EQ", icon: "🎚️",
+    id: "eq", name: "Sattari EQ",
     category: "EQ", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Parametric EQ that can go dynamic — shape tone, tame what spikes.",
@@ -317,7 +317,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "scaler", name: "Sattari Scaler", icon: "🎹",
+    id: "scaler", name: "Sattari Scaler",
     category: "MIDI / creative", cats: "MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "One finger, the right chord — in-key harmony that follows the song.",
@@ -332,7 +332,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "space", name: "Sattari Space", icon: "🌌",
+    id: "space", name: "Sattari Space",
     category: "Reverb / delay", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Reverb and tempo-synced delay — the suite's sense of place.",
@@ -347,7 +347,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "clean", name: "Sattari Clean", icon: "🧼",
+    id: "clean", name: "Sattari Clean",
     category: "Restoration", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Learns the noise and pushes it down — hiss, hum and room.",
@@ -362,7 +362,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "align", name: "Sattari Align", icon: "🎼",
+    id: "align", name: "Sattari Align",
     category: "Timing alignment", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Phase-lock a layer to its guide — doubles, DI/amp, drum stems.",
@@ -376,7 +376,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "comp", name: "Sattari Comp", icon: "🎛",
+    id: "comp", name: "Sattari Comp",
     category: "Dynamics", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "A vocal-voiced compressor with a release that locks to your tempo.",
@@ -392,7 +392,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "peak", name: "Sattari Peak", icon: "🧱",
+    id: "peak", name: "Sattari Peak",
     category: "Mastering", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "True-peak brickwall limiter with a one-knob Target LUFS.",
@@ -408,7 +408,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "vocoder", name: "Sattari Vocoder", icon: "🤖",
+    id: "vocoder", name: "Sattari Vocoder",
     category: "Vocal FX", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Sing chords in your key — the carrier voices itself from the key bus, no MIDI.",
@@ -424,7 +424,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "shimmer", name: "Sattari Shimmer", icon: "✨",
+    id: "shimmer", name: "Sattari Shimmer",
     category: "Reverb", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "A reverb that blooms upward into a crystalline pad — and stays in key.",
@@ -439,7 +439,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "echo", name: "Sattari Echo", icon: "🔊",
+    id: "echo", name: "Sattari Echo",
     category: "Delay / echo", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Tempo-locked ping-pong delay with tape smear and ducking.",
@@ -454,7 +454,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "heat", name: "Sattari Heat", icon: "🔥",
+    id: "heat", name: "Sattari Heat",
     category: "Saturation", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Four flavours of analog warmth — tube, tape, transformer, transistor.",
@@ -468,7 +468,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "multiband", name: "Sattari Multiband", icon: "📊",
+    id: "multiband", name: "Sattari Multiband",
     category: "Dynamics", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Three-band compression that recombines phase-flat.",
@@ -482,7 +482,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "gate", name: "Sattari Gate", icon: "🚪",
+    id: "gate", name: "Sattari Gate",
     category: "Dynamics", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "A gate/expander with hysteresis that won't chatter — plus a trance-gate mode.",
@@ -496,7 +496,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "riser", name: "Sattari Riser", icon: "🚀",
+    id: "riser", name: "Sattari Riser",
     category: "Creative FX", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "One-knob risers, downlifters and impacts that land on the drop.",
@@ -510,7 +510,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "pulse", name: "Sattari Pulse", icon: "🌗",
+    id: "pulse", name: "Sattari Pulse",
     category: "Creative FX", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Sidechain-style pumping with no routing.",
@@ -524,7 +524,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "eightoheight", name: "Sattari 808", icon: "🥁",
+    id: "eightoheight", name: "Sattari 808",
     category: "Low-end", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Turn any bass or vocal into a tuned, key-snapped 808.",
@@ -538,7 +538,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "imager", name: "Sattari Image", icon: "🔀",
+    id: "imager", name: "Sattari Image",
     category: "Stereo / imaging", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Widen safely — bass stays mono, the mix stays compatible.",
@@ -552,7 +552,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "warble", name: "Sattari Warble", icon: "📼",
+    id: "warble", name: "Sattari Warble",
     category: "Lo-fi / tape", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Wow, flutter and tape character under one Age knob.",
@@ -566,7 +566,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "scope", name: "Sattari Scope", icon: "📈",
+    id: "scope", name: "Sattari Scope",
     category: "Analysis", cats: "Mix",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "See your sound — spectrum, vectorscope and correlation, audio untouched.",
@@ -580,7 +580,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "granulator", name: "Sattari Granulator", icon: "✳️",
+    id: "granulator", name: "Sattari Granulator",
     category: "Granular instrument", cats: "MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Turn any sound into a playable instrument — then sculpt it.",
@@ -596,7 +596,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "morph", name: "Sattari Morph", icon: "🌀",
+    id: "morph", name: "Sattari Morph",
     category: "Voice character", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Change who is singing — then echo it in key.",
@@ -611,7 +611,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "voxsynth", name: "Sattari VoxSynth", icon: "🎛️",
+    id: "voxsynth", name: "Sattari VoxSynth",
     category: "Voice instrument", cats: "Vocal MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Your voice becomes the synth — continuously, not note-by-note.",
@@ -626,7 +626,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "chop", name: "Sattari Chop", icon: "🔪",
+    id: "chop", name: "Sattari Chop",
     category: "Slicing sampler", cats: "MIDI",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Drop a loop, get a playable kit — sliced on the transients.",
@@ -642,7 +642,7 @@ window.SATTARI_PLUGINS = [
     status: "early"
   },
   {
-    id: "mix", name: "Sattari Mix", icon: "🎚️",
+    id: "mix", name: "Sattari Mix",
     category: "Mix rack", cats: "Mixing",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "One rack, eight slots — the mixing chain in a single window.",
@@ -656,7 +656,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "glass-choir", name: "Sattari Glass Choir", icon: "👼",
+    id: "glass-choir", name: "Sattari Glass Choir",
     category: "Vocal texture", cats: "Vocal",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "Turn a single voice into a wide, glassy choir.",
@@ -670,7 +670,7 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "brain", name: "Sattari Brain", icon: "🧠",
+    id: "brain", name: "Sattari Brain",
     category: "Session intelligence", cats: "Key",
     formats: ["AU", "VST3", "Standalone"],
     tagline: "The session's shared brain — key, tempo and transients for every plugin.",
