@@ -10,9 +10,7 @@ class SattariStackAudioProcessorEditor final : public sattari::ui::SattariStackE
 public:
     explicit SattariStackAudioProcessorEditor (SattariStackAudioProcessor& p)
         : sattari::ui::SattariStackEditor (
-              p, "Stack",
-              juce::String::fromUTF8 ("instrument layers \xc2\xb7 all play together"),
-              "stack")
+              p, "Sattari Stack", "INSTRUMENT LAYER WORKSPACE", "stack")
     {
     }
 

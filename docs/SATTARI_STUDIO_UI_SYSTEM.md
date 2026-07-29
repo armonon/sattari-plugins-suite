@@ -68,11 +68,25 @@ Sub Conjurer leads with its generated signal and four tone-defining controls.
 Tracking, key following, response and limiter behavior sit in the detail
 surface. Live pitch and input/output metrics come from the processor snapshot.
 
+### Mix, Create and Vocal
+
+The effect-rack products share an eight-slot serial workspace. The ordered
+signal chain stays visible on the left and the selected module's complete
+automation surface stays visible on the right. Accent color identifies the
+workflow; it does not alter the interaction model.
+
+### Stack
+
+Stack uses the same command language but a parallel workspace. Each layer keeps
+instrument choice, mute, level, pan, key range and transpose together as one
+playable unit. Source loading and the selected instrument's detailed controls
+remain contextual to the focused layer.
+
 ## Rollout sequence
 
 1. Validate Brain, Arp and Sub Conjurer in Logic, Ableton and a high-DPI host.
-2. Apply the command header and control components to Mix, Create, Vocal and
-   Stack while retaining their rack-specific workspace.
+2. Validate the migrated Mix, Create, Vocal and Stack rack workspaces in hosts,
+   including narrow-window, preset and automation passes.
 3. Establish compact utility and meter templates for analysis products.
 4. Establish instrument and sample templates for Chop, Granulator and VoxSynth.
 5. Migrate remaining effects by workflow family, not alphabetical order.

@@ -10,9 +10,7 @@ class SattariMixAudioProcessorEditor final : public sattari::ui::SattariRackEdit
 public:
     explicit SattariMixAudioProcessorEditor (SattariMixAudioProcessor& p)
         : sattari::ui::SattariRackEditor (
-              p, "Mix",
-              juce::String::fromUTF8 ("module rack \xc2\xb7 processes top to bottom"),
-              "mix")
+              p, "Sattari Mix", "MIXING WORKFLOW", "mix")
     {
     }
 

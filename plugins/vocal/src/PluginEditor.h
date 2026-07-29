@@ -10,9 +10,7 @@ class SattariVocalAudioProcessorEditor final : public sattari::ui::SattariRackEd
 public:
     explicit SattariVocalAudioProcessorEditor (SattariVocalAudioProcessor& p)
         : sattari::ui::SattariRackEditor (
-              p, "Vocal",
-              juce::String::fromUTF8 ("vocal rack \xc2\xb7 processes top to bottom"),
-              "vocal")
+              p, "Sattari Vocal", "VOCAL FINISHING WORKFLOW", "vocal")
     {
     }
 

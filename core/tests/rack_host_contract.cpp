@@ -1,6 +1,11 @@
+#include <sattari_audio_core/SattariEditorRender.h>
+#include <sattari_audio_core/SattariInstrumentRack.h>
+#include <sattari_audio_core/SattariRackEditor.h>
 #include <sattari_audio_core/SattariRackProcessor.h>
+#include <sattari_audio_core/SattariStackEditor.h>
 
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -58,10 +63,99 @@ public:
             bypass ? 1.0f : 0.0f);
     }
 };
+
+class TestInstrumentRack final : public sattari::rack::SattariInstrumentRack
+{
+public:
+    TestInstrumentRack()
+        : SattariInstrumentRack (
+            "Stack Contract", "STACK_CONTRACT",
+            BusesProperties().withOutput (
+                "Output", juce::AudioChannelSet::stereo(), true),
+            []
+            {
+                std::vector<std::unique_ptr<sattari::dsp::SattariModule>> modules;
+                modules.push_back (std::make_unique<CountingModule>());
+                return modules;
+            })
+    {}
+
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool hasEditor() const override { return false; }
+
+    void select (int layer)
+    {
+        parameters().getParameter (layerParamId (layer))
+            ->setValueNotifyingHost (1.0f);
+    }
+};
+
+bool renderRackWorkspace (const char* product,
+                          const juce::File& destination,
+                          bool minimumSize)
+{
+    const juce::String slug (product);
+    if (slug == "stack")
+    {
+        TestInstrumentRack rack;
+        rack.select (0);
+        sattari::ui::SattariStackEditor editor (
+            rack, "Sattari Stack", "INSTRUMENT LAYER WORKSPACE", "stack");
+        if (minimumSize) editor.setSize (1160, 620);
+        return sattari::test::renderComponentToPng (editor, destination);
+    }
+
+    juce::String name;
+    juce::String category;
+    if (slug == "mix")
+    {
+        name = "Sattari Mix";
+        category = "MIXING WORKFLOW";
+    }
+    else if (slug == "create")
+    {
+        name = "Sattari Create";
+        category = "CREATIVE EFFECTS WORKFLOW";
+    }
+    else if (slug == "vocal")
+    {
+        name = "Sattari Vocal";
+        category = "VOCAL FINISHING WORKFLOW";
+    }
+    else
+    {
+        return false;
+    }
+
+    TestRack rack;
+    rack.select (0, false);
+    sattari::ui::SattariRackEditor editor (
+        rack, name, category, product);
+    if (minimumSize) editor.setSize (760, 560);
+    return sattari::test::renderComponentToPng (editor, destination);
+}
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 4
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0))
+    {
+        const juce::File destination (argv[3]);
+        const bool minimumSize =
+            std::strcmp (argv[1], "--render-ui-min") == 0;
+        if (! renderRackWorkspace (argv[2], destination, minimumSize))
+        {
+            std::fprintf (stderr, "FAIL: editor render failed\n");
+            return 1;
+        }
+        std::printf ("Rendered %s\n",
+                     destination.getFullPathName().toRawUTF8());
+        return 0;
+    }
+
     int failures = 0;
     auto check = [&failures] (bool condition, const char* message)
     {

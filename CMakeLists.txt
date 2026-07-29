@@ -178,6 +178,35 @@ if(BUILD_TESTING)
         endif()
     endforeach()
 
+    if(TARGET SattariRackHostContract)
+        foreach(rack_ui_product IN ITEMS
+                "SattariMix;mix"
+                "SattariCreate;create"
+                "SattariVocal;vocal"
+                "SattariStack;stack")
+            list(GET rack_ui_product 0 rack_ui_name)
+            list(GET rack_ui_product 1 rack_ui_slug)
+            add_test(
+                NAME ${rack_ui_name}EditorRender
+                COMMAND $<TARGET_FILE:SattariRackHostContract>
+                    --render-ui
+                    ${rack_ui_slug}
+                    ${CMAKE_BINARY_DIR}/validation/ui/${rack_ui_slug}.png)
+            set_tests_properties(
+                ${rack_ui_name}EditorRender
+                PROPERTIES LABELS "ui;render;non-stemdeck")
+            add_test(
+                NAME ${rack_ui_name}EditorMinimumRender
+                COMMAND $<TARGET_FILE:SattariRackHostContract>
+                    --render-ui-min
+                    ${rack_ui_slug}
+                    ${CMAKE_BINARY_DIR}/validation/ui/${rack_ui_slug}-minimum.png)
+            set_tests_properties(
+                ${rack_ui_name}EditorMinimumRender
+                PROPERTIES LABELS "ui;render;minimum;non-stemdeck")
+        endforeach()
+    endif()
+
     if(TARGET SongKeyRender)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
         set_tests_properties(SongKeyRenderSmoke PROPERTIES LABELS "render;non-stemdeck")

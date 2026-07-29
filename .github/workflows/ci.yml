@@ -206,3 +206,6 @@ jobs:
 
       - name: Complete contract and render-smoke profile
         run: ./scripts/verify_all.sh --smoke
+
+      - name: Render Studio editor contracts
+        run: ctest --test-dir build/all -L ui --output-on-failure

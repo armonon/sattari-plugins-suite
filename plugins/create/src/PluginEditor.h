@@ -10,9 +10,7 @@ class SattariCreateAudioProcessorEditor final : public sattari::ui::SattariRackE
 public:
     explicit SattariCreateAudioProcessorEditor (SattariCreateAudioProcessor& p)
         : sattari::ui::SattariRackEditor (
-              p, "Create",
-              juce::String::fromUTF8 ("fx rack \xc2\xb7 processes top to bottom"),
-              "create")
+              p, "Sattari Create", "CREATIVE EFFECTS WORKFLOW", "create")
     {
     }
 

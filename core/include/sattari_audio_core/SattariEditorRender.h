@@ -11,18 +11,17 @@
 namespace sattari::test
 {
 
-inline bool renderEditorToPng (juce::AudioProcessor& processor,
-                               const juce::File& destination)
+inline bool renderComponentToPng (juce::Component& component,
+                                  const juce::File& destination)
 {
-    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
-    if (editor == nullptr || editor->getWidth() <= 0 || editor->getHeight() <= 0)
+    if (component.getWidth() <= 0 || component.getHeight() <= 0)
         return false;
 
-    editor->resized();
+    component.resized();
     juce::Image image (
-        juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+        juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
     juce::Graphics graphics (image);
-    editor->paintEntireComponent (graphics, true);
+    component.paintEntireComponent (graphics, true);
 
     if (destination.getParentDirectory().createDirectory().failed())
         return false;
@@ -33,6 +32,16 @@ inline bool renderEditorToPng (juce::AudioProcessor& processor,
 
     juce::PNGImageFormat png;
     return png.writeImageToStream (image, stream);
+}
+
+inline bool renderEditorToPng (juce::AudioProcessor& processor,
+                               const juce::File& destination)
+{
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    if (editor == nullptr)
+        return false;
+
+    return renderComponentToPng (*editor, destination);
 }
 
 } // namespace sattari::test

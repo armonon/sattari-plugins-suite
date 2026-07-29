@@ -1,92 +1,118 @@
 #pragma once
 
+#include <sattari_audio_core/SattariABRow.h>
+#include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariInstrumentRack.h>
 #include <sattari_audio_core/SattariModuleInspector.h>
-#include <sattari_audio_core/SattariBranding.h>
-#include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariStudio.h>
 
 #include <array>
 #include <memory>
 #include <string>
 
-// =============================================================================
-//  SattariStackEditor — the shared INSTRUMENT-rack UI.
-// -----------------------------------------------------------------------------
-//  One row per LAYER, and the row is wider than an effect rack's because a layer
-//  is a placement, not just a choice: instrument, mute, level, pan, key range and
-//  transpose all belong on the same line, since they are what turn a stack into a
-//  split or an octave layer rather than a unison pile.
-// =============================================================================
-
 namespace sattari::ui
 {
 
+// =============================================================================
+//  Studio instrument-rack workspace
+// -----------------------------------------------------------------------------
+//  Stack is parallel rather than serial, so every row is a complete playable
+//  layer: instrument, mute, level, pan, key range and transpose. The inspector
+//  focuses the selected instrument type while source actions remain attached to
+//  the selected layer.
+// =============================================================================
 class SattariStackEditor : public juce::AudioProcessorEditor
 {
 public:
     SattariStackEditor (rack::SattariInstrumentRack& p,
-                        const juce::String& titleText,
-                        const juce::String& subtitleText,
+                        const juce::String& productName,
+                        const juce::String& category,
                         const std::string& brandSlug)
         : juce::AudioProcessorEditor (&p),
-          processor (p),
+          audioProcessor (p),
+          accent (sattari::brand::productAccent (brandSlug)),
           lookAndFeel (sattari::brand::productAccent (brandSlug)),
+          header (productName, category, accent),
+          presetManager (p.parameters(), juce::String (brandSlug)),
+          abRow (presetManager),
           inspector (p.parameters())
     {
-        namespace br = sattari::brand;
+        using InstrumentRack = rack::SattariInstrumentRack;
+
         setLookAndFeel (&lookAndFeel);
+        setTitle (productName);
+        setDescription (category + " with four parallel instrument layers");
+        setResizable (true, true);
+        setResizeLimits (1160, 620, 1680, 1040);
+        setSize (1280, 720);
 
-        title.setText (titleText, juce::dontSendNotification);
-        title.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
-        title.setColour (juce::Label::textColourId, juce::Colour (br::kTextPrimary));
-        addAndMakeVisible (title);
+        addAndMakeVisible (header);
+        setupPresets();
 
-        subtitle.setText (subtitleText, juce::dontSendNotification);
-        subtitle.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
-        addAndMakeVisible (subtitle);
-
-        const auto menu = processor.moduleMenuNames();
-        using IR = rack::SattariInstrumentRack;
-
-        for (int L = 0; L < IR::kNumLayers; ++L)
+        const auto menu = audioProcessor.moduleMenuNames();
+        for (int layer = 0; layer < InstrumentRack::kNumLayers; ++layer)
         {
-            auto& row = layers[(size_t) L];
-
-            row.number.setText (juce::String (L + 1), juce::dontSendNotification);
-            row.number.setTitle ("Layer " + juce::String (L + 1));
-            row.number.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
+            auto& row = layers[(size_t) layer];
+            row.number.setText (
+                juce::String (layer + 1).paddedLeft ('0', 2),
+                juce::dontSendNotification);
+            row.number.setTitle ("Layer " + juce::String (layer + 1));
+            row.number.setJustificationType (juce::Justification::centred);
+            row.number.setColour (
+                juce::Label::textColourId, studio::colour::secondary);
             addAndMakeVisible (row.number);
 
             row.chooser.addItemList (menu, 1);
-            row.chooser.setTitle ("Layer " + juce::String (L + 1) + " instrument");
+            row.chooser.setTitle (
+                "Layer " + juce::String (layer + 1) + " instrument");
             row.chooser.setDescription ("Choose the instrument for this layer");
             addAndMakeVisible (row.chooser);
-            row.chooserAtt = std::make_unique<CA> (processor.parameters(), IR::layerParamId (L), row.chooser);
+            row.chooserAtt = std::make_unique<ComboAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerParamId (layer), row.chooser);
 
-            row.mute.setColour (juce::ToggleButton::textColourId, juce::Colour (br::kTextMuted));
-            row.mute.setTitle ("Layer " + juce::String (L + 1) + " mute");
+            row.mute.setTitle ("Layer " + juce::String (layer + 1) + " mute");
+            row.mute.setDescription ("Mute this instrument layer");
             addAndMakeVisible (row.mute);
-            row.muteAtt = std::make_unique<BA> (processor.parameters(), IR::layerMuteParamId (L), row.mute);
+            row.muteAtt = std::make_unique<ButtonAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerMuteParamId (layer), row.mute);
 
-            auto slider = [this] (juce::Slider& s)
+            setupLayerSlider (row.level, row.levelLabel, "Level", " dB");
+            setupLayerSlider (row.pan, row.panLabel, "Pan");
+            setupLayerSlider (row.low, row.lowLabel, "Low key");
+            setupLayerSlider (row.high, row.highLabel, "High key");
+            setupLayerSlider (row.transpose, row.transposeLabel, "Transpose", " st");
+
+            row.levelAtt = std::make_unique<SliderAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerLevelParamId (layer), row.level);
+            row.panAtt = std::make_unique<SliderAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerPanParamId (layer), row.pan);
+            row.lowAtt = std::make_unique<SliderAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerLoParamId (layer), row.low);
+            row.highAtt = std::make_unique<SliderAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerHiParamId (layer), row.high);
+            row.transposeAtt = std::make_unique<SliderAttachment> (
+                audioProcessor.parameters(),
+                InstrumentRack::layerTransParamId (layer), row.transpose);
+
+            row.chooser.onChange = [this, layer]
             {
-                s.setSliderStyle (juce::Slider::LinearHorizontal);
-                s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 46, 18);
-                s.setColour (juce::Slider::textBoxTextColourId, juce::Colour (sattari::brand::kTextMuted));
-                addAndMakeVisible (s);
+                selectLayer (layer);
+                updateHeaderStatus();
             };
-            slider (row.level);  row.levelAtt = std::make_unique<SA> (processor.parameters(), IR::layerLevelParamId (L), row.level);
-            slider (row.pan);    row.panAtt   = std::make_unique<SA> (processor.parameters(), IR::layerPanParamId (L),   row.pan);
-            slider (row.lo);     row.loAtt    = std::make_unique<SA> (processor.parameters(), IR::layerLoParamId (L),    row.lo);
-            slider (row.hi);     row.hiAtt    = std::make_unique<SA> (processor.parameters(), IR::layerHiParamId (L),    row.hi);
-            slider (row.trans);  row.transAtt = std::make_unique<SA> (processor.parameters(), IR::layerTransParamId (L), row.trans);
-
-            row.chooser.onChange = [this, L] { selectLayer (L); };
+            row.mute.onStateChange = [this] { updateHeaderStatus(); };
         }
 
         sourceA.setButtonText ("Load source A");
         sourceA.setTitle ("Load source A");
-        sourceA.setDescription ("Load audio into the selected Chop or Granulator layer");
+        sourceA.setDescription (
+            "Load audio into the selected Chop or Granulator layer");
         sourceA.onClick = [this] { chooseSource (0); };
         addAndMakeVisible (sourceA);
 
@@ -96,134 +122,295 @@ public:
         sourceB.onClick = [this] { chooseSource (1); };
         addAndMakeVisible (sourceB);
 
-        sourceStatus.setColour (juce::Label::textColourId,
-                                juce::Colour (br::kTextMuted));
+        sourceStatus.setColour (
+            juce::Label::textColourId, studio::colour::secondary);
+        sourceStatus.setFont (juce::FontOptions (10.5f));
         sourceStatus.setJustificationType (juce::Justification::centredLeft);
+        sourceStatus.setAccessible (true);
         addAndMakeVisible (sourceStatus);
 
         inspectorViewport.setViewedComponent (&inspector, false);
         inspectorViewport.setScrollBarsShown (true, false);
+        inspectorViewport.setScrollBarThickness (8);
         inspectorViewport.setTitle ("Selected instrument controls");
+        inspectorViewport.setDescription (
+            "Shared automation controls for the selected instrument type");
         addAndMakeVisible (inspectorViewport);
 
         int firstSelected = 0;
-        for (int layer = 0; layer < IR::kNumLayers; ++layer)
-            if (processor.parameters().getRawParameterValue (
-                    IR::layerParamId (layer))->load() > 0.0f)
+        for (int layer = 0; layer < InstrumentRack::kNumLayers; ++layer)
+            if (audioProcessor.parameters().getRawParameterValue (
+                    InstrumentRack::layerParamId (layer))->load() > 0.0f)
             {
                 firstSelected = layer;
                 break;
             }
         selectLayer (firstSelected);
-
-        setResizable (true, true);
-        setResizeLimits (860, 460, 1500, 950);
-        setSize (1080, 540);
+        updateHeaderStatus();
     }
 
     ~SattariStackEditor() override { setLookAndFeel (nullptr); }
 
     void paint (juce::Graphics& g) override
     {
-        namespace br = sattari::brand;
-        g.fillAll (juce::Colour (br::kPanel));
-        g.setColour (juce::Colour (br::kPanelDeep));
-        g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (6.0f), 10.0f);
+        studio::paintCanvas (g, getLocalBounds(), accent);
+        studio::paintSurface (g, layerArea.toFloat(), true);
+        studio::paintSurface (g, inspectorArea.toFloat(), true);
+        studio::paintSectionTitle (
+            g, layerArea.reduced (16).removeFromTop (18),
+            "Instrument layers", "parallel / phase-aligned");
+        studio::paintSectionTitle (
+            g, inspectorArea.reduced (16).removeFromTop (18),
+            "Focused instrument", "shared controls");
+
+        for (int layer = 0;
+             layer < rack::SattariInstrumentRack::kNumLayers;
+             ++layer)
+        {
+            const auto& row = layers[(size_t) layer];
+            const bool selected = layer == selectedLayer;
+            const bool occupied = row.chooser.getSelectedId() > 1;
+            g.setColour (selected ? accent.withAlpha (0.11f)
+                                  : studio::colour::surfaceHigh);
+            g.fillRoundedRectangle (row.bounds.toFloat(), 11.0f);
+            g.setColour (selected ? accent.withAlpha (0.88f)
+                                  : studio::colour::separator);
+            g.drawRoundedRectangle (
+                row.bounds.toFloat().reduced (0.5f), 11.0f,
+                selected ? 1.5f : 1.0f);
+
+            if (occupied)
+            {
+                auto dotArea = row.bounds;
+                const auto dot = dotArea.removeFromLeft (5)
+                                     .withSizeKeepingCentre (4, 4).toFloat();
+                g.setColour (row.mute.getToggleState()
+                                 ? studio::colour::tertiary : accent);
+                g.fillEllipse (dot);
+            }
+        }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (16);
-        auto top = r.removeFromTop (30);
-        title.setBounds (top.removeFromLeft (juce::jmin (180, top.getWidth() / 3)));
-        subtitle.setBounds (top.withTrimmedTop (7));
-        r.removeFromTop (8);
+        auto area = getLocalBounds().reduced ((int) studio::metric::outerMargin);
+        header.setBounds (area.removeFromTop (studio::metric::headerHeight));
 
-        auto layerPanel = r.removeFromLeft (juce::jlimit (590, 690, getWidth() * 2 / 3));
-        r.removeFromLeft (12);
-        inspectorViewport.setBounds (r);
+        auto command = area.removeFromTop (studio::metric::commandHeight);
+        factoryPreset.setBounds (command.removeFromLeft (190));
+        command.removeFromLeft (8);
+        userPresets.setBounds (command.removeFromLeft (170));
+        command.removeFromLeft (8);
+        savePresetButton.setBounds (command.removeFromLeft (70));
+        command.removeFromLeft (8);
+        abRow.setBounds (command.removeFromLeft (94));
+
+        area.removeFromTop ((int) studio::metric::gap);
+        layerArea = area.removeFromLeft (
+            juce::jlimit (680, 870, (int) std::round (getWidth() * 0.65)));
+        area.removeFromLeft ((int) studio::metric::gap);
+        inspectorArea = area;
+
+        auto layerPanel = layerArea.reduced (14);
+        layerPanel.removeFromTop (28);
+        auto sourcePanel = layerPanel.removeFromBottom (62);
+        layerPanel.removeFromBottom (8);
+        const int rowGap = 8;
+        const int rowHeight = juce::jlimit (
+            68, 104,
+            (layerPanel.getHeight()
+                - rowGap * (rack::SattariInstrumentRack::kNumLayers - 1))
+                / rack::SattariInstrumentRack::kNumLayers);
 
         for (auto& row : layers)
         {
-            auto line = layerPanel.removeFromTop (30);
-            row.number.setBounds (line.removeFromLeft (18));
-            row.chooser.setBounds (line.removeFromLeft (112));
-            line.removeFromLeft (6);
-            row.mute.setBounds (line.removeFromLeft (56));
-            row.level.setBounds (line.removeFromLeft (106));
-            row.pan.setBounds   (line.removeFromLeft (96));
-            row.lo.setBounds    (line.removeFromLeft (76));
-            row.hi.setBounds    (line.removeFromLeft (76));
-            row.trans.setBounds (line);
-            layerPanel.removeFromTop (8);
+            row.bounds = layerPanel.removeFromTop (rowHeight);
+            auto controls = row.bounds.reduced (8, 8);
+            row.number.setBounds (controls.removeFromLeft (32));
+            controls.removeFromLeft (4);
+            row.chooser.setBounds (
+                controls.removeFromLeft (150).withSizeKeepingCentre (150, 32));
+            controls.removeFromLeft (6);
+            row.mute.setBounds (
+                controls.removeFromLeft (72).withSizeKeepingCentre (72, 28));
+            controls.removeFromLeft (6);
+
+            auto place = [&controls, rowHeight] (
+                juce::Label& label, juce::Slider& slider, int width)
+            {
+                auto cell = controls.removeFromLeft (width);
+                label.setBounds (cell.removeFromTop (16));
+                slider.setBounds (
+                    rowHeight >= 84 ? cell.removeFromTop (32) : cell);
+                controls.removeFromLeft (4);
+            };
+            place (row.levelLabel, row.level, 92);
+            place (row.panLabel, row.pan, 82);
+            place (row.lowLabel, row.low, 68);
+            place (row.highLabel, row.high, 68);
+            place (row.transposeLabel, row.transpose, controls.getWidth());
+            layerPanel.removeFromTop (rowGap);
         }
 
-        layerPanel.removeFromTop (6);
-        auto sourceLine = layerPanel.removeFromTop (30);
+        auto sourceLine = sourcePanel.removeFromTop (34);
         sourceA.setBounds (sourceLine.removeFromLeft (130));
-        sourceLine.removeFromLeft (6);
+        sourceLine.removeFromLeft (8);
         sourceB.setBounds (sourceLine.removeFromLeft (130));
-        layerPanel.removeFromTop (4);
-        sourceStatus.setBounds (layerPanel.removeFromTop (46));
+        sourceStatus.setBounds (sourcePanel);
+
+        auto focused = inspectorArea.reduced (14);
+        focused.removeFromTop (28);
+        inspectorViewport.setBounds (focused);
+        inspector.setSize (
+            juce::jmax (320, inspectorViewport.getWidth() - 10),
+            inspector.getHeight());
+        repaint();
     }
 
 private:
-    using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboAttachment =
+        juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+    using ButtonAttachment =
+        juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using SliderAttachment =
+        juce::AudioProcessorValueTreeState::SliderAttachment;
 
-    rack::SattariInstrumentRack& processor;
-    SattariLookAndFeel lookAndFeel;
-    SattariModuleInspector inspector;
-    juce::Viewport inspectorViewport;
-
-    juce::Label title, subtitle, sourceStatus;
-    juce::TextButton sourceA, sourceB;
-    std::unique_ptr<juce::FileChooser> fileChooser;
-    struct LayerRow
+    void setupPresets()
     {
-        juce::Label        number;
-        juce::ComboBox     chooser;
-        juce::ToggleButton mute { "Mute" };
-        juce::Slider       level, pan, lo, hi, trans;
-        std::unique_ptr<CA> chooserAtt;
-        std::unique_ptr<BA> muteAtt;
-        std::unique_ptr<SA> levelAtt, panAtt, loAtt, hiAtt, transAtt;
-    };
-    std::array<LayerRow, rack::SattariInstrumentRack::kNumLayers> layers;
+        factoryPreset.setTitle ("Factory preset");
+        factoryPreset.setDescription ("Load a complete instrument stack");
+        for (int i = 0; i < audioProcessor.getNumPrograms(); ++i)
+        {
+            auto name = audioProcessor.getProgramName (i);
+            if (name.isEmpty()) name = "Initial stack";
+            factoryPreset.addItem (name, i + 1);
+        }
+        factoryPreset.setSelectedId (
+            audioProcessor.getCurrentProgram() + 1, juce::dontSendNotification);
+        factoryPreset.onChange = [this]
+        {
+            const int program = factoryPreset.getSelectedItemIndex();
+            if (program >= 0)
+            {
+                audioProcessor.setCurrentProgram (program);
+                selectLayer (selectedLayer);
+                updateHeaderStatus();
+            }
+        };
+        addAndMakeVisible (factoryPreset);
+
+        userPresets.setTitle ("User presets");
+        userPresets.setDescription ("Recall a saved instrument stack");
+        userPresets.setTextWhenNothingSelected ("User presets");
+        userPresets.onChange = [this]
+        {
+            const auto name = userPresets.getText();
+            if (name.isNotEmpty())
+            {
+                presetManager.loadUserPreset (name);
+                selectLayer (selectedLayer);
+                updateHeaderStatus();
+            }
+        };
+        addAndMakeVisible (userPresets);
+
+        savePresetButton.setTitle ("Save stack preset");
+        savePresetButton.setDescription (
+            "Save layer instruments, placement and controls");
+        savePresetButton.onClick = [this]
+        {
+            const auto name = "User "
+                + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+            if (presetManager.saveUserPreset (name))
+            {
+                refreshUserPresets();
+                userPresets.setText (name, juce::dontSendNotification);
+            }
+        };
+        addAndMakeVisible (savePresetButton);
+        addAndMakeVisible (abRow);
+        refreshUserPresets();
+    }
+
+    void refreshUserPresets()
+    {
+        userPresets.clear (juce::dontSendNotification);
+        int id = 1;
+        for (const auto& name : presetManager.userPresetNames())
+            userPresets.addItem (name, id++);
+    }
+
+    void setupLayerSlider (juce::Slider& slider, juce::Label& label,
+                           const juce::String& name,
+                           const juce::String& suffix = {})
+    {
+        studio::styleFieldLabel (
+            label, name, juce::Justification::centred);
+        addAndMakeVisible (label);
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
+        slider.setTextValueSuffix (suffix);
+        slider.setTitle (name);
+        slider.setDescription ("Adjust layer " + name.toLowerCase());
+        addAndMakeVisible (slider);
+    }
 
     void selectLayer (int layer)
     {
         selectedLayer = juce::jlimit (
             0, rack::SattariInstrumentRack::kNumLayers - 1, layer);
-        const int selection = (int) processor.parameters().getRawParameterValue (
-            rack::SattariInstrumentRack::layerParamId (selectedLayer))->load();
-        auto* module = processor.moduleAtForLayer (selectedLayer, selection - 1);
-        inspector.showModule (module != nullptr ? module->moduleId() : nullptr,
-                              module != nullptr ? module->displayName() : nullptr,
-                              true);
+        const int selection = (int) audioProcessor.parameters()
+                                  .getRawParameterValue (
+                                      rack::SattariInstrumentRack::layerParamId (
+                                          selectedLayer))->load();
+        auto* module = audioProcessor.moduleAtForLayer (
+            selectedLayer, selection - 1);
+        inspector.showModule (
+            module != nullptr ? module->moduleId() : nullptr,
+            module != nullptr ? module->displayName() : nullptr,
+            true);
         updateSourceActions();
         resized();
     }
 
+    void updateHeaderStatus()
+    {
+        int active = 0;
+        for (const auto& row : layers)
+            if (row.chooser.getSelectedId() > 1
+                && ! row.mute.getToggleState())
+                ++active;
+        header.setStatus (
+            active > 0
+                ? juce::String (active) + (active == 1 ? " LAYER ACTIVE"
+                                                       : " LAYERS ACTIVE")
+                : "EMPTY STACK",
+            active > 0);
+        repaint();
+    }
+
     void updateSourceActions()
     {
-        const int count = processor.sourceSlotCountForLayer (selectedLayer);
+        const int count = audioProcessor.sourceSlotCountForLayer (selectedLayer);
         sourceA.setVisible (count >= 1);
         sourceB.setVisible (count >= 2);
         if (count == 0)
         {
             sourceStatus.setText (
-                "This instrument has no external audio source.",
+                "The selected instrument generates its own sound.",
                 juce::dontSendNotification);
             return;
         }
 
-        const auto a = processor.sourceNameForLayer (selectedLayer, 0);
-        const auto b = processor.sourceNameForLayer (selectedLayer, 1);
-        juce::String status = "A: " + (a.isNotEmpty() ? a : "not loaded");
+        const auto sourceNameA =
+            audioProcessor.sourceNameForLayer (selectedLayer, 0);
+        const auto sourceNameB =
+            audioProcessor.sourceNameForLayer (selectedLayer, 1);
+        juce::String status = "A / "
+            + (sourceNameA.isNotEmpty() ? sourceNameA : "not loaded");
         if (count >= 2)
-            status += "    B: " + (b.isNotEmpty() ? b : "not loaded");
+            status += "     B / "
+                + (sourceNameB.isNotEmpty() ? sourceNameB : "not loaded");
         sourceStatus.setText (status, juce::dontSendNotification);
     }
 
@@ -238,20 +425,48 @@ private:
             [this, sourceSlot] (const juce::FileChooser& chooser)
             {
                 const auto file = chooser.getResult();
-                if (file.existsAsFile())
-                {
-                    const bool ok = processor.loadSourceForLayer (
-                        selectedLayer, sourceSlot, file);
-                    if (! ok)
-                        sourceStatus.setText (
-                            "Could not decode " + file.getFileName(),
-                            juce::dontSendNotification);
-                    else
-                        updateSourceActions();
-                }
+                if (! file.existsAsFile()) return;
+                if (! audioProcessor.loadSourceForLayer (
+                        selectedLayer, sourceSlot, file))
+                    sourceStatus.setText (
+                        "Could not decode " + file.getFileName(),
+                        juce::dontSendNotification);
+                else
+                    updateSourceActions();
             });
     }
 
+    rack::SattariInstrumentRack& audioProcessor;
+    const juce::Colour accent;
+    studio::LookAndFeel lookAndFeel;
+    studio::Header header;
+    sattari::presets::SattariPresetManager presetManager;
+    SattariABRow abRow;
+    SattariModuleInspector inspector;
+    juce::Viewport inspectorViewport;
+
+    juce::ComboBox factoryPreset, userPresets;
+    juce::TextButton savePresetButton { "Save" };
+    juce::TextButton sourceA, sourceB;
+    juce::Label sourceStatus;
+    std::unique_ptr<juce::FileChooser> fileChooser;
+
+    struct LayerRow
+    {
+        juce::Rectangle<int> bounds;
+        juce::Label number;
+        juce::ComboBox chooser;
+        juce::ToggleButton mute { "Mute" };
+        juce::Slider level, pan, low, high, transpose;
+        juce::Label levelLabel, panLabel, lowLabel, highLabel, transposeLabel;
+        std::unique_ptr<ComboAttachment> chooserAtt;
+        std::unique_ptr<ButtonAttachment> muteAtt;
+        std::unique_ptr<SliderAttachment> levelAtt, panAtt, lowAtt,
+                                          highAtt, transposeAtt;
+    };
+    std::array<LayerRow, rack::SattariInstrumentRack::kNumLayers> layers;
+
+    juce::Rectangle<int> layerArea, inspectorArea;
     int selectedLayer = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariStackEditor)
