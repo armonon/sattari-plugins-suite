@@ -235,7 +235,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <a href="#bus">Session key</a>
       <a href="#flagships">Flagships</a>
       <a href="#plugins">All plugins</a>
-      <a href="#download">Download</a>
+      <a href="#download">Alpha status</a>
     </div>
   </div>
 </nav>
@@ -245,14 +245,14 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     <h1>Four racks.<br>One session key.</h1>
     <p class="sub">
       A Mac plugin suite where the processors are shared, not duplicated —
-      28 modules that load into four racks, and every plugin in the session
-      already knows what key you're in.
+      28 modules that load into four racks, while key-aware plugins can follow
+      one session authority.
     </p>
     <div class="hero-cta">
-      <a class="btn" href="#download">Download the suite</a>
+      <a class="btn" href="#download">See alpha status</a>
       <a class="btn-ghost" href="#racks">See how it works&nbsp;›</a>
     </div>
-    <p class="hero-note">macOS · Audio Unit &amp; VST3 · Universal (Apple silicon + Intel)</p>
+    <p class="hero-note">Internal development suite · macOS · not yet public or notarized</p>
   </div>
 </header>
 
@@ -260,7 +260,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   <div class="wrap stats-grid">
     <div class="stat"><b>4</b><span>racks</span></div>
     <div class="stat"><b>28</b><span>shared modules</span></div>
-    <div class="stat"><b>40+</b><span>plugins</span></div>
+    <div class="stat"><b>48</b><span>non-StemDeck products</span></div>
     <div class="stat"><b>1</b><span>session key</span></div>
   </div>
 </section>
@@ -553,9 +553,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     </details>
     <details>
       <summary>What formats and machines?</summary>
-      <p>macOS, as Audio Unit and VST3, built Universal for both Apple silicon and Intel. Most plugins
-        also ship a Standalone app, and every plugin passes Apple's
-        <span style="font-family:var(--mono);font-size:14px">auval</span> validation.</p>
+      <p>The intended targets are macOS Audio Unit, VST3 and Standalone, built Universal for Apple
+        silicon and Intel. Individual products become downloadable only after their own compile,
+        contract, bundle, signing, notarization and host-validation evidence is recorded.</p>
     </details>
   </div>
 </section>
@@ -564,28 +564,36 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   <div class="wrap narrow" style="text-align:center">
     <div class="eyebrow">Get it</div>
     <h2 style="font-size:clamp(30px,4.4vw,46px);font-weight:600;letter-spacing:-.025em;margin-bottom:16px">
-      Download the suite</h2>
+      Internal alpha program</h2>
     <p style="font-size:19px;color:var(--ink-2);margin-bottom:32px;line-height:1.5">
-      The Sattari Hub installs everything and keeps it up to date.</p>
-    <a class="btn" href="downloads/SattariHub.zip">Download Sattari Hub</a>
-    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">macOS · Universal · AU + VST3</p>
+      Brain, Arp and Sub Conjurer are the first curated alpha set. Public Hub downloads stay closed
+      until signed artifacts, notarization and integrity-pinned updates are live.</p>
+    <span class="btn" aria-disabled="true">Public download not open</span>
+    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">Internal development · evidence gates in progress</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap foot-in">
     <div>© <span id="yr"></span> Sattari Audio</div>
-    <div><a href="#racks">Racks</a> · <a href="#plugins">Plugins</a> · <a href="#download">Download</a></div>
+    <div><a href="#racks">Racks</a> · <a href="#plugins">Plugins</a> · <a href="#download">Alpha status</a></div>
   </div>
 </footer>
 
+<script src="product-catalog.js"></script>
 <script src="plugins-data.js"></script>
 <script src="logos.js"></script>
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 
 (function () {
-  var plugins = window.SATTARI_PLUGINS || [];
+  var lifecycle = {};
+  (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (p) { lifecycle[p.id] = p; });
+  var plugins = (window.SATTARI_PLUGINS || []).filter(function (p) {
+    return lifecycle[p.id] && lifecycle[p.id].webVisible;
+  }).map(function (p) {
+    return Object.assign({}, p, lifecycle[p.id]);
+  });
   var grid = document.getElementById('grid');
 
   if (!plugins.length) {
@@ -601,7 +609,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     a.innerHTML =
       '<div class="ico">' + SATTARI_LOGO(p.id) + '</div>' +
       '<h3>' + p.name + '</h3>' +
-      '<div class="cat">' + (p.category || '') + '</div>' +
+      '<div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div>' +
       '<div class="tag">' + (p.tagline || '') + '</div>';
     grid.appendChild(a);
     return a;

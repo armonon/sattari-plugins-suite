@@ -90,7 +90,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 <nav class="nav">
   <div class="nav-in">
     <a class="brand" href="index.html">Sattari<span>.</span></a>
-    <a class="cta" href="index.html#download">Download&nbsp;›</a>
+    <a class="cta" href="index.html#download">Alpha status&nbsp;›</a>
   </div>
 </nav>
 
@@ -101,6 +101,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 
 <footer>© <span id="yr"></span> Sattari Audio</footer>
 
+<script src="product-catalog.js"></script>
 <script src="plugins-data.js"></script>
 <script src="logos.js"></script>
 <script>
@@ -108,7 +109,11 @@ document.getElementById('yr').textContent = new Date().getFullYear();
 
 (function () {
   var id  = new URLSearchParams(location.search).get('id');
-  var all = window.SATTARI_PLUGINS || [];
+  var lifecycle = {};
+  (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (x) { lifecycle[x.id] = x; });
+  var all = (window.SATTARI_PLUGINS || []).filter(function (x) {
+    return lifecycle[x.id] && lifecycle[x.id].webVisible;
+  }).map(function (x) { return Object.assign({}, x, lifecycle[x.id]); });
   var p   = all.filter(function (x) { return x.id === id; })[0];
   var el  = document.getElementById('content');
 
@@ -132,7 +137,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   el.innerHTML =
     '<div class="head">' +
       '<div class="icon">' + SATTARI_LOGO(p.id) + '</div>' +
-      '<div><div class="cat">' + (p.category || '') + '</div><h1>' + p.name + '</h1></div>' +
+      '<div><div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div><h1>' + p.name + '</h1></div>' +
     '</div>' +
     '<p class="tagline">' + (p.tagline || '') + '</p>' +
     '<div class="tags">' + tags + '</div>' +
@@ -147,7 +152,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
       '<ul class="feature-list">' + feats + '</ul></div>' : '') +
 
     '<div class="cta-row">' +
-      '<a class="btn" href="index.html#download">Download via the Hub</a>' +
+      '<a class="btn" href="index.html#download">View alpha status</a>' +
       '<a class="btn-ghost" href="index.html#plugins">Browse all plugins&nbsp;›</a>' +
     '</div>' +
 

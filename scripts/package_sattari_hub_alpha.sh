@@ -2,6 +2,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if ! git -C "$repo_root" diff --quiet --ignore-submodules=all \
+   || ! git -C "$repo_root" diff --cached --quiet --ignore-submodules=all; then
+  echo "tracked source is dirty; commit the exact source before packaging binaries" >&2
+  exit 1
+fi
 workspace_root="$(cd "$repo_root/../.." && pwd)"
 hub_root="$repo_root/apps/sattari-hub"
 out_root="${1:-$workspace_root/deliverables/sattari-test-builds}"
@@ -29,21 +34,32 @@ cp "$hub_root/Sources/SattariHub/Resources/sattari-products.json" "$resources_di
 
 payload_dir="$resources_dir/Payload"
 mkdir -p "$payload_dir"
+validate_bundle() {
+  local bundle="$1"
+  [[ -d "$bundle" ]] || { echo "invalid payload (not a bundle directory): $bundle" >&2; return 1; }
+  [[ -f "$bundle/Contents/Info.plist" ]] || { echo "invalid payload (missing Info.plist): $bundle" >&2; return 1; }
+  local executable
+  executable="$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit 2>/dev/null)"
+  [[ -n "$executable" ]] || { echo "invalid payload (missing executable): $bundle" >&2; return 1; }
+}
+
+copied=0
 while IFS= read -r relative_path; do
   [[ -n "$relative_path" ]] || continue
   source_path="$repo_root/$relative_path"
-  if [[ -e "$source_path" ]]; then
-    mkdir -p "$payload_dir/$(dirname "$relative_path")"
-    ditto "$source_path" "$payload_dir/$relative_path"
-  else
-    echo "warning: missing payload source, Hub will skip on other machines: $relative_path" >&2
-  fi
+  validate_bundle "$source_path"
+  mkdir -p "$payload_dir/$(dirname "$relative_path")"
+  ditto "$source_path" "$payload_dir/$relative_path"
+  validate_bundle "$payload_dir/$relative_path"
+  copied=$((copied + 1))
 done < <(python3 - <<'PY' "$hub_root/Sources/SattariHub/Resources/sattari-products.json"
 import json, sys
 from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 seen = set()
 for product in manifest['products']:
+    if product.get('shippingProfile') != 'alpha':
+        continue
     for bundle in product['bundles']:
         rel = bundle['relativeSourcePath']
         if rel not in seen:
@@ -51,6 +67,27 @@ for product in manifest['products']:
             print(rel)
 PY
 )
+[[ "$copied" -eq 9 ]] || { echo "expected 9 complete alpha bundles, copied $copied" >&2; exit 1; }
+
+mkdir -p "$resources_dir/Legal"
+cp "$repo_root/LICENSE" "$resources_dir/Legal/GPL-3.0.txt"
+cp "$repo_root/LICENSING.md" "$resources_dir/Legal/LICENSING.md"
+cp "$repo_root/third_party/JUCE/LICENSE.md" "$resources_dir/Legal/JUCE-LICENSE.md"
+source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+source_remote="$(git -C "$repo_root" remote get-url origin)"
+cat > "$resources_dir/Legal/SOURCE-OFFER.txt" <<EOF
+Sattari Audio complete corresponding source
+
+The binaries in this package were built from commit:
+$source_commit
+
+Source repository:
+$source_remote
+
+The repository at that commit, including its pinned submodules and build scripts,
+is the complete corresponding source under GPLv3. A source copy is available at
+no charge. See GPL-3.0.txt and LICENSING.md in this directory.
+EOF
 
 cat > "$package_dir/README.md" <<EOF
 # Sattari Hub alpha v$version
@@ -92,6 +129,9 @@ created_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 source_repo: $repo_root
 app: Sattari Hub.app
 manifest: Sattari Hub.app/Contents/Resources/sattari-products.json
+payload_bundles: $copied
+source_commit: $source_commit
+source_repository: $source_remote
 EOF
 
 codesign --force --deep --sign - "$app_dir" >/dev/null

@@ -1,0 +1,37 @@
+{
+  "include": [
+    {
+      "plugin": "auto-pitch",
+      "test": "AutoPitchCoreContract",
+      "render": "AutoPitchRender"
+    },
+    {
+      "plugin": "song-key",
+      "render": "SongKeyRender"
+    },
+    {
+      "plugin": "mix"
+    },
+    {
+      "plugin": "create"
+    },
+    {
+      "plugin": "vocal"
+    },
+    {
+      "plugin": "stack",
+      "test": "SattariStackLayerContract"
+    },
+    {
+      "plugin": "sub-conjurer"
+    },
+    {
+      "plugin": "sattari-arp",
+      "test": "SattariArpTimingContract"
+    },
+    {
+      "plugin": "brain",
+      "test": "BrainContract"
+    }
+  ]
+}

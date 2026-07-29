@@ -9,7 +9,10 @@ add_subdirectory(plugins/create)
 add_subdirectory(plugins/vocal)
 add_subdirectory(plugins/stack)
 add_subdirectory(plugins/sub-conjurer)
-add_subdirectory(plugins/stemdeck)
+option(SATTARI_INCLUDE_STEMDECK "Configure the separately-gated StemDeck product" OFF)
+if(SATTARI_INCLUDE_STEMDECK)
+    add_subdirectory(plugins/stemdeck)
+endif()
 add_subdirectory(plugins/side-chain-master)
 add_subdirectory(plugins/royal-chain)
 add_subdirectory(plugins/harmony)
@@ -66,4 +69,106 @@ if(TARGET juce::juce_core)
             juce::juce_core
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
+endif()
+
+if(TARGET juce::juce_audio_utils)
+    add_executable(SattariRackHostContract
+        EXCLUDE_FROM_ALL
+        core/tests/rack_host_contract.cpp)
+    target_link_libraries(SattariRackHostContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_audio_utils
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()
+
+# Root-suite CTest inventory. The executables remain explicit build targets so a
+# developer can build a focused contract, while `ctest` finally provides standard
+# discovery/reporting for a prepared root tree.
+include(CTest)
+if(BUILD_TESTING)
+    set(SATTARI_CONTRACT_TARGETS
+        SattariAudioCorePitchContract
+        SattariAudioCoreHarmonicContract
+        SattariAudioCoreKeyContract
+        SattariAudioCoreScaleIntervalContract
+        SattariAudioCoreKWeightingContract
+        SattariAudioCoreDrumKitContract
+        SattariAudioCoreDrumPadsContract
+        SattariAudioCoreDrumLooperContract
+        SattariAudioCoreBeatGridContract
+        SattariAudioCoreGrooveContract
+        SattariAudioCorePsolaContract
+        SattariAudioCoreCrepeContract
+        SattariAudioCoreVoxContract
+        SattariAudioCoreVoxSynthContract
+        SattariAudioCoreFormantContract
+        SattariAudioCoreVocoderContract
+        SattariAudioCoreSliceTableContract
+        SattariAudioCoreOnsetCurveContract
+        SattariAudioCoreHarmonicMaskContract
+        SattariAudioCoreRealtimeSnapshotContract
+        SattariCrossPluginBusContract
+        SattariRackHostContract
+        AutoPitchCoreContract
+        VoxKeyCoreContract
+        SattariArpTimingContract
+        SattariBusCoreContract
+        SideChainMasterCoreContract
+        SattariAlignCoreContract
+        RoyalChainColorAliasingContract
+        HarmonyCoreContract
+        MaqamCoreContract
+        RhythmGenieCoreContract
+        VocalMasterCoreContract
+        SubConjurerContract
+        WarpContract
+        TunerContract
+        DoubleContract
+        DeEssContract
+        FaceContract
+        TransientContract
+        MeterContract
+        EQContract
+        ScalerContract
+        SpaceContract
+        CleanContract
+        CompContract
+        PeakContract
+        VocoderContract
+        ShimmerContract
+        EchoContract
+        HeatContract
+        MultibandContract
+        GateContract
+        RiserContract
+        PulseContract
+        Sattari808Contract
+        ImagerContract
+        WarbleContract
+        ScopeContract
+        GranulatorContract
+        GlassChoirContract
+        BrainContract
+        SattariStackLayerContract)
+
+    foreach(contract IN LISTS SATTARI_CONTRACT_TARGETS)
+        if(TARGET ${contract})
+            add_test(NAME ${contract} COMMAND $<TARGET_FILE:${contract}>)
+            set_tests_properties(${contract} PROPERTIES LABELS "contract;non-stemdeck")
+        endif()
+    endforeach()
+
+    if(TARGET SongKeyRender)
+        add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
+        set_tests_properties(SongKeyRenderSmoke PROPERTIES LABELS "render;non-stemdeck")
+    endif()
+    if(TARGET AutoPitchRender)
+        add_test(NAME AutoPitchRenderSmoke COMMAND $<TARGET_FILE:AutoPitchRender> --smoke)
+        add_test(NAME AutoPitchHighTracking COMMAND $<TARGET_FILE:AutoPitchRender> --hitracktest)
+        set_tests_properties(
+            AutoPitchRenderSmoke AutoPitchHighTracking
+            PROPERTIES LABELS "render;non-stemdeck")
+    endif()
 endif()

@@ -97,7 +97,10 @@ int main()
     // 2) Edit the SessionState fields; the published SessionState must carry them.
     //    Choice indices: chordRoot 10 -> A (pc 9); chordQuality 4 -> min7;
     //    timeSigDen 3 -> 8; section 4 -> chorus (id 4).
-    setParam (a, "brainManual",      0.0f);
+    // Use an explicit key while testing edited context. Automatic mode now
+    // correctly stays silent until a confident key commits; context must never
+    // be attached to an invented startup C major.
+    setParam (a, "brainManual",      1.0f);
     setParam (a, "brainRefOverride", 0.0f);
     setParam (a, "brainPublish",     1.0f);
     setParam (a, "brainChordRoot",    10.0f);
@@ -126,6 +129,8 @@ int main()
         check (m.sectionId == 4, "section round-trip wrong");
         check (std::abs (m.energy - 0.8f) < 1.0e-3f, "energy round-trip wrong");
         check (m.maqamId == 5, "maqam round-trip wrong");
+        check (m.transientId == 0,
+               "Brain published a timer tick as a musical transient");
         check (std::isfinite (m.referenceHz) && std::isfinite (m.swing) && std::isfinite (m.energy),
                "published SessionState has non-finite fields");
     }

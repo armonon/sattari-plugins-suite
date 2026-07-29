@@ -24,7 +24,9 @@ int main()
     };
 
     // 1) Session round-trip.
-    publishSession ("auto-pitch", /*root*/ 7, /*scale*/ 1, /*bpm*/ 128.0, /*transientId*/ 42);
+    check (publishSession ("auto-pitch", /*root*/ 7, /*scale*/ 1,
+                           /*bpm*/ 128.0, /*transientId*/ 42),
+           "initial session publish failed");
     {
         auto s = readSession();
         check (s.has_value(), "session not readable");
@@ -46,7 +48,7 @@ int main()
     }
 
     // 3) Session reader against a legacy key-only publish: no tempo.
-    publishKey ("royal-chain", /*root*/ 2, /*scale*/ 0);
+    publishKey ("auto-pitch", /*root*/ 2, /*scale*/ 0);
     {
         auto s = readSession();
         check (s.has_value(), "session reader could not read legacy key publish");
@@ -66,32 +68,54 @@ int main()
         check (! s.has_value(), "stale session entry should be ignored");
     }
 
-    // 5) SessionReader (consumer side): a fresh publish reaches the lock-free
-    //    snapshot via the background poll thread (no audio-thread file I/O).
+    // 5) Publisher leases: a fresh authoritative Brain frame cannot be
+    //    overwritten by a lower-priority detector. Brain can update its own
+    //    frame, and readers see the surviving coherent state.
     {
-        publishSession ("auto-pitch", /*root*/ 5, /*scale*/ 1, /*bpm*/ 96.0, /*transientId*/ 7);
-        SessionReader reader;
-        reader.start (/*pollIntervalMs*/ 40);
-        // Give the poll thread a few cycles to pick up the file.
-        SessionReader::Snapshot snap;
-        for (int i = 0; i < 40; ++i)
-        {
-            snap = reader.current();
-            if (snap.valid) break;
-            std::this_thread::sleep_for (std::chrono::milliseconds (20));
-        }
-        reader.stop();
-        check (snap.valid, "SessionReader never saw the published session");
-        check (snap.root == 5 && snap.scale == 1, "SessionReader snapshot key wrong");
-        check (std::abs (snap.bpm - 96.0) < 1e-6, "SessionReader snapshot bpm wrong");
-        check (snap.transientId == 7, "SessionReader snapshot transientId wrong");
+        SessionMessage authoritative;
+        authoritative.root = 11;
+        authoritative.scale = 1;
+        authoritative.bpm = 111.0;
+        authoritative.chordRoot = 4;
+        check (publishSessionState ("brain", authoritative),
+               "Brain authority publish failed");
+        check (! publishSession ("auto-pitch", 5, 0, 96.0, 7),
+               "lower-priority publisher stole a fresh Brain lease");
+        auto surviving = readSession();
+        check (surviving && surviving->root == 11 && surviving->chordRoot == 4,
+               "Brain frame did not survive lower-priority publish");
     }
 
-    // 6) Tempo channel is INDEPENDENT of the key bus: publishing tempo does not
+    // 6) Two SessionReader clients share the per-binary poller and both receive
+    //    the same coherent lock-free frame (no audio-thread file I/O).
+    {
+        publishSession ("brain", /*root*/ 5, /*scale*/ 1, /*bpm*/ 96.0, /*transientId*/ 7);
+        SessionReader readerA, readerB;
+        readerA.start (/*pollIntervalMs*/ 40);
+        readerB.start (/*pollIntervalMs*/ 80);
+        SessionReader::Snapshot snapA, snapB;
+        for (int i = 0; i < 40; ++i)
+        {
+            snapA = readerA.current();
+            snapB = readerB.current();
+            if (snapA.valid && snapB.valid) break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+        }
+        readerA.stop();
+        readerB.stop();
+        check (snapA.valid && snapB.valid, "SessionReader clients missed session");
+        check (snapA.root == 5 && snapA.scale == 1, "SessionReader snapshot key wrong");
+        check (std::abs (snapA.bpm - 96.0) < 1e-6, "SessionReader snapshot bpm wrong");
+        check (snapA.transientId == 7, "SessionReader snapshot transientId wrong");
+        check (snapA.root == snapB.root && snapA.transientId == snapB.transientId,
+               "shared SessionReader clients observed different frames");
+    }
+
+    // 7) Tempo channel is INDEPENDENT of the key bus: publishing tempo does not
     //    touch the key, and a TempoReader picks it up. Publishing the key does not
     //    wipe the tempo (separate files).
     {
-        publishKey ("song-key", /*root*/ 3, /*scale*/ 0);
+        publishKey ("brain", /*root*/ 3, /*scale*/ 0);
         publishTempo ("rhythm-genie", /*bpm*/ 140.0, /*transientId*/ 9);
 
         auto k = readPublishedKey();
@@ -100,7 +124,7 @@ int main()
         check (t.has_value(), "tempo not readable");
         if (t) { check (std::abs (t->bpm - 140.0) < 1e-6 && t->transientId == 9, "tempo values wrong"); }
 
-        publishKey ("song-key", /*root*/ 8, /*scale*/ 1);   // re-publish key
+        publishKey ("brain", /*root*/ 8, /*scale*/ 1);   // re-publish key
         auto t2 = readTempo();
         check (t2.has_value() && std::abs (t2->bpm - 140.0) < 1e-6, "key re-publish clobbered tempo");
 
@@ -111,7 +135,7 @@ int main()
         check (ts.valid && std::abs (ts.bpm - 140.0) < 1e-6 && ts.transientId == 9, "TempoReader snapshot wrong");
     }
 
-    // 7) SessionState v2: publishSessionState round-trips the full Brain context
+    // 8) SessionState v2: publishSessionState round-trips the full Brain context
     //    (chord/timeSig/swing/section/energy/maqam/reference), AND a plain v1
     //    publishSession leaves the v2 fields at safe defaults (backward compat).
     {
@@ -134,7 +158,7 @@ int main()
         }
 
         // A v1 key+tempo-only publish must leave the v2 fields at defaults.
-        publishSession ("auto-pitch", 0, 0, 120.0, 1);
+        publishSession ("brain", 0, 0, 120.0, 1);
         auto d = readSession();
         check (d.has_value(), "v1 session not readable");
         if (d)

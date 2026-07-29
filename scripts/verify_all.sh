@@ -12,6 +12,7 @@
 #    scripts/verify_all.sh           # build + run everything, strict render null
 #    scripts/verify_all.sh --smoke   # render in smoke mode (skip golden compare)
 #    scripts/verify_all.sh --bless   # re-bless the render golden, then verify
+#    scripts/verify_all.sh --full    # also compile every non-StemDeck product
 # =============================================================================
 set -uo pipefail
 
@@ -25,7 +26,25 @@ CONTRACTS=(
   "SattariAudioCorePitchContract|core/SattariAudioCorePitchContract"
   "SattariAudioCoreHarmonicContract|core/SattariAudioCoreHarmonicContract"
   "SattariAudioCoreKeyContract|core/SattariAudioCoreKeyContract"
+  "SattariAudioCoreScaleIntervalContract|core/SattariAudioCoreScaleIntervalContract"
+  "SattariAudioCoreKWeightingContract|core/SattariAudioCoreKWeightingContract"
+  "SattariAudioCoreDrumKitContract|core/SattariAudioCoreDrumKitContract"
+  "SattariAudioCoreDrumPadsContract|core/SattariAudioCoreDrumPadsContract"
+  "SattariAudioCoreDrumLooperContract|core/SattariAudioCoreDrumLooperContract"
+  "SattariAudioCoreBeatGridContract|core/SattariAudioCoreBeatGridContract"
+  "SattariAudioCoreGrooveContract|core/SattariAudioCoreGrooveContract"
+  "SattariAudioCorePsolaContract|core/SattariAudioCorePsolaContract"
+  "SattariAudioCoreCrepeContract|core/SattariAudioCoreCrepeContract"
+  "SattariAudioCoreVoxContract|core/SattariAudioCoreVoxContract"
+  "SattariAudioCoreVoxSynthContract|core/SattariAudioCoreVoxSynthContract"
+  "SattariAudioCoreFormantContract|core/SattariAudioCoreFormantContract"
+  "SattariAudioCoreVocoderContract|core/SattariAudioCoreVocoderContract"
+  "SattariAudioCoreSliceTableContract|core/SattariAudioCoreSliceTableContract"
+  "SattariAudioCoreOnsetCurveContract|core/SattariAudioCoreOnsetCurveContract"
+  "SattariAudioCoreHarmonicMaskContract|core/SattariAudioCoreHarmonicMaskContract"
+  "SattariAudioCoreRealtimeSnapshotContract|core/SattariAudioCoreRealtimeSnapshotContract"
   "SattariCrossPluginBusContract|SattariCrossPluginBusContract"
+  "SattariRackHostContract|SattariRackHostContract"
   "AutoPitchCoreContract|plugins/auto-pitch/AutoPitchCoreContract"
   "VoxKeyCoreContract|plugins/voxkey/VoxKeyCoreContract"
   "SattariArpTimingContract|plugins/sattari-arp/SattariArpTimingContract"
@@ -33,8 +52,6 @@ CONTRACTS=(
   "SideChainMasterCoreContract|plugins/side-chain-master/SideChainMasterCoreContract"
   "SattariAlignCoreContract|plugins/align/SattariAlignCoreContract"
   "RoyalChainColorAliasingContract|plugins/royal-chain/RoyalChainColorAliasingContract"
-  "StemDeckArchitectureContract|plugins/stemdeck/StemDeckArchitectureContract"
-  "StemDeckGranularRenderContract|plugins/stemdeck/StemDeckGranularRenderContract"
   "HarmonyCoreContract|plugins/harmony/HarmonyCoreContract"
   "MaqamCoreContract|plugins/maqam/MaqamCoreContract"
   "RhythmGenieCoreContract|plugins/rhythm-genie/RhythmGenieCoreContract"
@@ -69,10 +86,21 @@ CONTRACTS=(
   "GranulatorContract|plugins/granulator/GranulatorContract"
   "GlassChoirContract|plugins/glass-choir/GlassChoirContract"
   "BrainContract|plugins/brain/BrainContract"
+  "SattariStackLayerContract|plugins/stack/SattariStackLayerContract"
 )
 
 echo "== configuring $BUILD =="
 cmake -S . -B "$BUILD" >/dev/null || { echo "configure FAILED"; exit 2; }
+
+if [ "$MODE" = "--full" ]; then
+  echo "== compiling every configured non-StemDeck product =="
+  if ! cmake --build "$BUILD" -j >/tmp/verify_all_suite_build.log 2>&1; then
+    echo "SUITE BUILD FAILED — see /tmp/verify_all_suite_build.log"
+    grep -iE "error:" /tmp/verify_all_suite_build.log | head
+    exit 2
+  fi
+  MODE="--smoke"
+fi
 
 targets=()
 for entry in "${CONTRACTS[@]}"; do targets+=("${entry%%|*}"); done

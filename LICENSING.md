@@ -9,13 +9,13 @@ Two dependencies drive this, and GPLv3 is the common denominator that satisfies 
 
 | Dependency | Its terms | Used by |
 |---|---|---|
-| **JUCE** | Paid license **or** GPLv3 | **all 8 plugins** |
-| **Rubber Band** | Commercial license **or** GPLv2-or-later | Auto Pitch, StemDeck, Royal Chain |
+| **JUCE** | Paid license **or** GPLv3 | the full plugin suite |
+| **Rubber Band** | Commercial license **or** GPLv2-or-later | time/pitch products that link it, including Auto Pitch |
 
 We are not holding a commercial JUCE or Rubber Band license, so:
 
 - JUCE under its open-source terms requires **GPLv3** for every distributed plugin → the whole suite is GPLv3.
-- Rubber Band is "GPLv2 **or later**," which **includes GPLv3**, so the three time/pitch plugins are covered by the same GPLv3.
+- Rubber Band is "GPLv2 **or later**," which **includes GPLv3**, so products that link it are covered by the same GPLv3.
 
 There is therefore **one license for everything** and no per-product carve-outs.
 
@@ -53,8 +53,8 @@ is legitimate *only because* the suite is GPLv3 — do not disable it under a JU
 ## If you ever want closed-source / paid-exclusive
 
 You would need to **buy** the relevant commercial licenses instead:
-- A commercial **JUCE** license (covers all 8), and
-- A commercial **Rubber Band** license (covers Auto Pitch, StemDeck, Royal Chain) —
+- A commercial **JUCE** license (covers the suite), and
+- A commercial **Rubber Band** license for every product that links it —
   or replace Rubber Band with a permissive engine such as Signalsmith Stretch (MIT).
 
 Until then, GPLv3 is the license and closed-source distribution is not permitted.

@@ -21,8 +21,10 @@
 // =============================================================================
 
 #include <juce_core/juce_core.h>
+#include <sattari_audio_core/SattariRealtime.h>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <optional>
 
 namespace sattari::xplugin
@@ -34,6 +36,53 @@ struct KeyMessage
     int scale = 0;   // 0=major, 1=minor, 2=chromatic (matches Auto Pitch convention)
 };
 
+inline juce::int64 currentTimeMs() noexcept
+{
+    return (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+// A fresh higher-authority publisher owns the shared key/session file for a
+// short lease. This prevents opportunistic detectors from immediately
+// overwriting Brain while still allowing automatic fallback after Brain closes.
+inline int publisherPriority (const juce::String& publisherId) noexcept
+{
+    if (publisherId == "brain")       return 100;
+    if (publisherId == "song-key")    return 80;
+    if (publisherId == "auto-pitch")  return 50;
+    if (publisherId == "granulator")  return 40;
+    return 10;
+}
+
+inline bool mayPublish (const juce::File& file, const juce::String& publisherId,
+                        int leaseMs = 2500)
+{
+    if (! file.existsAsFile())
+        return true;
+
+    const auto parsed = juce::JSON::parse (file.loadFileAsString());
+    if (! parsed.isObject())
+        return true;
+
+    const auto previousPublisher =
+        parsed.getProperty ("publisher", juce::String()).toString();
+    if (previousPublisher == publisherId)
+        return true;
+
+    const auto timestamp = (juce::int64) parsed.getProperty ("timestampMs", 0);
+    const auto previousPriority = (int) parsed.getProperty (
+        "priority", publisherPriority (previousPublisher));
+    const bool leaseIsFresh = timestamp > 0
+                           && currentTimeMs() - timestamp <= (juce::int64) leaseMs;
+    return ! leaseIsFresh || publisherPriority (publisherId) >= previousPriority;
+}
+
+inline juce::InterProcessLock& keyBusPublishLock()
+{
+    static juce::InterProcessLock lock ("com.sattari.audio.key-bus-publish");
+    return lock;
+}
+
 inline juce::File keyBusFile()
 {
     auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
@@ -42,16 +91,21 @@ inline juce::File keyBusFile()
     return root.getChildFile ("key-bus.json");
 }
 
-inline void publishKey (const juce::String& publisherId, int root, int scale)
+inline bool publishKey (const juce::String& publisherId, int root, int scale)
 {
+    juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
+    if (! publishLock.isLocked()) return false;
+    const auto file = keyBusFile();
+    if (! mayPublish (file, publisherId))
+        return false;
+
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, root));
-    obj->setProperty ("scale", juce::jlimit (0, 11, scale));
-    obj->setProperty ("timestampMs",
-        (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
-            std::chrono::system_clock::now().time_since_epoch()).count());
-    keyBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+    obj->setProperty ("scale", juce::jlimit (0, 2, scale));
+    obj->setProperty ("timestampMs", currentTimeMs());
+    return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
 inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
@@ -62,14 +116,13 @@ inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
     if (! parsed.isObject()) return std::nullopt;
 
     const auto ts = (juce::int64) parsed.getProperty ("timestampMs", 0);
-    const juce::int64 now = std::chrono::duration_cast<std::chrono::milliseconds> (
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    const juce::int64 now = currentTimeMs();
     if (now - ts > (juce::int64) maxAgeSeconds * 1000)
         return std::nullopt;
 
     KeyMessage k;
     k.root  = juce::jlimit (0, 11, (int) parsed.getProperty ("root", 0));
-    k.scale = juce::jlimit (0, 11, (int) parsed.getProperty ("scale", 0));
+    k.scale = juce::jlimit (0, 2, (int) parsed.getProperty ("scale", 0));
     return k;
 }
 
@@ -108,31 +161,43 @@ struct SessionMessage
     juce::String progression;      // e.g. "0,9,5,7" chord roots (message-only, not in the RT snapshot)
 };
 
-inline void publishSession (const juce::String& publisherId, int root, int scale,
+inline bool publishSession (const juce::String& publisherId, int root, int scale,
                             double bpm, juce::int64 transientId)
 {
+    juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
+    if (! publishLock.isLocked()) return false;
+    const auto file = keyBusFile();
+    if (! mayPublish (file, publisherId))
+        return false;
+
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("schemaVersion", 2);
     obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, root));
-    obj->setProperty ("scale", juce::jlimit (0, 11, scale));
+    obj->setProperty ("scale", juce::jlimit (0, 2, scale));
     obj->setProperty ("bpm",   bpm > 0.0 ? bpm : 0.0);
     obj->setProperty ("transientId", transientId);
-    obj->setProperty ("timestampMs",
-        (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
-            std::chrono::system_clock::now().time_since_epoch()).count());
-    keyBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+    obj->setProperty ("timestampMs", currentTimeMs());
+    return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
 // Full SessionState publisher (the Brain path). Writes every field; base-field-only
 // readers ignore the extras, SessionState readers pick up whatever is present.
-inline void publishSessionState (const juce::String& publisherId, const SessionMessage& s)
+inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s)
 {
+    juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
+    if (! publishLock.isLocked()) return false;
+    const auto file = keyBusFile();
+    if (! mayPublish (file, publisherId))
+        return false;
+
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("schemaVersion", 2);
     obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, s.root));
-    obj->setProperty ("scale", juce::jlimit (0, 11, s.scale));
+    obj->setProperty ("scale", juce::jlimit (0, 2, s.scale));
     obj->setProperty ("bpm",   s.bpm > 0.0 ? s.bpm : 0.0);
     obj->setProperty ("transientId", s.transientId);
     obj->setProperty ("chordRoot",    juce::jlimit (-1, 11, s.chordRoot));
@@ -145,10 +210,8 @@ inline void publishSessionState (const juce::String& publisherId, const SessionM
     obj->setProperty ("maqamId",      s.maqamId);
     obj->setProperty ("referenceHz",  s.referenceHz > 0.0 ? s.referenceHz : 440.0);
     if (s.progression.isNotEmpty()) obj->setProperty ("progression", s.progression);
-    obj->setProperty ("timestampMs",
-        (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
-            std::chrono::system_clock::now().time_since_epoch()).count());
-    keyBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+    obj->setProperty ("timestampMs", currentTimeMs());
+    return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
 inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
@@ -159,15 +222,14 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
     if (! parsed.isObject()) return std::nullopt;
 
     const auto ts = (juce::int64) parsed.getProperty ("timestampMs", 0);
-    const juce::int64 now = std::chrono::duration_cast<std::chrono::milliseconds> (
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    const juce::int64 now = currentTimeMs();
     if (now - ts > (juce::int64) maxAgeSeconds * 1000)
         return std::nullopt;
 
     SessionMessage s;
     s.schemaVersion = (int) parsed.getProperty ("schemaVersion", 1);
     s.root  = juce::jlimit (0, 11, (int) parsed.getProperty ("root", 0));
-    s.scale = juce::jlimit (0, 11, (int) parsed.getProperty ("scale", 0));
+    s.scale = juce::jlimit (0, 2, (int) parsed.getProperty ("scale", 0));
     s.bpm   = (double) parsed.getProperty ("bpm", 0.0);
     s.transientId = (juce::int64) parsed.getProperty ("transientId", 0);
     s.hasTempo = s.bpm > 0.0;
@@ -185,66 +247,61 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
     return s;
 }
 
-// --- SessionReader: realtime-safe consumer side ------------------------------
-//  A consumer plugin holds ONE of these as a member. It owns a low-priority
-//  background thread that polls the bus file every ~400 ms and publishes the
-//  result into lock-free atomics. The audio thread only ever reads those atomics
-//  (current()), so there is NO file I/O on the audio thread and NO shared/static
-//  state between instances. Start it in prepareToPlay(), it stops itself on
-//  destruction (or call stop() in releaseResources()).
-class SessionReader : private juce::Thread
+struct SessionSnapshot
+{
+    bool        valid = false;
+    int         root = 0, scale = 0;
+    double      bpm = 0.0;
+    juce::int64 transientId = 0;
+    bool        hasTempo = false;
+    int         chordRoot = -1, chordQuality = 0;
+    int         timeSigNum = 4, timeSigDen = 4;
+    float       swing = 0.0f;
+    int         sectionId = 0;
+    float       energy = 0.0f;
+    int         maqamId = 0;
+    double      referenceHz = 440.0;
+};
+
+namespace detail
+{
+class SharedSessionPoller final : private juce::Thread
 {
 public:
-    SessionReader() : juce::Thread ("SattariSessionBus") {}
-    ~SessionReader() override { stopThread (1000); }
+    SharedSessionPoller() : juce::Thread ("SattariSessionBus") {}
+    ~SharedSessionPoller() override { stopThread (1000); }
 
-    void start (int pollIntervalMs = 400)
+    static SharedSessionPoller& instance()
     {
-        intervalMs = juce::jmax (50, pollIntervalMs);
+        static SharedSessionPoller poller;
+        return poller;
+    }
+
+    void acquire (int requestedIntervalMs)
+    {
+        const std::lock_guard<std::mutex> guard (clientsMutex);
+        const int requested = juce::jmax (50, requestedIntervalMs);
+        intervalMs.store (clients == 0 ? requested
+                                       : juce::jmin (intervalMs.load(), requested));
+        ++clients;
         if (! isThreadRunning())
             startThread();
+        notify();
     }
-    void stop() { stopThread (1000); }
 
-    // Lock-free snapshot for the audio thread. `valid` is false until a fresh,
-    // non-stale session has been read.
-    struct Snapshot
+    void release()
     {
-        bool        valid = false;
-        int         root = 0, scale = 0;
-        double      bpm = 0.0;
-        juce::int64 transientId = 0;
-        bool        hasTempo = false;
-        // SessionState v2 (safe defaults when the publisher is key-only)
-        int         chordRoot = -1, chordQuality = 0;
-        int         timeSigNum = 4, timeSigDen = 4;
-        float       swing = 0.0f;
-        int         sectionId = 0;
-        float       energy = 0.0f;
-        int         maqamId = 0;
-        double      referenceHz = 440.0;
-    };
-
-    Snapshot current() const noexcept
-    {
-        Snapshot s;
-        s.valid       = hasValue.load (std::memory_order_relaxed);
-        s.root        = root.load (std::memory_order_relaxed);
-        s.scale       = scale.load (std::memory_order_relaxed);
-        s.bpm         = bpm.load (std::memory_order_relaxed);
-        s.transientId = tid.load (std::memory_order_relaxed);
-        s.hasTempo    = hasTempo.load (std::memory_order_relaxed);
-        s.chordRoot    = chordRoot.load (std::memory_order_relaxed);
-        s.chordQuality = chordQuality.load (std::memory_order_relaxed);
-        s.timeSigNum   = timeSigNum.load (std::memory_order_relaxed);
-        s.timeSigDen   = timeSigDen.load (std::memory_order_relaxed);
-        s.swing        = swing.load (std::memory_order_relaxed);
-        s.sectionId    = sectionId.load (std::memory_order_relaxed);
-        s.energy       = energy.load (std::memory_order_relaxed);
-        s.maqamId      = maqamId.load (std::memory_order_relaxed);
-        s.referenceHz  = referenceHz.load (std::memory_order_relaxed);
-        return s;
+        const std::lock_guard<std::mutex> guard (clientsMutex);
+        clients = juce::jmax (0, clients - 1);
+        if (clients == 0)
+        {
+            stopThread (1000);
+            frame.store ({});
+            intervalMs.store (400);
+        }
     }
+
+    SessionSnapshot current() const noexcept { return frame.load(); }
 
 private:
     void run() override
@@ -253,41 +310,69 @@ private:
         {
             if (auto m = readSession())
             {
-                root.store (m->root, std::memory_order_relaxed);
-                scale.store (m->scale, std::memory_order_relaxed);
-                bpm.store (m->bpm, std::memory_order_relaxed);
-                tid.store (m->transientId, std::memory_order_relaxed);
-                hasTempo.store (m->hasTempo, std::memory_order_relaxed);
-                chordRoot.store (m->chordRoot, std::memory_order_relaxed);
-                chordQuality.store (m->chordQuality, std::memory_order_relaxed);
-                timeSigNum.store (m->timeSigNum, std::memory_order_relaxed);
-                timeSigDen.store (m->timeSigDen, std::memory_order_relaxed);
-                swing.store (m->swing, std::memory_order_relaxed);
-                sectionId.store (m->sectionId, std::memory_order_relaxed);
-                energy.store (m->energy, std::memory_order_relaxed);
-                maqamId.store (m->maqamId, std::memory_order_relaxed);
-                referenceHz.store (m->referenceHz, std::memory_order_relaxed);
-                hasValue.store (true, std::memory_order_relaxed);
+                SessionSnapshot fresh;
+                fresh.valid = true;
+                fresh.root = m->root;
+                fresh.scale = m->scale;
+                fresh.bpm = m->bpm;
+                fresh.transientId = m->transientId;
+                fresh.hasTempo = m->hasTempo;
+                fresh.chordRoot = m->chordRoot;
+                fresh.chordQuality = m->chordQuality;
+                fresh.timeSigNum = m->timeSigNum;
+                fresh.timeSigDen = m->timeSigDen;
+                fresh.swing = m->swing;
+                fresh.sectionId = m->sectionId;
+                fresh.energy = m->energy;
+                fresh.maqamId = m->maqamId;
+                fresh.referenceHz = m->referenceHz;
+                frame.store (fresh);
             }
             else
-            {
-                hasValue.store (false, std::memory_order_relaxed);
-            }
-            wait (intervalMs);   // wakes early when stopThread() is called
+                frame.store ({});
+            wait (intervalMs.load()); // wakes early when stopThread() is called
         }
     }
 
-    int intervalMs = 400;
-    std::atomic<int>         root { 0 }, scale { 0 };
-    std::atomic<double>      bpm { 0.0 };
-    std::atomic<juce::int64> tid { 0 };
-    std::atomic<bool>        hasTempo { false }, hasValue { false };
-    // SessionState v2 atomics
-    std::atomic<int>         chordRoot { -1 }, chordQuality { 0 };
-    std::atomic<int>         timeSigNum { 4 }, timeSigDen { 4 };
-    std::atomic<float>       swing { 0.0f }, energy { 0.0f };
-    std::atomic<int>         sectionId { 0 }, maqamId { 0 };
-    std::atomic<double>      referenceHz { 440.0 };
+    mutable std::mutex clientsMutex;
+    int clients = 0;
+    std::atomic<int> intervalMs { 400 };
+    sattari::rt::AtomicSnapshot<SessionSnapshot> frame;
+};
+} // namespace detail
+
+// --- SessionReader: realtime-safe consumer side ------------------------------
+// All instances in one plugin binary share one low-priority file poller. Each
+// audio thread reads a coherent lock-free snapshot; it never performs file I/O.
+class SessionReader
+{
+public:
+    using Snapshot = SessionSnapshot;
+    SessionReader() = default;
+    ~SessionReader() { stop(); }
+
+    void start (int pollIntervalMs = 400)
+    {
+        if (started) return;
+        detail::SharedSessionPoller::instance().acquire (pollIntervalMs);
+        started = true;
+    }
+
+    void stop()
+    {
+        if (! started) return;
+        detail::SharedSessionPoller::instance().release();
+        started = false;
+    }
+
+    Snapshot current() const noexcept
+    {
+        return detail::SharedSessionPoller::instance().current();
+    }
+
+private:
+    bool started = false;
+    JUCE_DECLARE_NON_COPYABLE (SessionReader)
 };
 
 // =============================================================================
@@ -328,8 +413,7 @@ inline std::optional<TempoMessage> readTempo (int maxAgeSeconds = 10)
     const auto parsed = juce::JSON::parse (file.loadFileAsString());
     if (! parsed.isObject()) return std::nullopt;
     const auto ts = (juce::int64) parsed.getProperty ("timestampMs", 0);
-    const juce::int64 now = std::chrono::duration_cast<std::chrono::milliseconds> (
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    const juce::int64 now = currentTimeMs();
     if (now - ts > (juce::int64) maxAgeSeconds * 1000) return std::nullopt;
     TempoMessage t;
     t.bpm = (double) parsed.getProperty ("bpm", 0.0);
@@ -338,24 +422,53 @@ inline std::optional<TempoMessage> readTempo (int maxAgeSeconds = 10)
     return t;
 }
 
-// Realtime-safe consumer: background thread polls the tempo file into atomics.
-class TempoReader : private juce::Thread
+struct TempoSnapshot
+{
+    bool valid = false;
+    double bpm = 0.0;
+    juce::int64 transientId = 0;
+};
+
+namespace detail
+{
+class SharedTempoPoller final : private juce::Thread
 {
 public:
-    TempoReader() : juce::Thread ("SattariTempoBus") {}
-    ~TempoReader() override { stopThread (1000); }
-    void start (int pollIntervalMs = 300) { intervalMs = juce::jmax (50, pollIntervalMs); if (! isThreadRunning()) startThread(); }
-    void stop() { stopThread (1000); }
+    SharedTempoPoller() : juce::Thread ("SattariTempoBus") {}
+    ~SharedTempoPoller() override { stopThread (1000); }
 
-    struct Snapshot { bool valid = false; double bpm = 0.0; juce::int64 transientId = 0; };
-    Snapshot current() const noexcept
+    static SharedTempoPoller& instance()
     {
-        Snapshot s;
-        s.valid = hasValue.load (std::memory_order_relaxed);
-        s.bpm   = bpm.load (std::memory_order_relaxed);
-        s.transientId = tid.load (std::memory_order_relaxed);
-        return s;
+        static SharedTempoPoller poller;
+        return poller;
     }
+
+    void acquire (int requestedIntervalMs)
+    {
+        const std::lock_guard<std::mutex> guard (clientsMutex);
+        const int requested = juce::jmax (50, requestedIntervalMs);
+        intervalMs.store (clients == 0 ? requested
+                                       : juce::jmin (intervalMs.load(), requested));
+        ++clients;
+        if (! isThreadRunning())
+            startThread();
+        notify();
+    }
+
+    void release()
+    {
+        const std::lock_guard<std::mutex> guard (clientsMutex);
+        clients = juce::jmax (0, clients - 1);
+        if (clients == 0)
+        {
+            stopThread (1000);
+            frame.store ({});
+            intervalMs.store (300);
+        }
+    }
+
+    TempoSnapshot current() const noexcept { return frame.load(); }
+
 private:
     void run() override
     {
@@ -363,18 +476,49 @@ private:
         {
             if (auto m = readTempo())
             {
-                bpm.store (m->bpm, std::memory_order_relaxed);
-                tid.store (m->transientId, std::memory_order_relaxed);
-                hasValue.store (m->hasTempo, std::memory_order_relaxed);
+                frame.store ({ m->hasTempo, m->bpm, m->transientId });
             }
-            else hasValue.store (false, std::memory_order_relaxed);
-            wait (intervalMs);
+            else frame.store ({});
+            wait (intervalMs.load());
         }
     }
-    int intervalMs = 300;
-    std::atomic<double>      bpm { 0.0 };
-    std::atomic<juce::int64> tid { 0 };
-    std::atomic<bool>        hasValue { false };
+
+    mutable std::mutex clientsMutex;
+    int clients = 0;
+    std::atomic<int> intervalMs { 300 };
+    sattari::rt::AtomicSnapshot<TempoSnapshot> frame;
+};
+} // namespace detail
+
+class TempoReader
+{
+public:
+    using Snapshot = TempoSnapshot;
+    TempoReader() = default;
+    ~TempoReader() { stop(); }
+
+    void start (int pollIntervalMs = 300)
+    {
+        if (started) return;
+        detail::SharedTempoPoller::instance().acquire (pollIntervalMs);
+        started = true;
+    }
+
+    void stop()
+    {
+        if (! started) return;
+        detail::SharedTempoPoller::instance().release();
+        started = false;
+    }
+
+    Snapshot current() const noexcept
+    {
+        return detail::SharedTempoPoller::instance().current();
+    }
+
+private:
+    bool started = false;
+    JUCE_DECLARE_NON_COPYABLE (TempoReader)
 };
 
 } // namespace sattari::xplugin

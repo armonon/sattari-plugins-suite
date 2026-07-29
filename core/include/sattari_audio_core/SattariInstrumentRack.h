@@ -1,12 +1,18 @@
 #pragma once
 
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <sattari_audio_core/SattariModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <sattari_audio_core/SattariOnsetCurve.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariSliceTable.h>
+#include <sattari_audio_core/modules/ChopModule.h>
+#include <sattari_audio_core/modules/GranulatorModule.h>
 
 #include <array>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -76,6 +82,24 @@ public:
         for (auto& layer : layerModules)
             for (auto& m : layer)
                 m->link (apvts, juce::String (m->moduleId()) + ".");
+
+        sourceFormats_.registerBasicFormats();
+
+        for (int layer = 0; layer < kNumLayers; ++layer)
+        {
+            auto& c = layerControls_[(size_t) layer];
+            c.selection = apvts.getRawParameterValue (layerParamId (layer));
+            c.mute = apvts.getRawParameterValue (layerMuteParamId (layer));
+            c.level = apvts.getRawParameterValue (layerLevelParamId (layer));
+            c.pan = apvts.getRawParameterValue (layerPanParamId (layer));
+            c.lo = apvts.getRawParameterValue (layerLoParamId (layer));
+            c.hi = apvts.getRawParameterValue (layerHiParamId (layer));
+            c.transpose = apvts.getRawParameterValue (layerTransParamId (layer));
+            jassert (c.selection != nullptr && c.mute != nullptr
+                     && c.level != nullptr && c.pan != nullptr
+                     && c.lo != nullptr && c.hi != nullptr
+                     && c.transpose != nullptr);
+        }
     }
 
     ~SattariInstrumentRack() override = default;
@@ -167,18 +191,19 @@ public:
 
         for (int L = 0; L < kNumLayers; ++L)
         {
-            const int sel = (int) apvts.getRawParameterValue (layerParamId (L))->load();
+            const auto& controls = layerControls_[(size_t) L];
+            const int sel = (int) controls.selection->load();
             if (sel <= 0) continue;
-            if (apvts.getRawParameterValue (layerMuteParamId (L))->load() > 0.5f) continue;
+            if (controls.mute->load() > 0.5f) continue;
 
             auto* m = moduleAtForLayer (L, sel - 1);
             if (m == nullptr) continue;
 
             // Filter MIDI for this layer: key range + transpose. This is what makes
             // a stack a split rather than a unison.
-            const int lo    = (int) apvts.getRawParameterValue (layerLoParamId (L))->load();
-            const int hi    = (int) apvts.getRawParameterValue (layerHiParamId (L))->load();
-            const int trans = (int) apvts.getRawParameterValue (layerTransParamId (L))->load();
+            const int lo    = (int) controls.lo->load();
+            const int hi    = (int) controls.hi->load();
+            const int trans = (int) controls.transpose->load();
             filterMidiForLayer (midi, layerMidi_, lo, hi, trans);
 
             layerBuf_.clear();
@@ -194,8 +219,8 @@ public:
                 applyAlignmentDelay (view, align_[(size_t) L], alignPos_[(size_t) L], lag, ch, n);
 
             const float gain = juce::Decibels::decibelsToGain (
-                                   apvts.getRawParameterValue (layerLevelParamId (L))->load());
-            const float pan  = apvts.getRawParameterValue (layerPanParamId (L))->load();
+                                   controls.level->load());
+            const float pan  = controls.pan->load();
 
             // Equal-power pan, so moving a layer across the image holds its loudness.
             const float t  = juce::jlimit (0.0f, 1.0f, (pan + 1.0f) * 0.5f);
@@ -225,13 +250,34 @@ public:
 
     void getStateInformation (juce::MemoryBlock& dest) override
     {
-        if (auto xml = apvts.copyState().createXml()) copyXmlToBinary (*xml, dest);
+        if (auto xml = apvts.copyState().createXml())
+        {
+            const juce::ScopedLock lock (sourcePathsLock_);
+            for (int layer = 0; layer < kNumLayers; ++layer)
+                for (int sourceSlot = 0; sourceSlot < 2; ++sourceSlot)
+                    if (sourcePaths_[(size_t) layer][(size_t) sourceSlot].isNotEmpty())
+                        xml->setAttribute (sourcePathAttribute (layer, sourceSlot),
+                            sourcePaths_[(size_t) layer][(size_t) sourceSlot]);
+            copyXmlToBinary (*xml, dest);
+        }
     }
 
     void setStateInformation (const void* data, int size) override
     {
         if (auto xml = getXmlFromBinary (data, size))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            {
+                const juce::ScopedLock lock (sourcePathsLock_);
+                for (int layer = 0; layer < kNumLayers; ++layer)
+                    for (int sourceSlot = 0; sourceSlot < 2; ++sourceSlot)
+                        sourcePaths_[(size_t) layer][(size_t) sourceSlot] =
+                            xml->getStringAttribute (
+                                sourcePathAttribute (layer, sourceSlot));
+            }
+            sourceReloadPending_.store (true, std::memory_order_release);
+            triggerAsyncUpdate();
+        }
     }
 
     // --- Introspection for the editor --------------------------------------
@@ -259,6 +305,59 @@ public:
         auto& roster = layerModules[(size_t) layer];
         return juce::isPositiveAndBelow (index, (int) roster.size())
                  ? roster[(size_t) index].get() : nullptr;
+    }
+
+    int sourceSlotCountForLayer (int layer) noexcept
+    {
+        auto* module = selectedModuleForLayer (layer);
+        if (dynamic_cast<dsp::ChopModule*> (module) != nullptr) return 1;
+        if (dynamic_cast<dsp::GranulatorModule*> (module) != nullptr) return 2;
+        return 0;
+    }
+
+    juce::String sourceNameForLayer (int layer, int sourceSlot) const
+    {
+        if (! juce::isPositiveAndBelow (layer, kNumLayers)
+            || ! juce::isPositiveAndBelow (sourceSlot, 2))
+            return {};
+        const juce::ScopedLock lock (sourcePathsLock_);
+        const auto& path = sourcePaths_[(size_t) layer][(size_t) sourceSlot];
+        return path.isNotEmpty() ? juce::File (path).getFileName() : juce::String();
+    }
+
+    // MESSAGE THREAD: decode and publish a source into the selected Chop or
+    // Granulator instance for this Stack layer. Granulator exposes its A/B source
+    // slots; Chop has one onset-sliced source.
+    bool loadSourceForLayer (int layer, int sourceSlot, const juce::File& file)
+    {
+        if (! juce::isPositiveAndBelow (layer, kNumLayers)
+            || ! juce::isPositiveAndBelow (sourceSlot, 2)
+            || ! file.existsAsFile())
+            return false;
+
+        auto* module = selectedModuleForLayer (layer);
+        bool loaded = false;
+        if (auto* chop = dynamic_cast<dsp::ChopModule*> (module))
+        {
+            if (sourceSlot != 0) return false;
+            loaded = loadChopSource (*chop, file);
+        }
+        else if (auto* granulator = dynamic_cast<dsp::GranulatorModule*> (module))
+        {
+            loaded = loadGranulatorSource (
+                *granulator,
+                sourceSlot == 0 ? dsp::GranulatorModule::Layer::A
+                                : dsp::GranulatorModule::Layer::B,
+                file);
+        }
+
+        if (loaded)
+        {
+            const juce::ScopedLock lock (sourcePathsLock_);
+            sourcePaths_[(size_t) layer][(size_t) sourceSlot] =
+                file.getFullPathName();
+        }
+        return loaded;
     }
 
     static juce::String layerParamId      (int L) { return "layer" + juce::String (L + 1); }
@@ -421,9 +520,10 @@ protected:
         int worst = 0;
         for (int L = 0; L < kNumLayers; ++L)
         {
-            const int sel = (int) apvts.getRawParameterValue (layerParamId (L))->load();
+            const auto& controls = layerControls_[(size_t) L];
+            const int sel = (int) controls.selection->load();
             if (sel <= 0) continue;
-            if (apvts.getRawParameterValue (layerMuteParamId (L))->load() > 0.5f) continue;
+            if (controls.mute->load() > 0.5f) continue;
             if (auto* m = const_cast<SattariInstrumentRack*> (this)->moduleAtForLayer (L, sel - 1))
                 worst = juce::jmax (worst, m->latencySamples());   // MAX, not sum
         }
@@ -438,6 +538,137 @@ protected:
             reportedLatency_ = want;
             setLatencySamples (want);
         }
+
+        if (sourceReloadPending_.exchange (false, std::memory_order_acq_rel))
+        {
+            std::array<std::array<juce::String, 2>, kNumLayers> paths;
+            {
+                const juce::ScopedLock lock (sourcePathsLock_);
+                paths = sourcePaths_;
+            }
+            for (int layer = 0; layer < kNumLayers; ++layer)
+                for (int sourceSlot = 0; sourceSlot < 2; ++sourceSlot)
+                {
+                    const juce::File file (
+                        paths[(size_t) layer][(size_t) sourceSlot]);
+                    if (file.existsAsFile())
+                        loadSourceForLayer (layer, sourceSlot, file);
+                }
+        }
+    }
+
+    dsp::SattariModule* selectedModuleForLayer (int layer) noexcept
+    {
+        if (! juce::isPositiveAndBelow (layer, kNumLayers))
+            return nullptr;
+        const int selected = (int)
+            layerControls_[(size_t) layer].selection->load();
+        return moduleAtForLayer (layer, selected - 1);
+    }
+
+    static juce::String sourcePathAttribute (int layer, int sourceSlot)
+    {
+        return "sourceLayer" + juce::String (layer + 1)
+             + (sourceSlot == 0 ? "A" : "B") + "Path";
+    }
+
+    bool loadChopSource (dsp::ChopModule& chop, const juce::File& file)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            sourceFormats_.createReaderFor (file));
+        if (reader == nullptr || reader->lengthInSamples <= 1)
+            return false;
+
+        const auto length64 = juce::jmin<juce::int64> (
+            reader->lengthInSamples, (juce::int64) std::numeric_limits<int>::max());
+        const int length = (int) length64;
+        auto source = dsp::ChopModule::Source::Ptr (
+            new dsp::ChopModule::Source());
+        source->sr = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
+        source->name = file.getFileName();
+        source->audio.setSize ((int) juce::jmax (
+                                   1u, juce::jmin (2u, reader->numChannels)),
+                               length);
+        reader->read (&source->audio, 0, length, 0, true, true);
+
+        std::vector<float> mono ((size_t) length, 0.0f);
+        for (int channel = 0; channel < source->audio.getNumChannels(); ++channel)
+        {
+            const float* samples = source->audio.getReadPointer (channel);
+            for (int i = 0; i < length; ++i)
+                mono[(size_t) i] += samples[i]
+                    / (float) source->audio.getNumChannels();
+        }
+
+        dsp::OnsetCurve onset;
+        onset.analyze (mono.data(), length, source->sr);
+        dsp::SliceTable table;
+        table.setMergeTolerance ((juce::int64) (source->sr * 0.010));
+        const float sensitivity = apvts.getRawParameterValue (
+            "chop.sensitivity")->load();
+        table.applyDetection (onset.candidates (sensitivity), 0.0f);
+        for (const auto& bounds : table.boundaries (length))
+        {
+            const auto start = snapToZeroCrossing (source->audio, bounds.first);
+            const auto end = snapToZeroCrossing (source->audio, bounds.second);
+            if (end > start)
+                source->slices.push_back ({ start, end });
+        }
+        if (source->slices.empty())
+            source->slices.push_back ({ 0, length });
+
+        chop.setSource (source);
+        return true;
+    }
+
+    bool loadGranulatorSource (dsp::GranulatorModule& granulator,
+                               dsp::GranulatorModule::Layer sourceSlot,
+                               const juce::File& file)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            sourceFormats_.createReaderFor (file));
+        if (reader == nullptr || reader->lengthInSamples <= 1)
+            return false;
+
+        const int length = (int) juce::jmin<juce::int64> (
+            reader->lengthInSamples, (juce::int64) std::numeric_limits<int>::max());
+        const int channels = (int) juce::jmax (
+            1u, juce::jmin (2u, reader->numChannels));
+        auto source = std::make_shared<dsp::SourceSample>();
+        source->audio.setSize (channels, length);
+        source->audio.clear();
+        reader->read (&source->audio, 0, length, 0, true, channels > 1);
+        source->sourceSampleRate =
+            reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
+        source->lengthSamples = length;
+        source->rootNote = 60;
+        source->version = 1;
+        granulator.setSource (sourceSlot, source);
+        return true;
+    }
+
+    static std::int64_t snapToZeroCrossing (
+        const juce::AudioBuffer<float>& audio, std::int64_t position)
+    {
+        constexpr int search = 256;
+        const auto length = (std::int64_t) audio.getNumSamples();
+        if (length <= 1) return 0;
+        position = juce::jlimit<std::int64_t> (0, length - 1, position);
+        const float* samples = audio.getReadPointer (0);
+        for (int offset = 0; offset < search; ++offset)
+        {
+            const auto before = position - offset;
+            const auto after = position + offset;
+            if (before > 0
+                && ((samples[before - 1] <= 0.0f && samples[before] >= 0.0f)
+                    || (samples[before - 1] >= 0.0f && samples[before] <= 0.0f)))
+                return before;
+            if (after + 1 < length
+                && ((samples[after] <= 0.0f && samples[after + 1] >= 0.0f)
+                    || (samples[after] >= 0.0f && samples[after + 1] <= 0.0f)))
+                return after;
+        }
+        return position;
     }
 
     juce::String name_;
@@ -455,8 +686,24 @@ protected:
     sattari::presets::SattariPresetManager presetBank;   // declared AFTER apvts
 
 private:
+    struct LayerControls
+    {
+        std::atomic<float>* selection = nullptr;
+        std::atomic<float>* mute = nullptr;
+        std::atomic<float>* level = nullptr;
+        std::atomic<float>* pan = nullptr;
+        std::atomic<float>* lo = nullptr;
+        std::atomic<float>* hi = nullptr;
+        std::atomic<float>* transpose = nullptr;
+    };
+
     int currentProgram_ = 0;
     double sr_ = 44100.0;
+    std::array<LayerControls, kNumLayers> layerControls_ {};
+    juce::AudioFormatManager sourceFormats_;
+    mutable juce::CriticalSection sourcePathsLock_;
+    std::array<std::array<juce::String, 2>, kNumLayers> sourcePaths_;
+    std::atomic<bool> sourceReloadPending_ { false };
 
     juce::AudioBuffer<float> layerBuf_;                       // one layer's render
     juce::MidiBuffer         layerMidi_;                      // that layer's filtered MIDI

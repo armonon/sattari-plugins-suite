@@ -76,6 +76,14 @@ inline const std::vector<Product>& products()
     // shapes and layout; this unifies colour too. (Per-product accents are kept
     // as a single constant here so it stays trivial to re-diversify later.)
     static const std::vector<Product> registry {
+        #include <sattari_audio_core/SattariProductCatalog.generated.inc>
+    };
+    return registry;
+
+#if 0
+    // Historical hand-maintained registry retained temporarily as migration
+    // context. config/products.json now owns these fields.
+    static const std::vector<Product> historicalRegistry {
         { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     kAccent },
         { "song-key",          "Sattari Key",         "Key detection",    kAccent },
         { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
@@ -126,7 +134,8 @@ inline const std::vector<Product>& products()
         { "brain",             "Sattari Brain",       "Session brain",    kAccent },
         { "glass-choir",       "Sattari Glass Choir", "Creative vocal FX", kAccentViolet },
     };
-    return registry;
+    return historicalRegistry;
+#endif
 }
 
 inline std::uint32_t productAccent (const std::string& id)

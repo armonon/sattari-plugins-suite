@@ -91,9 +91,13 @@ void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int)
     for (int i = 0; i < fftSize; ++i)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (fftSize - 1));
     writePos.store (0);
-    std::fill (running, running + 12, 0.0);
+    hpcp.reserveBins (fftSize / 2 + 1);
+    hpcp.reset();
     runningDetune = 0.0;
     pubRoot = -1; pubScale = 0; candRoot = -1; candScale = 0; candCount = 0;
+    detValid.store (false);
+    publishingNow.store (false);
+    refreshDetectedFrame();
 
     workerRunning.store (true, std::memory_order_release);
     worker = std::thread ([this] { workerLoop(); });
@@ -150,7 +154,7 @@ void SattariBrainAudioProcessor::analyseNow()
     if (! fft) return;
     if (rescan.exchange (false))
     {
-        std::fill (running, running + 12, 0.0);
+        hpcp.reset();
         runningDetune = 0.0;
         pubRoot = -1; candCount = 0;   // let a fresh scan re-commit the key
     }
@@ -161,42 +165,14 @@ void SattariBrainAudioProcessor::analyseNow()
     std::fill (scratch.begin() + fftSize, scratch.end(), 0.0f);
     fft->performFrequencyOnlyForwardTransform (scratch.data());
 
-    double frame[12] = { 0 };
-    sattari::dsp::accumulateChroma (scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize, frame);
-    sattari::dsp::blendChroma (running, frame, 0.4);
+    hpcp.accumulate (scratch.data(), fftSize / 2 + 1,
+                     currentSampleRate / (double) fftSize);
+    double frame[12] = {};
+    hpcp.finish (frame);
+    runningDetune += 0.2 * (hpcp.tuningOffsetSemitones() * 100.0 - runningDetune);
+    detDetuneCents.store (runningDetune);
 
-    // Reference-tuning estimate (detune vs A440), same magnitude-weighted circular
-    // mean of per-peak semitone offsets Sattari Key uses. referenceA = 440*2^(cents/1200).
-    {
-        const double binHz = currentSampleRate / (double) fftSize;
-        const int loBin = (int) std::max (2.0, 80.0 / binHz);
-        const int hiBin = (int) std::min ((double) (fftSize / 2 - 2), 2000.0 / binHz);
-        const double toRad = juce::MathConstants<double>::pi / 50.0;
-        double sx = 0.0, sy = 0.0, wsum = 0.0;
-        for (int b = loBin; b <= hiBin; ++b)
-        {
-            const double m0 = scratch[(size_t) b];
-            const double a = scratch[(size_t) (b - 1)], c = scratch[(size_t) (b + 1)];
-            if (m0 <= a || m0 < c || m0 < 1.0e-6) continue;             // local maxima only
-            const double den = a - 2.0 * m0 + c;
-            const double delta = den != 0.0 ? 0.5 * (a - c) / den : 0.0; // sub-bin peak
-            const double freq = ((double) b + delta) * binHz;
-            if (freq <= 0.0) continue;
-            const double semis = 12.0 * std::log2 (freq / 440.0);
-            const double cents = 100.0 * (semis - std::round (semis));  // [-50, 50]
-            sx += m0 * std::cos (cents * toRad);
-            sy += m0 * std::sin (cents * toRad);
-            wsum += m0;
-        }
-        if (wsum > 1.0e-9 && (sx * sx + sy * sy) > 1.0e-12)
-        {
-            const double est = std::atan2 (sy, sx) / toRad;             // back to cents
-            runningDetune += 0.2 * (est - runningDetune);
-            detDetuneCents.store (runningDetune);
-        }
-    }
-
-    const auto k = sattari::dsp::detectKey (running);
+    const auto k = sattari::dsp::detectKey (frame);
     if (k.valid)
     {
         detRoot.store (k.root);
@@ -209,14 +185,19 @@ void SattariBrainAudioProcessor::analyseNow()
 void SattariBrainAudioProcessor::publishCurrent()
 {
     const bool pub = param ("brainPublish") > 0.5f;
-    publishingNow.store (pub);
-    if (! pub) return;
+    publishingNow.store (false);
+    if (! pub)
+    {
+        refreshDetectedFrame();
+        return;
+    }
 
     // --- Key: manual override always wins; else the confidence-gated + hysteresis
-    //     detected key (never flickers). Falls back to C major until a confident
-    //     detection commits, so the rest of the SessionState still publishes.
+    //     detected key (never flickers). Brain stays silent until a confident
+    //     key commits; publishing an invented C major would corrupt the suite.
     int root = 0, scale = 0;
-    if (param ("brainManual") > 0.5f)
+    const bool manual = param ("brainManual") > 0.5f;
+    if (manual)
     {
         root  = (int) std::round (param ("brainManualRoot"));
         scale = (int) std::round (param ("brainManualScale"));
@@ -247,6 +228,11 @@ void SattariBrainAudioProcessor::publishCurrent()
         }
         if (pubRoot >= 0) { root = pubRoot; scale = pubScale; }
     }
+    if (! manual && pubRoot < 0)
+    {
+        refreshDetectedFrame();
+        return;
+    }
 
     // --- Editable SessionState fields (edited values are authoritative). --------
     const int chordRootChoice = (int) std::round (param ("brainChordRoot"));   // 0=None, 1..12 -> 0..11
@@ -256,7 +242,9 @@ void SattariBrainAudioProcessor::publishCurrent()
     msg.root         = root;
     msg.scale        = scale;
     msg.bpm          = hostBpm.load();
-    msg.transientId  = ++transientId;
+    // Brain currently has no onset detector. Zero is truthful and, unlike the
+    // former timer-driven increment, cannot masquerade as a musical transient.
+    msg.transientId  = 0;
     msg.chordRoot    = chordRootChoice <= 0 ? -1 : chordRootChoice - 1;
     msg.chordQuality = (int) std::round (param ("brainChordQuality"));         // 0..8
     msg.timeSigNum   = (int) std::round (param ("brainTimeSigNum"));
@@ -268,7 +256,8 @@ void SattariBrainAudioProcessor::publishCurrent()
     msg.referenceHz  = refOverride ? (double) param ("brainReferenceHz")
                                    : 440.0 * std::pow (2.0, detDetuneCents.load() / 1200.0);
 
-    sattari::xplugin::publishSessionState ("brain", msg);
+    publishingNow.store (sattari::xplugin::publishSessionState ("brain", msg));
+    refreshDetectedFrame();
 }
 
 void SattariBrainAudioProcessor::stopWorker()
@@ -291,6 +280,11 @@ void SattariBrainAudioProcessor::workerLoop()
 
 SattariBrainAudioProcessor::Detected SattariBrainAudioProcessor::detected() const noexcept
 {
+    return detectedFrame.load();
+}
+
+void SattariBrainAudioProcessor::refreshDetectedFrame() noexcept
+{
     Detected d;
     d.valid       = detValid.load();
     d.root        = detRoot.load();
@@ -301,7 +295,7 @@ SattariBrainAudioProcessor::Detected SattariBrainAudioProcessor::detected() cons
     d.bpm         = hostBpm.load();
     d.tsNum       = hostTsNum.load (std::memory_order_relaxed);
     d.tsDen       = hostTsDen.load (std::memory_order_relaxed);
-    return d;
+    detectedFrame.store (d);
 }
 
 void SattariBrainAudioProcessor::getStateInformation (juce::MemoryBlock& destData)

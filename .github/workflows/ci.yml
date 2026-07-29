@@ -11,6 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  catalog:
+    name: Product catalog
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        name: Export generated focused matrix
+        run: echo "matrix=$(tr -d '\\n' < config/ci-matrix.generated.json)" >> "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Fast, dependency-light gates. No JUCE / no submodules, so this finishes in
   # seconds and gives quick feedback on structure + cross-language consistency.
@@ -32,6 +43,9 @@ jobs:
 
       - name: Build + run pure-C++ core contracts
         run: |
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/pitch_detector_contract.cpp -o /tmp/pitch_detector_contract
+          /tmp/pitch_detector_contract
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/harmonic_core_contract.cpp -o /tmp/harmonic_core_contract
           /tmp/harmonic_core_contract
@@ -71,6 +85,27 @@ jobs:
           g++ -std=c++17 -Icore/include -Wall -Wextra -pthread \
             core/tests/realtime_snapshot_contract.cpp -o /tmp/realtime_snapshot_contract
           /tmp/realtime_snapshot_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/psola_shifter_contract.cpp -o /tmp/psola_shifter_contract
+          /tmp/psola_shifter_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/crepe_pitch_contract.cpp -o /tmp/crepe_pitch_contract
+          /tmp/crepe_pitch_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vox_analyzer_contract.cpp -o /tmp/vox_analyzer_contract
+          /tmp/vox_analyzer_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vox_synth_contract.cpp -o /tmp/vox_synth_contract
+          /tmp/vox_synth_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/formant_shifter_contract.cpp -o /tmp/formant_shifter_contract
+          /tmp/formant_shifter_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vocoder_bank_contract.cpp -o /tmp/vocoder_bank_contract
+          /tmp/vocoder_bank_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/harmonic_mask_contract.cpp -o /tmp/harmonic_mask_contract
+          /tmp/harmonic_mask_contract
 
   # ---------------------------------------------------------------------------
   # Release-critical build matrix on macOS. This is deliberately a focused
@@ -79,26 +114,11 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.plugin }}
+    needs: catalog
     runs-on: [self-hosted, macOS]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { plugin: sub-conjurer }
-          - { plugin: bus,               test: SattariBusCoreContract }
-          - { plugin: side-chain-master, test: SideChainMasterCoreContract }
-          - { plugin: align,             test: SattariAlignCoreContract }
-          - { plugin: royal-chain,       test: RoyalChainColorAliasingContract }
-          - { plugin: sattari-arp,       test: SattariArpTimingContract }
-          - { plugin: voxkey,            test: VoxKeyCoreContract }
-          - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
-          - { plugin: stemdeck,          test: StemDeckArchitectureContract }
-          - { plugin: harmony,           test: HarmonyCoreContract, render: HarmonyRender }
-          - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
-          - { plugin: vocal-master,      test: VocalMasterCoreContract, render: VocalMasterRender }
-          - { plugin: song-key,          render: SongKeyRender }
-          - { plugin: rhythm-genie,      test: RhythmGenieCoreContract, render: RhythmGenieRender }
-          - { plugin: stack,             test: SattariStackLayerContract }
+      matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -147,14 +167,11 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Root configure + cross-plugin contract. Configuring from the repo root
-  # exercises every plugin's add_subdirectory together (catching cross-target /
-  # shared-core breakage the focused matrix can miss); we then build only the
-  # cross-plugin bus contract. This is an integration/configuration gate, not a
-  # claim that every product's source was compiled.
+  # Root configure + complete non-StemDeck compilation. StemDeck has a separate
+  # heavyweight gate and is intentionally outside this suite program.
   # ---------------------------------------------------------------------------
   suite-build:
-    name: Root configure + cross-plugin contract
+    name: Build complete non-StemDeck suite
     runs-on: [self-hosted, macOS]
     steps:
       - uses: actions/checkout@v4
@@ -168,9 +185,15 @@ jobs:
       - name: Configure suite (all plugins together)
         run: cmake -S . -B build/all -G Ninja -DCMAKE_BUILD_TYPE=Release
 
+      - name: Compile every configured product
+        run: cmake --build build/all -j"$(sysctl -n hw.ncpu)"
+
       - name: Cross-plugin session bus contract
         run: |
           cmake --build build/all --target SattariCrossPluginBusContract -j"$(sysctl -n hw.ncpu)"
           bin="$(find build/all -type f -name SattariCrossPluginBusContract -perm +111 | head -n1)"
           if [ -z "$bin" ]; then echo "::error::SattariCrossPluginBusContract not found"; exit 1; fi
           "$bin"
+
+      - name: Complete contract and render-smoke profile
+        run: ./scripts/verify_all.sh --smoke

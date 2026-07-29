@@ -4,8 +4,8 @@
 # -----------------------------------------------------------------------------
 #  Produces a single double-clickable installer that drops the Sattari Hub.app
 #  into /Applications. The Hub bundles every available plugin payload inside
-#  itself; once installed, the user opens the Hub and clicks "Install All" to
-#  copy AU + VST3 + Standalone bundles into their system plug-in folders.
+#  itself; once installed, the user opens the Hub and installs the curated alpha
+#  set (Brain, Arp and Sub Conjurer) into their user plug-in folders.
 #
 #  Usage:
 #     scripts/package_suite_installer.sh [output-dir]
@@ -25,6 +25,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if ! git -C "$repo_root" diff --quiet --ignore-submodules=all \
+   || ! git -C "$repo_root" diff --cached --quiet --ignore-submodules=all; then
+    echo "tracked source is dirty; commit the exact source before packaging binaries" >&2
+    exit 2
+fi
 out_dir="${1:-$repo_root/build/installer}"
 mkdir -p "$out_dir"
 
@@ -76,7 +81,7 @@ EOF
 cat > "$hub_app/Contents/PkgInfo" <<<"APPLSatr"
 
 # ---------------------------------------------------------------------------
-# 2) Copy every available plugin payload into the Hub's bundled Payload/.
+# 2) Copy every required alpha payload into the Hub's bundled Payload/.
 #    The Hub reads the manifest and finds these via Bundle.main.resourceURL.
 # ---------------------------------------------------------------------------
 echo "== bundling plugin payloads =="
@@ -86,28 +91,54 @@ echo "== bundling plugin payloads =="
 build_tree="${SATTARI_BUILD_TREE:-build/all}"
 echo "   sourcing payloads from: $build_tree"
 copied=0; missing=0
+validate_bundle() {
+    local bundle="$1"
+    [ -d "$bundle" ] || { echo "ERROR: bundle directory missing: $bundle" >&2; return 1; }
+    [ -f "$bundle/Contents/Info.plist" ] || { echo "ERROR: bundle Info.plist missing: $bundle" >&2; return 1; }
+    local executable
+    executable="$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit 2>/dev/null)"
+    [ -n "$executable" ] || { echo "ERROR: bundle executable missing: $bundle" >&2; return 1; }
+}
 while IFS= read -r relative_path; do
     src_rel="${relative_path/build\/all/$build_tree}"
     src="$repo_root/$src_rel"
-    if [ -e "$src" ]; then
-        dst="$hub_app/Contents/Resources/Payload/$relative_path"
-        mkdir -p "$(dirname "$dst")"
-        # Use ditto so .app/.vst3/.component bundle attrs survive intact.
-        ditto "$src" "$dst"
-        copied=$((copied + 1))
-    else
-        echo "  WARN: missing $src_rel"
-        missing=$((missing + 1))
-    fi
+    validate_bundle "$src"
+    dst="$hub_app/Contents/Resources/Payload/$relative_path"
+    mkdir -p "$(dirname "$dst")"
+    # Use ditto so .app/.vst3/.component bundle attrs survive intact.
+    ditto "$src" "$dst"
+    validate_bundle "$dst"
+    copied=$((copied + 1))
 done < <(python3 -c "
 import json,sys
 with open('$repo_root/apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json') as f:
     d=json.load(f)
 for p in d['products']:
+    if p.get('shippingProfile') != 'alpha':
+        continue
     for b in p['bundles']:
         print(b['relativeSourcePath'])
 ")
-echo "   copied $copied bundle(s); $missing missing (those plugins must be built first)"
+[ "$copied" -eq 9 ] || { echo "ERROR: expected 9 complete alpha bundles, copied $copied" >&2; exit 2; }
+echo "   copied and validated $copied alpha bundle(s)"
+
+echo "== bundling GPL notices and source offer =="
+legal="$hub_app/Contents/Resources/Legal"
+mkdir -p "$legal"
+cp "$repo_root/LICENSE" "$legal/GPL-3.0.txt"
+cp "$repo_root/LICENSING.md" "$legal/LICENSING.md"
+cp "$repo_root/third_party/JUCE/LICENSE.md" "$legal/JUCE-LICENSE.md"
+source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+source_remote="$(git -C "$repo_root" remote get-url origin)"
+cat > "$legal/SOURCE-OFFER.txt" <<EOF
+Sattari Audio complete corresponding source
+
+Build commit: $source_commit
+Source repository: $source_remote
+
+The repository at that commit, including pinned submodules and build scripts, is
+the complete corresponding source for this GPLv3 binary distribution.
+EOF
 
 # ---------------------------------------------------------------------------
 # 3) Ad-hoc sign the Hub.app (so it launches; replace with Developer ID later).

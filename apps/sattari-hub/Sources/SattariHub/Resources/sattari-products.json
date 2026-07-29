@@ -1,29 +1,27 @@
 {
   "schemaVersion": 1,
   "suiteName": "Sattari Audio Suite",
-  "suiteVersion": "0.2.0-six-products",
-  "truthLabel": "internal alpha hub manifest; 6 products bundling 41 modules; not sale-ready; not notarized",
-  "defaultUpdateChannel": "project-radar-internal-alpha",
-  "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json",
+  "suiteVersion": "0.2.0-alpha",
+  "truthLabel": "Internal development suite. Products are not public, notarized, or sale-ready unless an evidence-backed release record says otherwise.",
+  "defaultUpdateChannel": "internal-alpha",
+  "updateFeedURL": null,
+  "updateFeedSHA256": null,
   "products": [
     {
       "id": "auto-pitch",
       "name": "Sattari Auto Pitch",
       "category": "Vocal tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Auto Pitch — Vocal tuning.",
+      "description": "Sattari Auto Pitch \u2014 Vocal tuning.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Auto Pitch",
-          "slug": "auto-pitch"
-        }
-      ],
+      "status": "validation",
+      "lifecycle": "validation",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -47,19 +45,16 @@
       "name": "Sattari Key",
       "category": "Key detection",
       "accent": "#62f5c8",
-      "description": "Sattari Key — Key detection.",
+      "description": "Sattari Key \u2014 Key detection.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Key",
-          "slug": "song-key"
-        }
-      ],
+      "status": "validation",
+      "lifecycle": "validation",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -83,19 +78,16 @@
       "name": "Sattari VoxKey",
       "category": "Voice-to-MIDI",
       "accent": "#62f5c8",
-      "description": "Sattari VoxKey — Voice-to-MIDI.",
+      "description": "Sattari VoxKey \u2014 Voice-to-MIDI.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari VoxKey",
-          "slug": "voxkey"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -119,19 +111,16 @@
       "name": "Sattari VoxSynth",
       "category": "Voice instrument",
       "accent": "#62f5c8",
-      "description": "Sattari VoxSynth — Voice instrument.",
+      "description": "Sattari VoxSynth \u2014 Voice instrument.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari VoxSynth",
-          "slug": "voxsynth"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -155,19 +144,16 @@
       "name": "Sattari Morph",
       "category": "Voice character",
       "accent": "#9b7bff",
-      "description": "Sattari Morph — Voice character.",
+      "description": "Sattari Morph \u2014 Voice character.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Morph",
-          "slug": "morph"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -191,19 +177,16 @@
       "name": "Sattari Mix",
       "category": "Mix rack",
       "accent": "#62f5c8",
-      "description": "Sattari Mix — Mix rack.",
+      "description": "Sattari Mix \u2014 Mix rack.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Mix",
-          "slug": "mix"
-        }
-      ],
+      "status": "preview",
+      "lifecycle": "preview",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -227,19 +210,16 @@
       "name": "Sattari Create",
       "category": "Creative FX rack",
       "accent": "#9b7bff",
-      "description": "Sattari Create — Creative FX rack.",
+      "description": "Sattari Create \u2014 Creative FX rack.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Create",
-          "slug": "create"
-        }
-      ],
+      "status": "preview",
+      "lifecycle": "preview",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -250,6 +230,11 @@
           "kind": "VST3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Create.vst3",
           "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/VST3/Sattari Create.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Create.app",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/Standalone/Sattari Create.app"
         }
       ]
     },
@@ -258,19 +243,16 @@
       "name": "Sattari Vocal",
       "category": "Vocal rack",
       "accent": "#62f5c8",
-      "description": "Sattari Vocal — Vocal rack.",
+      "description": "Sattari Vocal \u2014 Vocal rack.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Vocal",
-          "slug": "vocal"
-        }
-      ],
+      "status": "preview",
+      "lifecycle": "preview",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -281,6 +263,11 @@
           "kind": "VST3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocal.vst3",
           "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/VST3/Sattari Vocal.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Vocal.app",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/Standalone/Sattari Vocal.app"
         }
       ]
     },
@@ -289,19 +276,16 @@
       "name": "Sattari Stack",
       "category": "Instrument rack",
       "accent": "#f5a24b",
-      "description": "Sattari Stack — Instrument rack.",
+      "description": "Sattari Stack \u2014 Instrument rack.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Stack",
-          "slug": "stack"
-        }
-      ],
+      "status": "preview",
+      "lifecycle": "preview",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -312,42 +296,11 @@
           "kind": "VST3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Stack.vst3",
           "relativeSourcePath": "build/all/plugins/stack/SattariStack_artefacts/Release/VST3/Sattari Stack.vst3"
-        }
-      ]
-    },
-    {
-      "id": "stemdeck",
-      "name": "Sattari StemDeck",
-      "category": "DJ / remix",
-      "accent": "#62f5c8",
-      "description": "Sattari StemDeck — DJ / remix.",
-      "formats": [
-        "AU",
-        "VST3"
-      ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari StemDeck",
-          "slug": "stemdeck"
-        }
-      ],
-      "bundles": [
-        {
-          "kind": "AU",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari StemDeck.component",
-          "relativeSourcePath": "build/all/plugins/stemdeck/SattariStemDeck_artefacts/Release/AU/Sattari StemDeck.component"
-        },
-        {
-          "kind": "VST3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari StemDeck.vst3",
-          "relativeSourcePath": "build/all/plugins/stemdeck/SattariStemDeck_artefacts/Release/VST3/Sattari StemDeck.vst3"
         },
         {
           "kind": "Standalone",
-          "installSubpath": "Applications/Sattari StemDeck.app",
-          "relativeSourcePath": "build/all/plugins/stemdeck/SattariStemDeck_artefacts/Release/Standalone/Sattari StemDeck.app"
+          "installSubpath": "Applications/Sattari Stack.app",
+          "relativeSourcePath": "build/all/plugins/stack/SattariStack_artefacts/Release/Standalone/Sattari Stack.app"
         }
       ]
     },
@@ -356,19 +309,16 @@
       "name": "Sub Conjurer",
       "category": "Low-end",
       "accent": "#62f5c8",
-      "description": "Sub Conjurer — Low-end.",
+      "description": "Sub Conjurer \u2014 Low-end.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
       "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sub Conjurer",
-          "slug": "sub-conjurer"
-        }
-      ],
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -392,19 +342,16 @@
       "name": "Side Chain Master",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Side Chain Master — Dynamics.",
+      "description": "Side Chain Master \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Side Chain Master",
-          "slug": "side-chain-master"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -428,19 +375,16 @@
       "name": "Sattari Royal Chain",
       "category": "Vocal chain",
       "accent": "#62f5c8",
-      "description": "Sattari Royal Chain — Vocal chain.",
+      "description": "Sattari Royal Chain \u2014 Vocal chain.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Royal Chain",
-          "slug": "royal-chain"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -464,19 +408,16 @@
       "name": "Sattari Harmony",
       "category": "Vocal harmony",
       "accent": "#62f5c8",
-      "description": "Sattari Harmony — Vocal harmony.",
+      "description": "Sattari Harmony \u2014 Vocal harmony.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Harmony",
-          "slug": "harmony"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -500,19 +441,16 @@
       "name": "Sattari Maqam",
       "category": "Microtonal tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Maqam — Microtonal tuning.",
+      "description": "Sattari Maqam \u2014 Microtonal tuning.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Maqam",
-          "slug": "maqam"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -536,19 +474,16 @@
       "name": "Sattari Vocal Master",
       "category": "Vocal master",
       "accent": "#62f5c8",
-      "description": "Sattari Vocal Master — Vocal master.",
+      "description": "Sattari Vocal Master \u2014 Vocal master.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Vocal Master",
-          "slug": "vocal-master"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -572,19 +507,16 @@
       "name": "Sattari Rhythm Genie",
       "category": "MIDI / drums",
       "accent": "#62f5c8",
-      "description": "Sattari Rhythm Genie — MIDI / drums.",
+      "description": "Sattari Rhythm Genie \u2014 MIDI / drums.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Rhythm Genie",
-          "slug": "rhythm-genie"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -608,19 +540,16 @@
       "name": "Sattari Chop",
       "category": "Slicing sampler",
       "accent": "#f5a24b",
-      "description": "Sattari Chop — Slicing sampler.",
+      "description": "Sattari Chop \u2014 Slicing sampler.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Chop",
-          "slug": "chop"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -644,19 +573,16 @@
       "name": "Sattari Arp",
       "category": "MIDI / creative",
       "accent": "#62f5c8",
-      "description": "Sattari Arp — MIDI / creative.",
+      "description": "Sattari Arp \u2014 MIDI / creative.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
       "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Arp",
-          "slug": "sattari-arp"
-        }
-      ],
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -680,19 +606,16 @@
       "name": "Sattari Bus",
       "category": "Bus / mix",
       "accent": "#62f5c8",
-      "description": "Sattari Bus — Bus / mix.",
+      "description": "Sattari Bus \u2014 Bus / mix.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Bus",
-          "slug": "bus"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -716,19 +639,16 @@
       "name": "Sattari Align",
       "category": "Timing alignment",
       "accent": "#62f5c8",
-      "description": "Sattari Align — Timing alignment.",
+      "description": "Sattari Align \u2014 Timing alignment.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Align",
-          "slug": "align"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -752,19 +672,16 @@
       "name": "Sattari Warp",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Warp — Creative vocal FX.",
+      "description": "Sattari Warp \u2014 Creative vocal FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Warp",
-          "slug": "warp"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -788,19 +705,16 @@
       "name": "Sattari Tuner",
       "category": "Tuning",
       "accent": "#62f5c8",
-      "description": "Sattari Tuner — Tuning.",
+      "description": "Sattari Tuner \u2014 Tuning.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Tuner",
-          "slug": "tuner"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -824,19 +738,16 @@
       "name": "Sattari Double",
       "category": "Vocal doubler",
       "accent": "#62f5c8",
-      "description": "Sattari Double — Vocal doubler.",
+      "description": "Sattari Double \u2014 Vocal doubler.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Double",
-          "slug": "double"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -860,19 +771,16 @@
       "name": "Sattari De-Ess",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari De-Ess — Dynamics.",
+      "description": "Sattari De-Ess \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari De-Ess",
-          "slug": "deess"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -896,19 +804,16 @@
       "name": "Sattari Face",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Face — Creative vocal FX.",
+      "description": "Sattari Face \u2014 Creative vocal FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Face",
-          "slug": "face"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -932,19 +837,16 @@
       "name": "Sattari Transient",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Transient — Dynamics.",
+      "description": "Sattari Transient \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Transient",
-          "slug": "transient"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -968,19 +870,16 @@
       "name": "Sattari Meter",
       "category": "Metering",
       "accent": "#62f5c8",
-      "description": "Sattari Meter — Metering.",
+      "description": "Sattari Meter \u2014 Metering.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Meter",
-          "slug": "meter"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1004,19 +903,16 @@
       "name": "Sattari Scaler",
       "category": "MIDI / creative",
       "accent": "#62f5c8",
-      "description": "Sattari Scaler — MIDI / creative.",
+      "description": "Sattari Scaler \u2014 MIDI / creative.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Scaler",
-          "slug": "scaler"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1040,19 +936,16 @@
       "name": "Sattari EQ",
       "category": "EQ",
       "accent": "#62f5c8",
-      "description": "Sattari EQ — EQ.",
+      "description": "Sattari EQ \u2014 EQ.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari EQ",
-          "slug": "eq"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1076,19 +969,16 @@
       "name": "Sattari Space",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Space — Reverb / delay.",
+      "description": "Sattari Space \u2014 Reverb / delay.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Space",
-          "slug": "space"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1112,19 +1002,16 @@
       "name": "Sattari Clean",
       "category": "Restoration",
       "accent": "#62f5c8",
-      "description": "Sattari Clean — Restoration.",
+      "description": "Sattari Clean \u2014 Restoration.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Clean",
-          "slug": "clean"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1148,19 +1035,16 @@
       "name": "Sattari Comp",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Comp — Dynamics.",
+      "description": "Sattari Comp \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Comp",
-          "slug": "comp"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1184,19 +1068,16 @@
       "name": "Sattari Peak",
       "category": "Mastering",
       "accent": "#62f5c8",
-      "description": "Sattari Peak — Mastering.",
+      "description": "Sattari Peak \u2014 Mastering.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Peak",
-          "slug": "peak"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1220,19 +1101,16 @@
       "name": "Sattari Vocoder",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Vocoder — Creative vocal FX.",
+      "description": "Sattari Vocoder \u2014 Creative vocal FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Vocoder",
-          "slug": "vocoder"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1256,19 +1134,16 @@
       "name": "Sattari Shimmer",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Shimmer — Reverb / delay.",
+      "description": "Sattari Shimmer \u2014 Reverb / delay.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Shimmer",
-          "slug": "shimmer"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1292,19 +1167,16 @@
       "name": "Sattari Echo",
       "category": "Reverb / delay",
       "accent": "#9b7bff",
-      "description": "Sattari Echo — Reverb / delay.",
+      "description": "Sattari Echo \u2014 Reverb / delay.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Echo",
-          "slug": "echo"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1328,19 +1200,16 @@
       "name": "Sattari Heat",
       "category": "Saturation",
       "accent": "#62f5c8",
-      "description": "Sattari Heat — Saturation.",
+      "description": "Sattari Heat \u2014 Saturation.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Heat",
-          "slug": "heat"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1364,19 +1233,16 @@
       "name": "Sattari Multiband",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Multiband — Dynamics.",
+      "description": "Sattari Multiband \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Multiband",
-          "slug": "multiband"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1400,19 +1266,16 @@
       "name": "Sattari Gate",
       "category": "Dynamics",
       "accent": "#62f5c8",
-      "description": "Sattari Gate — Dynamics.",
+      "description": "Sattari Gate \u2014 Dynamics.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Gate",
-          "slug": "gate"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1436,19 +1299,16 @@
       "name": "Sattari Riser",
       "category": "Creative FX",
       "accent": "#9b7bff",
-      "description": "Sattari Riser — Creative FX.",
+      "description": "Sattari Riser \u2014 Creative FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Riser",
-          "slug": "riser"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1472,19 +1332,16 @@
       "name": "Sattari Pulse",
       "category": "Creative FX",
       "accent": "#9b7bff",
-      "description": "Sattari Pulse — Creative FX.",
+      "description": "Sattari Pulse \u2014 Creative FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Pulse",
-          "slug": "pulse"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1508,19 +1365,16 @@
       "name": "Sattari 808",
       "category": "Low-end",
       "accent": "#62f5c8",
-      "description": "Sattari 808 — Low-end.",
+      "description": "Sattari 808 \u2014 Low-end.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari 808",
-          "slug": "eightoheight"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1544,19 +1398,16 @@
       "name": "Sattari Image",
       "category": "Stereo / imaging",
       "accent": "#62f5c8",
-      "description": "Sattari Image — Stereo / imaging.",
+      "description": "Sattari Image \u2014 Stereo / imaging.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Image",
-          "slug": "imager"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1580,19 +1431,16 @@
       "name": "Sattari Warble",
       "category": "Lo-fi / tape",
       "accent": "#9b7bff",
-      "description": "Sattari Warble — Lo-fi / tape.",
+      "description": "Sattari Warble \u2014 Lo-fi / tape.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Warble",
-          "slug": "warble"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1616,19 +1464,16 @@
       "name": "Sattari Scope",
       "category": "Analysis",
       "accent": "#62f5c8",
-      "description": "Sattari Scope — Analysis.",
+      "description": "Sattari Scope \u2014 Analysis.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Scope",
-          "slug": "scope"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1652,19 +1497,16 @@
       "name": "Sattari Granulator",
       "category": "Granular instrument",
       "accent": "#62f5c8",
-      "description": "Sattari Granulator — Granular instrument.",
+      "description": "Sattari Granulator \u2014 Granular instrument.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Granulator",
-          "slug": "granulator"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1688,19 +1530,16 @@
       "name": "Sattari Brain",
       "category": "Session brain",
       "accent": "#62f5c8",
-      "description": "Sattari Brain — Session brain.",
+      "description": "Sattari Brain \u2014 Session brain.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
       "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Brain",
-          "slug": "brain"
-        }
-      ],
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",
@@ -1724,19 +1563,16 @@
       "name": "Sattari Glass Choir",
       "category": "Creative vocal FX",
       "accent": "#9b7bff",
-      "description": "Sattari Glass Choir — Creative vocal FX.",
+      "description": "Sattari Glass Choir \u2014 Creative vocal FX.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
-      "status": "alpha",
-      "version": "0.2.0-six-products",
-      "modules": [
-        {
-          "name": "Sattari Glass Choir",
-          "slug": "glass-choir"
-        }
-      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
       "bundles": [
         {
           "kind": "AU",

@@ -5,8 +5,9 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariHostTransport.h>
-#include <sattari_audio_core/SattariChromagram.h>
+#include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariRealtime.h>
 #include <array>
 #include <atomic>
 #include <thread>
@@ -94,6 +95,7 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void  publishCurrent();
+    void  refreshDetectedFrame() noexcept;
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -105,7 +107,7 @@ private:
     std::array<float, fftSize * 2> scratch {};
     std::array<float, fftSize> hann {};
     std::atomic<int> writePos { 0 };
-    double running[12] = { 0 };                    // worker-thread-only
+    sattari::dsp::HpcpChromagram hpcp;             // worker-thread-only
     double runningDetune = 0.0;                    // worker-thread-only (cents)
 
     // Detection readout (audio/worker -> UI), all lock-free.
@@ -115,7 +117,7 @@ private:
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<int>    hostTsNum { 0 }, hostTsDen { 0 };
-    juce::int64 transientId = 0;
+    sattari::rt::AtomicSnapshot<Detected> detectedFrame;
 
     // Confidence-gated + hysteresis publish state (worker thread only) — the same
     // logic Sattari Key uses so the detected key never flickers the whole suite.

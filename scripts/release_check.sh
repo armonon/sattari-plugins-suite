@@ -79,7 +79,8 @@ while IFS= read -r exe; do
         printf '  FAIL  %-42s %s\n' "$name" "$last"; fails=$((fails+1))
         printf '%s\n' "$out" | sed 's/^/          /' | tail -12
     fi
-done < <(find "$BUILD" -type f -perm -111 -name '*Contract' 2>/dev/null | sort)
+done < <(find "$BUILD" -type f -perm -111 -name '*Contract' \
+    ! -path '*/plugins/stemdeck/*' 2>/dev/null | sort)
 
 # --- 2. auval ----------------------------------------------------------------
 #  Restore the bus BEFORE auval: auval exercises the real plugins, and a plugin
@@ -95,6 +96,7 @@ for comp in "$COMPONENTS"/*.component; do
     type="$(plutil -extract AudioComponents.0.type raw "$plist" 2>/dev/null)"
     sub="$(plutil -extract AudioComponents.0.subtype raw "$plist" 2>/dev/null)"
     nm="$(basename "$comp" .component)"
+    [ "$nm" = "Sattari StemDeck" ] && continue
     if auval -v "$type" "$sub" "$manu" 2>&1 | grep -q "VALIDATION SUCCEEDED"; then
         printf '  ok    %-28s %s %s\n' "$nm" "$type" "$sub"; pass=$((pass+1))
     else

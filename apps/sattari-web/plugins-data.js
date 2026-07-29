@@ -673,14 +673,57 @@ window.SATTARI_PLUGINS = [
     id: "brain", name: "Sattari Brain",
     category: "Session intelligence", cats: "Key",
     formats: ["AU", "VST3", "Standalone"],
-    tagline: "The session's shared brain — key, tempo and transients for every plugin.",
-    what: "Brain publishes the state of your session so the rest of the suite can follow it. Put it on the master and every key-aware and tempo-aware Sattari plugin lines up without any routing.",
-    how: "It analyses the mix and writes key, tempo and transient information to the cross-plugin bus — a lock-free shared channel other instances read. Consumers pick it up without MIDI routing or sidechains.",
+    tagline: "The session authority — key, tempo and editable musical context.",
+    what: "Brain publishes one authoritative state for the key-aware parts of the suite. Put it on the master, wait for a confident key (or set one manually), and compatible plugins can follow without MIDI routing.",
+    how: "An HPCP chromagram analyses spectral peaks on a background worker, corrects tuning drift, and publishes only after a confident key commits. Host tempo and editable context share the same coherent cross-plugin snapshot. Brain does not currently claim onset detection or transient pulses.",
     features: [
       "One authoritative session state",
-      "Key, tempo and transient pulses",
-      "No routing required — plugins just follow",
-      "Manual override per consumer"
+      "Confidence-gated key plus host tempo",
+      "Priority lease prevents weaker detectors overwriting Brain",
+      "Editable chord, meter, swing, section and reference tuning",
+      "No invented startup key or timer-driven transient claims"
+    ]
+  },
+  {
+    id: "create", name: "Sattari Create",
+    category: "Creative FX rack", cats: "Creative Mixing",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Build an eight-slot creative chain from the suite's shared modules.",
+    what: "Create is the experimental sound-design rack: choose modules, order them, bypass slots and edit the selected module's real parameters in one window.",
+    how: "The rack hosts one stateful instance of each shared DSP module. The first active slot owns a module, which prevents the same delay or filter state from being processed twice. Host controls and module parameters are cached outside the audio callback.",
+    features: [
+      "Eight reorderable effect slots",
+      "Selected-module parameter inspector",
+      "Duplicate-state protection",
+      "Resizable and accessibility-labelled shared UI"
+    ]
+  },
+  {
+    id: "vocal", name: "Sattari Vocal",
+    category: "Vocal rack", cats: "Vocal Mixing",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Assemble a vocal chain without duplicating the processors.",
+    what: "Vocal hosts the suite's vocal-focused modules in a serial rack, with classic chains as starting presets and direct access to every selected module control.",
+    how: "The same module implementations power their standalone shells and the rack. The host resolves transport, sidechain and parameters once, then runs only the first active occurrence of each stateful module.",
+    features: [
+      "Eight vocal-processing slots",
+      "Classic-chain starting presets",
+      "Real module controls in the rack inspector",
+      "Coherent latency and bypass behavior"
+    ]
+  },
+  {
+    id: "stack", name: "Sattari Stack",
+    category: "Instrument rack", cats: "MIDI",
+    formats: ["AU", "VST3", "Standalone"],
+    tagline: "Layer four instruments with splits, transposition and source loading.",
+    what: "Stack renders instruments in parallel rather than chaining them. Each layer has its own level, pan, key range and transpose, so it can build unisons, octave layers and keyboard splits.",
+    how: "Every layer owns independent DSP state and receives filtered MIDI. Layer latency is aligned to the slowest active instrument. Chop and Granulator sources can be loaded per layer and their paths persist with plugin state; module-type controls are explicitly shared.",
+    features: [
+      "Four independent instrument DSP layers",
+      "Per-layer level, pan, key range and transpose",
+      "Chop and Granulator A/B source loading",
+      "Selected-instrument inspector with shared-control label"
     ]
   }
 ];

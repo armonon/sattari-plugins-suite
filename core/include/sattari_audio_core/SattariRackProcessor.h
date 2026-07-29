@@ -66,6 +66,18 @@ public:
         // Link every module to its namespaced parameters once, off the audio thread.
         for (auto& m : modules)
             m->link (apvts, juce::String (m->moduleId()) + ".");
+
+        // Rack controls are also fixed for the processor's lifetime. Resolve them
+        // once so processBlock/latency scans never construct parameter-id Strings.
+        for (int s = 0; s < kNumSlots; ++s)
+        {
+            slotControls_[(size_t) s].selection =
+                apvts.getRawParameterValue (slotParamId (s));
+            slotControls_[(size_t) s].bypass =
+                apvts.getRawParameterValue (slotBypassParamId (s));
+            jassert (slotControls_[(size_t) s].selection != nullptr
+                     && slotControls_[(size_t) s].bypass != nullptr);
+        }
     }
 
     ~SattariRackProcessor() override = default;
@@ -170,13 +182,28 @@ public:
         // With a second input bus, `buffer` holds BOTH buses back to back.
         auto mainBus = getBusBuffer (buffer, true, 0);
 
+        // One stateful module instance cannot safely occupy two serial slots.
+        // Existing/automated duplicate states remain loadable, but only the first
+        // active occurrence processes. This preserves the fixed host parameter
+        // contract without processing one delay/filter state twice per block.
+        std::array<int, kNumSlots> processedModules {};
+        int numProcessed = 0;
         for (int s = 0; s < kNumSlots; ++s)
         {
-            const int sel = (int) apvts.getRawParameterValue (slotParamId (s))->load();
+            const auto& controls = slotControls_[(size_t) s];
+            const int sel = (int) controls.selection->load();
             if (sel <= 0) continue;
-            if (apvts.getRawParameterValue (slotBypassParamId (s))->load() > 0.5f) continue;
-            if (auto* m = moduleAt (sel - 1))
+            if (controls.bypass->load() > 0.5f) continue;
+
+            const int moduleIndex = sel - 1;
+            bool duplicate = false;
+            for (int i = 0; i < numProcessed; ++i)
+                duplicate = duplicate || processedModules[(size_t) i] == moduleIndex;
+            if (duplicate) continue;
+
+            if (auto* m = moduleAt (moduleIndex))
             {
+                processedModules[(size_t) numProcessed++] = moduleIndex;
                 m->setTransport (transport);
                 m->setSidechain (sidechain);
                 m->process (mainBus, midi);
@@ -295,13 +322,26 @@ private:
     int computeLatency() const
     {
         int total = 0;
+        std::array<int, kNumSlots> activeModules {};
+        int numActive = 0;
         for (int s = 0; s < kNumSlots; ++s)
         {
-            const int sel = (int) apvts.getRawParameterValue (slotParamId (s))->load();
-            const bool byp = apvts.getRawParameterValue (slotBypassParamId (s))->load() > 0.5f;
+            const auto& controls = slotControls_[(size_t) s];
+            const int sel = (int) controls.selection->load();
+            const bool byp = controls.bypass->load() > 0.5f;
             if (sel <= 0 || byp) continue;
-            if (auto* m = const_cast<SattariRackProcessor*> (this)->moduleAt (sel - 1))
+
+            const int moduleIndex = sel - 1;
+            bool duplicate = false;
+            for (int i = 0; i < numActive; ++i)
+                duplicate = duplicate || activeModules[(size_t) i] == moduleIndex;
+            if (duplicate) continue;
+
+            if (auto* m = const_cast<SattariRackProcessor*> (this)->moduleAt (moduleIndex))
+            {
+                activeModules[(size_t) numActive++] = moduleIndex;
                 total += m->latencySamples();
+            }
         }
         return total;
     }
@@ -329,8 +369,15 @@ protected:
     sattari::presets::SattariPresetManager presetBank;   // declared AFTER apvts
 
 private:
+    struct SlotControls
+    {
+        std::atomic<float>* selection = nullptr;
+        std::atomic<float>* bypass = nullptr;
+    };
+
     int currentProgram_ = 0;
     double sr_ = 44100.0;
+    std::array<SlotControls, kNumSlots> slotControls_ {};
     std::atomic<int> pendingLatency_ { 0 };
     int reportedLatency_ = 0;
 

@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 struct HubManifest: Codable {
@@ -8,6 +9,7 @@ struct HubManifest: Codable {
     let truthLabel: String
     let defaultUpdateChannel: String
     let updateFeedURL: String?
+    let updateFeedSHA256: String?
     let products: [HubProduct]
 }
 
@@ -22,6 +24,10 @@ struct HubProduct: Codable {
     let formats: [String]
     let bundles: [InstallBundle]
     let updateArchiveURL: String?
+    let updateArchiveSHA256: String?
+    let updateArchiveBytes: Int64?
+    let lifecycle: String?
+    let shippingProfile: String?
 }
 
 struct InstallBundle: Codable {
@@ -84,7 +90,10 @@ final class HubModel {
         let feedURLString = ProcessInfo.processInfo.environment["SATTARI_HUB_FEED_URL"] ?? bundledManifest.updateFeedURL
         if let feedURLString,
            let feedURL = URL(string: feedURLString),
+           let expectedHash = bundledManifest.updateFeedSHA256,
+           Self.isValidSHA256(expectedHash),
            let data = try? Data(contentsOf: feedURL),
+           Self.sha256(data) == expectedHash.lowercased(),
            let remoteManifest = try? decoder.decode(HubManifest.self, from: data),
            remoteManifest.schemaVersion == bundledManifest.schemaVersion,
            remoteManifest.products.count >= bundledManifest.products.count {
@@ -92,6 +101,14 @@ final class HubModel {
         }
 
         return bundledManifest
+    }
+
+    static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func isValidSHA256(_ value: String) -> Bool {
+        value.count == 64 && value.allSatisfy { $0.isHexDigit }
     }
 
     static func resolveRepoRoot() -> URL? {
@@ -138,7 +155,39 @@ final class HubModel {
             candidates.append(root.appendingPathComponent(bundle.relativeSourcePath))
         }
 
-        return candidates.compactMap { $0 }.first { fileManager.fileExists(atPath: $0.path) }
+        return candidates.compactMap { $0 }.first { bundleIsUsable(at: $0, bundle: bundle) }
+    }
+
+    private func bundleIsUsable(at url: URL, bundle: InstallBundle) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
+            return false
+        }
+
+        let expectedExtension: String
+        switch bundle.kind {
+        case "AU": expectedExtension = "component"
+        case "VST3": expectedExtension = "vst3"
+        case "Standalone": expectedExtension = "app"
+        default: return false
+        }
+        guard url.pathExtension.lowercased() == expectedExtension,
+              fileManager.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path) else {
+            return false
+        }
+
+        let executableDir = url.appendingPathComponent("Contents/MacOS", isDirectory: true)
+        guard let executables = try? fileManager.contentsOfDirectory(
+            at: executableDir, includingPropertiesForKeys: [.isRegularFileKey]),
+              executables.contains(where: {
+                  (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                      && fileManager.isExecutableFile(atPath: $0.path)
+              }) else {
+            return false
+        }
+        return true
     }
 
     func destinationURL(for bundle: InstallBundle) -> URL {
@@ -146,14 +195,13 @@ final class HubModel {
     }
 
     func productIsAvailable(_ product: HubProduct) -> Bool {
-        product.bundles.contains { bundle in
-            guard let source = sourceURL(for: bundle) else { return false }
-            return fileManager.fileExists(atPath: source.path)
-        }
+        !product.bundles.isEmpty && product.bundles.allSatisfy { sourceURL(for: $0) != nil }
     }
 
     func productCanDownloadUpdate(_ product: HubProduct) -> Bool {
         product.updateArchiveURL != nil
+            && product.updateArchiveSHA256.map(Self.isValidSHA256) == true
+            && product.updateArchiveBytes.map { $0 > 0 } == true
     }
 
     func productNeedsUpdate(_ product: HubProduct) -> Bool {
@@ -169,55 +217,117 @@ final class HubModel {
         return "Not installed • \(availability)"
     }
 
+    private struct PreparedBundle {
+        let bundle: InstallBundle
+        let staged: URL
+        let destination: URL
+    }
+
+    private struct CommittedBundle {
+        let destination: URL
+        let backup: URL?
+    }
+
     func install(product: HubProduct) throws -> String {
-        if !product.bundles.contains(where: { sourceURL(for: $0) != nil }) {
+        if !productIsAvailable(product) {
             try prepareRemotePayloadIfAvailable(for: product)
         }
 
-        guard product.bundles.contains(where: { sourceURL(for: $0) != nil }) else {
-            throw NSError(domain: "SattariHub", code: 2, userInfo: [NSLocalizedDescriptionKey: "No local, bundled, or downloaded package payload found for \(product.name)."])
+        let sources = product.bundles.map { sourceURL(for: $0) }
+        guard !product.bundles.isEmpty, sources.allSatisfy({ $0 != nil }) else {
+            let missing = zip(product.bundles, sources)
+                .filter { $0.1 == nil }
+                .map { "\($0.0.kind): \($0.0.relativeSourcePath)" }
+                .joined(separator: "; ")
+            throw NSError(domain: "SattariHub", code: 2, userInfo: [
+                NSLocalizedDescriptionKey:
+                    "The package for \(product.name) is incomplete. Nothing was installed. Missing or invalid: \(missing)"
+            ])
         }
 
-        var installedCount = 0
-        var missing: [String] = []
-        for bundle in product.bundles {
-            guard let source = sourceURL(for: bundle), fileManager.fileExists(atPath: source.path) else {
-                missing.append("\(bundle.kind): \(bundle.relativeSourcePath)")
-                continue
+        let stagingRoot = appSupport
+            .appendingPathComponent("InstallStaging", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: stagingRoot) }
+
+        var prepared: [PreparedBundle] = []
+        for (index, bundle) in product.bundles.enumerated() {
+            let source = sources[index]!
+            let staged = stagingRoot.appendingPathComponent(
+                "\(index)-\(source.lastPathComponent)", isDirectory: true)
+            try fileManager.copyItem(at: source, to: staged)
+            guard bundleIsUsable(at: staged, bundle: bundle) else {
+                throw NSError(domain: "SattariHub", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Staged \(bundle.kind) payload failed bundle validation. Nothing was installed."
+                ])
             }
-
-            let destination = destinationURL(for: bundle)
-            try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-            if fileManager.fileExists(atPath: destination.path) {
-                let backupRoot = appSupport.appendingPathComponent("Backups/\(product.id)", isDirectory: true)
-                try fileManager.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-                let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-                let backup = backupRoot.appendingPathComponent("\(stamp)-\(destination.lastPathComponent)")
-                try? fileManager.removeItem(at: backup)
-                try fileManager.moveItem(at: destination, to: backup)
-            }
-
-            try fileManager.copyItem(at: source, to: destination)
-            normalizeInstalledBundle(at: destination)
-            installedCount += 1
+            prepared.append(PreparedBundle(
+                bundle: bundle,
+                staged: staged,
+                destination: destinationURL(for: bundle)))
         }
 
-        if installedCount == 0 {
-            throw NSError(domain: "SattariHub", code: 3, userInfo: [NSLocalizedDescriptionKey: "No installable bundles were found for \(product.name). Missing: \(missing.joined(separator: "; "))"])
+        let backupRoot = appSupport.appendingPathComponent(
+            "Backups/\(product.id)", isDirectory: true)
+        try fileManager.createDirectory(at: backupRoot, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        var committed: [CommittedBundle] = []
+
+        do {
+            for (index, item) in prepared.enumerated() {
+                try fileManager.createDirectory(
+                    at: item.destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true)
+
+                var backup: URL?
+                if fileManager.fileExists(atPath: item.destination.path) {
+                    let candidate = backupRoot.appendingPathComponent(
+                        "\(stamp)-\(index)-\(item.destination.lastPathComponent)")
+                    try? fileManager.removeItem(at: candidate)
+                    try fileManager.moveItem(at: item.destination, to: candidate)
+                    backup = candidate
+                }
+
+                do {
+                    try fileManager.moveItem(at: item.staged, to: item.destination)
+                    ensureInstalledPermissions(at: item.destination)
+                    guard bundleIsUsable(at: item.destination, bundle: item.bundle) else {
+                        throw NSError(domain: "SattariHub", code: 4, userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Installed \(item.bundle.kind) bundle failed post-copy validation."
+                        ])
+                    }
+                    committed.append(CommittedBundle(
+                        destination: item.destination, backup: backup))
+                } catch {
+                    try? fileManager.removeItem(at: item.destination)
+                    if let backup { try? fileManager.moveItem(at: backup, to: item.destination) }
+                    throw error
+                }
+            }
+        } catch {
+            for item in committed.reversed() {
+                try? fileManager.removeItem(at: item.destination)
+                if let backup = item.backup {
+                    try? fileManager.moveItem(at: backup, to: item.destination)
+                }
+            }
+            throw error
         }
 
         receipts[product.id] = InstallReceipt(
             productId: product.id,
             version: product.version,
             installedAt: ISO8601DateFormatter().string(from: Date()),
-            bundleCount: installedCount,
+            bundleCount: prepared.count,
             updateChannel: manifest.defaultUpdateChannel
         )
         try saveReceipts()
 
-        let missingNote = missing.isEmpty ? "" : " Missing/skipped: \(missing.count)."
-        return "Installed \(installedCount) bundle(s) for \(product.name). Gatekeeper repair applied.\(missingNote) Restart or rescan your DAW."
+        return "Installed and verified \(prepared.count) bundle(s) for \(product.name). Restart or rescan your DAW."
     }
 
     private func runRepairTool(_ executable: String, _ arguments: [String]) {
@@ -228,10 +338,10 @@ final class HubModel {
         process.waitUntilExit()
     }
 
-    private func normalizeInstalledBundle(at url: URL) {
-        // Downloaded/internal-alpha bundles can inherit quarantine from the Hub archive.
-        // Ableton/Live may then show “can’t be opened” even when the plugin validates.
-        runRepairTool("/usr/bin/xattr", ["-cr", url.path])
+    private func ensureInstalledPermissions(at url: URL) {
+        // Do not strip quarantine. Signed/notarized downloads should pass normal
+        // Gatekeeper verification; silently removing provenance is not an update
+        // mechanism. We only ensure user-readable/executable bundle permissions.
         runRepairTool("/bin/chmod", ["-R", "u+rwX,go+rX", url.path])
     }
 
@@ -241,10 +351,33 @@ final class HubModel {
         return name.replacingOccurrences(of: "/", with: "-")
     }
 
+    private func runToolCapturingOutput(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (Int32, String) {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus,
+                String(data: data, encoding: .utf8) ?? "")
+    }
+
     func prepareRemotePayloadIfAvailable(for product: HubProduct) throws {
         guard let archiveURLString = product.updateArchiveURL,
-              let archiveURL = URL(string: archiveURLString) else {
-            throw NSError(domain: "SattariHub", code: 4, userInfo: [NSLocalizedDescriptionKey: "No online update archive configured for \(product.name)."])
+              let archiveURL = URL(string: archiveURLString),
+              let expectedHash = product.updateArchiveSHA256,
+              Self.isValidSHA256(expectedHash),
+              let expectedBytes = product.updateArchiveBytes,
+              expectedBytes > 0 else {
+            throw NSError(domain: "SattariHub", code: 5, userInfo: [
+                NSLocalizedDescriptionKey:
+                    "No integrity-pinned online archive is configured for \(product.name)."
+            ])
         }
 
         let downloadsDir = appSupport.appendingPathComponent("Downloads", isDirectory: true)
@@ -253,22 +386,76 @@ final class HubModel {
         try fileManager.createDirectory(at: payloadsDir, withIntermediateDirectories: true)
 
         let archivePath = downloadsDir.appendingPathComponent(archiveURL.lastPathComponent)
-        let payloadRoot = payloadsDir.appendingPathComponent(archiveCacheName(for: archiveURL), isDirectory: true)
+        let payloadRoot = payloadsDir.appendingPathComponent(
+            "\(archiveCacheName(for: archiveURL))-\(expectedHash.prefix(12))",
+            isDirectory: true)
 
         if !fileManager.fileExists(atPath: payloadRoot.path) {
             let data = try Data(contentsOf: archiveURL)
+            guard data.count == expectedBytes else {
+                throw NSError(domain: "SattariHub", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Downloaded archive size mismatch for \(product.name)."
+                ])
+            }
+            guard Self.sha256(data) == expectedHash.lowercased() else {
+                throw NSError(domain: "SattariHub", code: 7, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Downloaded archive checksum mismatch for \(product.name)."
+                ])
+            }
             try data.write(to: archivePath, options: [.atomic])
             try? fileManager.removeItem(at: payloadRoot)
             try fileManager.createDirectory(at: payloadRoot, withIntermediateDirectories: true)
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-            process.arguments = ["-xzf", archivePath.path, "-C", payloadRoot.path]
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus != 0 {
-                throw NSError(domain: "SattariHub", code: 5, userInfo: [NSLocalizedDescriptionKey: "Could not extract update archive for \(product.name)."])
+            let (listStatus, listOutput) = try runToolCapturingOutput(
+                "/usr/bin/tar", ["-tzf", archivePath.path])
+            guard listStatus == 0 else {
+                throw NSError(domain: "SattariHub", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Could not inspect update archive for \(product.name)."
+                ])
             }
+            for entry in listOutput.split(separator: "\n").map(String.init) {
+                let components = entry.split(separator: "/", omittingEmptySubsequences: false)
+                guard !entry.hasPrefix("/"), !components.contains("..") else {
+                    throw NSError(domain: "SattariHub", code: 9, userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Unsafe path in update archive for \(product.name)."
+                    ])
+                }
+            }
+
+            let (verboseStatus, verboseOutput) = try runToolCapturingOutput(
+                "/usr/bin/tar", ["-tvzf", archivePath.path])
+            guard verboseStatus == 0,
+                  !verboseOutput.split(separator: "\n").contains(where: {
+                      guard let first = $0.first else { return false }
+                      return first == "l" || first == "h"
+                  }) else {
+                throw NSError(domain: "SattariHub", code: 10, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Update archive contains unsupported links for \(product.name)."
+                ])
+            }
+
+            let (extractStatus, _) = try runToolCapturingOutput(
+                "/usr/bin/tar", ["-xzf", archivePath.path, "-C", payloadRoot.path])
+            if extractStatus != 0 {
+                try? fileManager.removeItem(at: payloadRoot)
+                throw NSError(domain: "SattariHub", code: 11, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Could not extract update archive for \(product.name)."
+                ])
+            }
+        }
+
+        guard productIsAvailable(product) else {
+            try? fileManager.removeItem(at: payloadRoot)
+            throw NSError(domain: "SattariHub", code: 12, userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Verified archive for \(product.name) did not contain every declared bundle."
+            ])
         }
     }
 
@@ -350,11 +537,12 @@ final class HubWindowController: NSWindowController {
             : "Package root: \(model.repoRoot!.path) • bundled/local available products: \(bundledCount)"
         root.addArrangedSubview(statusLabel)
 
-        // Suite-wide action row: one click installs / updates every available product.
+        // Batch actions are limited to the explicitly curated alpha profile. A
+        // 49-product "Install All" makes unvalidated experiments look shippable.
         let actionRow = NSStackView()
         actionRow.orientation = .horizontal
         actionRow.spacing = 12
-        let installAll = NSButton(title: "Install All", target: self, action: #selector(installAllClicked(_:)))
+        let installAll = NSButton(title: "Install Alpha Set", target: self, action: #selector(installAllClicked(_:)))
         installAll.bezelStyle = .rounded
         installAll.keyEquivalent = "\r"
         let updateAll = NSButton(title: "Update All", target: self, action: #selector(updateAllClicked(_:)))
@@ -485,11 +673,18 @@ final class HubWindowController: NSWindowController {
     }
 
     @objc private func installAllClicked(_ sender: NSButton) {
-        installMany(products: model.manifest.products, label: "Install All")
+        let alphaSet = model.manifest.products.filter { $0.shippingProfile == "alpha" }
+        guard !alphaSet.isEmpty else {
+            statusLabel.stringValue = "No products are assigned to the curated alpha set."
+            return
+        }
+        installMany(products: alphaSet, label: "Install Alpha Set")
     }
 
     @objc private func updateAllClicked(_ sender: NSButton) {
-        let needsUpdate = model.manifest.products.filter { model.productNeedsUpdate($0) }
+        let needsUpdate = model.manifest.products.filter {
+            model.receipts[$0.id] != nil && model.productNeedsUpdate($0)
+        }
         if needsUpdate.isEmpty {
             statusLabel.stringValue = "All products are up to date."
             return

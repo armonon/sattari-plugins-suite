@@ -1,96 +1,101 @@
 #!/usr/bin/env python3
-"""Assert the C++ brand registry and the Hub manifest never drift.
-
-Identity for the Sattari suite (id, display name, accent colour) lives in
-`core/include/sattari_audio_core/SattariBranding.h`. The Hub installer manifest
-`apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json` carries the
-same identity plus deployment data (versions, bundles, URLs).
-
-This check fails loudly if the two disagree on the set of product ids, on any
-display name, or on any accent colour — so the plugin UI, the Hub cards, and the
-installer can never silently diverge.
-"""
+"""Validate every generated product surface against config/products.json."""
 from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = ROOT / "core" / "include" / "sattari_audio_core" / "SattariBranding.h"
-MANIFEST = ROOT / "apps" / "sattari-hub" / "Sources" / "SattariHub" / "Resources" / "sattari-products.json"
+CATALOG = ROOT / "config" / "products.json"
+BRAND_INC = ROOT / "core/include/sattari_audio_core/SattariProductCatalog.generated.inc"
+MANIFEST = ROOT / "apps/sattari-hub/Sources/SattariHub/Resources/sattari-products.json"
+WEB = ROOT / "apps/sattari-web/product-catalog.js"
+WEB_DETAILS = ROOT / "apps/sattari-web/plugins-data.js"
+CI = ROOT / "config/ci-matrix.generated.json"
 
-# Matches: { "id", "Display Name", "Category", 0xAARRGGBB },
-# The accent field is either a literal 0xAARRGGBB or a named palette constant
-# (e.g. kAccent) — the suite now uses the symbol for every product, so resolve it.
-ENTRY = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*(0x[0-9a-fA-F]{8}|k[A-Za-z0-9_]+)\s*\}'
+BRAND_ENTRY = re.compile(
+    r'\{\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*(k\w+)\s*\},'
 )
-# Matches: inline constexpr std::uint32_t kAccent = 0xff62f5c8;
-CONST = re.compile(r'constexpr\s+std::uint32_t\s+(k[A-Za-z0-9_]+)\s*=\s*0x([0-9a-fA-F]{8})')
-
-
-def _accent_to_hex6(token: str, symbols: dict[str, str]) -> str:
-    argb = token[2:] if token.startswith("0x") else symbols.get(token, "")
-    return ("#" + argb[-6:].lower()) if argb else ""
-
-
-def parse_registry() -> dict[str, dict[str, str]]:
-    text = HEADER.read_text()
-    symbols = {name: argb for name, argb in CONST.findall(text)}
-    out: dict[str, dict[str, str]] = {}
-    for pid, name, _category, accent in ENTRY.findall(text):
-        out[pid] = {"name": name, "accent": _accent_to_hex6(accent, symbols)}
-    return out
-
-
-def parse_manifest() -> dict[str, dict[str, str]]:
-    data = json.loads(MANIFEST.read_text())
-    out: dict[str, dict[str, str]] = {}
-    for prod in data["products"]:
-        out[prod["id"]] = {
-            "name": prod["name"],
-            "accent": str(prod.get("accent", "")).lower(),
-        }
-    return out
+ACCENTS = {"mint": "kAccent", "violet": "kAccentViolet", "amber": "kAccentAmber"}
 
 
 def main() -> int:
-    registry = parse_registry()
-    manifest = parse_manifest()
-
-    if not registry:
-        print("brand sync FAILED: could not parse any entries from SattariBranding.h")
-        return 1
-
+    catalog = json.loads(CATALOG.read_text())
+    products = catalog["products"]
+    by_id = {p["id"]: p for p in products}
     errors: list[str] = []
 
-    reg_ids, man_ids = set(registry), set(manifest)
-    if reg_ids != man_ids:
-        only_reg = sorted(reg_ids - man_ids)
-        only_man = sorted(man_ids - reg_ids)
-        if only_reg:
-            errors.append(f"ids only in registry (missing from Hub manifest): {only_reg}")
-        if only_man:
-            errors.append(f"ids only in Hub manifest (missing from registry): {only_man}")
+    if len(products) != 49 or len(by_id) != 49:
+        errors.append("catalog must contain 49 unique products")
 
-    for pid in sorted(reg_ids & man_ids):
-        r, m = registry[pid], manifest[pid]
-        if r["name"] != m["name"]:
-            errors.append(f"{pid}: name mismatch — registry {r['name']!r} vs manifest {m['name']!r}")
-        if r["accent"] != m["accent"]:
-            errors.append(f"{pid}: accent mismatch — registry {r['accent']} vs manifest {m['accent']!r}")
+    generated_brand = {
+        pid: {"name": name, "category": category, "accent": accent}
+        for pid, name, category, accent in BRAND_ENTRY.findall(BRAND_INC.read_text())
+    }
+    if set(generated_brand) != set(by_id):
+        errors.append("generated C++ branding ids differ from catalog")
+    for pid in set(generated_brand) & set(by_id):
+        expected = by_id[pid]
+        actual = generated_brand[pid]
+        if actual != {
+            "name": expected["name"],
+            "category": expected["category"],
+            "accent": ACCENTS[expected["accent"]],
+        }:
+            errors.append(f"{pid}: generated C++ branding drift")
+
+    manifest = json.loads(MANIFEST.read_text())
+    manifest_by_id = {p["id"]: p for p in manifest["products"]}
+    expected_hub_ids = {
+        p["id"] for p in products if p["lifecycle"] != "excluded"
+    }
+    if set(manifest_by_id) != expected_hub_ids:
+        errors.append("Hub ids differ from non-excluded catalog ids")
+    for pid in set(manifest_by_id) & expected_hub_ids:
+        source = by_id[pid]
+        built = manifest_by_id[pid]
+        for key in ("name", "category", "lifecycle", "shippingProfile"):
+            if built.get(key) != source.get(key):
+                errors.append(f"{pid}: Hub {key} drift")
+        if len(built.get("bundles", [])) != 3:
+            errors.append(f"{pid}: Hub must declare AU, VST3 and Standalone")
+
+    web_text = WEB.read_text()
+    prefix = "window.SATTARI_PRODUCT_CATALOG = "
+    try:
+        web_data = json.loads(web_text.split(prefix, 1)[1].rsplit(";", 1)[0])
+    except (IndexError, json.JSONDecodeError):
+        web_data = []
+        errors.append("could not parse generated web catalog")
+    if {p["id"] for p in web_data} != set(by_id):
+        errors.append("web lifecycle catalog ids differ from product catalog")
+    detailed_ids = set(re.findall(r'\bid:\s*"([^"]+)"', WEB_DETAILS.read_text()))
+    visible_ids = {p["id"] for p in products if p["webVisible"]}
+    if detailed_ids & visible_ids != visible_ids:
+        errors.append(
+            "website detail data missing visible ids: "
+            + str(sorted(visible_ids - detailed_ids))
+        )
+
+    ci = json.loads(CI.read_text())["include"]
+    expected_ci = {p["id"] for p in products if "ci" in p}
+    if {p["plugin"] for p in ci} != expected_ci:
+        errors.append("generated CI matrix differs from catalog ci entries")
+    if "stemdeck" in {p["plugin"] for p in ci}:
+        errors.append("StemDeck entered the non-StemDeck CI matrix")
 
     if errors:
-        print("brand sync FAILED:")
-        for e in errors:
-            print("  -", e)
+        print("product catalog sync FAILED:")
+        for error in errors:
+            print("  -", error)
         return 1
 
-    print(f"brand sync ok: {len(registry)} products consistent across registry + Hub manifest")
-    for pid in sorted(registry):
-        print(f"  {pid:18} {registry[pid]['name']:22} {registry[pid]['accent']}")
+    print(
+        "product catalog sync ok: "
+        f"catalog={len(products)} hub={len(manifest_by_id)} "
+        f"web={sum(bool(p['webVisible']) for p in products)} ci={len(ci)}"
+    )
     return 0
 
 
