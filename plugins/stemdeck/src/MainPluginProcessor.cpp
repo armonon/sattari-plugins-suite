@@ -426,6 +426,22 @@ ChannelBody* MainPluginProcessor::getChannelBody (int index) const
     return nullptr;
 }
 
+float MainPluginProcessor::getChannelActivity (int index) const noexcept
+{
+    if (! juce::isPositiveAndBelow (index, (int) channels.size())
+        || channels[(size_t) index] == nullptr)
+        return 0.0f;
+    if (index < numDecks
+        && channels[(size_t) index]->type() == ChannelType::trackDeck)
+        return juce::jmax (getDeckPeak (index, 0), getDeckPeak (index, 1));
+    if (auto* input = dynamic_cast<InputBody*> (channels[(size_t) index]->getBody()))
+        return input->getInputPeak();
+    if (auto* instrument = dynamic_cast<MidiInstrumentBody*> (
+            channels[(size_t) index]->getBody()))
+        return instrument->isActive() ? 0.62f : 0.0f;
+    return 0.0f;
+}
+
 // ── A1 phase 3: converted controls ───────────────────────────────────────────
 // These no longer mutate state directly. They emit an event; applyEvent() performs
 // the change. Replay calls applyEvent() with the same event and therefore takes the
@@ -567,6 +583,19 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
         case ParamId::insertBypass:
             setChainPluginBypassed (idx, (int) e.param.index, e.param.value > 0.5);
             break;
+
+        case ParamId::insertParam:
+        {
+            const int insertIndex = (int) ((e.param.index >> 16) & 0xffffu);
+            const int parameterIndex = (int) (e.param.index & 0xffffu);
+            hostGraph.setPluginParameterByStableId (
+                (HostGraph::Chain) idx, insertIndex, e.param.stableId,
+                parameterIndex, (float) e.param.value);
+            hostedParameterValues[
+                std::make_tuple (idx, insertIndex, e.param.stableId)]
+                    = (float) e.param.value;
+            break;
+        }
 
         default:
         {
@@ -991,6 +1020,42 @@ void MainPluginProcessor::setInsertBypassDispatched (int chainIndex, int insertP
     eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::insertBypass,
                                     bypassed ? 1.0 : 0.0, stemdeck::events::GestureFlag::none,
                                     (std::uint32_t) insertPos);
+}
+
+void MainPluginProcessor::setInsertParameterDispatched (
+    int chainIndex, int insertPos, int fallbackParameterIndex,
+    std::uint64_t stableParameterId, float normalizedValue)
+{
+    stemdeck::events::Scope scope;
+    scope.kind = stemdeck::events::ScopeKind::insert;
+    scope.channel = chainIndex;
+    const auto packed = ((std::uint32_t) juce::jlimit (0, 0xffff, insertPos) << 16)
+                      | (std::uint32_t) juce::jlimit (
+                            0, 0xffff, fallbackParameterIndex);
+    eventDispatcher->dispatchParam (
+        scope, stemdeck::events::ParamId::insertParam,
+        (double) juce::jlimit (0.0f, 1.0f, normalizedValue),
+        stemdeck::events::GestureFlag::none, packed, stableParameterId);
+}
+
+void MainPluginProcessor::pollHostedPluginParameterChanges()
+{
+    for (const auto& snapshot : hostGraph.getParameterSnapshots())
+    {
+        const auto key = std::make_tuple (
+            snapshot.chainIndex, snapshot.insertIndex,
+            snapshot.stableParameterId);
+        auto [it, inserted] = hostedParameterValues.emplace (
+            key, snapshot.normalizedValue);
+        if (inserted
+            || std::abs (it->second - snapshot.normalizedValue) < 1.0e-6f)
+            continue;
+        it->second = snapshot.normalizedValue;
+        setInsertParameterDispatched (
+            snapshot.chainIndex, snapshot.insertIndex,
+            snapshot.fallbackParameterIndex, snapshot.stableParameterId,
+            snapshot.normalizedValue);
+    }
 }
 
 juce::String MainPluginProcessor::deckPrefix (int deckIndex)

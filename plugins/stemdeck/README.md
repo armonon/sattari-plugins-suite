@@ -1,6 +1,6 @@
 # Sattari StemDeck v0.5.0 standalone app alpha
 
-Truth label: **standalone Mac DJ app alpha / internal pre-alpha engine** — JUCE/CMake Standalone + VST3 builds exist, but the product direction is app-first. The local gate builds the Standalone app/VST3 and runs deterministic contracts for architecture, offline stem command wiring, beat-sync, live-key, arrangement export, plugin-host pass-through, key-lock rendering, and a synthetic time/pitch benchmark listening pack. Not sale-ready yet: needs real-song/DAW listening validation, long-session soak testing, notarized installer/onboarding, plugin-host UX/state polish, and product-grade stem progress/cancel UX.
+Truth label: **standalone Mac DJ app alpha / internal pre-alpha engine** — JUCE/CMake Standalone + VST3 builds exist, but the product direction is app-first. The local gate builds the Standalone app/VST3 and runs a registered CTest contract suite for architecture, capture/replay, offline stem command wiring, beat-sync, live-key, arrangement export, plugin-host pass-through, key-lock rendering, and synthetic time/pitch behavior. Not sale-ready yet: real-song/DAW listening validation, long-session soak testing, and third-party compatibility testing remain external gates.
 
 ## Concept
 
@@ -51,6 +51,16 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - Background thread pool for file loading; audio callback does no file IO.
 - Master-output WAV recording via `MasterRecorder`: the finished master buffer is copied into a bounded queue and written by a background thread from the Record WAV button.
 - Performance arrangement export groundwork writes a truth-labeled arrangement/event-log JSON for recorded sessions so pre-alpha sets can be rebuilt/audited.
+- Four-workspace shell with Command-K action search, focused-deck inspector, Focus mode, and keyboard workspace shortcuts.
+- Full live-channel Mix workspace with gain, meter, mute, solo, routing, master metering, compact/detail modes, and Track Deck/Input/MIDI Instrument support.
+- Persistent music Library with background analysis/cache, smart BPM/key/readiness/recent filters, missing-media cleanup, explicit load action, and deterministic set-builder prompts.
+- Session History with timestamped restore points, notes, reveal/delete actions, and automatic restore points before destructive recording/source/channel changes.
+- First-run four-step onboarding plus an always-available Welcome Guide.
+- Recording preflight for audio-device readiness and storage, plus high-CPU visual-refresh protection.
+- Export Center with project/recording/media/storage preflight and portable session packages containing project state, source manifest, diagnostics, and available captures.
+- Session-level undo/redo for channel add/remove and destructive clears, alongside the existing arrangement edit history.
+- Hosted plug-in parameter capture/replay using persistent parameter IDs; all 29 event parameters now route through deterministic dispatch without adding audio-thread locks or allocation.
+- Source-controlled Developer-ID signing/notarization workflow in `scripts/release_stemdeck.sh` and `.github/workflows/stemdeck-release.yml`. It requires real Apple credentials and refuses ad-hoc release output.
 
 ## Architecture classes
 
@@ -80,6 +90,13 @@ One-command local StemDeck gate:
 
 ```bash
 ./scripts/validate_stemdeck.sh
+```
+
+Build and run every deterministic registered contract:
+
+```bash
+cmake --build build/stemdeck --target StemDeckContractSuite -j 4
+ctest --test-dir build/stemdeck --output-on-failure -L contract
 ```
 
 ONNX inference is opt-in so a developer Homebrew install can never leak into a
@@ -137,6 +154,15 @@ Truth-labeled plugin/app alpha package:
 ./scripts/package_stemdeck_alpha.sh
 ```
 
+Credentialed signed/notarized installer release:
+
+```bash
+export SATTARI_DEV_APP_ID="Developer ID Application: …"
+export SATTARI_DEV_INSTALLER_ID="Developer ID Installer: …"
+export SATTARI_NOTARY_PROFILE="sattari-notary"
+./scripts/release_stemdeck.sh
+```
+
 ## Validation
 
 ```bash
@@ -149,13 +175,13 @@ Latest validation log/report: `plugins/stemdeck/logs/2026-05-23-host-scan-valida
 
 ## Current limitations
 
-- Still not finished/sale-ready: DAW tests, real-song listening pass, long-session soak, installer/product packaging, and polished stem/host-plugin UX are still missing.
+- Still not finished/sale-ready: DAW tests, real-song listening pass, long-session soak, credentialed notarization execution, and broad third-party plug-in compatibility still need evidence.
 - Recording write, arrangement JSON export, mic input monitoring, host BPM sync, beat-grid sync, live key analysis/matching, optional offline Demucs stems, and pluginval strictness 5 are internal pre-alpha features, not sale-ready claims.
 - Offline AI stems are command-backed and cache-backed, not bundled as a consumer installer. Local Demucs requires `scripts/setup_stemdeck_demucs.sh` or equivalent user setup. The UI now feels like a product flow, but the model/runtime packaging is still developer-local until licensing/notarization are reviewed.
 - Stem-lane gain control is automatable; dedicated polished stem-mixer/progress/cancel UX still needs product work.
 - Beat-grid sync is host-PPQ/source-BPM based with per-deck beat-offset nudging; it is not yet full DJ-style transient/downbeat detection, beatgrid editing, or commercial-grade time-stretch. Preserve now enables an internal granular key-lock backend, and LiveKey can drive target-key matching from the current playback window, but these have not passed real-song listening validation or DAW matrix testing.
-- JUCE plugin-host format discovery/load scaffolding exists for VST3/AU builds, but plugin UI, preset/state UX, chain reorder/bypass/remove polish, and broad third-party plugin compatibility testing are not implemented yet.
-- No file-browser library, MIDI pad/controller mapping, installer, or sale-ready packaging yet.
+- JUCE plug-in hosting includes UI, state, reorder/bypass/remove, and stable parameter capture/replay, but broad third-party compatibility testing is not complete.
+- File browser, persistent analyzed Library, MIDI pad/controller mapping, and credentialed installer automation exist; none of those replace the remaining manual validation gates.
 - Keyboard pad triggering requires the editor/Standalone window to have keyboard focus.
 - Normal songs retain the decoded buffer for low-latency manipulation. Files longer
   than ten minutes use a two-minute analysis/visual preview plus a bounded 30-second

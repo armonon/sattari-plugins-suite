@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 #include <tracktion_engine/tracktion_engine.h>
 #include <atomic>
+#include <map>
+#include <tuple>
 #include "ArrangementPlayer.h"
 #include "MidiClipPlayer.h"
 #include "Metronome.h"
@@ -197,6 +199,7 @@ public:
     // The channel's body, for type-specific UI (Input gain/monitor, instrument
     // activity). Message thread only. Returns nullptr for an invalid index.
     ChannelBody* getChannelBody (int index) const;
+    float getChannelActivity (int index) const noexcept;
     // Mute / solo live on the Channel frame, so they apply to every channel type and
     // solo can be arbitrated mix-wide (non-soloed channels drop out of the master).
     void toggleChannelMute (int index);
@@ -228,6 +231,11 @@ public:
     bool isStemMuted                 (int deckIndex, int stemIndex) const;
     bool isStemSoloed                (int deckIndex, int stemIndex) const;
     void setInsertBypassDispatched   (int chainIndex, int insertPos, bool bypassed);
+    void setInsertParameterDispatched (int chainIndex, int insertPos,
+                                       int fallbackParameterIndex,
+                                       std::uint64_t stableParameterId,
+                                       float normalizedValue);
+    void pollHostedPluginParameterChanges();
 
     // ── APVTS -> event bridge (A1 phase 3) ───────────────────────────────────
     // Most controls are APVTS-attached: the UI moves a slider and the attachment
@@ -522,6 +530,7 @@ private:
     TransportSync sync;
     WarpEngine warpEngine;
     HostGraph hostGraph;
+    std::map<std::tuple<int, int, std::uint64_t>, float> hostedParameterValues;
     MasterFx masterFx;
     SmartMaster smartMaster;
     stemdeck::LiveLoudnessMeter liveLoudness;

@@ -30,9 +30,9 @@ int main()
 
     check (processor.beginMasterRecording (master), "recording starts");
     check (processor.isIntentCaptureActive(), "deterministic intent capture starts with recording");
-    check (processor.getIntentCaptureCoverage() == 28
+    check (processor.getIntentCaptureCoverage() == 29
            && processor.getIntentCaptureTargetCount() == 29,
-           "HUD reports honest capture coverage (28/29)");
+           "HUD reports complete capture coverage (29/29)");
     check (processor.getCurrentTakeNumber() == 1, "take number advances");
 
     if (auto* gain = processor.parameters().getParameter ("master"))

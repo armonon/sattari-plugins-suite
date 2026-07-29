@@ -200,12 +200,10 @@ int main()
         check (Dispatcher::ownsParam (ParamId::inputGain),    "inputGain is converted");
         check (Dispatcher::ownsParam (ParamId::insertBypass), "insertBypass is converted");
 
-        // The one that remains needs a stable cross-session id for a third-party
-        //                       plugin's own parameter, which the schema does not solve
-        check (! Dispatcher::ownsParam (ParamId::insertParam),
-               "insertParam is NOT converted - needs a stable third-party param id");
-        check (! Dispatcher::isFullyConverted(),
-               "isFullyConverted() reports FALSE - phase 3 is genuinely incomplete");
+        check (Dispatcher::ownsParam (ParamId::insertParam),
+               "insertParam is converted using a stable third-party parameter id");
+        check (Dispatcher::isFullyConverted(),
+               "all ParamIds route through deterministic dispatch");
     }
 
     std::cout << (failures == 0 ? "DISPATCH_OK" : "DISPATCH_FAILED") << std::endl;

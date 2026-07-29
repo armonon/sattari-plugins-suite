@@ -235,7 +235,7 @@ private:
         auto title = b.removeFromTop (18);
         const bool complete = state.captureTarget > 0 && state.captureCoverage == state.captureTarget;
         // Coverage is the closed ParamId vocabulary, not a claim that every future
-        // lifecycle event is converted. Name the metric so 28/29 stays truthful.
+        // lifecycle event is converted.
         label (g, state.recording ? "PARAMS WRITING" : "PARAMS ARMED", title,
                complete ? muted : amber);
         label (g, juce::String (state.captureCoverage) + "/" + juce::String (state.captureTarget),

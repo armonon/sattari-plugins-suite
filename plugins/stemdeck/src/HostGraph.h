@@ -83,8 +83,27 @@ public:
     void setChainPluginBypassed (Chain chain, int index, bool bypassed);
     bool isChainPluginBypassed (Chain chain, int index) const;
 
+    struct ParameterSnapshot
+    {
+        int chainIndex = 0;
+        int insertIndex = 0;
+        int fallbackParameterIndex = 0;
+        std::uint64_t stableParameterId = 0;
+        float normalizedValue = 0.0f;
+    };
+    // Message-thread polling bridge for native hosted-plugin editors. Parameter
+    // callbacks may run on the audio thread, so capture observes normalized values
+    // here instead of taking locks or allocating in AudioProcessorParameter::Listener.
+    std::vector<ParameterSnapshot> getParameterSnapshots() const;
+    bool setPluginParameterByStableId (Chain chain, int insertIndex,
+                                       std::uint64_t stableParameterId,
+                                       int fallbackParameterIndex,
+                                       float normalizedValue);
+
     static juce::String chainId (Chain chain);
     static juce::String chainName (Chain chain);
+    static std::uint64_t stableParameterId (juce::AudioProcessorParameter&,
+                                            int fallbackParameterIndex);
 
 private:
     struct ChainState

@@ -62,7 +62,8 @@ public:
 
     // Convenience for the overwhelmingly common case.
     void dispatchParam (Scope scope, ParamId id, double value,
-                        GestureFlag gesture = GestureFlag::none, std::uint32_t index = 0)
+                        GestureFlag gesture = GestureFlag::none, std::uint32_t index = 0,
+                        std::uint64_t stableId = 0)
     {
         Event e;
         e.type  = EventType::param;
@@ -71,6 +72,7 @@ public:
         e.param.value   = value;
         e.param.gesture = gesture;
         e.param.index   = index;
+        e.param.stableId = stableId;
         dispatch (std::move (e));
     }
 
@@ -175,14 +177,9 @@ public:
             case ParamId::instGain:
             case ParamId::instMidiChannel:
             case ParamId::insertBypass:
+            case ParamId::insertParam:
                 return true;
 
-            // NOT converted:
-            //   insertParam — a hosted plugin's own parameters. Capturing these means
-            //     addressing a third-party parameter index stably across sessions,
-            //     which the schema does not yet solve.
-            // Naming them here would make a replay look complete while silently
-            // dropping their gestures.
             default:
                 return false;
         }

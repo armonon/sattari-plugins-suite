@@ -512,6 +512,81 @@ bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
     return node != nullptr && node->isBypassed();
 }
 
+std::uint64_t HostGraph::stableParameterId (juce::AudioProcessorParameter& parameter,
+                                            int fallbackParameterIndex)
+{
+    juce::String identity;
+    if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (&parameter))
+        identity = "id:" + withId->paramID;
+    if (identity.isEmpty())
+        identity = "fallback:" + juce::String (fallbackParameterIndex)
+                 + ":" + parameter.getName (256);
+    return (std::uint64_t) identity.hashCode64();
+}
+
+std::vector<HostGraph::ParameterSnapshot> HostGraph::getParameterSnapshots() const
+{
+    std::vector<ParameterSnapshot> result;
+    for (int chainIndex = 0; chainIndex < (int) Chain::count; ++chainIndex)
+    {
+        const auto chain = (Chain) chainIndex;
+        const auto& state = stateFor (chain);
+        const juce::ScopedTryLock lock (state.graphLock);
+        if (! lock.isLocked())
+            continue;
+        for (int insert = 0; insert < state.pluginNodes.size(); ++insert)
+        {
+            auto* processor = state.pluginNodes[insert] != nullptr
+                                ? state.pluginNodes[insert]->getProcessor() : nullptr;
+            if (processor == nullptr)
+                continue;
+            const auto& parameters = processor->getParameters();
+            for (int parameterIndex = 0; parameterIndex < parameters.size(); ++parameterIndex)
+            {
+                auto* parameter = parameters[parameterIndex];
+                if (parameter == nullptr)
+                    continue;
+                result.push_back ({
+                    chainIndex, insert, parameterIndex,
+                    stableParameterId (*parameter, parameterIndex),
+                    parameter->getValue()
+                });
+            }
+        }
+    }
+    return result;
+}
+
+bool HostGraph::setPluginParameterByStableId (
+    Chain chain, int insertIndex, std::uint64_t wantedStableId,
+    int fallbackParameterIndex, float normalizedValue)
+{
+    auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (! juce::isPositiveAndBelow (insertIndex, state.pluginNodes.size()))
+        return false;
+    auto* processor = state.pluginNodes[insertIndex] != nullptr
+                        ? state.pluginNodes[insertIndex]->getProcessor() : nullptr;
+    if (processor == nullptr)
+        return false;
+    const auto& parameters = processor->getParameters();
+    juce::AudioProcessorParameter* match = nullptr;
+    for (int index = 0; index < parameters.size(); ++index)
+        if (parameters[index] != nullptr
+            && stableParameterId (*parameters[index], index) == wantedStableId)
+        {
+            match = parameters[index];
+            break;
+        }
+    if (match == nullptr && juce::isPositiveAndBelow (
+            fallbackParameterIndex, parameters.size()))
+        match = parameters[fallbackParameterIndex];
+    if (match == nullptr)
+        return false;
+    match->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, normalizedValue));
+    return true;
+}
+
 void HostGraph::removeChainPlugin (Chain chain, int index)
 {
     auto& state = stateFor (chain);

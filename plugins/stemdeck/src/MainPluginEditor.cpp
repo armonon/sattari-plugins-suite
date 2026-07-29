@@ -1021,12 +1021,34 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (rbxImportButton);
 
-    mixerView.numChannels = MainPluginProcessor::numDecks;
+    mixerView.numChannels = processorRef.getNumChannels();
     mixerView.onClose    = [this] { fadeOverlay (mixerView, false); mixerButton.setToggleState (false, juce::dontSendNotification); };
-    // These strips control the ARRANGEMENT lanes (gain/mute/solo of the timeline),
-    // not the live deck channels — name them honestly.
-    mixerView.getName    = [] (int i) { return "LANE " + juce::String::charToString ((juce_wchar) ('A' + i)); };
+    mixerView.getName    = [this] (int i) { return processorRef.getChannelName (i); };
     mixerView.getColour  = [] (int i) { return deckAccent (i); };
+    mixerView.getSubtitle = [this] (int i)
+    {
+        switch (processorRef.getChannelType (i))
+        {
+            case ChannelType::trackDeck:      return juce::String ("TRACK DECK");
+            case ChannelType::input:          return juce::String ("LIVE INPUT");
+            case ChannelType::midiInstrument: return juce::String ("MIDI INSTRUMENT");
+            case ChannelType::sampler:        return juce::String ("SAMPLER");
+            case ChannelType::pluginHost:     return juce::String ("PLUGIN HOST");
+        }
+        return juce::String ("CHANNEL");
+    };
+    mixerView.getRoute = [this] (int i)
+    {
+        if (processorRef.getChannelType (i) != ChannelType::trackDeck
+            || i >= MainPluginProcessor::numDecks)
+            return juce::String ("CENTER");
+        const int side = processorRef.getDeckCfSide (i);
+        return side == 0 ? juce::String ("A / C BUS")
+                         : side == 2 ? juce::String ("B / D BUS")
+                                     : juce::String ("CENTER");
+    };
+    mixerView.getPeak = [this] (int i) { return processorRef.getChannelActivity (i); };
+    mixerView.getMasterPeak = [this] (int ch) { return processorRef.getMasterPeak (ch); };
     // Live lane mix: mute/solo/gain changes are applied to the running engine
     // immediately (TE audio lanes + MIDI synth lanes), not just at the next
     // schedule rebuild.
@@ -1039,13 +1061,40 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             processorRef.setMidiLaneGain (lane, gain);
         }
     };
-    mixerView.getGainDb  = [this] (int i) { return arrangementView.getLaneGainDb (i); };
-    mixerView.setGainDb  = [this] (int i, float db) { arrangementView.setLaneGainDb (i, db);
-                                                      if (arrangementView.onLaneMixChanged) arrangementView.onLaneMixChanged(); };
-    mixerView.isMuted    = [this] (int i) { return arrangementView.isLaneMuted (i); };
-    mixerView.isSoloed   = [this] (int i) { return arrangementView.isLaneSoloed (i); };
-    mixerView.toggleMute = [this] (int i) { arrangementView.toggleLaneMute (i); };
-    mixerView.toggleSolo = [this] (int i) { arrangementView.toggleLaneSolo (i); };
+    mixerView.getGainDb = [this] (int i)
+    {
+        if (processorRef.getChannelType (i) == ChannelType::trackDeck
+            && i < MainPluginProcessor::numDecks)
+            if (auto* value = processorRef.parameters().getRawParameterValue (
+                    deckPrefix (i) + "Volume"))
+                return value->load();
+        if (auto* input = dynamic_cast<InputBody*> (processorRef.getChannelBody (i)))
+            return juce::Decibels::gainToDecibels (input->getInputGain(), -60.0f);
+        if (auto* instrument = dynamic_cast<MidiInstrumentBody*> (
+                processorRef.getChannelBody (i)))
+            return juce::Decibels::gainToDecibels (instrument->getGain(), -60.0f);
+        return 0.0f;
+    };
+    mixerView.setGainDb = [this] (int i, float db)
+    {
+        if (processorRef.getChannelType (i) == ChannelType::trackDeck
+            && i < MainPluginProcessor::numDecks)
+        {
+            if (auto* parameter = processorRef.parameters().getParameter (
+                    deckPrefix (i) + "Volume"))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (db));
+            return;
+        }
+        const float linear = juce::Decibels::decibelsToGain (db, -60.0f);
+        if (processorRef.getChannelType (i) == ChannelType::input)
+            processorRef.setInputGainDispatched (i, linear);
+        else if (processorRef.getChannelType (i) == ChannelType::midiInstrument)
+            processorRef.setInstGainDispatched (i, linear);
+    };
+    mixerView.isMuted    = [this] (int i) { return processorRef.isChannelMuted (i); };
+    mixerView.isSoloed   = [this] (int i) { return processorRef.isChannelSoloed (i); };
+    mixerView.toggleMute = [this] (int i) { processorRef.toggleChannelMute (i); };
+    mixerView.toggleSolo = [this] (int i) { processorRef.toggleChannelSolo (i); };
     addChildComponent (mixerView);   // hidden until toggled
 
     setupButton (saveProjButton);
@@ -1204,6 +1253,12 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         {
             safeThis->grabKeyboardFocus();
             safeThis->offerRecoveryAutosave();
+            juce::Timer::callAfterDelay (900, [safeThis]
+            {
+                if (safeThis != nullptr
+                    && juce::JUCEApplicationBase::isStandaloneApp())
+                    safeThis->showOnboarding (false);
+            });
         }
     });
 }
@@ -1247,14 +1302,21 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
     if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Z')
     {
         if (key.getModifiers().isShiftDown())
-            arrangementView.redo();
+        {
+            if (arrangementView.canRedo()) arrangementView.redo();
+            else                           redoSessionAction();
+        }
         else
-            arrangementView.undo();
+        {
+            if (arrangementView.canUndo()) arrangementView.undo();
+            else                           undoSessionAction();
+        }
         return true;
     }
     if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Y')
     {
-        arrangementView.redo();
+        if (arrangementView.canRedo()) arrangementView.redo();
+        else                           redoSessionAction();
         return true;
     }
     if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
@@ -1345,6 +1407,7 @@ void MainPluginEditor::showAddChannelMenu (juce::Component* target)
             const auto type = r == 2 ? ChannelType::input
                             : r == 3 ? ChannelType::midiInstrument
                                      : ChannelType::trackDeck;
+            safe->checkpointSessionUndo ("Add channel");
             if (safe->processorRef.addChannel (type) >= 0)
             {
                 safe->refreshChannelStrips();
@@ -1838,6 +1901,7 @@ void MainPluginEditor::requestDeckClear (int deckIndex)
     auto clear = [safe = juce::Component::SafePointer<MainPluginEditor> (this), deckIndex]
     {
         if (safe == nullptr) return;
+        safe->checkpointSessionUndo ("Clear " + deckLabel (deckIndex));
         if (auto* play = safe->processorRef.parameters().getParameter (
                 deckPrefix (deckIndex) + "Play"))
             play->setValueNotifyingHost (0.0f);
@@ -1878,7 +1942,10 @@ void MainPluginEditor::requestChannelRemoval (int channelIndex)
 
     auto remove = [safe = juce::Component::SafePointer<MainPluginEditor> (this), channelIndex]
     {
-        if (safe == nullptr || ! safe->processorRef.removeChannel (channelIndex))
+        if (safe == nullptr)
+            return;
+        safe->checkpointSessionUndo ("Remove " + safe->processorRef.getChannelName (channelIndex));
+        if (! safe->processorRef.removeChannel (channelIndex))
             return;
         safe->refreshChannelStrips();
         safe->refreshChannelButtons();
@@ -1977,6 +2044,9 @@ void MainPluginEditor::requestRecording (int countInBars)
             if (! file.hasFileExtension ("wav"))
                 file = file.withFileExtension ("wav");
 
+            if (! safe->recordingPreflight (file))
+                return;
+
             const int bars = juce::jlimit (0, 2, countInBars);
             if (bars > 0)
             {
@@ -1998,8 +2068,51 @@ void MainPluginEditor::requestRecording (int countInBars)
         });
 }
 
+bool MainPluginEditor::recordingPreflight (const juce::File& destination)
+{
+    const auto sampleRate = processorRef.getRecordingSampleRate();
+    const auto blockSize = processorRef.getRecordingBlockSize();
+    if (sampleRate <= 0.0 || blockSize <= 0)
+    {
+        recordStatus.setText (
+            "Recording unavailable · check the audio device and try again",
+            juce::dontSendNotification);
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::AlertWindow::WarningIcon, "Audio Device Not Ready",
+            "StemDeck does not have a valid sample rate and buffer size. "
+            "Reconnect or configure the audio device before recording.");
+        return false;
+    }
+
+    auto volume = destination.getParentDirectory();
+    if (! volume.isDirectory())
+        volume = volume.getParentDirectory();
+    constexpr juce::int64 minimumFreeBytes = 512LL * 1024LL * 1024LL;
+    const auto freeBytes = volume.getBytesFreeOnVolume();
+    if (freeBytes >= 0 && freeBytes < minimumFreeBytes)
+    {
+        recordStatus.setText (
+            "Recording blocked · less than 512 MB free at the destination",
+            juce::dontSendNotification);
+        juce::AlertWindow::showMessageBoxAsync (
+            juce::AlertWindow::WarningIcon, "Not Enough Recording Space",
+            "Choose a destination with at least 512 MB free. StemDeck writes the "
+            "master, deck captures, MIDI, and intent data during a take.");
+        return false;
+    }
+
+    if (processorRef.getAudioCpuLoad() > 0.90f)
+        recordStatus.setText (
+            "High CPU before take · consider increasing the audio buffer",
+            juce::dontSendNotification);
+    return true;
+}
+
 void MainPluginEditor::startRecordingNow (const juce::File& file)
 {
+    // Recording replaces the editable arrangement view. Capture a recoverable
+    // restore point before the destructive transition.
+    createSessionSnapshot();
     const bool started = processorRef.beginMasterRecording (file);
     recordStatus.setText (started ? "Recording: " + file.getFileName()
                                   : "Could not start recording", juce::dontSendNotification);
@@ -2278,8 +2391,11 @@ void MainPluginEditor::restoreLatestSnapshot()
     }
 
     if (auto xml = juce::XmlDocument::parse (snapshots.getFirst()))
+    {
+        checkpointSessionUndo ("Restore latest snapshot");
         restoreProjectState (juce::ValueTree::fromXml (*xml),
                              snapshots.getFirst().getFileNameWithoutExtension());
+    }
     else
         recordStatus.setText ("Latest snapshot could not be read",
                               juce::dontSendNotification);
@@ -2359,6 +2475,8 @@ void MainPluginEditor::repairMissingMedia()
                          wanted = (int) searchTargets.size()]() mutable
                         {
                             if (safe == nullptr) return;
+                            if (! resolvedMatches.empty())
+                                safe->checkpointSessionUndo ("Relink missing media");
                             for (const auto& match : resolvedMatches)
                             {
                                 switch (match.target.kind)
@@ -2525,6 +2643,7 @@ void MainPluginEditor::loadProject()
             if (! f.existsAsFile()) return;
             if (auto xml = juce::XmlDocument::parse (f))
             {
+                safe->checkpointSessionUndo ("Open project");
                 safe->restoreProjectState (juce::ValueTree::fromXml (*xml),
                                            "project: " + f.getFileName());
             }
@@ -3434,6 +3553,11 @@ void MainPluginEditor::showSettingsMenu()
     menu.addItem (4, "Create session snapshot", true, false);
     menu.addItem (5, "Restore latest snapshot", true, false);
     menu.addItem (6, "Repair missing media...", true, false);
+    menu.addSeparator();
+    menu.addItem (7, "Session History...", true, false);
+    menu.addItem (8, "Export Center...", true, false);
+    menu.addItem (9, "Diagnostics...", true, false);
+    menu.addItem (10, "Welcome guide...", true, false);
     juce::Component::SafePointer<MainPluginEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
         [safe] (int choice)
@@ -3445,6 +3569,10 @@ void MainPluginEditor::showSettingsMenu()
             else if (choice == 4) safe->createSessionSnapshot();
             else if (choice == 5) safe->restoreLatestSnapshot();
             else if (choice == 6) safe->repairMissingMedia();
+            else if (choice == 7) safe->showSessionHistory();
+            else if (choice == 8) safe->showExportCenter();
+            else if (choice == 9) safe->showDiagnostics();
+            else if (choice == 10) safe->showOnboarding (true);
         });
 }
 
@@ -3473,6 +3601,12 @@ void MainPluginEditor::showCommandPalette()
         { 21, "Create Snapshot",    "Keep a timestamped restore point for this session", u8 ("\xe2\x87\xa7\xe2\x8c\x98S") },
         { 22, "Restore Latest Snapshot", "Return to the newest named restore point",     "" },
         { 23, "Repair Missing Files", "Find and relink moved session audio by filename",  "" }
+        ,{ 24, "Session History",     "Browse, annotate, restore, and remove restore points", "" }
+        ,{ 25, "Export Center",       "Preflight and package the current session",       "" }
+        ,{ 26, "Diagnostics",         "Copy a privacy-safe troubleshooting report",      "" }
+        ,{ 27, "Welcome Guide",       "Review the four-step getting-started guide",      "" }
+        ,{ 28, "Undo Session Change", "Undo a channel add, remove, or destructive clear", "" }
+        ,{ 29, "Redo Session Change", "Redo the last session-level change",               "" }
     };
 
     auto panel = std::make_unique<stemdeck::CommandPalette> (std::move (commands));
@@ -3617,6 +3751,12 @@ void MainPluginEditor::performCommand (int commandId)
         case 21: createSessionSnapshot(); break;
         case 22: restoreLatestSnapshot(); break;
         case 23: repairMissingMedia(); break;
+        case 24: showSessionHistory(); break;
+        case 25: showExportCenter(); break;
+        case 26: showDiagnostics(); break;
+        case 27: showOnboarding (true); break;
+        case 28: undoSessionAction(); break;
+        case 29: redoSessionAction(); break;
         default: break;
     }
 }
@@ -6268,6 +6408,25 @@ void MainPluginEditor::updateAutomixRamp()
 
 void MainPluginEditor::timerCallback()
 {
+    ++uiTimerTick;
+    const bool underPressure = processorRef.getAudioCpuLoad() > 0.85f;
+    if (underPressure != cpuPressureMode)
+    {
+        cpuPressureMode = underPressure;
+        recordStatus.setText (
+            underPressure
+                ? "Performance protection · reducing visual refresh while CPU is high"
+                : "Performance protection cleared · full visual refresh restored",
+            juce::dontSendNotification);
+    }
+    if (processorRef.isIntentCaptureActive())
+        processorRef.pollHostedPluginParameterChanges();
+    if (mixerView.isVisible() && (! cpuPressureMode || uiTimerTick % 3 == 0))
+    {
+        mixerView.numChannels = processorRef.getNumChannels();
+        mixerView.repaint();
+    }
+
     // Service deferred audio-thread requests (e.g. TE transport auto-stop).
     processorRef.serviceDeferredActions();
     if ((autosaveTick++ % 150) == 0)
@@ -6340,7 +6499,12 @@ void MainPluginEditor::timerCallback()
         // finish separating a moment after the full mix loads).
         const juce::String sig = processorRef.getDeckPath (i) + "|" + juce::String (processorRef.deckHasNeuralStems (i) ? 1 : 0);
         const int h = sig.hashCode();
-        if (waveDataState[(size_t) i] != h) { waveDataState[(size_t) i] = h; refreshDeckWaveData (i); }
+        if (waveDataState[(size_t) i] != h
+            && (! cpuPressureMode || uiTimerTick % 3 == 0))
+        {
+            waveDataState[(size_t) i] = h;
+            refreshDeckWaveData (i);
+        }
         // Live playhead.
         const double total = processorRef.getDeckTotalSeconds (i);
         region->setPlayheadNorm (total > 0 ? (float) (processorRef.getDeckPlayheadSeconds (i) / total) : 0.0f);
@@ -6412,7 +6576,8 @@ void MainPluginEditor::timerCallback()
     }
 
     // Live input meters / instrument activity on the per-type strips.
-    refreshChannelStrips();
+    if (! cpuPressureMode || uiTimerTick % 3 == 0)
+        refreshChannelStrips();
 
     processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();

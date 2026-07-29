@@ -40,7 +40,7 @@ public:
     void paint (juce::Graphics&) override;
 
 private:
-    enum ColumnId { colIndex = 1, colTitle, colBpm, colKey, colLength };
+    enum ColumnId { colIndex = 1, colTitle, colBpm, colKey, colLength, colStatus };
 
     struct Entry
     {
@@ -52,6 +52,7 @@ private:
         bool         keyMinor = false;
         float        keyConfidence = 0.0f;
         bool         analyzed = false;
+        juce::int64  lastLoadedMs = 0;
     };
 
     // TableListBoxModel
@@ -59,6 +60,7 @@ private:
     void paintRowBackground (juce::Graphics&, int row, int width, int height, bool selected) override;
     void paintCell (juce::Graphics&, int row, int col, int width, int height, bool selected) override;
     void cellDoubleClicked (int row, int col, const juce::MouseEvent&) override;
+    void selectedRowsChanged (int lastRowSelected) override;
     void sortOrderChanged (int newSortColumnId, bool isForwards) override;
 
     void rebuildView();
@@ -83,7 +85,9 @@ private:
     juce::TextEditor    promptBox;                       // AI set builder prompt
     juce::TextButton    buildSetButton { "Build Set" };
     juce::TextButton    addFolderButton { "+ Folder" };
-    juce::TextButton    clearButton     { "Clear" };
+    juce::TextButton    clearButton     { "Clean" };
+    juce::TextButton    loadButton      { "Load Selected" };
+    juce::ComboBox      smartFilter;
     juce::Label         countLabel;
 
     std::vector<Entry> entries;
@@ -91,6 +95,7 @@ private:
     juce::StringArray  crateFolders;
 
     juce::String filterText;
+    int smartFilterId = 1;
     int  sortColumnId = colTitle;
     bool sortForwards = true;
 

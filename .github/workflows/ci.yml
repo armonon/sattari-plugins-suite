@@ -129,16 +129,10 @@ jobs:
       - name: Configure
         run: cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build + run DSP accuracy tests
+      - name: Build + run registered StemDeck contracts
         run: |
-          set -e
-          for t in StemDeckBeatDetectTest StemDeckKeyDetectTest StemDeckAutomixTest StemDeckResamplerTest StemDeckAnalysisCacheTest StemDeckLongAudioTest StemDeckSessionTest StemDeckCaptureTest StemDeckRenderTest StemDeckRendererTest StemDeckExportTest StemDeckLoudnessTest StemDeckStructureTest; do
-            cmake --build build/stemdeck --target "$t" -j3
-            bin="$(find build/stemdeck -type f -name "$t" -perm +111 | head -n1)"
-            if [ -z "$bin" ]; then echo "::error::$t binary not found"; exit 1; fi
-            echo "── Running $t"
-            "$bin"
-          done
+          cmake --build build/stemdeck --target StemDeckContractSuite -j3
+          ctest --test-dir build/stemdeck --output-on-failure -L contract
 
       - name: Run capture → edit → retime → export vertical slice
         run: |

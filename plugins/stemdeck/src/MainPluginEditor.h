@@ -32,6 +32,7 @@
 #include "RecordingHealthBar.h"
 #include "CommandPalette.h"
 #include "QuickInspector.h"
+#include "WorkflowPanels.h"
 
 // Plugin-FX hosting: HostGraph discovers + instantiates plugins AND its processChain
 // is now wired into processBlock for every deck, the mic bus, and the master (empty
@@ -609,6 +610,18 @@ private:
     void createSessionSnapshot();
     void restoreLatestSnapshot();
     void repairMissingMedia();
+    void showSessionHistory();
+    void showDiagnostics();
+    void showOnboarding (bool force = false);
+    void showExportCenter();
+    void exportSessionPackage();
+    juce::String buildDiagnosticsReport() const;
+    static juce::File onboardingMarkerFile();
+    void checkpointSessionUndo (const juce::String& label);
+    void undoSessionAction();
+    void redoSessionAction();
+    std::vector<juce::ValueTree> sessionUndoStack, sessionRedoStack;
+    bool restoringSessionUndo = false;
     static juce::File sessionSnapshotsDirectory();
     juce::ValueTree makeProjectState() const;
     void restoreProjectState (const juce::ValueTree& root, const juce::String& sourceLabel);
@@ -684,6 +697,8 @@ private:
     void performCommand (int commandId);
     void setFocusMode (bool enabled);
     bool focusMode = false;
+    bool cpuPressureMode = false;
+    int uiTimerTick = 0;
     // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
     // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button
     // in the header (plus title double-click) reveals them.
@@ -818,6 +833,7 @@ private:
     void toggleRecording();
     void requestRecording (int countInBars);
     void startRecordingNow (const juce::File& destination);
+    bool recordingPreflight (const juce::File& destination);
     void revealLastRecording();
     void reloadLastRecordingIntoDecks();
     void loadLastArrangementIntoView (juce::String statusLine);

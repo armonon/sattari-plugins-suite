@@ -110,7 +110,8 @@ struct ParamPayload
     ParamId     id      = ParamId::channelGain;
     GestureFlag gesture = GestureFlag::none;
     double      value   = 0.0;    // EXACT — never a formatted string
-    std::uint32_t index = 0;      // insertParam: which parameter of that insert
+    std::uint32_t index = 0;      // insertParam: insert position (hi16) + fallback parameter index (lo16)
+    std::uint64_t stableId = 0;   // insertParam: hash of the plugin's persistent parameter ID
 };
 
 struct TransportPayload
@@ -268,6 +269,7 @@ private:
                 p.writeByte ((char) e.param.gesture);
                 p.writeDouble (e.param.value);
                 p.writeInt ((int) e.param.index);
+                p.writeInt64 ((std::int64_t) e.param.stableId);
                 break;
             case EventType::transport:
                 p.writeByte ((char) e.transport.action);
@@ -398,6 +400,7 @@ public:
                     e.param.gesture = (GestureFlag) rawGesture;
                     e.param.value   = p.readDouble();
                     e.param.index   = (std::uint32_t) p.readInt();
+                    e.param.stableId = (std::uint64_t) p.readInt64();
                     break;
                 }
                 case EventType::transport:

@@ -66,6 +66,7 @@ int main()
         e.param.gesture = GestureFlag::end;      // endpoints are never coalesced (§5)
         e.param.value = 0.73499999999999999;     // deliberately not representable in 4dp
         e.param.index = 3;
+        e.param.stableId = 0xF00DCAFEDEADBEEFULL;
         src.push_back (e);
     }
     {
@@ -135,7 +136,8 @@ int main()
                 case EventType::param:
                     allOk = allOk && a.param.id == b.param.id
                                   && a.param.gesture == b.param.gesture
-                                  && a.param.index == b.param.index;
+                                  && a.param.index == b.param.index
+                                  && a.param.stableId == b.param.stableId;
                     doublesExact = doublesExact && bitEqual (a.param.value, b.param.value);
                     break;
                 case EventType::transport:

@@ -35,10 +35,11 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     table.setHeaderHeight (24);
     auto& header = table.getHeader();
     header.addColumn ("#",      colIndex,  34,  28,  48,  juce::TableHeaderComponent::notResizableOrSortable);
-    header.addColumn ("Title",  colTitle,  220, 120, 600, juce::TableHeaderComponent::defaultFlags);
-    header.addColumn ("BPM",    colBpm,    56,  44,  80,  juce::TableHeaderComponent::defaultFlags);
-    header.addColumn ("Key",    colKey,    74,  56,  100, juce::TableHeaderComponent::defaultFlags);
-    header.addColumn ("Length", colLength, 64,  52,  90,  juce::TableHeaderComponent::defaultFlags);
+    header.addColumn ("Title",  colTitle,  150, 100, 600, juce::TableHeaderComponent::defaultFlags);
+    header.addColumn ("BPM",    colBpm,     52,  44,  80, juce::TableHeaderComponent::defaultFlags);
+    header.addColumn ("Key",    colKey,     65,  54, 100, juce::TableHeaderComponent::defaultFlags);
+    header.addColumn ("Length", colLength,  58,  50,  90, juce::TableHeaderComponent::defaultFlags);
+    header.addColumn ("Status", colStatus,  72,  64, 120, juce::TableHeaderComponent::defaultFlags);
     header.setSortColumnId (colTitle, true);
     addAndMakeVisible (table);
 
@@ -51,6 +52,24 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
         rebuildView();
     };
     addAndMakeVisible (searchBox);
+
+    smartFilter.addItem ("All Tracks", 1);
+    smartFilter.addItem ("Ready", 2);
+    smartFilter.addItem ("Analyzing", 3);
+    smartFilter.addItem ("Missing", 4);
+    smartFilter.addItem ("Played Recently", 5);
+    smartFilter.addItem ("Minor Keys", 6);
+    smartFilter.addItem ("Major Keys", 7);
+    smartFilter.addItem ("60–100 BPM", 8);
+    smartFilter.addItem ("100–130 BPM", 9);
+    smartFilter.addItem ("130+ BPM", 10);
+    smartFilter.setSelectedId (1, juce::dontSendNotification);
+    smartFilter.onChange = [this]
+    {
+        smartFilterId = smartFilter.getSelectedId();
+        rebuildView();
+    };
+    addAndMakeVisible (smartFilter);
 
     promptBox.setTextToShowWhenEmpty (u8 ("AI set: e.g. \"dark 124 bpm set in A minor\"\xe2\x80\xa6"),
                                       juce::Colour (sattari::brand::kTextMuted));
@@ -67,12 +86,41 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
 
     clearButton.onClick = [this]
     {
-        entries.clear();
-        crateFolders.clear();
-        saveCrateList();
+        const auto before = entries.size();
+        std::erase_if (entries, [] (const Entry& entry)
+        {
+            return ! entry.file.existsAsFile();
+        });
         rebuildView();
+        countLabel.setText (
+            before == entries.size()
+                ? "Library is clean · no missing entries"
+                : "Removed " + juce::String ((int) (before - entries.size()))
+                    + " missing entries",
+            juce::dontSendNotification);
     };
     addAndMakeVisible (clearButton);
+
+    loadButton.setEnabled (false);
+    loadButton.onClick = [this]
+    {
+        const auto row = table.getSelectedRow();
+        if (juce::isPositiveAndBelow (row, (int) view.size()))
+        {
+            auto& entry = entries[(size_t) view[(size_t) row]];
+            if (entry.file.existsAsFile() && onLoadFile)
+            {
+                entry.lastLoadedMs = juce::Time::currentTimeMillis();
+                if (auto* object = cache->getProperty (
+                        entry.file.getFullPathName()).getDynamicObject())
+                    object->setProperty ("last", (double) entry.lastLoadedMs);
+                cacheDirty.store (true);
+                onLoadFile (entry.file);
+                rebuildView();
+            }
+        }
+    };
+    addAndMakeVisible (loadButton);
 
     countLabel.setFont (juce::FontOptions (10.0f));
     countLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
@@ -153,6 +201,7 @@ void MusicLibraryView::scanFolder (const juce::File& folder)
                 e.keyMinor      = (bool) obj->getProperty ("min");
                 e.keyConfidence = (float) (double) obj->getProperty ("conf");
                 e.lengthSeconds = (double) obj->getProperty ("len");
+                e.lastLoadedMs   = (juce::int64) (double) obj->getProperty ("last");
                 e.analyzed = true;
             }
         }
@@ -216,6 +265,12 @@ void MusicLibraryView::applyAnalysis (const juce::File& file, const TrackAnalysi
     obj->setProperty ("conf", (double) analysis.keyConfidence);
     obj->setProperty ("len",  lengthSeconds);
     obj->setProperty ("mod",  (double) file.getLastModificationTime().toMilliseconds());
+    for (const auto& entry : entries)
+        if (entry.file == file)
+        {
+            obj->setProperty ("last", (double) entry.lastLoadedMs);
+            break;
+        }
     cache->setProperty (file.getFullPathName(), juce::var (obj));
     cacheDirty.store (true);
 
@@ -234,9 +289,29 @@ void MusicLibraryView::rebuildView()
 
     for (int i = 0; i < (int) entries.size(); ++i)
     {
+        const auto& entry = entries[(size_t) i];
+        bool smartMatch = true;
+        switch (smartFilterId)
+        {
+            case 2: smartMatch = entry.analyzed && entry.file.existsAsFile(); break;
+            case 3: smartMatch = ! entry.analyzed; break;
+            case 4: smartMatch = ! entry.file.existsAsFile(); break;
+            case 5: smartMatch = entry.lastLoadedMs > 0
+                              && juce::Time::currentTimeMillis() - entry.lastLoadedMs
+                                   < 30LL * 24LL * 60LL * 60LL * 1000LL; break;
+            case 6: smartMatch = entry.analyzed && entry.keyMinor; break;
+            case 7: smartMatch = entry.analyzed && ! entry.keyMinor
+                                              && entry.keyPitchClass >= 0; break;
+            case 8: smartMatch = entry.bpm >= 60.0f && entry.bpm < 100.0f; break;
+            case 9: smartMatch = entry.bpm >= 100.0f && entry.bpm < 130.0f; break;
+            case 10: smartMatch = entry.bpm >= 130.0f; break;
+            default: break;
+        }
+        if (! smartMatch)
+            continue;
         if (filterText.isNotEmpty())
         {
-            const auto& e = entries[(size_t) i];
+            const auto& e = entry;
             const auto hay = (e.title + " " + juce::String (e.bpm, 0) + " "
                               + camelotCode (e.keyPitchClass, e.keyMinor)).toLowerCase();
             if (! hay.contains (filterText))
@@ -477,6 +552,21 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
             g.setColour (juce::Colour (sattari::brand::kTextMuted));
             g.drawText (formatLength (e.lengthSeconds), area, juce::Justification::centredLeft);
             break;
+        case colStatus:
+        {
+            const bool exists = e.file.existsAsFile();
+            const auto status = ! exists ? "MISSING" : e.analyzed ? "READY" : "ANALYZING";
+            const auto colour = ! exists ? juce::Colour (sattari::brand::kDanger)
+                              : e.analyzed ? juce::Colour (sattari::brand::kAccent)
+                                           : juce::Colour (sattari::brand::kTextMuted);
+            auto chip = area.reduced (2, 4);
+            g.setColour (colour.withAlpha (0.13f));
+            g.fillRoundedRectangle (chip.toFloat(), 3.0f);
+            g.setColour (colour);
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText (status, chip, juce::Justification::centred);
+            break;
+        }
         default: break;
     }
 }
@@ -484,9 +574,23 @@ void MusicLibraryView::paintCell (juce::Graphics& g, int row, int columnId, int 
 void MusicLibraryView::cellDoubleClicked (int row, int, const juce::MouseEvent&)
 {
     if (! juce::isPositiveAndBelow (row, (int) view.size())) return;
-    const auto& e = entries[(size_t) view[(size_t) row]];
-    if (onLoadFile)
+    auto& e = entries[(size_t) view[(size_t) row]];
+    if (e.file.existsAsFile() && onLoadFile)
+    {
+        e.lastLoadedMs = juce::Time::currentTimeMillis();
+        if (auto* object = cache->getProperty (e.file.getFullPathName()).getDynamicObject())
+            object->setProperty ("last", (double) e.lastLoadedMs);
+        cacheDirty.store (true);
         onLoadFile (e.file);
+        rebuildView();
+    }
+}
+
+void MusicLibraryView::selectedRowsChanged (int lastRowSelected)
+{
+    loadButton.setEnabled (
+        juce::isPositiveAndBelow (lastRowSelected, (int) view.size())
+        && entries[(size_t) view[(size_t) lastRowSelected]].file.existsAsFile());
 }
 
 void MusicLibraryView::sortOrderChanged (int newSortColumnId, bool isForwards)
@@ -564,6 +668,8 @@ void MusicLibraryView::resized()
     top.removeFromLeft (4);
     clearButton.setBounds (top.removeFromLeft (52));
     top.removeFromLeft (6);
+    smartFilter.setBounds (top.removeFromRight (124));
+    top.removeFromRight (5);
     searchBox.setBounds (top);
     area.removeFromTop (4);
     // AI set builder row: free-text prompt + Build Set.
@@ -572,7 +678,10 @@ void MusicLibraryView::resized()
     promptRow.removeFromRight (4);
     promptBox.setBounds (promptRow);
     area.removeFromTop (4);
-    countLabel.setBounds (area.removeFromBottom (16));
+    auto footer = area.removeFromBottom (24);
+    loadButton.setBounds (footer.removeFromRight (108));
+    footer.removeFromRight (6);
+    countLabel.setBounds (footer);
     table.setBounds (area);
 }
 

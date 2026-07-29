@@ -33,6 +33,7 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
 project(SATTARI_STEMDECK_PLUGIN VERSION 0.5.0)
+include(CTest)
 
 # Shared core headers (HpcpChromagram + key profiles). TrackAnalysis.cpp uses them
 # for key detection, and the EXCLUDE_FROM_ALL test targets compile that file
@@ -70,6 +71,7 @@ sattari_add_plugin(
         src/MainPluginEditor.cpp
         src/MainPluginEditor_Arrangement.cpp
         src/MainPluginEditor_Surfaces.cpp
+        src/MainPluginEditor_Workflows.cpp
         src/MainPluginProcessor.cpp
         src/MasterRecorder.cpp
         src/MixerSection.cpp
@@ -963,4 +965,55 @@ if(STEMDECK_ONNX_ENABLED)
             juce::juce_recommended_warning_flags)
 
     stemdeck_link_tracktion(StemDeckNeuralSmoke)
+endif()
+
+# ── CTest contract suite ──────────────────────────────────────────────────────
+# Keep the render fixtures and corpus/live-I/O tools opt-in: they need output
+# paths, real media, or hardware. The tests below are deterministic, zero-arg
+# contracts and can be run uniformly by local builds and CI.
+if(BUILD_TESTING)
+    set(STEMDECK_CONTRACT_TESTS
+        StemDeckArchitectureContract
+        StemDeckBeatDetectTest
+        StemDeckKeyDetectTest
+        StemDeckAutomixTest
+        StemDeckAnalysisCacheTest
+        StemDeckLongAudioTest
+        StemDeckSessionTest
+        StemDeckCaptureTest
+        StemDeckRenderTest
+        StemDeckRendererTest
+        StemDeckExportTest
+        StemDeckLoudnessTest
+        StemDeckStructureTest
+        StemDeckLayout
+        StemDeckStemFx
+        StemDeckKeyLockTest
+        StemDeckReplayHash
+        StemDeckRecordingHealth
+        StemDeckDispatch
+        StemDeckEventStream
+        StemDeckRtSafety
+        StemDeckMultiInstance
+        StemDeckLoadLatency
+        StemDeckSolo
+        StemDeckMidiCapture
+        StemDeckPdc
+        StemDeckChannelDropout
+        StemDeckTrackDeckBody
+        StemDeckChannelCompile
+        StemDeckResamplerTest)
+
+    foreach(_sd_test IN LISTS STEMDECK_CONTRACT_TESTS)
+        if(TARGET ${_sd_test})
+            add_test(NAME ${_sd_test} COMMAND $<TARGET_FILE:${_sd_test}>)
+            set_tests_properties(${_sd_test} PROPERTIES
+                LABELS "stemdeck;contract"
+                TIMEOUT 120)
+        endif()
+    endforeach()
+
+    add_custom_target(StemDeckContractSuite
+        DEPENDS ${STEMDECK_CONTRACT_TESTS}
+        COMMENT "Building the deterministic StemDeck contract suite")
 endif()
