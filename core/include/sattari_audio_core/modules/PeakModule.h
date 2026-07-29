@@ -72,7 +72,7 @@ public:
             juce::AudioParameterFloatAttributes().withLabel ("LUFS")));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         pPush   = apvts.getRawParameterValue (prefix + "push");
         pCeil   = apvts.getRawParameterValue (prefix + "ceiling");

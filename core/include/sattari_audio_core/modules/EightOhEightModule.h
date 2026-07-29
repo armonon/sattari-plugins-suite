@@ -75,7 +75,7 @@ public:
             juce::NormalisableRange<float> (0.0f, 2.0f, 0.001f), 1.0f));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -343,8 +343,7 @@ private:
     float p (const char* id) const noexcept
     {
         if (state == nullptr) return 0.0f;
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     juce::AudioProcessorValueTreeState* state = nullptr;

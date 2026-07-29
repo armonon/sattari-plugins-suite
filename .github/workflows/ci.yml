@@ -68,11 +68,14 @@ jobs:
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/onset_curve_contract.cpp -o /tmp/onset_curve_contract
           /tmp/onset_curve_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra -pthread \
+            core/tests/realtime_snapshot_contract.cpp -o /tmp/realtime_snapshot_contract
+          /tmp/realtime_snapshot_contract
 
   # ---------------------------------------------------------------------------
-  # Per-plugin build matrix on macOS: proves each plugin still configures and
-  # builds AU/VST3/Standalone, and runs the plugin's contract test where one
-  # exists. fail-fast: false so one broken plugin doesn't mask the others.
+  # Release-critical build matrix on macOS. This is deliberately a focused
+  # subset; the root job below checks that all products configure together.
+  # fail-fast: false so one broken plugin doesn't mask the others.
   # ---------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.plugin }}
@@ -95,6 +98,7 @@ jobs:
           - { plugin: vocal-master,      test: VocalMasterCoreContract, render: VocalMasterRender }
           - { plugin: song-key,          render: SongKeyRender }
           - { plugin: rhythm-genie,      test: RhythmGenieCoreContract, render: RhythmGenieRender }
+          - { plugin: stack,             test: SattariStackLayerContract }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,10 +149,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # Root configure + cross-plugin contract. Configuring from the repo root
   # exercises every plugin's add_subdirectory together (catching cross-target /
-  # shared-core breakage the matrix can miss); we then build only the
-  # cross-plugin bus contract, NOT all 33 artifacts — the matrix already proves
-  # each plugin builds, so a second full build just burned macOS minutes and
-  # starved the matrix jobs.
+  # shared-core breakage the focused matrix can miss); we then build only the
+  # cross-plugin bus contract. This is an integration/configuration gate, not a
+  # claim that every product's source was compiled.
   # ---------------------------------------------------------------------------
   suite-build:
     name: Root configure + cross-plugin contract

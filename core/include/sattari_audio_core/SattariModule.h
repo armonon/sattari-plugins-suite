@@ -2,7 +2,11 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <sattari_audio_core/SattariHostTransport.h>
+#include <algorithm>
+#include <atomic>
+#include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 // =============================================================================
@@ -50,8 +54,32 @@ public:
     virtual void addParameters (ParamList& out, const juce::String& prefix) = 0;
 
     // Resolve raw parameter pointers once, off the audio thread. Called after the
-    // APVTS exists and before prepare().
-    virtual void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) = 0;
+    // APVTS exists and before prepare(). The non-virtual entry point always builds
+    // the shared allocation-free lookup first, so a module cannot accidentally
+    // perform APVTS/String lookup from process().
+    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix)
+    {
+        parameterCache.clear();
+
+        for (auto* parameter : apvts.processor.getParameters())
+        {
+            auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter);
+            if (withId == nullptr || ! withId->paramID.startsWith (prefix))
+                continue;
+
+            if (auto* value = apvts.getRawParameterValue (withId->paramID))
+                parameterCache.push_back (
+                    { withId->paramID.substring (prefix.length()).toStdString(), value });
+        }
+
+        std::sort (parameterCache.begin(), parameterCache.end(),
+                   [] (const ParameterBinding& a, const ParameterBinding& b)
+                   {
+                       return a.id < b.id;
+                   });
+
+        linkModule (apvts, prefix);
+    }
 
     // May allocate.
     virtual void prepare (double sampleRate, int maxBlockSize, int numChannels) = 0;
@@ -94,6 +122,45 @@ public:
     // already extracted, need no edit. The pointer is valid ONLY for the duration of
     // the following process() call — never retain it.
     virtual void setSidechain (const juce::AudioBuffer<float>*) noexcept {}
+
+protected:
+    // Module-specific link hook. Implementations can cache frequently-read raw
+    // pointers directly; cachedParameterValue() covers variable/generated ids
+    // without constructing a juce::String on the audio thread.
+    virtual void linkModule (juce::AudioProcessorValueTreeState& apvts,
+                             const juce::String& prefix) = 0;
+
+    std::atomic<float>* cachedParameterPointer (const char* id) const noexcept
+    {
+        const auto it = std::lower_bound (
+            parameterCache.begin(), parameterCache.end(), id,
+            [] (const ParameterBinding& binding, const char* wanted)
+            {
+                return binding.id.compare (wanted) < 0;
+            });
+
+        if (it != parameterCache.end() && std::strcmp (it->id.c_str(), id) == 0)
+            return it->value;
+
+        jassertfalse;
+        return nullptr;
+    }
+
+    float cachedParameterValue (const char* id, float fallback = 0.0f) const noexcept
+    {
+        if (auto* value = cachedParameterPointer (id))
+            return value->load();
+        return fallback;
+    }
+
+private:
+    struct ParameterBinding
+    {
+        std::string id;
+        std::atomic<float>* value = nullptr;
+    };
+
+    std::vector<ParameterBinding> parameterCache;
 };
 
 } // namespace sattari::dsp

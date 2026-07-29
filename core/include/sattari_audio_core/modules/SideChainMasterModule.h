@@ -83,7 +83,7 @@ public:
         f ("syncCurve", "Sync Curve", 0.2f, 4.0f, 1.0f);
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -131,8 +131,7 @@ public:
     int latencySamples() const noexcept override
     {
         if (state == nullptr) return 0;
-        auto* v = state->getRawParameterValue (pfx + "lookahead");
-        const float ms = v != nullptr ? v->load() : 0.0f;
+        const float ms = cachedParameterValue ("lookahead");
         return juce::jlimit (0, maxLookaheadSamples, (int) std::lround (ms * 0.001 * sr));
     }
 
@@ -273,8 +272,7 @@ private:
 
     float p (const char* id) const noexcept
     {
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     static float dbToGain (float db) noexcept { return juce::Decibels::decibelsToGain (db, -120.0f); }

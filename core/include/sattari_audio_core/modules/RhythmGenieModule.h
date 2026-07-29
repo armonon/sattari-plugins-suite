@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 // =============================================================================
@@ -133,11 +134,15 @@ public:
         static const char* base[rhythm::kNumLanes] = { "kick", "snare", "chat", "ohat" };
         for (int l = 0; l < rhythm::kNumLanes; ++l)
         {
-            laneLevelP[l] = state->getRawParameterValue (pfx + base[l] + juce::String ("Level"));
-            laneTuneP[l]  = state->getRawParameterValue (pfx + base[l] + juce::String ("Tune"));
-            laneDecayP[l] = state->getRawParameterValue (pfx + base[l] + juce::String ("Decay"));
+            char id[24];
+            std::snprintf (id, sizeof id, "%sLevel", base[l]);
+            laneLevelP[l] = cachedParameterPointer (id);
+            std::snprintf (id, sizeof id, "%sTune", base[l]);
+            laneTuneP[l] = cachedParameterPointer (id);
+            std::snprintf (id, sizeof id, "%sDecay", base[l]);
+            laneDecayP[l] = cachedParameterPointer (id);
         }
-        kitLevelP = state->getRawParameterValue (pfx + "kitLevel");
+        kitLevelP = cachedParameterPointer ("kitLevel");
     }
 
     bool laneEnabled (int lane) const noexcept
@@ -301,7 +306,7 @@ public:
         playStep.store ((((int) std::floor (startPpq * 4.0)) % rhythm::kSteps + rhythm::kSteps) % rhythm::kSteps);
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -574,8 +579,7 @@ private:
     float param (const char* id) const noexcept
     {
         if (state == nullptr) return 0.0f;
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     juce::AudioProcessorValueTreeState* state = nullptr;

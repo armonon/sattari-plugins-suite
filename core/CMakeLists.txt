@@ -234,6 +234,15 @@ target_link_libraries(SattariAudioCoreHarmonicMaskContract
     PRIVATE
         SattariAudioCore)
 
+# Cross-thread snapshot contract. Exercises a large number of concurrent
+# publications/reads and validates that no torn frame can escape.
+add_executable(SattariAudioCoreRealtimeSnapshotContract
+    tests/realtime_snapshot_contract.cpp)
+
+target_link_libraries(SattariAudioCoreRealtimeSnapshotContract
+    PRIVATE
+        SattariAudioCore)
+
 # NOTE: the cross-plugin session bus contract needs juce_core, which is not yet
 # available when core/ is configured (plugins add JUCE after this). It is defined
 # at the end of the root CMakeLists, once a JUCE target exists.

@@ -177,7 +177,7 @@ public:
 
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -1090,8 +1090,7 @@ private:
     float param (const char* id) const noexcept
     {
         if (state == nullptr) return 0.0f;
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     juce::AudioBuffer<float>* auxChoir = nullptr;

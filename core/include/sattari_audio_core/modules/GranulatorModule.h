@@ -181,7 +181,7 @@ private:
         for (int k = 0; baseId[k] != '\0' && n < 63; ++k, ++n)
             buf[n] = baseId[k];
         buf[n] = '\0';
-        return state->getRawParameterValue (pfx + juce::String (buf))->load();
+        return cachedParameterValue (buf);
     }
 
     EngineParams gatherParams (Layer layer) const noexcept
@@ -317,8 +317,7 @@ private:
     float param (const char* id) const noexcept
     {
         if (state == nullptr) return 0.0f;
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
 public:
@@ -657,7 +656,7 @@ public:
     //  Lifecycle
     // =============================================================================
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;

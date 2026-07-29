@@ -68,7 +68,7 @@ public:
             juce::StringArray { "1/16", "1/8T", "1/8", "1/8 dot", "1/4", "1/4 dot", "1/2" }, 2));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -216,8 +216,7 @@ public:
 private:
     float p (const char* id) const noexcept
     {
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     static float dbToGain (float db) noexcept { return juce::Decibels::decibelsToGain (db, -120.0f); }

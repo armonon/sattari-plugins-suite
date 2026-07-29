@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 
 // =============================================================================
 //  MultibandModule — Sattari Multiband's DSP, extracted so the standalone plugin
@@ -72,7 +73,7 @@ public:
         f ("output", "Output", -24.0f,  24.0f,   0.0f, 0.1f, 1.0f, "dB");
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -114,15 +115,15 @@ public:
         bool  solo[kBands];
         for (int b = 0; b < kBands; ++b)
         {
-            const juce::String n1 = juce::String (b + 1);
-            thr[b]      = p ("thr"   + n1);
-            const float ratio = juce::jmax (1.0f, p ("ratio" + n1));
+            const int n1 = b + 1;
+            thr[b]      = pIndexed ("thr", n1);
+            const float ratio = juce::jmax (1.0f, pIndexed ("ratio", n1));
             invRatio[b] = 1.0f / ratio;
-            kneeW[b]    = juce::jmax (0.0f, p ("knee" + n1));
+            kneeW[b]    = juce::jmax (0.0f, pIndexed ("knee", n1));
             halfKnee[b] = 0.5f * kneeW[b];
-            grSmoother[(size_t) b].setTimes (p ("atk" + n1), p ("rel" + n1));
-            makeup[b]   = dbToGain (p ("mk" + n1));
-            solo[b]     = p ("solo" + n1) > 0.5f;
+            grSmoother[(size_t) b].setTimes (pIndexed ("atk", n1), pIndexed ("rel", n1));
+            makeup[b]   = dbToGain (pIndexed ("mk", n1));
+            solo[b]     = pIndexed ("solo", n1) > 0.5f;
             anySolo     = anySolo || solo[b];
         }
 
@@ -204,10 +205,16 @@ public:
     }
 
 private:
-    float p (const juce::String& id) const noexcept
+    float p (const char* id) const noexcept
     {
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
+    }
+
+    float pIndexed (const char* base, int oneBasedIndex) const noexcept
+    {
+        char id[24];
+        std::snprintf (id, sizeof id, "%s%d", base, oneBasedIndex);
+        return cachedParameterValue (id);
     }
 
     static float dbToGain (float db) noexcept { return juce::Decibels::decibelsToGain (db, -120.0f); }

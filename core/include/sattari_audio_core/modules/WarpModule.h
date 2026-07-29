@@ -70,7 +70,7 @@ public:
         out.push_back (std::make_unique<ChoiceP> (juce::ParameterID { prefix + "stutterRate", 1 }, "Stutter Rate", stutterRateChoices(), 3));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -291,8 +291,7 @@ private:
 
     float p (const char* id) const noexcept
     {
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     juce::AudioProcessorValueTreeState* state = nullptr;

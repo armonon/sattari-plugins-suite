@@ -64,8 +64,18 @@ public:
           apvts (*this, nullptr, juce::Identifier (stateTreeId), createLayout()),
           presetBank (apvts, presetProductId.isNotEmpty() ? presetProductId : stateTreeId.toLowerCase())
     {
-        for (auto& m : modules)
-            m->link (apvts, juce::String (m->moduleId()) + ".");
+        // createLayout() builds layer 0 because the APVTS needs one canonical
+        // roster to declare parameters. Every other layer gets its own stateful
+        // DSP instances; controls remain shared per instrument type by design.
+        for (int layer = 1; layer < kNumLayers; ++layer)
+        {
+            layerModules[(size_t) layer] = factory_();
+            jassert (layerModules[(size_t) layer].size() == layerModules[0].size());
+        }
+
+        for (auto& layer : layerModules)
+            for (auto& m : layer)
+                m->link (apvts, juce::String (m->moduleId()) + ".");
     }
 
     ~SattariInstrumentRack() override = default;
@@ -105,14 +115,20 @@ public:
 
         // Every module prepared, not just the ones in layers — rewiring must never
         // allocate on the audio thread.
-        for (auto& m : modules)
-            m->prepare (sampleRate, n, 2);
+        for (auto& layer : layerModules)
+            for (auto& m : layer)
+                m->prepare (sampleRate, n, 2);
 
         layerBuf_.setSize (2, n);
+        // Reserve enough for one generously-sized event per sample. This keeps
+        // per-layer filtering away from the allocator in realistic MIDI traffic.
+        layerMidi_.ensureSize ((size_t) n * 16u + 64u);
 
         // Alignment delay lines, sized for the worst latency any module reports.
         int worst = 0;
-        for (auto& m : modules) worst = juce::jmax (worst, m->latencySamples());
+        for (auto& layer : layerModules)
+            for (auto& m : layer)
+                worst = juce::jmax (worst, m->latencySamples());
         alignCap_ = worst + 1;
         for (auto& d : align_)
         {
@@ -128,7 +144,9 @@ public:
 
     void reset() override
     {
-        for (auto& m : modules) m->reset();
+        for (auto& layer : layerModules)
+            for (auto& m : layer)
+                m->reset();
         for (auto& d : align_) d.clear();
         alignPos_.fill (0);
     }
@@ -153,7 +171,7 @@ public:
             if (sel <= 0) continue;
             if (apvts.getRawParameterValue (layerMuteParamId (L))->load() > 0.5f) continue;
 
-            auto* m = moduleAt (sel - 1);
+            auto* m = moduleAtForLayer (L, sel - 1);
             if (m == nullptr) continue;
 
             // Filter MIDI for this layer: key range + transpose. This is what makes
@@ -218,19 +236,29 @@ public:
 
     // --- Introspection for the editor --------------------------------------
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
-    int numModules() const noexcept { return (int) modules.size(); }
+    int numModules() const noexcept { return (int) layerModules[0].size(); }
 
     juce::StringArray moduleMenuNames() const
     {
         juce::StringArray menu { "Empty" };
-        for (const auto& m : modules) menu.add (m->displayName());
+        for (const auto& m : layerModules[0]) menu.add (m->displayName());
         return menu;
     }
 
+    // Existing editor/source-loading code addresses the canonical first layer.
     dsp::SattariModule* moduleAt (int index) noexcept
     {
-        return juce::isPositiveAndBelow (index, (int) modules.size())
-                 ? modules[(size_t) index].get() : nullptr;
+        return moduleAtForLayer (0, index);
+    }
+
+    dsp::SattariModule* moduleAtForLayer (int layer, int index) noexcept
+    {
+        if (! juce::isPositiveAndBelow (layer, kNumLayers))
+            return nullptr;
+
+        auto& roster = layerModules[(size_t) layer];
+        return juce::isPositiveAndBelow (index, (int) roster.size())
+                 ? roster[(size_t) index].get() : nullptr;
     }
 
     static juce::String layerParamId      (int L) { return "layer" + juce::String (L + 1); }
@@ -287,20 +315,20 @@ protected:
 
     int indexOfModule (const juce::String& id) const noexcept
     {
-        for (int i = 0; i < (int) modules.size(); ++i)
-            if (id == modules[(size_t) i]->moduleId())
+        for (int i = 0; i < (int) layerModules[0].size(); ++i)
+            if (id == layerModules[0][(size_t) i]->moduleId())
                 return i;
         return -1;
     }
 
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     {
-        modules = factory_();
+        layerModules[0] = factory_();
 
         dsp::SattariModule::ParamList p;
 
         juce::StringArray menu { "Empty" };
-        for (auto& m : modules) menu.add (m->displayName());
+        for (auto& m : layerModules[0]) menu.add (m->displayName());
 
         // A one-entry AudioParameterChoice is a DEGENERATE range and the plugin
         // fails to instantiate outright — auval cannot even open it. That is
@@ -330,7 +358,7 @@ protected:
                 juce::ParameterID { layerTransParamId (L), 1 }, "Layer " + n + " Transpose", -24, 24, 0));
         }
 
-        for (auto& m : modules)
+        for (auto& m : layerModules[0])
             m->addParameters (p, juce::String (m->moduleId()) + ".");
 
         return { p.begin(), p.end() };
@@ -396,7 +424,7 @@ protected:
             const int sel = (int) apvts.getRawParameterValue (layerParamId (L))->load();
             if (sel <= 0) continue;
             if (apvts.getRawParameterValue (layerMuteParamId (L))->load() > 0.5f) continue;
-            if (auto* m = const_cast<SattariInstrumentRack*> (this)->moduleAt (sel - 1))
+            if (auto* m = const_cast<SattariInstrumentRack*> (this)->moduleAtForLayer (L, sel - 1))
                 worst = juce::jmax (worst, m->latencySamples());   // MAX, not sum
         }
         return worst;
@@ -417,10 +445,10 @@ protected:
 
     // ALL THREE ABOVE MUST PRECEDE apvts. Members initialise in DECLARATION order,
     // and apvts's constructor runs createLayout(), which calls factory_() and fills
-    // `modules`. Declaring apvts first means createLayout() reads a factory that has
+    // layer 0. Declaring apvts first means createLayout() reads a factory that has
     // not been constructed yet — the plugin then fails to instantiate at all
     // (auval: "OpenAComponent: result: -1"), with nothing pointing at the cause.
-    std::vector<std::unique_ptr<dsp::SattariModule>> modules;
+    std::array<std::vector<std::unique_ptr<dsp::SattariModule>>, kNumLayers> layerModules;
 
 protected:
     juce::AudioProcessorValueTreeState apvts;

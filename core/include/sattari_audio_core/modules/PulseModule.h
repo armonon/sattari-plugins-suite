@@ -49,7 +49,7 @@ public:
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "mix", 1),    "Mix",    R (0.0f, 1.0f, 0.001f), 1.0f));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         state = &apvts;
         pfx   = prefix;
@@ -213,8 +213,7 @@ private:
 
     float p (const char* id) const noexcept
     {
-        auto* v = state->getRawParameterValue (pfx + id);
-        return v != nullptr ? v->load() : 0.0f;
+        return cachedParameterValue (id);
     }
 
     juce::AudioProcessorValueTreeState* state = nullptr;

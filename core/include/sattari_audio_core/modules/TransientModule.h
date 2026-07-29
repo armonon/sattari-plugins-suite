@@ -38,7 +38,7 @@ public:
             juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
     }
 
-    void link (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
+    void linkModule (juce::AudioProcessorValueTreeState& apvts, const juce::String& prefix) override
     {
         pAttack  = apvts.getRawParameterValue (prefix + "attack");
         pSustain = apvts.getRawParameterValue (prefix + "sustain");
