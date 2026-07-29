@@ -930,26 +930,34 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         rbxChooser = std::make_unique<juce::FileChooser> ("Export rekordbox XML",
             juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("rekordbox.xml"), "*.xml");
         rbxChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
+            [safe = juce::Component::SafePointer<MainPluginEditor> (this)]
+            (const juce::FileChooser& fc)
             {
+                if (safe == nullptr) return;
                 const auto dest = fc.getResult();
-                if (dest == juce::File() || libraryView == nullptr)
+                if (dest == juce::File() || safe->libraryView == nullptr)
                     return;
-                const auto entries = libraryView->getAnalyzedEntries();
+                const auto entries = safe->libraryView->getAnalyzedEntries();
                 const bool ok = RekordboxIO::exportXml (dest, entries,
-                    [this] (const juce::String& path, std::vector<RekordboxIO::Cue>& cues)
+                    [safe] (const juce::String& path, std::vector<RekordboxIO::Cue>& cues)
                     {
+                        if (safe == nullptr) return;
                         for (int d = 0; d < MainPluginProcessor::numDecks; ++d)   // loaded decks: live cues
-                            if (processorRef.getDeckPath (d) == path)
+                            if (safe->processorRef.getDeckPath (d) == path)
                                 for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
-                                    if (const double s = processorRef.getHotCue (d, c); s >= 0.0)
+                                    if (const double s = safe->processorRef.getHotCue (d, c); s >= 0.0)
                                         cues.push_back ({ c, s });
                         if (cues.empty())                                          // else: previously imported
-                            if (const auto found = importedCues.find (path); found != importedCues.end())
+                            if (const auto found = safe->importedCues.find (path);
+                                found != safe->importedCues.end())
                                 cues = found->second;
                     });
-                recordStatus.setText (ok ? "Exported " + juce::String ((int) entries.size()) + " tracks to " + dest.getFileName()
-                                         : "Rekordbox export failed", juce::dontSendNotification);
+                if (safe != nullptr)
+                    safe->recordStatus.setText (
+                        ok ? "Exported " + juce::String ((int) entries.size())
+                                 + " tracks to " + dest.getFileName()
+                           : "Rekordbox export failed",
+                        juce::dontSendNotification);
             });
     };
     addAndMakeVisible (rbxExportButton);
@@ -961,21 +969,24 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         rbxChooser = std::make_unique<juce::FileChooser> ("Import rekordbox XML",
             juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.xml");
         rbxChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
+            [safe = juce::Component::SafePointer<MainPluginEditor> (this)]
+            (const juce::FileChooser& fc)
             {
+                if (safe == nullptr) return;
                 const auto src = fc.getResult();
                 if (! src.existsAsFile())
                     return;
                 int seen = 0;
                 auto imported = RekordboxIO::importXml (src, &seen);
                 for (auto& [path, cues] : imported)
-                    importedCues[path] = std::move (cues);
-                RekordboxIO::saveCueStore (importedCues);
+                    safe->importedCues[path] = std::move (cues);
+                RekordboxIO::saveCueStore (safe->importedCues);
                 for (int d = 0; d < MainPluginProcessor::numDecks; ++d)   // apply to loaded decks now
-                    applyImportedCues (d);
-                recordStatus.setText ("Imported cues for " + juce::String ((int) imported.size())
-                                        + " of " + juce::String (seen) + " tracks",
-                                      juce::dontSendNotification);
+                    safe->applyImportedCues (d);
+                safe->recordStatus.setText (
+                    "Imported cues for " + juce::String ((int) imported.size())
+                        + " of " + juce::String (seen) + " tracks",
+                    juce::dontSendNotification);
             });
     };
     addAndMakeVisible (rbxImportButton);
@@ -1631,11 +1642,13 @@ void MainPluginEditor::openDeckStemChooser (int deckIndex, int stemLaneIndex)
         return;
 
     deckChooser.launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, deckIndex, stemLaneIndex] (const juce::FileChooser& chooser)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         deckIndex, stemLaneIndex] (const juce::FileChooser& chooser)
         {
+            if (safe == nullptr) return;
             const auto file = chooser.getResult();
             if (file.existsAsFile())
-                requestDeckStemLoad (deckIndex, stemLaneIndex, file);
+                safe->requestDeckStemLoad (deckIndex, stemLaneIndex, file);
         });
 }
 
@@ -1650,11 +1663,13 @@ void MainPluginEditor::openDeckChooser (int deckIndex)
         return;
 
     deckChooser.launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, deckIndex] (const juce::FileChooser& chooser)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         deckIndex] (const juce::FileChooser& chooser)
         {
+            if (safe == nullptr) return;
             const auto file = chooser.getResult();
             if (file.existsAsFile())
-                requestDeckLoad (deckIndex, file);
+                safe->requestDeckLoad (deckIndex, file);
         });
 }
 
@@ -1826,11 +1841,13 @@ void MainPluginEditor::requestChannelRemoval (int channelIndex)
 void MainPluginEditor::openPadChooser (int padIndex)
 {
     padChooser.launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, padIndex] (const juce::FileChooser& chooser)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         padIndex] (const juce::FileChooser& chooser)
         {
+            if (safe == nullptr) return;
             const auto file = chooser.getResult();
             if (file.existsAsFile())
-                processorRef.loadPadFileAsync (padIndex, file);
+                safe->processorRef.loadPadFileAsync (padIndex, file);
         });
 }
 
@@ -1882,8 +1899,10 @@ void MainPluginEditor::requestRecording (int countInBars)
     // cancelling the save dialog must leave the current work untouched. Only wipe
     // once a destination is chosen and recording actually starts.
     recordChooser.launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, countInBars] (const juce::FileChooser& chooser)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         countInBars] (const juce::FileChooser& chooser)
         {
+            if (safe == nullptr) return;
             auto file = chooser.getResult();
             if (file.getFullPathName().isEmpty())
                 return;   // cancelled — arrangement + buttons preserved
@@ -1895,18 +1914,20 @@ void MainPluginEditor::requestRecording (int countInBars)
             if (bars > 0)
             {
                 const double bpm = juce::jlimit (40.0, 240.0,
-                    (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+                    (double) safe->processorRef.parameters().getRawParameterValue ("masterBpm")->load());
                 const double countInMs = (double) bars * 4.0 * 60000.0 / bpm;
-                pendingRecordingFile = file;
-                pendingRecordingStartMs = juce::Time::getMillisecondCounterHiRes() + countInMs;
-                restoreMetronomeAfterCountIn = processorRef.isMetronomeEnabled();
-                processorRef.setMetronomeEnabled (true);
-                recordStatus.setText (juce::String (bars) + "-bar count-in - take "
-                                      + juce::String (processorRef.getCurrentTakeNumber() + 1)
-                                      + " starts next", juce::dontSendNotification);
+                safe->pendingRecordingFile = file;
+                safe->pendingRecordingStartMs = juce::Time::getMillisecondCounterHiRes() + countInMs;
+                safe->restoreMetronomeAfterCountIn = safe->processorRef.isMetronomeEnabled();
+                safe->processorRef.setMetronomeEnabled (true);
+                safe->recordStatus.setText (
+                    juce::String (bars) + "-bar count-in - take "
+                        + juce::String (safe->processorRef.getCurrentTakeNumber() + 1)
+                        + " starts next",
+                    juce::dontSendNotification);
                 return;
             }
-            startRecordingNow (file);
+            safe->startRecordingNow (file);
         });
 }
 
@@ -2225,15 +2246,18 @@ void MainPluginEditor::saveProject()
     chooser->launchAsync (juce::FileBrowserComponent::saveMode
                               | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::warnAboutOverwriting,
-        [this, chooser] (const juce::FileChooser& fc)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), chooser]
+        (const juce::FileChooser& fc)
         {
+            if (safe == nullptr) return;
             auto f = fc.getResult();
             if (f == juce::File()) return;
             f = f.withFileExtension ("stemdeck");
-            const auto root = makeProjectState();
+            const auto root = safe->makeProjectState();
             if (auto xml = root.createXml())
                 xml->writeTo (f);
-            recordStatus.setText ("Saved project: " + f.getFileName(), juce::dontSendNotification);
+            safe->recordStatus.setText ("Saved project: " + f.getFileName(),
+                                        juce::dontSendNotification);
         });
 }
 
@@ -2244,14 +2268,16 @@ void MainPluginEditor::loadProject()
         juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.stemdeck");
     chooser->launchAsync (juce::FileBrowserComponent::openMode
                               | juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser] (const juce::FileChooser& fc)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), chooser]
+        (const juce::FileChooser& fc)
         {
+            if (safe == nullptr) return;
             auto f = fc.getResult();
             if (! f.existsAsFile()) return;
             if (auto xml = juce::XmlDocument::parse (f))
             {
-                restoreProjectState (juce::ValueTree::fromXml (*xml),
-                                     "project: " + f.getFileName());
+                safe->restoreProjectState (juce::ValueTree::fromXml (*xml),
+                                           "project: " + f.getFileName());
             }
         });
 }
@@ -2916,11 +2942,12 @@ void MainPluginEditor::fileDoubleClicked (const juce::File& file)
     menu.addSeparator();
     menu.addItem (99, "Cancel");
     menu.showMenuAsync (juce::PopupMenu::Options(),
-        [this, file] (int choice)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), file]
+        (int choice)
         {
-            if (choice <= 0 || choice >= 99) return;
+            if (safe == nullptr || choice <= 0 || choice >= 99) return;
             const int idx = choice - 1;
-            requestDeckLoad (idx, file);
+            safe->requestDeckLoad (idx, file);
         });
 }
 
@@ -6652,7 +6679,9 @@ void MainPluginEditor::setupMacroKnob (int deckIndex)
 
 void MainPluginEditor::showFollowActionMenu (int laneIndex, int clipIndex)
 {
-    auto& lane = arrangementView.getClips()[(size_t) laneIndex];
+    const auto& allClips = arrangementView.getClips();
+    if (! juce::isPositiveAndBelow (laneIndex, (int) allClips.size())) return;
+    const auto& lane = allClips[(size_t) laneIndex];
     if (! juce::isPositiveAndBelow (clipIndex, (int) lane.size())) return;
 
     juce::PopupMenu m;
@@ -6663,11 +6692,17 @@ void MainPluginEditor::showFollowActionMenu (int laneIndex, int clipIndex)
     m.addItem (4, "Random other",true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::RandomOther);
     m.addItem (5, "Stop",        true, lane[(size_t) clipIndex].followAction == ArrangementRecorderView::FollowAction::Stop);
 
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, laneIndex, clipIndex] (int r)
+    m.showMenuAsync (
+        juce::PopupMenu::Options().withTargetComponent (this),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         laneIndex, clipIndex] (int r)
     {
-        if (r < 1) return;
-        auto snap = arrangementView.captureLaneState (laneIndex);
-        auto& lane2 = const_cast<std::vector<ArrangementRecorderView::LaneClip>&> (arrangementView.getClips()[(size_t) laneIndex]);
+        if (safe == nullptr || r < 1) return;
+        const auto& allClips2 = safe->arrangementView.getClips();
+        if (! juce::isPositiveAndBelow (laneIndex, (int) allClips2.size())) return;
+        auto snap = safe->arrangementView.captureLaneState (laneIndex);
+        auto& lane2 = const_cast<std::vector<ArrangementRecorderView::LaneClip>&> (
+            safe->arrangementView.getClips()[(size_t) laneIndex]);
         if (juce::isPositiveAndBelow (clipIndex, (int) lane2.size()))
         {
             switch (r)
@@ -6679,7 +6714,7 @@ void MainPluginEditor::showFollowActionMenu (int laneIndex, int clipIndex)
                 case 5: lane2[(size_t) clipIndex].followAction = ArrangementRecorderView::FollowAction::Stop; break;
                 default: break;
             }
-            arrangementView.commitEdit (snap);
+            safe->arrangementView.commitEdit (snap);
         }
     });
 }
@@ -6896,32 +6931,40 @@ void MainPluginEditor::updateMidiLearnUI()
     menu.addItem (kClearAll, "Clear all MIDI mappings");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (midiLearnButton),
-        [this, kCcBase, kNoteBase, kClearAll] (int result)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         kCcBase, kNoteBase, kClearAll] (int result)
         {
-            if (result <= 0) return;
-            auto& m = processorRef.getMidiMapping();
+            if (safe == nullptr || result <= 0) return;
+            auto& m = safe->processorRef.getMidiMapping();
 
             if (result == kClearAll)
             {
                 m.clearAll();
-                libraryMetaLabel.setText ("All MIDI mappings cleared", juce::dontSendNotification);
+                safe->libraryMetaLabel.setText ("All MIDI mappings cleared",
+                                                juce::dontSendNotification);
                 return;
             }
 
             if (result >= kNoteBase)
             {
                 const int idx = result - kNoteBase;
+                if (! juce::isPositiveAndBelow (idx, m.numNote())) return;
                 m.beginLearnNote (idx);
-                libraryMetaLabel.setText ("MIDI learn: press a pad for \"" + m.noteName (idx) + u8 ("\"\xe2\x80\xa6"),
-                                          juce::dontSendNotification);
+                safe->libraryMetaLabel.setText (
+                    "MIDI learn: press a pad for \"" + m.noteName (idx)
+                        + u8 ("\"\xe2\x80\xa6"),
+                    juce::dontSendNotification);
             }
             else
             {
                 const int idx = result - kCcBase;
+                if (! juce::isPositiveAndBelow (idx, m.numCc())) return;
                 m.beginLearnCc (idx);
-                libraryMetaLabel.setText ("MIDI learn: move a control for \"" + m.ccName (idx) + u8 ("\"\xe2\x80\xa6"),
-                                          juce::dontSendNotification);
+                safe->libraryMetaLabel.setText (
+                    "MIDI learn: move a control for \"" + m.ccName (idx)
+                        + u8 ("\"\xe2\x80\xa6"),
+                    juce::dontSendNotification);
             }
-            midiLearnButton.setButtonText (u8 ("LEARN\xe2\x80\xa6"));
+            safe->midiLearnButton.setButtonText (u8 ("LEARN\xe2\x80\xa6"));
         });
 }

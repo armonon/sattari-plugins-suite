@@ -124,16 +124,19 @@ public:
             return;
         }
 
-        if (! state.recording && recordBounds.contains (e.getPosition()))
-        {
-            if (onRecordRequested) onRecordRequested (state.countInBars);
-            return;
-        }
-
+        // countInBounds is the lower part of recordBounds, so it must win hit
+        // testing. The old order made the count-in toggle impossible to click:
+        // every click there started recording instead.
         if (countInBounds.contains (e.getPosition()))
         {
             state.countInBars = state.countInBars == 0 ? 2 : 0;
             repaint (countInBounds);
+            return;
+        }
+
+        if (! state.recording && recordBounds.contains (e.getPosition()))
+        {
+            if (onRecordRequested) onRecordRequested (state.countInBars);
             return;
         }
 
@@ -160,10 +163,13 @@ public:
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (! isMouseButtonDownAnywhere())
+        // Leaving the target cancels confirmation even while the mouse is held;
+        // otherwise a press-drag away still stops and finalises the take.
+        if (holdingStop)
         {
             holdingStop = false;
             stopHoldStartMs = 0.0;
+            repaint (stopBounds);
         }
     }
 

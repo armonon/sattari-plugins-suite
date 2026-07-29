@@ -13,10 +13,12 @@
 //
 // It also reports conversion progress honestly rather than implying phase 3 is done.
 #include "EventDispatcher.h"
+#include <array>
 #include <iostream>
 #include <map>
 #include <random>
 #include <sstream>
+#include <thread>
 
 using namespace stemdeck::events;
 
@@ -150,6 +152,34 @@ int main()
         const auto key = std::make_pair ((int) ParamId::channelGain, 1);
         check (r5.params.count (key) && r5.params[key] == 0.87321,
                "the gesture's END value is the one that survives replay");
+    }
+
+    // ── Concurrent producers: host automation + UI must not race seq ─────────
+    {
+        Dispatcher concurrent ([] (const Event&) {});
+        concurrent.beginCapture();
+        constexpr int numThreads = 4;
+        constexpr int perThread = 2000;
+        std::array<std::thread, numThreads> producers;
+        for (int t = 0; t < numThreads; ++t)
+            producers[(size_t) t] = std::thread ([&concurrent, t]
+            {
+                Scope s;
+                s.kind = ScopeKind::channel;
+                s.channel = t;
+                for (int i = 0; i < perThread; ++i)
+                    concurrent.dispatchParam (s, ParamId::channelGain, (double) i);
+            });
+        for (auto& producer : producers)
+            producer.join();
+        concurrent.endCapture();
+
+        const auto captured = concurrent.takeRecorded();
+        bool strictSeq = captured.size() == (size_t) (numThreads * perThread);
+        for (size_t i = 1; i < captured.size(); ++i)
+            strictSeq = strictSeq && captured[i - 1].seq < captured[i].seq;
+        check (strictSeq,
+               "concurrent UI/host producers keep every event in strict total order");
     }
 
     // ── Honest conversion progress ───────────────────────────────────────────

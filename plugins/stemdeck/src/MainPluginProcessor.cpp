@@ -192,6 +192,11 @@ MainPluginProcessor::MainPluginProcessor()
         stemRestoreGain[(size_t) i].fill (100.0f);
         stemSoloLane[(size_t) i] = -1;
     }
+    for (auto& deck : deckLoadGeneration)
+        for (auto& lane : deck)
+            lane.store (0, std::memory_order_relaxed);
+    for (auto& pad : padLoadGeneration)
+        pad.store (0, std::memory_order_relaxed);
     cacheDeckParamIds();
     // Optional trained key model (shared with Auto-Pitch). Absent -> DSP key stands.
     neuralKey.loadDefaultModel();
@@ -1702,6 +1707,19 @@ void MainPluginProcessor::loadAudioAsync (const juce::File& file, std::function<
 
 void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& file)
 {
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks) || ! file.existsAsFile())
+        return;
+
+    // A new full-mix source starts a new stem set. Cancel in-flight stem-lane
+    // loads and detach already-loaded stems now; otherwise an old vocal/drum lane
+    // can remain audible on, or finish loading into, the replacement track.
+    for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+    {
+        deckLoadGeneration[(size_t) deckIndex][(size_t) lane]
+            .fetch_add (1, std::memory_order_relaxed);
+        deckAt (deckIndex).setStemAudio (lane, {});
+        setStatePathProperty (deckStemPathProperty (deckIndex, lane), {});
+    }
     loadDeckStemFileAsync (deckIndex, DeckPlayer::fullMixStem, file);
 }
 
@@ -1709,6 +1727,10 @@ void MainPluginProcessor::clearDeck (int deckIndex)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks))
         return;
+    for (auto& lane : deckLoadGeneration[(size_t) deckIndex])
+        lane.fetch_add (1, std::memory_order_relaxed);
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        deckAt (deckIndex).setStemAudio (lane, {});
     deckAt (deckIndex).reset();
     setStatePathProperty (deckPathProperty (deckIndex), {});
     for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
@@ -1727,6 +1749,9 @@ void MainPluginProcessor::requestDeckAiStemsAsync (int deckIndex)
         return;
 
     const juce::File source (path);
+    const auto sourceGeneration =
+        deckLoadGeneration[(size_t) deckIndex][(size_t) DeckPlayer::fullMixStem]
+            .load (std::memory_order_relaxed);
     // Start separating from where the deck is playing so isolated stems near the
     // playhead become audible within a segment or two (progressive, "instant-feel"),
     // instead of waiting for the whole track. setStemAudio is a lock-free atomic
@@ -1734,15 +1759,23 @@ void MainPluginProcessor::requestDeckAiStemsAsync (int deckIndex)
     const juce::int64 playhead = (juce::int64) deckAt (deckIndex).getPlayheadReferenceSamples();
 
     stemProvider.requestStemsStreamingAsync (source, playhead,
-        [this, deckIndex, alive = aliveFlag] (int lane, std::shared_ptr<const DeckPlayer::LoadedAudio> partial)
+        [this, deckIndex, sourceGeneration, alive = aliveFlag]
+        (int lane, std::shared_ptr<const DeckPlayer::LoadedAudio> partial)
         {
             if (! alive->load (std::memory_order_acquire)) return;   // processor may be gone (worker thread)
+            if (deckLoadGeneration[(size_t) deckIndex][(size_t) DeckPlayer::fullMixStem]
+                    .load (std::memory_order_relaxed) != sourceGeneration)
+                return;                                             // deck was replaced while splitting
             if (partial && juce::isPositiveAndBelow (deckIndex, numDecks))
                 deckAt (deckIndex).setStemAudio (lane, std::move (partial));
         },
-        [this, deckIndex, alive = aliveFlag] (StemProvider::Result result)
+        [this, deckIndex, sourceGeneration, alive = aliveFlag]
+        (StemProvider::Result result)
         {
             if (! alive->load (std::memory_order_acquire)) return;   // late completion after teardown
+            if (deckLoadGeneration[(size_t) deckIndex][(size_t) DeckPlayer::fullMixStem]
+                    .load (std::memory_order_relaxed) != sourceGeneration)
+                return;                                             // stale separation result
             logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
                                  "ai_stem_split", deckNameFor (deckIndex), "premium_streaming_cache",
                                  result.allCoreStemsReady ? "ready" : "failed_or_pending",
@@ -1819,6 +1852,12 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
         if (! alive->load (std::memory_order_acquire))
             return juce::ThreadPoolJob::jobHasFinished;
 
+        // The user may have replaced/cleared this deck while neural inference was
+        // running. Never publish an old grid/key onto the new source.
+        auto currentAudio = deckAt (deckIndex).getLoadedAudio();
+        if (currentAudio == nullptr || currentAudio->path != file.getFullPathName())
+            return juce::ThreadPoolJob::jobHasFinished;
+
         // §6.2: publish this as a NEW analysis version rather than overwriting the
         // first-pass result. A session captured before refinement landed replays
         // against the grid and key it actually performed to; overwriting would hand
@@ -1855,14 +1894,23 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
 void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file)
 {
-    if (! juce::isPositiveAndBelow (deckIndex, numDecks) || ! juce::isPositiveAndBelow (stemLaneIndex, DeckPlayer::numStemLanes))
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)
+        || ! juce::isPositiveAndBelow (stemLaneIndex, DeckPlayer::numStemLanes)
+        || ! file.existsAsFile())
         return;
+
+    const auto generation = deckLoadGeneration[(size_t) deckIndex][(size_t) stemLaneIndex]
+                                .fetch_add (1, std::memory_order_relaxed) + 1;
 
     // §A3: two-phase. Phase 1 publishes decoded audio (deck playable); phase 2
     // publishes analysis without blocking it.
-    auto onAudioReady = [this, deckIndex, stemLaneIndex, path = file.getFullPathName()] (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
+    auto onAudioReady = [this, deckIndex, stemLaneIndex, generation,
+                         path = file.getFullPathName()]
+                        (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
     {
-        if (! audio)
+        if (! audio
+            || deckLoadGeneration[(size_t) deckIndex][(size_t) stemLaneIndex]
+                   .load (std::memory_order_relaxed) != generation)
             return;
         deckAt (deckIndex).setStemAudio (stemLaneIndex, audio);
         if (stemLaneIndex == DeckPlayer::fullMixStem)
@@ -1873,10 +1921,14 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
                              path, "Audio loaded into " + DeckPlayer::stemLaneLabel (stemLaneIndex));
     };
 
-    auto onAnalysisReady = [this, deckIndex, stemLaneIndex, path = file.getFullPathName(), alive = aliveFlag]
+    auto onAnalysisReady = [this, deckIndex, stemLaneIndex, generation,
+                            path = file.getFullPathName(), alive = aliveFlag]
                            (std::shared_ptr<const TrackAnalysis> analysis)
     {
         if (! alive->load (std::memory_order_acquire) || analysis == nullptr)
+            return;
+        if (deckLoadGeneration[(size_t) deckIndex][(size_t) stemLaneIndex]
+                .load (std::memory_order_relaxed) != generation)
             return;
         if (stemLaneIndex != DeckPlayer::fullMixStem)
             return;
@@ -1890,9 +1942,15 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
         refineAnalysisAsync (deckIndex, juce::File (path));
 
         {
-            stemProvider.requestStemsAsync (juce::File (path), [this, deckIndex, alive = aliveFlag] (StemProvider::Result result)
+            stemProvider.requestStemsAsync (
+                juce::File (path),
+                [this, deckIndex, path, generation, alive = aliveFlag]
+                (StemProvider::Result result)
             {
                 if (! alive->load (std::memory_order_acquire)) return;   // late completion after teardown
+                if (deckLoadGeneration[(size_t) deckIndex][(size_t) DeckPlayer::fullMixStem]
+                        .load (std::memory_order_relaxed) != generation)
+                    return;
                 logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
                                      "stem_cache", deckNameFor (deckIndex), "offline_cache",
                                      result.allCoreStemsReady ? "ready" : "pending",
@@ -1921,9 +1979,15 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
 
 void MainPluginProcessor::loadPadFileAsync (int padIndex, const juce::File& file)
 {
-    loadAudioAsync (file, [this, padIndex, path = file.getFullPathName()] (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
+    if (! juce::isPositiveAndBelow (padIndex, PadBank::numPads) || ! file.existsAsFile())
+        return;
+    const auto generation = padLoadGeneration[(size_t) padIndex]
+                                .fetch_add (1, std::memory_order_relaxed) + 1;
+    loadAudioAsync (file, [this, padIndex, generation, path = file.getFullPathName()]
+                    (std::shared_ptr<const DeckPlayer::LoadedAudio> audio)
     {
-        if (! audio)
+        if (! audio
+            || padLoadGeneration[(size_t) padIndex].load (std::memory_order_relaxed) != generation)
             return;
         padBank.setPadAudio (padIndex, audio);
         setStatePathProperty (padPathProperty (padIndex), path);
@@ -1981,6 +2045,9 @@ void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivi
 // ── Arrangement playback ──────────────────────────────────────────────────────
 void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds, double startSeconds)
 {
+    const auto buildGeneration =
+        arrangementBuildGeneration.fetch_add (1, std::memory_order_relaxed) + 1;
+
     // Stop both transports before reconfiguring
     arrangementPlayer.stop();
     if (teWrapper != nullptr)
@@ -2011,11 +2078,27 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
     payload->startSecs = startSeconds;
     payload->engineSr = engineSr;
 
-    juce::Thread::launch ([this, payload]
+    if (loadPool == nullptr)
+        return;
+
+    // Use the processor-owned pool, not a detached Thread::launch. The pool is
+    // drained before processor members are destroyed, so schedule decoding cannot
+    // outlive formatManager/this. The generation also prevents a slow older build
+    // from replacing a newer arrangement after it finishes.
+    loadPool->addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [this, payload, buildGeneration, alive = aliveFlag]()
+        -> juce::ThreadPoolJob::JobStatus
     {
+        if (! alive->load (std::memory_order_acquire)
+            || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
+            return juce::ThreadPoolJob::jobHasFinished;
+
         auto sched = std::make_shared<ArrangementPlayer::Schedule>();
         for (const auto& spec : payload->clips)
         {
+            if (! alive->load (std::memory_order_acquire)
+                || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
+                return juce::ThreadPoolJob::jobHasFinished;
             if (! spec.file.existsAsFile() || spec.lengthSeconds <= 0.0) continue;
             auto la = loadAudioFile (spec.file);
             if (la == nullptr || la->audio.getNumSamples() < 2) continue;
@@ -2033,16 +2116,19 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             sched->push_back (std::move (c));
         }
 
-        juce::MessageManager::callAsync ([this, sched, payload, alive = aliveFlag]
+        juce::MessageManager::callAsync ([this, sched, payload, buildGeneration, alive]
         {
-            if (! alive->load (std::memory_order_acquire)) return;
+            if (! alive->load (std::memory_order_acquire)
+                || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
+                return;
             usingTeMidi.store (false, std::memory_order_relaxed);   // MIDI via MidiClipPlayer
             arrangementPlayer.setSchedule (sched);
             arrangementPlayer.setLengthSeconds (payload->totalLen);
             arrangementPlayer.setPositionSeconds (payload->startSecs);
             arrangementPlayer.start();
         });
-    });
+        return juce::ThreadPoolJob::jobHasFinished;
+    }));
 }
 
 void MainPluginProcessor::setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm)
@@ -2067,6 +2153,7 @@ void MainPluginProcessor::setTeArrangementLaneGain (int lane, float gainLinear)
 
 void MainPluginProcessor::stopArrangement()
 {
+    arrangementBuildGeneration.fetch_add (1, std::memory_order_relaxed);
     usingTeMidi.store (false, std::memory_order_relaxed);
     arrangementPlayer.stop();
     if (teWrapper != nullptr)
@@ -2907,12 +2994,19 @@ void MainPluginProcessor::restoreFileAssignmentsFromState()
     for (int i = 0; i < numDecks; ++i)
     {
         const auto path = apvts.state.getProperty (deckPathProperty (i)).toString();
+        std::array<juce::String, DeckPlayer::numStemLanes> stemPaths;
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+            stemPaths[(size_t) lane] =
+                apvts.state.getProperty (deckStemPathProperty (i, lane)).toString();
+
+        // Snapshot lane paths before starting the full-mix request: a deliberate
+        // source replacement clears old stem assignments immediately.
         if (path.isNotEmpty())
             loadDeckFileAsync (i, juce::File (path));
 
         for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
         {
-            const auto stemPath = apvts.state.getProperty (deckStemPathProperty (i, lane)).toString();
+            const auto& stemPath = stemPaths[(size_t) lane];
             if (stemPath.isNotEmpty())
                 loadDeckStemFileAsync (i, lane, juce::File (stemPath));
         }

@@ -110,7 +110,8 @@ void MasterRecorder::captureBlock (const juce::AudioBuffer<float>& masterBuffer)
         return;
 
     const int numSamples = masterBuffer.getNumSamples();
-    if (numSamples <= 0)
+    const int srcCh = masterBuffer.getNumChannels();
+    if (numSamples <= 0 || srcCh <= 0)
         return;
 
     const juce::ScopedTryLock lock (queueLock);
@@ -131,7 +132,6 @@ void MasterRecorder::captureBlock (const juce::AudioBuffer<float>& masterBuffer)
 
     // setSize with avoidReallocating keeps the pool buffer's capacity (no RT alloc).
     dst->setSize (channels, numSamples, false, false, true);
-    const int srcCh = masterBuffer.getNumChannels();
     for (int ch = 0; ch < channels; ++ch)
         dst->copyFrom (ch, 0, masterBuffer, juce::jmin (ch, srcCh - 1), 0, numSamples);
 

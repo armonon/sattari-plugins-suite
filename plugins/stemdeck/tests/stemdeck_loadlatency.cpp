@@ -112,6 +112,52 @@ int main (int argc, char** argv)
                   << std::endl;
     }
 
+    // Rapid replacement regression: a slower A request used to complete after B
+    // and silently put A back on the deck. Clear had the same resurrection bug.
+    {
+        const auto slow = writeTestTrack (10.0, sr);
+        const auto fast = writeTestTrack (1.0, sr);
+        MainPluginProcessor proc;
+        proc.prepareToPlay (48000.0, 512);
+
+        proc.loadDeckStemFileAsync (0, 1, fast);
+        const auto stemDeadline = juce::Time::getMillisecondCounterHiRes() + 1000.0;
+        while (proc.deckAt (0).getStemAudio (1) == nullptr
+               && juce::Time::getMillisecondCounterHiRes() < stemDeadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+        const bool stemLoaded = proc.deckAt (0).getStemAudio (1) != nullptr;
+        if (! stemLoaded) ++over;
+        proc.loadDeckFileAsync (0, slow);
+        const bool oldStemsDetached = stemLoaded && proc.deckAt (0).getStemAudio (1) == nullptr;
+        if (! oldStemsDetached) ++over;
+        std::cout << "  source replacement "
+                  << (oldStemsDetached ? "[old stems detached]" : "[OLD STEM LEAKED]")
+                  << std::endl;
+
+        proc.loadDeckFileAsync (0, slow);
+        proc.loadDeckFileAsync (0, fast);
+
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 4000.0;
+        while (juce::Time::getMillisecondCounterHiRes() < deadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+
+        const bool newestWon = proc.getDeckPath (0) == fast.getFullPathName();
+        if (! newestWon) ++over;
+        std::cout << "  rapid A->B load   " << (newestWon ? "[newest wins]" : "[STALE A WON]")
+                  << std::endl;
+
+        proc.loadDeckFileAsync (0, slow);
+        proc.clearDeck (0);
+        const auto clearDeadline = juce::Time::getMillisecondCounterHiRes() + 2000.0;
+        while (juce::Time::getMillisecondCounterHiRes() < clearDeadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+        const bool stayedClear = proc.getDeckPath (0).isEmpty()
+                              && proc.deckAt (0).getLoadedAudio() == nullptr;
+        if (! stayedClear) ++over;
+        std::cout << "  load->clear race  " << (stayedClear ? "[stays clear]" : "[STALE LOAD RESURRECTED]")
+                  << std::endl;
+    }
+
     std::cout << (over == 0 ? "A3_PLAYABLE_OK" : "A3_PLAYABLE_OVER_BOUND") << std::endl;
 
     // Tracktion keeps background threads that do not join on a plain return; the

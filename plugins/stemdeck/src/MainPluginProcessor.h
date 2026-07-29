@@ -555,6 +555,15 @@ private:
     // Guards against piling up live-key analysis jobs; the heavy FFT runs on loadPool
     // (drained in the dtor) instead of the UI timer, so it can't stall the UI.
     std::array<std::atomic<bool>, kMaxChannels> liveKeyAnalysisInFlight {};
+    // Async file loads are allowed to finish out of order. Each new request (and
+    // clear) advances its destination generation so an older completion can never
+    // resurrect or overwrite a newer deck/pad choice.
+    std::array<std::array<std::atomic<std::uint64_t>, DeckPlayer::numStemLanes>,
+               kMaxChannels> deckLoadGeneration {};
+    std::array<std::atomic<std::uint64_t>, PadBank::numPads> padLoadGeneration {};
+    // Arrangement schedule builds also run in the shared, destructor-drained pool.
+    // Advancing this token cancels stale builds and makes Stop authoritative.
+    std::atomic<std::uint64_t> arrangementBuildGeneration { 0 };
     std::atomic<int64_t> recordingSampleCounter { 0 };
     std::atomic<int> currentTakeNumber { 0 };
     std::atomic<float> audioCpuLoad { 0.0f };

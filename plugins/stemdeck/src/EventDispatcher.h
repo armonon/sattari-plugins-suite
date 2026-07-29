@@ -37,22 +37,27 @@ public:
     explicit Dispatcher (Apply applyFn) : applyFn (std::move (applyFn)) {}
 
     // ── Live path ────────────────────────────────────────────────────────────
-    // Stamps the ordering fields, applies, and records if capturing. Message thread.
+    // Stamps the ordering fields, records if capturing, then applies. Host automation
+    // can enter here on the audio thread while UI dispatches on the message thread.
     void dispatch (Event e)
     {
-        e.atSample = clockSamples;
-        e.seq      = nextSeq++;     // strictly increasing across the whole session
-        if (applyFn) applyFn (e);
-        if (capturing)
+        e.atSample = clockSamples.load (std::memory_order_relaxed);
+        e.seq      = nextSeq.fetch_add (1, std::memory_order_relaxed);
+        if (capturing.load (std::memory_order_acquire))
         {
             const std::lock_guard<std::mutex> lock (recordMutex);
-            // Capture was pre-reserved at take start. Never grow here: host
-            // automation may enter through parameterChanged on the audio thread.
-            if (recorded.size() < recorded.capacity())
-                recorded.push_back (e);
-            else
-                droppedEvents.fetch_add (1, std::memory_order_relaxed);
+            // Stop may have won the mutex after our optimistic read.
+            if (capturing.load (std::memory_order_relaxed))
+            {
+                // Capture was pre-reserved at take start. Never grow here: host
+                // automation may enter through parameterChanged on the audio thread.
+                if (recorded.size() < recorded.capacity())
+                    recorded.push_back (e);
+                else
+                    droppedEvents.fetch_add (1, std::memory_order_relaxed);
+            }
         }
+        if (applyFn) applyFn (e);
     }
 
     // Convenience for the overwhelmingly common case.
@@ -88,15 +93,24 @@ public:
         recorded.clear();
         droppedEvents.store (0, std::memory_order_relaxed);
         recorded.reserve (131072);
-        capturing = true;
+        capturing.store (true, std::memory_order_release);
     }
-    void endCapture() { capturing = false; }
-    bool isCapturing() const noexcept { return capturing; }
+    void endCapture()
+    {
+        const std::lock_guard<std::mutex> lock (recordMutex);
+        capturing.store (false, std::memory_order_release);
+    }
+    bool isCapturing() const noexcept
+    { return capturing.load (std::memory_order_acquire); }
 
     std::vector<Event> takeRecorded() const
     {
-        const std::lock_guard<std::mutex> lock (recordMutex);
-        auto out = recorded;
+        std::vector<Event> out;
+        {
+            const std::lock_guard<std::mutex> lock (recordMutex);
+            out = recorded;
+        }
+        std::stable_sort (out.begin(), out.end());   // concurrent producers may acquire the mutex out of seq order
         return out;
     }
 
@@ -187,7 +201,7 @@ public:
 private:
     Apply applyFn;
     std::atomic<std::int64_t> clockSamples { 0 };
-    std::uint32_t nextSeq = 0;
+    std::atomic<std::uint32_t> nextSeq { 0 };
     std::atomic<bool> capturing { false };
     std::atomic<int> droppedEvents { 0 };
     std::vector<Event> recorded;
