@@ -1,32 +1,41 @@
 #include "PluginEditor.h"
+
 #include <cmath>
 
-SattariScopeAudioProcessorEditor::SattariScopeAudioProcessorEditor (SattariScopeAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+SattariScopeAudioProcessorEditor::SattariScopeAudioProcessorEditor (
+    SattariScopeAudioProcessor& p)
+    : AudioProcessorEditor (&p), audioProcessor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (620, 420);
+    setTitle ("Sattari Scope");
+    setDescription (
+        "Compact spectrum, stereo-field and pitch-class analysis");
+    setResizable (true, true);
+    setResizeLimits (720, 480, 1280, 900);
+    setSize (860, 560);
 
-    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Scope");
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Spectrum · goniometer · correlation");
-    addAndMakeVisible (title);
-    addAndMakeVisible (subtitle);
+    addAndMakeVisible (header);
+    addAndMakeVisible (keyMetric);
 
-    tilt.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    tilt.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 16);
+    sattari::studio::styleFieldLabel (tiltLabel, "Spectrum tilt");
+    addAndMakeVisible (tiltLabel);
+    tilt.setSliderStyle (juce::Slider::LinearHorizontal);
+    tilt.setTextBoxStyle (juce::Slider::TextBoxRight, false, 62, 20);
     tilt.setTextValueSuffix (" dB");
+    tilt.setTitle ("Spectrum tilt");
+    tilt.setDescription ("Adjust the visual spectrum slope");
     addAndMakeVisible (tilt);
-    tiltAtt = std::make_unique<SliderAttachment> (processor.parameters(), "tilt", tilt);
-    tiltCap.setText ("TILT", juce::dontSendNotification);
-    tiltCap.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-    tiltCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
-    tiltCap.setJustificationType (juce::Justification::centred);
-    addAndMakeVisible (tiltCap);
+    tiltAttachment = std::make_unique<SliderAttachment> (
+        audioProcessor.parameters(), "tilt", tilt);
 
-    chromaToggle.setColour (juce::ToggleButton::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    chromaToggle.setTitle ("Pitch-class overlay");
+    chromaToggle.setDescription (
+        "Show pitch-class energy beneath the spectrum");
     addAndMakeVisible (chromaToggle);
-    chromaAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "chroma", chromaToggle);
+    chromaAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "chroma", chromaToggle);
 
+    updateSnapshots();
     startTimerHz (30);
 }
 
@@ -38,162 +47,189 @@ SattariScopeAudioProcessorEditor::~SattariScopeAudioProcessorEditor()
 
 void SattariScopeAudioProcessorEditor::timerCallback()
 {
-    spec = processor.getSpectrum();
-    vec  = processor.getVector();
+    updateSnapshots();
+}
+
+void SattariScopeAudioProcessorEditor::updateSnapshots()
+{
+    spectrum = audioProcessor.getSpectrum();
+    vector = audioProcessor.getVector();
+    const auto key = spectrum.keyValid
+        ? juce::String (noteName (spectrum.keyRoot))
+              + (spectrum.keyScale == 1 ? " minor" : " major")
+        : juce::String ("--");
+    keyMetric.setValue (
+        key, {}, spectrum.keyValid ? "from suite bus" : "no published key");
+    header.setStatus (
+        spectrum.hasData ? "ANALYSIS LIVE" : "WAITING FOR AUDIO",
+        spectrum.hasData);
     repaint();
 }
 
-void SattariScopeAudioProcessorEditor::drawSpectrum (juce::Graphics& g, juce::Rectangle<int> area,
-                                                     juce::Colour accent)
+void SattariScopeAudioProcessorEditor::drawSpectrum (
+    juce::Graphics& g, juce::Rectangle<int> bounds)
 {
-    g.setColour (juce::Colour (sattari::brand::kPanelRaised));
-    g.fillRoundedRectangle (area.toFloat(), 10.0f);
-    auto inner = area.reduced (10, 8);
-
-    // dB grid lines at -20, -40, -60, -80.
-    g.setColour (juce::Colour (sattari::brand::kHairline));
-    const float topDb = 6.0f, botDb = -100.0f;
-    auto dbToY = [&] (float db)
+    auto inner = sattari::studio::analysis::paintPlotFrame (
+        g, bounds, "Spectrum", "20 Hz / 20 kHz");
+    const float topDb = 6.0f;
+    const float bottomDb = -100.0f;
+    const auto dbToY = [&inner, topDb, bottomDb] (float db)
     {
-        const float t = juce::jlimit (0.0f, 1.0f, (db - botDb) / (topDb - botDb));
-        return (float) inner.getBottom() - t * (float) inner.getHeight();
+        const float normalized = juce::jlimit (
+            0.0f, 1.0f, (db - bottomDb) / (topDb - bottomDb));
+        return (float) inner.getBottom()
+            - normalized * (float) inner.getHeight();
     };
-    for (float db = -20.0f; db > botDb; db -= 20.0f)
+
+    g.setColour (sattari::studio::colour::separator.withAlpha (0.7f));
+    for (float db = -20.0f; db > bottomDb; db -= 20.0f)
+        g.drawHorizontalLine (
+            (int) dbToY (db), (float) inner.getX(),
+            (float) inner.getRight());
+
+    if (! spectrum.hasData)
     {
-        const float y = dbToY (db);
-        g.drawHorizontalLine ((int) y, (float) inner.getX(), (float) inner.getRight());
+        sattari::studio::analysis::paintWaitingState (
+            g, inner, "Play audio to begin spectrum analysis");
+        return;
     }
 
-    if (! spec.hasData) { return; }
-
-    // Spectrum area fill under the curve.
-    juce::Path fill, line;
-    const int N = SattariScopeAudioProcessor::kNumBands;
-    const float w = (float) inner.getWidth();
-    auto xFor = [&] (int b) { return (float) inner.getX() + w * (float) b / (float) (N - 1); };
-
-    fill.startNewSubPath (xFor (0), (float) inner.getBottom());
-    for (int b = 0; b < N; ++b)
+    constexpr int count = SattariScopeAudioProcessor::kNumBands;
+    const auto xFor = [&inner] (int band)
     {
-        const float x = xFor (b);
-        const float y = dbToY (spec.bandDb[b]);
-        if (b == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
+        return (float) inner.getX()
+            + (float) inner.getWidth() * (float) band / (float) (count - 1);
+    };
+
+    juce::Path fill;
+    juce::Path line;
+    fill.startNewSubPath (xFor (0), (float) inner.getBottom());
+    for (int band = 0; band < count; ++band)
+    {
+        const float x = xFor (band);
+        const float y = dbToY (spectrum.bandDb[band]);
+        if (band == 0) line.startNewSubPath (x, y);
+        else line.lineTo (x, y);
         fill.lineTo (x, y);
     }
-    fill.lineTo (xFor (N - 1), (float) inner.getBottom());
+    fill.lineTo (xFor (count - 1), (float) inner.getBottom());
     fill.closeSubPath();
-
-    g.setColour (accent.withAlpha (0.16f));
+    g.setColour (accent.withAlpha (0.13f));
     g.fillPath (fill);
     g.setColour (accent);
-    g.strokePath (line, juce::PathStrokeType (1.6f));
+    g.strokePath (
+        line, juce::PathStrokeType (
+                  1.7f, juce::PathStrokeType::curved,
+                  juce::PathStrokeType::rounded));
 
-    // Optional pitch-class overlay: draw the key note names + chroma weight bars
-    // along the bottom, and highlight the tonic.
-    if (chromaToggle.getToggleState())
+    if (! chromaToggle.getToggleState()) return;
+    auto strip = inner.removeFromBottom (20);
+    const float width = (float) strip.getWidth() / 12.0f;
+    for (int pc = 0; pc < 12; ++pc)
     {
-        auto strip = juce::Rectangle<int> (inner.getX(), inner.getBottom() - 18, inner.getWidth(), 16);
-        const float bw = (float) strip.getWidth() / 12.0f;
-        for (int pc = 0; pc < 12; ++pc)
-        {
-            const float x  = (float) strip.getX() + bw * (float) pc;
-            const float h  = juce::jlimit (0.0f, 1.0f, spec.chroma[pc]) * (float) strip.getHeight();
-            const bool tonic = spec.keyValid && pc == spec.keyRoot;
-            g.setColour ((tonic ? accent : juce::Colour (sattari::brand::kTextFaint))
-                             .withAlpha (tonic ? 0.9f : 0.45f));
-            g.fillRect (juce::Rectangle<float> (x + 1.0f, (float) strip.getBottom() - h, bw - 2.0f, h));
-        }
+        const float x = (float) strip.getX() + width * (float) pc;
+        const float height = juce::jlimit (
+            0.0f, 1.0f, spectrum.chroma[pc])
+            * (float) strip.getHeight();
+        const bool tonic = spectrum.keyValid && pc == spectrum.keyRoot;
+        g.setColour (
+            (tonic ? accent : sattari::studio::colour::tertiary)
+                .withAlpha (tonic ? 0.9f : 0.42f));
+        g.fillRect (
+            x + 1.0f, (float) strip.getBottom() - height,
+            width - 2.0f, height);
     }
 }
 
-void SattariScopeAudioProcessorEditor::drawGonio (juce::Graphics& g, juce::Rectangle<int> area,
-                                                  juce::Colour accent)
+void SattariScopeAudioProcessorEditor::drawGoniometer (
+    juce::Graphics& g, juce::Rectangle<int> bounds)
 {
-    g.setColour (juce::Colour (sattari::brand::kPanelRaised));
-    g.fillRoundedRectangle (area.toFloat(), 10.0f);
-    auto inner = area.reduced (10);
-    const float cx = inner.getCentreX(), cy = inner.getCentreY();
-    const float rad = (float) juce::jmin (inner.getWidth(), inner.getHeight()) * 0.5f;
+    auto inner = sattari::studio::analysis::paintPlotFrame (
+        g, bounds, "Stereo field", "mid / side");
+    const float centreX = inner.getCentreX();
+    const float centreY = inner.getCentreY();
+    const float radius =
+        (float) juce::jmin (inner.getWidth(), inner.getHeight()) * 0.45f;
 
-    // Reference cross (mono = vertical, out-of-phase = horizontal).
-    g.setColour (juce::Colour (sattari::brand::kHairline));
-    g.drawLine (cx, cy - rad, cx, cy + rad, 1.0f);
-    g.drawLine (cx - rad, cy, cx + rad, cy, 1.0f);
-    g.drawEllipse (cx - rad, cy - rad, rad * 2.0f, rad * 2.0f, 1.0f);
+    g.setColour (sattari::studio::colour::separator);
+    g.drawLine (
+        centreX, centreY - radius, centreX, centreY + radius, 1.0f);
+    g.drawLine (
+        centreX - radius, centreY, centreX + radius, centreY, 1.0f);
+    g.drawEllipse (
+        centreX - radius, centreY - radius,
+        radius * 2.0f, radius * 2.0f, 1.0f);
 
-    // Point cloud: scale so a full-scale mono signal reaches the diamond edge.
-    g.setColour (accent.withAlpha (0.65f));
-    const float scale = rad;   // x,y already ~[-1,1]
-    for (int i = 0; i < vec.gonioCount; ++i)
+    if (vector.gonioCount == 0)
     {
-        const float px = cx + juce::jlimit (-1.0f, 1.0f, vec.x[i]) * scale;
-        const float py = cy - juce::jlimit (-1.0f, 1.0f, vec.y[i]) * scale;
-        g.fillRect (px - 0.75f, py - 0.75f, 1.5f, 1.5f);
+        sattari::studio::analysis::paintWaitingState (
+            g, inner, "waiting");
+        return;
     }
 
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (9.0f));
-    g.drawText ("GONIOMETER", inner.removeFromTop (12), juce::Justification::centred);
+    g.setColour (accent.withAlpha (0.68f));
+    for (int i = 0; i < vector.gonioCount; ++i)
+    {
+        const float x = centreX + juce::jlimit (
+            -1.0f, 1.0f, vector.x[i]) * radius;
+        const float y = centreY - juce::jlimit (
+            -1.0f, 1.0f, vector.y[i]) * radius;
+        g.fillEllipse (x - 1.0f, y - 1.0f, 2.0f, 2.0f);
+    }
 }
 
-void SattariScopeAudioProcessorEditor::drawCorrelation (juce::Graphics& g, juce::Rectangle<int> area,
-                                                        juce::Colour accent)
+void SattariScopeAudioProcessorEditor::drawCorrelation (
+    juce::Graphics& g, juce::Rectangle<int> bounds)
 {
-    const auto warn = juce::Colour (sattari::brand::kWarning);
-    auto bar = area.toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanelRaised));
-    g.fillRoundedRectangle (bar, 6.0f);
-    const float mid = bar.getCentreX();
-    const float c   = juce::jlimit (-1.0f, 1.0f, vec.correlation);
-    const float x   = mid + c * (bar.getWidth() * 0.5f - 4.0f);
-    g.setColour (c < 0.0f ? warn : accent);
-    g.fillRoundedRectangle (juce::Rectangle<float> (juce::jmin (mid, x), bar.getY() + 3.0f,
-                                                    std::fabs (x - mid), bar.getHeight() - 6.0f), 4.0f);
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (10.0f));
-    g.drawText ("CORRELATION " + juce::String (vec.correlation, 2), area, juce::Justification::centred);
+    sattari::studio::paintSurface (g, bounds.toFloat(), true);
+    auto inner = bounds.reduced (14, 9);
+    sattari::studio::paintSectionTitle (
+        g, inner.removeFromTop (16), "Correlation",
+        vector.correlation < 0.0f ? "phase risk" : "stable");
+    inner.removeFromTop (7);
+    sattari::studio::analysis::paintBipolarBar (
+        g, inner.removeFromTop (20).toFloat(),
+        vector.correlation, accent, vector.correlation < 0.0f,
+        juce::String (vector.correlation, 2));
 }
 
 void SattariScopeAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
-    const auto accent = juce::Colour (sattari::brand::productAccent ("scope"));
-
-    // Spectrum spans the top; goniometer + correlation sit below-left, key readout below-right.
-    auto specArea = juce::Rectangle<int> (18, 96, getWidth() - 36 - 96, 190);
-    drawSpectrum (g, specArea, accent);
-
-    auto gonioArea = juce::Rectangle<int> (18, 296, 150, 108);
-    drawGonio (g, gonioArea, accent);
-
-    auto corrArea = juce::Rectangle<int> (178, 296, getWidth() - 178 - 18, 22);
-    drawCorrelation (g, corrArea, accent);
-
-    // Key readout under the correlation bar.
-    auto keyArea = juce::Rectangle<int> (178, 326, getWidth() - 178 - 18, 78);
-    g.setColour (juce::Colour (sattari::brand::kPanelRaised));
-    g.fillRoundedRectangle (keyArea.toFloat(), 10.0f);
-    auto ki = keyArea.reduced (14, 10);
-    g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-    g.drawText ("KEY (BUS)", ki.removeFromTop (16), juce::Justification::centredLeft);
-    g.setColour (spec.keyValid ? accent : juce::Colour (sattari::brand::kTextFaint));
-    g.setFont (juce::FontOptions (28.0f, juce::Font::bold));
-    const juce::String keyStr = spec.keyValid
-        ? juce::String (noteName (spec.keyRoot)) + (spec.keyScale == 1 ? " min" : " maj")
-        : juce::String ("--");
-    g.drawText (keyStr, ki, juce::Justification::centredLeft);
+    sattari::studio::paintCanvas (g, getLocalBounds(), accent);
+    drawSpectrum (g, spectrumArea);
+    drawGoniometer (g, goniometerArea);
+    drawCorrelation (g, correlationArea);
 }
 
 void SattariScopeAudioProcessorEditor::resized()
 {
-    auto b = getLocalBounds().reduced (18);
-    title.setBounds (b.removeFromTop (34));
-    subtitle.setBounds (b.removeFromTop (20));
+    auto area = getLocalBounds().reduced (
+        (int) sattari::studio::metric::outerMargin);
+    header.setBounds (
+        area.removeFromTop (sattari::studio::metric::headerHeight));
 
-    auto right = juce::Rectangle<int> (getWidth() - 88, 96, 76, 118);
-    tilt.setBounds (right.removeFromTop (94));
-    tiltCap.setBounds (right.removeFromTop (16));
+    auto command = area.removeFromTop (
+        sattari::studio::metric::commandHeight);
+    tiltLabel.setBounds (command.removeFromLeft (92));
+    tilt.setBounds (command.removeFromLeft (240));
+    command.removeFromLeft (16);
+    chromaToggle.setBounds (command.removeFromLeft (190));
 
-    chromaToggle.setBounds (getWidth() - 200, 226, 190, 22);
+    area.removeFromTop ((int) sattari::studio::metric::gap);
+    const int spectrumHeight = juce::jlimit (
+        170, 250, (int) std::round ((float) area.getHeight() * 0.58f));
+    spectrumArea = area.removeFromTop (spectrumHeight);
+    area.removeFromTop ((int) sattari::studio::metric::gap);
+
+    const int gap = (int) sattari::studio::metric::gap;
+    const int gonioWidth = juce::jmin (
+        220, juce::jmax (150, (int) std::round (
+            (float) area.getHeight() * 1.25f)));
+    goniometerArea = area.removeFromLeft (gonioWidth);
+    area.removeFromLeft (gap);
+    auto right = area;
+    const int correlationHeight = juce::jmin (62, right.getHeight() / 2);
+    correlationArea = right.removeFromBottom (correlationHeight);
+    right.removeFromBottom (gap);
+    keyMetric.setBounds (right);
 }

@@ -3,8 +3,10 @@
 // reference tone, (2) tracks a detuned tone's cents offset, (3) respects the
 // Reference-A control, and (4) passes audio through completely untouched.
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -48,11 +50,49 @@ run (double hz, double refA, int transpose, double& maxPassThruDelta)
     }
     return p.getReading();
 }
+
+bool renderUi (const juce::File& destination, bool minimumSize)
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    SattariTunerAudioProcessor processor;
+    setParam (processor.parameters(), "smoothing", 0.3f);
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    double phase = 0.0;
+    juce::MidiBuffer midi;
+    for (int start = 0; start < (int) sampleRate * 2; start += blockSize)
+    {
+        juce::AudioBuffer<float> audio (2, blockSize);
+        for (int sample = 0; sample < blockSize; ++sample)
+        {
+            const float value = 0.4f * (float) std::sin (phase);
+            audio.setSample (0, sample, value);
+            audio.setSample (1, sample, value);
+            phase += 2.0 * M_PI * 440.0 / sampleRate;
+        }
+        processor.processBlock (audio, midi);
+    }
+
+    return sattari::test::renderEditorToPng (
+        processor, destination,
+        minimumSize ? 620 : 0,
+        minimumSize ? 460 : 0);
+}
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 3
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0))
+    {
+        const bool minimumSize =
+            std::strcmp (argv[1], "--render-ui-min") == 0;
+        return renderUi (juce::File (argv[2]), minimumSize) ? 0 : 1;
+    }
+
     int fails = 0;
 
     // 1) A4 = 440 Hz at reference 440 -> note 69 (A4), ~0 cents.

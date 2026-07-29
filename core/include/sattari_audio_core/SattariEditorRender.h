@@ -35,12 +35,16 @@ inline bool renderComponentToPng (juce::Component& component,
 }
 
 inline bool renderEditorToPng (juce::AudioProcessor& processor,
-                               const juce::File& destination)
+                               const juce::File& destination,
+                               int width = 0,
+                               int height = 0)
 {
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     if (editor == nullptr)
         return false;
 
+    if (width > 0 && height > 0)
+        editor->setSize (width, height);
     return renderComponentToPng (*editor, destination);
 }
 

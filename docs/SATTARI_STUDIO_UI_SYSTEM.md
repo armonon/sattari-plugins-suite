@@ -82,12 +82,22 @@ instrument choice, mute, level, pan, key range and transpose together as one
 playable unit. Source loading and the selected instrument's detailed controls
 remain contextual to the focused layer.
 
+### Meter, Scope, Tuner and Key
+
+The compact analysis family shares exact metric cards, restrained plot frames,
+truthful waiting states and live header status. Each product still leads with
+its distinct decision surface: loudness statistics in Meter, spectrum and
+stereo geometry in Scope, pitch centering in Tuner, and session authority in
+Key. Default and minimum-size renders are seeded with deterministic audio so
+the visual contracts exercise populated states rather than empty shells.
+
 ## Rollout sequence
 
 1. Validate Brain, Arp and Sub Conjurer in Logic, Ableton and a high-DPI host.
 2. Validate the migrated Mix, Create, Vocal and Stack rack workspaces in hosts,
    including narrow-window, preset and automation passes.
-3. Establish compact utility and meter templates for analysis products.
+3. Validate the migrated Meter, Scope, Tuner and Key analysis workspaces,
+   including long-session telemetry and display-scaling passes.
 4. Establish instrument and sample templates for Chop, Granulator and VoxSynth.
 5. Migrate remaining effects by workflow family, not alphabetical order.
 

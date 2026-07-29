@@ -1,8 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariAnalysis.h>
 #include <sattari_audio_core/SattariBranding.h>
-#include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariSessionHud.h>
 #include "PluginProcessor.h"
 
@@ -17,26 +17,39 @@ public:
     void resized() override;
 
 private:
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using SliderAttachment =
+        juce::AudioProcessorValueTreeState::SliderAttachment;
 
     void timerCallback() override;
-    void styleKnob (juce::Slider&);
-    void styleCaption (juce::Label&, const juce::String&);
-    void paintTunerFace (juce::Graphics&, juce::Rectangle<float> area);
+    void updateReading();
+    void paintTunerFace (juce::Graphics&, juce::Rectangle<int>);
 
-    SattariTunerAudioProcessor& processor;
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("tuner") };
+    SattariTunerAudioProcessor& audioProcessor;
+    const juce::Colour accent {
+        sattari::brand::productAccent ("tuner")
+    };
+    sattari::studio::LookAndFeel lookAndFeel {
+        sattari::brand::productAccent ("tuner")
+    };
+    sattari::studio::Header header {
+        "Sattari Tuner", "PRECISION PITCH ANALYSIS", accent
+    };
 
-    juce::Label title, subtitle;
+    juce::ComboBox factoryPreset;
     sattari::ui::SessionHud sessionHud;
+    sattari::studio::MacroControl referenceA { "Reference A", " Hz" };
+    sattari::studio::MacroControl smoothing { "Smoothing" };
+    sattari::studio::MacroControl transpose { "Transpose", " st" };
+    std::unique_ptr<SliderAttachment> referenceAttachment;
+    std::unique_ptr<SliderAttachment> smoothingAttachment;
+    std::unique_ptr<SliderAttachment> transposeAttachment;
 
-    juce::Slider referenceA, smoothing, transpose;
-    juce::Label  referenceACap, smoothingCap, transposeCap;
-    std::unique_ptr<SliderAttachment> referenceAAtt, smoothingAtt, transposeAtt;
-
-    // Smoothed needle position (cents) for a fluid meter, plus in-tune glow.
+    SattariTunerAudioProcessor::LiveReading reading;
     float needleCents = 0.0f;
-    float tuneGlow    = 0.0f;
+    float tuneGlow = 0.0f;
+    juce::Rectangle<int> tunerArea;
+    juce::Rectangle<int> controlsArea;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariTunerAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (
+        SattariTunerAudioProcessorEditor)
 };

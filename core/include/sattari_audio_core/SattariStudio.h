@@ -319,7 +319,15 @@ public:
         g.drawText ("S", mark.toNearestInt(), juce::Justification::centred, false);
 
         area.removeFromLeft (8);
-        auto textArea = area.removeFromLeft (juce::jmin (470, area.getWidth()));
+        const int statusWidth = status_.isNotEmpty()
+            ? juce::jlimit (96, 184, 30 + status_.length() * 7)
+            : 0;
+        const int textWidth = juce::jmax (
+            180, juce::jmin (
+                470, area.getWidth()
+                    - (statusWidth > 0 ? statusWidth + 12 : 0)));
+        auto textArea = area.removeFromLeft (
+            juce::jmin (textWidth, area.getWidth()));
         g.setColour (colour::text);
         g.setFont (juce::FontOptions (23.0f, juce::Font::bold));
         g.drawText (product_, textArea.removeFromTop (34),
@@ -332,10 +340,8 @@ public:
         if (status_.isNotEmpty())
         {
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-            const int textWidth = juce::jlimit (
-                96, 184, 30 + status_.length() * 7);
-            auto pill = area.removeFromRight (textWidth)
-                            .withSizeKeepingCentre (textWidth, 26).toFloat();
+            auto pill = area.removeFromRight (statusWidth)
+                            .withSizeKeepingCentre (statusWidth, 26).toFloat();
             g.setColour ((active_ ? accent_ : colour::surfaceHigh)
                              .withAlpha (active_ ? 0.17f : 1.0f));
             g.fillRoundedRectangle (pill, 13.0f);

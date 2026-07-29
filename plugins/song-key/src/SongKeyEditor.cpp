@@ -1,36 +1,63 @@
 #include "SongKeyEditor.h"
 
-namespace
-{
-juce::String rootName (int pc) { static const char* n[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
-                                 return n[((pc % 12) + 12) % 12]; }
-}
+#include <cmath>
 
-SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (SattariSongKeyAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
+    SattariSongKeyAudioProcessor& p)
+    : AudioProcessorEditor (&p), audioProcessor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (560, 360);
+    setTitle ("Sattari Key");
+    setDescription (
+        "Master-track key detection and suite publication authority");
+    setResizable (true, true);
+    setResizeLimits (660, 470, 1080, 760);
+    setSize (760, 500);
 
-    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Key");
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Master-track key scanner - publishes one key to the whole suite");
-    addAndMakeVisible (title);
-    addAndMakeVisible (subtitle);
+    addAndMakeVisible (header);
     addAndMakeVisible (sessionHud);
+    addAndMakeVisible (confidenceMetric);
+    addAndMakeVisible (tuningMetric);
+    addAndMakeVisible (engineMetric);
 
+    publishToggle.setTitle ("Publish to suite");
+    publishToggle.setDescription (
+        "Publish this detected or manual key to other Sattari products");
     addAndMakeVisible (publishToggle);
+    manualToggle.setTitle ("Manual key override");
+    manualToggle.setDescription (
+        "Use an explicit key instead of the detected result");
+    manualToggle.onStateChange = [this]
+    {
+        updateManualControls();
+        updateSnapshot();
+    };
     addAndMakeVisible (manualToggle);
-    publishAtt = std::make_unique<ButtonAttachment> (processor.parameters(), "publish", publishToggle);
-    manualAtt  = std::make_unique<ButtonAttachment> (processor.parameters(), "manual",  manualToggle);
 
-    setupCombo (manualRootBox,  SattariSongKeyAudioProcessor::rootChoices());
-    setupCombo (manualScaleBox, SattariSongKeyAudioProcessor::scaleChoices());
-    rootAtt  = std::make_unique<ComboAttachment> (processor.parameters(), "manualRoot",  manualRootBox);
-    scaleAtt = std::make_unique<ComboAttachment> (processor.parameters(), "manualScale", manualScaleBox);
+    setupCombo (
+        manualRootBox, SattariSongKeyAudioProcessor::rootChoices(),
+        "Manual root");
+    setupCombo (
+        manualScaleBox, SattariSongKeyAudioProcessor::scaleChoices(),
+        "Manual scale");
 
-    rescanButton.onClick = [this] { processor.requestRescan(); };
+    publishAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "publish", publishToggle);
+    manualAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "manual", manualToggle);
+    rootAttachment = std::make_unique<ComboAttachment> (
+        audioProcessor.parameters(), "manualRoot", manualRootBox);
+    scaleAttachment = std::make_unique<ComboAttachment> (
+        audioProcessor.parameters(), "manualScale", manualScaleBox);
+
+    rescanButton.setTitle ("Re-scan song key");
+    rescanButton.setDescription (
+        "Clear the rolling decision and analyze the current material again");
+    rescanButton.onClick = [this] { audioProcessor.requestRescan(); };
     addAndMakeVisible (rescanButton);
 
+    updateManualControls();
+    updateSnapshot();
     startTimerHz (12);
 }
 
@@ -40,101 +67,189 @@ SattariSongKeyAudioProcessorEditor::~SattariSongKeyAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-void SattariSongKeyAudioProcessorEditor::setupCombo (juce::ComboBox& c, const juce::StringArray& items)
+juce::String SattariSongKeyAudioProcessorEditor::rootName (
+    int pitchClass)
 {
-    c.addItemList (items, 1);
-    addAndMakeVisible (c);
+    static const char* names[] = {
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B"
+    };
+    return names[((pitchClass % 12) + 12) % 12];
+}
+
+void SattariSongKeyAudioProcessorEditor::setupCombo (
+    juce::ComboBox& combo, const juce::StringArray& items,
+    const juce::String& title)
+{
+    combo.addItemList (items, 1);
+    combo.setTitle (title);
+    combo.setDescription ("Choose " + title.toLowerCase());
+    addAndMakeVisible (combo);
 }
 
 void SattariSongKeyAudioProcessorEditor::timerCallback()
 {
-    snapshot = processor.detected();
+    updateSnapshot();
+}
+
+void SattariSongKeyAudioProcessorEditor::updateManualControls()
+{
+    const bool manual = manualToggle.getToggleState();
+    manualRootBox.setEnabled (manual);
+    manualScaleBox.setEnabled (manual);
+}
+
+juce::String SattariSongKeyAudioProcessorEditor::currentRoot() const
+{
+    if (manualToggle.getToggleState())
+        return rootName ((int) std::round (
+            audioProcessor.parameters()
+                .getRawParameterValue ("manualRoot")->load()));
+    return snapshot.valid ? rootName (snapshot.root) : juce::String ("--");
+}
+
+juce::String SattariSongKeyAudioProcessorEditor::currentMode() const
+{
+    if (manualToggle.getToggleState())
+        return audioProcessor.parameters()
+                       .getRawParameterValue ("manualScale")->load() > 0.5f
+            ? "MINOR / MANUAL" : "MAJOR / MANUAL";
+    if (! snapshot.valid) return "LISTENING";
+    return snapshot.minor ? "MINOR" : "MAJOR";
+}
+
+void SattariSongKeyAudioProcessorEditor::updateSnapshot()
+{
+    snapshot = audioProcessor.detected();
+    const bool manual = manualToggle.getToggleState();
+    const float confidence = manual ? 1.0f : juce::jlimit (
+        0.0f, 1.0f, (float) snapshot.confidence * 3.0f);
+    confidenceMetric.setValue (
+        juce::String ((int) std::round (confidence * 100.0f)),
+        "%", manual ? "explicit key" : "current decision");
+    tuningMetric.setValue (
+        snapshot.valid ? juce::String (snapshot.detuneCents, 1)
+                       : juce::String ("--"),
+        "cents", "relative to A440");
+    engineMetric.setValue (
+        manual ? "MANUAL" : snapshot.neural ? "NEURAL" : "CHROMA",
+        {}, manual ? "explicit override"
+                   : snapshot.neural ? "spectrogram model"
+                                     : "always available");
+
+    juce::String status;
+    bool active = false;
+    if (snapshot.publishing)
+    {
+        status = manual ? "MANUAL / PUBLISHING" : "PUBLISHING TO SUITE";
+        active = true;
+    }
+    else if (manual)
+    {
+        status = "MANUAL / LOCAL";
+        active = true;
+    }
+    else if (snapshot.valid)
+    {
+        status = "KEY DETECTED";
+        active = true;
+    }
+    else
+    {
+        status = "LISTENING";
+    }
+    header.setStatus (status, active);
     repaint();
 }
 
 void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+    sattari::studio::paintCanvas (g, getLocalBounds(), accent);
+    sattari::studio::paintSurface (g, keyArea.toFloat(), true);
+    sattari::studio::paintSurface (g, manualArea.toFloat(), true);
 
-    const auto accent = juce::Colour (sattari::brand::kAccent);
-    auto r = keyArea.toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanelDeep));
-    g.fillRoundedRectangle (r, 14.0f);
-    g.setColour (juce::Colour (sattari::brand::kHairline));
-    g.drawRoundedRectangle (r.reduced (0.5f), 14.0f, 1.0f);
+    auto key = keyArea.reduced (16, 12);
+    sattari::studio::paintSectionTitle (
+        g, key.removeFromTop (18), "Detected key",
+        snapshot.publishing ? "suite authority" : "local analysis");
+    key.removeFromTop (4);
 
-    const bool manual = processor.parameters().getRawParameterValue ("manual")->load() > 0.5f;
+    auto rootArea = key.removeFromTop (
+        juce::jmax (72, (int) std::round (key.getHeight() * 0.58f)));
+    g.setColour (
+        currentRoot() == "--"
+            ? sattari::studio::colour::tertiary.withAlpha (0.6f)
+            : sattari::studio::colour::text);
+    g.setFont (juce::FontOptions (
+        (float) juce::jlimit (
+            66, 104, (int) std::round (rootArea.getHeight() * 0.92f)),
+        juce::Font::bold));
+    g.drawText (
+        currentRoot(), rootArea,
+        juce::Justification::centred, false);
 
-    // Big key readout.
-    juce::String big = "--", mode = "listening...";
-    if (manual)
-    {
-        big  = rootName ((int) std::round (processor.parameters().getRawParameterValue ("manualRoot")->load()));
-        mode = processor.parameters().getRawParameterValue ("manualScale")->load() > 0.5f ? "minor (manual)" : "major (manual)";
-    }
-    else if (snapshot.valid)
-    {
-        big  = rootName (snapshot.root);
-        mode = snapshot.minor ? "minor" : "major";
-    }
-
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (64.0f, juce::Font::bold));
-    g.drawText (big, keyArea.withTrimmedBottom (keyArea.getHeight() / 3), juce::Justification::centred);
     g.setColour (accent);
-    g.setFont (juce::FontOptions (20.0f));
-    g.drawText (mode, keyArea.removeFromBottom (keyArea.getHeight() / 2).withTrimmedTop (10), juce::Justification::centredTop);
+    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    g.drawText (
+        currentMode(), key.removeFromTop (24),
+        juce::Justification::centred, false);
 
-    // Confidence bar.
-    auto barArea = keyArea.removeFromBottom (16).reduced (40, 4).toFloat();
-    g.setColour (juce::Colour (sattari::brand::kPanel));
-    g.fillRoundedRectangle (barArea, 3.0f);
-    const float conf = juce::jlimit (0.0f, 1.0f, (float) snapshot.confidence * 3.0f);
-    g.setColour (accent.withAlpha (0.85f));
-    g.fillRoundedRectangle (barArea.withWidth (barArea.getWidth() * conf), 3.0f);
+    key.removeFromTop (6);
+    auto confidenceBar = key.removeFromTop (8).toFloat();
+    g.setColour (sattari::studio::colour::separator);
+    g.fillRoundedRectangle (confidenceBar, 4.0f);
+    const bool manual = manualToggle.getToggleState();
+    const float confidence = manual ? 1.0f : juce::jlimit (
+        0.0f, 1.0f, (float) snapshot.confidence * 3.0f);
+    g.setColour (accent);
+    g.fillRoundedRectangle (
+        confidenceBar.withWidth (
+            confidenceBar.getWidth() * confidence),
+        4.0f);
 
-    // Publishing status dot.
-    const bool pub = snapshot.publishing;
-    g.setColour (pub ? juce::Colour (sattari::brand::kSuccess) : juce::Colour (sattari::brand::kTextFaint));
-    auto dot = juce::Rectangle<float> (r.getX() + 14.0f, r.getY() + 12.0f, 9.0f, 9.0f);
-    g.fillEllipse (dot);
-    g.setColour (juce::Colour (pub ? sattari::brand::kTextPrimary : sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-    g.drawText (pub ? "Publishing to suite" : "Not publishing", (int) dot.getRight() + 6, (int) r.getY() + 8, 200, 16, juce::Justification::centredLeft);
-
-    // Which detector produced this key. The neural model lives outside the bundle
-    // (~/Library/Sattari Audio/models/keynet_spec.onnx); if it is missing the plugin
-    // still works but on the weaker chroma path, and without this readout there is no
-    // way to tell. Right-aligned so it never collides with the publishing text.
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-    g.setColour (juce::Colour (snapshot.neural ? sattari::brand::kSuccess : sattari::brand::kTextFaint));
-    g.drawText (snapshot.neural ? "NEURAL" : "CHROMA",
-                (int) r.getRight() - 86, (int) r.getY() + 8, 72, 16, juce::Justification::centredRight);
+    sattari::studio::paintSectionTitle (
+        g, manualArea.reduced (14).removeFromTop (18),
+        "Authority", "detection or explicit override");
 }
 
 void SattariSongKeyAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (20);
+    auto area = getLocalBounds().reduced (
+        (int) sattari::studio::metric::outerMargin);
+    header.setBounds (
+        area.removeFromTop (sattari::studio::metric::headerHeight));
 
-    auto top = area.removeFromTop (60);
-    sessionHud.setBounds (top.removeFromRight (160).removeFromTop (24).reduced (0, 1));
-    title.setBounds (top.removeFromTop (36));
-    subtitle.setBounds (top.removeFromTop (22));
-    area.removeFromTop (8);
+    auto command = area.removeFromTop (
+        sattari::studio::metric::commandHeight);
+    publishToggle.setBounds (command.removeFromLeft (166));
+    command.removeFromLeft (8);
+    rescanButton.setBounds (command.removeFromLeft (90));
+    sessionHud.setBounds (
+        command.removeFromRight (156).withSizeKeepingCentre (156, 26));
 
-    keyArea = area.removeFromTop (160);
-    area.removeFromTop (14);
+    area.removeFromTop ((int) sattari::studio::metric::gap);
+    manualArea = area.removeFromBottom (72);
+    area.removeFromBottom ((int) sattari::studio::metric::gap);
 
-    auto controls = area.removeFromTop (30);
-    publishToggle.setBounds (controls.removeFromLeft (150));
-    controls.removeFromLeft (8);
-    rescanButton.setBounds (controls.removeFromRight (90));
+    const int gap = (int) sattari::studio::metric::gap;
+    keyArea = area.removeFromLeft (
+        juce::jlimit (360, 500, (int) std::round (
+            (float) area.getWidth() * 0.66f)));
+    area.removeFromLeft (gap);
 
-    area.removeFromTop (10);
-    auto manualRow = area.removeFromTop (30);
-    manualToggle.setBounds (manualRow.removeFromLeft (150));
-    manualRow.removeFromLeft (8);
-    manualRootBox.setBounds (manualRow.removeFromLeft (70));
-    manualRow.removeFromLeft (8);
-    manualScaleBox.setBounds (manualRow.removeFromLeft (100));
+    auto metrics = area;
+    const int metricHeight = (metrics.getHeight() - gap * 2) / 3;
+    confidenceMetric.setBounds (metrics.removeFromTop (metricHeight));
+    metrics.removeFromTop (gap);
+    tuningMetric.setBounds (metrics.removeFromTop (metricHeight));
+    metrics.removeFromTop (gap);
+    engineMetric.setBounds (metrics);
+
+    auto manual = manualArea.reduced (14);
+    manual.removeFromTop (24);
+    manualToggle.setBounds (manual.removeFromLeft (158));
+    manual.removeFromLeft (10);
+    manualRootBox.setBounds (manual.removeFromLeft (110));
+    manual.removeFromLeft (8);
+    manualScaleBox.setBounds (manual.removeFromLeft (130));
 }

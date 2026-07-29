@@ -3,8 +3,10 @@
 // peak, (3) correlation reads ~+1 for mono and ~-1 for anti-phase, and (4)
 // loudness rises ~6 LUFS when the level doubles.
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -35,11 +37,48 @@ SattariMeterAudioProcessor::Readout run (float amp, bool antiphase, double& pass
     }
     return p.getReadout();
 }
+
+bool renderUi (const juce::File& destination, bool minimumSize)
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    SattariMeterAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    double phase = 0.0;
+    juce::MidiBuffer midi;
+    for (int start = 0; start < (int) sampleRate * 2; start += blockSize)
+    {
+        juce::AudioBuffer<float> audio (2, blockSize);
+        for (int sample = 0; sample < blockSize; ++sample)
+        {
+            const float value = 0.24f * (float) std::sin (phase);
+            audio.setSample (0, sample, value);
+            audio.setSample (1, sample, value * 0.88f);
+            phase += 2.0 * M_PI * 997.0 / sampleRate;
+        }
+        processor.processBlock (audio, midi);
+    }
+
+    return sattari::test::renderEditorToPng (
+        processor, destination,
+        minimumSize ? 620 : 0,
+        minimumSize ? 380 : 0);
+}
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 3
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0))
+    {
+        const bool minimumSize =
+            std::strcmp (argv[1], "--render-ui-min") == 0;
+        return renderUi (juce::File (argv[2]), minimumSize) ? 0 : 1;
+    }
+
     int fails = 0;
     double pe1 = 0, pe2 = 0, pe3 = 0;
     auto full = run (0.5f, false, pe1);

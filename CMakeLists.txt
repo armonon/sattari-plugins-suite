@@ -207,6 +207,33 @@ if(BUILD_TESTING)
         endforeach()
     endif()
 
+    foreach(analysis_ui_product IN ITEMS
+            "MeterContract;meter"
+            "ScopeContract;scope"
+            "TunerContract;tuner"
+            "SongKeyRender;song-key")
+        list(GET analysis_ui_product 0 analysis_ui_target)
+        list(GET analysis_ui_product 1 analysis_ui_slug)
+        if(TARGET ${analysis_ui_target})
+            add_test(
+                NAME ${analysis_ui_target}EditorRender
+                COMMAND $<TARGET_FILE:${analysis_ui_target}>
+                    --render-ui
+                    ${CMAKE_BINARY_DIR}/validation/ui/${analysis_ui_slug}.png)
+            add_test(
+                NAME ${analysis_ui_target}EditorMinimumRender
+                COMMAND $<TARGET_FILE:${analysis_ui_target}>
+                    --render-ui-min
+                    ${CMAKE_BINARY_DIR}/validation/ui/${analysis_ui_slug}-minimum.png)
+            set_tests_properties(
+                ${analysis_ui_target}EditorRender
+                PROPERTIES LABELS "ui;render;analysis;non-stemdeck")
+            set_tests_properties(
+                ${analysis_ui_target}EditorMinimumRender
+                PROPERTIES LABELS "ui;render;analysis;minimum;non-stemdeck")
+        endif()
+    endforeach()
+
     if(TARGET SongKeyRender)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
         set_tests_properties(SongKeyRenderSmoke PROPERTIES LABELS "render;non-stemdeck")

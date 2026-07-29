@@ -1,8 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariAnalysis.h>
 #include <sattari_audio_core/SattariBranding.h>
-#include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariSessionHud.h>
 #include "PluginProcessor.h"
 
@@ -17,22 +17,37 @@ public:
     void resized() override;
 
 private:
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using SliderAttachment =
+        juce::AudioProcessorValueTreeState::SliderAttachment;
 
     void timerCallback() override;
-    void drawStat (juce::Graphics&, juce::Rectangle<int>, const juce::String& label,
-                   const juce::String& value, juce::Colour accent);
+    void updateReadout();
 
-    SattariMeterAudioProcessor& processor;
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("meter") };
+    SattariMeterAudioProcessor& audioProcessor;
+    const juce::Colour accent {
+        sattari::brand::productAccent ("meter")
+    };
+    sattari::studio::LookAndFeel lookAndFeel {
+        sattari::brand::productAccent ("meter")
+    };
+    sattari::studio::Header header {
+        "Sattari Meter", "LOUDNESS / TRUE-PEAK ANALYSIS", accent
+    };
 
-    juce::Label title, subtitle, targetCap;
+    sattari::studio::analysis::Metric momentary { "Momentary", accent };
+    sattari::studio::analysis::Metric shortTerm { "Short-term", accent };
+    sattari::studio::analysis::Metric integrated { "Integrated", accent };
+    sattari::studio::analysis::Metric truePeak { "True peak", accent };
+
     sattari::ui::SessionHud sessionHud;
+    juce::Label targetLabel;
     juce::Slider target;
-    juce::TextButton resetBtn { "Reset Integrated" };
-    std::unique_ptr<SliderAttachment> targetAtt;
+    juce::TextButton resetButton { "Reset integrated" };
+    std::unique_ptr<SliderAttachment> targetAttachment;
 
-    SattariMeterAudioProcessor::Readout r;
+    SattariMeterAudioProcessor::Readout readout;
+    juce::Rectangle<int> correlationArea;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariMeterAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (
+        SattariMeterAudioProcessorEditor)
 };

@@ -16,6 +16,7 @@
 #include "SongKeyProcessor.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <sattari_audio_core/SattariEditorRender.h>
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,47 @@ namespace
 void setParam (juce::AudioProcessorValueTreeState& apvts, const juce::String& id, float v)
 {
     if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (v));
+}
+
+bool renderUi (const juce::File& destination, bool minimumSize)
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+    processor.releaseResources();
+    setParam (processor.parameters(), "publish", 0.0f);
+
+    const double frequencies[3] = { 261.63, 329.63, 392.00 };
+    double phases[3] = { 0.0, 0.0, 0.0 };
+    for (int block = 0;
+         block < (int) (0.8 * sampleRate / blockSize);
+         ++block)
+    {
+        juce::AudioBuffer<float> audio (2, blockSize);
+        for (int sample = 0; sample < blockSize; ++sample)
+        {
+            float value = 0.0f;
+            for (int tone = 0; tone < 3; ++tone)
+            {
+                value += 0.25f * (float) std::sin (phases[tone]);
+                phases[tone] +=
+                    2.0 * juce::MathConstants<double>::pi
+                    * frequencies[tone] / sampleRate;
+            }
+            audio.setSample (0, sample, value);
+            audio.setSample (1, sample, value);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (audio, midi);
+    }
+    for (int pass = 0; pass < 20; ++pass)
+        processor.analyseNow();
+
+    return sattari::test::renderEditorToPng (
+        processor, destination,
+        minimumSize ? 660 : 0,
+        minimumSize ? 470 : 0);
 }
 }
 
@@ -74,6 +116,16 @@ double mirexScore (int pRoot, bool pMin, int tRoot, bool tMin)
 
 int main (int argc, char** argv)
 {
+    if (argc == 3
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0))
+    {
+        juce::ScopedJuceInitialiser_GUI juceInitialiser;
+        const bool minimumSize =
+            std::strcmp (argv[1], "--render-ui-min") == 0;
+        return renderUi (juce::File (argv[2]), minimumSize) ? 0 : 1;
+    }
+
     const bool smoke = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
 
     // --corpus <dir> [N] : stream real labelled tracks through the actual plugin.

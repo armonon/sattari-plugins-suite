@@ -4,8 +4,10 @@
 // tone's log band, (3) never emits NaN/Inf, and (4) stays finite on silence
 // (no divide-by-zero).
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -79,11 +81,48 @@ int peakBand (const SattariScopeAudioProcessor::Spectrum& s)
         if (s.bandDb[b] > bv) { bv = s.bandDb[b]; best = b; }
     return best;
 }
+
+bool renderUi (const juce::File& destination, bool minimumSize)
+{
+    SattariScopeAudioProcessor processor;
+    processor.prepareToPlay (kSr, kBlock);
+    double phase = 0.0;
+    juce::MidiBuffer midi;
+    for (int start = 0; start < (int) kSr * 2; start += kBlock)
+    {
+        juce::AudioBuffer<float> audio (2, kBlock);
+        for (int sample = 0; sample < kBlock; ++sample)
+        {
+            const float fundamental = 0.34f * (float) std::sin (phase);
+            const float harmonic = 0.10f * (float) std::sin (phase * 2.0);
+            audio.setSample (0, sample, fundamental + harmonic);
+            audio.setSample (1, sample, fundamental - harmonic * 0.55f);
+            phase += 2.0 * M_PI * 440.0 / kSr;
+        }
+        processor.processBlock (audio, midi);
+    }
+    processor.releaseResources();
+    processor.analyseNow();
+
+    return sattari::test::renderEditorToPng (
+        processor, destination,
+        minimumSize ? 720 : 0,
+        minimumSize ? 480 : 0);
+}
 } // namespace
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 3
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0))
+    {
+        const bool minimumSize =
+            std::strcmp (argv[1], "--render-ui-min") == 0;
+        return renderUi (juce::File (argv[2]), minimumSize) ? 0 : 1;
+    }
+
     int fails = 0;
 
     // (1)+(2)+(3): a 1 kHz tone.
