@@ -49,6 +49,12 @@ h1{font-size:clamp(32px,5.5vw,48px);font-weight:600;line-height:1.06;letter-spac
 .tags{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:52px}
 .tag{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:980px;
   background:var(--bg-2);border:1px solid var(--line-2);color:var(--ink-2)}
+.product-visual{margin:-18px 0 52px;border-radius:24px;background:#0b0c0d;padding:28px;
+  border:1px solid #222529;overflow:hidden}
+.product-visual img{display:block;width:100%;height:auto;filter:drop-shadow(0 18px 26px rgba(0,0,0,.46))}
+.product-visual figcaption{text-align:center;margin-top:16px;font-family:var(--mono);
+  font-size:10px;letter-spacing:.08em;color:#8d939a}
+@media(max-width:640px){.product-visual{padding:14px;border-radius:18px}}
 
 .section{margin-bottom:42px}
 .label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
@@ -104,6 +110,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 <script src="product-catalog.js"></script>
 <script src="plugins-data.js"></script>
 <script src="logos.js"></script>
+<script src="product-shots.js"></script>
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 
@@ -127,6 +134,11 @@ document.getElementById('yr').textContent = new Date().getFullYear();
 
   var tags  = (p.formats  || []).map(function (f) { return '<span class="tag">' + f + '</span>'; }).join('');
   var feats = (p.features || []).map(function (f) { return '<li>' + f + '</li>'; }).join('');
+  var shot = (window.SATTARI_PRODUCT_SHOTS || {})[p.id];
+  var visual = shot
+    ? '<figure class="product-visual"><img src="' + shot.src + '" alt="' + shot.alt +
+      '" /><figcaption>REAL INTERFACE · CURRENT DEVELOPMENT BUILD</figcaption></figure>'
+    : '';
   var others = all.filter(function (x) { return x.id !== p.id; })
     .map(function (x) {
       return '<a class="more-card" href="plugin.html?id=' + encodeURIComponent(x.id) + '">' +
@@ -141,6 +153,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     '</div>' +
     '<p class="tagline">' + (p.tagline || '') + '</p>' +
     '<div class="tags">' + tags + '</div>' +
+    visual +
 
     '<div class="section"><div class="label">What it does</div>' +
       '<div class="card"><p>' + (p.what || '') + '</p></div></div>' +

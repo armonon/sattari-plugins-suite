@@ -39,13 +39,13 @@ body{
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 img{display:block;max-width:100%}
-.wrap{max-width:1024px;margin:0 auto;padding:0 22px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
 .narrow{max-width:720px;margin:0 auto}
 
 .nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.72);
   backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
   border-bottom:1px solid var(--line-2)}
-.nav-in{max-width:1024px;margin:0 auto;padding:0 22px;height:48px;
+.nav-in{max-width:1120px;margin:0 auto;padding:0 24px;height:48px;
   display:flex;align-items:center;justify-content:space-between}
 .brand{font-size:19px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
 .brand:hover{text-decoration:none}
@@ -60,13 +60,35 @@ img{display:block;max-width:100%}
 .btn:hover{background:var(--accent-h);text-decoration:none}
 .btn-ghost{display:inline-block;color:var(--accent);font-size:17px;padding:12px 0}
 
-.hero{padding:100px 0 88px;text-align:center}
+.hero{padding:92px 0 72px;text-align:center}
 .hero h1{font-size:clamp(40px,7vw,74px);font-weight:600;line-height:1.05;
   letter-spacing:-.03em;margin-bottom:20px}
 .hero .sub{font-size:clamp(19px,2.4vw,25px);color:var(--ink-2);letter-spacing:-.01em;
   max-width:660px;margin:0 auto 34px;line-height:1.4}
 .hero-cta{display:flex;gap:26px;justify-content:center;align-items:center;flex-wrap:wrap}
 .hero-note{margin-top:22px;font-size:13px;color:var(--ink-3)}
+.hero-stage{position:relative;margin:76px auto 0;max-width:1030px;min-height:590px;
+  border-radius:38px;background:
+  radial-gradient(circle at 50% 16%,rgba(66,211,146,.14),transparent 34%),
+  linear-gradient(150deg,#141618 0%,#08090a 72%);
+  border:1px solid #24272a;box-shadow:0 42px 100px rgba(0,0,0,.24);overflow:hidden}
+.hero-stage::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:42px 42px;mask-image:linear-gradient(to bottom,#000,transparent 84%)}
+.hero-primary{position:absolute;width:78%;left:11%;top:88px;z-index:2;
+  filter:drop-shadow(0 28px 35px rgba(0,0,0,.48))}
+.hero-primary img,.hero-float img{width:100%;height:auto}
+.hero-float{position:absolute;z-index:3;filter:drop-shadow(0 22px 30px rgba(0,0,0,.56))}
+.hero-key{width:37%;left:2.5%;bottom:18px;transform:rotate(-2.2deg)}
+.hero-scope{width:42%;right:2.5%;bottom:2px;transform:rotate(2deg)}
+.hero-stage-label{position:absolute;left:0;right:0;top:28px;color:#8b9198;
+  font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase}
+@media(max-width:760px){
+  .hero{padding-top:70px}.hero-stage{margin-top:52px;min-height:390px;border-radius:26px}
+  .hero-primary{width:94%;left:3%;top:72px}.hero-key{width:48%;left:-4%;bottom:18px}
+  .hero-scope{width:53%;right:-5%;bottom:10px}.hero-stage-label{top:24px}
+}
 
 .stats{background:var(--bg-2);padding:52px 0}
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center}
@@ -81,6 +103,29 @@ img{display:block;max-width:100%}
 .sec-head p{font-size:19px;color:var(--ink-2);max-width:640px;margin:0 auto;line-height:1.5}
 .eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:var(--mint);margin-bottom:12px}
+
+.architecture{display:grid;grid-template-columns:1fr 86px 1.15fr;align-items:stretch;
+  gap:0;margin:48px auto 0;max-width:860px}
+.arch-card{border:1px solid var(--line-2);border-radius:20px;background:#fff;padding:24px;
+  min-height:128px;display:flex;flex-direction:column;justify-content:center}
+.arch-card.source{background:var(--ink);border-color:var(--ink);color:#fff;text-align:center}
+.arch-card b{font-size:18px;letter-spacing:-.02em}.arch-card small{display:block;color:var(--ink-3);
+  font-size:12px;margin-top:5px}.arch-card.source small{color:#a9a9af}
+.arch-kicker{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:#57dca0;margin-bottom:7px}
+.arch-split{position:relative;display:flex;align-items:center;justify-content:center;color:var(--mint);
+  font-family:var(--mono);font-size:11px}
+.arch-split::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)}
+.arch-split span{position:relative;background:var(--bg);padding:5px;z-index:1}
+.arch-targets{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.arch-target{border:1px solid var(--line-2);border-radius:16px;background:var(--bg-2);padding:20px;
+  display:flex;flex-direction:column;justify-content:center}
+.arch-target b{font-size:16px}.arch-target em{font-style:normal;font-size:12px;color:var(--mint);
+  margin-top:5px}
+@media(max-width:700px){
+  .architecture{grid-template-columns:1fr;gap:12px}.arch-split{height:38px}
+  .arch-split::before{left:50%;right:auto;top:0;bottom:0;width:1px;height:auto}
+  .arch-split span{background:#fff}.arch-targets{grid-template-columns:1fr 1fr}
+}
 
 .rack{background:#fff;border:1px solid var(--line-2);border-radius:var(--radius-l);
   padding:44px;margin-bottom:26px}
@@ -98,7 +143,30 @@ img{display:block;max-width:100%}
 .chip{font-size:13px;background:var(--bg-2);border:1px solid var(--line-2);
   border-radius:8px;padding:6px 11px;color:var(--ink)}
 .chip.preset{background:transparent;border-style:dashed;color:var(--ink-2)}
+.product-shot{margin:30px 0 34px;border-radius:22px;background:#0b0c0d;padding:26px;
+  border:1px solid #222529;overflow:hidden}
+.product-shot img{width:100%;height:auto;filter:drop-shadow(0 18px 24px rgba(0,0,0,.42))}
+.product-shot figcaption{font-size:11px;color:#8d939a;margin-top:15px;text-align:center;
+  font-family:var(--mono);letter-spacing:.04em}
 @media(max-width:760px){.rack{padding:30px 22px}.rack h3{font-size:26px}}
+
+.studio-section{background:#08090a;color:#f5f5f7}
+.studio-section .sec-head p{color:#9a9da2}.studio-section .eyebrow{color:#57dca0}
+.studio-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px}
+.studio-card{border:1px solid #24272a;border-radius:26px;background:#101214;overflow:hidden;
+  min-width:0}
+.studio-card.large{grid-row:span 2}
+.studio-copy{padding:25px 26px 20px}.studio-copy h3{font-size:22px;letter-spacing:-.02em}
+.studio-copy p{font-size:14px;color:#92969c;line-height:1.55;margin-top:6px}
+.studio-card figure{padding:0 18px 18px}.studio-card img{width:100%;border-radius:8px;
+  filter:drop-shadow(0 16px 24px rgba(0,0,0,.38))}
+.studio-card.large figure{padding:18px 22px 24px}
+.studio-card.large .studio-copy{padding-bottom:4px}
+.studio-pair{display:grid;grid-template-columns:1fr 1fr;gap:18px;grid-column:1/-1}
+@media(max-width:800px){
+  .studio-grid{grid-template-columns:1fr}.studio-card.large{grid-row:auto}
+  .studio-pair{grid-template-columns:1fr;grid-column:auto}
+}
 
 .rows{display:grid;gap:1px;background:var(--line-2);border:1px solid var(--line-2);
   border-radius:var(--radius);overflow:hidden}
@@ -204,20 +272,31 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 .search::placeholder{color:var(--ink-3)}
 .search-count{text-align:center;font-size:13px;color:var(--ink-3);margin-bottom:22px;min-height:18px}
 
-/* ── bus diagram ─────────────────────────────────────────── */
-.bus-viz{margin:36px auto 0;max-width:520px}
-.bus-viz svg{width:100%;height:auto;overflow:visible}
-.bus-viz .spoke{stroke:#5a5a60;stroke-width:1.5}
-.bus-viz .pulse{stroke:var(--mint);stroke-width:2;stroke-linecap:round;
-  stroke-dasharray:6 130;stroke-dashoffset:0}
-.bus-viz .node{fill:#2c2c2e;stroke:#48484a;stroke-width:1}
-.bus-viz .node-t{fill:#e8e8ed;font-size:9px;font-family:var(--sans);text-anchor:middle}
-.bus-viz .hub{fill:var(--mint)}
-.bus-viz .hub-t{fill:#0b0b0c;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--sans)}
+/* ── session authority diagram ───────────────────────────── */
+.authority-diagram{display:grid;grid-template-columns:150px 90px 1fr;align-items:center;
+  gap:18px;margin:44px auto 0;max-width:780px;text-align:left}
+.authority-source{border-radius:20px;background:var(--mint);color:#07110d;padding:24px 16px;
+  text-align:center;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 18px 40px rgba(0,163,122,.18)}
+.authority-source span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+  margin-bottom:5px}.authority-source b{font-size:18px}
+.authority-stream{position:relative;height:2px;background:#42464a}
+.authority-stream::after{content:"";position:absolute;left:0;top:0;height:2px;width:28px;
+  background:#57dca0;box-shadow:0 0 12px #57dca0}
+.authority-stream span{position:absolute;left:50%;top:10px;transform:translateX(-50%);
+  font-family:var(--mono);font-size:9px;color:#858a90;white-space:nowrap}
+.authority-followers{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.authority-node{border:1px solid #34383c;background:#17191b;border-radius:12px;padding:10px 12px;
+  font-size:12px;color:#d8dade}
 @media(prefers-reduced-motion:no-preference){
-  .bus-viz .pulse{animation:flow 2.6s linear infinite}
+  .authority-stream::after{animation:authority-flow 1.8s ease-in-out infinite}
 }
-@keyframes flow{to{stroke-dashoffset:-136}}
+@keyframes authority-flow{0%{left:0;opacity:0}20%{opacity:1}80%{opacity:1}100%{left:calc(100% - 28px);opacity:0}}
+@media(max-width:700px){
+  .authority-diagram{grid-template-columns:1fr;gap:14px}.authority-source{max-width:210px;margin:auto}
+  .authority-stream{height:54px;width:2px;margin:auto}.authority-stream::after{width:2px;height:18px}
+  .authority-stream span{left:14px;top:50%;transform:translateY(-50%)}
+  @keyframes authority-flow{0%{top:0;opacity:0}20%{opacity:1}80%{opacity:1}100%{top:36px;opacity:0}}
+}
 
 @media(prefers-reduced-motion:reduce){
   .reveal{opacity:1;transform:none;transition:none}
@@ -232,6 +311,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     <a class="brand" href="#top">Sattari<span>.</span></a>
     <div class="nav-links">
       <a href="#racks">Racks</a>
+      <a href="#studio">Product UI</a>
       <a href="#bus">Session key</a>
       <a href="#flagships">Flagships</a>
       <a href="#plugins">All plugins</a>
@@ -244,15 +324,20 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   <div class="wrap">
     <h1>Four racks.<br>One session key.</h1>
     <p class="sub">
-      A Mac plugin suite where the processors are shared, not duplicated —
-      28 modules that load into four racks, while key-aware plugins can follow
-      one session authority.
+      A Mac plugin suite where 28 shared processors load into four focused racks,
+      while every key-aware instrument follows one musical authority.
     </p>
     <div class="hero-cta">
       <a class="btn" href="#download">See alpha status</a>
       <a class="btn-ghost" href="#racks">See how it works&nbsp;›</a>
     </div>
     <p class="hero-note">Internal development suite · macOS · not yet public or notarized</p>
+    <div class="hero-stage" aria-label="Current Sattari Mix, Key and Scope product interfaces">
+      <div class="hero-stage-label">Real interfaces · current development build</div>
+      <figure class="hero-primary"><img src="assets/products/mix.png" alt="Sattari Mix eight-slot modular rack interface" fetchpriority="high" /></figure>
+      <figure class="hero-float hero-key"><img src="assets/products/song-key.png" alt="Sattari Key session authority interface" /></figure>
+      <figure class="hero-float hero-scope"><img src="assets/products/scope.png" alt="Sattari Scope spectrum and stereo field interface" /></figure>
+    </div>
   </div>
 </header>
 
@@ -282,6 +367,18 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       standalone or inside a rack, so projects saved before the racks existed still open exactly as
       you left them.
     </p>
+    <div class="architecture" role="img" aria-label="One shared DSP module powers both a standalone plugin and a rack slot">
+      <div class="arch-card source">
+        <span class="arch-kicker">SHARED DSP</span>
+        <b>One processor module</b>
+        <small>One implementation. One parameter contract.</small>
+      </div>
+      <div class="arch-split"><span>POWERS</span></div>
+      <div class="arch-targets">
+        <div class="arch-target"><b>Standalone</b><em>Full plugin window</em></div>
+        <div class="arch-target"><b>Rack slot</b><em>Same sound, in context</em></div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -300,6 +397,10 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       </div>
       <p class="lede">The channel strip you assemble yourself — dynamics, tone and metering, in
         whatever order the source actually needs.</p>
+      <figure class="product-shot">
+        <img src="assets/products/mix.png" alt="Sattari Mix showing an eight-slot serial processing chain" loading="lazy" />
+        <figcaption>SATTARI MIX · CURRENT PRODUCT RENDER</figcaption>
+      </figure>
       <p>Each of the eight slots holds one module and has its own bypass. Slot 1 feeds slot 2, and so
         on down the chain — so you can gate before you compress, or compress before you gate, without
         owning two different plugins.</p>
@@ -334,6 +435,10 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       </div>
       <p class="lede">Time, space and damage — reverb, delay, shimmer, tape, risers and vocoding
         in one rack.</p>
+      <figure class="product-shot">
+        <img src="assets/products/create.png" alt="Sattari Create modular effects rack interface" loading="lazy" />
+        <figcaption>SATTARI CREATE · CURRENT PRODUCT RENDER</figcaption>
+      </figure>
       <p>The same eight-slot chain as Mix, different cabinet. Reverbs and delays are tempo-locked:
         they follow the host, and when the host reports no tempo they fall back to the suite's own
         tempo bus rather than guessing 120.</p>
@@ -362,6 +467,10 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       </div>
       <p class="lede">Finish the vocal — de-essing, doubling, formant shaping and full ensemble,
         in one place.</p>
+      <figure class="product-shot">
+        <img src="assets/products/vocal.png" alt="Sattari Vocal modular vocal processing rack interface" loading="lazy" />
+        <figcaption>SATTARI VOCAL · CURRENT PRODUCT RENDER</figcaption>
+      </figure>
       <p>Glass Choir lives here as a module: one Character macro walks a single voice from
         <em>human</em> through <em>massive</em> to <em>destroyed</em>. Standalone it gives you three
         separate output stems — lead, choir and atmosphere. In a rack slot those fold together, which
@@ -385,6 +494,10 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
         <span class="kind">4 layers · in parallel · AU instrument</span>
       </div>
       <p class="lede">The instrument rack — and the one that works differently on purpose.</p>
+      <figure class="product-shot">
+        <img src="assets/products/stack.png" alt="Sattari Stack four-layer parallel instrument rack interface" loading="lazy" />
+        <figcaption>SATTARI STACK · CURRENT PRODUCT RENDER</figcaption>
+      </figure>
       <p><strong>Stack layers rather than chains.</strong> Chaining instruments is meaningless: each
         would write over the last, so only the final slot would be audible. Instead all four layers
         receive the same MIDI, render at the same time, and sum.</p>
@@ -408,6 +521,41 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
         <span class="chip preset">Full Stack</span>
       </div>
     </article>
+  </div>
+</section>
+
+<section class="sec studio-section" id="studio">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Sattari Studio</div>
+      <h2>Read the session in one glance</h2>
+      <p>The analysis family uses the same dark, quiet visual system: exact values first,
+        live context second, and no decoration competing with the work.</p>
+    </div>
+    <div class="studio-grid">
+      <article class="studio-card large">
+        <div class="studio-copy"><h3>Scope</h3><p>Spectrum, stereo field, correlation and session key in one surface.</p></div>
+        <figure><img src="assets/products/scope.png" alt="Sattari Scope spectrum and stereo analysis interface" loading="lazy" /></figure>
+      </article>
+      <article class="studio-card">
+        <div class="studio-copy"><h3>Tuner</h3><p>Pitch, cents and confidence without visual noise.</p></div>
+        <figure><img src="assets/products/tuner.png" alt="Sattari Tuner precision pitch interface" loading="lazy" /></figure>
+      </article>
+      <article class="studio-card">
+        <div class="studio-copy"><h3>Meter</h3><p>Loudness, true peak and correlation built for decisions.</p></div>
+        <figure><img src="assets/products/meter.png" alt="Sattari Meter loudness and true-peak interface" loading="lazy" /></figure>
+      </article>
+      <div class="studio-pair">
+        <article class="studio-card">
+          <div class="studio-copy"><h3>Key</h3><p>The master musical authority for the entire session.</p></div>
+          <figure><img src="assets/products/song-key.png" alt="Sattari Key master key authority interface" loading="lazy" /></figure>
+        </article>
+        <article class="studio-card">
+          <div class="studio-copy"><h3>Brain</h3><p>Session intelligence with musical state kept visible.</p></div>
+          <figure><img src="assets/products/brain.png" alt="Sattari Brain session intelligence interface" loading="lazy" /></figure>
+        </article>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -457,15 +605,15 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
         moves with you.</p>
       <p class="mono">61.3% exact key · 65.5 MIREX · measured on 150 GiantSteps tracks</p>
 
-      <div class="bus-viz" aria-hidden="true">
-        <svg viewBox="0 0 460 200" role="img">
-          <!-- spokes from the hub out to each follower -->
-          <g id="busSpokes"></g>
-          <circle class="hub" cx="230" cy="100" r="38"/>
-          <text class="hub-t" x="230" y="97">SATTARI</text>
-          <text class="hub-t" x="230" y="110">KEY</text>
-          <g id="busNodes"></g>
-        </svg>
+      <div class="authority-diagram" role="img" aria-label="Sattari Key publishes one key to eight follower plugins">
+        <div class="authority-source"><span>SESSION AUTHORITY</span><b>Sattari Key</b></div>
+        <div class="authority-stream"><span>LIVE KEY BUS</span></div>
+        <div class="authority-followers">
+          <div class="authority-node">Auto Pitch</div><div class="authority-node">Harmony</div>
+          <div class="authority-node">Maqam</div><div class="authority-node">VoxKey</div>
+          <div class="authority-node">Arp</div><div class="authority-node">Scaler</div>
+          <div class="authority-node">Shimmer</div><div class="authority-node">Sub Conjurer</div>
+        </div>
       </div>
     </div>
   </div>
@@ -820,41 +968,6 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   render();
 })();
 
-/* ── session-key diagram ────────────────────────────────── */
-(function () {
-  var spokes = document.getElementById('busSpokes');
-  var nodes = document.getElementById('busNodes');
-  if (!spokes) return;
-
-  var followers = ['Auto Pitch','Harmony','Maqam','VoxKey','Arp','Scaler','Shimmer','Sub Conjurer'];
-  var cx = 230, cy = 100, rx = 190, ry = 78;
-
-  followers.forEach(function (name, i) {
-    var a = (Math.PI * 2 * i) / followers.length - Math.PI / 2;
-    var x = cx + Math.cos(a) * rx;
-    var y = cy + Math.sin(a) * ry;
-
-    ['spoke', 'pulse'].forEach(function (cls) {
-      var l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      l.setAttribute('class', cls);
-      l.setAttribute('x1', cx); l.setAttribute('y1', cy);
-      l.setAttribute('x2', x);  l.setAttribute('y2', y);
-      if (cls === 'pulse') l.style.animationDelay = (i * 0.18) + 's';
-      spokes.appendChild(l);
-    });
-
-    var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('class', 'node');
-    c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 21);
-    nodes.appendChild(c);
-
-    var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('class', 'node-t');
-    t.setAttribute('x', x); t.setAttribute('y', y + 3);
-    t.textContent = name.length > 9 ? name.split(' ')[0] : name;
-    nodes.appendChild(t);
-  });
-})();
 </script>
 </body>
 </html>
