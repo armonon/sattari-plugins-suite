@@ -106,13 +106,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     removeChannelButton.setTooltip ("Remove the last deck channel (live)");
     removeChannelButton.onClick = [this]
     {
-        if (processorRef.removeChannel (processorRef.getNumChannels() - 1))
-        {
-            refreshChannelStrips();
-            refreshChannelButtons();
-            resized();
-            repaint();
-        }
+        requestChannelRemoval (processorRef.getNumChannels() - 1);
     };
     addAndMakeVisible (removeChannelButton);
     refreshChannelButtons();
@@ -275,7 +269,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         deckWaves[(size_t) i] = std::make_unique<WaveformDisplay> (thumbnailFormatManager, thumbnailCache, deckName);
         // Focus follows the user's hands: dropping a track on a deck focuses it.
         deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f)
-                                                 { setFocusedDeck (i); processorRef.loadDeckFileAsync (i, f); });
+                                                 { setFocusedDeck (i); requestDeckLoad (i, f); });
         // Empty decks show a real call to action; clicking it opens the file chooser.
         deckWaves[(size_t) i]->setShowDropHint (true);
         deckWaves[(size_t) i]->setOnBrowseRequest ([this, i] { openDeckChooser (i); });
@@ -284,7 +278,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         deckWaveRegions[(size_t) i] = std::make_unique<stemdeck::WaveformRegion>();
         deckWaveRegions[(size_t) i]->onFilesDropped = [this, i] (const juce::StringArray& files)
         {
-            if (! files.isEmpty()) { setFocusedDeck (i); processorRef.loadDeckFileAsync (i, juce::File (files[0])); }
+            if (! files.isEmpty()) { setFocusedDeck (i); requestDeckLoad (i, juce::File (files[0])); }
         };
         deckWaveRegions[(size_t) i]->onSeekNorm = [this, i] (float norm)
         {
@@ -569,7 +563,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     // while recording via `isActive`.
     topRecordButton.setTooltip ("Record your performance into the arrangement");
     topRecordButton.isActive = [this] { return processorRef.isMasterRecording(); };
-    topRecordButton.onClick = [this] { toggleRecording(); };
+    topRecordButton.onClick = [this]
+    {
+        if (processorRef.isMasterRecording())
+            recordStatus.setText ("Hold STOP in the recording bar to keep and finish this take",
+                                  juce::dontSendNotification);
+        else
+            requestRecording (2);
+    };
     addAndMakeVisible (topRecordButton);
 
     automixButton.setTooltip ("Auto-mix: phrase-aligned, tempo- and key-matched transition from the playing deck to the next loaded deck");
@@ -694,7 +695,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (arrRecordButton);
     arrRecordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffff5f6a));
     arrRecordButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    arrRecordButton.onClick = [this] { toggleRecording(); };
+    arrRecordButton.onClick = [this]
+    {
+        if (processorRef.isMasterRecording())
+            recordStatus.setText ("Hold STOP in the recording bar to keep and finish this take",
+                                  juce::dontSendNotification);
+        else
+            requestRecording (2);
+    };
     addAndMakeVisible (arrRecordButton);
     setupButton (undoButton);
     undoButton.onClick = [this] { arrangementView.undo(); };
@@ -1078,18 +1086,32 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     arrangementView.onClearDeckRequest = [this] (int lane)
     {
         if (lane >= 0 && lane < MainPluginProcessor::numDecks)
-        {
-            processorRef.clearDeck (lane);
-            if (auto* wave = deckWaves[(size_t) lane].get())
-                wave->setFile (juce::File());
-            recordStatus.setText ("Cleared Deck " + juce::String::charToString ((juce_wchar) ('A' + lane)),
-                                  juce::dontSendNotification);
-        }
+            requestDeckClear (lane);
     };
     recordStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     recordStatus.setFont (juce::FontOptions (11.5f, juce::Font::bold));
     recordStatus.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (recordStatus);
+    recordingHealthBar.onRecordRequested = [this] (int countInBars)
+    {
+        requestRecording (countInBars);
+    };
+    recordingHealthBar.onStopConfirmed = [this]
+    {
+        if (processorRef.isMasterRecording())
+            toggleRecording();
+    };
+    recordingHealthBar.onUndo = [this]
+    {
+        if (arrangementView.canUndo())
+            arrangementView.undo();
+    };
+    recordingHealthBar.onClearClip = [this]
+    {
+        processorRef.resetLiveLoudness();
+        recordStatus.setText ("Clip hold cleared", juce::dontSendNotification);
+    };
+    addAndMakeVisible (recordingHealthBar);
     arrangementView.initialise (thumbnailFormatManager, thumbnailCache);
     arrangementView.setIdle ("Hit Record to capture your set across every channel lane.");
     addAndMakeVisible (arrangementView);
@@ -1138,7 +1160,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
     {
         if (safeThis != nullptr)
+        {
             safeThis->grabKeyboardFocus();
+            safeThis->offerRecoveryAutosave();
+        }
     });
 }
 
@@ -1271,6 +1296,7 @@ void MainPluginEditor::refreshChannelStrips()
             strip = std::make_unique<stemdeck::ChannelStrip>();
             addAndMakeVisible (*strip);
             const int idx = i;
+            strip->onRequestFocus = [this, idx] { setFocusedDeck (idx); };
             strip->onToggleMonitor = [this, idx]
             {
                 if (auto* b = processorRef.getChannelBody (idx))
@@ -1307,15 +1333,7 @@ void MainPluginEditor::refreshChannelStrips()
             // thing for every channel type and solo can be resolved mix-wide.
             strip->onRemove = [this, idx]
             {
-                // Remove THIS channel, not the last one. Refresh the strips and the
-                // header counter, then relayout so the survivors take the freed width.
-                if (processorRef.removeChannel (idx))
-                {
-                    refreshChannelStrips();
-                    refreshChannelButtons();
-                    resized();
-                    repaint();
-                }
+                requestChannelRemoval (idx);
             };
             strip->onToggleMute = [this, idx] { processorRef.toggleChannelMute (idx); };
             strip->onToggleSolo = [this, idx] { processorRef.toggleChannelSolo (idx); };
@@ -1617,16 +1635,7 @@ void MainPluginEditor::openDeckStemChooser (int deckIndex, int stemLaneIndex)
         {
             const auto file = chooser.getResult();
             if (file.existsAsFile())
-            {
-                processorRef.loadDeckStemFileAsync (deckIndex, stemLaneIndex, file);
-                if (auto* wave = deckWaves[(size_t) deckIndex].get())
-                {
-                    if (stemLaneIndex == DeckPlayer::fullMixStem)
-                        wave->setFile (file);
-                    else
-                        wave->setStemFile (stemLaneIndex, file);
-                }
-            }
+                requestDeckStemLoad (deckIndex, stemLaneIndex, file);
         });
 }
 
@@ -1645,12 +1654,173 @@ void MainPluginEditor::openDeckChooser (int deckIndex)
         {
             const auto file = chooser.getResult();
             if (file.existsAsFile())
-            {
-                processorRef.loadDeckFileAsync (deckIndex, file);
-                if (auto* wave = deckWaves[(size_t) deckIndex].get())
-                    wave->setFile (file);
-            }
+                requestDeckLoad (deckIndex, file);
         });
+}
+
+void MainPluginEditor::requestDeckLoad (int deckIndex, const juce::File& file)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)
+        || ! file.existsAsFile())
+        return;
+
+    const auto current = processorRef.getDeckPath (deckIndex);
+    const bool playing = processorRef.parameters().getRawParameterValue (
+        deckPrefix (deckIndex) + "Play")->load() > 0.5f;
+    const bool protectedDeck = current.isNotEmpty()
+                            && (playing || processorRef.isMasterRecording());
+
+    auto performLoad = [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+                        deckIndex, file]
+    {
+        if (safe == nullptr) return;
+        if (auto* play = safe->processorRef.parameters().getParameter (
+                deckPrefix (deckIndex) + "Play"))
+            play->setValueNotifyingHost (0.0f);
+        safe->setFocusedDeck (deckIndex);
+        safe->processorRef.loadDeckFileAsync (deckIndex, file);
+        if (auto* wave = safe->deckWaves[(size_t) deckIndex].get())
+            wave->setFile (file);
+    };
+
+    if (! protectedDeck)
+    {
+        performLoad();
+        return;
+    }
+
+    juce::PopupMenu confirm;
+    confirm.addSectionHeader (processorRef.isMasterRecording()
+        ? "This channel is part of the active take"
+        : "This channel is currently playing");
+    confirm.addItem (1, "Keep current channel");
+    confirm.addItem (2, "Stop and load over it");
+    confirm.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        [performLoad] (int result)
+        {
+            if (result == 2)
+                performLoad();
+        });
+}
+
+void MainPluginEditor::requestDeckStemLoad (int deckIndex, int stemLaneIndex,
+                                            const juce::File& file)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)
+        || ! juce::isPositiveAndBelow (stemLaneIndex, DeckPlayer::numStemLanes)
+        || ! file.existsAsFile())
+        return;
+
+    const bool replacing = processorRef.getDeckStemPath (deckIndex, stemLaneIndex).isNotEmpty()
+                        || (stemLaneIndex == DeckPlayer::fullMixStem
+                            && processorRef.getDeckPath (deckIndex).isNotEmpty());
+    const bool playing = processorRef.parameters().getRawParameterValue (
+        deckPrefix (deckIndex) + "Play")->load() > 0.5f;
+    auto performLoad = [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+                        deckIndex, stemLaneIndex, file]
+    {
+        if (safe == nullptr) return;
+        safe->processorRef.loadDeckStemFileAsync (deckIndex, stemLaneIndex, file);
+        if (auto* wave = safe->deckWaves[(size_t) deckIndex].get())
+        {
+            if (stemLaneIndex == DeckPlayer::fullMixStem)
+                wave->setFile (file);
+            else
+                wave->setStemFile (stemLaneIndex, file);
+        }
+    };
+
+    if (! replacing || (! playing && ! processorRef.isMasterRecording()))
+    {
+        performLoad();
+        return;
+    }
+
+    juce::PopupMenu confirm;
+    confirm.addSectionHeader (processorRef.isMasterRecording()
+        ? "Replacing this source changes the active take"
+        : "This channel is currently playing");
+    confirm.addItem (1, "Keep current source");
+    confirm.addItem (2, "Replace source");
+    confirm.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        [performLoad] (int result) { if (result == 2) performLoad(); });
+}
+
+void MainPluginEditor::requestDeckClear (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return;
+
+    const bool playing = processorRef.parameters().getRawParameterValue (
+        deckPrefix (deckIndex) + "Play")->load() > 0.5f;
+    auto clear = [safe = juce::Component::SafePointer<MainPluginEditor> (this), deckIndex]
+    {
+        if (safe == nullptr) return;
+        if (auto* play = safe->processorRef.parameters().getParameter (
+                deckPrefix (deckIndex) + "Play"))
+            play->setValueNotifyingHost (0.0f);
+        safe->processorRef.clearDeck (deckIndex);
+        if (auto* wave = safe->deckWaves[(size_t) deckIndex].get())
+            wave->setFile (juce::File());
+        safe->recordStatus.setText ("Cleared channel "
+                                    + juce::String::charToString ((juce_wchar) ('A' + deckIndex)),
+                                    juce::dontSendNotification);
+    };
+
+    if (! processorRef.isMasterRecording() && ! playing)
+    {
+        clear();
+        return;
+    }
+
+    juce::PopupMenu confirm;
+    confirm.addSectionHeader (processorRef.isMasterRecording()
+        ? "Clearing now changes the active take"
+        : "This channel is currently playing");
+    confirm.addItem (1, "Keep channel");
+    confirm.addItem (2, "Stop and clear channel");
+    confirm.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        [clear] (int result) { if (result == 2) clear(); });
+}
+
+void MainPluginEditor::requestChannelRemoval (int channelIndex)
+{
+    if (! juce::isPositiveAndBelow (channelIndex, processorRef.getNumChannels()))
+        return;
+    if (processorRef.isMasterRecording())
+    {
+        recordStatus.setText ("Channel removal is locked while recording - stop and keep the take first",
+                              juce::dontSendNotification);
+        return;
+    }
+
+    auto remove = [safe = juce::Component::SafePointer<MainPluginEditor> (this), channelIndex]
+    {
+        if (safe == nullptr || ! safe->processorRef.removeChannel (channelIndex))
+            return;
+        safe->refreshChannelStrips();
+        safe->refreshChannelButtons();
+        safe->resized();
+        safe->repaint();
+    };
+
+    bool playing = false;
+    if (processorRef.getChannelType (channelIndex) == ChannelType::trackDeck
+        && channelIndex < MainPluginProcessor::numDecks)
+        playing = processorRef.parameters().getRawParameterValue (
+            deckPrefix (channelIndex) + "Play")->load() > 0.5f;
+    if (! playing)
+    {
+        remove();
+        return;
+    }
+
+    juce::PopupMenu confirm;
+    confirm.addSectionHeader ("This channel is currently playing");
+    confirm.addItem (1, "Keep channel");
+    confirm.addItem (2, "Stop and remove channel");
+    confirm.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        [remove] (int result) { if (result == 2) remove(); });
 }
 
 void MainPluginEditor::openPadChooser (int padIndex)
@@ -1700,11 +1870,19 @@ void MainPluginEditor::toggleRecording()
         return;
     }
 
+    requestRecording (2);
+}
+
+void MainPluginEditor::requestRecording (int countInBars)
+{
+    if (processorRef.isMasterRecording() || pendingRecordingStartMs > 0.0)
+        return;
+
     // NOTE: do NOT clear the arrangement or disable Reveal/Reload/Bounce yet —
     // cancelling the save dialog must leave the current work untouched. Only wipe
     // once a destination is chosen and recording actually starts.
     recordChooser.launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-        [this] (const juce::FileChooser& chooser)
+        [this, countInBars] (const juce::FileChooser& chooser)
         {
             auto file = chooser.getResult();
             if (file.getFullPathName().isEmpty())
@@ -1713,17 +1891,38 @@ void MainPluginEditor::toggleRecording()
             if (! file.hasFileExtension ("wav"))
                 file = file.withFileExtension ("wav");
 
-            const bool started = processorRef.beginMasterRecording (file);
-            recordStatus.setText (started ? "Recording: " + file.getFileName() : "Could not start recording", juce::dontSendNotification);
-            if (started)
+            const int bars = juce::jlimit (0, 2, countInBars);
+            if (bars > 0)
             {
-                arrangementView.clearArrangement();
-                revealRecordingButton.setEnabled (false);
-                reloadIntoDecksButton.setEnabled (false);
-                bounceEditsButton.setEnabled (false);
-                arrangementView.setRecordingProgress (0.0, file.getFullPathName());
+                const double bpm = juce::jlimit (40.0, 240.0,
+                    (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+                const double countInMs = (double) bars * 4.0 * 60000.0 / bpm;
+                pendingRecordingFile = file;
+                pendingRecordingStartMs = juce::Time::getMillisecondCounterHiRes() + countInMs;
+                restoreMetronomeAfterCountIn = processorRef.isMetronomeEnabled();
+                processorRef.setMetronomeEnabled (true);
+                recordStatus.setText (juce::String (bars) + "-bar count-in - take "
+                                      + juce::String (processorRef.getCurrentTakeNumber() + 1)
+                                      + " starts next", juce::dontSendNotification);
+                return;
             }
+            startRecordingNow (file);
         });
+}
+
+void MainPluginEditor::startRecordingNow (const juce::File& file)
+{
+    const bool started = processorRef.beginMasterRecording (file);
+    recordStatus.setText (started ? "Recording: " + file.getFileName()
+                                  : "Could not start recording", juce::dontSendNotification);
+    if (! started)
+        return;
+
+    arrangementView.clearArrangement();
+    revealRecordingButton.setEnabled (false);
+    reloadIntoDecksButton.setEnabled (false);
+    bounceEditsButton.setEnabled (false);
+    arrangementView.setRecordingProgress (0.0, file.getFullPathName());
 }
 
 void MainPluginEditor::revealLastRecording()
@@ -1858,6 +2057,166 @@ void MainPluginEditor::openPianoRollForClip (int lane, int clip)
     pianoRoll.toFront (true);
 }
 
+juce::ValueTree MainPluginEditor::makeProjectState() const
+{
+    juce::ValueTree root ("STEMDECK_PROJECT");
+    root.setProperty ("projectVersion", kProjectVersion, nullptr);
+    root.setProperty ("autosavedUtc", juce::Time::currentTimeMillis(), nullptr);
+
+    juce::MemoryBlock processorState;
+    processorRef.getStateInformation (processorState);
+    root.setProperty ("processorState", processorState.toBase64Encoding(), nullptr);
+    root.appendChild (arrangementView.toState(), nullptr);
+    root.appendChild (pianoRoll.toState(), nullptr);
+    return root;
+}
+
+void MainPluginEditor::restoreProjectState (const juce::ValueTree& root,
+                                            const juce::String& sourceLabel)
+{
+    const int fileVersion = (int) root.getProperty ("projectVersion", 1);
+    if (fileVersion > kProjectVersion)
+    {
+        recordStatus.setText ("Project was saved by a newer StemDeck (v"
+                              + juce::String (fileVersion) + ") - not loaded",
+                              juce::dontSendNotification);
+        return;
+    }
+
+    const auto encoded = root.getProperty ("processorState").toString();
+    if (encoded.isNotEmpty())
+    {
+        juce::MemoryBlock processorState;
+        if (processorState.fromBase64Encoding (encoded) && processorState.getSize() > 0)
+            processorRef.setStateInformation (processorState.getData(),
+                                              (int) processorState.getSize());
+    }
+
+    arrangementView.fromState (root.getChildWithName ("ARRANGEMENT"));
+    pianoRoll.fromState (root.getChildWithName ("PIANOROLL"));
+    refreshChannelStrips();
+    refreshChannelButtons();
+    resized();
+    repaint();
+    recordStatus.setText ("Recovered " + sourceLabel
+                          + (encoded.isNotEmpty() ? "" : " (arrangement only - pre-v2 file)"),
+                          juce::dontSendNotification);
+}
+
+juce::File MainPluginEditor::recoveryAutosaveFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("Sattari Audio")
+        .getChildFile ("StemDeck")
+        .getChildFile ("Recovery")
+        .getChildFile ("last-session.stemdeck");
+}
+
+juce::File MainPluginEditor::recoveryIntentFile()
+{
+    return recoveryAutosaveFile().getSiblingFile ("last-session-intent.sdev");
+}
+
+void MainPluginEditor::scheduleRecoveryAutosave()
+{
+    if (! recoveryDecisionMade || autosaveInFlight->exchange (true))
+        return;
+
+    auto xml = makeProjectState().createXml();
+    if (xml == nullptr)
+    {
+        autosaveInFlight->store (false);
+        return;
+    }
+
+    const auto text = xml->toString();
+    const auto file = recoveryAutosaveFile();
+    const auto intentFile = recoveryIntentFile();
+    const bool hasActiveTake = processorRef.isIntentCaptureActive();
+    auto intentEvents = hasActiveTake ? processorRef.getIntentCaptureSnapshot()
+                                      : std::vector<stemdeck::events::Event> {};
+    stemdeck::events::Header intentHeader;
+    intentHeader.sampleRate = processorRef.getRecordingSampleRate();
+    intentHeader.createdUtc = juce::Time::currentTimeMillis();
+    intentHeader.blockSize = (std::uint32_t) juce::jmax (1, processorRef.getRecordingBlockSize());
+    const auto flag = autosaveInFlight;
+    autosavePool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [file, intentFile, text, flag, hasActiveTake,
+         intentHeader, intentEvents = std::move (intentEvents)]() -> juce::ThreadPoolJob::JobStatus
+        {
+            auto parent = file.getParentDirectory();
+            if (! parent.exists())
+                parent.createDirectory();
+            file.replaceWithText (text, false, false, "\n");
+            // A project snapshot alone is not enough during a live take: it knows
+            // the current mixer state, but not the sequence of performed actions.
+            // Checkpoint the deterministic stream beside it every five seconds so
+            // a crash loses at most one autosave interval of intent.
+            if (hasActiveTake)
+                stemdeck::events::Writer::write (intentFile, intentHeader, intentEvents);
+            else
+                intentFile.deleteFile();   // never pair a newer idle snapshot with an old take
+            flag->store (false);
+            return juce::ThreadPoolJob::jobHasFinished;
+        }));
+}
+
+void MainPluginEditor::offerRecoveryAutosave()
+{
+    const auto file = recoveryAutosaveFile();
+    if (! file.existsAsFile())
+    {
+        recoveryDecisionMade = true;
+        return;
+    }
+
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr)
+    {
+        recoveryDecisionMade = true;
+        return;
+    }
+    const auto snapshot = juce::ValueTree::fromXml (*xml);
+    const auto intentFile = recoveryIntentFile();
+    int checkpointEvents = 0;
+    if (intentFile.existsAsFile())
+    {
+        stemdeck::events::Header checkpointHeader;
+        std::vector<stemdeck::events::Event> checkpoint;
+        if (stemdeck::events::Reader::read (intentFile, checkpointHeader, checkpoint)
+            == stemdeck::events::LoadResult::ok)
+            checkpointEvents = (int) checkpoint.size();
+    }
+
+    juce::PopupMenu recovery;
+    recovery.addSectionHeader ("A recoverable StemDeck session was found");
+    recovery.addItem (1, checkpointEvents > 0
+                           ? "Recover session + " + juce::String (checkpointEvents) + " captured actions"
+                           : "Recover autosaved session");
+    recovery.addItem (2, "Start fresh");
+    recovery.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         snapshot, file, intentFile, checkpointEvents] (int result)
+        {
+            if (safe == nullptr) return;
+            if (result == 1)
+            {
+                safe->restoreProjectState (snapshot, "autosaved session");
+                if (checkpointEvents > 0)
+                    safe->recordStatus.setText (
+                        "Recovered session; preserved " + juce::String (checkpointEvents)
+                        + " deterministic actions in " + intentFile.getFileName(),
+                        juce::dontSendNotification);
+            }
+            else if (result == 2)
+            {
+                file.deleteFile();
+                intentFile.deleteFile();
+            }
+            safe->recoveryDecisionMade = true;
+        });
+}
+
 void MainPluginEditor::saveProject()
 {
     auto chooser = std::make_shared<juce::FileChooser> (
@@ -1871,21 +2230,7 @@ void MainPluginEditor::saveProject()
             auto f = fc.getResult();
             if (f == juce::File()) return;
             f = f.withFileExtension ("stemdeck");
-            juce::ValueTree root ("STEMDECK_PROJECT");
-            // Versioned so a future schema change can migrate instead of silently
-            // misreading. Files written before versioning have no property -> v1.
-            root.setProperty ("projectVersion", kProjectVersion, nullptr);
-
-            // FULL processor state: parameters, the <CHANNELS> list, deck/stem file
-            // assignments, hot cues and the MIDI map. Without this a saved project
-            // restored an empty mix — the arrangement came back but every deck,
-            // gain, EQ and channel was lost.
-            juce::MemoryBlock processorState;
-            processorRef.getStateInformation (processorState);
-            root.setProperty ("processorState", processorState.toBase64Encoding(), nullptr);
-
-            root.appendChild (arrangementView.toState(), nullptr);
-            root.appendChild (pianoRoll.toState(), nullptr);
+            const auto root = makeProjectState();
             if (auto xml = root.createXml())
                 xml->writeTo (f);
             recordStatus.setText ("Saved project: " + f.getFileName(), juce::dontSendNotification);
@@ -1905,35 +2250,8 @@ void MainPluginEditor::loadProject()
             if (! f.existsAsFile()) return;
             if (auto xml = juce::XmlDocument::parse (f))
             {
-                const auto root = juce::ValueTree::fromXml (*xml);
-                const int fileVersion = (int) root.getProperty ("projectVersion", 1);
-                if (fileVersion > kProjectVersion)
-                {
-                    // Refuse rather than silently misread a newer schema.
-                    recordStatus.setText ("Project was saved by a newer StemDeck (v"
-                                          + juce::String (fileVersion) + ") - not loaded",
-                                          juce::dontSendNotification);
-                    return;
-                }
-
-                // Restore the mix first so the arrangement lands on the right decks.
-                // v1 projects have no processorState; they load arrangement-only, as before.
-                const auto encoded = root.getProperty ("processorState").toString();
-                if (encoded.isNotEmpty())
-                {
-                    juce::MemoryBlock processorState;
-                    if (processorState.fromBase64Encoding (encoded) && processorState.getSize() > 0)
-                        processorRef.setStateInformation (processorState.getData(), (int) processorState.getSize());
-                }
-
-                arrangementView.fromState (root.getChildWithName ("ARRANGEMENT"));
-                pianoRoll.fromState (root.getChildWithName ("PIANOROLL"));
-                refreshChannelButtons();
-                resized();
-                repaint();
-                recordStatus.setText ("Loaded project: " + f.getFileName()
-                                      + (encoded.isNotEmpty() ? "" : " (arrangement only - pre-v2 file)"),
-                                      juce::dontSendNotification);
+                restoreProjectState (juce::ValueTree::fromXml (*xml),
+                                     "project: " + f.getFileName());
             }
         });
 }
@@ -2440,6 +2758,7 @@ void MainPluginEditor::openChainPluginEditor (int chainIndex, int pluginIndex)
 MainPluginEditor::~MainPluginEditor()
 {
     stopTimer();
+    autosavePool.removeAllJobs (true, 1500);
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
         const auto prefix = deckPrefix (d);
@@ -2499,13 +2818,11 @@ void MainPluginEditor::setupLibrary()
     // AI set builder: top four harmonic picks land straight on decks A-D.
     libraryView->onLoadSet = [this] (const std::array<juce::File, 4>& set)
     {
-        for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
+        for (int d = 0; d < (int) set.size(); ++d)
         {
             if (! set[(size_t) d].existsAsFile())
                 continue;
-            processorRef.loadDeckFileAsync (d, set[(size_t) d]);
-            if (auto* wave = deckWaves[(size_t) d].get())
-                wave->setFile (set[(size_t) d]);
+            requestDeckLoad (d, set[(size_t) d]);
         }
     };
     addChildComponent (*libraryView);
@@ -2584,9 +2901,7 @@ void MainPluginEditor::fileDoubleClicked (const juce::File& file)
 
     if (target >= 0)
     {
-        processorRef.loadDeckFileAsync (target, file);
-        if (auto* wave = deckWaves[(size_t) target].get())
-            wave->setFile (file);
+        requestDeckLoad (target, file);
         return;
     }
 
@@ -2605,9 +2920,7 @@ void MainPluginEditor::fileDoubleClicked (const juce::File& file)
         {
             if (choice <= 0 || choice >= 99) return;
             const int idx = choice - 1;
-            processorRef.loadDeckFileAsync (idx, file);
-            if (auto* wave = deckWaves[(size_t) idx].get())
-                wave->setFile (file);
+            requestDeckLoad (idx, file);
         });
 }
 
@@ -2857,6 +3170,13 @@ void MainPluginEditor::setMasterDeck (int deckIndex)
 
 void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
 {
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+        if (deckCollapsedBounds[(size_t) i].contains (e.getPosition()))
+        {
+            setFocusedDeck (i);
+            return;
+        }
+
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
         if (deckBadgeBounds[(size_t) i].contains (e.getPosition()))
         {
@@ -3117,10 +3437,15 @@ void MainPluginEditor::paint (juce::Graphics& g)
         if (deckBounds.isEmpty())
             continue;
         const bool deckPlaying = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+        const auto stateAccent = processorRef.isMasterRecording()
+                               ? juce::Colour (stemdeck::tokens::meterHot)
+                               : deckPlaying ? juce::Colour (stemdeck::tokens::stemBas)
+                                             : deckAccent (i);
         // Reference §3: radius-panel (9), and identity carried by a 3px LEFT rail
         // rather than a top stripe — the same rail an idle channel uses (§4), so a
         // deck and a channel read as the same kind of object.
-        drawPanel (g, deckBounds, deckAccent (i), stemdeck::tokens::radiusPanel, deckPlaying);
+        drawPanel (g, deckBounds, stateAccent, stemdeck::tokens::radiusPanel,
+                   deckPlaying || processorRef.isMasterRecording());
         {
             juce::Graphics::ScopedSaveState railClip (g);
             juce::Path rounded;
@@ -3403,13 +3728,19 @@ void MainPluginEditor::paint (juce::Graphics& g)
         const auto sb = deckCollapsedBounds[(size_t) i];
         if (sb.isEmpty()) continue;
         const bool loaded = deckHasContent (i);
+        const bool playing = processorRef.parameters().getRawParameterValue (
+            deckPrefix (i) + "Play")->load() > 0.5f;
         const auto accent = deckAccent (i);
+        const auto stateAccent = processorRef.isMasterRecording()
+                               ? juce::Colour (stemdeck::tokens::meterHot)
+                               : playing ? juce::Colour (stemdeck::tokens::stemBas)
+                                         : juce::Colour (stemdeck::tokens::borderSubtle);
         const float dim = loaded ? 1.0f : 0.4f;
         const auto r = sb.toFloat();
 
         g.setColour (juce::Colour (0xff131316));
         g.fillRoundedRectangle (r, 6.0f);
-        g.setColour (juce::Colour (0xff2A2A30));
+        g.setColour (stateAccent);
         g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
 
         // 2px deck accent bar + letter.
@@ -4174,10 +4505,12 @@ void MainPluginEditor::resized()
             L::Item::fixed (66, /*pri*/ 8, T::gap3),   // ARRANGER
             L::Item::fixed (92, /*pri*/ 6, T::gap6),   // FILES — first nav cell to go
             L::Item::fixed (118, /*pri*/ 10, T::gap5), // PLAY ALL — transport never sheds
-            L::Item::fixed (78,  /*pri*/ 10, T::gap5), // REC
-            L::Item::fixed (84,  /*pri*/ 7, T::gap5),  // AUTO
+            // Recording now owns the persistent health bar below. The duplicate
+            // REC pill and stage-DJ AUTO control are deliberately absent here.
+            L::Item::fixed (0,   /*pri*/ 0, 0),        // REC (retired)
+            L::Item::fixed (0,   /*pri*/ 0, 0),        // AUTO (out of recording scope)
             // Status prose shrinks before anything else disappears.
-            L::Item::flexible (90, 196, 0.0f, /*pri*/ 4, T::gap6),
+            L::Item::fixed (0,   /*pri*/ 0, 0),        // AUTO status (retired)
             // The wordmark is branding: min 0, soaks up leftover, sheds silently.
             L::Item::flexible (0, 0, 1.0f, /*pri*/ 1, T::gap6),
             L::Item::fixed (150, /*pri*/ 8, T::gap6),  // TEMPO chip — BPM is load-bearing
@@ -4218,9 +4551,9 @@ void MainPluginEditor::resized()
         };
 
         place (masterPlayButton,    hPlay,       34);
-        place (topRecordButton,     hRec,        34);
-        place (automixButton,       hAuto,       34);
-        place (automixStatusLabel,  hAutoStatus, 30);
+        topRecordButton.setVisible (false); topRecordButton.setBounds ({});
+        automixButton.setVisible (false); automixButton.setBounds ({});
+        automixStatusLabel.setVisible (false); automixStatusLabel.setBounds ({});
         place (savePresetButton,    hSavePreset, 30);
         place (userPresets,         hPresets,    28);
         place (addChannelButton,    hAddCh,      30);
@@ -4330,6 +4663,12 @@ void MainPluginEditor::resized()
         for (auto* c : advancedComps) { c->setVisible (false); c->setBounds ({}); }
     }
 
+    // Persistent recording + system-health HUD. It stays visible on every primary
+    // surface so transport safety never disappears when moving into the arranger.
+    recordingHealthBar.setVisible (true);
+    recordingHealthBar.setBounds (area.removeFromTop (88));
+    area.removeFromTop (stemdeck::tokens::gap6);
+
     // "LIVE MIXER / STEM DECKS" section title removed (mockup has no such label).
     liveMixerLabel.setBounds ({});
     liveMixerLabel.setVisible (false);
@@ -4418,12 +4757,36 @@ void MainPluginEditor::resized()
         }
     }
 
-    const int deckWidth = activeW;   // width of a channel that is doing work
-
-    const auto columnWidth = [this, activeW, idleW, visibleDecks] (int col)
+    // Focus hierarchy: the channel under the user's hands receives the detail
+    // width; loaded peers collapse to monitoring strips. Targets are eased at
+    // 30 Hz below, using the reference's 220 ms drawer duration.
+    std::array<int, MainPluginProcessor::numDecks> widthTargets {};
+    int otherActiveW = activeW;
+    int focusW = activeW;
+    const bool focusedIsActive = focusedDeck < totalColumns
+                              && (focusedDeck >= visibleDecks || deckHasContent (focusedDeck));
+    if (focusedIsActive && activeCols > 1)
+    {
+        const int otherCount = activeCols - 1;
+        focusW = juce::jlimit (activeW, 520,
+                              avail - idleCols * idleW - otherCount * 180);
+        const int left = avail - idleCols * idleW - focusW;
+        otherActiveW = juce::jlimit (180, activeW, left / juce::jmax (1, otherCount));
+        focusW = juce::jmin (520, focusW + juce::jmax (0, left - otherActiveW * otherCount));
+    }
+    for (int col = 0; col < totalColumns; ++col)
     {
         const bool idle = col < visibleDecks && ! deckHasContent (col);
-        return idle ? idleW : activeW;
+        widthTargets[(size_t) col] = idle ? idleW
+                                  : col == focusedDeck ? focusW : otherActiveW;
+        deckWidthTarget[(size_t) col] = (float) widthTargets[(size_t) col];
+        if (deckWidthCurrent[(size_t) col] <= 0.0f)
+            deckWidthCurrent[(size_t) col] = deckWidthTarget[(size_t) col];
+    }
+
+    const auto columnWidth = [this] (int col)
+    {
+        return juce::jmax (1, (int) std::round (deckWidthCurrent[(size_t) col]));
     };
 
     // Centre the row when the caps leave it narrower than the band.
@@ -4472,8 +4835,30 @@ void MainPluginEditor::resized()
         auto laneOuter = decksArea.removeFromLeft (columnWidth (deckIndex));
         if (deckIndex < visibleDecks - 1) decksArea.removeFromLeft (deckGap);
 
-        deckCollapsedBounds[(size_t) deckIndex] = {};   // no collapsed strips in the horizontal layout
         const bool loaded = deckHasContent (deckIndex);
+        const bool collapsed = loaded && deckIndex != focusedDeck;
+        if (collapsed)
+        {
+            const auto stripBounds = laneOuter.withHeight (58);
+            deckPanelBounds[(size_t) deckIndex] = stripBounds;
+            deckTabStripBounds[(size_t) deckIndex] = {};
+            deckTabPanelBounds[(size_t) deckIndex] = {};
+            deckStemFxBounds[(size_t) deckIndex] = {};
+            layoutCollapsedDeck (deckIndex, stripBounds);
+            if (auto* region = deckWaveRegions[(size_t) deckIndex].get())
+            {
+                region->setVisible (false);
+                region->setBounds ({});
+            }
+            if (auto* strip = deckStrips[(size_t) deckIndex].get())
+            {
+                strip->setVisible (false);
+                strip->setBounds ({});
+            }
+            continue;
+        }
+
+        deckCollapsedBounds[(size_t) deckIndex] = {};
         setDeckDetailVisible (deckIndex, loaded);
         deckPanelBounds[(size_t) deckIndex] = laneOuter;
         auto lane = laneOuter.reduced (10, 10);
@@ -5366,6 +5751,31 @@ void MainPluginEditor::timerCallback()
 {
     // Service deferred audio-thread requests (e.g. TE transport auto-stop).
     processorRef.serviceDeferredActions();
+    if ((autosaveTick++ % 150) == 0)
+        scheduleRecoveryAutosave();
+
+    if (pendingRecordingStartMs > 0.0)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        if (now >= pendingRecordingStartMs)
+        {
+            const auto file = pendingRecordingFile;
+            pendingRecordingFile = juce::File();
+            pendingRecordingStartMs = 0.0;
+            startRecordingNow (file);
+            if (! restoreMetronomeAfterCountIn)
+                processorRef.setMetronomeEnabled (false);
+        }
+        else
+        {
+            const double bpm = juce::jlimit (40.0, 240.0,
+                (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+            const double beatsLeft = (pendingRecordingStartMs - now) * bpm / 60000.0;
+            recordStatus.setText ("Count-in: " + juce::String ((int) std::ceil (beatsLeft))
+                                  + " beats", juce::dontSendNotification);
+        }
+    }
+
     updateAutomixRamp();
     if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
     if (energyArc.isVisible())      refreshEnergyArc();        // ScenePilot energy arc
@@ -5388,7 +5798,21 @@ void MainPluginEditor::timerCallback()
     for (int i = 0; i < PadBank::numPads; ++i)
         if (processorRef.getPadPath (i).isNotEmpty()) { anyPad = true; break; }
     if (padsCollapsed == anyPad) relayout = true;   // state disagrees with last layout
-    if (relayout) resized();
+
+    bool widthMotion = false;
+    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    {
+        const float delta = deckWidthTarget[(size_t) i] - deckWidthCurrent[(size_t) i];
+        if (std::abs (delta) <= 0.5f)
+        {
+            deckWidthCurrent[(size_t) i] = deckWidthTarget[(size_t) i];
+            continue;
+        }
+        // ~220 ms interruptible expansion at the editor's 30 Hz timer cadence.
+        deckWidthCurrent[(size_t) i] += delta * 0.28f;
+        widthMotion = true;
+    }
+    if (relayout || widthMotion) resized();
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)    // two-zone waveform (§2)
     {
         auto* region = deckWaveRegions[(size_t) i].get();
@@ -5481,6 +5905,61 @@ void MainPluginEditor::timerCallback()
     // topRecordButton self-paints its active (red) state from isActive(); label pulses.
     topRecordButton.setLabel (recording ? "REC \xe2\x80\xa2" : "REC");
     topRecordButton.repaint();
+
+    // Persistent recording/system-health model. Every field is sourced from the
+    // corresponding engine or recorder; no badge is driven by showcase/demo state.
+    {
+        stemdeck::RecordingHealthBar::State hs;
+        hs.recording = recording;
+        const auto samples = processorRef.getRecordedSamples();
+        const auto sr = processorRef.getRecordingSampleRate();
+        hs.elapsedSeconds = sr > 0.0 ? (double) samples / sr : 0.0;
+        hs.bpm = juce::jlimit (40.0, 240.0,
+            (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
+        hs.takeNumber = juce::jmax (1, processorRef.getCurrentTakeNumber()
+                                           + (recording ? 0 : 1));
+        hs.barNumber = (int) std::floor (hs.elapsedSeconds * hs.bpm / 240.0) + 1;
+        hs.captureCoverage = processorRef.getIntentCaptureCoverage();
+        hs.captureTarget = processorRef.getIntentCaptureTargetCount();
+        hs.captureEvents = processorRef.getIntentCaptureEventCount();
+        hs.channelCount = juce::jmin (stemdeck::RecordingHealthBar::kMaxChannels,
+                                     processorRef.getNumChannels());
+        const bool captureWriting = recording && processorRef.isIntentCaptureActive();
+        for (int i = 0; i < hs.channelCount; ++i)
+        {
+            auto& ch = hs.channels[(size_t) i];
+            const auto type = processorRef.getChannelType (i);
+            ch.label = type == ChannelType::input ? "IN"
+                     : type == ChannelType::midiInstrument ? "M"
+                     : juce::String::charToString ((juce_wchar) ('A' + i));
+            ch.accent = deckAccent (i);
+            ch.armed = true;
+            ch.writing = captureWriting;
+        }
+        hs.integratedLufs = processorRef.getLiveIntegratedLufs();
+        hs.limiterGrDb = processorRef.getLimiterGrDb();
+        hs.peakDb = processorRef.getLivePeakDb();
+        hs.bufferMs = sr > 0.0 ? 1000.0 * processorRef.getRecordingBlockSize() / sr : 0.0;
+        hs.droppedBuffers = processorRef.getDroppedBufferCount();
+        hs.droppedEvents = processorRef.getDroppedCaptureEventCount();
+        hs.cpuLoad = processorRef.getAudioCpuLoad();
+        hs.midiLinked = processorRef.hasMidiBindings();
+        hs.countInBars = recordingHealthBar.getState().countInBars;
+
+        if ((healthRefreshTick++ % 30) == 0)
+        {
+            auto volume = processorRef.getMasterRecordingTarget().getParentDirectory();
+            if (volume == juce::File())
+                volume = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+            const auto freeBytes = volume.getBytesFreeOnVolume();
+            const double bytesPerSecond = juce::jmax (1.0, sr) * 2.0 * 3.0
+                                        * (double) (MainPluginProcessor::numDecks + 2);
+            cachedDiskMinutes = freeBytes > 0
+                              ? (int) ((double) freeBytes / bytesPerSecond / 60.0) : -1;
+        }
+        hs.diskMinutes = cachedDiskMinutes;
+        recordingHealthBar.setState (std::move (hs));
+    }
 
     // Meters live in the MASTER OUTPUT panel — refresh continuously.
     if (! masterOutBounds.isEmpty())
@@ -5989,14 +6468,29 @@ void MainPluginEditor::refreshHotCueButtonColours (int deckIndex)
 void MainPluginEditor::updateWaveformHotCues (int deckIndex)
 {
     auto* wave = deckWaves[(size_t) deckIndex].get();
-    if (wave == nullptr) return;
     std::array<WaveformDisplay::HotCue, WaveformDisplay::numHotCues> cues {};
     for (int c = 0; c < WaveformDisplay::numHotCues; ++c)
     {
         cues[(size_t) c].seconds = processorRef.getHotCue (deckIndex, c);
         cues[(size_t) c].colour  = kHotCueColours[(size_t) c];
     }
-    wave->setHotCues (cues);
+    if (wave != nullptr)
+        wave->setHotCues (cues);
+
+    if (auto* region = deckWaveRegions[(size_t) deckIndex].get())
+    {
+        std::array<stemdeck::WaveformRegion::HotCue, MainPluginProcessor::numHotCues> regionCues {};
+        const double total = processorRef.getDeckTotalSeconds (deckIndex);
+        for (int c = 0; c < MainPluginProcessor::numHotCues; ++c)
+        {
+            const double seconds = processorRef.getHotCue (deckIndex, c);
+            regionCues[(size_t) c] = {
+                seconds >= 0.0 && total > 0.0 ? (float) (seconds / total) : -1.0f,
+                kHotCueColours[(size_t) c], c + 1
+            };
+        }
+        region->setHotCues (regionCues);
+    }
 }
 
 // ── Loop helpers ─────────────────────────────────────────────────────────────
@@ -6234,14 +6728,22 @@ void MainPluginEditor::applyFollowAction (int laneIndex, int clipIndex)
 void MainPluginEditor::updateWaveformLoopRegion (int deckIndex)
 {
     auto* wave = deckWaves[(size_t) deckIndex].get();
-    if (wave == nullptr) return;
+    auto* region = deckWaveRegions[(size_t) deckIndex].get();
     const double in  = processorRef.getDeckLoopInSeconds (deckIndex);
     const double out = processorRef.getDeckLoopOutSeconds (deckIndex);
+    const double total = processorRef.getDeckTotalSeconds (deckIndex);
     const bool active = processorRef.isDeckLoopActive (deckIndex);
     if (in >= 0.0 && out > in)
-        wave->setLoopRegion (in, out, active);
+    {
+        if (wave != nullptr) wave->setLoopRegion (in, out, active);
+        if (region != nullptr && total > 0.0)
+            region->setLoopRegion ((float) (in / total), (float) (out / total), active);
+    }
     else
-        wave->clearLoopRegion();
+    {
+        if (wave != nullptr) wave->clearLoopRegion();
+        if (region != nullptr) region->clearLoopRegion();
+    }
 }
 
 // ── Camelot wheel popup ───────────────────────────────────────────────────────

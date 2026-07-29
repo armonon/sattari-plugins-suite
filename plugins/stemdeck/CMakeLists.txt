@@ -682,6 +682,20 @@ stemdeck_link_tracktion(StemDeckReplayHash)
 sattari_enable_rubberband(StemDeckReplayHash SATTARI_STEMDECK_HAS_RUBBERBAND)
 stemdeck_enable_onnx(StemDeckReplayHash)
 
+# Recording button -> deterministic intent stream + health telemetry contract.
+add_executable(StemDeckRecordingHealth EXCLUDE_FROM_ALL tests/stemdeck_recording_health.cpp)
+target_include_directories(StemDeckRecordingHealth PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckRecordingHealth PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckRecordingHealth
+    PRIVATE SattariStemDeck
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckRecordingHealth)
+sattari_enable_rubberband(StemDeckRecordingHealth SATTARI_STEMDECK_HAS_RUBBERBAND)
+stemdeck_enable_onnx(StemDeckRecordingHealth)
+
 # ── A1 phase 3: dispatch and replay are the same code path ────────────────────
 add_executable(StemDeckDispatch EXCLUDE_FROM_ALL tests/stemdeck_dispatch.cpp)
 add_dependencies(StemDeckDispatch SattariStemDeck)

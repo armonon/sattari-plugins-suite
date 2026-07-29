@@ -1172,6 +1172,7 @@ bool MainPluginProcessor::getBoolParam (juce::StringRef id) const
 
 void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    const auto cpuStartTicks = juce::Time::getHighResolutionTicks();
     juce::ScopedNoDenormals noDenormals;
 
     // ── Hardware MIDI controller mapping ──────────────────────────────────────
@@ -1467,6 +1468,17 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     // Motorized-fader feedback: emit CC out for mapped faders whose value changed
     // (so hardware/LED controllers track the UI). Change-detection avoids loops.
     midiMapping.writeFeedback (midi, 0);
+
+    const double elapsedSeconds = juce::Time::highResolutionTicksToSeconds (
+        juce::Time::getHighResolutionTicks() - cpuStartTicks);
+    const double budgetSeconds = currentSampleRate > 0.0
+                               ? (double) buffer.getNumSamples() / currentSampleRate : 0.0;
+    const float instantLoad = budgetSeconds > 0.0
+                            ? (float) juce::jlimit (0.0, 4.0, elapsedSeconds / budgetSeconds) : 0.0f;
+    const float previousLoad = audioCpuLoad.load (std::memory_order_relaxed);
+    audioCpuLoad.store (previousLoad * 0.92f + instantLoad * 0.08f, std::memory_order_relaxed);
+    if (budgetSeconds > 0.0 && elapsedSeconds > budgetSeconds)
+        audioDeadlineMisses.fetch_add (1, std::memory_order_relaxed);
 }
 
 void MainPluginProcessor::applyLimiter (juce::AudioBuffer<float>& buffer, float ceilingDb)
@@ -2383,11 +2395,17 @@ bool MainPluginProcessor::beginMasterRecording (const juce::File& destinationFil
     }
 
     recordingSampleCounter.store (0, std::memory_order_relaxed);
+    currentTakeNumber.store ((int) apvts.state.getProperty ("takeNumber", 0) + 1,
+                             std::memory_order_relaxed);
+    apvts.state.setProperty ("takeNumber", currentTakeNumber.load (std::memory_order_relaxed), nullptr);
+    eventDispatcher->beginCapture();
     performanceRecorder.begin (destinationFile, currentSampleRate);
     midiCapture.beginTake();   // record what gets played, for later piano-roll editing
     initialisePerformanceCaptureState();
     lastPerformanceEventLogFile = performanceRecorder.getEventLogFile();
     lastArrangementFile = performanceRecorder.getArrangementFile();
+    lastIntentStreamFile = destinationFile.getSiblingFile (
+        destinationFile.getFileNameWithoutExtension() + "-intent.sdev");
     return true;
 }
 
@@ -2404,9 +2422,27 @@ juce::File MainPluginProcessor::stopMasterRecording()
     // recorder's fixed 4-deck view, so copy into the leading slots.
     for (int i = 0; i < numDecks; ++i)
         lastDeckRecordingTargets[(size_t) i] = deckFiles[(size_t) i];
+    eventDispatcher->endCapture();
+    {
+        stemdeck::events::Header header;
+        header.sampleRate = currentSampleRate;
+        header.createdUtc = juce::Time::currentTimeMillis();
+        header.blockSize = (std::uint32_t) juce::jmax (1, preparedBlockSize);
+        stemdeck::events::Writer::write (lastIntentStreamFile, header, eventDispatcher->takeRecorded());
+    }
     lastArrangementFile = performanceRecorder.finishAndWrite (endSample, masterFile, micFile, deckFiles);
     lastPerformanceEventLogFile = performanceRecorder.getEventLogFile();
     return masterFile;
+}
+
+int MainPluginProcessor::getDroppedBufferCount() const noexcept
+{
+    int total = audioDeadlineMisses.load (std::memory_order_relaxed)
+              + masterRecorder.getDroppedBlockCount()
+              + micRecorder.getDroppedBlockCount();
+    for (const auto& recorder : deckRecorders)
+        total += recorder.getDroppedBlockCount();
+    return total;
 }
 
 juce::File MainPluginProcessor::getLastDeckRecordingFile (int deckIndex) const

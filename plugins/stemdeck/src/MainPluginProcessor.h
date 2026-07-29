@@ -136,6 +136,28 @@ public:
     juce::File getLastDeckRecordingFile (int deckIndex) const;
     int64_t getRecordedSamples() const noexcept { return recordingSampleCounter.load (std::memory_order_relaxed); }
     double getRecordingSampleRate() const noexcept { return currentSampleRate; }
+    int getRecordingBlockSize() const noexcept { return preparedBlockSize; }
+    int getCurrentTakeNumber() const noexcept { return currentTakeNumber.load (std::memory_order_relaxed); }
+    bool isIntentCaptureActive() const noexcept
+    { return eventDispatcher != nullptr && eventDispatcher->isCapturing(); }
+    int getIntentCaptureEventCount() const
+    { return eventDispatcher != nullptr ? (int) eventDispatcher->recordedEventCount() : 0; }
+    std::vector<stemdeck::events::Event> getIntentCaptureSnapshot() const
+    { return eventDispatcher != nullptr ? eventDispatcher->takeRecorded()
+                                        : std::vector<stemdeck::events::Event> {}; }
+    int getIntentCaptureCoverage() const noexcept
+    { return stemdeck::events::Dispatcher::convertedParamCount(); }
+    int getIntentCaptureTargetCount() const noexcept
+    { return (int) stemdeck::events::ParamId::count; }
+    juce::File getLastIntentStreamFile() const { return lastIntentStreamFile; }
+    float getAudioCpuLoad() const noexcept { return audioCpuLoad.load (std::memory_order_relaxed); }
+    int getDroppedBufferCount() const noexcept;
+    int getDroppedCaptureEventCount() const noexcept
+    {
+        return performanceRecorder.getDroppedEventCount()
+             + (eventDispatcher != nullptr ? eventDispatcher->getDroppedEventCount() : 0);
+    }
+    bool hasMidiBindings() const noexcept { return midiMapping.hasBindings(); }
 
     juce::String getDeckPath (int deckIndex) const;
     juce::String getDeckStemPath (int deckIndex, int stemLaneIndex) const;
@@ -534,9 +556,13 @@ private:
     // (drained in the dtor) instead of the UI timer, so it can't stall the UI.
     std::array<std::atomic<bool>, kMaxChannels> liveKeyAnalysisInFlight {};
     std::atomic<int64_t> recordingSampleCounter { 0 };
+    std::atomic<int> currentTakeNumber { 0 };
+    std::atomic<float> audioCpuLoad { 0.0f };
+    std::atomic<int> audioDeadlineMisses { 0 };
     int64_t transportSampleCounter = 0;
     juce::File lastPerformanceEventLogFile;
     juce::File lastArrangementFile;
+    juce::File lastIntentStreamFile;
     std::array<juce::File, kMaxChannels> lastDeckRecordingTargets;
     // Pre-allocated audio-thread scratch (sized in prepareToPlay) — avoids per-block
     // heap allocation in the mic-capture and Tracktion-mix paths.

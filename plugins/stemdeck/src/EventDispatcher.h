@@ -46,7 +46,12 @@ public:
         if (capturing)
         {
             const std::lock_guard<std::mutex> lock (recordMutex);
-            recorded.push_back (e);
+            // Capture was pre-reserved at take start. Never grow here: host
+            // automation may enter through parameterChanged on the audio thread.
+            if (recorded.size() < recorded.capacity())
+                recorded.push_back (e);
+            else
+                droppedEvents.fetch_add (1, std::memory_order_relaxed);
         }
     }
 
@@ -81,16 +86,29 @@ public:
     {
         const std::lock_guard<std::mutex> lock (recordMutex);
         recorded.clear();
+        droppedEvents.store (0, std::memory_order_relaxed);
+        recorded.reserve (131072);
         capturing = true;
     }
     void endCapture() { capturing = false; }
     bool isCapturing() const noexcept { return capturing; }
 
-    std::vector<Event> takeRecorded()
+    std::vector<Event> takeRecorded() const
     {
         const std::lock_guard<std::mutex> lock (recordMutex);
         auto out = recorded;
         return out;
+    }
+
+    std::size_t recordedEventCount() const
+    {
+        const std::lock_guard<std::mutex> lock (recordMutex);
+        return recorded.size();
+    }
+
+    int getDroppedEventCount() const noexcept
+    {
+        return droppedEvents.load (std::memory_order_relaxed);
     }
 
     // The master clock position events are stamped with. The audio thread advances it;
@@ -171,6 +189,7 @@ private:
     std::atomic<std::int64_t> clockSamples { 0 };
     std::uint32_t nextSeq = 0;
     std::atomic<bool> capturing { false };
+    std::atomic<int> droppedEvents { 0 };
     std::vector<Event> recorded;
     mutable std::mutex recordMutex;
 };

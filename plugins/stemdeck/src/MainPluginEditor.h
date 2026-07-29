@@ -29,6 +29,7 @@
 #include "SattariFxRack.h"
 #include "ChannelStrip.h"
 #include "XYPad.h"
+#include "RecordingHealthBar.h"
 
 // Plugin-FX hosting: HostGraph discovers + instantiates plugins AND its processChain
 // is now wired into processBlock for every deck, the mic bus, and the master (empty
@@ -512,6 +513,8 @@ private:
     void setDeckDetailVisible (int deckIndex, bool visible);
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckCollapsedBounds {};
     std::array<int, MainPluginProcessor::numDecks> deckDimState { { -1, -1, -1, -1 } };
+    std::array<float, MainPluginProcessor::numDecks> deckWidthCurrent {};
+    std::array<float, MainPluginProcessor::numDecks> deckWidthTarget {};
 
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
@@ -593,6 +596,12 @@ private:
     void toggleArrangementPlayback();
     void saveProject();
     void loadProject();
+    juce::ValueTree makeProjectState() const;
+    void restoreProjectState (const juce::ValueTree& root, const juce::String& sourceLabel);
+    void scheduleRecoveryAutosave();
+    void offerRecoveryAutosave();
+    static juce::File recoveryAutosaveFile();
+    static juce::File recoveryIntentFile();
     void openPianoRollForClip (int lane, int clip);
     juce::Label masterKeyLabel;
     juce::ComboBox masterKey;
@@ -602,6 +611,7 @@ private:
     std::unique_ptr<ButtonAttachment> stemLinkAttachment;
     bool stemLinkMirroring = false;
     juce::Label recordStatus;
+    stemdeck::RecordingHealthBar recordingHealthBar;
     ArrangementRecorderView arrangementView;
     PianoRollView pianoRoll;
     juce::TextButton pianoRollButton { "Piano Roll" };
@@ -735,6 +745,10 @@ private:
     // Enable/disable the +CH / -CH buttons at the pool limits and show the count.
     void refreshChannelButtons();
     void openDeckChooser (int deckIndex);
+    void requestDeckLoad (int deckIndex, const juce::File& file);
+    void requestDeckStemLoad (int deckIndex, int stemLaneIndex, const juce::File& file);
+    void requestDeckClear (int deckIndex);
+    void requestChannelRemoval (int channelIndex);
     void openDeckStemChooser (int deckIndex, int stemLaneIndex);
     void applyExtractedMelody (int deckIndex, const std::vector<MelodyExtractor::Note>& notes, bool neural = false);
     void applyExtractedDrums (int deckIndex, const std::vector<MelodyExtractor::Note>& hits);
@@ -780,6 +794,8 @@ private:
     void updateMidiLearnUI();
 
     void toggleRecording();
+    void requestRecording (int countInBars);
+    void startRecordingNow (const juce::File& destination);
     void revealLastRecording();
     void reloadLastRecordingIntoDecks();
     void loadLastArrangementIntoView (juce::String statusLine);
@@ -813,6 +829,17 @@ private:
     // ── Motion state (eased in timerCallback @30Hz) ─────────────────────────
     float navUnderlineX = -1.0f, navUnderlineW = 0.0f;      // sliding nav underline
     std::array<double, 8> padFlashMs {};                    // pad-trigger flash stamps
+    juce::File pendingRecordingFile;
+    double pendingRecordingStartMs = 0.0;
+    bool restoreMetronomeAfterCountIn = false;
+    int healthRefreshTick = 0;
+    int cachedDiskMinutes = -1;
+    int autosaveTick = 0;
+    bool recoveryDecisionMade = false;
+    std::shared_ptr<std::atomic<bool>> autosaveInFlight {
+        std::make_shared<std::atomic<bool>> (false)
+    };
+    juce::ThreadPool autosavePool { 1 };
     // Activates every setTooltip() in the app (they are inert without a window).
     juce::TooltipWindow tooltipWindow { this, 400 };
 

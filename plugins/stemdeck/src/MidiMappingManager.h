@@ -141,6 +141,14 @@ public:
     // ── message thread queries ─────────────────────────────────────────────────
     int numCc()   const noexcept { return (int) ccTargets.size(); }
     int numNote() const noexcept { return (int) noteTargets.size(); }
+    bool hasBindings() const noexcept
+    {
+        for (const auto& v : ccMap)
+            if (v.load (std::memory_order_relaxed) >= 0) return true;
+        for (const auto& v : noteMap)
+            if (v.load (std::memory_order_relaxed) >= 0) return true;
+        return false;
+    }
     juce::String ccName   (int i) const { return juce::isPositiveAndBelow (i, (int) ccTargets.size())   ? ccTargets[(size_t) i].name   : juce::String(); }
     juce::String noteName (int i) const { return juce::isPositiveAndBelow (i, (int) noteTargets.size()) ? noteTargets[(size_t) i].name : juce::String(); }
 

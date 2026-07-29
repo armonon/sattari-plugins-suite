@@ -60,6 +60,7 @@ public:
 
     // Hit targets the host wires up.
     std::function<void()>      onToggleMonitor;
+    std::function<void()>      onRequestFocus;
     std::function<void(float)> onGainChanged;   // 0..2 linear
     std::function<void()>      onRemove;
     std::function<void(int,float)> onEqChanged;      // band 0=low 1=mid 2=high, dB
@@ -286,6 +287,7 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (onRequestFocus) onRequestFocus();
         const auto p = e.getPosition();
         if (removeBounds.contains (p)) { if (onRemove) onRemove(); return; }
         if (isIdle() && chooseBounds.contains (p) && onCycleSource) { onCycleSource(); return; }

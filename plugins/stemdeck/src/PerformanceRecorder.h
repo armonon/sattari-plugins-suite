@@ -16,6 +16,8 @@ public:
     double getSampleRate() const noexcept { return currentSampleRate; }
     juce::File getEventLogFile() const { return eventLogFile; }
     juce::File getArrangementFile() const { return arrangementFile; }
+    int getDroppedEventCount() const noexcept { return droppedEvents.load (std::memory_order_relaxed); }
+    int getEventCount() const noexcept { return eventCount.load (std::memory_order_relaxed); }
 
     void logEvent (int64_t sample,
                    const juce::String& type,
@@ -32,6 +34,8 @@ public:
 
 private:
     std::atomic<bool> active { false };
+    std::atomic<int> droppedEvents { 0 };
+    std::atomic<int> eventCount { 0 };
     double currentSampleRate = 44100.0;
     juce::File eventLogFile;
     juce::File arrangementFile;

@@ -25,6 +25,7 @@ public:
 
     bool isRecording() const noexcept { return recording.load(); }
     juce::File getTargetFile() const;
+    int getDroppedBlockCount() const noexcept { return droppedBlocks.load (std::memory_order_relaxed); }
 
 private:
     static constexpr int maxQueuedBlocks = 128;

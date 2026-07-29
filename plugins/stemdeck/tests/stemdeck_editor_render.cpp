@@ -3,7 +3,7 @@
 // actually show up on screen -- inconsistent radii, mismatched button weights,
 // crowded panels -- only appear in context. This is that gate.
 //
-//   StemDeckEditorRender [out.png] [W] [H] [channels] [typed] [tab] [loaded] [surface]
+//   StemDeckEditorRender [out.png] [W] [H] [channels] [typed] [tab] [loaded] [surface] [recording]
 //     default ~/Desktop/StemDeck-demo/editor.png at 1680x1050
 #include "MainPluginProcessor.h"
 #include "MainPluginEditor.h"
@@ -64,6 +64,17 @@ int main (int argc, char** argv)
                     wav.createWriterFor (os.get(), sr, 2, 16, {}, 0)))
             { os.release(); w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()); }
         proc.loadDeckFileAsync (0, tempWav);
+    }
+
+    // Optional 9th arg: put the real recorder/dispatcher into the rolling state so
+    // the persistent red HUD and writing badges can be visually gated.
+    juce::File tempRecording;
+    if (argc >= 10 && juce::String (argv[9]).getIntValue() != 0)
+    {
+        tempRecording = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("stemdeck-editor-render-take.wav");
+        tempRecording.deleteFile();
+        proc.beginMasterRecording (tempRecording);
     }
 
     std::unique_ptr<juce::AudioProcessorEditor> ed (proc.createEditor());

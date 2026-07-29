@@ -33,6 +33,7 @@ public:
     static constexpr int kNumStems = 4;   // vox, drum, bass, other
 
     struct StructureRegion { float startNorm = 0.0f, endNorm = 0.0f; juce::String label; juce::Colour colour; };
+    struct HotCue { float positionNorm = -1.0f; juce::Colour colour; int number = 0; };
 
     WaveformRegion()
     {
@@ -47,7 +48,21 @@ public:
     void setOverviewPeaks (std::vector<float> p) { overview = std::move (p); repaint(); }
     void setStemPeaks (int stem, std::vector<float> p)
     {
-        if (juce::isPositiveAndBelow (stem, kNumStems)) { stems[(size_t) stem] = std::move (p); repaint(); }
+        if (juce::isPositiveAndBelow (stem, kNumStems))
+        {
+            auto& marks = clipPositions[(size_t) stem];
+            marks.clear();
+            int last = -1000;
+            for (int i = 0; i < (int) p.size() && marks.size() < 64; ++i)
+                if (p[(size_t) i] >= 0.985f
+                    && i - last > juce::jmax (2, (int) p.size() / 200))
+                {
+                    marks.push_back ((float) i / (float) juce::jmax (1, (int) p.size() - 1));
+                    last = i;
+                }
+            stems[(size_t) stem] = std::move (p);
+            repaint();
+        }
     }
     void setStructure (std::vector<StructureRegion> s) { structure = std::move (s); repaint(); }
 
@@ -56,6 +71,15 @@ public:
     struct KeyBand { float startNorm = 0.0f, endNorm = 0.0f; juce::String label; juce::Colour colour; };
     void setKeyBands (std::vector<KeyBand> k) { keyBands = std::move (k); repaint(); }
     void setStemMuted (int stem, bool m) { if (juce::isPositiveAndBelow (stem, kNumStems)) { muted[(size_t) stem] = m; repaint(); } }
+    void setHotCues (std::array<HotCue, 8> c) { hotCues = std::move (c); repaint(); }
+    void setLoopRegion (float startNorm, float endNorm, bool active)
+    {
+        loopStart = juce::jlimit (0.0f, 1.0f, startNorm);
+        loopEnd = juce::jlimit (loopStart, 1.0f, endNorm);
+        loopActive = active;
+        repaint();
+    }
+    void clearLoopRegion() { loopStart = loopEnd = -1.0f; loopActive = false; repaint(); }
 
     void setPlayheadNorm (float p)   { playhead = juce::jlimit (0.0f, 1.0f, p); repaint(); }
     void setTotalSeconds (double s)  { totalSec = s; repaint(); }
@@ -176,6 +200,20 @@ public:
         g.setColour (stemdeck::tokens::c (stemdeck::tokens::fgPrimary).withAlpha (0.9f));
         g.fillRect ((float) (b.getX() + 24), nowY - 0.5f, (float) (b.getWidth() - 24), 1.5f);
 
+        float nextCue = 2.0f;
+        for (const auto& cue : hotCues)
+            if (cue.positionNorm > playhead)
+                nextCue = juce::jmin (nextCue, cue.positionNorm);
+        if (nextCue <= 1.0f && totalSec > 0.0)
+        {
+            const double until = (nextCue - playhead) * totalSec;
+            g.setColour (stemdeck::tokens::c (stemdeck::tokens::fgTertiary));
+            g.setFont (tokens::numeric (tokens::tCaption));
+            g.drawText ("next cue " + juce::String (until, 1) + "s",
+                        b.withHeight (12).withY ((int) nowY - 14).reduced (4, 0),
+                        juce::Justification::centredRight);
+        }
+
         if (dragOver)
         {
             g.setColour (stemdeck::tokens::c (stemdeck::tokens::deckA).withAlpha (0.9f));
@@ -197,6 +235,14 @@ private:
     {
         g.setColour (stemdeck::tokens::c (stemdeck::tokens::bgPanel2));
         g.fillRoundedRectangle (r, 3.0f);
+
+        if (loopStart >= 0.0f && loopEnd > loopStart)
+        {
+            auto loop = r.withX (r.getX() + loopStart * r.getWidth())
+                         .withWidth ((loopEnd - loopStart) * r.getWidth());
+            g.setColour (tokens::c (tokens::deckA).withAlpha (loopActive ? 0.20f : 0.08f));
+            g.fillRect (loop);
+        }
 
         // Structure regions (shaded + labelled).
         for (const auto& s : structure)
@@ -258,6 +304,17 @@ private:
         const float px = r.getX() + playhead * r.getWidth();
         g.setColour (stemdeck::tokens::c (stemdeck::tokens::warn2));
         g.fillRect (px - 0.5f, r.getY(), 1.0f, r.getHeight());
+
+        for (const auto& cue : hotCues)
+        {
+            if (cue.positionNorm < 0.0f) continue;
+            const float x = r.getX() + cue.positionNorm * r.getWidth();
+            g.setColour (cue.colour);
+            g.fillRect (x, r.getY(), 1.0f, r.getHeight());
+            juce::Path flag;
+            flag.addTriangle (x, r.getY(), x + 6.0f, r.getY(), x, r.getY() + 6.0f);
+            g.fillPath (flag);
+        }
     }
 
     void drawStemColumn (juce::Graphics& g, juce::Rectangle<int> col, int stem)
@@ -275,6 +332,17 @@ private:
         auto body = col.toFloat();
         const auto& peaks = stems[(size_t) stem];
         float t0, t1; visibleWindow (t0, t1);
+        if (loopStart >= 0.0f && loopEnd > loopStart
+            && loopEnd >= t0 && loopStart <= t1)
+        {
+            const float span = juce::jmax (0.0001f, t1 - t0);
+            const float y0 = body.getY() + juce::jlimit (0.0f, 1.0f,
+                (loopStart - t0) / span) * body.getHeight();
+            const float y1 = body.getY() + juce::jlimit (0.0f, 1.0f,
+                (loopEnd - t0) / span) * body.getHeight();
+            g.setColour (tokens::c (tokens::deckA).withAlpha (loopActive ? 0.15f : 0.06f));
+            g.fillRect (body.withY (y0).withHeight (juce::jmax (1.0f, y1 - y0)));
+        }
         const float cx = body.getCentreX();
         const float maxHalf = body.getWidth() * 0.46f;
 
@@ -295,6 +363,15 @@ private:
 
         // Beat grid across the column.
         drawGrid (g, body, t0, t1, dim * 0.35f);
+
+        for (const float pos : clipPositions[(size_t) stem])
+            if (pos >= t0 && pos <= t1)
+            {
+                const float y = body.getY() + (pos - t0)
+                              / juce::jmax (0.0001f, t1 - t0) * body.getHeight();
+                g.setColour (tokens::c (tokens::meterHot).withAlpha (0.95f));
+                g.fillRect (body.getRight() - 3.0f, y - 1.0f, 3.0f, 2.0f);
+            }
     }
 
     void drawGrid (juce::Graphics& g, juce::Rectangle<float> body, float t0, float t1, float alpha)
@@ -370,13 +447,17 @@ private:
 
     std::vector<float> overview;
     std::array<std::vector<float>, kNumStems> stems;
+    std::array<std::vector<float>, kNumStems> clipPositions;
     std::array<juce::Colour, kNumStems> stemColour;
     std::array<juce::String, kNumStems> stemLabel;
     std::array<bool, kNumStems> muted { { false, false, false, false } };
     std::vector<StructureRegion> structure;
     std::vector<KeyBand> keyBands;
+    std::array<HotCue, 8> hotCues {};
 
     float  playhead = 0.0f;
+    float  loopStart = -1.0f, loopEnd = -1.0f;
+    bool   loopActive = false;
     double totalSec = 0.0, bpm = 124.0;
     int    zoomBars = 8;
     ColourMode colourMode = ColourMode::stems;

@@ -20,6 +20,8 @@ void PerformanceRecorder::writeJsonFile (const juce::File& file, const juce::var
 void PerformanceRecorder::begin (const juce::File& masterFile, double sampleRate)
 {
     reset();
+    droppedEvents.store (0, std::memory_order_relaxed);
+    eventCount.store (0, std::memory_order_relaxed);
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     masterTargetFile = masterFile;
     eventLogFile = withSuffix (masterFile, "-events", ".json");
@@ -37,6 +39,7 @@ void PerformanceRecorder::begin (const juce::File& masterFile, double sampleRate
 void PerformanceRecorder::reset()
 {
     active.store (false);
+    eventCount.store (0, std::memory_order_relaxed);
     const juce::ScopedLock lock (eventLock);
     events.clear();
 }
@@ -64,12 +67,19 @@ void PerformanceRecorder::logEvent (int64_t sample,
 
     const juce::ScopedTryLock lock (eventLock);
     if (! lock.isLocked())
+    {
+        droppedEvents.fetch_add (1, std::memory_order_relaxed);
         return;
+    }
     // Never reallocate on the audio thread: if the pre-reserved capacity is somehow
     // exhausted (pathologically long set), drop the event rather than grow the vector.
     if (events.size() >= events.capacity())
+    {
+        droppedEvents.fetch_add (1, std::memory_order_relaxed);
         return;
+    }
     events.push_back (std::move (event));
+    eventCount.store ((int) events.size(), std::memory_order_relaxed);
 }
 
 juce::File PerformanceRecorder::finishAndWrite (int64_t endSample,
