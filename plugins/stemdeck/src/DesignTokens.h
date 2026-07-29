@@ -82,13 +82,13 @@ inline constexpr int gap7 = 9;    // panel inner padding
 inline constexpr int gap8 = 11, gap9 = 12, gap10 = 14;
 
 // ── Type sizes (tabular figures required for ALL numerics) ───────────────────
-inline constexpr float tCaption   = 7.0f;    // hints
-inline constexpr float tLabel     = 8.0f;    // panel headers (uppercase + tracking)
-inline constexpr float tSmall     = 9.0f;    // secondary labels, tags
-inline constexpr float tBody      = 10.0f;   // control labels
-inline constexpr float tControl   = 11.0f;   // button text, values
-inline constexpr float tName      = 13.0f;   // track / instrument name
-inline constexpr float tReadout   = 14.0f;   // LUFS, gain readouts
+inline constexpr float tCaption   = 8.0f;    // hints
+inline constexpr float tLabel     = 9.0f;    // panel headers (uppercase + tracking)
+inline constexpr float tSmall     = 10.0f;   // secondary labels, tags
+inline constexpr float tBody      = 11.0f;   // control labels
+inline constexpr float tControl   = 12.0f;   // button text, values
+inline constexpr float tName      = 14.0f;   // track / instrument name
+inline constexpr float tReadout   = 15.0f;   // LUFS, gain readouts
 inline constexpr float tDisplay   = 26.0f;   // big tempo / key numerics
 inline constexpr float tDisplayLg = 30.0f;   // biggest (dual-tempo panel)
 

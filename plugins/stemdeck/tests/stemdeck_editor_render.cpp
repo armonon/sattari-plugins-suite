@@ -99,15 +99,37 @@ int main (int argc, char** argv)
         {
             const auto surface = juce::String (argv[8]).toLowerCase();
             using S = MainPluginEditor::PrimarySurface;
-            mpe->selectPrimarySurface (surface == "library"     ? S::library
-                                     : surface == "mixer"       ? S::mixer
-                                     : surface == "arranger"    ? S::arranger
-                                     : surface == "performance" ? S::performance
-                                                                 : S::decks);
+            mpe->selectPrimarySurface (surface == "library"  ? S::library
+                                     : surface == "mixer"    ? S::mixer
+                                     : surface == "arranger" ? S::arranger
+                                     : surface == "files"    ? S::files
+                                                              : S::perform);
+            if (surface == "focus" || surface == "focus-exit")
+                mpe->keyPressed (juce::KeyPress ('F'));
         }
 
     // One message pass so async layout / initial timers settle before we paint.
     juce::MessageManager::getInstance()->runDispatchLoopUntil (tempWav.existsAsFile() ? 2500 : 200);
+
+    // Callouts dismiss themselves when this headless renderer has no foreground
+    // window, so open them only after slower audio analysis has settled and paint
+    // them before their foreground-check timer runs.
+    if (argc >= 9)
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+        {
+            const auto surface = juce::String (argv[8]).toLowerCase();
+            if (surface == "palette")
+                mpe->keyPressed (juce::KeyPress ('K', juce::ModifierKeys::commandModifier, 0));
+            else if (surface == "inspector")
+                mpe->keyPressed (juce::KeyPress ('I', juce::ModifierKeys::commandModifier, 0));
+        }
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    if (argc >= 9 && juce::String (argv[8]).equalsIgnoreCase ("focus-exit"))
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+        {
+            mpe->keyPressed (juce::KeyPress ('F'));
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (300);
+        }
 
     juce::Image img (juce::Image::ARGB, W, H, true);
     { juce::Graphics g (img); ed->paintEntireComponent (g, false); }

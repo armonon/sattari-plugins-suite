@@ -23,7 +23,7 @@ void MainPluginEditor::selectPrimarySurface (PrimarySurface surface)
 
     switch (surface)
     {
-        case PrimarySurface::decks:
+        case PrimarySurface::perform:
             if (navDecksButton.onClick) navDecksButton.onClick();
             break;
         case PrimarySurface::library:
@@ -38,7 +38,7 @@ void MainPluginEditor::selectPrimarySurface (PrimarySurface surface)
             pianoRollButton.setToggleState (true, juce::dontSendNotification);
             if (pianoRollButton.onClick) pianoRollButton.onClick();
             break;
-        case PrimarySurface::performance:
+        case PrimarySurface::files:
             toggleBrowserButton.setToggleState (true, juce::dontSendNotification);
             toggleFileBrowser();
             break;

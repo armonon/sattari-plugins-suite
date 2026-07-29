@@ -120,10 +120,29 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     settingsButton.onClick = [this] { showSettingsMenu(); };
     addAndMakeVisible (settingsButton);
 
+    setupButton (commandButton);
+    commandButton.setButtonText (u8 ("Search  \xe2\x8c\x98K"));
+    commandButton.setTooltip ("Search every StemDeck action (Command-K)");
+    commandButton.onClick = [this] { showCommandPalette(); };
+    addAndMakeVisible (commandButton);
+
+    setupButton (inspectorButton);
+    inspectorButton.setButtonText ("Inspect");
+    inspectorButton.setTooltip ("Focused deck details, preflight status, and quick actions");
+    inspectorButton.onClick = [this] { showQuickInspector(); };
+    addAndMakeVisible (inspectorButton);
+
+    setupButton (focusModeButton);
+    focusModeButton.setClickingTogglesState (true);
+    focusModeButton.setButtonText ("Focus");
+    focusModeButton.setTooltip ("Hide other channels and concentrate on the focused deck");
+    focusModeButton.onClick = [this] { setFocusMode (focusModeButton.getToggleState()); };
+    addAndMakeVisible (focusModeButton);
+
     setupFileBrowser();
     setupLibrary();
 
-    title.setText ("StemDeck PRO", juce::dontSendNotification);
+    title.setText ("StemDeck", juce::dontSendNotification);
     title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     title.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextPrimary));
     title.setJustificationType (juce::Justification::centred);
@@ -351,7 +370,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                                                : u8 ("Extracting melody (YIN)\xe2\x80\xa6"),
                                         juce::dontSendNotification);
                 juce::Component::SafePointer<MainPluginEditor> safe (this);
-                juce::Thread::launch ([safe, file, i, neural]
+                uiWorkPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+                    [safe, file, i, neural]() -> juce::ThreadPoolJob::JobStatus
                 {
                     // Self-contained: no editor/processor state touched off-thread.
                     std::vector<MelodyExtractor::Note> notes;
@@ -377,7 +397,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                         if (safe != nullptr)
                             safe->applyExtractedMelody (i, notes, usedNeural);
                     });
-                });
+                    return juce::ThreadPoolJob::jobHasFinished;
+                }));
             };
             addAndMakeVisible (btn);
         }
@@ -399,7 +420,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                 }
                 dcc.stemStatus.setText (u8 ("Detecting drum hits\xe2\x80\xa6"), juce::dontSendNotification);
                 juce::Component::SafePointer<MainPluginEditor> safe (this);
-                juce::Thread::launch ([safe, file, i]
+                uiWorkPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+                    [safe, file, i]() -> juce::ThreadPoolJob::JobStatus
                 {
                     juce::AudioFormatManager fm;
                     fm.registerBasicFormats();
@@ -417,7 +439,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                         if (safe != nullptr)
                             safe->applyExtractedDrums (i, drumHits);
                     });
-                });
+                    return juce::ThreadPoolJob::jobHasFinished;
+                }));
             };
             addAndMakeVisible (btn);
         }
@@ -846,16 +869,23 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (mixerButton);
 
-    // ── djay-Pro nav bar: LIBRARY / DECKS / MIXER / ARRANGER / PERFORMANCE ──
+    // ── Four-workspace nav: LIBRARY / PERFORM / MIX / ARRANGE ───────────────
     // Icon + label are painted in paint(); buttons are naked click targets that
     // only show a subtle highlight when active.
     for (juce::Button* b : { (juce::Button*) &toggleLibraryButton, (juce::Button*) &navDecksButton,
-                             (juce::Button*) &mixerButton, (juce::Button*) &pianoRollButton,
-                             (juce::Button*) &toggleBrowserButton })
+                             (juce::Button*) &mixerButton, (juce::Button*) &pianoRollButton })
     {
         b->setButtonText ({});
         b->getProperties().set ("navNaked", true);
     }
+    toggleLibraryButton.setTitle ("Library");
+    toggleLibraryButton.setDescription ("Search and prepare music");
+    navDecksButton.setTitle ("Perform");
+    navDecksButton.setDescription ("Decks, stems, cues, and performance pads");
+    mixerButton.setTitle ("Mix");
+    mixerButton.setDescription ("Channel strips, routing, effects, and metering");
+    pianoRollButton.setTitle ("Arrange");
+    pianoRollButton.setDescription ("Edit captured takes and clips");
     setupButton (navDecksButton);
     navDecksButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     navDecksButton.onClick = [this]
@@ -1180,6 +1210,40 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
 bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
 {
+    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'K')
+    {
+        showCommandPalette();
+        return true;
+    }
+    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'I')
+    {
+        showQuickInspector();
+        return true;
+    }
+    if (key.getModifiers().isCommandDown()
+        && key.getKeyCode() >= '1' && key.getKeyCode() <= '4')
+    {
+        const PrimarySurface surfaces[] = { PrimarySurface::library, PrimarySurface::perform,
+                                            PrimarySurface::mixer, PrimarySurface::arranger };
+        selectPrimarySurface (surfaces[key.getKeyCode() - '1']);
+        return true;
+    }
+    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'S')
+    {
+        if (key.getModifiers().isShiftDown())
+            createSessionSnapshot();
+        else
+            saveProject();
+        return true;
+    }
+    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'O')
+    {
+        if (key.getModifiers().isShiftDown())
+            loadProject();
+        else
+            selectPrimarySurface (PrimarySurface::files);
+        return true;
+    }
     if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Z')
     {
         if (key.getModifiers().isShiftDown())
@@ -1212,6 +1276,9 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
     {
         if (key.getKeyCode() == 'B') { syncBpmAll(); return true; }
         if (key.getKeyCode() == 'K') { syncKeyAll(); return true; }
+        if (key.getKeyCode() == 'F') { setFocusMode (! focusMode); return true; }
+        if (key.getKeyCode() == 'L') { openDeckChooser (focusedDeck); return true; }
+        if (key.getKeyCode() == 'R') { toggleRecording(); return true; }
     }
 
     const int padIndex = padIndexForKeyPress (key);
@@ -2138,6 +2205,188 @@ juce::File MainPluginEditor::recoveryIntentFile()
     return recoveryAutosaveFile().getSiblingFile ("last-session-intent.sdev");
 }
 
+juce::File MainPluginEditor::sessionSnapshotsDirectory()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("Sattari Audio")
+        .getChildFile ("StemDeck")
+        .getChildFile ("Snapshots");
+}
+
+void MainPluginEditor::createSessionSnapshot()
+{
+    auto xml = makeProjectState().createXml();
+    if (xml == nullptr)
+    {
+        recordStatus.setText ("Could not create a session snapshot",
+                              juce::dontSendNotification);
+        return;
+    }
+
+    const auto text = xml->toString();
+    const auto stamp = juce::Time::getCurrentTime().formatted (
+        "%Y-%m-%d_%H-%M-%S");
+    const auto directory = sessionSnapshotsDirectory();
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+    autosavePool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [text, directory, stamp, safe]() -> juce::ThreadPoolJob::JobStatus
+        {
+            directory.createDirectory();
+            auto file = directory.getChildFile ("Snapshot_" + stamp + ".stemdeck");
+            for (int copy = 2; file.existsAsFile(); ++copy)
+                file = directory.getChildFile (
+                    "Snapshot_" + stamp + "_" + juce::String (copy) + ".stemdeck");
+            const bool ok = file.replaceWithText (text, false, false, "\n");
+
+            // Keep a useful, bounded history rather than silently growing forever.
+            juce::Array<juce::File> snapshots;
+            directory.findChildFiles (
+                snapshots, juce::File::findFiles, false, "Snapshot_*.stemdeck");
+            std::sort (snapshots.begin(), snapshots.end(),
+                       [] (const juce::File& a, const juce::File& b)
+                       {
+                           return a.getLastModificationTime() > b.getLastModificationTime();
+                       });
+            for (int i = 20; i < snapshots.size(); ++i)
+                snapshots.getReference (i).deleteFile();
+
+            juce::MessageManager::callAsync ([safe, ok, name = file.getFileNameWithoutExtension()]
+            {
+                if (safe != nullptr)
+                    safe->recordStatus.setText (
+                        ok ? "Created " + name : "Session snapshot failed",
+                        juce::dontSendNotification);
+            });
+            return juce::ThreadPoolJob::jobHasFinished;
+        }));
+}
+
+void MainPluginEditor::restoreLatestSnapshot()
+{
+    juce::Array<juce::File> snapshots;
+    sessionSnapshotsDirectory().findChildFiles (
+        snapshots, juce::File::findFiles, false, "Snapshot_*.stemdeck");
+    std::sort (snapshots.begin(), snapshots.end(),
+               [] (const juce::File& a, const juce::File& b)
+               {
+                   return a.getLastModificationTime() > b.getLastModificationTime();
+               });
+    if (snapshots.isEmpty())
+    {
+        recordStatus.setText ("No session snapshots yet", juce::dontSendNotification);
+        return;
+    }
+
+    if (auto xml = juce::XmlDocument::parse (snapshots.getFirst()))
+        restoreProjectState (juce::ValueTree::fromXml (*xml),
+                             snapshots.getFirst().getFileNameWithoutExtension());
+    else
+        recordStatus.setText ("Latest snapshot could not be read",
+                              juce::dontSendNotification);
+}
+
+void MainPluginEditor::repairMissingMedia()
+{
+    struct Target
+    {
+        enum class Kind { deck, stem, pad } kind = Kind::deck;
+        int index = 0, lane = 0;
+        juce::String missingPath;
+    };
+
+    std::vector<Target> missingTargets;
+    const auto& state = processorRef.parameters().state;
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+    {
+        const auto prefix = deckPrefix (deck);
+        const auto full = state.getProperty (prefix + "File").toString();
+        if (full.isNotEmpty() && ! juce::File (full).existsAsFile())
+            missingTargets.push_back ({ Target::Kind::deck, deck, 0, full });
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+        {
+            const auto path = state.getProperty (
+                prefix + "Stem" + DeckPlayer::stemLaneId (lane) + "File").toString();
+            if (path.isNotEmpty() && ! juce::File (path).existsAsFile())
+                missingTargets.push_back ({ Target::Kind::stem, deck, lane, path });
+        }
+    }
+    for (int pad = 0; pad < PadBank::numPads; ++pad)
+    {
+        const auto path = state.getProperty ("pad" + juce::String (pad + 1) + "File").toString();
+        if (path.isNotEmpty() && ! juce::File (path).existsAsFile())
+            missingTargets.push_back ({ Target::Kind::pad, pad, 0, path });
+    }
+
+    if (missingTargets.empty())
+    {
+        recordStatus.setText ("All session media is linked", juce::dontSendNotification);
+        return;
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Choose a folder containing the missing audio",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectDirectories,
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         chooser, targetsToSearch = std::move (missingTargets)] (const juce::FileChooser& fc) mutable
+        {
+            if (safe == nullptr) return;
+            const auto root = fc.getResult();
+            if (! root.isDirectory()) return;
+            safe->recordStatus.setText (
+                "Searching for " + juce::String ((int) targetsToSearch.size()) + " missing files...",
+                juce::dontSendNotification);
+
+            safe->uiWorkPool.addJob (
+                std::function<juce::ThreadPoolJob::JobStatus()> (
+                [safe, root, searchTargets = std::move (targetsToSearch)]() mutable
+                -> juce::ThreadPoolJob::JobStatus
+                {
+                    struct Match { Target target; juce::File file; };
+                    std::vector<Match> resolved;
+                    for (const auto& target : searchTargets)
+                    {
+                        juce::Array<juce::File> found;
+                        root.findChildFiles (found, juce::File::findFiles, true,
+                                             juce::File (target.missingPath).getFileName());
+                        if (! found.isEmpty())
+                            resolved.push_back ({ target, found.getFirst() });
+                    }
+
+                    juce::MessageManager::callAsync (
+                        [safe, resolvedMatches = std::move (resolved),
+                         wanted = (int) searchTargets.size()]() mutable
+                        {
+                            if (safe == nullptr) return;
+                            for (const auto& match : resolvedMatches)
+                            {
+                                switch (match.target.kind)
+                                {
+                                    case Target::Kind::deck:
+                                        safe->processorRef.loadDeckFileAsync (
+                                            match.target.index, match.file);
+                                        break;
+                                    case Target::Kind::stem:
+                                        safe->processorRef.loadDeckStemFileAsync (
+                                            match.target.index, match.target.lane, match.file);
+                                        break;
+                                    case Target::Kind::pad:
+                                        safe->processorRef.loadPadFileAsync (
+                                            match.target.index, match.file);
+                                        break;
+                                }
+                            }
+                            safe->recordStatus.setText (
+                                "Relinked " + juce::String ((int) resolvedMatches.size()) + " of "
+                                    + juce::String (wanted) + " missing files",
+                                juce::dontSendNotification);
+                        });
+                    return juce::ThreadPoolJob::jobHasFinished;
+                }));
+        });
+}
+
 void MainPluginEditor::scheduleRecoveryAutosave()
 {
     if (! recoveryDecisionMade || autosaveInFlight->exchange (true))
@@ -2585,10 +2834,12 @@ void MainPluginEditor::runPluginHostScan()
     pluginHostMessage.setText (u8 ("Scanning FX defaults\xe2\x80\xa6"), juce::dontSendNotification);
     scanPluginsButton.setEnabled (false);
 
-    juce::Thread::launch ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
+    uiWorkPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]()
+        -> juce::ThreadPoolJob::JobStatus
     {
         if (safeThis == nullptr)
-            return;
+            return juce::ThreadPoolJob::jobHasFinished;
 
         // Sattari-only. A full third-party scan crashes the host (Serato Sample calls
         // main-thread-only Text Input Services from the scan thread → SIGTRAP).
@@ -2606,7 +2857,8 @@ void MainPluginEditor::runPluginHostScan()
                 message += u8 (" \xe2\x80\xa2 blacklisted: ") + juce::String (result.blacklistedFiles.size());
             safeThis->pluginHostMessage.setText (message, juce::dontSendNotification);
         });
-    });
+        return juce::ThreadPoolJob::jobHasFinished;
+    }));
 }
 
 void MainPluginEditor::loadSelectedHostPlugin()
@@ -2717,9 +2969,11 @@ void MainPluginEditor::addSattariFxToChain (int chainIndex)
         {
             pluginScanInFlight = true;
             pluginHostMessage.setText ("Scanning your plugins\xe2\x80\xa6", juce::dontSendNotification);
-            juce::Thread::launch ([safe = juce::Component::SafePointer<MainPluginEditor> (this), chainIndex]
+            uiWorkPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+                [safe = juce::Component::SafePointer<MainPluginEditor> (this), chainIndex]()
+                -> juce::ThreadPoolJob::JobStatus
             {
-                if (safe == nullptr) return;
+                if (safe == nullptr) return juce::ThreadPoolJob::jobHasFinished;
                 auto res = safe->processorRef.scanSattariPlugins();   // Sattari-only: safe
                 juce::MessageManager::callAsync ([safe, chainIndex, n = res.plugins.size(),
                                                   blocked = res.blacklistedFiles]
@@ -2733,7 +2987,8 @@ void MainPluginEditor::addSattariFxToChain (int chainIndex)
                     safe->fxRack.setStatus (msg);
                     safe->addSattariFxToChain (chainIndex);   // reopen with results
                 });
-            });
+                return juce::ThreadPoolJob::jobHasFinished;
+            }));
             return;
         }
         pluginHostMessage.setText ("No Sattari plugins found \xe2\x80\x94 check your VST3 folder", juce::dontSendNotification);
@@ -2784,6 +3039,9 @@ void MainPluginEditor::openChainPluginEditor (int chainIndex, int pluginIndex)
 MainPluginEditor::~MainPluginEditor()
 {
     stopTimer();
+    // Background analysis and plugin scans can read processor-owned state. Join
+    // them before either the editor or its processor reference can be destroyed.
+    uiWorkPool.removeAllJobs (true, -1);
     autosavePool.removeAllJobs (true, 1500);
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
@@ -3173,6 +3431,9 @@ void MainPluginEditor::showSettingsMenu()
     menu.addItem (2, "Showcase demo content (fake titles / waveforms / clips)", true, showcaseMode);
     menu.addSeparator();
     menu.addItem (3, "Re-sync motorized controllers", true, false);
+    menu.addItem (4, "Create session snapshot", true, false);
+    menu.addItem (5, "Restore latest snapshot", true, false);
+    menu.addItem (6, "Repair missing media...", true, false);
     juce::Component::SafePointer<MainPluginEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
         [safe] (int choice)
@@ -3181,7 +3442,199 @@ void MainPluginEditor::showSettingsMenu()
             if (choice == 1) { safe->advancedVisible = ! safe->advancedVisible; safe->advancedToggle.setToggleState (safe->advancedVisible, juce::dontSendNotification); safe->resized(); safe->repaint(); }
             else if (choice == 2) safe->setShowcaseMode (! safe->showcaseMode);
             else if (choice == 3) safe->processorRef.getMidiMapping().resyncFeedback();
+            else if (choice == 4) safe->createSessionSnapshot();
+            else if (choice == 5) safe->restoreLatestSnapshot();
+            else if (choice == 6) safe->repairMissingMedia();
         });
+}
+
+void MainPluginEditor::showCommandPalette()
+{
+    using Command = stemdeck::CommandPalette::Command;
+    std::vector<Command> commands {
+        { 1,  "Open Library",       "Search, prepare, and load your music",           u8 ("\xe2\x8c\x98" "1") },
+        { 2,  "Open Perform",       "Decks, stems, cues, and performance pads",       u8 ("\xe2\x8c\x98" "2") },
+        { 3,  "Open Mix",           "Channel strips, routing, and metering",           u8 ("\xe2\x8c\x98" "3") },
+        { 4,  "Open Arrange",       "Captured takes, clips, and export",               u8 ("\xe2\x8c\x98" "4") },
+        { 5,  "Browse Audio Files", "Open the local audio-file browser",               u8 ("\xe2\x8c\x98O") },
+        { 10, "Choose Track",       "Load audio into the focused deck",                "L" },
+        { 11, "Create Stems",       "Separate the focused deck into musical stems",    "" },
+        { 12, focusMode ? "Exit Focus Mode" : "Enter Focus Mode",
+                                      "Concentrate on the selected deck",               "F" },
+        { 13, "Sync All Tempos",    "Match every deck to the master deck",             "B" },
+        { 14, "Sync All Keys",      "Harmonically match every deck",                   "K" },
+        { 15, processorRef.isMasterRecording() ? "Finish Recording" : "Start Recording",
+                                      "Capture master, decks, MIDI, and intent",         "R" },
+        { 16, "Save Project",       "Save the complete StemDeck session",              u8 ("\xe2\x8c\x98S") },
+        { 17, "Open Project",       "Restore a StemDeck session",                      u8 ("\xe2\x87\xa7\xe2\x8c\x98O") },
+        { 18, "Inspect Focused Deck", "Details, preflight, and quick actions",          u8 ("\xe2\x8c\x98I") },
+        { 19, "MIDI Learn",         "Map a controller to a StemDeck action",            "" },
+        { 20, "Scan Sattari FX",    "Refresh the safe curated plugin list",             "" },
+        { 21, "Create Snapshot",    "Keep a timestamped restore point for this session", u8 ("\xe2\x87\xa7\xe2\x8c\x98S") },
+        { 22, "Restore Latest Snapshot", "Return to the newest named restore point",     "" },
+        { 23, "Repair Missing Files", "Find and relink moved session audio by filename",  "" }
+    };
+
+    auto panel = std::make_unique<stemdeck::CommandPalette> (std::move (commands));
+    auto* panelPtr = panel.get();
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+    panelPtr->onDismiss = [panelPtr]
+    {
+        if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    };
+    panelPtr->onInvoke = [safe, panelPtr] (int id)
+    {
+        if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+        juce::MessageManager::callAsync ([safe, id]
+        {
+            if (safe != nullptr)
+                safe->performCommand (id);
+        });
+    };
+
+    const auto anchor = commandButton.isVisible() && ! commandButton.getBounds().isEmpty()
+                      ? commandButton.getBounds()
+                      : getLocalBounds().withSizeKeepingCentre (80, 30);
+    juce::CallOutBox::launchAsynchronously (std::move (panel), anchor, this);
+}
+
+void MainPluginEditor::showQuickInspector()
+{
+    auto panel = std::make_unique<stemdeck::QuickInspector>();
+    auto* panelPtr = panel.get();
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+
+    const auto path = processorRef.getDeckPath (focusedDeck);
+    const auto analysis = processorRef.getDeckActiveAnalysis (focusedDeck);
+    stemdeck::QuickInspector::State state;
+    state.deckName = deckLabel (focusedDeck);
+    state.trackName = path.isNotEmpty() ? juce::File (path).getFileNameWithoutExtension()
+                                        : juce::String();
+    state.source = path.isNotEmpty() ? juce::File (path).getParentDirectory().getFileName()
+                                     : "Drop audio or choose a track";
+    state.tempo = analysis.detectedBpm > 1.0f ? juce::String (analysis.detectedBpm, 1) + " BPM"
+                                              : u8 ("\xe2\x80\x94");
+    state.musicalKey = analysis.hasKey() ? analysis.keyName() : u8 ("\xe2\x80\x94");
+    state.analysis = path.isEmpty() ? "Waiting for audio"
+                   : juce::String (analysis.keySource == TrackAnalysis::Source::neural
+                                      ? "Neural" : "DSP")
+                         + u8 (" \xe2\x80\xa2 version ") + juce::String ((int) analysis.analysisVersion);
+    state.loaded = path.isNotEmpty();
+    state.playing = processorRef.parameters().getRawParameterValue (
+                        deckPrefix (focusedDeck) + "Play")->load() > 0.5f;
+    if (state.playing)
+        state.analysis = u8 ("Playing \xe2\x80\xa2 ") + state.analysis;
+    state.focusMode = focusMode;
+    state.audioStatus = juce::String (processorRef.getRecordingSampleRate() / 1000.0, 1)
+                      + u8 (" kHz \xe2\x80\xa2 ") + juce::String (processorRef.getRecordingBlockSize())
+                      + " samples";
+    const auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    const auto freeGb = (double) music.getBytesFreeOnVolume() / (1024.0 * 1024.0 * 1024.0);
+    state.storageStatus = freeGb > 0.0 ? juce::String (freeGb, 1) + " GB recording space"
+                                      : "Storage status unavailable";
+    state.midiStatus = processorRef.hasMidiBindings() ? "MIDI controller linked"
+                                                       : u8 ("MIDI ready \xe2\x80\xa2 no mappings");
+    state.captureStatus = "Intent capture "
+                        + juce::String (processorRef.getIntentCaptureCoverage()) + "/"
+                        + juce::String (processorRef.getIntentCaptureTargetCount());
+    panelPtr->setState (std::move (state));
+
+    const auto dismissInspector = [panelPtr]
+    {
+        if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    };
+    panelPtr->onToggleFocus = [safe, dismissInspector]
+    {
+        dismissInspector();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr) safe->setFocusMode (! safe->focusMode);
+        });
+    };
+    panelPtr->onLoad  = [safe, dismissInspector]
+    {
+        dismissInspector();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr) safe->openDeckChooser (safe->focusedDeck);
+        });
+    };
+    panelPtr->onSplit = [safe, dismissInspector]
+    {
+        dismissInspector();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                safe->processorRef.requestDeckAiStemsAsync (safe->focusedDeck);
+        });
+    };
+    panelPtr->onSync = [safe, dismissInspector]
+    {
+        dismissInspector();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr) { safe->syncBpmAll(); safe->syncKeyAll(); }
+        });
+    };
+    panelPtr->onClear = [safe, dismissInspector]
+    {
+        dismissInspector();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr) safe->requestDeckClear (safe->focusedDeck);
+        });
+    };
+
+    const auto anchor = inspectorButton.isVisible() && ! inspectorButton.getBounds().isEmpty()
+                      ? inspectorButton.getBounds()
+                      : getLocalBounds().withSizeKeepingCentre (80, 30);
+    juce::CallOutBox::launchAsynchronously (std::move (panel), anchor, this);
+}
+
+void MainPluginEditor::performCommand (int commandId)
+{
+    switch (commandId)
+    {
+        case 1:  selectPrimarySurface (PrimarySurface::library); break;
+        case 2:  selectPrimarySurface (PrimarySurface::perform); break;
+        case 3:  selectPrimarySurface (PrimarySurface::mixer); break;
+        case 4:  selectPrimarySurface (PrimarySurface::arranger); break;
+        case 5:  selectPrimarySurface (PrimarySurface::files); break;
+        case 10: openDeckChooser (focusedDeck); break;
+        case 11: processorRef.requestDeckAiStemsAsync (focusedDeck); break;
+        case 12: setFocusMode (! focusMode); break;
+        case 13: syncBpmAll(); break;
+        case 14: syncKeyAll(); break;
+        case 15: toggleRecording(); break;
+        case 16: saveProject(); break;
+        case 17: loadProject(); break;
+        case 18: showQuickInspector(); break;
+        case 19: updateMidiLearnUI(); break;
+        case 20: runPluginHostScan(); break;
+        case 21: createSessionSnapshot(); break;
+        case 22: restoreLatestSnapshot(); break;
+        case 23: repairMissingMedia(); break;
+        default: break;
+    }
+}
+
+void MainPluginEditor::setFocusMode (bool enabled)
+{
+    if (enabled)
+        focusedDeck = juce::jlimit (0, juce::jmax (0, processorRef.getNumTrackDecks() - 1),
+                                    focusedDeck);
+    focusMode = enabled;
+    focusModeButton.setToggleState (enabled, juce::dontSendNotification);
+    focusModeButton.setButtonText (enabled ? "Exit Focus" : "Focus");
+    recordStatus.setText (
+        enabled ? deckLabel (focusedDeck) + u8 (" focus \xe2\x80\xa2 other channels remain audible")
+                : u8 ("Focus mode off \xe2\x80\xa2 all channels visible"),
+        juce::dontSendNotification);
+    resized();
+    repaint();
 }
 
 void MainPluginEditor::setMasterDeck (int deckIndex)
@@ -3364,22 +3817,23 @@ void MainPluginEditor::paint (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (r.getX() + 4.0f, r.getBottom() - 1.0f, r.getWidth() - 8.0f, 1.0f));
     }
 
-    // --- Nav bar: icon above label per cell (LIBRARY/DECKS/MIXER/ARRANGER/PERFORMANCE) ---
+    // --- Four workspaces: icon above label, one calm accent for current context. ---
     {
-        static const char* navLabels[5] = { "LIBRARY", "PERFORM", "MIXER", "ARRANGER", "FILES" };
-        const juce::Button* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
-                                           &pianoRollButton, &toggleBrowserButton };
-        for (int i = 0; i < 5; ++i)
+        static const char* navLabels[4] = { "Library", "Perform", "Mix", "Arrange" };
+        const juce::Button* navBtns[4] = { &toggleLibraryButton, &navDecksButton,
+                                           &mixerButton, &pianoRollButton };
+        for (int i = 0; i < 4; ++i)
         {
             const auto cell = navRects[(size_t) i];
             if (cell.isEmpty()) continue;
-            const bool active = navBtns[i]->getToggleState();
+            const bool active = navBtns[i]->getToggleState() || (i == 0 && browserVisible);
             const auto col = active ? deckAccent (0) : juce::Colour (stemdeck::tokens::fgTertiary);
             auto icon = cell.withHeight (22).translated (0, 3).toFloat().reduced ((cell.getWidth() - 22) * 0.5f, 0.0f);
             drawNavIcon (g, i, icon, col.withAlpha (active ? 0.95f : 0.7f));
             g.setColour (col.withAlpha (active ? 0.98f : 0.72f));
-            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            drawTracked (g, navLabels[i], cell.withTop (cell.getY() + 27).withHeight (12), 1.6f);
+            g.setFont (juce::FontOptions (9.5f, active ? juce::Font::bold : juce::Font::plain));
+            g.drawFittedText (navLabels[i], cell.withTop (cell.getY() + 27).withHeight (13),
+                              juce::Justification::centred, 1);
         }
 
         // Animated active-view underline: one accent bar that slides between
@@ -4096,7 +4550,8 @@ void MainPluginEditor::refreshDeckWaveData (int i)
 
     const double sr = full->sourceSampleRate;
     auto safe = juce::Component::SafePointer<MainPluginEditor> (this);
-    juce::Thread::launch ([safe, i, full, st, total, bpm, sr]
+    uiWorkPool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [safe, i, full, st, total, bpm, sr]() -> juce::ThreadPoolJob::JobStatus
     {
         auto overview = extractPeaks (full->audio, 2048);
         std::array<std::vector<float>, 4> stemPk;
@@ -4152,7 +4607,8 @@ void MainPluginEditor::refreshDeckWaveData (int i)
                 r->setStemPeaks (col, pk.empty() ? overview : pk);
             }
         });
-    });
+        return juce::ThreadPoolJob::jobHasFinished;
+    }));
 }
 
 void MainPluginEditor::setFocusedDeck (int i)
@@ -4521,23 +4977,19 @@ void MainPluginEditor::resized()
         namespace L = stemdeck::layout;
         namespace T = stemdeck::tokens;
 
-        enum HdrIdx { hNav0, hNav1, hNav2, hNav3, hNav4, hPlay, hRec, hAuto, hAutoStatus,
-                      hTitle, hTempo, hPresets, hSavePreset, hAddCh, hRemoveCh, hTools,
-                      hSettings, hNumItems };
+        enum HdrIdx { hNav0, hNav1, hNav2, hNav3, hSearch, hPlay, hFocus, hInspect,
+                      hTitle, hTempo, hPresets, hSavePreset, hAddCh, hRemoveCh,
+                      hTools, hSettings, hNumItems };
 
         const std::vector<L::Item> items {
             L::Item::fixed (66, /*pri*/ 9, T::gap3),   // LIBRARY
             L::Item::fixed (58, /*pri*/ 9, T::gap3),   // PERFORM
-            L::Item::fixed (56, /*pri*/ 8, T::gap3),   // MIXER
-            L::Item::fixed (66, /*pri*/ 8, T::gap3),   // ARRANGER
-            L::Item::fixed (92, /*pri*/ 6, T::gap6),   // FILES — first nav cell to go
+            L::Item::fixed (52, /*pri*/ 8, T::gap3),   // MIX
+            L::Item::fixed (68, /*pri*/ 8, T::gap6),   // ARRANGE
+            L::Item::fixed (94, /*pri*/ 7, T::gap5),   // global command palette
             L::Item::fixed (118, /*pri*/ 10, T::gap5), // PLAY ALL — transport never sheds
-            // Recording now owns the persistent health bar below. The duplicate
-            // REC pill and stage-DJ AUTO control are deliberately absent here.
-            L::Item::fixed (0,   /*pri*/ 0, 0),        // REC (retired)
-            L::Item::fixed (0,   /*pri*/ 0, 0),        // AUTO (out of recording scope)
-            // Status prose shrinks before anything else disappears.
-            L::Item::fixed (0,   /*pri*/ 0, 0),        // AUTO status (retired)
+            L::Item::fixed (66,  /*pri*/ 6, T::gap3),  // distraction-free focus
+            L::Item::fixed (70,  /*pri*/ 5, T::gap6),  // contextual inspector
             // The wordmark is branding: min 0, soaks up leftover, sheds silently.
             L::Item::flexible (0, 0, 1.0f, /*pri*/ 1, T::gap6),
             L::Item::fixed (150, /*pri*/ 8, T::gap6),  // TEMPO chip — BPM is load-bearing
@@ -4548,16 +5000,16 @@ void MainPluginEditor::resized()
             L::Item::fixed (64,  /*pri*/ 6, T::gap5),  // TOOLS
             L::Item::fixed (32,  /*pri*/ 6, 0),        // gear
         };
-        static_assert (hNumItems == 17, "header item count must match the priority table");
+        static_assert (hNumItems == 16, "header item count must match the priority table");
         jassert ((int) items.size() == hNumItems);
 
         const auto cells = L::columns (header, items);
 
         // Nav cells keep their 46px tall click target and feed navRects, which
         // paint() uses for the icon/label and the sliding underline.
-        juce::Component* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
-                                        &pianoRollButton, &toggleBrowserButton };
-        for (int i = 0; i < 5; ++i)
+        juce::Component* navBtns[4] = { &toggleLibraryButton, &navDecksButton,
+                                        &mixerButton, &pianoRollButton };
+        for (int i = 0; i < 4; ++i)
         {
             const auto cell = cells[(size_t) (hNav0 + i)];
             const auto sized = cell.isEmpty() ? juce::Rectangle<int>()
@@ -4566,6 +5018,8 @@ void MainPluginEditor::resized()
             navBtns[i]->setBounds (sized);
             navBtns[i]->setVisible (! sized.isEmpty());
         }
+        toggleBrowserButton.setVisible (false);
+        toggleBrowserButton.setBounds ({});
 
         // Height is per-item (34 for transport, 30 for chrome, 28 for the combo);
         // an empty cell means the item was shed, so it gets empty bounds.
@@ -4577,7 +5031,10 @@ void MainPluginEditor::resized()
             c.setBounds (cell.withSizeKeepingCentre (cell.getWidth(), h));
         };
 
+        place (commandButton,       hSearch,     30);
         place (masterPlayButton,    hPlay,       34);
+        place (focusModeButton,     hFocus,      30);
+        place (inspectorButton,     hInspect,    30);
         topRecordButton.setVisible (false); topRecordButton.setBounds ({});
         automixButton.setVisible (false); automixButton.setBounds ({});
         automixStatusLabel.setVisible (false); automixStatusLabel.setBounds ({});
@@ -4806,6 +5263,10 @@ void MainPluginEditor::resized()
         const bool idle = col < visibleDecks && ! deckHasContent (col);
         widthTargets[(size_t) col] = idle ? idleW
                                   : col == focusedDeck ? focusW : otherActiveW;
+        if (focusMode)
+            widthTargets[(size_t) col] = col == focusedDeck
+                                      ? juce::jmax (1, avail - (totalColumns - 1))
+                                      : 1;
         deckWidthTarget[(size_t) col] = (float) widthTargets[(size_t) col];
         if (deckWidthCurrent[(size_t) col] <= 0.0f)
             deckWidthCurrent[(size_t) col] = deckWidthTarget[(size_t) col];
@@ -4835,11 +5296,17 @@ void MainPluginEditor::resized()
 
             if (col >= visibleDecks)
                 if (auto* st = channelStrips[(size_t) col].get())
-                    if (st->isVisible())
+                {
+                    if (focusMode && col != focusedDeck)
                     {
-                        st->setAlpha (1.0f);
-                        st->setBounds (colBounds);   // full column, loaded or not
+                        st->setVisible (false);
+                        st->setBounds ({});
+                        continue;
                     }
+                    st->setVisible (true);
+                    st->setAlpha (1.0f);
+                    st->setBounds (colBounds);   // full column, loaded or not
+                }
         }
     }
 
@@ -4861,6 +5328,31 @@ void MainPluginEditor::resized()
 
         auto laneOuter = decksArea.removeFromLeft (columnWidth (deckIndex));
         if (deckIndex < visibleDecks - 1) decksArea.removeFromLeft (deckGap);
+
+        if (focusMode && deckIndex != focusedDeck)
+        {
+            setDeckDetailVisible (deckIndex, false);
+            deckPanelBounds[(size_t) deckIndex] = {};
+            deckHeaderBounds[(size_t) deckIndex] = {};
+            deckCollapsedBounds[(size_t) deckIndex] = {};
+            layoutDeckHeaderChips (deckIndex);
+            if (auto* strip = deckStrips[(size_t) deckIndex].get())
+            {
+                strip->setVisible (false);
+                strip->setBounds ({});
+            }
+            if (auto* wave = deckWaves[(size_t) deckIndex].get())
+            {
+                wave->setVisible (false);
+                wave->setBounds ({});
+            }
+            if (auto* region = deckWaveRegions[(size_t) deckIndex].get())
+            {
+                region->setVisible (false);
+                region->setBounds ({});
+            }
+            continue;
+        }
 
         const bool loaded = deckHasContent (deckIndex);
         const bool collapsed = loaded && deckIndex != focusedDeck;
@@ -5871,11 +6363,11 @@ void MainPluginEditor::timerCallback()
 
     // ── Motion: nav underline slides toward the active view's cell ──────────
     {
-        const juce::Button* navBtns[5] = { &toggleLibraryButton, &navDecksButton, &mixerButton,
-                                           &pianoRollButton, &toggleBrowserButton };
-        int active = -1;
-        for (int i = 0; i < 5; ++i)
-            if (navBtns[i]->getToggleState()) { active = i; break; }
+        const juce::Button* navBtns[4] = { &toggleLibraryButton, &navDecksButton,
+                                           &mixerButton, &pianoRollButton };
+        int active = browserVisible ? 0 : -1;
+        for (int i = 0; i < 4; ++i)
+            if (active < 0 && navBtns[i]->getToggleState()) { active = i; break; }
 
         float tx = navUnderlineX, tw = 0.0f;
         if (active >= 0 && ! navRects[(size_t) active].isEmpty())
@@ -5892,7 +6384,7 @@ void MainPluginEditor::timerCallback()
             navUnderlineW = nw;
             if (! navRects[0].isEmpty())
                 repaint (navRects[0].getX() - 4, navRects[0].getBottom() - 5,
-                         navRects[4].getRight() - navRects[0].getX() + 8, 8);
+                         navRects[3].getRight() - navRects[0].getX() + 8, 8);
         }
     }
     // ── Motion: repaint decaying pad flashes ────────────────────────────────

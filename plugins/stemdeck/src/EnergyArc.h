@@ -101,7 +101,9 @@ inline void drawEnergyArc (juce::Graphics& g, juce::Rectangle<float> area,
     {
         g.setColour (juce::Colour (0xff5A5A62));
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-        g.drawText ("Auto Director \xe2\x80\x94 load a track to build the energy arc", area.toNearestInt(),
+        g.drawText (juce::String::fromUTF8 (
+                        "Auto Director \xe2\x80\x94 load a track to build the energy arc"),
+                    area.toNearestInt(),
                     juce::Justification::centred);
         return;
     }

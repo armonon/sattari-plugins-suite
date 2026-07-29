@@ -30,6 +30,8 @@
 #include "ChannelStrip.h"
 #include "XYPad.h"
 #include "RecordingHealthBar.h"
+#include "CommandPalette.h"
+#include "QuickInspector.h"
 
 // Plugin-FX hosting: HostGraph discovers + instantiates plugins AND its processChain
 // is now wired into processBlock for every deck, the mic bus, and the master (empty
@@ -57,7 +59,15 @@ public:
     // content is only reachable by clicking is a tab the PNG gate never checks.
     void selectDeckToolTab (int deckIndex, int tab);
 
-    enum class PrimarySurface { decks, library, mixer, arranger, performance };
+    // Four workspaces are the product navigation. `files` remains available as a
+    // command-palette utility; the legacy aliases keep render tools/source callers
+    // compatible while making "performance" mean the actual Perform workspace.
+    enum class PrimarySurface
+    {
+        perform, library, mixer, arranger, files,
+        decks = perform,
+        performance = perform
+    };
     // Deterministic surface selection for render/interaction gates. This deliberately
     // uses the same callbacks as nav clicks, so tests cannot exercise a fake layout.
     void selectPrimarySurface (PrimarySurface surface);
@@ -596,6 +606,10 @@ private:
     void toggleArrangementPlayback();
     void saveProject();
     void loadProject();
+    void createSessionSnapshot();
+    void restoreLatestSnapshot();
+    void repairMissingMedia();
+    static juce::File sessionSnapshotsDirectory();
     juce::ValueTree makeProjectState() const;
     void restoreProjectState (const juce::ValueTree& root, const juce::String& sourceLabel);
     void scheduleRecoveryAutosave();
@@ -659,16 +673,24 @@ private:
     std::unique_ptr<MusicLibraryView> libraryView;
     juce::TextButton toggleLibraryButton { "LIBRARY" };
     juce::TextButton navDecksButton { "DECKS" };
-    // Nav bar: icon-above-label cells (matches the mockup header).
-    std::array<juce::Rectangle<int>, 5> navRects {};
+    // Four-workspace nav plus global, context-sensitive actions.
+    std::array<juce::Rectangle<int>, 4> navRects {};
     void drawNavIcon (juce::Graphics&, int which, juce::Rectangle<float> box, juce::Colour) const;
+    juce::TextButton commandButton { "Search" };
+    juce::TextButton inspectorButton { "Inspect" };
+    juce::TextButton focusModeButton { "Focus" };
+    void showCommandPalette();
+    void showQuickInspector();
+    void performCommand (int commandId);
+    void setFocusMode (bool enabled);
+    bool focusMode = false;
     // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
     // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button
     // in the header (plus title double-click) reveals them.
     bool advancedVisible = false;
     bool padsCollapsed = false;   // performance-pads strip collapsed when no pad is loaded
     stemdeck::PlayIconLookAndFeel playIconLnF;   // deck play/stop rendered as an icon
-    juce::TextButton advancedToggle { "TOOLS" };
+    juce::TextButton advancedToggle { "Tools" };
     // Channel add/remove (channel architecture). Adding/removing is zero-dropout —
     // the engine swaps an immutable graph snapshot (see GraphSnapshot.h).
     // Per-type strips for non-TrackDeck channels (Input / MIDI Instrument). Deck
@@ -681,8 +703,8 @@ private:
     // model discoverable instead of hiding it behind a toolbar button.
     juce::Rectangle<int> addChannelTileBounds;
 
-    juce::TextButton addChannelButton    { "+ CH" };
-    juce::TextButton removeChannelButton { "- CH" };
+    juce::TextButton addChannelButton    { "+ Channel" };
+    juce::TextButton removeChannelButton { "−" };
     // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline
     // blocks). Off by default — real state only; opt-in via the Settings gear.
     bool showcaseMode = false;
@@ -839,6 +861,9 @@ private:
     std::shared_ptr<std::atomic<bool>> autosaveInFlight {
         std::make_shared<std::atomic<bool>> (false)
     };
+    // Own every editor background task. Detached workers could outlive both the
+    // editor and processor during plugin-window teardown.
+    juce::ThreadPool uiWorkPool { 2 };
     juce::ThreadPool autosavePool { 1 };
     // Activates every setTooltip() in the app (they are inert without a window).
     juce::TooltipWindow tooltipWindow { this, 400 };

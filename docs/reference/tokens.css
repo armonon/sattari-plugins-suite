@@ -69,15 +69,15 @@
   --gap-9:  12px;
   --gap-10: 14px;
 
-  /* ---- Type sizes (the mockups use exactly these — tabular figures required
+  /* ---- Type sizes (accessibility floor — tabular figures required
           for all numerics: BPM, dB, gain, tempo, LUFS, loop/jump) ---- */
-  --t-caption:  7px;   /* hints, "click to jump" */
-  --t-label:    8px;   /* panel headers (letter-spacing 0.06em, uppercase) */
-  --t-small:    9px;   /* secondary labels, tags */
-  --t-body:     10px;  /* control labels */
-  --t-control:  11px;  /* button text, values */
-  --t-name:     13px;  /* track name, instrument name */
-  --t-readout:  14px;  /* LUFS, gain readouts */
+  --t-caption:  8px;   /* hints, "click to jump" */
+  --t-label:    9px;   /* panel headers (letter-spacing 0.06em, uppercase) */
+  --t-small:    10px;  /* secondary labels, tags */
+  --t-body:     11px;  /* control labels */
+  --t-control:  12px;  /* button text, values */
+  --t-name:     14px;  /* track name, instrument name */
+  --t-readout:  15px;  /* LUFS, gain readouts */
   --t-display:  26px;  /* big tempo / key numerics */
   --t-display-lg:30px; /* biggest (dual-tempo panel) */
 

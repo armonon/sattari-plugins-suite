@@ -73,8 +73,9 @@ public:
         setColour (juce::Slider::trackColourId, getAccent());
         setColour (juce::Slider::rotarySliderFillColourId, getAccent());
         setColour (juce::Label::textColourId, juce::Colour (kTextPrimary));
-        // Clean geometric sans; scoped to StemDeck.
-        setDefaultSansSerifTypefaceName ("Avenir Next");
+        // Follow the host OS. On macOS this resolves to San Francisco and tracks
+        // accessibility/system typography changes instead of pinning Avenir.
+        setDefaultSansSerifTypefaceName (juce::Font::getDefaultSansSerifFontName());
     }
 
     // Flat near-black ground with a single hairline frame. No photo, grain, or glow.
@@ -260,6 +261,15 @@ public:
 
         g.setColour (fill);
         g.fillRoundedRectangle (r, corner);
+        // A restrained top edge gives controls the same optical separation as
+        // macOS dark materials without introducing a glossy bevel.
+        if (! on)
+        {
+            g.setColour (juce::Colour (kTextPrimary).withAlpha (
+                shouldDrawHighlighted ? 0.075f : 0.035f));
+            g.drawLine (r.getX() + corner, r.getY() + 0.75f,
+                        r.getRight() - corner, r.getY() + 0.75f, 1.0f);
+        }
         g.setColour (border);
         g.drawRoundedRectangle (r.reduced (0.5f), corner, kBorder);
     }
