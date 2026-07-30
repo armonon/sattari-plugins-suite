@@ -4373,37 +4373,67 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
                 // Interactive chips read brighter than static ones — that IS the
                 // affordance (drag the BPM, click the key).
-                auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text, float size)
+                auto drawChip = [&] (juce::Rectangle<int> chip, const juce::String& text,
+                                     float size, juce::Colour col)
                 {
                     g.setColour (juce::Colour (T::bgWell));
                     g.fillRoundedRectangle (chip.toFloat(), T::radiusPill);
-                    g.setColour (deckAccent (i).withAlpha (0.55f));
+                    g.setColour (col.withAlpha (0.55f));
                     g.drawRoundedRectangle (chip.toFloat().reduced (0.5f), T::radiusPill, 1.0f);
-                    g.setColour (deckAccent (i));
+                    g.setColour (col);
                     g.setFont (juce::FontOptions (size, juce::Font::bold));
                     g.drawText (text, chip.reduced (5, 0), juce::Justification::centred);
                 };
 
                 if (const auto bpmChip = deckBpmChipBounds[(size_t) i]; ! bpmChip.isEmpty())
-                    drawChip (bpmChip, juce::String (bpmValue, 1), T::tControl);
-                if (const auto keyChip = deckKeyChipBounds[(size_t) i]; ! keyChip.isEmpty())
-                    drawChip (keyChip, juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xa9 ")) + keyText, T::tBody);
+                    drawChip (bpmChip, juce::String (bpmValue, 1), T::tControl, deckAccent (i));
 
-                // Separation provenance (NEURAL / DSP) is RECESSED tier: honest about
-                // which engine produced the stems, but it is not a control.
+                if (const auto keyChip = deckKeyChipBounds[(size_t) i]; ! keyChip.isEmpty())
+                {
+                    // §A3: a key below the trust floor is a guess and must not be
+                    // presented as fact. keyLowConfidence was already recorded and
+                    // never read — an untrusted detection looked identical to a
+                    // measured one. A key the USER chose is not a guess, so only a
+                    // DETECTED key (keyChoice == 0) can be marked.
+                    const auto ana = processorRef.getDeckActiveAnalysis (i);
+                    const bool untrusted = keyChoice == 0 && ana.keyLowConfidence;
+                    const auto keyCol = untrusted ? juce::Colour (T::warn2) : deckAccent (i);
+                    drawChip (keyChip,
+                              juce::String (juce::CharPointer_UTF8 ("\xe2\x99\xa9 ")) + keyText
+                                  + (untrusted ? "?" : ""),
+                              T::tBody, keyCol);
+                }
+
+                // ANALYSIS provenance — which engine produced the grid and key.
+                //
+                // This chip used to read `deckHasNeuralStems()`, which returns true
+                // when ANY stem buffer is loaded, from any source. So it printed
+                // NEURAL for stems produced by the demucs CLI, and printed it in
+                // builds where ONNX was compiled out entirely — asserting something
+                // the app could not know. §A3 asks the readout to say which engine
+                // won; TrackAnalysis::Source records exactly that, per field, so
+                // read it instead of inferring from the presence of audio.
                 if (const auto srcChip = deckSrcChipBounds[(size_t) i]; ! srcChip.isEmpty())
                 {
-                    const bool neural = processorRef.deckHasNeuralStems (i);
-                    const bool dsp    = processorRef.isDeckRtssActive (i);
-                    if (neural || dsp)
-                    {
-                        const auto srcCol = neural ? juce::Colour (0xff62f5c8) : juce::Colour (T::fgTertiary);
-                        g.setColour (srcCol.withAlpha (0.10f));
-                        g.fillRoundedRectangle (srcChip.toFloat(), T::radiusPill);
-                        g.setColour (srcCol.withAlpha (0.65f));
-                        g.setFont (juce::FontOptions (T::tCaption, juce::Font::bold).withKerningFactor (T::trackLabel));
-                        g.drawText (neural ? "NEURAL" : "DSP", srcChip, juce::Justification::centred);
-                    }
+                    const auto ana = processorRef.getDeckActiveAnalysis (i);
+                    const bool neuralBeat = ana.beatSource == TrackAnalysis::Source::neural;
+                    const bool neuralKey  = ana.keySource  == TrackAnalysis::Source::neural;
+                    const bool anyNeural  = neuralBeat || neuralKey;
+
+                    // Name the dimension when only one engine won, rather than
+                    // flattening "neural got the grid, DSP kept the key" to NEURAL.
+                    const char* labelText = anyNeural
+                        ? (neuralBeat && neuralKey ? "NEURAL"
+                                                   : (neuralBeat ? "N:GRID" : "N:KEY"))
+                        : "DSP";
+
+                    const auto srcCol = anyNeural ? juce::Colour (0xff62f5c8)
+                                                  : juce::Colour (T::fgTertiary);
+                    g.setColour (srcCol.withAlpha (0.10f));
+                    g.fillRoundedRectangle (srcChip.toFloat(), T::radiusPill);
+                    g.setColour (srcCol.withAlpha (0.65f));
+                    g.setFont (juce::FontOptions (T::tCaption, juce::Font::bold).withKerningFactor (T::trackLabel));
+                    g.drawText (labelText, srcChip, juce::Justification::centred);
                 }
             }
         }
