@@ -298,19 +298,30 @@ target_link_libraries(StemDeckBeatDetectTest
 stemdeck_link_tracktion(StemDeckBeatDetectTest)
 
 # ── Real full-length music accuracy gate (manifest + private/licensed audio) ──
-add_executable(StemDeckCorpusGate
-    EXCLUDE_FROM_ALL
-        tests/stemdeck_corpus.cpp
-        src/TrackAnalysis.cpp)
+# Links the NEURAL engines as well as the DSP analyser: the app's answer is the
+# confidence-gated combination of both, so grading TrackAnalysis alone certified
+# the half of the stack that was never in doubt. When ONNX is absent the gate
+# still runs and reports the DSP path, and says out loud that the neural path was
+# not certified.
+set(STEMDECK_CORPUS_SOURCES tests/stemdeck_corpus.cpp src/TrackAnalysis.cpp)
+if(STEMDECK_ONNX_ENABLED)
+    list(APPEND STEMDECK_CORPUS_SOURCES src/NeuralBeatEngine.cpp)
+endif()
+add_executable(StemDeckCorpusGate EXCLUDE_FROM_ALL ${STEMDECK_CORPUS_SOURCES})
 add_dependencies(StemDeckCorpusGate SattariStemDeck)
 target_include_directories(StemDeckCorpusGate PRIVATE
-    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/include)
 target_compile_definitions(StemDeckCorpusGate PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckCorpusGate
     PRIVATE juce::juce_audio_formats juce::juce_dsp
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
+# Use the shared helper rather than hand-rolling the ONNX wiring — it also sets
+# SATTARI_HAS_ONNX, which the shared KeyNet header behind NeuralKeyEngine needs,
+# and it is the one place that decides whether a target may use the runtime.
+stemdeck_enable_onnx(StemDeckCorpusGate)
 stemdeck_link_tracktion(StemDeckCorpusGate)
 
 # ── Key-detection accuracy check (chroma + tuning comp. + profile correlation) ─
@@ -1028,7 +1039,27 @@ if(BUILD_TESTING)
         endif()
     endforeach()
 
+    # The corpus gate itself needs private audio and stays opt-in, but its
+    # generated-fixture DETECTOR carries a claim ("real music only") and must stay
+    # falsifiable, so its self-test runs with the ordinary contracts. It caught a
+    # real defect the first time it ran — the detector was passing this repo's own
+    # sine fixture — which is exactly why it is wired here and not run by hand.
+    if(TARGET StemDeckCorpusGate)
+        add_test(NAME StemDeckCorpusSelfTest
+                 COMMAND $<TARGET_FILE:StemDeckCorpusGate> --selftest)
+        set_tests_properties(StemDeckCorpusSelfTest PROPERTIES
+            LABELS "stemdeck;contract"
+            TIMEOUT 120)
+    endif()
+
+    # StemDeckCorpusGate is EXCLUDE_FROM_ALL and not a contract itself, but its
+    # --selftest IS registered above, so the suite has to build the binary or that
+    # test cannot run.
+    set(STEMDECK_CONTRACT_SUITE_DEPS ${STEMDECK_CONTRACT_TESTS})
+    if(TARGET StemDeckCorpusGate)
+        list(APPEND STEMDECK_CONTRACT_SUITE_DEPS StemDeckCorpusGate)
+    endif()
     add_custom_target(StemDeckContractSuite
-        DEPENDS ${STEMDECK_CONTRACT_TESTS}
+        DEPENDS ${STEMDECK_CONTRACT_SUITE_DEPS}
         COMMENT "Building the deterministic StemDeck contract suite")
 endif()

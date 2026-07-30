@@ -138,13 +138,11 @@ been measured on real music.
    neural runs on `loadPool` and hot-swaps via `refineAnalysisAsync`. Measured by
    `StemDeckLoadLatency` — a 300 s track is playable in **32 ms** and refined at
    617 ms, against a 200 ms bound. *Synthetic signals only.*
-2. ~~**Unconditional neural override.**~~ **DONE for key, blocked for beat.**
-   The key model is gated on `kNeuralKeyConfidenceFloor`; below it the DSP answer
-   stands. The beat model **cannot** be gated the same way — `NeuralBeatEngine::Result`
-   carries no confidence, so a grid-length sanity check is the only filter
-   available. Exposing a real beat confidence requires a change to the model
-   wrapper. The deck header surfaces NEURAL/DSP for the *separation* source;
-   which engine won the *grid/key* is still not surfaced.
+2. ~~**Unconditional neural override.**~~ **DONE for both.** The key model is
+   gated on `kNeuralKeyConfidenceFloor` (0.45); the beat model now carries a real
+   `confidence` (activation strength + grid regularity) and is gated on
+   `kNeuralBeatConfidenceFloor` (0.35). Below either floor the DSP answer stands.
+   `TrackAnalysis::Source` records which engine won per field.
 3. ~~**Downsample aliasing.**~~ **DONE, UNVERIFIED.** A 6th-order Butterworth
    pre-filter now runs before the 22.05 kHz decimation. `LagrangeInterpolator`
    interpolates but does not band-limit, so everything above 11.025 kHz was
@@ -206,12 +204,20 @@ StemDeck is the host; the 42-plugin suite is its library (solves the 42-SKU prob
 
 **Next — and item 4 is now the thing actually holding everything up:**
 
-4. **Real-corpus test gate in CI** — before features. Non-negotiable, and now the
-   binding constraint: every number in this document comes from synthetic
-   signals. §7's anti-alias fix, the beat tracker, the load-latency figures and
-   the replay gate have *all* only been exercised on generated tones. This is the
-   process failure named in §7 repeating itself — the gate is what converts the
-   rest of this list from "implemented" to "works".
+4. **Real-corpus test gate in CI** — **BUILT, NOT YET FED.** `StemDeckCorpusGate`
+   grades the *effective* answer (the confidence-gated DSP/neural combination the
+   app actually uses), reports DSP and neural separately so you can see whether
+   the model earns its override, flags BPM octave errors distinctly from being
+   lost, and refuses corpora that grade only one dimension. Generated audio is
+   **measured** and rejected, not taken on trust — `StemDeckCorpusSelfTest` runs
+   with the contracts and guards that detector.
+
+   What remains is the corpus itself. CI is wired to a secret archive URL and,
+   until that is configured, says out loud that accuracy is uncertified rather
+   than substituting tones. **Every accuracy claim in this document is still from
+   synthetic signals** — the anti-alias fix, the beat tracker and the load-latency
+   figures included. Feeding this gate is what converts the rest of the list from
+   "implemented" to "works".
 5. Basic arrangement view (ugly but correct) — partly there (`ArrangementView`,
    `ArrangementBuilder`, the arrange lanes in the editor); the data model is
    proven by the replay gate.
