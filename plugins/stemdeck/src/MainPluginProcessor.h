@@ -141,6 +141,7 @@ public:
     juce::File getLastPerformanceEventLogFile() const { return lastPerformanceEventLogFile; }
     juce::File getLastArrangementFile() const { return lastArrangementFile; }
     juce::File getLastDeckRecordingFile (int deckIndex) const;
+    juce::File getLastDeckPrintedRecordingFile (int deckIndex) const;
     int64_t getRecordedSamples() const noexcept { return recordingSampleCounter.load (std::memory_order_relaxed); }
     double getRecordingSampleRate() const noexcept { return currentSampleRate; }
     int getRecordingBlockSize() const noexcept { return preparedBlockSize; }
@@ -394,6 +395,10 @@ public:
         int    lane = 0;   // which TE audio track (0..numDecks-1)
         // Post-capture volume correction, in absolute timeline seconds.
         std::vector<std::pair<double, float>> gainAutomation;
+        std::vector<std::pair<double, float>> lowAutomation;
+        std::vector<std::pair<double, float>> midAutomation;
+        std::vector<std::pair<double, float>> highAutomation;
+        std::vector<std::pair<double, float>> filterAutomation;
     };
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
@@ -551,7 +556,10 @@ private:
     PadBank padBank;
     MasterRecorder masterRecorder;
     MasterRecorder micRecorder;
-    std::array<MasterRecorder, kMaxChannels> deckRecorders;
+    // Clean source lanes feed the editable arrangement. Printed lanes retain the
+    // exact live deck sound as a safety/reference render.
+    std::array<MasterRecorder, kMaxChannels> deckSourceRecorders;
+    std::array<MasterRecorder, kMaxChannels> deckPrintedRecorders;
     PerformanceRecorder performanceRecorder;
     TransportSync sync;
     WarpEngine warpEngine;
@@ -607,7 +615,8 @@ private:
     juce::File lastPerformanceEventLogFile;
     juce::File lastArrangementFile;
     juce::File lastIntentStreamFile;
-    std::array<juce::File, kMaxChannels> lastDeckRecordingTargets;
+    std::array<juce::File, kMaxChannels> lastDeckSourceTargets;
+    std::array<juce::File, kMaxChannels> lastDeckPrintedTargets;
     // Pre-allocated audio-thread scratch (sized in prepareToPlay) — avoids per-block
     // heap allocation in the mic-capture and Tracktion-mix paths.
     juce::AudioBuffer<float> micScratch;
@@ -672,6 +681,8 @@ private:
         float mid = 0.0f;
         float high = 0.0f;
         float filter = 0.0f;
+        float revMix = 0.0f;
+        float echoMix = 0.0f;
         int tempoInterpretation = 0;
         int syncMode = 0;
     };
@@ -683,6 +694,13 @@ private:
     float lastCrossfader = 0.5f;
     float lastMasterBpm = 120.0f;
     float lastMicGain = -12.0f;
+    float lastMasterGain = 0.0f;
+    float lastLimiterCeiling = -1.0f;
+    float lastMasterFxX = 0.5f;
+    float lastMasterFxY = 0.0f;
+    float lastSmartMasterAmount = 0.8f;
+    int lastSmartMasterMode = 0;
+    bool lastSmartMasterOn = false;
 
     // ── Tracktion Engine wrapper ──────────────────────────────────────────────
     struct PluginEngineBehaviour : public tracktion::EngineBehaviour

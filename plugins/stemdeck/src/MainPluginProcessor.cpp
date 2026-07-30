@@ -273,6 +273,13 @@ std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelTyp
                     hostGraph.processChain (HostGraph::stemChain (deckIdx, stemIndex), stem, *currentBlockMidi);
                 };
             }
+            const int deckSlot = index;
+            tdb->onPreFaderCapture = [this, deckSlot] (
+                juce::AudioBuffer<float>& source, int)
+            {
+                if (juce::isPositiveAndBelow (deckSlot, kMaxChannels))
+                    deckSourceRecorders[(size_t) deckSlot].captureBlock (source);
+            };
             body = std::move (tdb);
             defaultName = deckLabel (index);
             break;
@@ -297,7 +304,7 @@ std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelTyp
 
         if (i < kMaxChannels)
         {
-            deckRecorders[(size_t) i].captureBlock (buf);
+            deckPrintedRecorders[(size_t) i].captureBlock (buf);
             for (int c = 0; c < 2 && c < buf.getNumChannels(); ++c)
             {
                 const float blockPeak = buf.getMagnitude (c, 0, numSamples);
@@ -1379,7 +1386,9 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     padBank.prepare (sampleRate);
     masterRecorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     micRecorder.prepare (sampleRate, getTotalNumInputChannels() > 0 ? getTotalNumInputChannels() : outputChannels, samplesPerBlock);
-    for (auto& recorder : deckRecorders)
+    for (auto& recorder : deckSourceRecorders)
+        recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
+    for (auto& recorder : deckPrintedRecorders)
         recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     micScratch.setSize (juce::jmax (outputChannels, getTotalNumInputChannels()), samplesPerBlock);
     teScratch.setSize (juce::jmax (2, outputChannels), samplesPerBlock);
@@ -2401,6 +2410,24 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
                     (juce::int64) std::llround (
                         seconds * payload->engineSr),
                     juce::jlimit (0.0f, 2.0f, value));
+            auto copyAutomation = [engineSr = payload->engineSr] (
+                const std::vector<std::pair<double, float>>& source,
+                std::vector<std::pair<juce::int64, float>>& destination)
+            {
+                destination.reserve (source.size());
+                for (const auto& [seconds, value] : source)
+                    destination.emplace_back (
+                        (juce::int64) std::llround (seconds * engineSr),
+                        value);
+            };
+            copyAutomation (spec.lowAutomation, c.lowAutomation);
+            copyAutomation (spec.midAutomation, c.midAutomation);
+            copyAutomation (spec.highAutomation, c.highAutomation);
+            copyAutomation (spec.filterAutomation, c.filterAutomation);
+            c.dspEnabled = ! c.lowAutomation.empty()
+                        || ! c.midAutomation.empty()
+                        || ! c.highAutomation.empty()
+                        || ! c.filterAutomation.empty();
             sched->push_back (std::move (c));
         }
 
@@ -2755,18 +2782,47 @@ bool MainPluginProcessor::beginMasterRecording (const juce::File& destinationFil
         return false;
     }
 
+    for (auto& recorder : deckSourceRecorders) recorder.reset();
+    for (auto& recorder : deckPrintedRecorders) recorder.reset();
+    lastDeckSourceTargets.fill ({});
+    lastDeckPrintedTargets.fill ({});
+
     for (int i = 0; i < numDecks; ++i)
     {
-        const auto deckFile = withSuffix (destinationFile, "-deck-" + juce::String::charToString ((juce_wchar) ('A' + i)));
-        if (! deckRecorders[(size_t) i].beginRecording (deckFile))
+        std::shared_ptr<Channel> channel;
+        for (const auto& candidate : channels)
+            if (candidate != nullptr && candidate->slotIndex == i)
+            {
+                channel = candidate;
+                break;
+            }
+        if (channel == nullptr)
+            continue;   // do not write hours of silence for unused pool slots
+
+        const auto suffix = "-deck-" + juce::String::charToString (
+            (juce_wchar) ('A' + i));
+        const auto sourceFile = withSuffix (destinationFile, suffix + "-source");
+        const auto printedFile = withSuffix (destinationFile, suffix);
+        const bool needsCleanSource =
+            channel->type() == ChannelType::trackDeck;
+        const bool sourceStarted = ! needsCleanSource
+            || deckSourceRecorders[(size_t) i].beginRecording (sourceFile);
+        const bool printStarted =
+            deckPrintedRecorders[(size_t) i].beginRecording (printedFile);
+        if (! sourceStarted || ! printStarted)
         {
             masterRecorder.stopRecording();
             micRecorder.stopRecording();
-            for (int j = 0; j < i; ++j)
-                deckRecorders[(size_t) j].stopRecording();
+            for (int j = 0; j <= i; ++j)
+            {
+                deckSourceRecorders[(size_t) j].stopRecording();
+                deckPrintedRecorders[(size_t) j].stopRecording();
+            }
             return false;
         }
-        lastDeckRecordingTargets[(size_t) i] = deckFile;
+        if (needsCleanSource)
+            lastDeckSourceTargets[(size_t) i] = sourceFile;
+        lastDeckPrintedTargets[(size_t) i] = printedFile;
     }
 
     recordingSampleCounter.store (0, std::memory_order_relaxed);
@@ -2790,13 +2846,24 @@ juce::File MainPluginProcessor::stopMasterRecording()
     midiCapture.endTake();
     const auto masterFile = masterRecorder.stopRecording();
     const auto micFile = micRecorder.stopRecording();
-    std::array<juce::File, numDecks> deckFiles;
+    std::array<juce::File, numDecks> sourceDeckFiles;
+    std::array<juce::File, numDecks> printedDeckFiles;
     for (int i = 0; i < numDecks; ++i)
-        deckFiles[(size_t) i] = deckRecorders[(size_t) i].stopRecording();
-    // lastDeckRecordingTargets spans the whole channel pool; deckFiles is the
-    // recorder's fixed 4-deck view, so copy into the leading slots.
+    {
+        sourceDeckFiles[(size_t) i] =
+            deckSourceRecorders[(size_t) i].stopRecording();
+        printedDeckFiles[(size_t) i] =
+            deckPrintedRecorders[(size_t) i].stopRecording();
+        // Typed input/instrument channels do not have the deck's pre-fader source
+        // tap. Their per-channel print is still the editable aligned lane.
+        if (sourceDeckFiles[(size_t) i].getFullPathName().isEmpty())
+            sourceDeckFiles[(size_t) i] = printedDeckFiles[(size_t) i];
+    }
     for (int i = 0; i < numDecks; ++i)
-        lastDeckRecordingTargets[(size_t) i] = deckFiles[(size_t) i];
+    {
+        lastDeckSourceTargets[(size_t) i] = sourceDeckFiles[(size_t) i];
+        lastDeckPrintedTargets[(size_t) i] = printedDeckFiles[(size_t) i];
+    }
     std::array<juce::String, numDecks> channelNames;
     std::array<juce::String, numDecks> channelTypes;
     std::array<juce::int64, numDecks> channelIds;
@@ -2819,8 +2886,8 @@ juce::File MainPluginProcessor::stopMasterRecording()
         stemdeck::events::Writer::write (lastIntentStreamFile, header, eventDispatcher->takeRecorded());
     }
     lastArrangementFile = performanceRecorder.finishAndWrite (
-        endSample, masterFile, micFile, deckFiles,
-        channelNames, channelTypes, channelIds);
+        endSample, masterFile, micFile, sourceDeckFiles,
+        printedDeckFiles, channelNames, channelTypes, channelIds);
     lastPerformanceEventLogFile = performanceRecorder.getEventLogFile();
     return masterFile;
 }
@@ -2830,7 +2897,9 @@ int MainPluginProcessor::getDroppedBufferCount() const noexcept
     int total = audioDeadlineMisses.load (std::memory_order_relaxed)
               + masterRecorder.getDroppedBlockCount()
               + micRecorder.getDroppedBlockCount();
-    for (const auto& recorder : deckRecorders)
+    for (const auto& recorder : deckSourceRecorders)
+        total += recorder.getDroppedBlockCount();
+    for (const auto& recorder : deckPrintedRecorders)
         total += recorder.getDroppedBlockCount();
     return total;
 }
@@ -2839,7 +2908,15 @@ juce::File MainPluginProcessor::getLastDeckRecordingFile (int deckIndex) const
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks))
         return {};
-    return lastDeckRecordingTargets[(size_t) deckIndex];
+    return lastDeckSourceTargets[(size_t) deckIndex];
+}
+
+juce::File MainPluginProcessor::getLastDeckPrintedRecordingFile (
+    int deckIndex) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return {};
+    return lastDeckPrintedTargets[(size_t) deckIndex];
 }
 
 juce::String MainPluginProcessor::getDeckPath (int deckIndex) const
@@ -3334,6 +3411,7 @@ void MainPluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     // separately: state written before the channel architecture simply has no
     // <CHANNELS> child and is restored as numDecks TrackDecks (see setState).
     state.removeChild (state.getChildWithName ("CHANNELS"), nullptr);
+    state.removeChild (state.getChildWithName ("HOST_GRAPH"), nullptr);
     juce::ValueTree chTree ("CHANNELS");
     chTree.setProperty ("channelsVersion", 1, nullptr);
     for (auto& ch : channels)
@@ -3348,6 +3426,7 @@ void MainPluginProcessor::getStateInformation (juce::MemoryBlock& destData)
         chTree.appendChild (c, nullptr);
     }
     state.appendChild (chTree, nullptr);
+    state.appendChild (hostGraph.createState(), nullptr);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -3405,6 +3484,7 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
 
     apvts.replaceState (tree);
     restoreChannelsFromState();
+    hostGraph.restoreState (tree.getChildWithName ("HOST_GRAPH"));
     restoreFileAssignmentsFromState();
     midiMapping.deserialize (apvts.state.getProperty ("midiMap").toString());
 
@@ -3440,12 +3520,27 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
     lastCrossfader = getFloatParam ("crossfader");
     lastMasterBpm = getFloatParam ("masterBpm");
     lastMicGain = getFloatParam ("micGain");
+    lastMasterGain = getFloatParam ("master");
+    lastLimiterCeiling = getFloatParam ("limiterCeiling");
+    lastMasterFxX = getFloatParam ("masterFxX");
+    lastMasterFxY = getFloatParam ("masterFxY");
+    lastSmartMasterAmount = getFloatParam ("smartMasterAmount");
+    lastSmartMasterMode =
+        (int) std::round (getFloatParam ("smartMasterMode"));
+    lastSmartMasterOn = getBoolParam ("smartMasterOn");
     lastMicMonitor = getBoolParam ("micMonitor");
     lastHostSync = getBoolParam ("hostSync");
     lastBeatSync = getBoolParam ("beatSync");
 
     logPerformanceEvent (sample, "parameter_change", {}, "crossfader", juce::String (lastCrossfader, 4));
     logPerformanceEvent (sample, "parameter_change", {}, "master_bpm", juce::String (lastMasterBpm, 2));
+    logPerformanceEvent (sample, "parameter_change", {}, "master_gain", juce::String (lastMasterGain, 2));
+    logPerformanceEvent (sample, "parameter_change", {}, "limiter_ceiling", juce::String (lastLimiterCeiling, 2));
+    logPerformanceEvent (sample, "parameter_change", {}, "master_fx_x", juce::String (lastMasterFxX, 4));
+    logPerformanceEvent (sample, "parameter_change", {}, "master_fx_y", juce::String (lastMasterFxY, 4));
+    logPerformanceEvent (sample, "parameter_change", {}, "smart_master_amount", juce::String (lastSmartMasterAmount, 4));
+    logPerformanceEvent (sample, "parameter_change", {}, "smart_master_mode", juce::String (lastSmartMasterMode));
+    logPerformanceEvent (sample, "effect_toggle", {}, "smart_master_on", lastSmartMasterOn ? "on" : "off");
     logPerformanceEvent (sample, lastMicMonitor ? "mic_start" : "mic_stop", {}, "mic_monitor", lastMicMonitor ? "on" : "off");
     logPerformanceEvent (sample, "sync_change", {}, "host_sync", lastHostSync ? "on" : "off");
     logPerformanceEvent (sample, "sync_change", {}, "beat_sync", lastBeatSync ? "on" : "off");
@@ -3467,6 +3562,8 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
         state.mid = getFloatParam (deck + "Mid");
         state.high = getFloatParam (deck + "High");
         state.filter = getFloatParam (deck + "Filter");
+        state.revMix = getFloatParam (deck + "RevMix");
+        state.echoMix = getFloatParam (deck + "EchoMix");
         state.tempoInterpretation = (int) std::round (getFloatParam (deck + "TempoInterpretation"));
         state.syncMode = (int) std::round (getFloatParam (deck + "SyncMode"));
 
@@ -3483,6 +3580,8 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
         logPerformanceEvent (sample, "parameter_change", deckName, "eq_mid", juce::String (state.mid, 2));
         logPerformanceEvent (sample, "parameter_change", deckName, "eq_high", juce::String (state.high, 2));
         logPerformanceEvent (sample, "parameter_change", deckName, "filter", juce::String (state.filter, 4));
+        logPerformanceEvent (sample, "parameter_change", deckName, "reverb_mix", juce::String (state.revMix, 4));
+        logPerformanceEvent (sample, "parameter_change", deckName, "echo_mix", juce::String (state.echoMix, 4));
         logPerformanceEvent (sample, "sync_change", deckName, "sync_mode", juce::String (state.syncMode));
     }
 }
@@ -3513,6 +3612,46 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
     {
         lastMicGain = micGain;
         logPerformanceEvent (blockStartSample, "parameter_change", {}, "mic_gain", juce::String (micGain, 2));
+    }
+
+    auto logMasterFloat = [&] (juce::StringRef parameter, float value,
+                               float& previous, float threshold)
+    {
+        if (changedFloat (value, previous, threshold))
+        {
+            previous = value;
+            logPerformanceEvent (blockStartSample, "parameter_change", {},
+                                 parameter, juce::String (value, 4));
+        }
+    };
+    logMasterFloat ("master_gain", getFloatParam ("master"),
+                    lastMasterGain, 0.05f);
+    logMasterFloat ("limiter_ceiling", getFloatParam ("limiterCeiling"),
+                    lastLimiterCeiling, 0.05f);
+    logMasterFloat ("master_fx_x", getFloatParam ("masterFxX"),
+                    lastMasterFxX, 0.002f);
+    logMasterFloat ("master_fx_y", getFloatParam ("masterFxY"),
+                    lastMasterFxY, 0.002f);
+    logMasterFloat ("smart_master_amount",
+                    getFloatParam ("smartMasterAmount"),
+                    lastSmartMasterAmount, 0.002f);
+
+    const int smartMasterMode =
+        (int) std::round (getFloatParam ("smartMasterMode"));
+    if (smartMasterMode != lastSmartMasterMode)
+    {
+        lastSmartMasterMode = smartMasterMode;
+        logPerformanceEvent (blockStartSample, "parameter_change", {},
+                             "smart_master_mode",
+                             juce::String (smartMasterMode));
+    }
+    const bool smartMasterOn = getBoolParam ("smartMasterOn");
+    if (smartMasterOn != lastSmartMasterOn)
+    {
+        lastSmartMasterOn = smartMasterOn;
+        logPerformanceEvent (blockStartSample, "effect_toggle", {},
+                             "smart_master_on",
+                             smartMasterOn ? "on" : "off");
     }
 
     const bool micMonitor = getBoolParam ("micMonitor");
@@ -3570,6 +3709,10 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
         logFloat ("eq_mid", getFloatParam (ids.mid), state.mid, 0.05f);
         logFloat ("eq_high", getFloatParam (ids.high), state.high, 0.05f);
         logFloat ("filter", getFloatParam (ids.filter), state.filter, 0.002f);
+        logFloat ("reverb_mix", getFloatParam (ids.revMix),
+                  state.revMix, 0.002f);
+        logFloat ("echo_mix", getFloatParam (ids.echoMix),
+                  state.echoMix, 0.002f);
 
         const bool keyLock = getBoolParam (ids.keyLock);
         if (keyLock != state.keyLock)

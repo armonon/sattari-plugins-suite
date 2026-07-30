@@ -97,6 +97,7 @@ public:
 
         for (auto* b : { &drums, &bass, &music, &vocals })
             b->setSize (preparedChannels, block, false, false, true);
+        preFaderScratch.setSize (preparedChannels, block, false, false, true);
 
         gridDirty = true;
     }
@@ -192,9 +193,16 @@ public:
         }
 
         // ── Deck playback (writes the summed stem mix into the cleared scratch) ──
+        preFaderScratch.clear (0, n);
         deck.process (scratch, 0, n, params.play, params.volume, params.fader,
                       params.low, params.mid, params.high, params.filter, 1.0f,
-                      warpPlan.timePitch, stemGains, stemPitchArr, warpPlan.beatSync);
+                      warpPlan.timePitch, stemGains, stemPitchArr, warpPlan.beatSync,
+                      &preFaderScratch);
+
+        // The clean source recorder must run even while stopped/faded out so every
+        // take lane remains sample-aligned with the master and printed safety render.
+        if (onPreFaderCapture)
+            onPreFaderCapture (preFaderScratch, n);
 
         // ── Real-time stem separation (only when no offline stem files are loaded) ──
         renderRealtimeSeparation (scratch, n);
@@ -300,6 +308,7 @@ private:
     // reaches the host's plugin graph.
 public:
     std::function<void (int stemIndex, juce::AudioBuffer<float>&)> onStemFx;
+    std::function<void (juce::AudioBuffer<float>&, int numSamples)> onPreFaderCapture;
 
     // Message thread: publish each stem chain's reported latency.
     void setStemChainLatency (int stemIndex, int samples) noexcept
@@ -378,6 +387,7 @@ private:
     int stemDelayCapacity = 0;
     WarpEngine               warp;
     juce::AudioBuffer<float> drums, bass, music, vocals;   // RTSS scratch
+    juce::AudioBuffer<float> preFaderScratch;               // clean take source tap
 
     const TrackAnalysis fallbackAnalysis {};   // referenced when nothing is loaded
     BeatSyncEngine::TrackBeatGrid cachedGrid;

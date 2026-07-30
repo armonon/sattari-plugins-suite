@@ -110,6 +110,7 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
     for (auto& lane : clips) lane.clear();
     for (auto& curves : deckAutomation) curves.clear();
     for (auto& a : editAuto) { a.points.clear(); a.visible = false; a.target = 0; }
+    for (auto& dsp : capturedDsp) dsp = {};
     for (int i = 0; i < numLanes; ++i)
         laneDisplayNames[(size_t) i] =
             "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
@@ -217,6 +218,7 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
         if (deckThumbs[(size_t) lane] != nullptr)
             loadThumbnail (*deckThumbs[(size_t) lane], rendered);
 
+        std::vector<std::pair<double, float>> performedFader;
         if (const auto* automation =
                 laneVar.getProperty ("automationLanes", {}).getArray())
         {
@@ -246,16 +248,87 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
                         const float value = (float) point.getProperty (
                             "value", {}).toString().getDoubleValue();
                         curve.points.emplace_back (time, value);
-
-                        // Captured deck renders already contain their performed
-                        // fader. Keep that curve as a visible reference, but do not
-                        // apply it a second time. User-created edit automation starts
-                        // at unity and is an additional post-capture correction.
+                        if (id == "fader")
+                            performedFader.emplace_back (time, value);
+                        else if (id == "eq")
+                        {
+                            const auto parameter = point.getProperty (
+                                "parameter", {}).toString();
+                            auto& dsp = capturedDsp[(size_t) lane];
+                            if (parameter == "eq_low")
+                                dsp.lowDb.emplace_back (time, value);
+                            else if (parameter == "eq_mid")
+                                dsp.midDb.emplace_back (time, value);
+                            else if (parameter == "eq_high")
+                                dsp.highDb.emplace_back (time, value);
+                        }
+                        else if (id == "filter")
+                            capturedDsp[(size_t) lane].filter.emplace_back (
+                                time, value);
                     }
                 if (! curve.points.empty())
                     deckAutomation[(size_t) lane].push_back (
                         std::move (curve));
             }
+        }
+
+        // v3 deck lanes point at a clean pre-fader/pre-insert source. Reconstruct the
+        // performed channel gain as editable sample-accurate automation so initial
+        // arrangement playback matches the take, while every fader move remains
+        // changeable. v2 printed captures deliberately skip this to avoid applying
+        // their already-baked fader a second time.
+        if (laneVar.getProperty ("captureStage", {}).toString()
+                == "pre_fader_pre_insert")
+        {
+            auto sortPoints = [] (auto& points)
+            {
+                std::sort (points.begin(), points.end(),
+                           [] (const auto& a, const auto& b)
+                           { return a.first < b.first; });
+            };
+            sortPoints (performedFader);
+            sortPoints (capturedDsp[(size_t) lane].lowDb);
+            sortPoints (capturedDsp[(size_t) lane].midDb);
+            sortPoints (capturedDsp[(size_t) lane].highDb);
+            sortPoints (capturedDsp[(size_t) lane].filter);
+
+            auto valueAt = [] (const auto& points, double time, float fallback)
+            {
+                if (points.empty()) return fallback;
+                if (time <= points.front().first) return points.front().second;
+                if (time >= points.back().first) return points.back().second;
+                const auto next = std::lower_bound (
+                    points.begin(), points.end(), time,
+                    [] (const auto& point, double t)
+                    { return point.first < t; });
+                const auto& b = *next;
+                const auto& a = *(next - 1);
+                const double alpha = (time - a.first)
+                                   / juce::jmax (1.0e-9, b.first - a.first);
+                return (float) juce::jmap (
+                    alpha, (double) a.second, (double) b.second);
+            };
+
+            std::vector<double> times { 0.0 };
+            for (const auto& p : performedFader) times.push_back (p.first);
+            std::sort (times.begin(), times.end());
+            times.erase (std::unique (times.begin(), times.end(),
+                                     [] (double a, double b)
+                                     { return std::abs (a - b) < 1.0e-9; }),
+                         times.end());
+
+            auto& editable = editAuto[(size_t) lane];
+            editable.points.clear();
+            editable.points.reserve (times.size());
+            for (const double time : times)
+            {
+                const float fader = juce::jlimit (
+                    0.0f, 1.0f, valueAt (performedFader, time, 1.0f));
+                editable.points.emplace_back (
+                    time, fader);
+            }
+            editable.target = 0;
+            editable.visible = ! editable.points.empty();
         }
     }
 
@@ -1148,6 +1221,31 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             }
             lt.appendChild (at, nullptr);
         }
+        if (lane < numLanes)
+        {
+            const auto& dsp = capturedDsp[(size_t) lane];
+            auto appendDsp = [&lt] (
+                juce::StringRef parameter,
+                const std::vector<std::pair<double, float>>& points)
+            {
+                if (points.empty()) return;
+                juce::ValueTree automation ("DSPAUTO");
+                automation.setProperty (
+                    "parameter", juce::String (parameter), nullptr);
+                for (const auto& [time, value] : points)
+                {
+                    juce::ValueTree point ("AP");
+                    point.setProperty ("t", time, nullptr);
+                    point.setProperty ("v", (double) value, nullptr);
+                    automation.appendChild (point, nullptr);
+                }
+                lt.appendChild (automation, nullptr);
+            };
+            appendDsp ("eq_low", dsp.lowDb);
+            appendDsp ("eq_mid", dsp.midDb);
+            appendDsp ("eq_high", dsp.highDb);
+            appendDsp ("filter", dsp.filter);
+        }
         root.appendChild (lt, nullptr);
     }
     return root;
@@ -1158,6 +1256,7 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
     if (! root.hasType ("ARRANGEMENT")) return;
     for (auto& v : clips) v.clear();
     for (auto& m : midiClips) m = {};
+    for (auto& dsp : capturedDsp) dsp = {};
     loopStartSeconds = root.getProperty ("loopStart", 0.0);
     loopEndSeconds   = root.getProperty ("loopEnd",   0.0);
     loopEnabled      = root.getProperty ("loopEnabled", false);
@@ -1234,6 +1333,34 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             else
             {
                 a.visible = false;
+            }
+
+            auto& dsp = capturedDsp[(size_t) lane];
+            for (int child = 0; child < lt.getNumChildren(); ++child)
+            {
+                const auto automation = lt.getChild (child);
+                if (! automation.hasType ("DSPAUTO")) continue;
+                const auto parameter =
+                    automation.getProperty ("parameter").toString();
+                std::vector<std::pair<double, float>>* destination = nullptr;
+                if (parameter == "eq_low") destination = &dsp.lowDb;
+                else if (parameter == "eq_mid") destination = &dsp.midDb;
+                else if (parameter == "eq_high") destination = &dsp.highDb;
+                else if (parameter == "filter") destination = &dsp.filter;
+                if (destination == nullptr) continue;
+                for (int point = 0;
+                     point < automation.getNumChildren(); ++point)
+                {
+                    const auto value = automation.getChild (point);
+                    if (value.hasType ("AP"))
+                        destination->emplace_back (
+                            (double) value.getProperty ("t", 0.0),
+                            (float) (double) value.getProperty ("v", 0.0));
+                }
+                std::sort (
+                    destination->begin(), destination->end(),
+                    [] (const auto& left, const auto& right)
+                    { return left.first < right.first; });
             }
         }
     }

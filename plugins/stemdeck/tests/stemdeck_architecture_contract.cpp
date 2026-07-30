@@ -63,12 +63,13 @@ void expectWarpEngineContract()
     expectContains (plan.statusLabel, "backend:", "WarpEngine status label");
 }
 
-void expectPerformanceRecorderWritesArrangementV2()
+void expectPerformanceRecorderWritesEditableSourceArrangement()
 {
     auto dir = makeTempDir();
     auto master = dir.getChildFile ("set.wav");
     auto mic = dir.getChildFile ("set-mic.wav");
     std::array<juce::File, PerformanceRecorder::numDecks> deckFiles;
+    std::array<juce::File, PerformanceRecorder::numDecks> printedDeckFiles;
     std::array<juce::String, PerformanceRecorder::numDecks> channelNames;
     std::array<juce::String, PerformanceRecorder::numDecks> channelTypes;
     std::array<juce::int64, PerformanceRecorder::numDecks> channelIds;
@@ -76,6 +77,7 @@ void expectPerformanceRecorderWritesArrangementV2()
     for (int i = 0; i < PerformanceRecorder::numDecks; ++i)
     {
         deckFiles[(size_t) i] = dir.getChildFile ("set-deck-" + juce::String::charToString ((juce_wchar) ('A' + i)) + ".wav");
+        printedDeckFiles[(size_t) i] = dir.getChildFile ("set-deck-" + juce::String::charToString ((juce_wchar) ('A' + i)) + "-print.wav");
         channelNames[(size_t) i] = "Deck " + juce::String::charToString ((juce_wchar) ('A' + i));
         channelTypes[(size_t) i] = "trackDeck";
         channelIds[(size_t) i] = i;
@@ -96,7 +98,7 @@ void expectPerformanceRecorderWritesArrangementV2()
     recorder.logEvent (26000, "mic_stop", {}, "mic_monitor", "off");
 
     const auto arrangement = recorder.finishAndWrite (
-        48000, master, mic, deckFiles,
+        48000, master, mic, deckFiles, printedDeckFiles,
         channelNames, channelTypes, channelIds);
     const auto eventLog = recorder.getEventLogFile();
 
@@ -105,17 +107,19 @@ void expectPerformanceRecorderWritesArrangementV2()
 
     const auto arrangementText = arrangement.loadFileAsString();
     const auto eventLogText = eventLog.loadFileAsString();
-    expectContains (arrangementText, "SattariStemDeck.arrangement.v2", "arrangement JSON");
+    expectContains (arrangementText, "SattariStemDeck.arrangement.v3", "arrangement JSON");
     expectContains (arrangementText, "Deck A", "arrangement JSON");
     expectContains (arrangementText, "channelId", "arrangement JSON");
     expectContains (arrangementText, "slotIndex", "arrangement JSON");
     expectContains (arrangementText, "input_lane", "arrangement JSON");
     expectContains (arrangementText, "Vocal", "arrangement JSON");
-    expectContains (arrangementText, "renderedDeckAudio", "arrangement JSON");
+    expectContains (arrangementText, "sourceDeckAudio", "arrangement JSON");
+    expectContains (arrangementText, "printedDeckAudio", "arrangement JSON");
+    expectContains (arrangementText, "pre_fader_pre_insert", "arrangement JSON");
     expectContains (arrangementText, "Cues + Loops", "arrangement JSON");
     expectContains (arrangementText, "Master Output", "arrangement JSON");
     expectContains (arrangementText, "Add New Track", "arrangement JSON");
-    expectContains (eventLogText, "SattariStemDeck.performanceLog.v2", "event log JSON");
+    expectContains (eventLogText, "SattariStemDeck.performanceLog.v3", "event log JSON");
     expectContains (eventLogText, "record_stop", "event log JSON");
 
     dir.deleteRecursively();
@@ -212,6 +216,18 @@ void expectHostGraphNoPluginPassThroughIsSafe()
 
     if (std::abs (buffer.getSample (0, 0) - 0.25f) > 0.0001f)
         fail ("HostGraph empty chain changed audio");
+    const auto state = graph.createState();
+    if (state.getType() != juce::Identifier ("HOST_GRAPH")
+        || (int) state.getProperty ("version", 0) != 1)
+        fail ("HostGraph did not create a versioned rack state");
+    if (! graph.restoreState (state).isEmpty())
+        fail ("HostGraph empty rack state produced restore warnings");
+
+    buffer.clear();
+    buffer.setSample (0, 0, 0.25f);
+    graph.processChain (HostGraph::Chain::deckA, buffer, midi);
+    if (std::abs (buffer.getSample (0, 0) - 0.25f) > 0.0001f)
+        fail ("HostGraph empty state round-trip changed audio");
     expectContains (graph.getStatusSummary(), "HostGraph", "HostGraph status");
 }
 }
@@ -220,16 +236,16 @@ int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     expectWarpEngineContract();
-    expectPerformanceRecorderWritesArrangementV2();
+    expectPerformanceRecorderWritesEditableSourceArrangement();
     expectStemProviderOfflineCacheBoundary();
     expectStemProviderRunsConfiguredOfflineSeparator();
     expectHostGraphNoPluginPassThroughIsSafe();
 
     std::cout << "StemDeck architecture contract ok\n"
               << "  warp_engine=ready\n"
-              << "  arrangement_v2=ready\n"
+              << "  arrangement_v3=editable-source\n"
               << "  offline_stem_cache=guarded\n"
               << "  offline_separator_command=ready\n"
-              << "  host_graph_empty_chain=pass_through\n";
+              << "  host_graph_empty_chain=stateful-pass-through\n";
     return 0;
 }

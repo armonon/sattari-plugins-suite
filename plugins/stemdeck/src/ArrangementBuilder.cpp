@@ -69,7 +69,8 @@ juce::var ArrangementBuilder::buildEventLogJson (const std::vector<PerformanceEv
                                                  double sampleRate,
                                                  const juce::File& masterFile,
                                                  const juce::File& micFile,
-                                                 const std::array<juce::File, numDecks>& deckFiles,
+                                                 const std::array<juce::File, numDecks>& sourceDeckFiles,
+                                                 const std::array<juce::File, numDecks>& printedDeckFiles,
                                                  const std::array<juce::String, numDecks>& channelNames,
                                                  const std::array<juce::String, numDecks>& channelTypes,
                                                  const std::array<juce::int64, numDecks>& channelIds,
@@ -87,11 +88,13 @@ juce::var ArrangementBuilder::buildEventLogJson (const std::vector<PerformanceEv
             { "channelType", channelTypes[(size_t) i] },
             { "channelId", channelIds[(size_t) i] },
             { "slotIndex", i },
-            { "path", deckFiles[(size_t) i].getFullPathName() }
+            { "sourcePath", sourceDeckFiles[(size_t) i].getFullPathName() },
+            { "printedPath", printedDeckFiles[(size_t) i].getFullPathName() },
+            { "captureStage", "pre_fader_pre_insert" }
         }));
 
     return objectWith ({
-        { "schema", "SattariStemDeck.performanceLog.v2" },
+        { "schema", "SattariStemDeck.performanceLog.v3" },
         { "sampleRate", sampleRate },
         { "durationSamples", (double) endSample },
         { "durationSeconds", sampleRate > 0.0 ? (double) endSample / sampleRate : 0.0 },
@@ -108,7 +111,8 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
                                                     double sampleRate,
                                                     const juce::File& masterFile,
                                                     const juce::File& micFile,
-                                                    const std::array<juce::File, numDecks>& deckFiles,
+                                                    const std::array<juce::File, numDecks>& sourceDeckFiles,
+                                                    const std::array<juce::File, numDecks>& printedDeckFiles,
                                                     const std::array<juce::String, numDecks>& channelNames,
                                                     const std::array<juce::String, numDecks>& channelTypes,
                                                     const std::array<juce::int64, numDecks>& channelIds,
@@ -151,7 +155,8 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
                     { "id", deck.replaceCharacter (' ', '_').toLowerCase() + "_clip_" + juce::String (clips.size() + 1) },
                     { "type", "song_clip" },
                     { "source", currentPath },
-                    { "renderedDeckAudio", deckFiles[(size_t) deckIndex].getFullPathName() },
+                    { "sourceDeckAudio", sourceDeckFiles[(size_t) deckIndex].getFullPathName() },
+                    { "printedDeckAudio", printedDeckFiles[(size_t) deckIndex].getFullPathName() },
                     { "startSeconds", clipStart },
                     { "endSeconds", event.timeSeconds },
                     { "durationSeconds", juce::jmax (0.0, event.timeSeconds - clipStart) },
@@ -167,7 +172,8 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
                 { "id", deck.replaceCharacter (' ', '_').toLowerCase() + "_clip_" + juce::String (clips.size() + 1) },
                 { "type", "song_clip" },
                 { "source", currentPath },
-                { "renderedDeckAudio", deckFiles[(size_t) deckIndex].getFullPathName() },
+                { "sourceDeckAudio", sourceDeckFiles[(size_t) deckIndex].getFullPathName() },
+                { "printedDeckAudio", printedDeckFiles[(size_t) deckIndex].getFullPathName() },
                 { "startSeconds", clipStart },
                 { "endSeconds", endSeconds },
                 { "durationSeconds", juce::jmax (0.0, endSeconds - clipStart) },
@@ -183,7 +189,7 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
         addAutomationLane (automation, "eq", "EQ", automationPointsFor (sourceEvents, { "eq_low", "eq_mid", "eq_high" }, deck));
         addAutomationLane (automation, "filter", "Filter", automationPointsFor (sourceEvents, { "filter" }, deck));
         addAutomationLane (automation, "loops_cues", "Cues + Loops", automationPointsFor (sourceEvents, { "cue_jump", "cue", "loop", "loop_start", "loop_end" }, deck));
-        addAutomationLane (automation, "effects", "FX", automationPointsFor (sourceEvents, { "fx", "key_lock", "live_key", "effect_toggle" }, deck));
+        addAutomationLane (automation, "effects", "FX", automationPointsFor (sourceEvents, { "fx", "reverb_mix", "echo_mix", "key_lock", "live_key", "effect_toggle" }, deck));
         addAutomationLane (automation, "sync", "Sync Changes", automationPointsFor (sourceEvents, { "sync_mode", "beat_offset", "downbeat", "host_sync", "beat_sync", "sync_change" }, deck));
 
         lanes.add (objectWith ({
@@ -195,7 +201,9 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
             { "channelType", channelType },
             { "channelId", channelIds[(size_t) deckIndex] },
             { "slotIndex", deckIndex },
-            { "renderedAudio", deckFiles[(size_t) deckIndex].getFullPathName() },
+            { "renderedAudio", sourceDeckFiles[(size_t) deckIndex].getFullPathName() },
+            { "printedAudio", printedDeckFiles[(size_t) deckIndex].getFullPathName() },
+            { "captureStage", "pre_fader_pre_insert" },
             { "editable", true },
             { "clips", clips },
             { "automationLanes", automation }
@@ -261,7 +269,8 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
     juce::Array<juce::var> masterAutomation;
     addAutomationLane (masterAutomation, "crossfader", "Crossfader", automationPointsFor (sourceEvents, { "crossfader" }));
     addAutomationLane (masterAutomation, "tempo", "Global Master Tempo", automationPointsFor (sourceEvents, { "master_bpm", "host_sync", "beat_sync" }));
-    addAutomationLane (masterAutomation, "fx", "Master FX", automationPointsFor (sourceEvents, { "master_fx", "fx" }));
+    addAutomationLane (masterAutomation, "gain", "Master Gain + Limiter", automationPointsFor (sourceEvents, { "master_gain", "limiter_ceiling" }));
+    addAutomationLane (masterAutomation, "fx", "Master FX + Smart Master", automationPointsFor (sourceEvents, { "master_fx", "master_fx_x", "master_fx_y", "smart_master_on", "smart_master_mode", "smart_master_amount", "fx" }));
     lanes.add (objectWith ({
         { "id", "master_reference" },
         { "name", "Master Output" },
@@ -283,7 +292,7 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
     }));
 
     return objectWith ({
-        { "schema", "SattariStemDeck.arrangement.v2" },
+        { "schema", "SattariStemDeck.arrangement.v3" },
         { "durationSamples", (double) endSample },
         { "durationSeconds", endSeconds },
         { "sampleRate", sampleRate },

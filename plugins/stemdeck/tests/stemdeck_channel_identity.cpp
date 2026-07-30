@@ -139,6 +139,31 @@ int main()
                && rampOut.getSample (0, 110) > 0.80f,
            "arrangement volume automation changes audio sample-accurately");
 
+    auto filterSource =
+        std::make_shared<juce::AudioBuffer<float>> (2, 512);
+    for (int ch = 0; ch < 2; ++ch)
+        for (int sample = 0; sample < 512; ++sample)
+            filterSource->setSample (
+                ch, sample, (sample & 1) == 0 ? 1.0f : -1.0f);
+    ArrangementPlayer::Clip filterClip;
+    filterClip.audio = filterSource;
+    filterClip.sourceSampleRate = 48000.0;
+    filterClip.timelineLengthSamples = 511;
+    filterClip.filterAutomation = { { 0, 1.0f } };
+    filterClip.dspEnabled = true;
+    auto filterSchedule =
+        std::make_shared<ArrangementPlayer::Schedule>();
+    filterSchedule->push_back (std::move (filterClip));
+    ArrangementPlayer filteredArrangement;
+    filteredArrangement.prepare (48000.0, 512);
+    filteredArrangement.setSchedule (filterSchedule);
+    filteredArrangement.start();
+    juce::AudioBuffer<float> filteredOut (2, 511);
+    filteredOut.clear();
+    filteredArrangement.process (filteredOut);
+    check (filteredOut.getRMSLevel (0, 128, 300) < 0.15f,
+           "captured filter automation uses the realtime deck DSP in arrangement playback");
+
     MainPluginProcessor packageSource;
     const juce::String oldPath ("/old-machine/Music/source.wav");
     const juce::String movedPath (

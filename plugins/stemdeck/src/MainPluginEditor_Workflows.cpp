@@ -105,6 +105,10 @@ struct MixdownClip
     double fadeOut = 0.0;
     float gain = 1.0f;
     std::vector<std::pair<double, float>> gainAutomation;
+    std::vector<std::pair<double, float>> lowAutomation;
+    std::vector<std::pair<double, float>> midAutomation;
+    std::vector<std::pair<double, float>> highAutomation;
+    std::vector<std::pair<double, float>> filterAutomation;
 };
 
 struct MixdownMasterSettings
@@ -148,6 +152,9 @@ public:
             MixdownClip spec;
             std::unique_ptr<juce::AudioFormatReader> reader;
             juce::int64 timelineStart = 0, timelineLength = 0;
+            EQProcessor eq;
+            FilterProcessor filter;
+            bool dspEnabled = false;
         };
 
         juce::AudioFormatManager formats;
@@ -173,6 +180,12 @@ public:
                 clip.timelineStart * sampleRate);
             r.timelineLength = (juce::int64) std::llround (
                 clip.length * sampleRate);
+            r.eq.prepare (sampleRate, 2);
+            r.filter.prepare (sampleRate);
+            r.dspEnabled = ! clip.lowAutomation.empty()
+                        || ! clip.midAutomation.empty()
+                        || ! clip.highAutomation.empty()
+                        || ! clip.filterAutomation.empty();
             totalSamples = juce::jmax (
                 totalSamples, r.timelineStart + r.timelineLength);
             runtime.push_back (std::move (r));
@@ -206,6 +219,25 @@ public:
             if (points.empty()) return 1.0f;
             if (seconds <= points.front().first) return points.front().second;
             if (seconds >= points.back().first)  return points.back().second;
+            const auto next = std::lower_bound (
+                points.begin(), points.end(), seconds,
+                [] (const auto& point, double time)
+                {
+                    return point.first < time;
+                });
+            const auto& b = *next;
+            const auto& a = *(next - 1);
+            const double span = juce::jmax (1.0e-9, b.first - a.first);
+            const float alpha = (float) ((seconds - a.first) / span);
+            return a.second + alpha * (b.second - a.second);
+        };
+        auto automationValueAt = [] (
+            const std::vector<std::pair<double, float>>& points,
+            double seconds, float fallback)
+        {
+            if (points.empty()) return fallback;
+            if (seconds <= points.front().first) return points.front().second;
+            if (seconds >= points.back().first) return points.back().second;
             const auto next = std::lower_bound (
                 points.begin(), points.end(), seconds,
                 [] (const auto& point, double time)
@@ -281,17 +313,36 @@ public:
                                 / r.spec.fadeOut);
 
                     const int dest = (int) (from - blockStart) + n;
-                    for (int ch = 0; ch < 2; ++ch)
+                    const float* leftData = source.getReadPointer (0);
+                    const float* rightData = source.getReadPointer (
+                        juce::jmin (1, sourceChannels - 1));
+                    float left = leftData[s0]
+                               + frac * (leftData[s1] - leftData[s0]);
+                    float right = rightData[s0]
+                                + frac * (rightData[s1] - rightData[s0]);
+                    if (r.dspEnabled)
                     {
-                        const int sourceCh =
-                            juce::jmin (ch, sourceChannels - 1);
-                        const float* data =
-                            source.getReadPointer (sourceCh);
-                        block.addSample (
-                            ch, dest,
-                            (data[s0] + frac * (data[s1] - data[s0]))
-                                * gain);
+                        const double absoluteSeconds =
+                            (double) (from + n) / sampleRate;
+                        r.eq.processSample (
+                            left, right,
+                            automationValueAt (
+                                r.spec.lowAutomation,
+                                absoluteSeconds, 0.0f),
+                            automationValueAt (
+                                r.spec.midAutomation,
+                                absoluteSeconds, 0.0f),
+                            automationValueAt (
+                                r.spec.highAutomation,
+                                absoluteSeconds, 0.0f));
+                        r.filter.processSample (
+                            left, right,
+                            automationValueAt (
+                                r.spec.filterAutomation,
+                                absoluteSeconds, 0.0f));
                     }
+                    block.addSample (0, dest, left * gain);
+                    block.addSample (1, dest, right * gain);
                 }
             }
             midiPlayer.process (block, blockStart, count);
@@ -341,6 +392,11 @@ public:
         masterFx.reset();
         smartMaster.reset();
         midiPlayer.allNotesOff();
+        for (auto& r : runtime)
+        {
+            r.eq.reset();
+            r.filter.reset();
+        }
         for (juce::int64 pos = 0; pos < totalSamples;
              pos += blockSize)
         {
@@ -708,6 +764,15 @@ void MainPluginEditor::exportArrangementMixdown()
                 automation != nullptr && automation->visible
                     && automation->target == 0)
                 mix.gainAutomation = automation->points;
+            if (const auto* dsp =
+                    arrangementView.capturedDspForLane (lane);
+                dsp != nullptr)
+            {
+                mix.lowAutomation = dsp->lowDb;
+                mix.midAutomation = dsp->midDb;
+                mix.highAutomation = dsp->highDb;
+                mix.filterAutomation = dsp->filter;
+            }
             clips.push_back (std::move (mix));
         }
     }
@@ -909,7 +974,11 @@ void MainPluginEditor::exportSessionPackage()
             addUnique (safe->processorRef.getLastPerformanceEventLogFile());
             addUnique (safe->processorRef.getLastArrangementFile());
             for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+            {
                 addUnique (safe->processorRef.getLastDeckRecordingFile (deck));
+                addUnique (
+                    safe->processorRef.getLastDeckPrintedRecordingFile (deck));
+            }
 
             std::vector<PackageFile> packageFiles;
             juce::StringArray usedRelativePaths;

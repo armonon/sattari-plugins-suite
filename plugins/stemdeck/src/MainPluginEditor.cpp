@@ -2105,17 +2105,21 @@ bool MainPluginEditor::recordingPreflight (const juce::File& destination)
     auto volume = destination.getParentDirectory();
     if (! volume.isDirectory())
         volume = volume.getParentDirectory();
-    constexpr juce::int64 minimumFreeBytes = 512LL * 1024LL * 1024LL;
+    // A normal four-deck take writes master + raw input + clean and printed deck
+    // lanes (roughly 170 MB/min at 48 kHz/24-bit stereo). Require enough headroom
+    // for a useful set rather than allowing a take that will fail after two minutes.
+    constexpr juce::int64 minimumFreeBytes = 3LL * 1024LL * 1024LL * 1024LL;
     const auto freeBytes = volume.getBytesFreeOnVolume();
     if (freeBytes >= 0 && freeBytes < minimumFreeBytes)
     {
         recordStatus.setText (
-            "Recording blocked · less than 512 MB free at the destination",
+            "Recording blocked · less than 3 GB free at the destination",
             juce::dontSendNotification);
         juce::AlertWindow::showMessageBoxAsync (
             juce::AlertWindow::WarningIcon, "Not Enough Recording Space",
-            "Choose a destination with at least 512 MB free. StemDeck writes the "
-            "master, deck captures, MIDI, and intent data during a take.");
+            "Choose a destination with at least 3 GB free. StemDeck preserves a "
+            "master, raw input, clean editable deck sources, printed safety lanes, "
+            "MIDI, and intent data during a take.");
         return false;
     }
 
@@ -2213,6 +2217,15 @@ void MainPluginEditor::toggleArrangementPlayback()
                 automation != nullptr && automation->visible
                     && automation->target == 0)
                 spec.gainAutomation = automation->points;
+            if (const auto* dsp =
+                    arrangementView.capturedDspForLane (lane);
+                dsp != nullptr)
+            {
+                spec.lowAutomation = dsp->lowDb;
+                spec.midAutomation = dsp->midDb;
+                spec.highAutomation = dsp->highDb;
+                spec.filterAutomation = dsp->filter;
+            }
             specs.push_back (spec);
         }
     }
@@ -2286,6 +2299,38 @@ juce::ValueTree MainPluginEditor::makeProjectState() const
     juce::ValueTree root ("STEMDECK_PROJECT");
     root.setProperty ("projectVersion", kProjectVersion, nullptr);
     root.setProperty ("autosavedUtc", juce::Time::currentTimeMillis(), nullptr);
+    const bool activeTake = processorRef.isMasterRecording();
+    root.setProperty ("activeTake", activeTake, nullptr);
+    root.setProperty ("takeNumber", processorRef.getCurrentTakeNumber(), nullptr);
+    if (activeTake)
+    {
+        root.setProperty ("recordedSamples",
+                          (double) processorRef.getRecordedSamples(), nullptr);
+        root.setProperty ("recordingSampleRate",
+                          processorRef.getRecordingSampleRate(), nullptr);
+        juce::ValueTree media ("ACTIVE_TAKE_MEDIA");
+        media.setProperty (
+            "master",
+            processorRef.getMasterRecordingTarget().getFullPathName(), nullptr);
+        media.setProperty (
+            "mic",
+            processorRef.getMicRecordingTarget().getFullPathName(), nullptr);
+        for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+        {
+            juce::ValueTree lane ("LANE");
+            lane.setProperty ("slot", deck, nullptr);
+            lane.setProperty (
+                "source",
+                processorRef.getLastDeckRecordingFile (deck)
+                    .getFullPathName(), nullptr);
+            lane.setProperty (
+                "printed",
+                processorRef.getLastDeckPrintedRecordingFile (deck)
+                    .getFullPathName(), nullptr);
+            media.appendChild (lane, nullptr);
+        }
+        root.appendChild (media, nullptr);
+    }
 
     juce::MemoryBlock processorState;
     processorRef.getStateInformation (processorState);
@@ -2356,6 +2401,9 @@ void MainPluginEditor::restoreProjectState (const juce::ValueTree& root,
         juce::MemoryBlock processorState;
         if (processorState.fromBase64Encoding (encoded) && processorState.getSize() > 0)
         {
+            // Restoring the rack destroys/recreates plugin processors. Close native
+            // editor windows first so none retain a reference to an old instance.
+            closeAllPluginWindows();
             if (packagePaths.size() > 0)
                 processorRef.remapStateMediaPaths (
                     processorState, packagePaths);
@@ -2638,6 +2686,26 @@ void MainPluginEditor::offerRecoveryAutosave()
         return;
     }
     const auto snapshot = juce::ValueTree::fromXml (*xml);
+    const bool interruptedTake =
+        (bool) snapshot.getProperty ("activeTake", false);
+    const auto activeMedia =
+        snapshot.getChildWithName ("ACTIVE_TAKE_MEDIA");
+    int recoverableMediaFiles = 0;
+    if (activeMedia.isValid())
+    {
+        auto countFile = [&recoverableMediaFiles] (const juce::var& path)
+        {
+            if (juce::File (path.toString()).existsAsFile())
+                ++recoverableMediaFiles;
+        };
+        countFile (activeMedia.getProperty ("master"));
+        countFile (activeMedia.getProperty ("mic"));
+        for (int lane = 0; lane < activeMedia.getNumChildren(); ++lane)
+        {
+            countFile (activeMedia.getChild (lane).getProperty ("source"));
+            countFile (activeMedia.getChild (lane).getProperty ("printed"));
+        }
+    }
     const auto intentFile = recoveryIntentFile();
     int checkpointEvents = 0;
     if (intentFile.existsAsFile())
@@ -2651,13 +2719,20 @@ void MainPluginEditor::offerRecoveryAutosave()
 
     juce::PopupMenu recovery;
     recovery.addSectionHeader ("A recoverable StemDeck session was found");
+    if (interruptedTake)
+        recovery.addSectionHeader (
+            "Interrupted take: " + juce::String (recoverableMediaFiles)
+            + " partial audio file"
+            + (recoverableMediaFiles == 1 ? juce::String()
+                                          : juce::String ("s")));
     recovery.addItem (1, checkpointEvents > 0
                            ? "Recover session + " + juce::String (checkpointEvents) + " captured actions"
                            : "Recover autosaved session");
     recovery.addItem (2, "Start fresh");
     recovery.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
         [safe = juce::Component::SafePointer<MainPluginEditor> (this),
-         snapshot, file, intentFile, checkpointEvents] (int result)
+         snapshot, file, intentFile, checkpointEvents,
+         interruptedTake, recoverableMediaFiles] (int result)
         {
             if (safe == nullptr) return;
             if (result == 1)
@@ -2667,6 +2742,12 @@ void MainPluginEditor::offerRecoveryAutosave()
                     safe->recordStatus.setText (
                         "Recovered session; preserved " + juce::String (checkpointEvents)
                         + " deterministic actions in " + intentFile.getFileName(),
+                        juce::dontSendNotification);
+                else if (interruptedTake)
+                    safe->recordStatus.setText (
+                        "Recovered interrupted take with "
+                        + juce::String (recoverableMediaFiles)
+                        + " partial audio files preserved",
                         juce::dontSendNotification);
             }
             else if (result == 2)

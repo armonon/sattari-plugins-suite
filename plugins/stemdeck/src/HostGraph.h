@@ -84,6 +84,8 @@ public:
     ScanResult scanSattariOnly();
     bool loadCache();
     bool saveCache() const;
+    juce::ValueTree createState() const;
+    juce::StringArray restoreState (const juce::ValueTree&);
 
     void loadPluginToChainAsync (Chain chain,
                                  const juce::PluginDescription& description,
@@ -133,7 +135,7 @@ private:
         juce::AudioProcessorGraph::Node::Ptr inputNode;
         juce::AudioProcessorGraph::Node::Ptr outputNode;
         juce::Array<juce::AudioProcessorGraph::Node::Ptr> pluginNodes;
-        juce::CriticalSection graphLock;
+        mutable juce::CriticalSection graphLock;
         bool prepared = false;   // graph built (I/O nodes exist); plugins may be loaded
         bool live = false;       // prepareToPlay done — safe for processChain
         // Mirrors pluginNodes.size() for a lock-free "is this chain empty?" check on
@@ -148,6 +150,10 @@ private:
     void initialiseGraph (ChainState& state);
     void rebuildChainConnections (ChainState& state);   // input -> plugins... -> output
     bool standaloneHostingEnabled() const noexcept;
+    juce::File getLoadDeadMansPedalFile() const;
+    juce::File getLoadQuarantineFile() const;
+    bool isPluginQuarantined (
+        const juce::PluginDescription&) const;
 
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPluginList;
@@ -155,6 +161,10 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     int currentChannels = 2;
+    juce::StringArray quarantinedPluginFiles;
+    std::atomic<bool> pluginLoadInFlight { false };
+    std::shared_ptr<std::atomic<bool>> aliveFlag {
+        std::make_shared<std::atomic<bool>> (true) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HostGraph)
 };

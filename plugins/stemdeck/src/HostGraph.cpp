@@ -33,15 +33,39 @@ HostGraph::HostGraph()
 #endif
     loadCache();
 
+    // Instantiation can fail more violently than scanning. Arm a second dead-man's
+    // pedal around every async load. If the app vanished before its callback, the
+    // exact plugin is quarantined on the next launch instead of creating a crash loop.
+    const auto quarantine = getLoadQuarantineFile();
+    if (quarantine.existsAsFile())
+        quarantinedPluginFiles.addLines (
+            quarantine.loadFileAsString());
+    const auto loadPedal = getLoadDeadMansPedalFile();
+    if (loadPedal.existsAsFile())
+    {
+        const auto crashed = loadPedal.loadFileAsString().trim();
+        if (crashed.isNotEmpty())
+        {
+            quarantinedPluginFiles.addIfNotAlreadyThere (crashed);
+            quarantine.replaceWithText (
+                quarantinedPluginFiles.joinIntoString ("\n"));
+        }
+        loadPedal.deleteFile();
+    }
+
     // Drop anything non-Sattari left in the cache from an older full scan, so a
     // third-party plugin can never be listed or instantiated (they crash the host).
     for (const auto& d : knownPluginList.getTypes())
-        if (! isSattariPluginFile (d.name) && ! d.manufacturerName.containsIgnoreCase ("Sattari"))
+        if ((! isSattariPluginFile (d.name)
+             && ! d.manufacturerName.containsIgnoreCase ("Sattari"))
+            || isPluginQuarantined (d))
             knownPluginList.removeType (d);
 }
 
 HostGraph::~HostGraph()
 {
+    aliveFlag->store (false, std::memory_order_release);
+    getLoadDeadMansPedalFile().deleteFile();
     release();
 }
 
@@ -218,6 +242,9 @@ juce::String HostGraph::getStatusSummary() const
 
     text += formats.isEmpty() ? "; no enabled plugin formats" : "; formats: " + formats.joinIntoString (", ");
     text += "; cached plugins: " + juce::String (knownPluginList.getNumTypes());
+    if (! quarantinedPluginFiles.isEmpty())
+        text += "; quarantined: "
+             + juce::String (quarantinedPluginFiles.size());
 
     int loaded = 0;
     for (const auto& chain : chains)
@@ -234,6 +261,23 @@ juce::Array<juce::PluginDescription> HostGraph::getKnownPlugins() const
 juce::File HostGraph::getCacheFile() const
 {
     return hostDataDirectory().getChildFile ("known-plugins.xml");
+}
+
+juce::File HostGraph::getLoadDeadMansPedalFile() const
+{
+    return hostDataDirectory().getChildFile ("load_pedal.txt");
+}
+
+juce::File HostGraph::getLoadQuarantineFile() const
+{
+    return hostDataDirectory().getChildFile ("load_quarantine.txt");
+}
+
+bool HostGraph::isPluginQuarantined (
+    const juce::PluginDescription& description) const
+{
+    return quarantinedPluginFiles.contains (
+        description.fileOrIdentifier);
 }
 
 bool HostGraph::loadCache()
@@ -255,6 +299,137 @@ bool HostGraph::saveCache() const
     if (auto xml = knownPluginList.createXml())
         return xml->writeTo (getCacheFile());
     return false;
+}
+
+juce::ValueTree HostGraph::createState() const
+{
+    juce::ValueTree root ("HOST_GRAPH");
+    root.setProperty ("version", 1, nullptr);
+    for (int chainIndex = 0; chainIndex < (int) Chain::count; ++chainIndex)
+    {
+        const auto chain = (Chain) chainIndex;
+        const auto& state = stateFor (chain);
+        const juce::ScopedLock lock (state.graphLock);
+        for (int insert = 0; insert < state.pluginNodes.size(); ++insert)
+        {
+            const auto node = state.pluginNodes.getReference (insert);
+            if (node == nullptr) continue;
+            auto* instance = dynamic_cast<juce::AudioPluginInstance*> (
+                node->getProcessor());
+            if (instance == nullptr) continue;
+
+            juce::PluginDescription description;
+            instance->fillInPluginDescription (description);
+            auto xml = description.createXml();
+            if (xml == nullptr) continue;
+
+            juce::MemoryBlock pluginState;
+            instance->getStateInformation (pluginState);
+            juce::ValueTree item ("INSERT");
+            item.setProperty ("chain", chainIndex, nullptr);
+            item.setProperty ("order", insert, nullptr);
+            item.setProperty ("description", xml->toString(), nullptr);
+            item.setProperty (
+                "state", pluginState.toBase64Encoding(), nullptr);
+            item.setProperty (
+                "bypassed", node->isBypassed(), nullptr);
+            root.appendChild (item, nullptr);
+        }
+    }
+    return root;
+}
+
+juce::StringArray HostGraph::restoreState (
+    const juce::ValueTree& root)
+{
+    juce::StringArray messages;
+    for (int chain = 0; chain < (int) Chain::count; ++chain)
+        initialiseGraph (stateFor ((Chain) chain));
+
+    if (! root.isValid() || root.getType() != juce::Identifier ("HOST_GRAPH"))
+        return messages;
+
+    for (int child = 0; child < root.getNumChildren(); ++child)
+    {
+        const auto item = root.getChild (child);
+        if (item.getType() != juce::Identifier ("INSERT"))
+            continue;
+        const int chainIndex = juce::jlimit (
+            0, (int) Chain::count - 1,
+            (int) item.getProperty ("chain", 0));
+        const auto descriptionXml =
+            item.getProperty ("description").toString();
+        auto xml = juce::XmlDocument::parse (descriptionXml);
+        juce::PluginDescription description;
+        if (xml == nullptr || ! description.loadFromXml (*xml))
+        {
+            messages.add ("Skipped an insert with invalid plugin identity.");
+            continue;
+        }
+        if ((! isSattariPluginFile (description.name)
+             && ! description.manufacturerName.containsIgnoreCase ("Sattari"))
+            || isPluginQuarantined (description))
+        {
+            messages.add (
+                "Skipped unavailable/quarantined insert: "
+                + description.name);
+            continue;
+        }
+
+        const auto pedal = getLoadDeadMansPedalFile();
+        pedal.replaceWithText (description.fileOrIdentifier);
+        juce::String error;
+        auto instance = formatManager.createPluginInstance (
+            description, currentSampleRate, currentBlockSize, error);
+        if (instance == nullptr)
+        {
+            pedal.deleteFile();
+            messages.add (
+                "Could not restore " + description.name + ": " + error);
+            continue;
+        }
+
+        juce::MemoryBlock pluginState;
+        if (pluginState.fromBase64Encoding (
+                item.getProperty ("state").toString())
+            && pluginState.getSize() > 0)
+            instance->setStateInformation (
+                pluginState.getData(), (int) pluginState.getSize());
+
+        auto& chainState = stateFor ((Chain) chainIndex);
+        const juce::ScopedLock lock (chainState.graphLock);
+        if (auto node = chainState.graph.addNode (std::move (instance)))
+        {
+            node->setBypassed ((bool) item.getProperty (
+                "bypassed", false));
+            chainState.pluginNodes.add (node);
+            chainState.pluginCountAtomic.store (
+                chainState.pluginNodes.size(),
+                std::memory_order_relaxed);
+            rebuildChainConnections (chainState);
+            chainState.graph.setPlayConfigDetails (
+                currentChannels, currentChannels,
+                currentSampleRate, currentBlockSize);
+            chainState.graph.prepareToPlay (
+                currentSampleRate, currentBlockSize);
+            chainState.prepared = true;
+            chainState.live = true;
+            // Disarm only after state restoration and graph preparation both
+            // survived. Those phases execute plugin code too.
+            pedal.deleteFile();
+            messages.add (
+                "Restored " + description.name + " to "
+                    + chainName ((Chain) chainIndex));
+        }
+        else
+        {
+            pedal.deleteFile();
+            messages.add (
+                "Could not attach " + description.name
+                    + " to the audio graph.");
+        }
+    }
+    return messages;
 }
 
 juce::AudioPluginFormat* HostGraph::findFormatByName (const juce::String& formatName) const
@@ -327,13 +502,36 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
                                         const juce::PluginDescription& description,
                                         LoadCallback callback)
 {
+    if (isPluginQuarantined (description))
+    {
+        if (callback)
+            callback (
+                false, description.name
+                    + " is quarantined because it crashed during a previous load.");
+        return;
+    }
+    if (pluginLoadInFlight.exchange (true, std::memory_order_acq_rel))
+    {
+        if (callback)
+            callback (false, "Another plugin is still loading. Try again shortly.");
+        return;
+    }
+
+    const auto loadPedal = getLoadDeadMansPedalFile();
+    loadPedal.replaceWithText (description.fileOrIdentifier);
     const auto target = chain;
+    const auto alive = aliveFlag;
     formatManager.createPluginInstanceAsync (description, currentSampleRate, currentBlockSize,
-        [this, target, completion = std::move (callback), requestedName = description.name]
+        [this, target, completion = std::move (callback),
+         requestedName = description.name, loadPedal, alive]
         (std::unique_ptr<juce::AudioPluginInstance> instance, const juce::String& error) mutable
         {
+            if (! alive->load (std::memory_order_acquire))
+                return;
+            pluginLoadInFlight.store (false, std::memory_order_release);
             if (instance == nullptr)
             {
+                loadPedal.deleteFile();
                 if (completion)
                     completion (false, error.isNotEmpty() ? error : "Could not instantiate " + requestedName);
                 return;
@@ -346,13 +544,28 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
             const juce::ScopedLock lock (state.graphLock);
             // Append the new plugin to the END of the serial chain (a rack), rather
             // than replacing — so multiple Sattari FX stack in order.
-            if (auto pluginNode = state.graph.addNode (std::move (instance)))
+            auto pluginNode = state.graph.addNode (std::move (instance));
+            if (pluginNode != nullptr)
+            {
                 state.pluginNodes.add (pluginNode);
                 state.pluginCountAtomic.store (state.pluginNodes.size(), std::memory_order_relaxed);
+            }
+            else
+            {
+                loadPedal.deleteFile();
+                if (completion)
+                    completion (false, "Could not attach "
+                                       + requestedName
+                                       + " to the audio graph.");
+                return;
+            }
             rebuildChainConnections (state);
             state.graph.setPlayConfigDetails (currentChannels, currentChannels, currentSampleRate, currentBlockSize);
             state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
             state.prepared = true;
+            // prepareToPlay can execute arbitrary plugin code; keep the pedal
+            // armed until the complete load path has survived.
+            loadPedal.deleteFile();
 
             if (completion)
                 completion (true, "Loaded " + requestedName + " into " + chainName (target));

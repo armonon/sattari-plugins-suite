@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 #include "ChunkedAudioFile.h"
+#include "EQProcessor.h"
+#include "FilterProcessor.h"
 
 /**
  * Sample-accurate arrangement playback engine.
@@ -39,6 +41,15 @@ public:
         juce::int64 fadeInSamples  = 0;         // engine sample-rate
         juce::int64 fadeOutSamples = 0;         // engine sample-rate
         std::vector<std::pair<juce::int64, float>> gainAutomation;
+        std::vector<std::pair<juce::int64, float>> lowAutomation;
+        std::vector<std::pair<juce::int64, float>> midAutomation;
+        std::vector<std::pair<juce::int64, float>> highAutomation;
+        std::vector<std::pair<juce::int64, float>> filterAutomation;
+        bool dspEnabled = false;
+        // Schedule ownership is immutable, but these are audio-thread-only render
+        // histories. mutable permits stateful DSP without mutating clip placement.
+        mutable EQProcessor eq;
+        mutable FilterProcessor filter;
     };
 
     using Schedule = std::vector<Clip>;
@@ -61,11 +72,20 @@ public:
         lengthSamples.store (len, std::memory_order_relaxed);
     }
 
-    void start()                       { playing.store (true,  std::memory_order_relaxed); }
+    void start()
+    {
+        resetClipDsp();
+        playing.store (true, std::memory_order_relaxed);
+    }
     void stop()                        { playing.store (false, std::memory_order_relaxed); }
     bool isPlaying() const noexcept    { return playing.load (std::memory_order_relaxed); }
 
-    void setPositionSeconds (double s) { playhead.store ((juce::int64) (juce::jmax (0.0, s) * sr), std::memory_order_relaxed); }
+    void setPositionSeconds (double s)
+    {
+        playhead.store ((juce::int64) (juce::jmax (0.0, s) * sr),
+                        std::memory_order_relaxed);
+        resetClipDsp();
+    }
     void setLoop (double startSec, double endSec, bool enabled)
     {
         loopStartSamples.store ((juce::int64) (juce::jmax (0.0, startSec) * sr), std::memory_order_relaxed);
@@ -132,6 +152,33 @@ public:
                 const juce::int64 since = t - clip.timelineStartSamples;
                 const double srcPos = (double) clip.sourceStartSamples + (double) since * ratio;
 
+                float left = clip.streamed != nullptr
+                    ? ChunkedAudioFile::readInterpolated (
+                          streamView, 0, srcPos)
+                    : readInterpolated (*clip.audio, 0, srcPos);
+                float right = srcCh > 1
+                    ? (clip.streamed != nullptr
+                        ? ChunkedAudioFile::readInterpolated (
+                              streamView, 1, srcPos)
+                        : readInterpolated (*clip.audio, 1, srcPos))
+                    : left;
+
+                if (clip.dspEnabled)
+                {
+                    clip.eq.processSample (
+                        left, right,
+                        automationValueAt (
+                            clip.lowAutomation, t, 0.0f),
+                        automationValueAt (
+                            clip.midAutomation, t, 0.0f),
+                        automationValueAt (
+                            clip.highAutomation, t, 0.0f));
+                    clip.filter.processSample (
+                        left, right,
+                        automationValueAt (
+                            clip.filterAutomation, t, 0.0f));
+                }
+
                 float g = clip.gain;
                 g *= automationGainAt (clip.gainAutomation, t);
                 if (clip.fadeInSamples > 0 && since < clip.fadeInSamples)
@@ -140,15 +187,15 @@ public:
                     g *= juce::jlimit (0.0f, 1.0f, (float) (clip.timelineLengthSamples - since) / (float) clip.fadeOutSamples);
 
                 const int i = (int) (t - pos);
-                for (int ch = 0; ch < outCh; ++ch)
+                if (outCh == 1)
+                    out.addSample (0, i, 0.5f * (left + right) * g);
+                else
                 {
-                    const int sourceChannel = juce::jmin (ch, srcCh - 1);
-                    const float s = clip.streamed != nullptr
-                                        ? ChunkedAudioFile::readInterpolated (
-                                              streamView, sourceChannel, srcPos)
-                                        : readInterpolated (
-                                              *clip.audio, sourceChannel, srcPos);
-                    out.addSample (ch, i, s * g);
+                    out.addSample (0, i, left * g);
+                    out.addSample (1, i, right * g);
+                    for (int ch = 2; ch < outCh; ++ch)
+                        out.addSample (
+                            ch, i, 0.5f * (left + right) * g);
                 }
             }
         }
@@ -189,6 +236,40 @@ private:
         const float alpha = (float) (timelineSample - a.first)
                             / (float) span;
         return a.second + alpha * (b.second - a.second);
+    }
+
+    static float automationValueAt (
+        const std::vector<std::pair<juce::int64, float>>& points,
+        juce::int64 timelineSample, float fallback) noexcept
+    {
+        if (points.empty()) return fallback;
+        if (timelineSample <= points.front().first) return points.front().second;
+        if (timelineSample >= points.back().first) return points.back().second;
+        const auto next = std::lower_bound (
+            points.begin(), points.end(), timelineSample,
+            [] (const auto& point, juce::int64 sample)
+            {
+                return point.first < sample;
+            });
+        const auto& b = *next;
+        const auto& a = *(next - 1);
+        const auto span = juce::jmax<juce::int64> (1, b.first - a.first);
+        const float alpha = (float) (timelineSample - a.first)
+                            / (float) span;
+        return a.second + alpha * (b.second - a.second);
+    }
+
+    void resetClipDsp()
+    {
+        const juce::SpinLock::ScopedLockType l (lock);
+        if (active == nullptr) return;
+        for (const auto& clip : *active)
+        {
+            clip.eq.prepare (sr, 2);
+            clip.filter.prepare (sr);
+            clip.eq.reset();
+            clip.filter.reset();
+        }
     }
 
     static float readInterpolated (const juce::AudioBuffer<float>& buf, int ch, double pos)

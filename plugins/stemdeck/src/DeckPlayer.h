@@ -109,7 +109,12 @@ public:
                   const TimePitchDecision& timePitch,
                   const std::array<float, numStemLanes>& stemLaneGains,
                   const std::array<float, numStemLanes>& stemPitchSemitones,   // independent per-stem pitch
-                  const BeatSyncEngine::PlaybackPlan& beatSyncPlan);
+                  const BeatSyncEngine::PlaybackPlan& beatSyncPlan,
+                  // Optional clean render at the same timeline position. This receives
+                  // the warped/stem-summed signal after trim but BEFORE deck EQ,
+                  // filter, fader, built-in FX, hosted inserts, PDC, and crossfader
+                  // routing. The caller owns and clears it; no allocation occurs here.
+                  juce::AudioBuffer<float>* preFaderCapture = nullptr);
 
 private:
     static float readInterpolated (const LoadedAudio& audio, int channel, double position);
@@ -123,6 +128,7 @@ private:
                                int startSample,
                                int numSamples,
                                float linearGain,
+                               float preFaderGain,
                                float lowDb,
                                float midDb,
                                float highDb,
@@ -132,7 +138,8 @@ private:
                                const BeatSyncEngine::PlaybackPlan& beatSyncPlan,
                                const std::array<std::shared_ptr<const LoadedAudio>, numStemLanes>& laneAudio,
                                double referenceSampleRate,
-                               double sourceLength);
+                               double sourceLength,
+                               juce::AudioBuffer<float>* preFaderCapture);
     void resetRubberBand();
     void fillRubberBandInput (int numFrames,
                               const std::array<std::shared_ptr<const LoadedAudio>, numStemLanes>& laneAudio,

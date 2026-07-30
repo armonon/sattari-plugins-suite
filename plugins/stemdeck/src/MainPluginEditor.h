@@ -336,10 +336,10 @@ private:
         }
         float getLaneGainDb (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? laneGainDb[(size_t) lane] : 0.0f; }
         void  setLaneGainDb (int lane, float db) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneGainDb[(size_t) lane] = juce::jlimit (-60.0f, 6.0f, db); repaint(); } }
-        // ---- Editable automation: sample-accurate post-capture lane volume ----
-        // The captured deck render already contains live pitch/filter/FX, so exposing
-        // those as if they were non-destructive would double-process the take. More
-        // targets return when capture has a true pre-insert source tap.
+        // ---- Editable automation: sample-accurate lane volume ----
+        // v3 captures use a pre-fader/pre-insert source, so the performed trim/fader
+        // curve is promoted here and can be perfected without double-processing.
+        // Additional EQ/filter/insert automation will use the same render graph.
         static constexpr int numAutoTargets = 1;
         struct EditAutomation
         {
@@ -356,6 +356,21 @@ private:
         {
             return juce::isPositiveAndBelow (lane, numLanes)
                        ? &editAuto[(size_t) lane] : nullptr;
+        }
+        struct CapturedDspAutomation
+        {
+            std::vector<std::pair<double, float>> lowDb, midDb, highDb, filter;
+            bool empty() const noexcept
+            {
+                return lowDb.empty() && midDb.empty()
+                    && highDb.empty() && filter.empty();
+            }
+        };
+        const CapturedDspAutomation* capturedDspForLane (
+            int lane) const noexcept
+        {
+            return juce::isPositiveAndBelow (lane, numLanes)
+                       ? &capturedDsp[(size_t) lane] : nullptr;
         }
 
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
@@ -405,6 +420,7 @@ private:
         std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
         std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
         std::array<EditAutomation, numLanes> editAuto;
+        std::array<CapturedDspAutomation, numLanes> capturedDsp;
         int dragAutoLane = -1, dragAutoPointIdx = -1;
         bool showDemoBlocks = false;   // showcase placeholder timeline clips (opt-in via Settings)
         std::array<std::vector<MidiClipData>, numEditableLanes> midiClips {};

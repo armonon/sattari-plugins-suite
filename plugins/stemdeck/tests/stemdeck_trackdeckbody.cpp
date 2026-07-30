@@ -66,6 +66,14 @@ int main()
     ctx.transport.bpm = 120.0;
 
     juce::AudioBuffer<float> scratch (chans, block);
+    juce::AudioBuffer<float> capturedSource (chans, block);
+    int sourceBlocks = 0;
+    body.onPreFaderCapture = [&] (juce::AudioBuffer<float>& source, int n)
+    {
+        capturedSource.makeCopyOf (source, true);
+        if (n == block)
+            ++sourceBlocks;
+    };
 
     // Warm up a few blocks (grid build, RTSS settle), then measure.
     double lastRms = 0.0;
@@ -77,6 +85,31 @@ int main()
         lastRms = rms (scratch, block);
     }
     if (lastRms < 0.01) { std::cerr << "FAIL: near-silent output, rms=" << lastRms << "\n"; return 1; }
+    if (sourceBlocks != 8 || rms (capturedSource, block) < 0.01)
+    {
+        std::cerr << "FAIL: pre-fader source tap did not capture aligned audio\n";
+        return 1;
+    }
+
+    // A closed fader must silence only the printed/live render. Transport and clean
+    // source capture continue so reopening the fader resumes at the correct position.
+    body.params.fader = 0.0f;
+    const double beforeMutedBlock = body.deckPlayer().getPlayheadReferenceSamples();
+    scratch.clear();
+    capturedSource.clear();
+    body.processInto (scratch, ctx);
+    const double afterMutedBlock = body.deckPlayer().getPlayheadReferenceSamples();
+    if (rms (scratch, block) > 1.0e-5)
+    {
+        std::cerr << "FAIL: zero fader leaked into printed render\n";
+        return 1;
+    }
+    if (rms (capturedSource, block) < 0.01 || afterMutedBlock <= beforeMutedBlock)
+    {
+        std::cerr << "FAIL: zero fader stopped transport or source capture\n";
+        return 1;
+    }
+    body.params.fader = 1.0f;
 
     // Muting all stems (0%) must drop the level toward silence — proves the stem
     // gains actually drive the RTSS remix, not just pass-through.

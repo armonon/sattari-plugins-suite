@@ -314,6 +314,7 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
                                        int startSample,
                                        int numSamples,
                                        float linearGain,
+                                       float preFaderGain,
                                        float lowDb,
                                        float midDb,
                                        float highDb,
@@ -323,7 +324,8 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
                                        const BeatSyncEngine::PlaybackPlan& beatSyncPlan,
                                        const std::array<std::shared_ptr<const LoadedAudio>, numStemLanes>& laneAudio,
                                        double referenceSampleRate,
-                                       double sourceLength)
+                                       double sourceLength,
+                                       juce::AudioBuffer<float>* preFaderCapture)
 {
     if (! rubberBand || ! timePitch.pitchPreservingActive || numSamples <= 0)
         return false;
@@ -407,13 +409,28 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
         float left = i < framesRetrieved ? rubberBandOutput.getSample (0, i) : 0.0f;
         float right = i < framesRetrieved ? rubberBandOutput.getSample (channels > 1 ? 1 : 0, i) : left;
 
+        const int outIndex = startSample + i;
+        if (preFaderCapture != nullptr && outIndex < preFaderCapture->getNumSamples())
+        {
+            if (preFaderCapture->getNumChannels() == 1)
+                preFaderCapture->addSample (
+                    0, outIndex, 0.5f * (left + right) * preFaderGain);
+            else if (preFaderCapture->getNumChannels() > 1)
+            {
+                preFaderCapture->addSample (0, outIndex, left * preFaderGain);
+                preFaderCapture->addSample (1, outIndex, right * preFaderGain);
+                for (int ch = 2; ch < preFaderCapture->getNumChannels(); ++ch)
+                    preFaderCapture->addSample (
+                        ch, outIndex, 0.5f * (left + right) * preFaderGain);
+            }
+        }
+
         eq.processSample (left, right, lowDb, midDb, highDb);
         filter.processSample (left, right, filterControl);
 
         left *= linearGain;
         right *= linearGain;
 
-        const int outIndex = startSample + i;
         if (destination.getNumChannels() == 1)
         {
             destination.addSample (0, outIndex, 0.5f * (left + right));
@@ -447,7 +464,8 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                           const TimePitchDecision& timePitch,
                           const std::array<float, numStemLanes>& stemLaneGains,
                           const std::array<float, numStemLanes>& stemPitchSemitones,
-                          const BeatSyncEngine::PlaybackPlan& beatSyncPlan)
+                          const BeatSyncEngine::PlaybackPlan& beatSyncPlan,
+                          juce::AudioBuffer<float>* preFaderCapture)
 {
     std::array<std::shared_ptr<const LoadedAudio>, numStemLanes> laneAudio;
     bool hasAnyAudio = false;
@@ -460,11 +478,15 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
     if (! shouldPlay || ! hasAnyAudio)
         return;
 
-    const float linearGain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 6.0f, trimGainDb))
-                           * juce::jlimit (0.0f, 1.0f, channelFader)
-                           * deckMixGain;
-    if (linearGain <= 0.00001f)
-        return;
+    const float preFaderGain =
+        juce::Decibels::decibelsToGain (
+            juce::jlimit (-60.0f, 6.0f, trimGainDb))
+        * deckMixGain;
+    const float linearGain = preFaderGain
+                           * juce::jlimit (0.0f, 1.0f, channelFader);
+    // Never return merely because the audible gain is zero. A DJ commonly pulls a
+    // deck fader down while cueing it; transport and the clean capture must continue
+    // advancing so raising the fader later resumes at the correct musical position.
 
     const double referenceSampleRate = referenceSampleRateFor (laneAudio);
     const double sourceLength = longestReferenceLengthFor (laneAudio, referenceSampleRate);
@@ -496,6 +518,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                                                     startSample,
                                                     numSamples,
                                                     linearGain,
+                                                    preFaderGain,
                                                     lowDb,
                                                     midDb,
                                                     highDb,
@@ -505,7 +528,8 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                                                     beatSyncPlan,
                                                     laneAudio,
                                                     referenceSampleRate,
-                                                    sourceLength))
+                                                    sourceLength,
+                                                    preFaderCapture))
         return;
 #endif
 
@@ -649,13 +673,28 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
             }
         }
 
+        const int outIndex = startSample + i;
+        if (preFaderCapture != nullptr && outIndex < preFaderCapture->getNumSamples())
+        {
+            if (preFaderCapture->getNumChannels() == 1)
+                preFaderCapture->addSample (
+                    0, outIndex, 0.5f * (left + right) * preFaderGain);
+            else if (preFaderCapture->getNumChannels() > 1)
+            {
+                preFaderCapture->addSample (0, outIndex, left * preFaderGain);
+                preFaderCapture->addSample (1, outIndex, right * preFaderGain);
+                for (int ch = 2; ch < preFaderCapture->getNumChannels(); ++ch)
+                    preFaderCapture->addSample (
+                        ch, outIndex, 0.5f * (left + right) * preFaderGain);
+            }
+        }
+
         eq.processSample (left, right, lowDb, midDb, highDb);
         filter.processSample (left, right, filterControl);
 
         left *= linearGain;
         right *= linearGain;
 
-        const int outIndex = startSample + i;
         if (destination.getNumChannels() == 1)
         {
             destination.addSample (0, outIndex, 0.5f * (left + right));
