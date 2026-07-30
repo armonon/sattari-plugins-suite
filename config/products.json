@@ -7,7 +7,7 @@
     {"id":"auto-pitch","name":"Sattari Auto Pitch","category":"Vocal tuning","accent":"mint","lifecycle":"validation","role":"effect","shippingProfile":null,"webVisible":true,"ci":{"test":"AutoPitchCoreContract","render":"AutoPitchRender"}},
     {"id":"song-key","name":"Sattari Key","category":"Key detection","accent":"mint","lifecycle":"validation","role":"session","shippingProfile":null,"webVisible":true,"ci":{"render":"SongKeyRender"}},
     {"id":"voxkey","name":"Sattari VoxKey","category":"Voice-to-MIDI","accent":"mint","lifecycle":"experimental","role":"utility","shippingProfile":null,"webVisible":true},
-    {"id":"voxsynth","name":"Sattari VoxSynth","category":"Voice instrument","accent":"mint","lifecycle":"experimental","role":"instrument","shippingProfile":null,"webVisible":true},
+    {"id":"voxsynth","name":"Sattari VoxSynth","category":"Voice instrument","accent":"mint","lifecycle":"experimental","role":"instrument","shippingProfile":null,"webVisible":true,"ci":{"test":"VoxSynthMpeContract"}},
     {"id":"morph","name":"Sattari Morph","category":"Voice character","accent":"violet","lifecycle":"experimental","role":"effect","shippingProfile":null,"webVisible":true},
     {"id":"mix","name":"Sattari Mix","category":"Mix rack","accent":"mint","lifecycle":"preview","role":"rack","shippingProfile":null,"webVisible":true,"ci":{}},
     {"id":"create","name":"Sattari Create","category":"Creative FX rack","accent":"violet","lifecycle":"preview","role":"rack","shippingProfile":null,"webVisible":true,"ci":{}},

@@ -152,6 +152,7 @@ if(BUILD_TESTING)
         GranulatorContract
         GlassChoirContract
         BrainContract
+        VoxSynthMpeContract
         SattariStackLayerContract)
 
     foreach(contract IN LISTS SATTARI_CONTRACT_TARGETS)

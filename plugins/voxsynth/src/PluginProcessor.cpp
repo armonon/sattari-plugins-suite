@@ -79,7 +79,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxSynthAudioProcesso
         NormalisableRange<float> (0.0f, 200.0f, 1.0f), 12.0f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("cutoff", "Cutoff",
         NormalisableRange<float> (40.0f, 12000.0f, 1.0f, 0.3f), 400.0f));
-    p.push_back (std::make_unique<AudioParameterFloat>  ("filtamt", "Vowel → Filter",
+    // Plain ASCII: juce::String(const char*) asserts its argument is ASCII, so a
+    // literal arrow here tripped a jassert on every construction and left the host
+    // showing a mangled parameter name. The only such name in the suite.
+    p.push_back (std::make_unique<AudioParameterFloat>  ("filtamt", "Vowel to Filter",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("reso", "Resonance",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.2f));
@@ -90,6 +93,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxSynthAudioProcesso
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.0f));
     p.push_back (std::make_unique<AudioParameterFloat>  ("level", "Level",
         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.9f));
+    // Must match the receiving instrument. 48 is the MPE default and is announced
+    // over RPN, so MPE instruments configure themselves; drop it to 2 for a plain
+    // synth that ignores the announcement.
+    p.push_back (std::make_unique<AudioParameterInt>    ("bendRange", "Bend Range", 1, 48, 48));
     return { p.begin(), p.end() };
 }
 
@@ -103,7 +110,38 @@ void SattariVoxSynthAudioProcessor::prepareToPlay (double sampleRate, int sample
     frames_.assign ((size_t) analyzer_.maxFramesForBlock (juce::jmax (32, samplesPerBlock)) + 4, {});
     mono_.assign ((size_t) juce::jmax (32, samplesPerBlock), 0.0f);
     activeNote_ = -1; percHold_ = 0; percNote_ = -1;
+    // Force a fresh announcement after any re-prepare: the host may have rebuilt the
+    // graph underneath us and the receiving instrument could be a different one.
+    lastBendRange_ = -1; lastMidiMode_ = false;
     setLatencySamples (analyzer_.latencySamples());
+}
+
+// Tell whatever is downstream how to interpret our bends, BEFORE we send any.
+//
+//  Two RPNs, in this order:
+//   * RPN 6 (MPE Configuration Message) on the zone master, value = the number of
+//     member channels we use. We are monophonic, so one. An MPE instrument that
+//     sees this switches into MPE mode; without it, it stays in normal mode and
+//     our per-note bends land on the wrong voice.
+//   * RPN 0 (pitch bend sensitivity) on the member channel, value = semitones.
+//     This is the one that actually matters for plain synths: their default is 2,
+//     ours is 48, and unannounced that makes every bend 24x too wide.
+//  Closed with an RPN null so a later CC 6 can't be swallowed as RPN data.
+void SattariVoxSynthAudioProcessor::emitMpeConfiguration (juce::MidiBuffer& midi, int at,
+                                                          int bendSemis) const
+{
+    auto rpn = [&] (int channel, int lsb, int value)
+    {
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 101, 0),     at);
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 100, lsb),   at);
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 6,   value), at);
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 38,  0),     at);
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 101, 127),   at);
+        midi.addEvent (juce::MidiMessage::controllerEvent (channel, 100, 127),   at);
+    };
+
+    rpn (kMpeMaster,  6, 1);                                   // MCM: 1 member channel
+    rpn (kMpeChannel, 0, juce::jlimit (1, 96, bendSemis));     // bend sensitivity
 }
 
 bool SattariVoxSynthAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -151,6 +189,19 @@ void SattariVoxSynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     const bool midiMode = apvts.getRawParameterValue ("mode")->load() > 0.5f;
     const bool percMode = apvts.getRawParameterValue ("percussion")->load() > 0.5f;
     analyzer_.setPercussionMode (percMode);
+
+    // Announce the bend range before anything can bend: on the first MIDI-mode block,
+    // whenever the user changes the range, and again on every switch back into MIDI
+    // mode (the instrument downstream may have been swapped while we were silent).
+    // Emitted at offset 0 so it is ordered ahead of every note and bend in this block.
+    const int bendRange = (int) apvts.getRawParameterValue ("bendRange")->load();
+    bendRangeSemis_ = (float) bendRange;
+    if (midiMode && (bendRange != lastBendRange_ || ! lastMidiMode_))
+    {
+        emitMpeConfiguration (midi, 0, bendRange);
+        lastBendRange_ = bendRange;
+    }
+    lastMidiMode_ = midiMode;
 
     // Engine params.
     sattari::dsp::VoxSynthEngine::Params ep;
