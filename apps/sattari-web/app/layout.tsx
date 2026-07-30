@@ -11,14 +11,14 @@ export const metadata: Metadata = {
     title: "Sattari Audio — Four racks. One session key.",
     description:
       "Four modular racks, 28 shared processors, and one live musical authority.",
-    images: [{ url: "/assets/og.png", width: 1200, height: 630 }],
+    images: [{ url: "/assets/og.jpg", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Sattari Audio — Four racks. One session key.",
     description:
       "Four modular racks, 28 shared processors, and one live musical authority.",
-    images: ["/assets/og.png"],
+    images: ["/assets/og.jpg"],
   },
 };
 

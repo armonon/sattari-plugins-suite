@@ -10,13 +10,13 @@
 <meta property="og:title" content="Sattari Audio — Four racks. One session key." />
 <meta property="og:description" content="Four modular racks, 28 shared processors, and one live musical authority." />
 <meta property="og:url" content="https://sattari-audio-studio.armonon.chatgpt.site/index.html" />
-<meta property="og:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.png" />
+<meta property="og:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Sattari Audio — Four racks. One session key." />
 <meta name="twitter:description" content="Four modular racks, 28 shared processors, and one live musical authority." />
-<meta name="twitter:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.png" />
+<meta name="twitter:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
 <style>
 /* ─────────────────────────────────────────────────────────────
    Sattari — light theme. The font stack is deliberately the
@@ -61,7 +61,7 @@ img{display:block;max-width:100%}
   display:flex;align-items:center;justify-content:space-between}
 .brand{display:flex;align-items:center;color:var(--ink)}
 .brand:hover{text-decoration:none}
-.brand img{width:118px;height:auto;filter:invert(1)}
+.brand img{width:132px;height:auto;filter:invert(1)}
 .nav-links{display:flex;gap:28px;align-items:center}
 .nav-links a{font-size:12px;color:var(--ink);opacity:.85}
 .nav-links a:hover{opacity:1;text-decoration:none}
@@ -73,6 +73,10 @@ img{display:block;max-width:100%}
 .btn-ghost{display:inline-block;color:var(--accent);font-size:17px;padding:12px 0}
 
 .hero{padding:92px 0 72px;text-align:center}
+.hero-brand{display:inline-flex;align-items:center;justify-content:center;width:min(320px,72vw);
+  margin:0 auto 34px;padding:20px 22px;border-radius:22px;background:#050505;
+  box-shadow:0 18px 46px rgba(0,0,0,.13)}
+.hero-brand img{width:100%;height:auto}
 .hero h1{font-size:clamp(40px,7vw,74px);font-weight:600;line-height:1.05;
   letter-spacing:-.03em;margin-bottom:20px}
 .hero .sub{font-size:clamp(19px,2.4vw,25px);color:var(--ink-2);letter-spacing:-.01em;
@@ -225,7 +229,9 @@ details p{margin-top:12px;color:var(--ink-2);line-height:1.65;font-size:16px}
 
 footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 .foot-in{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;
-  font-size:12px;color:var(--ink-3)}
+  align-items:center;font-size:12px;color:var(--ink-3)}
+.foot-brand{display:flex;align-items:center;gap:16px}
+.foot-brand img{width:150px;height:auto;filter:invert(1)}
 .foot-in a{color:var(--ink-2)}
 
 /* ── motion ──────────────────────────────────────────────── */
@@ -336,6 +342,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
 <header class="hero" id="top">
   <div class="wrap">
+    <div class="hero-brand">
+      <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
+    </div>
     <h1>Four racks.<br>One session key.</h1>
     <p class="sub">
       A Mac plugin suite where 28 shared processors load into four focused racks,
@@ -406,14 +415,14 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
     <article class="rack">
       <div class="rack-top">
-        <h3>Sattari Mix</h3>
+        <h3>Mix</h3>
         <span class="kind">8 slots · in series · AU + VST3</span>
       </div>
       <p class="lede">The channel strip you assemble yourself — dynamics, tone and metering, in
         whatever order the source actually needs.</p>
       <figure class="product-shot">
         <img src="assets/products/mix.png" alt="Sattari Mix showing an eight-slot serial processing chain" loading="lazy" />
-        <figcaption>SATTARI MIX · CURRENT PRODUCT RENDER</figcaption>
+        <figcaption>MIX · CURRENT PRODUCT RENDER</figcaption>
       </figure>
       <p>Each of the eight slots holds one module and has its own bypass. Slot 1 feeds slot 2, and so
         on down the chain — so you can gate before you compress, or compress before you gate, without
@@ -444,14 +453,14 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
     <article class="rack">
       <div class="rack-top">
-        <h3>Sattari Create</h3>
+        <h3>Create</h3>
         <span class="kind">8 slots · in series · AU + VST3</span>
       </div>
       <p class="lede">Time, space and damage — reverb, delay, shimmer, tape, risers and vocoding
         in one rack.</p>
       <figure class="product-shot">
         <img src="assets/products/create.png" alt="Sattari Create modular effects rack interface" loading="lazy" />
-        <figcaption>SATTARI CREATE · CURRENT PRODUCT RENDER</figcaption>
+        <figcaption>CREATE · CURRENT PRODUCT RENDER</figcaption>
       </figure>
       <p>The same eight-slot chain as Mix, different cabinet. Reverbs and delays are tempo-locked:
         they follow the host, and when the host reports no tempo they fall back to the suite's own
@@ -476,14 +485,14 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
     <article class="rack">
       <div class="rack-top">
-        <h3>Sattari Vocal</h3>
+        <h3>Vocal</h3>
         <span class="kind">8 slots · in series · AU + VST3</span>
       </div>
       <p class="lede">Finish the vocal — de-essing, doubling, formant shaping and full ensemble,
         in one place.</p>
       <figure class="product-shot">
         <img src="assets/products/vocal.png" alt="Sattari Vocal modular vocal processing rack interface" loading="lazy" />
-        <figcaption>SATTARI VOCAL · CURRENT PRODUCT RENDER</figcaption>
+        <figcaption>VOCAL · CURRENT PRODUCT RENDER</figcaption>
       </figure>
       <p>Glass Choir lives here as a module: one Character macro walks a single voice from
         <em>human</em> through <em>massive</em> to <em>destroyed</em>. Standalone it gives you three
@@ -504,13 +513,13 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
     <article class="rack">
       <div class="rack-top">
-        <h3>Sattari Stack</h3>
+        <h3>Stack</h3>
         <span class="kind">4 layers · in parallel · AU instrument</span>
       </div>
       <p class="lede">The instrument rack — and the one that works differently on purpose.</p>
       <figure class="product-shot">
         <img src="assets/products/stack.png" alt="Sattari Stack four-layer parallel instrument rack interface" loading="lazy" />
-        <figcaption>SATTARI STACK · CURRENT PRODUCT RENDER</figcaption>
+        <figcaption>STACK · CURRENT PRODUCT RENDER</figcaption>
       </figure>
       <p><strong>Stack layers rather than chains.</strong> Chaining instruments is meaningless: each
         would write over the last, so only the final slot would be audible. Instead all four layers
@@ -541,7 +550,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 <section class="sec studio-section" id="studio">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">Sattari Studio</div>
+      <div class="eyebrow">Studio</div>
       <h2>Read the session in one glance</h2>
       <p>The analysis family uses the same dark, quiet visual system: exact values first,
         live context second, and no decoration competing with the work.</p>
@@ -645,7 +654,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <div class="row"><h5>Auto Pitch</h5>
         <p>Realtime correction from invisible to hard-tuned, formant-preserving, with a polyphonic
           mode that tunes whole chords and follows their overtones into key.</p></div>
-      <div class="row"><h5>Sattari Key</h5>
+      <div class="row"><h5>Key</h5>
         <p>The session's authority on key — a neural model plus an HPCP chromagram, publishing to
           every other plugin.</p></div>
       <div class="row"><h5>Morph</h5>
@@ -737,7 +746,10 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
 <footer>
   <div class="wrap foot-in">
-    <div>© <span id="yr"></span> Sattari Audio</div>
+    <div class="foot-brand">
+      <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
+      <span>© <span id="yr"></span></span>
+    </div>
     <div><a href="#racks">Racks</a> · <a href="#plugins">Plugins</a> · <a href="#download">Alpha status</a></div>
   </div>
 </footer>
@@ -770,7 +782,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     a.dataset.cats = p.cats || '';
     a.innerHTML =
       '<div class="ico">' + SATTARI_LOGO(p.id) + '</div>' +
-      '<h3>' + p.name + '</h3>' +
+      '<h3>' + p.name.replace(/^Sattari\s+/, '') + '</h3>' +
       '<div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div>' +
       '<div class="tag">' + (p.tagline || '') + '</div>';
     grid.appendChild(a);

@@ -28,9 +28,9 @@ a:hover{text-decoration:underline}
   border-bottom:1px solid var(--line-2)}
 .nav-in{max-width:860px;margin:0 auto;padding:0 22px;height:48px;
   display:flex;align-items:center;justify-content:space-between}
-.brand{font-size:19px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.brand{display:flex;align-items:center;color:var(--ink)}
 .brand:hover{text-decoration:none}
-.brand span{color:var(--mint)}
+.brand img{width:132px;height:auto;filter:invert(1)}
 .nav-in .cta{font-size:12px;color:var(--accent)}
 
 .wrap{max-width:860px;margin:0 auto;padding:56px 22px 96px}
@@ -87,6 +87,8 @@ h1{font-size:clamp(32px,5.5vw,48px);font-weight:600;line-height:1.06;letter-spac
 
 footer{border-top:1px solid var(--line-2);padding:40px 22px;text-align:center;
   color:var(--ink-3);font-size:12px;background:var(--bg-2)}
+.footer-brand{display:flex;align-items:center;justify-content:center;gap:16px}
+.footer-brand img{width:150px;height:auto;filter:invert(1)}
 a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.001ms!important;scroll-behavior:auto!important}}
 </style>
@@ -95,7 +97,9 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 
 <nav class="nav">
   <div class="nav-in">
-    <a class="brand" href="index.html">Sattari<span>.</span></a>
+    <a class="brand" href="index.html" aria-label="Sattari Audio home">
+      <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
+    </a>
     <a class="cta" href="index.html#download">Alpha status&nbsp;›</a>
   </div>
 </nav>
@@ -105,7 +109,12 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
   <div id="content"></div>
 </main>
 
-<footer>© <span id="yr"></span> Sattari Audio</footer>
+<footer>
+  <div class="footer-brand">
+    <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
+    <span>© <span id="yr"></span></span>
+  </div>
+</footer>
 
 <script src="product-catalog.js"></script>
 <script src="plugins-data.js"></script>
@@ -132,6 +141,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
 
   document.title = p.name + ' — Sattari Audio';
 
+  var displayName = p.name.replace(/^Sattari\s+/, '');
   var tags  = (p.formats  || []).map(function (f) { return '<span class="tag">' + f + '</span>'; }).join('');
   var feats = (p.features || []).map(function (f) { return '<li>' + f + '</li>'; }).join('');
   var shot = (window.SATTARI_PRODUCT_SHOTS || {})[p.id];
@@ -149,7 +159,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   el.innerHTML =
     '<div class="head">' +
       '<div class="icon">' + SATTARI_LOGO(p.id) + '</div>' +
-      '<div><div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div><h1>' + p.name + '</h1></div>' +
+      '<div><div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div><h1>' + displayName + '</h1></div>' +
     '</div>' +
     '<p class="tagline">' + (p.tagline || '') + '</p>' +
     '<div class="tags">' + tags + '</div>' +
