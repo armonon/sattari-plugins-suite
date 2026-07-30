@@ -102,12 +102,26 @@ public:
     // path is delayed by to keep the parallel mix phase-aligned.
     int latencySamples() const noexcept override { return dryRingLen; }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         if (state == nullptr) return;
         const int numSamples  = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
         if (numSamples <= 0 || numChannels <= 0) return;
+
+        const int capacity = dryStash.getNumSamples();
+        if (numSamples > capacity)
+        {
+            if (capacity <= 0) return;
+            for (int start = 0; start < numSamples; start += capacity)
+            {
+                const int count = juce::jmin (capacity, numSamples - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                numChannels, start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
 
         if (p ("bypass") > 0.5f) return;   // leave input untouched
 

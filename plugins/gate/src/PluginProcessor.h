@@ -45,7 +45,8 @@
 //  Mirrors plugins/side-chain-master (follower + detector HP + lookahead ring)
 //  and plugins/comp (overall structure + tempo bus). Reuses SattariEnvelopeFollower.
 // =============================================================================
-class SattariGateAudioProcessor final : public juce::AudioProcessor
+class SattariGateAudioProcessor final : public juce::AudioProcessor,
+                                        private juce::AsyncUpdater
 {
 public:
     SattariGateAudioProcessor();
@@ -86,6 +87,7 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void handleAsyncUpdate() override;
 
     // Detector sidechain band-pass (one-pole HP then one-pole LP), per channel-summed.
     void registerFactoryPresets();
@@ -97,7 +99,8 @@ private:
     // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
     // Parameter IDs are unchanged (empty prefix), so sessions and presets survive.
     sattari::dsp::GateModule module;
-    int reportedLatency = -1;   // last value published to the host (-1 forces a first publish)
+    std::atomic<int> pendingLatency { 0 };
+    int reportedLatency = 0;   // message-thread copy last published to the host
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariGateAudioProcessor)
 };

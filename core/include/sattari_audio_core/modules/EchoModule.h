@@ -80,8 +80,10 @@ public:
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         tempoReader.start();
 
-        // Max delay = 2 s free-time ceiling with headroom for a slow synced whole note.
-        delayLen = (int) std::ceil (sr * 2.2) + 8;
+        // Cover the 2 s free-time ceiling plus the longest synced value.
+        // Longest sync value is a dotted quarter (1.5 beats). Reserve enough
+        // history down to the suite's 20 BPM transport floor: 4.5 seconds.
+        delayLen = (int) std::ceil (sr * 4.6) + 8;
         for (auto& d : delayBuf) d.assign ((size_t) delayLen, 0.0f);
 
         // Diffusion all-pass: a short (~7 ms) fixed delay per channel.

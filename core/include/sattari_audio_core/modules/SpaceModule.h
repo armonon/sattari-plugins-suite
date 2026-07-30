@@ -64,7 +64,9 @@ public:
         reverb.setSampleRate (sr);
         dryScratch.setSize (2, juce::jmax (1, maxBlockSize));
         tempoReader.start();
-        delayLen = (int) std::ceil (sr * 3.0) + 8;    // up to a slow whole-note delay
+        // Longest sync value is a dotted quarter (1.5 beats). Reserve enough
+        // history down to the suite's 20 BPM transport floor: 4.5 seconds.
+        delayLen = (int) std::ceil (sr * 4.6) + 8;
         for (auto& d : delayBuf) d.assign ((size_t) delayLen, 0.0f);
         reset();
     }
@@ -83,12 +85,26 @@ public:
 
     void setTransport (const sattari::host::TransportSnapshot& t) noexcept override { transport = t; }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         if (state == nullptr) return;
         const int numCh = juce::jmin (2, buffer.getNumChannels());
         const int n     = buffer.getNumSamples();
         if (numCh <= 0 || n <= 0) return;
+
+        const int capacity = dryScratch.getNumSamples();
+        if (n > capacity)
+        {
+            if (capacity <= 0) return;
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                buffer.getNumChannels(), start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
 
         const double bpm = resolveBpm();
         lastBpm.store (bpm, std::memory_order_relaxed);
@@ -131,7 +147,7 @@ public:
         // --- Reverb (Freeverb) -----------------------------------------------
         // Pure wet out of juce::Reverb, our own crossfade against the saved dry.
         const float revmix = p ("revmix");
-        const int scratchN = juce::jmin (n, dryScratch.getNumSamples());
+        const int scratchN = n;
         for (int ch = 0; ch < numCh; ++ch)
             dryScratch.copyFrom (ch, 0, buffer, ch, 0, scratchN);
 

@@ -110,13 +110,26 @@ public:
         if (t.hasHostBpm && t.bpm > 20.0) hostBpm = t.bpm;
     }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         if (state == nullptr) return;
         const int numCh = buffer.getNumChannels();
         const int n     = buffer.getNumSamples();
         if (numCh <= 0 || n <= 0) return;
-        if (dryScratch.getNumSamples() < n || dryScratch.getNumChannels() < numCh) return;
+        const int capacity = dryScratch.getNumSamples();
+        if (n > capacity)
+        {
+            if (capacity <= 0 || dryScratch.getNumChannels() < numCh) return;
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                numCh, start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
+        if (dryScratch.getNumChannels() < numCh) return;
 
         const float inGain  = juce::Decibels::decibelsToGain (p ("input"));
         const float outGain = juce::Decibels::decibelsToGain (p ("output"));

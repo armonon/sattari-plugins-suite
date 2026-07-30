@@ -43,7 +43,10 @@ SattariGateAudioProcessor::SattariGateAudioProcessor()
     registerFactoryPresets();
 }
 
-SattariGateAudioProcessor::~SattariGateAudioProcessor() = default;   // module stops its own tempo reader
+SattariGateAudioProcessor::~SattariGateAudioProcessor()
+{
+    cancelPendingUpdate();
+}
 
 // Factory presets: real parameter values (dB, ms, choice index). Only listed params are
 // set; anything omitted keeps its default, so presets stay valid as params evolve.
@@ -73,7 +76,9 @@ void SattariGateAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
 {
     module.link (apvts, "");
     module.prepare (sr, juce::jmax (1, samplesPerBlock), getTotalNumInputChannels());
-    setLatencySamples (module.latencySamples());
+    reportedLatency = module.latencySamples();
+    pendingLatency.store (reportedLatency, std::memory_order_relaxed);
+    setLatencySamples (reportedLatency);
 }
 
 void SattariGateAudioProcessor::releaseResources() {}
@@ -98,6 +103,16 @@ void SattariGateAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     // Lookahead is a parameter, so the reported latency can change while running.
     // Republish only on change — setLatencySamples() is not realtime-cheap.
     const int lat = module.latencySamples();
+    if (lat != pendingLatency.load (std::memory_order_relaxed))
+    {
+        pendingLatency.store (lat, std::memory_order_relaxed);
+        triggerAsyncUpdate();
+    }
+}
+
+void SattariGateAudioProcessor::handleAsyncUpdate()
+{
+    const int lat = pendingLatency.load (std::memory_order_relaxed);
     if (lat != reportedLatency)
     {
         reportedLatency = lat;

@@ -37,11 +37,12 @@
 //  bounded. Latency is reported honestly (max engine latency; the dry lead is
 //  delayed to match).
 // =============================================================================
-class SattariGlassChoirAudioProcessor final : public juce::AudioProcessor
+class SattariGlassChoirAudioProcessor final : public juce::AudioProcessor,
+                                              private juce::AsyncUpdater
 {
 public:
     SattariGlassChoirAudioProcessor();
-    ~SattariGlassChoirAudioProcessor() override = default;
+    ~SattariGlassChoirAudioProcessor() override;
 
     // Engine sizing.
     static constexpr int kMaxDoubles  = 8;   // ensemble voice cap (2/4/8)
@@ -106,6 +107,7 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void registerFactoryPresets();
+    void handleAsyncUpdate() override;
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "glass-choir" };   // after apvts
@@ -118,7 +120,8 @@ private:
     // The Choir / Atmosphere stems. The module writes them only because THIS
     // shell hands them over; a rack slot does not, and gets the folded mix.
     juce::AudioBuffer<float> choirOut, atmosOut;
-    int reportedLatencyPublished = -1;   // last value published to the host
+    std::atomic<int> pendingLatency { 0 };
+    int reportedLatencyPublished = 0;   // message-thread copy last published to the host
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariGlassChoirAudioProcessor)
 };

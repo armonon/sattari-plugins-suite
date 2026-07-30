@@ -16,6 +16,11 @@ SattariGlassChoirAudioProcessor::SattariGlassChoirAudioProcessor()
     registerFactoryPresets();   // per-voice RNG seeding lives in the module
 }
 
+SattariGlassChoirAudioProcessor::~SattariGlassChoirAudioProcessor()
+{
+    cancelPendingUpdate();
+}
+
 // Factory presets: real parameter values (0..1 macros, choice index, dB, cents/ms). Only
 // listed params are set; anything omitted keeps its default, so presets stay valid as params evolve.
 void SattariGlassChoirAudioProcessor::registerFactoryPresets()
@@ -52,7 +57,9 @@ void SattariGlassChoirAudioProcessor::prepareToPlay (double sr, int samplesPerBl
     atmosOut.setSize (2, block);
     module.setAuxOutputs (&choirOut, &atmosOut);
 
-    setLatencySamples (module.latencySamples());
+    reportedLatencyPublished = module.latencySamples();
+    pendingLatency.store (reportedLatencyPublished, std::memory_order_relaxed);
+    setLatencySamples (reportedLatencyPublished);
 }
 
 void SattariGlassChoirAudioProcessor::releaseResources() {}
@@ -93,26 +100,54 @@ void SattariGlassChoirAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
 
     const bool choirOn = getBusCount (false) > 1 && getBus (false, 1) != nullptr && getBus (false, 1)->isEnabled();
     const bool atmosOn = getBusCount (false) > 2 && getBus (false, 2) != nullptr && getBus (false, 2)->isEnabled();
-    module.setAuxOutputs (choirOn ? &choirOut : nullptr,
-                          atmosOn ? &atmosOut : nullptr);
+    const int capacity = choirOut.getNumSamples();
+    if (capacity <= 0) return;
 
-    module.process (leadBus, midi);
-
+    juce::AudioBuffer<float> choirBus, atmosBus;
     if (choirOn)
     {
-        auto cb = getBusBuffer (buffer, false, 1);
-        for (int ch = 0; ch < juce::jmin (cb.getNumChannels(), choirOut.getNumChannels()); ++ch)
-            cb.copyFrom (ch, 0, choirOut, ch, 0, juce::jmin (n, choirOut.getNumSamples()));
+        auto bus = getBusBuffer (buffer, false, 1);
+        choirBus.setDataToReferTo (bus.getArrayOfWritePointers(),
+                                   bus.getNumChannels(), bus.getNumSamples());
     }
     if (atmosOn)
     {
-        auto ab = getBusBuffer (buffer, false, 2);
-        for (int ch = 0; ch < juce::jmin (ab.getNumChannels(), atmosOut.getNumChannels()); ++ch)
-            ab.copyFrom (ch, 0, atmosOut, ch, 0, juce::jmin (n, atmosOut.getNumSamples()));
+        auto bus = getBusBuffer (buffer, false, 2);
+        atmosBus.setDataToReferTo (bus.getArrayOfWritePointers(),
+                                   bus.getNumChannels(), bus.getNumSamples());
+    }
+
+    for (int start = 0; start < n; start += capacity)
+    {
+        const int count = juce::jmin (capacity, n - start);
+        juce::AudioBuffer<float> leadChunk (leadBus.getArrayOfWritePointers(),
+                                            leadBus.getNumChannels(), start, count);
+
+        module.setAuxOutputs (choirOn ? &choirOut : nullptr,
+                              atmosOn ? &atmosOut : nullptr);
+        module.process (leadChunk, midi);
+
+        if (choirOn)
+            for (int ch = 0; ch < juce::jmin (choirBus.getNumChannels(), choirOut.getNumChannels()); ++ch)
+                choirBus.copyFrom (ch, start, choirOut, ch, 0, count);
+
+        if (atmosOn)
+            for (int ch = 0; ch < juce::jmin (atmosBus.getNumChannels(), atmosOut.getNumChannels()); ++ch)
+                atmosBus.copyFrom (ch, start, atmosOut, ch, 0, count);
     }
 
     // Lookahead-free, but the engine latency can change with engine quality.
     const int lat = module.latencySamples();
+    if (lat != pendingLatency.load (std::memory_order_relaxed))
+    {
+        pendingLatency.store (lat, std::memory_order_relaxed);
+        triggerAsyncUpdate();
+    }
+}
+
+void SattariGlassChoirAudioProcessor::handleAsyncUpdate()
+{
+    const int lat = pendingLatency.load (std::memory_order_relaxed);
     if (lat != reportedLatencyPublished)
     {
         reportedLatencyPublished = lat;

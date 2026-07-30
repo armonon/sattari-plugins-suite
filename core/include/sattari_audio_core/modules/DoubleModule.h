@@ -98,15 +98,25 @@ public:
         }
     }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         if (state == nullptr) return;
         const int numCh = buffer.getNumChannels();
         const int n     = buffer.getNumSamples();
         if (numCh <= 0 || n <= 0) return;
-        // prepare() sized the scratch; a larger block than promised is a host bug,
-        // and allocating here would break the realtime contract.
-        if ((int) monoScratch.size() < n) return;
+        const int capacity = (int) monoScratch.size();
+        if (n > capacity)
+        {
+            if (capacity <= 0) return;
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                numCh, start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
 
         // Mono sum for pitch detection (drives PSOLA's grain spacing).
         for (int i = 0; i < n; ++i)

@@ -300,11 +300,30 @@ public:
         auxAtmos = atmos;
     }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         juce::ScopedNoDenormals noDenormals;
         const int n = buffer.getNumSamples();
         if (n <= 0) return;
+
+        const int capacity = (int) monoLead.size();
+        if (n > capacity)
+        {
+            // The standalone shell chunks before supplying its fixed-size AUX
+            // scratch. Rack use has no AUX buses and can be chunked right here.
+            jassert (auxChoir == nullptr && auxAtmos == nullptr);
+            if (auxChoir != nullptr || auxAtmos != nullptr || capacity <= 0)
+                return;
+
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                buffer.getNumChannels(), start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
 
         // In module form the LEAD bus is the buffer itself, processed in place: the
         // input is fully read into monoLead before anything is written back, so the

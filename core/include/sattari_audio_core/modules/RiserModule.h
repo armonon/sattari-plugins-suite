@@ -32,10 +32,15 @@
 namespace sattari::dsp
 {
 
-class RiserModule final : public SattariModule
+class RiserModule final : public SattariModule,
+                          private juce::AsyncUpdater
 {
 public:
-    ~RiserModule() override { tempoReader.stop(); }
+    ~RiserModule() override
+    {
+        cancelPendingUpdate();
+        tempoReader.stop();
+    }
 
     static juce::StringArray modeChoices()   { return { "Riser", "Downlifter", "Impact" }; }
     static juce::StringArray lengthChoices() { return { "1/2 bar", "1 bar", "2 bars", "4 bars", "8 bars" }; }
@@ -277,8 +282,8 @@ public:
                     }
                     finishBuild();
                     // Auto-clear the arm latch so a held toggle doesn't retrigger.
-                    if (auto* ap = state->getParameter (pfx + "arm"))
-                        if (arm) ap->setValueNotifyingHost (0.0f);
+                    if (arm && ! armClearPending.exchange (true, std::memory_order_acq_rel))
+                        triggerAsyncUpdate();
                 }
             }
 
@@ -324,6 +329,20 @@ public:
     bool   isBuilding()    const noexcept { return buildingUi.load (std::memory_order_relaxed); }
 
 private:
+    void handleAsyncUpdate() override
+    {
+        if (! armClearPending.exchange (false, std::memory_order_acq_rel)
+            || state == nullptr)
+            return;
+
+        if (auto* arm = state->getParameter (pfx + "arm"))
+        {
+            arm->beginChangeGesture();
+            arm->setValueNotifyingHost (0.0f);
+            arm->endChangeGesture();
+        }
+    }
+
     // Bar count for each length choice.
     static double barsFor (int len) noexcept
     {
@@ -414,6 +433,7 @@ private:
 
     std::atomic<float> progressUi { 0.0f };
     std::atomic<bool>  buildingUi { false };
+    std::atomic<bool>  armClearPending { false };
 };
 
 } // namespace sattari::dsp

@@ -119,12 +119,26 @@ public:
         toneState = { { 0.0f, 0.0f } };
     }
 
-    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         if (state == nullptr) return;
         const int numCh = juce::jmin (2, buffer.getNumChannels());
-        const int n     = juce::jmin (buffer.getNumSamples(), fbCarry.getNumSamples());
+        const int n     = buffer.getNumSamples();
         if (numCh <= 0 || n <= 0) return;
+
+        const int capacity = fbCarry.getNumSamples();
+        if (n > capacity)
+        {
+            if (capacity <= 0) return;
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                buffer.getNumChannels(), start, count);
+                process (chunk, midi);
+            }
+            return;
+        }
 
         const float size    = p ("size");
         const float shimmer = p ("shimmer");

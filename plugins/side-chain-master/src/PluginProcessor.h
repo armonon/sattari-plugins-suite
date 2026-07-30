@@ -5,11 +5,12 @@
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 
-class SideChainMasterAudioProcessor final : public juce::AudioProcessor
+class SideChainMasterAudioProcessor final : public juce::AudioProcessor,
+                                            private juce::AsyncUpdater
 {
 public:
     SideChainMasterAudioProcessor();
-    ~SideChainMasterAudioProcessor() override = default;   // module stops its own tempo reader
+    ~SideChainMasterAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -43,6 +44,7 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void handleAsyncUpdate() override;
 
     juce::AudioProcessorValueTreeState apvts;
 public:
@@ -52,7 +54,8 @@ private:
     // Thin wrapper: the standalone plugin and the Mix rack slot run the SAME module.
     // Parameter IDs are unchanged (empty prefix), so sessions and presets survive.
     sattari::dsp::SideChainMasterModule module;
-    int reportedLatency = -1;   // last value published to the host (-1 forces a first publish)
+    std::atomic<int> pendingLatency { 0 };
+    int reportedLatency = 0;   // message-thread copy last published to the host
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SideChainMasterAudioProcessor)
 };

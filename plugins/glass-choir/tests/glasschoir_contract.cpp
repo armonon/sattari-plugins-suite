@@ -344,6 +344,45 @@ int main()
         else if (std::abs (firstNonZero - reported) > 2) { std::printf ("  FAIL reported latency != observed\n"); ++fails; }
     }
 
+    // ---- 7. host block may exceed prepareToPlay's advertised maximum --------
+    {
+        P p; auto& a = p.parameters();
+        setParam (a, "bypass", 0.0f);
+        setParam (a, "ensembleLevel", 0.0f);
+        setParam (a, "reverbMix", 0.7f);
+        p.enableAllBuses();
+        p.prepareToPlay (kSr, 64);
+
+        constexpr int oversized = 16385;
+        const int totalCh = juce::jmax (
+            2, juce::jmax (p.getTotalNumInputChannels(), p.getTotalNumOutputChannels()));
+        juce::AudioBuffer<float> buf (totalCh, oversized);
+        buf.clear();
+        fillInput (p, buf, 0.0, 220.0, 0.5f);
+
+        juce::MidiBuffer midi;
+        p.processBlock (buf, midi);
+
+        bool finite = true;
+        double choirTail = 0.0, atmosTail = 0.0;
+        auto choir = p.getBusBuffer (buf, false, 1);
+        auto atmos = p.getBusBuffer (buf, false, 2);
+        for (int i = 12288; i < oversized; ++i)
+        {
+            const float c = choir.getSample (0, i);
+            const float r = atmos.getSample (0, i);
+            finite = finite && std::isfinite (c) && std::isfinite (r);
+            choirTail += (double) c * c;
+            atmosTail += (double) r * r;
+        }
+
+        std::printf ("7 oversized block: choirTail=%.5e atmosTail=%.5e finite=%d\n",
+                     choirTail, atmosTail, (int) finite);
+        if (! finite)              { std::printf ("  FAIL oversized block non-finite\n"); ++fails; }
+        if (choirTail < 1.0e-8)    { std::printf ("  FAIL oversized choir tail was not copied\n"); ++fails; }
+        if (atmosTail < 1.0e-10)   { std::printf ("  FAIL oversized atmosphere tail was not copied\n"); ++fails; }
+    }
+
     std::printf (fails == 0 ? "Glass Choir contract ok\n" : "Glass Choir contract FAILED (%d)\n", fails);
     return fails == 0 ? 0 : 1;
 }

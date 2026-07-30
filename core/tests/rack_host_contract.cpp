@@ -3,10 +3,15 @@
 #include <sattari_audio_core/SattariRackEditor.h>
 #include <sattari_audio_core/SattariRackProcessor.h>
 #include <sattari_audio_core/SattariStackEditor.h>
+#include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/modules/DoubleModule.h>
 #include <sattari_audio_core/modules/EqModule.h>
+#include <sattari_audio_core/modules/HeatModule.h>
 #include <sattari_audio_core/modules/ShimmerModule.h>
+#include <sattari_audio_core/modules/SpaceModule.h>
+#include <sattari_audio_core/modules/WarpModule.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -70,6 +75,15 @@ public:
                 else if (renderModuleName == "Double")
                     modules.push_back (
                         std::make_unique<sattari::dsp::DoubleModule>());
+                else if (renderModuleName == "Heat")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::HeatModule>());
+                else if (renderModuleName == "Space")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::SpaceModule>());
+                else if (renderModuleName == "Warp")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::WarpModule>());
                 else
                     modules.push_back (
                         std::make_unique<CountingModule> (renderModuleName));
@@ -216,6 +230,48 @@ int main (int argc, char** argv)
     rack.processBlock (audio, midi);
     check (module != nullptr && module->calls == 1,
            "bypassed first occurrence prevented later active slot");
+
+    // JUCE documents prepareToPlay's block size as a hint: hosts may exceed it.
+    // Every module that owns block-sized scratch must process the complete block
+    // in bounded chunks, without bypassing or truncating the tail.
+    for (const auto* moduleName : { "Double", "Heat", "Shimmer", "Space", "Warp" })
+    {
+        TestRack oversized (moduleName);
+        oversized.select (0, false);
+        oversized.prepareToPlay (48000.0, 64);
+
+        constexpr int oversizedSamples = 4097;
+        juce::AudioBuffer<float> block (2, oversizedSamples);
+        juce::AudioBuffer<float> input (2, oversizedSamples);
+        for (int i = 0; i < oversizedSamples; ++i)
+        {
+            const float sample = 0.3f * std::sin (
+                juce::MathConstants<float>::twoPi * 220.0f * (float) i / 48000.0f);
+            block.setSample (0, i, sample);
+            block.setSample (1, i, sample);
+            input.setSample (0, i, sample);
+            input.setSample (1, i, sample);
+        }
+
+        oversized.processBlock (block, midi);
+
+        bool finite = true;
+        float tailDifference = 0.0f;
+        for (int ch = 0; ch < block.getNumChannels(); ++ch)
+            for (int i = 3072; i < oversizedSamples; ++i)
+            {
+                const float sample = block.getSample (ch, i);
+                finite = finite && std::isfinite (sample);
+                tailDifference = juce::jmax (
+                    tailDifference,
+                    std::abs (sample - input.getSample (ch, i)));
+            }
+
+        const auto finiteMessage = std::string (moduleName) + " oversized block produced non-finite audio";
+        const auto tailMessage = std::string (moduleName) + " oversized block tail was bypassed";
+        check (finite, finiteMessage.c_str());
+        check (tailDifference > 1.0e-6f, tailMessage.c_str());
+    }
 
     if (failures != 0)
         return 1;
