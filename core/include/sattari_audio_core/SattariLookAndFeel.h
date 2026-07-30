@@ -87,7 +87,9 @@ public:
                            juce::Slider& slider) override
     {
         sattari::control::drawRotarySlider (
-            g, x, y, width, height, sliderPos, startAngle, endAngle, slider.isEnabled());
+            g, x, y, width, height, sliderPos, startAngle, endAngle,
+            slider.isEnabled(), slider.isMouseOverOrDragging(),
+            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -102,7 +104,9 @@ public:
             || style == juce::Slider::LinearBarVertical)
         {
             sattari::control::drawLinearSlider (
-                g, x, y, width, height, sliderPos, style, slider.isEnabled());
+                g, x, y, width, height, sliderPos, style,
+                slider.isEnabled(), slider.isMouseOverOrDragging(),
+                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
             return;
         }
 
@@ -138,8 +142,54 @@ public:
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& b,
                            bool shouldDrawHighlighted, bool shouldDrawDown) override
     {
-        juce::ignoreUnused (shouldDrawDown);
-        sattari::control::drawToggleButton (g, b, shouldDrawHighlighted);
+        sattari::control::drawToggleButton (
+            g, b, shouldDrawHighlighted, shouldDrawDown);
+    }
+
+    int getDefaultScrollbarWidth() override { return 8; }
+
+    void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y,
+                        int width, int height, bool vertical, int thumbStart,
+                        int thumbSize, bool hover, bool down) override
+    {
+        sattari::control::drawScrollbar (
+            g, x, y, width, height, vertical, thumbStart, thumbSize, hover, down);
+    }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height,
+                                   juce::TextEditor&) override
+    {
+        sattari::control::fillTextEditorBackground (g, width, height);
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height,
+                                juce::TextEditor& editor) override
+    {
+        sattari::control::drawTextEditorOutline (
+            g, width, height, editor.isEnabled(),
+            editor.hasKeyboardFocus (true), editor.isReadOnly());
+    }
+
+    void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+    {
+        sattari::control::drawPopupMenuBackground (g, width, height);
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
+                            bool separator, bool active, bool highlighted,
+                            bool ticked, bool hasSubMenu, const juce::String& text,
+                            const juce::String& shortcut, const juce::Drawable* icon,
+                            const juce::Colour* textColour) override
+    {
+        sattari::control::drawPopupMenuItem (
+            g, area, separator, active, highlighted, ticked, hasSubMenu,
+            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f));
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text,
+                      int width, int height) override
+    {
+        sattari::control::drawTooltip (g, text, width, height);
     }
 
     juce::Font getLabelFont (juce::Label& label) override

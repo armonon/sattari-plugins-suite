@@ -68,6 +68,14 @@ inline void paintCanvas (juce::Graphics& g, juce::Rectangle<int> bounds,
         true);
     g.setGradientFill (halo);
     g.fillRect (r);
+
+    // Quiet centre illumination keeps large editors dimensional while leaving
+    // the perimeter visually calm around the host window.
+    juce::ColourGradient illumination (
+        juce::Colours::white.withAlpha (0.018f), r.getCentreX(), r.getY() + r.getHeight() * 0.36f,
+        juce::Colours::transparentWhite, r.getCentreX(), r.getBottom(), true);
+    g.setGradientFill (illumination);
+    g.fillRect (r);
 }
 
 inline void paintSurface (juce::Graphics& g, juce::Rectangle<float> bounds,
@@ -75,14 +83,22 @@ inline void paintSurface (juce::Graphics& g, juce::Rectangle<float> bounds,
 {
     if (elevated)
     {
-        g.setColour (juce::Colours::black.withAlpha (0.28f));
-        g.fillRoundedRectangle (bounds.translated (0.0f, 4.0f), radius);
+        g.setColour (juce::Colours::black.withAlpha (0.10f));
+        g.fillRoundedRectangle (bounds.expanded (4.0f).translated (0.0f, 6.0f), radius + 4.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.22f));
+        g.fillRoundedRectangle (bounds.expanded (1.0f).translated (0.0f, 3.0f), radius + 1.0f);
     }
 
-    g.setColour (elevated ? colour::surfaceHigh : colour::surface);
+    g.setGradientFill (juce::ColourGradient (
+        elevated ? colour::surfaceHigh.brighter (0.025f) : colour::surface.brighter (0.018f),
+        bounds.getX(), bounds.getY(),
+        elevated ? colour::surfaceHigh.darker (0.035f) : colour::surface.darker (0.025f),
+        bounds.getX(), bounds.getBottom(), false));
     g.fillRoundedRectangle (bounds, radius);
     g.setColour (colour::separator.withAlpha (0.88f));
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+    g.setColour (juce::Colours::white.withAlpha (elevated ? 0.055f : 0.032f));
+    g.drawRoundedRectangle (bounds.reduced (1.5f), juce::jmax (1.0f, radius - 1.0f), 1.0f);
 }
 
 inline void paintSectionTitle (juce::Graphics& g, juce::Rectangle<int> bounds,
@@ -144,7 +160,9 @@ public:
                            juce::Slider& slider) override
     {
         sattari::control::drawRotarySlider (
-            g, x, y, width, height, sliderPos, startAngle, endAngle, slider.isEnabled());
+            g, x, y, width, height, sliderPos, startAngle, endAngle,
+            slider.isEnabled(), slider.isMouseOverOrDragging(),
+            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -159,7 +177,9 @@ public:
             || style == juce::Slider::LinearBarVertical)
         {
             sattari::control::drawLinearSlider (
-                g, x, y, width, height, sliderPos, style, slider.isEnabled());
+                g, x, y, width, height, sliderPos, style,
+                slider.isEnabled(), slider.isMouseOverOrDragging(),
+                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
             return;
         }
         juce::LookAndFeel_V4::drawLinearSlider (
@@ -196,9 +216,55 @@ public:
     }
 
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
-                           bool hover, bool) override
+                           bool hover, bool down) override
     {
-        sattari::control::drawToggleButton (g, button, hover);
+        sattari::control::drawToggleButton (g, button, hover, down);
+    }
+
+    int getDefaultScrollbarWidth() override { return 8; }
+
+    void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y,
+                        int width, int height, bool vertical, int thumbStart,
+                        int thumbSize, bool hover, bool down) override
+    {
+        sattari::control::drawScrollbar (
+            g, x, y, width, height, vertical, thumbStart, thumbSize, hover, down);
+    }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height,
+                                   juce::TextEditor&) override
+    {
+        sattari::control::fillTextEditorBackground (g, width, height);
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height,
+                                juce::TextEditor& editor) override
+    {
+        sattari::control::drawTextEditorOutline (
+            g, width, height, editor.isEnabled(),
+            editor.hasKeyboardFocus (true), editor.isReadOnly());
+    }
+
+    void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+    {
+        sattari::control::drawPopupMenuBackground (g, width, height);
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
+                            bool separator, bool active, bool highlighted,
+                            bool ticked, bool hasSubMenu, const juce::String& text,
+                            const juce::String& shortcut, const juce::Drawable* icon,
+                            const juce::Colour* textColour) override
+    {
+        sattari::control::drawPopupMenuItem (
+            g, area, separator, active, highlighted, ticked, hasSubMenu,
+            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f));
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text,
+                      int width, int height) override
+    {
+        sattari::control::drawTooltip (g, text, width, height);
     }
 
     juce::Font getLabelFont (juce::Label& label) override
