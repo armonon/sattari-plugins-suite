@@ -7,9 +7,7 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
 {
     setLookAndFeel (&lookAndFeel);
 
-    title.setText ("VoxSynth", juce::dontSendNotification);
-    title.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
-    title.setColour (juce::Label::textColourId, juce::Colour (br::kTextPrimary));
+    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari VoxSynth");
     addAndMakeVisible (title);
     subtitle.setText (juce::String::fromUTF8 ("voice \xe2\x86\x92 instrument"), juce::dontSendNotification);
     subtitle.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
@@ -57,7 +55,7 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
     knob (vocoder, vocoderC, "Vocoder", "vocoder", vocoderA);
     knob (level, levelC, "Level", "level", levelA);
 
-    setSize (620, 300);
+    setSize (620, 316);
     startTimerHz (30);
 }
 
@@ -107,14 +105,15 @@ void SattariVoxSynthAudioProcessorEditor::paint (juce::Graphics& g)
 void SattariVoxSynthAudioProcessorEditor::resized()
 {
     auto r = getLocalBounds().reduced (16);
-    auto top = r.removeFromTop (30);
-    title.setBounds (top.removeFromLeft (110));
-    subtitle.setBounds (top.removeFromLeft (110).withTrimmedTop (7));
-    modeBox.setBounds (top.removeFromRight (76));
-    top.removeFromRight (6);
-    sessionHud.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 22));
-    top.removeFromLeft (8);
-    presetBox.setBounds (top.removeFromLeft (juce::jmin (140, juce::jmax (0, top.getWidth()))).withSizeKeepingCentre (juce::jmin (140, juce::jmax (0, top.getWidth())), 24));
+    auto brandRow = r.removeFromTop (34);
+    title.setBounds (brandRow.removeFromLeft (210));
+    subtitle.setBounds (brandRow.removeFromLeft (140).withTrimmedTop (9));
+    sessionHud.setBounds (brandRow.removeFromRight (150).withSizeKeepingCentre (150, 22));
+
+    auto commandRow = r.removeFromTop (28);
+    presetBox.setBounds (commandRow.removeFromLeft (160).withSizeKeepingCentre (160, 24));
+    commandRow.removeFromLeft (8);
+    modeBox.setBounds (commandRow.removeFromLeft (90).withSizeKeepingCentre (90, 24));
 
     readout.setBounds (r.removeFromTop (30));
     r.removeFromTop (8);

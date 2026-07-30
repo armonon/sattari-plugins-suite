@@ -70,6 +70,32 @@ function(sattari_add_plugin)
     if(NOT TARGET SattariAudioCore)
         add_subdirectory("${SATTARI_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/core")
     endif()
+    if(NOT TARGET SattariBrandAssets)
+        juce_add_binary_data(SattariBrandAssets
+            HEADER_NAME SattariBrandAssets.h
+            NAMESPACE SattariBrandAssetsData
+            SOURCES
+                "${SATTARI_REPO_ROOT}/assets/branding/sattari-logo-white.png")
+        target_sources(SattariBrandAssets
+            PRIVATE
+                "${SATTARI_REPO_ROOT}/core/src/SattariLogo.cpp")
+        target_include_directories(SattariBrandAssets
+            PRIVATE
+                "${SATTARI_REPO_ROOT}/core/include"
+                "${SATTARI_REPO_ROOT}/third_party/JUCE/modules"
+                "${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_SattariBrandAssets/JuceLibraryCode")
+        target_compile_definitions(SattariBrandAssets
+            PRIVATE
+                JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+                JUCE_MODULE_AVAILABLE_juce_core=1
+                JUCE_MODULE_AVAILABLE_juce_events=1
+                JUCE_MODULE_AVAILABLE_juce_graphics=1
+                $<$<CONFIG:Debug>:DEBUG=1>
+                $<$<CONFIG:Debug>:_DEBUG=1>
+                $<$<NOT:$<CONFIG:Debug>>:NDEBUG=1>)
+        target_compile_features(SattariBrandAssets PUBLIC cxx_std_17)
+        target_link_libraries(SattariAudioCore INTERFACE SattariBrandAssets)
+    endif()
 
     # Option flags -> TRUE/FALSE for juce_add_plugin.
     foreach(flag IN ITEMS IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)

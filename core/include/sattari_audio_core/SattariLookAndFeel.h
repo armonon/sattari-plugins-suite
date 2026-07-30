@@ -16,6 +16,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SattariBranding.h"
+#include "SattariLogo.h"
 
 namespace sattari::ui
 {
@@ -205,6 +206,31 @@ public:
         return label.getFont();
     }
 
+    void drawLabel (juce::Graphics& g, juce::Label& label) override
+    {
+        if (! (bool) label.getProperties().getWithDefault (brandTitleProperty, false)
+            || label.isBeingEdited())
+        {
+            juce::LookAndFeel_V4::drawLabel (g, label);
+            return;
+        }
+
+        auto area = label.getLocalBounds().reduced (1, 1);
+        const int logoHeight = juce::jmin (26, juce::jmax (12, area.getHeight() - 2));
+        const int logoWidth = juce::roundToInt ((float) logoHeight * 3.693f);
+        auto logoArea = area.removeFromLeft (juce::jmin (logoWidth, area.getWidth()));
+        sattari::branding::drawLogo (g, logoArea.toFloat());
+
+        if (area.getWidth() <= 4)
+            return;
+
+        area.removeFromLeft (juce::jmin (9, area.getWidth()));
+        g.setColour (label.findColour (juce::Label::textColourId));
+        g.setFont (label.getFont());
+        g.drawFittedText (label.getText(), area,
+                          juce::Justification::centredLeft, 1, 0.78f);
+    }
+
     // --- Convenience builders so editors stay short --------------------------
     static void styleRotary (juce::Slider& s, const juce::String& suffix = {})
     {
@@ -215,7 +241,10 @@ public:
 
     static void styleTitle (juce::Label& l, const juce::String& text)
     {
-        l.setText (text, juce::dontSendNotification);
+        l.setTitle (text);
+        l.setDescription (text + " audio plugin");
+        l.getProperties().set (brandTitleProperty, true);
+        l.setText (sattari::branding::compactProductName (text), juce::dontSendNotification);
         l.setFont (juce::FontOptions (sattari::brand::kTitleSize));   // regular weight = modern
         l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextPrimary));
     }
@@ -228,6 +257,7 @@ public:
     }
 
 private:
+    inline static const juce::Identifier brandTitleProperty { "sattariBrandTitle" };
     juce::Colour accent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariLookAndFeel)

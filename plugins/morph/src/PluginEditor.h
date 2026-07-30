@@ -26,7 +26,7 @@ private:
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("morph") };
     sattari::ui::SessionHud sessionHud;
 
-    juce::Label title, subtitle, robotCap;
+    juce::Label title, robotCap;
     juce::ComboBox presetBox, modeBox, robotNoteBox;
     std::unique_ptr<CA> modeAtt, robotAtt;
 

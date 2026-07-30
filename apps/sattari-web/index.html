@@ -59,9 +59,9 @@ img{display:block;max-width:100%}
   border-bottom:1px solid var(--line-2)}
 .nav-in{max-width:1120px;margin:0 auto;padding:0 24px;height:48px;
   display:flex;align-items:center;justify-content:space-between}
-.brand{font-size:19px;font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+.brand{display:flex;align-items:center;color:var(--ink)}
 .brand:hover{text-decoration:none}
-.brand span{color:var(--mint)}
+.brand img{width:118px;height:auto;filter:invert(1)}
 .nav-links{display:flex;gap:28px;align-items:center}
 .nav-links a{font-size:12px;color:var(--ink);opacity:.85}
 .nav-links a:hover{opacity:1;text-decoration:none}
@@ -320,7 +320,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
 <nav class="nav">
   <div class="nav-in">
-    <a class="brand" href="#top">Sattari<span>.</span></a>
+    <a class="brand" href="#top" aria-label="Sattari Audio home">
+      <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
+    </a>
     <div class="nav-links">
       <a href="#racks">Racks</a>
       <a href="#studio">Product UI</a>

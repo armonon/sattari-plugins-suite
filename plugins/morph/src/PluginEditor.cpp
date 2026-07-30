@@ -7,13 +7,8 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
 {
     setLookAndFeel (&lookAndFeel);
 
-    title.setText ("Morph", juce::dontSendNotification);
-    title.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
-    title.setColour (juce::Label::textColourId, juce::Colour (br::kTextPrimary));
+    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Morph");
     addAndMakeVisible (title);
-    subtitle.setText (juce::String::fromUTF8 ("pitch \xc2\xb7 formant \xc2\xb7 character"), juce::dontSendNotification);
-    subtitle.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
-    addAndMakeVisible (subtitle);
     addAndMakeVisible (sessionHud);
 
     // Factory presets — drive the processor's program interface (single source of
@@ -103,9 +98,8 @@ void SattariMorphAudioProcessorEditor::paint (juce::Graphics& g)
 void SattariMorphAudioProcessorEditor::resized()
 {
     auto r = getLocalBounds().reduced (16);
-    auto top = r.removeFromTop (30);
-    title.setBounds (top.removeFromLeft (90));
-    subtitle.setBounds (top.removeFromLeft (150).withTrimmedTop (7));
+    auto top = r.removeFromTop (34);
+    title.setBounds (top.removeFromLeft (250));
     sessionHud.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 22));
     r.removeFromTop (10);
 

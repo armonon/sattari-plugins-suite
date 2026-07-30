@@ -17,6 +17,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <sattari_audio_core/SattariBranding.h>
+#include <sattari_audio_core/SattariLogo.h>
 
 #include <cmath>
 
@@ -311,14 +312,9 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds();
-        auto mark = area.removeFromLeft (32).withSizeKeepingCentre (24, 24).toFloat();
-        g.setColour (accent_);
-        g.fillRoundedRectangle (mark, 7.0f);
-        g.setColour (colour::canvas);
-        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-        g.drawText ("S", mark.toNearestInt(), juce::Justification::centred, false);
-
-        area.removeFromLeft (8);
+        auto logoArea = area.removeFromLeft (136).withSizeKeepingCentre (126, 42);
+        sattari::branding::drawLogo (g, logoArea.toFloat());
+        area.removeFromLeft (12);
         const int statusWidth = status_.isNotEmpty()
             ? juce::jlimit (96, 184, 30 + status_.length() * 7)
             : 0;
@@ -330,7 +326,8 @@ public:
             juce::jmin (textWidth, area.getWidth()));
         g.setColour (colour::text);
         g.setFont (juce::FontOptions (23.0f, juce::Font::bold));
-        g.drawText (product_, textArea.removeFromTop (34),
+        g.drawText (sattari::branding::compactProductName (product_),
+                    textArea.removeFromTop (34),
                     juce::Justification::bottomLeft, false);
         g.setColour (colour::secondary);
         g.setFont (juce::FontOptions (11.0f));
