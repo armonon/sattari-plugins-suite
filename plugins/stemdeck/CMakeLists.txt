@@ -5,22 +5,42 @@ cmake_minimum_required(VERSION 3.22)
 # depend on /opt/homebrew (or inherit that dylib's deployment floor).
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
 
-# StemDeck links ONNX Runtime for on-device neural separation. Homebrew ships it
-# arm64-only, so the suite-default universal build (SATTARI_UNIVERSAL=ON) fails
-# to link with "Undefined symbols for architecture x86_64". If a universal build
-# is implied but the available ONNX Runtime is NOT universal, fall back to
-# host-arch-only for THIS plugin — the rest of the suite still ships universal,
-# and an explicit -DCMAKE_OSX_ARCHITECTURES=... always wins.
+# ── Vendored ONNX Runtime ─────────────────────────────────────────────────────
+# Prefer the vendored universal2 release over whatever Homebrew has. Homebrew's
+# build is arm64-only AND carries a macOS 26.0 deployment floor, so it can neither
+# produce a universal binary nor be shipped — which is why SATTARI_USE_ONNX was
+# OFF and the entire neural stack was compiled out of the product.
+#
+# scripts/fetch_onnxruntime.sh downloads the official universal2 build into
+# third_party/ (gitignored — a 68 MB dylib does not belong in git).
+if(NOT ONNXRUNTIME_ROOT AND NOT DEFINED ENV{ONNXRUNTIME_ROOT})
+    file(GLOB _sd_vendored_ort
+         "${CMAKE_CURRENT_LIST_DIR}/../../third_party/onnxruntime-osx-universal2-*")
+    if(_sd_vendored_ort)
+        list(SORT _sd_vendored_ort)
+        list(GET _sd_vendored_ort -1 ONNXRUNTIME_ROOT)   # highest version present
+        message(STATUS "StemDeck: using vendored ONNX Runtime at ${ONNXRUNTIME_ROOT}")
+    endif()
+endif()
+
+# StemDeck links ONNX Runtime for on-device neural separation. If the available
+# runtime is NOT universal, fall back to host-arch-only for THIS plugin — the
+# rest of the suite still ships universal, and an explicit
+# -DCMAKE_OSX_ARCHITECTURES=... always wins.
 # Must run before SattariDeploymentTarget.cmake (which sets the universal pair)
 # and before project() so the compiler checks use the right arch.
 if(APPLE AND SATTARI_USE_ONNX AND NOT CMAKE_OSX_ARCHITECTURES)
     execute_process(COMMAND uname -m
                     OUTPUT_VARIABLE _sd_host_arch OUTPUT_STRIP_TRAILING_WHITESPACE)
-    foreach(_sd_ort "/opt/homebrew/lib/libonnxruntime.dylib" "/usr/local/lib/libonnxruntime.dylib")
+    foreach(_sd_ort "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.dylib"
+                    "$ENV{ONNXRUNTIME_ROOT}/lib/libonnxruntime.dylib"
+                    "/opt/homebrew/lib/libonnxruntime.dylib"
+                    "/usr/local/lib/libonnxruntime.dylib")
         if(EXISTS "${_sd_ort}" AND NOT _sd_ort_archs)
             execute_process(COMMAND lipo -archs "${_sd_ort}"
                             OUTPUT_VARIABLE _sd_ort_archs OUTPUT_STRIP_TRAILING_WHITESPACE
                             ERROR_QUIET)
+            set(_sd_ort_lib "${_sd_ort}")
         endif()
     endforeach()
     if(_sd_ort_archs AND NOT (_sd_ort_archs MATCHES "x86_64" AND _sd_ort_archs MATCHES "arm64"))
@@ -28,6 +48,31 @@ if(APPLE AND SATTARI_USE_ONNX AND NOT CMAKE_OSX_ARCHITECTURES)
             "macOS build architectures" FORCE)
         message(STATUS "StemDeck: ONNX Runtime is '${_sd_ort_archs}'-only -> building "
                        "${_sd_host_arch} only (a universal build could not link).")
+    endif()
+
+    # ── Deployment floor follows the dependency ──────────────────────────────
+    # The suite floors at 10.13, but no shippable onnxruntime targets anything
+    # that old — arm64 macOS itself starts at 11.0. Rather than force the whole
+    # suite up, or keep neural features switched off, StemDeck adopts the
+    # runtime's own floor ONLY in an ONNX-enabled build. A StemDeck built without
+    # ONNX keeps the 10.13 floor.
+    #
+    # This IS a product decision: an ONNX-enabled StemDeck will not run below the
+    # reported floor. It is stated loudly at configure time rather than being
+    # discovered by a user whose plugin fails to load.
+    if(_sd_ort_lib AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        execute_process(COMMAND otool -l "${_sd_ort_lib}"
+                        OUTPUT_VARIABLE _sd_ort_otool ERROR_QUIET)
+        string(REGEX MATCH "minos[ \t]+([0-9]+(\\.[0-9]+)*)" _sd_m "${_sd_ort_otool}")
+        if(_sd_m)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "${CMAKE_MATCH_1}" CACHE STRING
+                "Minimum macOS version" FORCE)
+            message(STATUS
+                "StemDeck: SATTARI_USE_ONNX=ON -> deployment floor raised to "
+                "${CMAKE_MATCH_1} to match the ONNX Runtime. A neural-enabled build "
+                "will NOT load below macOS ${CMAKE_MATCH_1}. Build with "
+                "-DSATTARI_USE_ONNX=OFF to keep the 10.13 floor.")
+        endif()
     endif()
 endif()
 

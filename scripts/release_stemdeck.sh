@@ -28,9 +28,29 @@ done
 cd "$repo_root"
 mkdir -p "$output_dir"
 
+# Neural features are ON for a release build. They were OFF, which meant every
+# shipped binary had the beat model, the key model and on-device separation
+# compiled out — the confidence gating, the anti-alias pre-filter and the
+# shutdown cancellation were all dead code in the product.
+#
+# TRADE-OFF, stated because it is user-visible: an ONNX-enabled build adopts the
+# runtime's macOS floor (13.3 for onnxruntime 1.22.0) instead of the suite's
+# 10.13. No shippable onnxruntime targets anything older — arm64 macOS itself
+# starts at 11.0. Ship without neural features by setting SATTARI_USE_ONNX=OFF.
+use_onnx="${SATTARI_USE_ONNX:-ON}"
+if [[ "$use_onnx" == "ON" ]]; then
+  if [[ -z "$(echo "$repo_root"/third_party/onnxruntime-osx-universal2-*/lib/libonnxruntime.dylib 2>/dev/null | grep -v '\*')" ]]; then
+    echo "SATTARI_USE_ONNX=ON but no vendored ONNX Runtime found." >&2
+    echo "Run scripts/fetch_onnxruntime.sh first, or set SATTARI_USE_ONNX=OFF." >&2
+    exit 2
+  fi
+  echo "NOTE: neural features ON -> this release will NOT load below the ONNX"
+  echo "      Runtime's macOS floor. Set SATTARI_USE_ONNX=OFF to ship without them."
+fi
+
 cmake -S plugins/stemdeck -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
-  "-DSATTARI_USE_ONNX=${SATTARI_USE_ONNX:-OFF}"
+  "-DSATTARI_USE_ONNX=${use_onnx}"
 cmake --build "$build_dir" --target \
   SattariStemDeck_Standalone SattariStemDeck_VST3 StemDeckContractSuite \
   -j "${JOBS:-4}"

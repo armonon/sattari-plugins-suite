@@ -319,7 +319,19 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
         }
     }
     const double meanStrength = selectedStrength / (double) beatFrames.size();
-    const double regularity = 1.0 / (1.0 + intervalError / (double) juce::jmax<size_t> (1, beatFrames.size() - 1));
+    // Two bugs in the previous form:
+    //   juce::jmax<size_t> (1, beatFrames.size() - 1)
+    //
+    // 1. `size() - 1` is evaluated BEFORE jmax, so an empty vector underflowed to
+    //    SIZE_MAX and the guard it looked like it was providing did nothing.
+    // 2. Explicitly instantiating jmax<size_t> resolves against juce_dsp's
+    //    SIMDRegister overloads, and SIMDNativeOps<unsigned long> has no NEON
+    //    specialisation — a hard compile error. It never surfaced because this
+    //    whole file is #if'd out unless SATTARI_STEMDECK_HAS_ONNX is set, and
+    //    ONNX was disabled in every build config, so the beat-confidence code
+    //    had never actually been compiled.
+    const double intervals = beatFrames.size() > 1 ? (double) (beatFrames.size() - 1) : 1.0;
+    const double regularity = 1.0 / (1.0 + intervalError / intervals);
     r.confidence = (float) juce::jlimit (0.0, 1.0,
         ((meanStrength - activationMedian) / juce::jmax (0.05, 1.0 - (double) activationMedian)) * regularity);
 

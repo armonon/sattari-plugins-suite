@@ -126,8 +126,17 @@ jobs:
       - name: Install build tools
         run: brew install ninja
 
+      # The neural engines are behind SATTARI_USE_ONNX, which was OFF everywhere —
+      # so CI had never COMPILED NeuralBeatEngine's implementation, let alone run
+      # it. That is how a hard compile error sat in the beat-confidence path
+      # unnoticed. Fetch the vendored runtime and build with neural ON here.
+      - name: Fetch vendored ONNX Runtime
+        run: scripts/fetch_onnxruntime.sh
+
       - name: Configure
-        run: cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -S plugins/stemdeck -B build/stemdeck -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DSATTARI_USE_ONNX=ON
 
       - name: Build + run registered StemDeck contracts
         run: |
