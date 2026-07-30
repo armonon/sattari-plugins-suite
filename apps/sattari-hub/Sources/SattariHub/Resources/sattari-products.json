@@ -1527,10 +1527,10 @@
     },
     {
       "id": "brain",
-      "name": "Sattari Brain",
-      "category": "Session brain",
+      "name": "Sattari Compass",
+      "category": "Session conductor",
       "accent": "#68a7ff",
-      "description": "Sattari Brain \u2014 Session brain.",
+      "description": "Sattari Compass \u2014 Session conductor.",
       "formats": [
         "AU",
         "VST3",
@@ -1543,18 +1543,18 @@
       "bundles": [
         {
           "kind": "AU",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Brain.component",
-          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/AU/Sattari Brain.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Compass.component",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/AU/Sattari Compass.component"
         },
         {
           "kind": "VST3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Brain.vst3",
-          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/VST3/Sattari Brain.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Compass.vst3",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/VST3/Sattari Compass.vst3"
         },
         {
           "kind": "Standalone",
-          "installSubpath": "Applications/Sattari Brain.app",
-          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/Standalone/Sattari Brain.app"
+          "installSubpath": "Applications/Sattari Compass.app",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/Standalone/Sattari Compass.app"
         }
       ]
     },

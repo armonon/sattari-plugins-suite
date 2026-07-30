@@ -11,7 +11,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 sattari_add_plugin(
     TARGET SattariBrain
     SLUG brain
-    PRODUCT_NAME "Sattari Brain"
+    PRODUCT_NAME "Sattari Compass"
     PLUGIN_CODE Br01
     VERSION ${PROJECT_VERSION}
     NEEDS_MIDI_INPUT

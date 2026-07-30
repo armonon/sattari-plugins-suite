@@ -9,7 +9,7 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
     setLookAndFeel (&lookAndFeel);
     setTitle ("Sattari Key");
     setDescription (
-        "Master-track key detection and suite publication authority");
+        "Focused key detection and fallback suite publication");
     setResizable (true, true);
     setResizeLimits (660, 470, 1080, 760);
     setSize (760, 500);
@@ -171,7 +171,7 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     auto key = keyArea.reduced (16, 12);
     sattari::studio::paintSectionTitle (
         g, key.removeFromTop (18), "Detected key",
-        snapshot.publishing ? "suite authority" : "local analysis");
+        snapshot.publishing ? "session fallback" : "local analysis");
     key.removeFromTop (4);
 
     auto rootArea = key.removeFromTop (
@@ -209,7 +209,7 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
 
     sattari::studio::paintSectionTitle (
         g, manualArea.reduced (14).removeFromTop (18),
-        "Authority", "detection or explicit override");
+        "Detection", "automatic or explicit key");
 }
 
 void SattariSongKeyAudioProcessorEditor::resized()

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariCompassContext.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <sattari_audio_core/SattariRealtime.h>
@@ -86,6 +87,12 @@ public:
         int heldNotes = 0;
         bool running = false;
         double bpm = 120.0;
+        bool compassLive = false;
+        bool followingSwing = false;
+        bool followingEnergy = false;
+        int sectionId = 0;
+        float sessionSwing = 0.0f;
+        float sessionEnergy = 0.0f;
     };
     UiState currentUiState() const noexcept { return uiState.load(); }
 private:

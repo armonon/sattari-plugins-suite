@@ -21,13 +21,14 @@ SattariBrainAudioProcessorEditor::SattariBrainAudioProcessorEditor (
     setResizable (true, true);
     setResizeLimits (760, 590, 1280, 900);
     setSize (960, 680);
-    setTitle ("Sattari Brain");
+    setTitle ("Sattari Compass");
     setDescription ("Authoritative musical context for the Sattari suite");
 
     addAndMakeVisible (header);
 
     publishToggle.setTitle ("Publish session context");
-    publishToggle.setDescription ("Make Brain the active suite session authority");
+    publishToggle.setDescription (
+        "Make Compass the active suite session authority");
     addAndMakeVisible (publishToggle);
     publishAtt = std::make_unique<ButtonAttachment> (
         audioProcessor.parameters(), "brainPublish", publishToggle);

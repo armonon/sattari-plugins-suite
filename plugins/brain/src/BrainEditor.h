@@ -35,7 +35,7 @@ private:
         sattari::brand::productAccent ("brain")
     };
     sattari::studio::Header header {
-        "Sattari Brain", "SESSION INTELLIGENCE", accent
+        "Sattari Compass", "SESSION CONDUCTOR", accent
     };
 
     juce::ToggleButton publishToggle { "Publish to suite" };

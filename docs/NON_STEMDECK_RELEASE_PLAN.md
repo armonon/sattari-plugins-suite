@@ -23,7 +23,7 @@ visibility and the focused CI matrix.
 
 ### Internal alpha
 
-- Sattari Brain
+- Sattari Compass
 - Sattari Arp
 - Sub Conjurer
 
@@ -62,7 +62,8 @@ another product's validation.
 
 ## Session protocol policy
 
-Brain is the highest-authority publisher. Song Key, Auto Pitch and Granulator
+Compass is the highest-authority publisher. Its compatibility-safe internal
+publisher id remains `brain`. Song Key, Auto Pitch and Granulator
 are leased fallbacks in that order. Consumers receive one coherent snapshot from
 one shared poller per plugin binary.
 

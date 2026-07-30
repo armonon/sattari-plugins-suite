@@ -1,7 +1,7 @@
 window.SATTARI_PRODUCT_SHOTS = {
   "brain": {
     src: "assets/products/brain.png",
-    alt: "Sattari Brain session intelligence interface"
+    alt: "Sattari Compass session conductor interface"
   },
   "create": {
     src: "assets/products/create.png",
@@ -25,7 +25,7 @@ window.SATTARI_PRODUCT_SHOTS = {
   },
   "song-key": {
     src: "assets/products/song-key.png",
-    alt: "Sattari Key master key authority interface"
+    alt: "Sattari Key focused key-detection interface"
   },
   "stack": {
     src: "assets/products/stack.png",

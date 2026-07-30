@@ -136,7 +136,7 @@ void SattariBrainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 hostTsDen.store (ts->denominator, std::memory_order_relaxed);
             }
 
-    // Feed the analysis ring with a mono sum. Audio is NOT modified — Brain is a
+    // Feed the analysis ring with a mono sum. Audio is NOT modified — Compass is a
     // transparent analyser that only listens (bit-exact pass-through).
     int wp = writePos.load (std::memory_order_relaxed);
     for (int i = 0; i < n; ++i)
@@ -193,7 +193,7 @@ void SattariBrainAudioProcessor::publishCurrent()
     }
 
     // --- Key: manual override always wins; else the confidence-gated + hysteresis
-    //     detected key (never flickers). Brain stays silent until a confident
+    //     detected key (never flickers). Compass stays silent until a confident
     //     key commits; publishing an invented C major would corrupt the suite.
     int root = 0, scale = 0;
     const bool manual = param ("brainManual") > 0.5f;
@@ -242,7 +242,7 @@ void SattariBrainAudioProcessor::publishCurrent()
     msg.root         = root;
     msg.scale        = scale;
     msg.bpm          = hostBpm.load();
-    // Brain currently has no onset detector. Zero is truthful and, unlike the
+    // Compass currently has no onset detector. Zero is truthful and, unlike the
     // former timer-driven increment, cannot masquerade as a musical transient.
     msg.transientId  = 0;
     msg.chordRoot    = chordRootChoice <= 0 ? -1 : chordRootChoice - 1;

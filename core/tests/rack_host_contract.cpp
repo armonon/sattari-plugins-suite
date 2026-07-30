@@ -3,17 +3,28 @@
 #include <sattari_audio_core/SattariRackEditor.h>
 #include <sattari_audio_core/SattariRackProcessor.h>
 #include <sattari_audio_core/SattariStackEditor.h>
+#include <sattari_audio_core/modules/DoubleModule.h>
+#include <sattari_audio_core/modules/EqModule.h>
+#include <sattari_audio_core/modules/ShimmerModule.h>
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace
 {
 class CountingModule final : public sattari::dsp::SattariModule
 {
 public:
+    explicit CountingModule (std::string displayName = "Counting")
+        : displayName_ (std::move (displayName))
+    {}
+
     const char* moduleId() const noexcept override { return "counting"; }
-    const char* displayName() const noexcept override { return "Counting"; }
+    const char* displayName() const noexcept override
+    {
+        return displayName_.c_str();
+    }
 
     void addParameters (ParamList& out, const juce::String& prefix) override
     {
@@ -33,21 +44,35 @@ public:
     int latencySamples() const noexcept override { return 17; }
 
     int calls = 0;
+
+private:
+    std::string displayName_;
 };
 
 class TestRack final : public sattari::rack::SattariRackProcessor
 {
 public:
-    TestRack()
+    explicit TestRack (std::string requestedModuleName = "Counting")
         : SattariRackProcessor (
             "Rack Contract", "RACK_CONTRACT",
             BusesProperties()
                 .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                 .withOutput ("Output", juce::AudioChannelSet::stereo(), true),
-            []
+            [renderModuleName = std::move (requestedModuleName)]
             {
                 std::vector<std::unique_ptr<sattari::dsp::SattariModule>> modules;
-                modules.push_back (std::make_unique<CountingModule>());
+                if (renderModuleName == "EQ")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::EqModule>());
+                else if (renderModuleName == "Shimmer")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::ShimmerModule>());
+                else if (renderModuleName == "Double")
+                    modules.push_back (
+                        std::make_unique<sattari::dsp::DoubleModule>());
+                else
+                    modules.push_back (
+                        std::make_unique<CountingModule> (renderModuleName));
                 return modules;
             })
     {}
@@ -107,27 +132,31 @@ bool renderRackWorkspace (const char* product,
 
     juce::String name;
     juce::String category;
+    std::string moduleName;
     if (slug == "mix")
     {
         name = "Sattari Mix";
         category = "MIXING WORKFLOW";
+        moduleName = "EQ";
     }
     else if (slug == "create")
     {
         name = "Sattari Create";
         category = "CREATIVE EFFECTS WORKFLOW";
+        moduleName = "Shimmer";
     }
     else if (slug == "vocal")
     {
         name = "Sattari Vocal";
         category = "VOCAL FINISHING WORKFLOW";
+        moduleName = "Double";
     }
     else
     {
         return false;
     }
 
-    TestRack rack;
+    TestRack rack (std::move (moduleName));
     rack.select (0, false);
     sattari::ui::SattariRackEditor editor (
         rack, name, category, product);

@@ -85,7 +85,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterBool> ("inputThru", "Input Thru", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("hostSync", "Host Sync", true));
 
-    // Cross-plugin session follows (Brain bus), appended at the END of the layout
+    // Cross-plugin session follows (Compass bus), appended at the END of the layout
     // so existing parameter indices/automation stay stable. Both default OFF so
     // the arp is bit-identical to previous versions until the user opts in.
     //  * followSwing: the published session swing (0..1) is applied as classic
@@ -233,7 +233,11 @@ int SattariArpAudioProcessor::getNextStepSamples()
 {
     const double beatsPerSecond = currentBpm / 60.0;
     const double seconds = getStepQuarterNotes() / beatsPerSecond;
-    const float swing = *apvts.getRawParameterValue ("swing");
+    const auto session = sessionReader.current();
+    const float swing = sattari::compass::effectiveSwing (
+        *apvts.getRawParameterValue ("swing"),
+        apvts.getRawParameterValue ("followSwing")->load() > 0.5f,
+        session);
     const bool tripletRate = (int) *apvts.getRawParameterValue ("rate") == 2 || (int) *apvts.getRawParameterValue ("rate") == 4;
     const double swingFactor = (! tripletRate && swing > 0.0f) ? ((stepCounter % 2 == 0) ? (1.0 + swing) : (1.0 - swing)) : 1.0;
     return juce::jmax (1, (int) std::llround (seconds * swingFactor * currentSampleRate));
@@ -267,12 +271,19 @@ void SattariArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         renderArp (scratchOutput, cursor, buffer.getNumSamples() - cursor);
 
     midi.swapWith (scratchOutput);
+    const auto session = sessionReader.current();
     uiState.store ({
         stepCounter & 15,
         currentStepVelocity,
         (int) heldNotes.size(),
         hasHeldNotes(),
-        currentBpm
+        currentBpm,
+        session.valid && session.hasSceneContext,
+        apvts.getRawParameterValue ("followSwing")->load() > 0.5f,
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        session.sectionId,
+        session.swing,
+        session.energy
     });
 }
 
@@ -415,7 +426,10 @@ void SattariArpAudioProcessor::buildSortedBaseNotes (std::vector<int>& out) cons
 void SattariArpAudioProcessor::buildStepNotes (std::vector<int>& out) const
 {
     buildSortedBaseNotes (baseNotesScratch);
-    const int octaves = (int) *apvts.getRawParameterValue ("octaves");
+    const int octaves = sattari::compass::effectiveOctaves (
+        (int) *apvts.getRawParameterValue ("octaves"),
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        sessionReader.current());
     const int transpose = (int) *apvts.getRawParameterValue ("transpose");
     out.clear();
 
@@ -480,7 +494,10 @@ int SattariArpAudioProcessor::chooseVelocity (int sourceVelocity)
     if (humanize > 0)
         velocity += random.nextInt (humanize * 2 + 1) - humanize;
 
-    return clampVelocity (velocity);
+    return sattari::compass::effectiveVelocity (
+        clampVelocity (velocity),
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        sessionReader.current());
 }
 
 void SattariArpAudioProcessor::triggerStep (juce::MidiBuffer& output, int samplePosition)

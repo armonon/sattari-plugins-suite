@@ -1,16 +1,16 @@
-// Sattari Brain — functional contract.
+// Sattari Compass — functional contract (legacy Brain binary identity).
 //
-// Brain is the session brain: it detects key + reference tuning, lets the user
+// Compass is the session conductor: it detects key + reference tuning, lets the user
 // edit the rest of the SessionState, and publishes the FULL v2 SessionState to
 // the cross-plugin bus while passing audio through untouched. This proves:
-//   1. audio pass-through is bit-exact (Brain never touches the signal);
+//   1. audio pass-through is bit-exact (Compass never touches the signal);
 //   2. editing chord / time-sig / swing / section / energy / maqam + Publish
 //      makes readSession() return exactly those v2 fields;
 //   3. a manual key override publishes that key;
 //   4. a reference override publishes that referenceHz;
 //   5. nothing is NaN / non-finite.
 //
-// The publish path runs on Brain's ~700 ms worker thread (as it does in a DAW),
+// The publish path runs on Compass's ~700 ms worker thread (as it does in a DAW),
 // so each edit is verified by polling readSession() until it reflects the edit
 // (with a timeout), the same pattern the bus's SessionReader contract uses.
 #include "BrainProcessor.h"
@@ -73,7 +73,7 @@ int main (int argc, char** argv)
     const double sr = 48000.0; const int block = 512;
     proc.prepareToPlay (sr, block);
 
-    // 1) Bit-exact pass-through + finite. Feed a known stereo signal; Brain must
+    // 1) Bit-exact pass-through + finite. Feed a known stereo signal; Compass must
     //    return it untouched, sample for sample.
     bool allFinite = true, bitExact = true;
     {
@@ -141,7 +141,7 @@ int main (int argc, char** argv)
         check (std::abs (m.energy - 0.8f) < 1.0e-3f, "energy round-trip wrong");
         check (m.maqamId == 5, "maqam round-trip wrong");
         check (m.transientId == 0,
-               "Brain published a timer tick as a musical transient");
+               "Compass published a timer tick as a musical transient");
         check (std::isfinite (m.referenceHz) && std::isfinite (m.swing) && std::isfinite (m.energy),
                "published SessionState has non-finite fields");
     }
@@ -173,7 +173,7 @@ int main (int argc, char** argv)
 
     proc.releaseResources();
 
-    if (fails != 0) { std::fprintf (stderr, "Sattari Brain contract FAILED (%d)\n", fails); return 1; }
-    std::printf ("Sattari Brain contract ok\n");
+    if (fails != 0) { std::fprintf (stderr, "Sattari Compass contract FAILED (%d)\n", fails); return 1; }
+    std::printf ("Sattari Compass contract ok\n");
     return 0;
 }

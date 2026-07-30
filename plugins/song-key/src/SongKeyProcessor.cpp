@@ -296,10 +296,10 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         root  = pubRoot;
         scale = pubScale;
     }
-    // Publish the full SessionState (Brain foundation): key + host tempo + the
+    // Publish the base SessionState (Compass fallback): key + host tempo + the
     // reference tuning we already estimate from the spectrum. referenceHz rides the
     // bus so any plugin can follow the song's actual A, not just its key. The other
-    // SessionState fields stay at safe defaults until a dedicated Brain sets them.
+    // SessionState fields stay at safe defaults until Compass sets them.
     sattari::xplugin::SessionMessage msg;
     msg.root        = root;
     msg.scale       = scale;

@@ -34,7 +34,7 @@ public:
         bool showAutoKey       = false;               // "Link AutoKey (detect from this track)"
         bool showFollow        = true;                // "Follow Song Key (from the master bus)"
         juce::String autoLabel   { "Link AutoKey  (auto-detect from this track)" };
-        juce::String followLabel { "Follow Song Key  (from Sattari Key on master)" };
+    juce::String followLabel { "Follow session  (from Compass or Key)" };
         juce::StringArray rootNames  { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
         juce::StringArray scaleNames { "major", "minor", "chromatic" };
         juce::String hint { "click: follow / set by hand" };

@@ -32,7 +32,7 @@ The shared implementation lives in
 
 Alpha product accents establish the family:
 
-- Brain: session blue.
+- Compass: session blue.
 - Sattari Arp: performance violet.
 - Sub Conjurer: synthesis mint.
 
@@ -49,9 +49,9 @@ Alpha product accents establish the family:
 
 ## Reference workspaces
 
-### Brain
+### Compass
 
-Brain is the suite authority, so its hero is the current musical context rather
+Compass is the suite authority, so its hero is the current musical context rather
 than a parameter wall. Confidence, tempo, reference and meter are visible
 without editing. Explicit overrides and published session context are distinct.
 
@@ -93,7 +93,7 @@ the visual contracts exercise populated states rather than empty shells.
 
 ## Rollout sequence
 
-1. Validate Brain, Arp and Sub Conjurer in Logic, Ableton and a high-DPI host.
+1. Validate Compass, Arp and Sub Conjurer in Logic, Ableton and a high-DPI host.
 2. Validate the migrated Mix, Create, Vocal and Stack rack workspaces in hosts,
    including narrow-window, preset and automation passes.
 3. Validate the migrated Meter, Scope, Tuner and Key analysis workspaces,

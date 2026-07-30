@@ -15,11 +15,17 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
-    if (argc == 3 && juce::String (argv[1]) == "--render-ui")
+    if (argc == 3
+        && (juce::String (argv[1]) == "--render-ui"
+            || juce::String (argv[1]) == "--render-ui-min"))
     {
         SattariArpAudioProcessor processor;
         const juce::File destination (argv[2]);
-        const bool ok = sattari::test::renderEditorToPng (processor, destination);
+        const bool minimumSize = juce::String (argv[1]) == "--render-ui-min";
+        const bool ok = sattari::test::renderEditorToPng (
+            processor, destination,
+            minimumSize ? 820 : 0,
+            minimumSize ? 640 : 0);
         std::printf ("%s %s\n", ok ? "rendered" : "FAIL render",
                      destination.getFullPathName().toRawUTF8());
         return ok ? 0 : 1;
@@ -69,5 +75,38 @@ int main (int argc, char** argv)
         std::printf ("FAIL: spacing error exceeds 1 sample\n");
         return 1;
     }
+
+    // Compass response is explicit, deterministic and safe when no session is
+    // present. These pure checks exercise the semantic contract without touching
+    // the user's cross-plugin bus file.
+    sattari::xplugin::SessionSnapshot context;
+    context.valid = true;
+    context.hasSceneContext = true;
+    context.swing = 1.0f;
+    context.energy = 0.8f;
+    context.sectionId = 4;
+
+    if (std::abs (sattari::compass::effectiveSwing (
+            0.1f, true, context) - 0.65f) > 1.0e-6f
+        || sattari::compass::effectiveOctaves (2, true, context) != 3
+        || sattari::compass::effectiveVelocity (100, true, context) != 100)
+    {
+        std::printf ("FAIL: Compass response contract\n");
+        return 1;
+    }
+
+    // A reduced Key fallback is valid for pitch/tempo but must not masquerade
+    // as a Compass scene or drive groove/energy responses.
+    context.hasSceneContext = false;
+    if (std::abs (sattari::compass::effectiveSwing (
+            0.1f, true, context) - 0.1f) > 1.0e-6f
+        || sattari::compass::effectiveOctaves (2, true, context) != 2
+        || sattari::compass::effectiveVelocity (100, true, context) != 100)
+    {
+        std::printf ("FAIL: Compass fallback contract\n");
+        return 1;
+    }
+
+    std::printf ("  compass_response=opt-in/fallback-safe\n");
     return 0;
 }

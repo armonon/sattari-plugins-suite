@@ -11,7 +11,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
 {
     setLookAndFeel (&lookAndFeel);
     setResizable (true, true);
-    setResizeLimits (820, 560, 1440, 900);
+    setResizeLimits (820, 640, 1440, 900);
     setSize (1060, 660);
     setTitle ("Sattari Arp");
     setDescription ("Generative MIDI arpeggiator and performance workspace");
@@ -71,7 +71,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
         "Off", "Major", "Minor", "Penta Maj", "Penta Min",
         "Dorian", "Mixolydian", "Harm Minor"
     };
-    keyConfig.hint = "click to follow Brain or set a musical constraint";
+    keyConfig.hint = "click to follow Compass or set a musical constraint";
     keyButton.setConfig (keyConfig);
     keyButton.onLinkFollow = [this] { setParameterValue ("followKey", 1.0f); };
     keyButton.onManualKey = [this] (int root, int scale)
@@ -98,8 +98,17 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
     addAndMakeVisible (latch);
     addAndMakeVisible (inputThru);
     addAndMakeVisible (hostSync);
+    followSwing.setTitle ("Follow Compass groove");
+    followSwing.setDescription (
+        "Use the session swing published by Sattari Compass");
+    followEnergy.setTitle ("Follow Compass energy");
+    followEnergy.setDescription (
+        "Shape velocity and octave range from the published session energy");
+    addAndMakeVisible (followSwing);
+    addAndMakeVisible (followEnergy);
     addAndMakeVisible (tempoMetric);
     addAndMakeVisible (heldMetric);
+    addAndMakeVisible (compassMetric);
 
     auto& params = audioProcessor.parameters();
     rateAttach = std::make_unique<ComboAttachment> (params, "rate", rate);
@@ -125,6 +134,10 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
         params, "inputThru", inputThru);
     hostSyncAttach = std::make_unique<ButtonAttachment> (
         params, "hostSync", hostSync);
+    followSwingAttach = std::make_unique<ButtonAttachment> (
+        params, "followSwing", followSwing);
+    followEnergyAttach = std::make_unique<ButtonAttachment> (
+        params, "followEnergy", followEnergy);
 
     startTimerHz (24);
     timerCallback();
@@ -160,12 +173,30 @@ void SattariArpAudioProcessorEditor::timerCallback()
         key.root, key.scale);
 
     uiState = audioProcessor.currentUiState();
-    header.setStatus (uiState.running ? "GENERATING" : "READY", uiState.running);
+    const bool followsCompass =
+        uiState.followingSwing || uiState.followingEnergy;
+    header.setStatus (
+        followsCompass && uiState.compassLive
+            ? "COMPASS / "
+                + sattari::compass::sectionName (uiState.sectionId).toUpperCase()
+            : uiState.running ? "GENERATING" : "READY",
+        uiState.running || (followsCompass && uiState.compassLive));
     tempoMetric.setValue (
         juce::String (uiState.bpm, 1), hostSync.getToggleState() ? "BPM · host" : "BPM · free");
     heldMetric.setValue (
         juce::String (uiState.heldNotes),
         uiState.running ? "pattern active" : "play a chord");
+    compassMetric.setValue (
+        uiState.compassLive
+            ? sattari::compass::sectionName (uiState.sectionId).toUpperCase()
+            : "LOCAL",
+        uiState.compassLive
+            ? juce::String ((int) std::round (uiState.sessionEnergy * 100.0f))
+                + "% energy / "
+                + juce::String ((int) std::round (uiState.sessionSwing * 100.0f))
+                + "% swing"
+            : "no session context");
+    swing.setEnabled (! uiState.followingSwing || ! uiState.compassLive);
     repaint (sequenceArea);
 }
 
@@ -361,9 +392,13 @@ void SattariArpAudioProcessorEditor::resized()
 
     right.removeFromTop (6);
     auto metrics = right.removeFromTop (50);
-    tempoMetric.setBounds (metrics.removeFromLeft ((metrics.getWidth() - 8) / 2));
-    metrics.removeFromLeft (8);
-    heldMetric.setBounds (metrics);
+    const int metricGap = 6;
+    const int metricWidth = (metrics.getWidth() - metricGap * 2) / 3;
+    tempoMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    heldMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    compassMetric.setBounds (metrics);
 
     auto controls = controlsArea.reduced (16);
     controls.removeFromTop (28);
@@ -371,6 +406,8 @@ void SattariArpAudioProcessorEditor::resized()
     latch.setBounds (toggles.removeFromLeft (110));
     inputThru.setBounds (toggles.removeFromLeft (130));
     hostSync.setBounds (toggles.removeFromLeft (120));
+    followSwing.setBounds (toggles.removeFromLeft (142));
+    followEnergy.setBounds (toggles.removeFromLeft (142));
     controls.removeFromBottom (8);
 
     const int macroGap = 6;

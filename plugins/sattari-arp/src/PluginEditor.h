@@ -63,14 +63,18 @@ private:
     juce::ToggleButton latch { "Latch" };
     juce::ToggleButton inputThru { "Input thru" };
     juce::ToggleButton hostSync { "Host sync" };
+    juce::ToggleButton followSwing { "Follow groove" };
+    juce::ToggleButton followEnergy { "Follow energy" };
     sattari::studio::MetricCard tempoMetric { "Tempo" };
     sattari::studio::MetricCard heldMetric { "Held notes" };
+    sattari::studio::MetricCard compassMetric { "Compass" };
 
     std::unique_ptr<ComboAttachment> rateAttach, patternAttach, velocityModeAttach;
     std::unique_ptr<SliderAttachment> octavesAttach, ratchetAttach, gateAttach,
                                       swingAttach, fixedVelocityAttach,
                                       humanizeAttach, transposeAttach;
-    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach;
+    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach,
+                                      followSwingAttach, followEnergyAttach;
 
     SattariArpAudioProcessor::UiState uiState;
     juce::Rectangle<int> workspaceArea, sequenceArea, keyArea, controlsArea;

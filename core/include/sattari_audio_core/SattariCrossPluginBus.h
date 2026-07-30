@@ -44,7 +44,7 @@ inline juce::int64 currentTimeMs() noexcept
 
 // A fresh higher-authority publisher owns the shared key/session file for a
 // short lease. This prevents opportunistic detectors from immediately
-// overwriting Brain while still allowing automatic fallback after Brain closes.
+// overwriting Compass while still allowing automatic fallback after it closes.
 inline int publisherPriority (const juce::String& publisherId) noexcept
 {
     if (publisherId == "brain")       return 100;
@@ -135,7 +135,7 @@ inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
 //  publishKey / readPublishedKey readers keep working unchanged (they just ignore
 //  the extra fields); session readers fall back to sensible defaults when a
 //  key-only publisher wrote the file.
-//  SessionState (schemaVersion 2): the full "Brain" context. All fields beyond the
+//  SessionState (schemaVersion 2): the full Compass context. All fields beyond the
 //  original root/scale/bpm/transientId are ADDITIVE — a key-only or v1 publisher
 //  simply omits them and every reader falls back to the safe defaults below, so no
 //  existing subscriber breaks. Numeric fields are RT-safe (they ride the SessionReader
@@ -143,6 +143,7 @@ inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
 struct SessionMessage
 {
     int    schemaVersion = 2;
+    bool   hasSceneContext = false; // scene fields were explicitly published
     int    root = 0;           // 0..11
     int    scale = 0;          // 0=major, 1=minor, 2=chromatic
     double bpm = 0.0;          // host tempo, 0 if unknown
@@ -182,7 +183,7 @@ inline bool publishSession (const juce::String& publisherId, int root, int scale
     return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
-// Full SessionState publisher (the Brain path). Writes every field; base-field-only
+// Full SessionState publisher (the Compass path). Writes every field; base-field-only
 // readers ignore the extras, SessionState readers pick up whatever is present.
 inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s)
 {
@@ -228,6 +229,10 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
 
     SessionMessage s;
     s.schemaVersion = (int) parsed.getProperty ("schemaVersion", 1);
+    s.hasSceneContext =
+        parsed.hasProperty ("swing")
+        || parsed.hasProperty ("sectionId")
+        || parsed.hasProperty ("energy");
     s.root  = juce::jlimit (0, 11, (int) parsed.getProperty ("root", 0));
     s.scale = juce::jlimit (0, 2, (int) parsed.getProperty ("scale", 0));
     s.bpm   = (double) parsed.getProperty ("bpm", 0.0);
@@ -250,6 +255,7 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
 struct SessionSnapshot
 {
     bool        valid = false;
+    bool        hasSceneContext = false;
     int         root = 0, scale = 0;
     double      bpm = 0.0;
     juce::int64 transientId = 0;
@@ -312,6 +318,7 @@ private:
             {
                 SessionSnapshot fresh;
                 fresh.valid = true;
+                fresh.hasSceneContext = m->hasSceneContext;
                 fresh.root = m->root;
                 fresh.scale = m->scale;
                 fresh.bpm = m->bpm;

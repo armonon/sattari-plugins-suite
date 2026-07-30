@@ -62,10 +62,10 @@ default the missing fields.
 
 ## Semantics
 
-- **Last writer wins.** There is no locking. Whoever publishes most recently is the
-  current authority. A well-behaved detector should only publish when it is *actively
-  detecting from audio* (not echoing a manual choice), so instances don't fight over the
-  slot. A polite writer checks the current record's confidence/recency before stomping it.
+- **Leased authority.** Writers serialize through an inter-process publish lock.
+  For 2.5 seconds after a write, a lower-priority publisher cannot overwrite a
+  higher-priority frame. Compass (`brain`) has the highest suite priority; Key
+  becomes the fallback after that lease expires.
 - **Staleness.** A reader ignores a record older than **30 s** (`now - timestampMs`), so a
   closed publisher's key doesn't linger forever. Publishers should refresh at least every
   few seconds while active.
@@ -76,6 +76,17 @@ default the missing fields.
 - **Conventions.** `root` 0=C…11=B. `scale` matches Auto Pitch: 0 major / 1 minor / 2
   chromatic. `referenceHz` is A4. These match every Sattari plugin, so a third-party
   reader lands in the same key the suite is following.
+
+## Product roles
+
+- **Sattari Compass** is the conductor and highest-authority publisher. Its
+  compatibility-safe publisher id remains `brain`.
+- **Sattari Key** is the focused key detector and lower-priority fallback.
+- Consumers opt into individual dimensions. Following key does not silently
+  enable groove, energy or section response.
+- Readers expose `hasSceneContext` so consumers can distinguish a full Compass
+  frame from Key's reduced key/tempo fallback. Scene responses only engage when
+  those fields were explicitly published.
 
 ## Minimal reader (any language)
 

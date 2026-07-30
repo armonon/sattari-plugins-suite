@@ -670,16 +670,16 @@ window.SATTARI_PLUGINS = [
     ]
   },
   {
-    id: "brain", name: "Sattari Brain",
-    category: "Session intelligence", cats: "Key",
+    id: "brain", name: "Sattari Compass",
+    category: "Session conductor", cats: "Key",
     formats: ["AU", "VST3", "Standalone"],
-    tagline: "The session authority — key, tempo and editable musical context.",
-    what: "Brain publishes one authoritative state for the key-aware parts of the suite. Put it on the master, wait for a confident key (or set one manually), and compatible plugins can follow without MIDI routing.",
-    how: "An HPCP chromagram analyses spectral peaks on a background worker, corrects tuning drift, and publishes only after a confident key commits. Host tempo and editable context share the same coherent cross-plugin snapshot. Brain does not currently claim onset detection or transient pulses.",
+    tagline: "The session conductor — one confirmed musical context for the suite.",
+    what: "Compass publishes the authoritative key, tempo, chord, section, groove, energy and tuning context that compatible Sattari products can follow without MIDI routing.",
+    how: "An HPCP chromagram analyses spectral peaks on a background worker, corrects tuning drift, and publishes only after a confident key commits. You can explicitly edit the musical map before followers respond. The legacy Brain binary identity and parameter ids remain intact for saved-session compatibility.",
     features: [
       "One authoritative session state",
       "Confidence-gated key plus host tempo",
-      "Priority lease prevents weaker detectors overwriting Brain",
+      "Priority lease prevents fallback detectors overwriting Compass",
       "Editable chord, meter, swing, section and reference tuning",
       "No invented startup key or timer-driven transient claims"
     ]

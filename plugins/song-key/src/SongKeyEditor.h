@@ -43,7 +43,7 @@ private:
         sattari::brand::productAccent ("song-key")
     };
     sattari::studio::Header header {
-        "Sattari Key", "MASTER KEY / SESSION AUTHORITY", accent
+        "Sattari Key", "KEY DETECTOR / SESSION FALLBACK", accent
     };
 
     sattari::ui::SessionHud sessionHud;

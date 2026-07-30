@@ -178,6 +178,17 @@ if(BUILD_TESTING)
         endif()
     endforeach()
 
+    if(TARGET SattariArpTimingContract)
+        add_test(
+            NAME SattariArpTimingContractEditorMinimumRender
+            COMMAND $<TARGET_FILE:SattariArpTimingContract>
+                --render-ui-min
+                ${CMAKE_BINARY_DIR}/validation/ui/sattari-arp-minimum.png)
+        set_tests_properties(
+            SattariArpTimingContractEditorMinimumRender
+            PROPERTIES LABELS "ui;render;minimum;non-stemdeck")
+    endif()
+
     if(TARGET SattariRackHostContract)
         foreach(rack_ui_product IN ITEMS
                 "SattariMix;mix"

@@ -47,5 +47,5 @@
 { "warble", "Sattari Warble", "Lo-fi / tape", kAccentViolet },
 { "scope", "Sattari Scope", "Analysis", kAccent },
 { "granulator", "Sattari Granulator", "Granular instrument", kAccent },
-{ "brain", "Sattari Brain", "Session brain", kAccentBlue },
+{ "brain", "Sattari Compass", "Session conductor", kAccentBlue },
 { "glass-choir", "Sattari Glass Choir", "Creative vocal FX", kAccentViolet },

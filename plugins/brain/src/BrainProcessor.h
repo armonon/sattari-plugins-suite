@@ -13,16 +13,20 @@
 #include <thread>
 
 // =============================================================================
-//  Sattari Brain — the session brain (detect + edit + publish the FULL state)
+//  Sattari Compass — the session conductor (detect + edit + publish FULL state)
 // -----------------------------------------------------------------------------
-//  Sattari Key scans the master and publishes ONE key. Sattari Brain is that,
-//  plus the whole SessionState: it detects key/mode/confidence + the reference
+//  Sattari Key is the focused detector and lower-priority fallback publisher.
+//  Compass is the conductor: it detects key/mode/confidence + the reference
 //  tuning from the spectrum (same shared chromagram + Krumhansl worker as Key),
 //  reads host BPM + time signature, and lets the user EDIT the rest of the
 //  session context — chord, time signature, swing, section, energy, maqam and
 //  reference — then broadcasts one authoritative SessionState (schema v2) to the
 //  cross-plugin bus that every follower plugin reads. Audio passes through
-//  bit-exact; Brain never touches the signal, it only listens and publishes.
+//  bit-exact; Compass never touches the signal, it only listens and publishes.
+//
+//  Compatibility: the target, product code, state tree, `brain.*` parameter ids
+//  and cross-plugin publisher id remain unchanged. Existing sessions therefore
+//  reopen exactly as before while hosts display the clearer Compass identity.
 //
 //  RT-safety: processBlock only feeds a lock-free ring + stores atomics (no
 //  alloc, no locks after prepare). All FFT / detection / file publishing happens
@@ -42,7 +46,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Sattari Brain"; }
+    const juce::String getName() const override { return "Sattari Compass"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }

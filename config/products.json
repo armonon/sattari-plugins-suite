@@ -51,7 +51,7 @@
     {"id":"warble","name":"Sattari Warble","category":"Lo-fi / tape","accent":"violet","lifecycle":"experimental","role":"effect","shippingProfile":null,"webVisible":true},
     {"id":"scope","name":"Sattari Scope","category":"Analysis","accent":"mint","lifecycle":"experimental","role":"utility","shippingProfile":null,"webVisible":true},
     {"id":"granulator","name":"Sattari Granulator","category":"Granular instrument","accent":"mint","lifecycle":"experimental","role":"instrument","shippingProfile":null,"webVisible":true},
-    {"id":"brain","name":"Sattari Brain","category":"Session brain","accent":"blue","lifecycle":"alpha","role":"session","shippingProfile":"alpha","webVisible":true,"ci":{"test":"BrainContract","uiRender":true}},
+    {"id":"brain","name":"Sattari Compass","category":"Session conductor","accent":"blue","lifecycle":"alpha","role":"session","shippingProfile":"alpha","webVisible":true,"ci":{"test":"BrainContract","uiRender":true}},
     {"id":"glass-choir","name":"Sattari Glass Choir","category":"Creative vocal FX","accent":"violet","lifecycle":"experimental","role":"effect","shippingProfile":null,"webVisible":true}
   ]
 }
