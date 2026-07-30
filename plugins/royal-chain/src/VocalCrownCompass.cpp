@@ -325,13 +325,13 @@ void VocalCrownCompass::paint (juce::Graphics& g)
         }
 
         g.setColour (juce::Colours::white.withAlpha (hot ? 1.0f : 0.92f));
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
         g.drawText (n.label, (int) lx - 36, (int) labelY - 8, 72, 16,
                     juce::Justification::centred, false);
 
         const int pct = (int) std::round (macro * 100.0f);
         g.setColour (n.colour.withAlpha (0.9f));
-        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (9.0f, juce::Font::bold));
         g.drawText (juce::String (pct), (int) lx - 36, (int) valueY - 6, 72, 12,
                     juce::Justification::centred, false);
     }
@@ -341,18 +341,18 @@ void VocalCrownCompass::paint (juce::Graphics& g)
     g.saveState();
     g.addTransform (juce::AffineTransform::rotation (-halfPi, local.getX() + 18.0f, local.getCentreY()));
     g.setColour (kMint.withAlpha (0.55f));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     g.drawText ("VOCAL CROWN COMPASS", (int) (local.getX() + 18.0f - 110.0f),
                 (int) local.getCentreY() - 7, 220, 14, juce::Justification::centred);
     g.restoreState();
 
     g.setColour (kCyan.withAlpha (0.6f));
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     g.drawText ("ROYAL CHAIN", local.removeFromTop (20.0f).reduced (18.0f, 0.0f).toNearestInt(),
                 juce::Justification::left, false);
 
     g.setColour (juce::Colours::white.withAlpha (0.28f));
-    g.setFont (juce::FontOptions (9.5f));
+    g.setFont (sattari::brand::fontOptions (9.5f));
     g.drawText ("Drag a node outward to raise its macro  -  centre = 0, ring = 100",
                 local.removeFromBottom (18.0f).toNearestInt(), juce::Justification::centred, false);
 

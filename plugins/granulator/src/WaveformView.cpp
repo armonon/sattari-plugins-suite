@@ -175,7 +175,7 @@ void WaveformView::paint (juce::Graphics& g)
     {
         // Empty state: prompt to drop / load.
         g.setColour (juce::Colours::white.withAlpha (0.55f));
-        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
         g.drawText (fileHovering ? "Release to load sample" : "Drop an audio file, or use Load Sample",
                     wave.toNearestInt(), juce::Justification::centred, false);
         return;
@@ -257,7 +257,7 @@ void WaveformView::paint (juce::Graphics& g)
 
     // Voice / grain count readout (unobtrusive, top-right).
     g.setColour (juce::Colour (sattari::brand::kTextFaint));
-    g.setFont (juce::FontOptions (9.5f));
+    g.setFont (sattari::brand::fontOptions (9.5f));
     g.drawText (juce::String ((int) viz.nActiveVoices) + " v  " + juce::String ((int) viz.nActiveGrains) + " g",
                 getLocalBounds().reduced (14, 8), juce::Justification::topRight, false);
 }

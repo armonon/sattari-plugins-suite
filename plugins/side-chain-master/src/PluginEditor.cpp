@@ -66,7 +66,7 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
 
     grLabel.setText ("GR 0.0 dB", juce::dontSendNotification);
     grLabel.setJustificationType (juce::Justification::centred);
-    grLabel.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+    grLabel.setFont (sattari::brand::fontOptions (18.0f, juce::Font::bold));
     grLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (grLabel);
 

@@ -70,7 +70,7 @@ SattariHarmonyAudioProcessorEditor::SattariHarmonyAudioProcessorEditor (SattariH
     };
     addAndMakeVisible (keyButton);
 
-    keyStatus.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    keyStatus.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     keyStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (keyStatus);
 
@@ -202,13 +202,13 @@ void SattariHarmonyAudioProcessorEditor::drawVoiceFan (juce::Graphics& g, juce::
     g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
 
     g.setColour (juce::Colour (sattari::brand::kTextFaint));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText ("HARMONY VOICES", r.reduced (12.0f, 8.0f).toNearestInt(), juce::Justification::topLeft);
 
     if (! snapshot.voiced || snapshot.leadMidi < 0)
     {
         g.setColour (juce::Colour (sattari::brand::kTextFaint));
-        g.setFont (juce::FontOptions (13.0f));
+        g.setFont (sattari::brand::fontOptions (13.0f));
         g.drawText ("Sing or play a vocal to build the choir", area, juce::Justification::centred);
         return;
     }
@@ -239,7 +239,7 @@ void SattariHarmonyAudioProcessorEditor::drawVoiceFan (juce::Graphics& g, juce::
         g.setColour (col);
         g.fillEllipse (voiceX - 5.0f, y - 5.0f, 10.0f, 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (midiName (snapshot.voiceMidi[(size_t) v]),
                     (int) voiceX + 10, (int) y - 8, 50, 16, juce::Justification::left);
     }
@@ -248,7 +248,7 @@ void SattariHarmonyAudioProcessorEditor::drawVoiceFan (juce::Graphics& g, juce::
     g.setColour (juce::Colour (sattari::brand::kAccent));
     g.fillEllipse (anchor.x - 6.0f, anchor.y - 6.0f, 12.0f, 12.0f);
     g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     g.drawText ("LEAD " + midiName (snapshot.leadMidi),
                 (int) anchor.x - 92, (int) anchor.y - 8, 84, 16, juce::Justification::right);
 }
@@ -262,7 +262,7 @@ void SattariHarmonyAudioProcessorEditor::paint (juce::Graphics& g)
     {
         if (s.getName().isEmpty()) return;
         g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (s.getName(), s.getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
     };
     for (auto* s : { &inputSlider, &outputSlider, &mixSlider, &tuneSlider, &choirSlider, &spreadSlider, &humanizeSlider })
@@ -273,7 +273,7 @@ void SattariHarmonyAudioProcessorEditor::paint (juce::Graphics& g)
 
     // Voice-strip headers.
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     for (int v = 0; v < kNumVoices; ++v)
     {
         auto b = voices[(size_t) v].interval.getBounds();

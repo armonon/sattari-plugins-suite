@@ -32,7 +32,7 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
     addAndMakeVisible (robotNoteBox);
     robotAtt = std::make_unique<CA> (processor.parameters(), "robotnote", robotNoteBox);
     robotCap.setText ("Robot note", juce::dontSendNotification);
-    robotCap.setFont (juce::Font (juce::FontOptions (11.0f)));
+    robotCap.setFont (juce::Font (sattari::brand::fontOptions (11.0f)));
     robotCap.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
     addAndMakeVisible (robotCap);
 
@@ -43,7 +43,7 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
 
     // Harmony voice — a dry in-key parallel voice.
     harmCaption.setText (juce::String::fromUTF8 ("HARMONY VOICE  \xc2\xb7  in-key"), juce::dontSendNotification);
-    harmCaption.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    harmCaption.setFont (juce::Font (sattari::brand::fontOptions (11.0f, juce::Font::bold)));
     harmCaption.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
     addAndMakeVisible (harmCaption);
     harmVoiceBox.addItemList ({ "Off", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 1);
@@ -56,7 +56,7 @@ SattariMorphAudioProcessorEditor::SattariMorphAudioProcessorEditor (SattariMorph
 
     // Key Echo — in-key pitched delay. Repeats are harmonised to the key.
     echoCaption.setText (juce::String::fromUTF8 ("KEY ECHO  \xc2\xb7  in-key repeats"), juce::dontSendNotification);
-    echoCaption.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+    echoCaption.setFont (juce::Font (sattari::brand::fontOptions (11.0f, juce::Font::bold)));
     echoCaption.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
     addAndMakeVisible (echoCaption);
     echoModeBox.addItemList ({ "Unison", "Octave Up", "Octave Down", "Fifth", "Diatonic 3rd" }, 1);
@@ -80,7 +80,7 @@ void SattariMorphAudioProcessorEditor::knob (juce::Slider& s, juce::Label& c, co
     addAndMakeVisible (s);
     c.setText (name, juce::dontSendNotification);
     c.setJustificationType (juce::Justification::centred);
-    c.setFont (juce::Font (juce::FontOptions (12.0f)));
+    c.setFont (juce::Font (sattari::brand::fontOptions (12.0f)));
     c.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
     addAndMakeVisible (c);
     att = std::make_unique<SA> (processor.parameters(), id, s);

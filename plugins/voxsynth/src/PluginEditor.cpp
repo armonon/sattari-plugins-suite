@@ -14,7 +14,7 @@ SattariVoxSynthAudioProcessorEditor::SattariVoxSynthAudioProcessorEditor (Sattar
     addAndMakeVisible (subtitle);
 
     readout.setJustificationType (juce::Justification::centred);
-    readout.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+    readout.setFont (juce::Font (sattari::brand::fontOptions (15.0f, juce::Font::bold)));
     readout.setColour (juce::Label::textColourId, juce::Colour (br::kAccent));
     addAndMakeVisible (readout);
 
@@ -69,7 +69,7 @@ void SattariVoxSynthAudioProcessorEditor::knob (juce::Slider& s, juce::Label& c,
     addAndMakeVisible (s);
     c.setText (name, juce::dontSendNotification);
     c.setJustificationType (juce::Justification::centred);
-    c.setFont (juce::Font (juce::FontOptions (11.0f)));
+    c.setFont (juce::Font (sattari::brand::fontOptions (11.0f)));
     c.setColour (juce::Label::textColourId, juce::Colour (br::kTextMuted));
     addAndMakeVisible (c);
     att = std::make_unique<SA> (processor.parameters(), id, s);

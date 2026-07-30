@@ -39,7 +39,7 @@ public:
         g.fillEllipse (dot);
         text = text.withTrimmedRight (dotR * 2.0f + 6.0f);
 
-        g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+        g.setFont (juce::Font (sattari::brand::fontOptions (12.0f, juce::Font::bold)));
         if (s.valid)
         {
             g.setColour (juce::Colour (brand::kAccent));

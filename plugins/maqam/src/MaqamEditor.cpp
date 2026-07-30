@@ -22,7 +22,7 @@ SattariMaqamAudioProcessorEditor::SattariMaqamAudioProcessorEditor (SattariMaqam
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    keyStatus.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    keyStatus.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     addAndMakeVisible (keyStatus);
 
     inputMeterLabel.setJustificationType (juce::Justification::centredRight);
@@ -158,7 +158,7 @@ void SattariMaqamAudioProcessorEditor::drawLadder (juce::Graphics& g, juce::Rect
     auto centsToX = [&] (double c) { return x0 + (float) (c / 1200.0) * (x1 - x0); };
 
     g.setColour (juce::Colour (sattari::brand::kTextFaint));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (juce::String (mq.name).toUpperCase() + " on " + noteName (snapshot.rootPc),
                 area.reduced (14, 8).removeFromTop (16), juce::Justification::topLeft);
 
@@ -176,7 +176,7 @@ void SattariMaqamAudioProcessorEditor::drawLadder (juce::Graphics& g, juce::Rect
         g.drawLine (x, axisY - (neutral ? 30.0f : 22.0f), x, axisY + 4.0f, neutral ? 2.0f : 1.2f);
         if (neutral)
         {
-            g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+            g.setFont (sattari::brand::fontOptions (9.0f, juce::Font::bold));
             g.drawText (juce::String (c) + "c", (int) x - 24, (int) (axisY - 44.0f), 48, 12, juce::Justification::centred);
         }
     }
@@ -187,7 +187,7 @@ void SattariMaqamAudioProcessorEditor::drawLadder (juce::Graphics& g, juce::Rect
     if (! snapshot.voiced)
     {
         g.setColour (juce::Colour (sattari::brand::kTextFaint));
-        g.setFont (juce::FontOptions (12.0f));
+        g.setFont (sattari::brand::fontOptions (12.0f));
         g.drawText ("Sing a note to see it snap to the maqam", area, juce::Justification::centred);
         return;
     }
@@ -210,7 +210,7 @@ void SattariMaqamAudioProcessorEditor::drawLadder (juce::Graphics& g, juce::Rect
     g.drawLine (dx, topY - 0.0f, cx, topY, 1.5f);
 
     g.setColour (juce::Colours::white.withAlpha (0.85f));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (juce::String ((int) std::round (snapshot.correctedCents)) + "c",
                 (int) cx - 24, (int) axisY + 6, 48, 14, juce::Justification::centred);
 }
@@ -222,7 +222,7 @@ void SattariMaqamAudioProcessorEditor::paint (juce::Graphics& g)
     auto caption = [&] (juce::Slider& s)
     {
         g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (s.getName(), s.getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
     };
     caption (strengthSlider);

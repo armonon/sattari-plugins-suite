@@ -79,7 +79,7 @@ void SattariWarpAudioProcessorEditor::styleKnob (juce::Slider& s, bool big)
 void SattariWarpAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }

@@ -86,18 +86,18 @@ public:
 
         const char* chip = mode == Mode::Auto ? "AUTO-DETECT"
                          : mode == Mode::Follow ? "FOLLOWING SONG KEY" : "MANUAL KEY";
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
         g.setColour (linked ? accent : juce::Colour (sattari::brand::kTextMuted));
         const juce::String chipText = (linked ? juce::String::fromUTF8 ("\xe2\x9b\x93  ") : juce::String()) + chip;
         g.drawText (chipText, inner.removeFromTop (14.0f), juce::Justification::centredLeft, false);
 
         const juce::String keyText = rootLabel (rootIdx) + "  " + scaleLabel (scaleIndex);
         g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-        g.setFont (juce::FontOptions (juce::jmin (28.0f, inner.getHeight() * 0.62f), juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (juce::jmin (28.0f, inner.getHeight() * 0.62f), juce::Font::bold));
         g.drawText (keyText, inner.removeFromTop (juce::jmax (18.0f, inner.getHeight() - 12.0f)),
                     juce::Justification::centredLeft, false);
 
-        g.setFont (juce::FontOptions (9.5f));
+        g.setFont (sattari::brand::fontOptions (9.5f));
         g.setColour (juce::Colour (sattari::brand::kTextFaint));
         g.drawText (config.hint, inner, juce::Justification::bottomLeft, false);
     }

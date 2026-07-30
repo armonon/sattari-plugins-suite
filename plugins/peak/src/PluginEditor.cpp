@@ -12,7 +12,7 @@ void styleKnob (juce::Slider& s, const juce::String& suffix)
 void styleCap (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }
@@ -77,10 +77,10 @@ void SattariPeakAudioProcessorEditor::drawStat (juce::Graphics& g, juce::Rectang
     g.fillRoundedRectangle (area.toFloat(), 10.0f);
     auto inner = area.reduced (12, 8);
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (label, inner.removeFromTop (14), juce::Justification::centredLeft);
     g.setColour (accent);
-    g.setFont (juce::FontOptions (22.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (22.0f, juce::Font::bold));
     g.drawText (value, inner, juce::Justification::centredLeft);
 }
 

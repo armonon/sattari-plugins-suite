@@ -19,11 +19,11 @@ void VoxKeyOrb::paint (juce::Graphics& g)
     g.setColour (glow);
     g.drawEllipse (area.reduced (36.0f), 3.0f);
 
-    g.setFont (juce::FontOptions (48.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (48.0f, juce::Font::bold));
     g.setColour (juce::Colours::white);
     g.drawFittedText (state.outputName, area.toNearestInt().withTrimmedBottom (60), juce::Justification::centred, 1);
 
-    g.setFont (juce::FontOptions (14.0f));
+    g.setFont (sattari::brand::fontOptions (14.0f));
     g.setColour (juce::Colours::lightgrey);
     g.drawFittedText ("detected " + state.detectedName + "  •  confidence " + juce::String ((int) std::round (state.confidence * 100.0f)) + "%",
                       area.toNearestInt().removeFromBottom (42), juce::Justification::centred, 2);
@@ -234,7 +234,7 @@ void SattariVoxKeyAudioProcessorEditor::setKeyParam (const juce::String& id, flo
 void SattariVoxKeyAudioProcessorEditor::setupLabel (juce::Label& label, const juce::String& text, float size)
 {
     label.setText (text, juce::dontSendNotification);
-    label.setFont (juce::FontOptions (size, juce::Font::bold));
+    label.setFont (sattari::brand::fontOptions (size, juce::Font::bold));
     label.setColour (juce::Label::textColourId, juce::Colour (0xffffd3a1));
     label.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (label);

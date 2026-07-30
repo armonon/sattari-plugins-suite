@@ -103,7 +103,7 @@ void SattariVocalMasterAudioProcessorEditor::drawReduction (juce::Graphics& g, j
     auto bar = [&] (juce::Rectangle<int> row, const juce::String& label, float amount, juce::Colour col)
     {
         g.setColour (juce::Colour (sattari::brand::kTextMuted));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (label, row.removeFromLeft (64), juce::Justification::centredLeft);
         auto track = row.reduced (4, 6).toFloat();
         g.setColour (juce::Colour (sattari::brand::kPanel));
@@ -125,7 +125,7 @@ void SattariVocalMasterAudioProcessorEditor::paint (juce::Graphics& g)
     for (auto* s : { &inputSlider, &isolateSlider, &denoiseSlider, &deessSlider, &toneSlider,
                      &airSlider, &levelSlider, &mixSlider, &outputSlider })
     {
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.setColour (juce::Colours::white.withAlpha (0.85f));
         g.drawText (s->getName(), s->getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
     }

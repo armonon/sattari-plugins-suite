@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <sattari_audio_core/SattariBranding.h>
 
 #include <memory>
 #include <vector>
@@ -23,7 +24,7 @@ public:
         : apvts (state)
     {
         heading.setText ("Select a module", juce::dontSendNotification);
-        heading.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)));
+        heading.setFont (juce::Font (sattari::brand::fontOptions (16.0f, juce::Font::bold)));
         addAndMakeVisible (heading);
         setTitle ("Module controls");
         setDescription ("Parameters for the selected rack module");

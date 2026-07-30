@@ -17,7 +17,7 @@ SattariWarbleAudioProcessorEditor::SattariWarbleAudioProcessorEditor (SattariWar
     addAndMakeVisible (ageKnob);
     ageAtt = std::make_unique<SA> (processor.parameters(), "age", ageKnob);
     ageCap.setText ("AGE", juce::dontSendNotification);
-    ageCap.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    ageCap.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     ageCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     ageCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (ageCap);
@@ -46,7 +46,7 @@ void SattariWarbleAudioProcessorEditor::addKnob (const juce::String& id, const j
     addAndMakeVisible (s); knobs.add (s);
     auto* c = new juce::Label();
     c->setText (cap, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c); caps.add (c);

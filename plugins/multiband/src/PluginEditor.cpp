@@ -34,7 +34,7 @@ SattariMultibandAudioProcessorEditor::SattariMultibandAudioProcessorEditor (Satt
         auto& ui = bands[(size_t) b];
 
         ui.header.setText (bandNames[b], juce::dontSendNotification);
-        ui.header.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        ui.header.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
         ui.header.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
         ui.header.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (ui.header);
@@ -97,7 +97,7 @@ void SattariMultibandAudioProcessorEditor::styleKnob (juce::Slider& s, const juc
 void SattariMultibandAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& t)
 {
     l.setText (t, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (9.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }

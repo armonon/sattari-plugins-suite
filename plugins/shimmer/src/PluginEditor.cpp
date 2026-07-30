@@ -16,7 +16,7 @@ SattariShimmerAudioProcessorEditor::SattariShimmerAudioProcessorEditor (SattariS
     addAndMakeVisible (interval);
     intervalAtt = std::make_unique<CA> (processor.parameters(), "interval", interval);
     intervalCap.setText ("INTERVAL", juce::dontSendNotification);
-    intervalCap.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    intervalCap.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     intervalCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     intervalCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (intervalCap);
@@ -77,7 +77,7 @@ void SattariShimmerAudioProcessorEditor::addKnob (const juce::String& id, const 
     addAndMakeVisible (s); knobs.add (s);
     auto* c = new juce::Label();
     c->setText (cap, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c); caps.add (c);

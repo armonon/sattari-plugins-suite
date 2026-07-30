@@ -29,8 +29,8 @@ namespace sattari::brand
 // --- Core suite palette (ARGB) ----------------------------------------------
 // Derived from the established Sub Conjurer / Auto Pitch editor look so existing
 // builds stay visually consistent while gaining a shared system.
-// Modern, near-monochrome cool-dark base. Flat surfaces, hairline separators,
-// one accent per product. Deliberately minimal: no gradients, no glow.
+// Modern, near-monochrome cool-dark base. Hairline separators and one accent
+// per product keep the workspace quiet beneath the suite's porcelain controls.
 inline constexpr std::uint32_t kBackground   = 0xff0c0d11; // app/plugin backdrop (flat)
 inline constexpr std::uint32_t kPanel        = 0xff14161b; // primary surface
 inline constexpr std::uint32_t kPanelRaised  = 0xff1c1f26; // combos / inset fields
@@ -158,6 +158,16 @@ inline std::string productName (const std::string& id)
 #if SATTARI_HAS_JUCE_GRAPHICS
 inline juce::Colour colour (std::uint32_t argb) { return juce::Colour (argb); }
 inline juce::Colour accentFor (const std::string& id) { return juce::Colour (productAccent (id)); }
+
+inline juce::FontOptions fontOptions (float height, int styleFlags = juce::Font::plain)
+{
+    return juce::FontOptions ("Helvetica", height, styleFlags);
+}
+
+inline juce::Font font (float height, int styleFlags = juce::Font::plain)
+{
+    return juce::Font (fontOptions (height, styleFlags));
+}
 #endif
 
 } // namespace sattari::brand

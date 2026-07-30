@@ -215,7 +215,7 @@ void SattariBrainAudioProcessorEditor::paintSessionHero (juce::Graphics& g)
     auto hero = heroArea.reduced (22);
     auto top = hero.removeFromTop (34);
     g.setColour (sattari::studio::colour::tertiary);
-    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.5f, juce::Font::bold));
     g.drawText ("CURRENT MUSICAL CONTEXT", top,
                 juce::Justification::centredLeft, false);
 
@@ -247,11 +247,11 @@ void SattariBrainAudioProcessorEditor::paintSessionHero (juce::Graphics& g)
         4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     g.setColour (sattari::studio::colour::text);
-    g.setFont (juce::FontOptions (58.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (58.0f, juce::Font::bold));
     g.drawText (key, dial.withTrimmedBottom (35.0f).toNearestInt(),
                 juce::Justification::centred, false);
     g.setColour (accent);
-    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.5f, juce::Font::bold));
     g.drawText (mode, dial.withTrimmedTop (112.0f).toNearestInt(),
                 juce::Justification::centredTop, false);
 
@@ -261,7 +261,7 @@ void SattariBrainAudioProcessorEditor::paintSessionHero (juce::Graphics& g)
             ? juce::String ((int) std::round (confidence * 100.0f)) + "% CONFIDENCE"
             : "ANALYSING AUDIO";
     g.setColour (sattari::studio::colour::secondary);
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (confidenceText,
                 juce::Rectangle<int> (hero.getX(), (int) dial.getBottom() + 6,
                                       hero.getWidth(), 18),

@@ -124,7 +124,7 @@ public:
 
         sourceStatus.setColour (
             juce::Label::textColourId, studio::colour::secondary);
-        sourceStatus.setFont (juce::FontOptions (10.5f));
+        sourceStatus.setFont (sattari::brand::fontOptions (10.5f));
         sourceStatus.setJustificationType (juce::Justification::centredLeft);
         sourceStatus.setAccessible (true);
         addAndMakeVisible (sourceStatus);

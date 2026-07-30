@@ -70,7 +70,7 @@ Sattari808AudioProcessorEditor::Sattari808AudioProcessorEditor (Sattari808AudioP
     addAndMakeVisible (snap);
 
     bodyReadout.setJustificationType (juce::Justification::centredLeft);
-    bodyReadout.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    bodyReadout.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     bodyReadout.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::productAccent ("eightoheight")));
     addAndMakeVisible (bodyReadout);
 
@@ -154,7 +154,7 @@ void Sattari808AudioProcessorEditor::setupCombo (juce::ComboBox& c)
 void Sattari808AudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (l);

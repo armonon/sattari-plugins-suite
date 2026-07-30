@@ -69,7 +69,7 @@ void SattariImageAudioProcessorEditor::styleKnob (juce::Slider& s, const juce::S
 void SattariImageAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }
@@ -96,7 +96,7 @@ void SattariImageAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillRoundedRectangle (juce::Rectangle<float> (juce::jmin (mid, x), corrArea.getY() + 3.0f,
                                                     std::fabs (x - mid), corrArea.getHeight() - 6.0f), 4.0f);
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText ("CORRELATION " + juce::String (shownCorr, 2), corrArea.toNearestInt(), juce::Justification::centred);
 }
 

@@ -106,7 +106,7 @@ void SattariTunerAudioProcessorEditor::paintTunerFace (
     g.setColour (
         reading.voiced ? liveColour
                        : sattari::studio::colour::tertiary.withAlpha (0.55f));
-    g.setFont (juce::FontOptions (
+    g.setFont (sattari::brand::fontOptions (
         (float) juce::jlimit (
             54, 92, (int) std::round (noteArea.getHeight() * 0.88f)),
         juce::Font::bold));
@@ -149,7 +149,7 @@ void SattariTunerAudioProcessorEditor::paintTunerFace (
         4.0f, 42.0f, 2.0f);
 
     auto readout = area.reduced (10, 0);
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     g.setColour (
         reading.voiced ? sattari::studio::colour::secondary
                        : sattari::studio::colour::tertiary);

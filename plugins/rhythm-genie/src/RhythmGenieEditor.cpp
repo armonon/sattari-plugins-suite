@@ -29,7 +29,7 @@ SattariRhythmGenieAudioProcessorEditor::SattariRhythmGenieAudioProcessorEditor (
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    transportStatus.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    transportStatus.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     transportStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     transportStatus.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (transportStatus);
@@ -280,7 +280,7 @@ void SattariRhythmGenieAudioProcessorEditor::drawGrid (juce::Graphics& g, juce::
         const float y = grid.getY() + lane * cellH;
         const bool on = processor.laneEnabled (lane);
         g.setColour (juce::Colour (sattari::brand::kTextMuted).withAlpha (on ? 1.0f : 0.4f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (lane < 8 ? kPadNames[lane] : "-", area.getX() + 12, (int) y, labelW - 6, (int) cellH,
                     juce::Justification::centredLeft);
 
@@ -312,7 +312,7 @@ void SattariRhythmGenieAudioProcessorEditor::paint (juce::Graphics& g)
     auto caption = [&] (juce::Slider& s)
     {
         g.setColour (juce::Colours::white.withAlpha (0.85f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (s.getName(), s.getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
     };
     for (auto* s : { &densitySlider, &swingSlider, &velocitySlider, &gateSlider, &accentSlider, &humanizeSlider })
@@ -322,7 +322,7 @@ void SattariRhythmGenieAudioProcessorEditor::paint (juce::Graphics& g)
 
     // lane-mute captions under the toggles
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     for (int l = 0; l < kNumLanes; ++l)
     {
         auto b = laneToggles[(size_t) l].getBounds();
@@ -332,7 +332,7 @@ void SattariRhythmGenieAudioProcessorEditor::paint (juce::Graphics& g)
     auto sectionHeader = [&] (const juce::String& text, juce::Rectangle<int> area)
     {
         g.setColour (juce::Colours::white.withAlpha (0.55f));
-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
         g.drawText (text, area.getX(), area.getY() - 16, 240, 14, juce::Justification::centredLeft);
     };
     sectionHeader ("TAP PADS  -  click, or play your MIDI / keyboard  (Set = learn)", padsArea);
@@ -343,7 +343,7 @@ void SattariRhythmGenieAudioProcessorEditor::paint (juce::Graphics& g)
     {
         auto b = s.getBounds();
         g.setColour (juce::Colours::white.withAlpha (0.8f));
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
         g.drawText (text, b.getX() - 6, b.getBottom() - 2, b.getWidth() + 12, 14, juce::Justification::centred);
     };
     knobCaption (kitLevelSlider, "Master");

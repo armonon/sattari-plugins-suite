@@ -19,7 +19,7 @@ void NoteDisplay::paint (juce::Graphics& g)
 
     // Big note
     g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-    g.setFont (juce::FontOptions (juce::jmin (170.0f, noteArea.getHeight() * 0.9f),
+    g.setFont (sattari::brand::fontOptions (juce::jmin (170.0f, noteArea.getHeight() * 0.9f),
                                   juce::Font::plain).withStyle ("Italic"));
     juce::String noteText = "-";
     if (snapshot.voiced && snapshot.detectedMidi >= 0)
@@ -72,7 +72,7 @@ void NoteDisplay::paint (juce::Graphics& g)
 
     // Scale labels
     g.setColour (juce::Colour (sattari::brand::kTextMuted));
-    g.setFont (juce::FontOptions (10.0f));
+    g.setFont (sattari::brand::fontOptions (10.0f));
     auto labelArea = juce::Rectangle<float> (track.getX(), track.getBottom() + 4.0f, track.getWidth(), 14.0f);
     g.drawText ("-100", labelArea.removeFromLeft (40.0f).toNearestInt(), juce::Justification::centredLeft, false);
     g.drawText ("+100", labelArea.removeFromRight (40.0f).toNearestInt(), juce::Justification::centredRight, false);
@@ -125,7 +125,7 @@ void KeyPillRow::paint (juce::Graphics& g)
         g.setColour (stroke);
         g.drawRoundedRectangle (r.reduced (2.0f), r.getHeight() * 0.5f, 1.0f);
         g.setColour (textCol);
-        g.setFont (juce::FontOptions (r.getHeight() * 0.42f, juce::Font::plain));
+        g.setFont (sattari::brand::fontOptions (r.getHeight() * 0.42f, juce::Font::plain));
         g.drawText (noteNames[pc], r.toNearestInt(), juce::Justification::centred, false);
         // Strike-through for blocked notes.
         if (! enabled)
@@ -216,7 +216,7 @@ void KeyButton::paint (juce::Graphics& g)
     const char* chip = mode == Mode::Auto ? "AUTO-DETECT"
                      : mode == Mode::Follow ? "FOLLOWING SONG KEY"
                      : mode == Mode::Map ? "KEY MAP" : "MANUAL KEY";
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.setColour (linked ? accent : juce::Colour (sattari::brand::kTextMuted));
     const juce::String chipText = (linked ? juce::String::fromUTF8 ("\xe2\x9b\x93  ") : juce::String())
                                 + chip;   // U+26D3 chains glyph when linked
@@ -227,7 +227,7 @@ void KeyButton::paint (juce::Graphics& g)
     if (linked)
     {
         auto meter = topRow.removeFromRight (78.0f);
-        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (8.5f, juce::Font::bold));
         g.setColour (juce::Colour (sattari::brand::kTextFaint));
         g.drawText ("LOCK", meter.removeFromLeft (26.0f), juce::Justification::centredRight, false);
         meter.removeFromLeft (4.0f);
@@ -250,7 +250,7 @@ void KeyButton::paint (juce::Graphics& g)
     const juce::String keyText = juce::String (names[juce::jlimit (0, 11, rootIdx)])
                                + "  " + scaleNm[juce::jlimit (0, 2, scaleIndex)];
     g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-    g.setFont (juce::FontOptions (juce::jmin (32.0f, inner.getHeight() * 0.9f), juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (juce::jmin (32.0f, inner.getHeight() * 0.9f), juce::Font::bold));
     g.drawText (keyText, inner, juce::Justification::centredLeft, false);
 }
 
@@ -514,7 +514,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // Poly Harmony amount — an in-key diatonic-3rd voice added on top of polyphonic
     // correction (best-effort on dense material; 0 = off).
     polyHarmonyCaption.setText (juce::String::fromUTF8 ("POLY HARMONY  \xc2\xb7  in-key 3rd (poly)"), juce::dontSendNotification);
-    polyHarmonyCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    polyHarmonyCaption.setFont (juce::Font (sattari::brand::fontOptions (11.0f)));
     polyHarmonyCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     proPanel.addAndMakeVisible (polyHarmonyCaption);
     polyHarmonyKnob.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -525,14 +525,14 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // percussive/noise content (hats/air) from being pitched while it does. The Scale
     // Lock macro arms both at full; these knobs let you dial them independently.
     highTrackCaption.setText (juce::String::fromUTF8 ("HIGH TRACKING  \xc2\xb7  tune the highs (poly)"), juce::dontSendNotification);
-    highTrackCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    highTrackCaption.setFont (juce::Font (sattari::brand::fontOptions (11.0f)));
     highTrackCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     proPanel.addAndMakeVisible (highTrackCaption);
     highTrackKnob.setSliderStyle (juce::Slider::LinearHorizontal);
     highTrackKnob.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 18);
     proPanel.addAndMakeVisible (highTrackKnob);
     tonalFocusCaption.setText (juce::String::fromUTF8 ("TONAL FOCUS  \xc2\xb7  spare the noise (poly)"), juce::dontSendNotification);
-    tonalFocusCaption.setFont (juce::Font (juce::FontOptions (11.0f)));
+    tonalFocusCaption.setFont (juce::Font (sattari::brand::fontOptions (11.0f)));
     tonalFocusCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     proPanel.addAndMakeVisible (tonalFocusCaption);
     tonalFocusKnob.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -716,7 +716,7 @@ void SattariAutoPitchAudioProcessorEditor::styleKnob (juce::Slider& s, bool feat
 void SattariAutoPitchAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }

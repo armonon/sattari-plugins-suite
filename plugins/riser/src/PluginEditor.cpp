@@ -11,7 +11,7 @@ SattariRiserAudioProcessorEditor::SattariRiserAudioProcessorEditor (SattariRiser
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    tempoLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    tempoLabel.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     tempoLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     tempoLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (tempoLabel);
@@ -21,7 +21,7 @@ SattariRiserAudioProcessorEditor::SattariRiserAudioProcessorEditor (SattariRiser
     addAndMakeVisible (modeBox);
     modeAtt = std::make_unique<CA> (processor.parameters(), "mode", modeBox);
     modeCap.setText ("MODE", juce::dontSendNotification);
-    modeCap.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    modeCap.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     modeCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     modeCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (modeCap);
@@ -30,7 +30,7 @@ SattariRiserAudioProcessorEditor::SattariRiserAudioProcessorEditor (SattariRiser
     addAndMakeVisible (lengthBox);
     lengthAtt = std::make_unique<CA> (processor.parameters(), "length", lengthBox);
     lengthCap.setText ("LENGTH", juce::dontSendNotification);
-    lengthCap.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    lengthCap.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     lengthCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     lengthCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (lengthCap);
@@ -69,7 +69,7 @@ void SattariRiserAudioProcessorEditor::addKnob (const juce::String& id, const ju
     addAndMakeVisible (s); knobs.add (s);
     auto* c = new juce::Label();
     c->setText (cap, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c); caps.add (c);
@@ -104,7 +104,7 @@ void SattariRiserAudioProcessorEditor::paint (juce::Graphics& g)
 
     g.setColour (juce::Colour (processor.isBuilding() ? sattari::brand::kTextPrimary
                                                       : sattari::brand::kTextFaint));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (processor.isBuilding() ? "BUILDING" : "IDLE",
                 meterBounds.toNearestInt(), juce::Justification::centred, false);
 }

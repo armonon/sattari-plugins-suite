@@ -62,7 +62,7 @@ juce::Slider& SattariVocoderAudioProcessorEditor::addKnob (const juce::String& i
 
     auto* c = new juce::Label();
     c->setText (caption, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c);
@@ -82,7 +82,7 @@ juce::ComboBox& SattariVocoderAudioProcessorEditor::addCombo (const juce::String
 
     auto* c = new juce::Label();
     c->setText (caption, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c);

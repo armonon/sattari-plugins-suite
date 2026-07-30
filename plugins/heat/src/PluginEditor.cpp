@@ -54,7 +54,7 @@ SattariHeatAudioProcessorEditor::SattariHeatAudioProcessorEditor (SattariHeatAud
 
     heatLabel.setJustificationType (juce::Justification::centredRight);
     heatLabel.setColour (juce::Label::textColourId, lookAndFeel.getAccent());
-    heatLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    heatLabel.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
     addAndMakeVisible (heatLabel);
 
     addKnob (drive,  "drive",  "DRIVE",  " dB");
@@ -79,7 +79,7 @@ void SattariHeatAudioProcessorEditor::addKnob (Knob& k, const juce::String& para
     addAndMakeVisible (k.slider);
     k.label.setText (caption, juce::dontSendNotification);
     k.label.setJustificationType (juce::Justification::centred);
-    k.label.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    k.label.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     k.label.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (k.label);
     k.attachment = std::make_unique<SliderAttachment> (processor.parameters(), paramId, k.slider);

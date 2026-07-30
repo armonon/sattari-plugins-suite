@@ -109,7 +109,7 @@ SattariGranulatorAudioProcessorEditor::SattariGranulatorAudioProcessorEditor (Sa
 
     sourceNameLabel.setJustificationType (juce::Justification::centredLeft);
     sourceNameLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
-    sourceNameLabel.setFont (juce::FontOptions (11.0f));
+    sourceNameLabel.setFont (sattari::brand::fontOptions (11.0f));
     addAndMakeVisible (sourceNameLabel);
 
     loadButton.onClick      = [this] { openFileChooser(); };
@@ -297,7 +297,7 @@ void SattariGranulatorAudioProcessorEditor::styleKnob (juce::Slider& s, bool fea
 void SattariGranulatorAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }

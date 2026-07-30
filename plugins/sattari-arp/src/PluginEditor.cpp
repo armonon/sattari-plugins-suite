@@ -340,7 +340,7 @@ void SattariArpAudioProcessorEditor::paintPatternWorkspace (juce::Graphics& g)
             inner.getWidth(), velocityHeight, 2.0f);
 
         g.setColour (active ? accent : sattari::studio::colour::tertiary);
-        g.setFont (juce::FontOptions (8.5f, active ? juce::Font::bold : juce::Font::plain));
+        g.setFont (sattari::brand::fontOptions (8.5f, active ? juce::Font::bold : juce::Font::plain));
         g.drawText (juce::String (step + 1),
                     cell.withTrimmedBottom (cell.getHeight() - 16.0f).toNearestInt(),
                     juce::Justification::centred, false);

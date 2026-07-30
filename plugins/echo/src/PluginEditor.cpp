@@ -11,7 +11,7 @@ SattariEchoAudioProcessorEditor::SattariEchoAudioProcessorEditor (SattariEchoAud
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    tempoLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    tempoLabel.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     tempoLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     tempoLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (tempoLabel);
@@ -24,7 +24,7 @@ SattariEchoAudioProcessorEditor::SattariEchoAudioProcessorEditor (SattariEchoAud
     addAndMakeVisible (div);
     divAtt = std::make_unique<CA> (processor.parameters(), "div", div);
     divCap.setText ("DIVISION", juce::dontSendNotification);
-    divCap.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    divCap.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     divCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     divCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (divCap);
@@ -60,7 +60,7 @@ void SattariEchoAudioProcessorEditor::addKnob (const juce::String& id, const juc
     addAndMakeVisible (s); knobs.add (s);
     auto* c = new juce::Label();
     c->setText (cap, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c); caps.add (c);

@@ -51,14 +51,14 @@ SattariCompAudioProcessorEditor::SattariCompAudioProcessorEditor (SattariCompAud
     releaseDivAtt = std::make_unique<ComboAttachment> (processor.parameters(), "releaseDiv", releaseDiv);
 
     releaseDivCap.setText ("REL DIV", juce::dontSendNotification);
-    releaseDivCap.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    releaseDivCap.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     releaseDivCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     releaseDivCap.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (releaseDivCap);
 
     grLabel.setText ("GR 0.0 dB", juce::dontSendNotification);
     grLabel.setJustificationType (juce::Justification::centred);
-    grLabel.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+    grLabel.setFont (sattari::brand::fontOptions (18.0f, juce::Font::bold));
     grLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (grLabel);
 
@@ -89,7 +89,7 @@ void SattariCompAudioProcessorEditor::setupSlider (juce::Slider& s, juce::Label&
     addAndMakeVisible (s);
 
     c.setText (text, juce::dontSendNotification);
-    c.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    c.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     c.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c);

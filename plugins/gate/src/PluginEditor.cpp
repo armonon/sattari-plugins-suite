@@ -53,7 +53,7 @@ SattariGateAudioProcessorEditor::SattariGateAudioProcessorEditor (SattariGateAud
     auto styleCap = [this] (juce::Label& l, const juce::String& text)
     {
         l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
         l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
         l.setJustificationType (juce::Justification::centredLeft);
         addAndMakeVisible (l);
@@ -74,7 +74,7 @@ SattariGateAudioProcessorEditor::SattariGateAudioProcessorEditor (SattariGateAud
 
     grLabel.setText ("GR 0.0 dB", juce::dontSendNotification);
     grLabel.setJustificationType (juce::Justification::centred);
-    grLabel.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+    grLabel.setFont (sattari::brand::fontOptions (18.0f, juce::Font::bold));
     grLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (grLabel);
 
@@ -105,7 +105,7 @@ void SattariGateAudioProcessorEditor::setupSlider (juce::Slider& s, juce::Label&
     addAndMakeVisible (s);
 
     c.setText (text, juce::dontSendNotification);
-    c.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    c.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     c.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c);

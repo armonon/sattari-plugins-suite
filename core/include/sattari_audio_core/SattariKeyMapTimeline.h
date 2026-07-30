@@ -73,7 +73,7 @@ public:
         if (! hasData())
         {
             g.setColour (juce::Colour (sattari::brand::kTextMuted));
-            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.setFont (juce::Font (sattari::brand::fontOptions (12.0f)));
             g.drawText (juce::String::fromUTF8 ("Scan a track to map its key changes \xe2\x80\x94 then Use Key Map follows them."),
                         getLocalBounds(), juce::Justification::centred);
             return;
@@ -103,7 +103,7 @@ public:
             if (x1 - x0 > 44)
             {
                 g.setColour (col);
-                g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+                g.setFont (juce::Font (sattari::brand::fontOptions (11.0f, juce::Font::bold)));
                 g.drawText (keyName (segs[i].root, segs[i].scale),
                             juce::Rectangle<int> (x0 + 4, 0, x1 - x0 - 6, labelH),
                             juce::Justification::centredLeft, true);
@@ -136,7 +136,7 @@ public:
 
         // --- time ruler --------------------------------------------------------
         g.setColour (juce::Colour (sattari::brand::kTextMuted).withAlpha (0.7f));
-        g.setFont (juce::Font (juce::FontOptions (9.0f)));
+        g.setFont (juce::Font (sattari::brand::fontOptions (9.0f)));
         const int ticks = juce::jlimit (2, 8, w / 90);
         for (int t = 0; t <= ticks; ++t)
         {

@@ -180,7 +180,7 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
         currentRoot() == "--"
             ? sattari::studio::colour::tertiary.withAlpha (0.6f)
             : sattari::studio::colour::text);
-    g.setFont (juce::FontOptions (
+    g.setFont (sattari::brand::fontOptions (
         (float) juce::jlimit (
             66, 104, (int) std::round (rootArea.getHeight() * 0.92f)),
         juce::Font::bold));
@@ -189,7 +189,7 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
         juce::Justification::centred, false);
 
     g.setColour (accent);
-    g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (14.0f, juce::Font::bold));
     g.drawText (
         currentMode(), key.removeFromTop (24),
         juce::Justification::centred, false);

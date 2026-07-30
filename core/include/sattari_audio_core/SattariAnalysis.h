@@ -46,13 +46,13 @@ public:
         auto area = getLocalBounds().reduced (13, 9);
 
         g.setColour (studio::colour::tertiary);
-        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
         g.drawText (label_.toUpperCase(), area.removeFromTop (14),
                     juce::Justification::centredLeft, false);
 
         auto valueRow = area.removeFromTop (32);
         g.setColour (warning_ ? studio::colour::warning : studio::colour::text);
-        g.setFont (juce::FontOptions (23.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (23.0f, juce::Font::bold));
         const auto unitWidth =
             unit_.isNotEmpty() ? juce::jmin (58, valueRow.getWidth() / 3) : 0;
         g.drawText (value_.isNotEmpty() ? value_ : "--",
@@ -62,7 +62,7 @@ public:
         {
             g.setColour (warning_ ? studio::colour::warning
                                   : studio::colour::secondary);
-            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+            g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
             g.drawText (unit_, valueRow.removeFromRight (unitWidth),
                         juce::Justification::bottomLeft, false);
         }
@@ -70,7 +70,7 @@ public:
         if (detail_.isNotEmpty())
         {
             g.setColour (studio::colour::secondary);
-            g.setFont (juce::FontOptions (9.5f));
+            g.setFont (sattari::brand::fontOptions (9.5f));
             g.drawText (detail_, area, juce::Justification::centredLeft, false);
         }
 
@@ -104,7 +104,7 @@ inline void paintWaitingState (juce::Graphics& g,
                                const juce::String& message)
 {
     g.setColour (studio::colour::tertiary);
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (sattari::brand::fontOptions (11.0f));
     g.drawText (message, bounds, juce::Justification::centred, true);
 }
 
@@ -129,7 +129,7 @@ inline void paintBipolarBar (juce::Graphics& g,
     g.fillRoundedRectangle (fill, fill.getHeight() * 0.5f);
 
     g.setColour (studio::colour::secondary);
-    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     g.drawText (label, bounds.toNearestInt(),
                 juce::Justification::centred, false);
 }

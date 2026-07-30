@@ -33,7 +33,7 @@ SattariScalerAudioProcessorEditor::SattariScalerAudioProcessorEditor (SattariSca
     addAndMakeVisible (chord);
     chordAtt = std::make_unique<ComboAttachment> (processor.parameters(), "chord", chord);
     chordCap.setText ("CHORD", juce::dontSendNotification);
-    chordCap.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    chordCap.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     chordCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (chordCap);
 
@@ -42,7 +42,7 @@ SattariScalerAudioProcessorEditor::SattariScalerAudioProcessorEditor (SattariSca
     addAndMakeVisible (octave);
     octaveAtt = std::make_unique<SliderAttachment> (processor.parameters(), "octave", octave);
     octaveCap.setText ("OCTAVE", juce::dontSendNotification);
-    octaveCap.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    octaveCap.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     octaveCap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     octaveCap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (octaveCap);

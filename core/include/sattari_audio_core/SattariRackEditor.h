@@ -90,7 +90,7 @@ public:
 
         duplicateNotice.setColour (
             juce::Label::textColourId, studio::colour::secondary);
-        duplicateNotice.setFont (juce::FontOptions (10.5f));
+        duplicateNotice.setFont (sattari::brand::fontOptions (10.5f));
         duplicateNotice.setJustificationType (juce::Justification::centredLeft);
         duplicateNotice.setAccessible (true);
         addAndMakeVisible (duplicateNotice);

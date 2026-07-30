@@ -11,7 +11,7 @@ SattariPulseAudioProcessorEditor::SattariPulseAudioProcessorEditor (SattariPulse
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    tempoLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    tempoLabel.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     tempoLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     tempoLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (tempoLabel);
@@ -44,7 +44,7 @@ void SattariPulseAudioProcessorEditor::addCombo (juce::ComboBox& box, const juce
     box.addItemList (items, 1);
     addAndMakeVisible (box);
     cap.setText (capText, juce::dontSendNotification);
-    cap.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    cap.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     cap.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     cap.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (cap);
@@ -59,7 +59,7 @@ void SattariPulseAudioProcessorEditor::addKnob (const juce::String& id, const ju
     addAndMakeVisible (s); knobs.add (s);
     auto* c = new juce::Label();
     c->setText (cap, juce::dontSendNotification);
-    c->setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    c->setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     c->setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     c->setJustificationType (juce::Justification::centred);
     addAndMakeVisible (c); caps.add (c);

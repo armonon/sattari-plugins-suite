@@ -11,7 +11,7 @@ SattariChopAudioProcessorEditor::SattariChopAudioProcessorEditor (SattariChopAud
     addAndMakeVisible (title);
     addAndMakeVisible (subtitle);
 
-    statusLabel.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    statusLabel.setFont (sattari::brand::fontOptions (11.5f, juce::Font::bold));
     statusLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     statusLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (statusLabel);
@@ -209,7 +209,7 @@ void SattariChopAudioProcessorEditor::drawWaveform (juce::Graphics& g, juce::Rec
     if (src == nullptr)
     {
         g.setColour (juce::Colour (sattari::brand::kTextMuted));
-        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
         g.drawText ("drop an audio file here", area, juce::Justification::centred);
         return;
     }
@@ -255,7 +255,7 @@ void SattariChopAudioProcessorEditor::paint (juce::Graphics& g)
     drawWaveform (g, waveformArea);
 
     g.setColour (juce::Colours::white.withAlpha (0.85f));
-    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     for (auto* s : { &sensitivitySlider, &outputSlider })
         g.drawText (s->getName(), s->getBounds().withHeight (16).translated (0, -15), juce::Justification::centred);
 }

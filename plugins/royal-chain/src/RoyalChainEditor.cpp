@@ -189,7 +189,7 @@ void RoyalChainAudioProcessorEditor::drawChainFlow (juce::Graphics& g, juce::Rec
     const auto accent = juce::Colour (sattari::brand::kAccent);
     const int  gap    = 14;                       // room for the connectors
     const int  blockW = (area.getWidth() - gap * 8) / 9;
-    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (11.5f, juce::Font::bold));
 
     juce::Rectangle<float> prev;
     for (int i = 0; i < 9; ++i)
@@ -229,7 +229,7 @@ void RoyalChainAudioProcessorEditor::drawSliderLabel (juce::Graphics& g, const j
     const bool isTune = (slider.getName() == "Tune");
     g.setColour (isTune ? juce::Colour (sattari::brand::kAccent)
                         : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.88f));
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     auto b = slider.getBounds();
     g.drawText (slider.getName(), b.withHeight (18).translated (0, -14), juce::Justification::centred);
 }

@@ -8,7 +8,7 @@ void styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
     l.setJustificationType (juce::Justification::centred);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (kTextMuted));
 }
 
@@ -22,7 +22,7 @@ juce::Rectangle<int> drawSection (juce::Graphics& g, juce::Rectangle<int> r, con
     g.drawRoundedRectangle (rf.reduced (0.5f), 10.0f, 1.0f);
 
     g.setColour (juce::Colour (kTextFaint));
-    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     g.drawText (name, r.reduced (12, 8).removeFromTop (14), juce::Justification::topLeft);
     return r;
 }
@@ -53,7 +53,7 @@ SattariGlassChoirAudioProcessorEditor::SattariGlassChoirAudioProcessorEditor (Sa
     characterK.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 90, 18);
     characterAnchors.setText ("HUMAN      MASSIVE      DESTROYED", juce::dontSendNotification);
     characterAnchors.setJustificationType (juce::Justification::centred);
-    characterAnchors.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+    characterAnchors.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
     characterAnchors.setColour (juce::Label::textColourId, juce::Colour (kTextFaint));
     addAndMakeVisible (characterAnchors);
     addChoice ("mode", "MODE", SattariGlassChoirAudioProcessor::modeChoices(), modeC);
@@ -141,7 +141,7 @@ SattariGlassChoirAudioProcessorEditor::SattariGlassChoirAudioProcessorEditor (Sa
     // --- Live meters ----------------------------------------------------------
     for (auto* m : { &leadMeter, &choirMeter, &atmosMeter })
     {
-        m->setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        m->setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
         m->setColour (juce::Label::textColourId, juce::Colour (kTextMuted));
         m->setJustificationType (juce::Justification::centred);
         addAndMakeVisible (*m);
