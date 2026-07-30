@@ -226,6 +226,11 @@ private:
         void setArrangement (const juce::File& masterFile,
                              const std::array<juce::File, numLanes>& deckFiles,
                              juce::String statusLine);
+        // Load the canonical arrangement produced at Stop, including its performed
+        // clip regions, input lane, and captured automation. Returns false when the
+        // document is missing or invalid so callers can fall back to raw WAV lanes.
+        bool setArrangementFromCapture (const juce::File& arrangementFile,
+                                        juce::String statusLine);
         void setDeckAutomation (std::array<DeckAutomation, numLanes> automation);
         void clearArrangement();
         bool hasArrangement() const noexcept { return mode == Mode::Finished; }
@@ -331,9 +336,11 @@ private:
         }
         float getLaneGainDb (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? laneGainDb[(size_t) lane] : 0.0f; }
         void  setLaneGainDb (int lane, float db) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneGainDb[(size_t) lane] = juce::jlimit (-60.0f, 6.0f, db); repaint(); } }
-        // ---- Editable automation: one draggable breakpoint curve per deck lane ----
-        // Targets: 0 = channel fader, 1 = filter, 2 = pitch, 3 = vocals FX send.
-        static constexpr int numAutoTargets = 4;
+        // ---- Editable automation: sample-accurate post-capture lane volume ----
+        // The captured deck render already contains live pitch/filter/FX, so exposing
+        // those as if they were non-destructive would double-process the take. More
+        // targets return when capture has a true pre-insert source tap.
+        static constexpr int numAutoTargets = 1;
         struct EditAutomation
         {
             bool visible = false;
@@ -345,6 +352,11 @@ private:
         // Interpolated value at a play position; returns -1 when the lane's curve
         // is hidden or empty. targetOut receives the curve's parameter target.
         float automationValueAt (int lane, double seconds, int& targetOut) const;
+        const EditAutomation* editAutomationForLane (int lane) const noexcept
+        {
+            return juce::isPositiveAndBelow (lane, numLanes)
+                       ? &editAuto[(size_t) lane] : nullptr;
+        }
 
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
         bool  isLaneSoloed (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneSoloed[(size_t) lane]; }
@@ -382,6 +394,7 @@ private:
         juce::AudioThumbnailCache* thumbnailCache = nullptr;
         std::unique_ptr<juce::AudioThumbnail> masterThumb;
         std::array<std::unique_ptr<juce::AudioThumbnail>, numLanes> deckThumbs;
+        std::array<juce::String, numLanes> laneDisplayNames;
         std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> clipThumbs;   // per imported file
         juce::AudioThumbnail* thumbForClip (int laneIndex, const LaneClip& clip) const;
         void ensureClipThumb (const juce::File& file);
@@ -614,6 +627,7 @@ private:
     void showDiagnostics();
     void showOnboarding (bool force = false);
     void showExportCenter();
+    void exportArrangementMixdown();
     void exportSessionPackage();
     juce::String buildDiagnosticsReport() const;
     static juce::File onboardingMarkerFile();
@@ -624,7 +638,9 @@ private:
     bool restoringSessionUndo = false;
     static juce::File sessionSnapshotsDirectory();
     juce::ValueTree makeProjectState() const;
-    void restoreProjectState (const juce::ValueTree& root, const juce::String& sourceLabel);
+    void restoreProjectState (
+        const juce::ValueTree& root, const juce::String& sourceLabel,
+        const juce::File& projectFile = {});
     void scheduleRecoveryAutosave();
     void offerRecoveryAutosave();
     static juce::File recoveryAutosaveFile();

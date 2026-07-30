@@ -1,6 +1,6 @@
 #pragma once
 
-// EventStream — schema v1, implementing docs/event-stream-schema.md (ACCEPTED).
+// EventStream — schema v2, implementing docs/event-stream-schema.md (ACCEPTED).
 //
 // The live surface writes this stream; the arrangement editor is a deterministic
 // replay of it. It is the project's one-way door, so the decisions it encodes are
@@ -172,7 +172,11 @@ struct Event
 
 // ── Storage (schema §7) ──────────────────────────────────────────────────────
 inline constexpr std::uint32_t kMagic         = 0x56454453;   // "SDEV" little-endian
-inline constexpr std::uint16_t kSchemaVersion = 1;
+// v2 changes channel/stem scope.channel from a list position to a permanent
+// ChannelId. The binary record shape is unchanged; v1 readers therefore remain
+// mechanically parseable, but callers must migrate their positional scopes using
+// the channel-slot table from the accompanying saved state.
+inline constexpr std::uint16_t kSchemaVersion = 2;
 
 struct Header
 {
@@ -468,5 +472,39 @@ public:
         return LoadResult::ok;
     }
 };
+
+// Convert a parsed v1 stream to v2 identity semantics. `channelIdsBySlot` comes
+// from the saved <CHANNELS> state in slot order. Insert scopes remain positional
+// by design and master scopes have no channel target.
+inline bool migrateV1PositionalScopes (
+    const Header& sourceHeader,
+    std::vector<Event>& events,
+    const std::vector<ChannelId>& channelIdsBySlot)
+{
+    if (sourceHeader.schemaVersion >= 2)
+        return true;
+
+    bool complete = true;
+    for (auto& event : events)
+    {
+        if (event.scope.kind != ScopeKind::channel
+            && event.scope.kind != ScopeKind::stem)
+            continue;
+
+        const auto oldPosition = event.scope.channel;
+        if (oldPosition < 0
+            || oldPosition >= (ChannelId) channelIdsBySlot.size()
+            || channelIdsBySlot[(size_t) oldPosition] < 0)
+        {
+            // Never guess at another target. An unresolved legacy action is made
+            // explicitly targetless so applyEvent() safely ignores it.
+            event.scope.channel = -1;
+            complete = false;
+            continue;
+        }
+        event.scope.channel = channelIdsBySlot[(size_t) oldPosition];
+    }
+    return complete;
+}
 
 } // namespace stemdeck::events

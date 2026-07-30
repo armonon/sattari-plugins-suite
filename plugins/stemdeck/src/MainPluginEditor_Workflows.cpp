@@ -1,4 +1,5 @@
 #include "MainPluginEditor.h"
+#include <algorithm>
 
 namespace
 {
@@ -35,6 +36,12 @@ juce::Rectangle<int> centredAnchor (juce::Component& owner)
     return owner.getLocalBounds().withSizeKeepingCentre (120, 40);
 }
 
+struct PackageFile
+{
+    juce::File source;
+    juce::String relativePath;
+};
+
 class SessionPackageJob final : public juce::ThreadPoolJob
 {
 public:
@@ -42,14 +49,14 @@ public:
                        juce::String projectXml,
                        juce::String sourceManifest,
                        juce::String diagnostics,
-                       std::vector<juce::File> recordings,
+                       std::vector<PackageFile> packageFiles,
                        std::function<void (bool, juce::File)> completionCallback)
         : ThreadPoolJob ("StemDeck session package"),
           directory (std::move (packageDirectory)),
           project (std::move (projectXml)),
           sources (std::move (sourceManifest)),
           report (std::move (diagnostics)),
-          files (std::move (recordings)),
+          files (std::move (packageFiles)),
           completion (std::move (completionCallback))
     {
     }
@@ -64,20 +71,13 @@ public:
         ok = directory.getChildFile ("Sources.txt").replaceWithText (sources) && ok;
         ok = directory.getChildFile ("Diagnostics.txt").replaceWithText (report) && ok;
 
-        const auto recordingsDirectory = directory.getChildFile ("Recordings");
-        for (const auto& source : files)
+        for (const auto& item : files)
         {
-            if (shouldExit())
-                return jobHasFinished;
-            if (! source.existsAsFile())
-                continue;
-            recordingsDirectory.createDirectory();
-            auto destination = recordingsDirectory.getChildFile (source.getFileName());
-            for (int copy = 2; destination.existsAsFile(); ++copy)
-                destination = recordingsDirectory.getChildFile (
-                    source.getFileNameWithoutExtension() + "-" + juce::String (copy)
-                    + source.getFileExtension());
-            ok = source.copyFileTo (destination) && ok;
+            if (shouldExit()) return jobHasFinished;
+            if (! item.source.existsAsFile()) continue;
+            const auto target = directory.getChildFile (item.relativePath);
+            target.getParentDirectory().createDirectory();
+            ok = item.source.copyFileTo (target) && ok;
         }
 
         juce::MessageManager::callAsync ([callback = completion, folder = directory, ok]
@@ -91,8 +91,292 @@ public:
 private:
     juce::File directory;
     juce::String project, sources, report;
-    std::vector<juce::File> files;
+    std::vector<PackageFile> files;
     std::function<void (bool, juce::File)> completion;
+};
+
+struct MixdownClip
+{
+    juce::File file;
+    double timelineStart = 0.0;
+    double sourceStart = 0.0;
+    double length = 0.0;
+    double fadeIn = 0.0;
+    double fadeOut = 0.0;
+    float gain = 1.0f;
+    std::vector<std::pair<double, float>> gainAutomation;
+};
+
+struct MixdownMasterSettings
+{
+    float gainDb = 0.0f;
+    float fxX = 0.5f;
+    float fxY = 0.0f;
+    bool smartOn = false;
+    int smartMode = 0;
+    float smartAmount = 0.0f;
+    float limiterCeilingDb = -1.0f;
+};
+
+class ArrangementMixdownJob final : public juce::ThreadPoolJob
+{
+public:
+    ArrangementMixdownJob (
+        juce::File destinationFile, double outputSampleRate,
+        std::vector<MixdownClip> sourceClips,
+        std::vector<MidiClipPlayer::SourceNote> sourceMidi,
+        double sourceMidiBpm,
+        std::array<float, MidiClipPlayer::numLanes> sourceMidiGains,
+        MixdownMasterSettings sourceMaster,
+        std::function<void (bool, juce::File, float)> completionCallback)
+        : ThreadPoolJob ("StemDeck arrangement mixdown"),
+          destination (std::move (destinationFile)),
+          sampleRate (outputSampleRate > 0.0 ? outputSampleRate : 48000.0),
+          clips (std::move (sourceClips)),
+          midiNotes (std::move (sourceMidi)),
+          midiBpm (sourceMidiBpm),
+          midiGains (sourceMidiGains),
+          master (sourceMaster),
+          completion (std::move (completionCallback))
+    {
+    }
+
+    JobStatus runJob() override
+    {
+        struct RuntimeClip
+        {
+            MixdownClip spec;
+            std::unique_ptr<juce::AudioFormatReader> reader;
+            juce::int64 timelineStart = 0, timelineLength = 0;
+        };
+
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+       #if JUCE_USE_MP3AUDIOFORMAT
+        formats.registerFormat (new juce::MP3AudioFormat(), true);
+       #endif
+
+        std::vector<RuntimeClip> runtime;
+        runtime.reserve (clips.size());
+        juce::int64 totalSamples = 0;
+        for (const auto& clip : clips)
+        {
+            auto reader = std::unique_ptr<juce::AudioFormatReader> (
+                formats.createReaderFor (clip.file));
+            if (reader == nullptr || reader->sampleRate <= 0.0
+                || clip.length <= 0.0)
+                continue;
+            RuntimeClip r;
+            r.spec = clip;
+            r.reader = std::move (reader);
+            r.timelineStart = (juce::int64) std::llround (
+                clip.timelineStart * sampleRate);
+            r.timelineLength = (juce::int64) std::llround (
+                clip.length * sampleRate);
+            totalSamples = juce::jmax (
+                totalSamples, r.timelineStart + r.timelineLength);
+            runtime.push_back (std::move (r));
+        }
+
+        MidiClipPlayer midiPlayer;
+        midiPlayer.prepare (sampleRate, blockSize);
+        midiPlayer.setNotes (midiNotes, midiBpm);
+        for (int lane = 0; lane < MidiClipPlayer::numLanes; ++lane)
+            midiPlayer.setLaneGain (lane, midiGains[(size_t) lane]);
+        totalSamples = juce::jmax (
+            totalSamples,
+            (juce::int64) std::llround (
+                (midiPlayer.lengthSeconds() + (midiNotes.empty() ? 0.0 : 0.5))
+                * sampleRate));
+
+        if ((runtime.empty() && midiNotes.empty())
+            || totalSamples <= 0 || shouldExit())
+            return finish (false, 0.0f);
+
+        juce::AudioBuffer<float> block (2, blockSize);
+        MasterFx masterFx;
+        SmartMaster smartMaster;
+        masterFx.prepare (sampleRate, blockSize, 2);
+        smartMaster.prepare (sampleRate);
+
+        auto automationGainAt = [] (
+            const std::vector<std::pair<double, float>>& points,
+            double seconds)
+        {
+            if (points.empty()) return 1.0f;
+            if (seconds <= points.front().first) return points.front().second;
+            if (seconds >= points.back().first)  return points.back().second;
+            const auto next = std::lower_bound (
+                points.begin(), points.end(), seconds,
+                [] (const auto& point, double time)
+                {
+                    return point.first < time;
+                });
+            const auto& b = *next;
+            const auto& a = *(next - 1);
+            const double span = juce::jmax (1.0e-9, b.first - a.first);
+            const float alpha = (float) ((seconds - a.first) / span);
+            return a.second + alpha * (b.second - a.second);
+        };
+
+        auto renderBlock = [&] (juce::int64 blockStart, int count)
+        {
+            block.clear();
+            const juce::int64 blockEnd = blockStart + count;
+            for (auto& r : runtime)
+            {
+                const juce::int64 clipEnd =
+                    r.timelineStart + r.timelineLength;
+                const juce::int64 from =
+                    juce::jmax (blockStart, r.timelineStart);
+                const juce::int64 to =
+                    juce::jmin (blockEnd, clipEnd);
+                if (to <= from) continue;
+
+                const double sourceRate = r.reader->sampleRate;
+                const double ratio = sourceRate / sampleRate;
+                const juce::int64 sinceClip = from - r.timelineStart;
+                const double firstSource =
+                    r.spec.sourceStart * sourceRate
+                    + (double) sinceClip * ratio;
+                const int outputCount = (int) (to - from);
+                const juce::int64 readStart =
+                    juce::jmax<juce::int64> (
+                        0, (juce::int64) std::floor (firstSource));
+                const int readCount = juce::jmax (
+                    2, (int) std::ceil (
+                           (double) outputCount * ratio) + 3);
+                const int sourceChannels =
+                    juce::jlimit (1, 8, (int) r.reader->numChannels);
+                juce::AudioBuffer<float> source (
+                    sourceChannels, readCount);
+                source.clear();
+                if (! r.reader->read (
+                        &source, 0, readCount, readStart, true, true))
+                    continue;
+
+                for (int n = 0; n < outputCount; ++n)
+                {
+                    const double absoluteSource =
+                        firstSource + (double) n * ratio;
+                    const double local = absoluteSource - (double) readStart;
+                    const int s0 = juce::jlimit (
+                        0, readCount - 1, (int) std::floor (local));
+                    const int s1 = juce::jmin (readCount - 1, s0 + 1);
+                    const float frac = (float) (local - (double) s0);
+                    const double timeInClip =
+                        (double) (sinceClip + n) / sampleRate;
+                    float gain = r.spec.gain;
+                    gain *= automationGainAt (
+                        r.spec.gainAutomation,
+                        (double) (from + n) / sampleRate);
+                    if (r.spec.fadeIn > 0.0
+                        && timeInClip < r.spec.fadeIn)
+                        gain *= (float) (timeInClip / r.spec.fadeIn);
+                    if (r.spec.fadeOut > 0.0
+                        && timeInClip > r.spec.length - r.spec.fadeOut)
+                        gain *= (float) juce::jlimit (
+                            0.0, 1.0,
+                            (r.spec.length - timeInClip)
+                                / r.spec.fadeOut);
+
+                    const int dest = (int) (from - blockStart) + n;
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        const int sourceCh =
+                            juce::jmin (ch, sourceChannels - 1);
+                        const float* data =
+                            source.getReadPointer (sourceCh);
+                        block.addSample (
+                            ch, dest,
+                            (data[s0] + frac * (data[s1] - data[s0]))
+                                * gain);
+                    }
+                }
+            }
+            midiPlayer.process (block, blockStart, count);
+            masterFx.process (block, master.fxX, master.fxY);
+            block.applyGain (
+                juce::Decibels::decibelsToGain (master.gainDb));
+            smartMaster.process (
+                block, master.smartMode,
+                master.smartOn ? master.smartAmount : 0.0f);
+        };
+
+        // First pass measures the edited mix. Do not boost quiet material; only
+        // protect exports that exceed a -1 dBFS ceiling.
+        float peak = 0.0f;
+        for (juce::int64 pos = 0; pos < totalSamples;
+             pos += blockSize)
+        {
+            if (shouldExit()) return finish (false, peak);
+            const int count = (int) juce::jmin<juce::int64> (
+                blockSize, totalSamples - pos);
+            renderBlock (pos, count);
+            peak = juce::jmax (
+                peak, juce::jmax (
+                    block.getMagnitude (0, count),
+                    block.getMagnitude (1, count)));
+        }
+        const float target = juce::Decibels::decibelsToGain (
+            master.limiterCeilingDb);
+        const float outputGain =
+            peak > target ? target / peak : 1.0f;
+
+        destination.getParentDirectory().createDirectory();
+        destination.deleteFile();
+        auto stream = destination.createOutputStream();
+        if (stream == nullptr)
+            return finish (false, peak);
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            wav.createWriterFor (
+                stream.get(), sampleRate, 2, 24, {}, 0));
+        if (writer == nullptr)
+            return finish (false, peak);
+        stream.release();
+
+        // The measurement and write passes must begin from identical state.
+        masterFx.reset();
+        smartMaster.reset();
+        midiPlayer.allNotesOff();
+        for (juce::int64 pos = 0; pos < totalSamples;
+             pos += blockSize)
+        {
+            if (shouldExit()) return finish (false, peak);
+            const int count = (int) juce::jmin<juce::int64> (
+                blockSize, totalSamples - pos);
+            renderBlock (pos, count);
+            block.applyGain (0, count, outputGain);
+            if (! writer->writeFromAudioSampleBuffer (
+                    block, 0, count))
+                return finish (false, peak);
+        }
+        writer.reset();
+        return finish (destination.existsAsFile(), peak * outputGain);
+    }
+
+private:
+    JobStatus finish (bool ok, float peak)
+    {
+        juce::MessageManager::callAsync (
+            [callback = completion, ok, file = destination, peak]
+            {
+                if (callback) callback (ok, file, peak);
+            });
+        return jobHasFinished;
+    }
+
+    juce::File destination;
+    double sampleRate = 48000.0;
+    static constexpr int blockSize = 4096;
+    std::vector<MixdownClip> clips;
+    std::vector<MidiClipPlayer::SourceNote> midiNotes;
+    double midiBpm = 120.0;
+    std::array<float, MidiClipPlayer::numLanes> midiGains {};
+    MixdownMasterSettings master;
+    std::function<void (bool, juce::File, float)> completion;
 };
 } // namespace
 
@@ -345,6 +629,14 @@ void MainPluginEditor::showExportCenter()
         if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
             box->dismiss();
     };
+    panelPtr->onMixdown = [safe, dismiss]
+    {
+        dismiss();
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr) safe->exportArrangementMixdown();
+        });
+    };
     panelPtr->onPackage = [safe, dismiss]
     {
         dismiss();
@@ -381,6 +673,157 @@ void MainPluginEditor::showExportCenter()
         std::move (panel), centredAnchor (*this), this);
 }
 
+void MainPluginEditor::exportArrangementMixdown()
+{
+    const auto& lanes = arrangementView.getClips();
+    std::vector<MixdownClip> clips;
+    for (int lane = 0; lane < ArrangementRecorderView::numLanes;
+         ++lane)
+    {
+        if (! arrangementView.laneAudible (lane))
+            continue;
+        const float laneGain =
+            arrangementView.laneGainLinear (lane);
+        for (const auto& clip : lanes[(size_t) lane])
+        {
+            if (! clip.file.existsAsFile()
+                || clip.durationSeconds <= 0.0)
+                continue;
+            const double start = juce::jlimit (
+                0.0, clip.durationSeconds,
+                clip.trimStartSeconds);
+            const double end = juce::jlimit (
+                start, clip.durationSeconds,
+                clip.trimEndSeconds > 0.0
+                    ? clip.trimEndSeconds : clip.durationSeconds);
+            if (end - start <= 0.001)
+                continue;
+            MixdownClip mix {
+                clip.file, clip.timelineStartSeconds, start,
+                end - start, clip.fadeInSeconds,
+                clip.fadeOutSeconds, laneGain, {}
+            };
+            if (const auto* automation =
+                    arrangementView.editAutomationForLane (lane);
+                automation != nullptr && automation->visible
+                    && automation->target == 0)
+                mix.gainAutomation = automation->points;
+            clips.push_back (std::move (mix));
+        }
+    }
+
+    const double midiBpm = juce::jlimit (
+        40.0, 240.0,
+        (double) processorRef.parameters()
+            .getRawParameterValue ("masterBpm")->load());
+    const double secsPerBeat = 60.0 / midiBpm;
+    std::vector<MidiClipPlayer::SourceNote> midiNotes;
+    std::array<float, MidiClipPlayer::numLanes> midiGains {};
+    midiGains.fill (1.0f);
+    for (int lane = 0;
+         lane < ArrangementRecorderView::numEditableLanes; ++lane)
+    {
+        if (! arrangementView.laneAudible (lane))
+        {
+            midiGains[(size_t) lane] = 0.0f;
+            continue;
+        }
+        midiGains[(size_t) lane] =
+            arrangementView.laneGainLinear (lane);
+        for (int clip = 0;
+             clip < arrangementView.numMidiClips (lane); ++clip)
+        {
+            const double startBeats =
+                arrangementView.midiClipStart (lane, clip)
+                / secsPerBeat;
+            for (const auto& note :
+                 arrangementView.midiClipNotes (lane, clip))
+                midiNotes.push_back ({
+                    lane, note.pitch,
+                    startBeats + note.startBeats,
+                    note.lengthBeats, note.velocity
+                });
+        }
+    }
+
+    MixdownMasterSettings master;
+    auto value = [this] (const juce::String& id, float fallback)
+    {
+        if (auto* parameter =
+                processorRef.parameters().getRawParameterValue (id))
+            return parameter->load();
+        return fallback;
+    };
+    master.gainDb = value ("master", 0.0f);
+    master.fxX = value ("masterFxX", 0.5f);
+    master.fxY = value ("masterFxY", 0.0f);
+    master.smartOn = value ("smartMasterOn", 0.0f) > 0.5f;
+    master.smartMode = (int) std::round (
+        value ("smartMasterMode", 0.0f));
+    master.smartAmount = value ("smartMasterAmount", 0.0f);
+    master.limiterCeilingDb = value ("limiterCeiling", -1.0f);
+
+    if (clips.empty() && midiNotes.empty())
+    {
+        recordStatus.setText (
+            "Nothing to export · record, import, or arrange audio first",
+            juce::dontSendNotification);
+        return;
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Export final StemDeck mix",
+        juce::File::getSpecialLocation (
+            juce::File::userMusicDirectory)
+            .getChildFile ("StemDeck Final Mix.wav"),
+        "*.wav");
+    chooser->launchAsync (
+        juce::FileBrowserComponent::saveMode
+            | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         chooser, clips = std::move (clips),
+         midiNotes = std::move (midiNotes), midiBpm, midiGains, master]
+        (const juce::FileChooser& fc) mutable
+        {
+            if (safe == nullptr) return;
+            auto destination = fc.getResult();
+            if (destination == juce::File()) return;
+            destination = destination.withFileExtension ("wav");
+            safe->recordStatus.setText (
+                "Rendering final mix…",
+                juce::dontSendNotification);
+            safe->uiWorkPool.addJob (
+                new ArrangementMixdownJob (
+                    destination,
+                    safe->processorRef.getRecordingSampleRate(),
+                    std::move (clips),
+                    std::move (midiNotes),
+                    midiBpm,
+                    midiGains,
+                    master,
+                    [safe] (bool ok, juce::File file, float peak)
+                    {
+                        if (safe == nullptr) return;
+                        safe->recordStatus.setText (
+                            ok
+                                ? "Exported final mix: "
+                                      + file.getFileName()
+                                      + " · peak "
+                                      + juce::String (
+                                          juce::Decibels::gainToDecibels (
+                                              juce::jmax (
+                                                  peak, 1.0e-9f)),
+                                          1)
+                                      + " dBFS"
+                                : "Final mix export failed",
+                            juce::dontSendNotification);
+                        if (ok) file.revealToUser();
+                    }),
+                true);
+        });
+}
+
 void MainPluginEditor::exportSessionPackage()
 {
     auto chooser = std::make_shared<juce::FileChooser> (
@@ -397,14 +840,6 @@ void MainPluginEditor::exportSessionPackage()
             const auto parent = fc.getResult();
             if (! parent.isDirectory())
                 return;
-            auto xml = safe->makeProjectState().createXml();
-            if (xml == nullptr)
-            {
-                safe->recordStatus.setText ("Could not serialize the session",
-                                            juce::dontSendNotification);
-                return;
-            }
-
             const auto stamp = juce::Time::getCurrentTime().formatted (
                 "%Y-%m-%d_%H-%M-%S");
             const auto destination = parent.getChildFile (
@@ -413,7 +848,19 @@ void MainPluginEditor::exportSessionPackage()
             juce::String manifest (
                 "StemDeck Source Manifest\n"
                 "========================\n"
-                "Source audio is referenced, not duplicated. Recordings are copied.\n\n");
+                "Source audio is copied into Media and recordings into Recordings.\n"
+                "Session.stemdeck contains an exact package media map, so the folder "
+                "can be moved and reopened without repairing paths.\n\n");
+            std::vector<juce::File> sourceMedia;
+            auto addUniqueSource = [&sourceMedia] (
+                const juce::File& file)
+            {
+                if (file.existsAsFile()
+                    && std::find (
+                           sourceMedia.begin(), sourceMedia.end(), file)
+                           == sourceMedia.end())
+                    sourceMedia.push_back (file);
+            };
             for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
             {
                 const auto path = safe->processorRef.getDeckPath (deck);
@@ -423,7 +870,31 @@ void MainPluginEditor::exportSessionPackage()
                          << (path.isNotEmpty() && ! juce::File (path).existsAsFile()
                                  ? " [MISSING]" : "")
                          << "\n";
+                if (path.isNotEmpty())
+                    addUniqueSource (juce::File (path));
+                for (int stem = 1;
+                     stem < DeckPlayer::numStemLanes; ++stem)
+                {
+                    const auto stemPath =
+                        safe->processorRef.getDeckStemPath (
+                            deck, stem);
+                    if (stemPath.isNotEmpty())
+                        addUniqueSource (juce::File (stemPath));
+                }
             }
+            const auto& processorState =
+                safe->processorRef.parameters().state;
+            for (int pad = 0; pad < PadBank::numPads; ++pad)
+            {
+                const auto path = processorState.getProperty (
+                    "pad" + juce::String (pad + 1) + "File")
+                                      .toString();
+                if (path.isNotEmpty())
+                    addUniqueSource (juce::File (path));
+            }
+            for (const auto& lane : safe->arrangementView.getClips())
+                for (const auto& clip : lane)
+                    addUniqueSource (clip.file);
 
             std::vector<juce::File> recordings;
             auto addUnique = [&recordings] (const juce::File& file)
@@ -440,12 +911,58 @@ void MainPluginEditor::exportSessionPackage()
             for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
                 addUnique (safe->processorRef.getLastDeckRecordingFile (deck));
 
+            std::vector<PackageFile> packageFiles;
+            juce::StringArray usedRelativePaths;
+            auto plan = [&packageFiles, &usedRelativePaths] (
+                const std::vector<juce::File>& sources,
+                const juce::String& folder)
+            {
+                for (const auto& source : sources)
+                {
+                    juce::String name = source.getFileName();
+                    juce::String relative = folder + "/" + name;
+                    for (int copy = 2;
+                         usedRelativePaths.contains (relative); ++copy)
+                    {
+                        name = source.getFileNameWithoutExtension()
+                               + "-" + juce::String (copy)
+                               + source.getFileExtension();
+                        relative = folder + "/" + name;
+                    }
+                    usedRelativePaths.add (relative);
+                    packageFiles.push_back ({ source, relative });
+                }
+            };
+            plan (sourceMedia, "Media");
+            plan (recordings, "Recordings");
+
+            auto projectState = safe->makeProjectState();
+            juce::ValueTree mediaMap ("PACKAGE_MEDIA");
+            for (const auto& item : packageFiles)
+            {
+                juce::ValueTree entry ("FILE");
+                entry.setProperty (
+                    "original", item.source.getFullPathName(), nullptr);
+                entry.setProperty (
+                    "relative", item.relativePath, nullptr);
+                mediaMap.appendChild (entry, nullptr);
+            }
+            projectState.appendChild (mediaMap, nullptr);
+            auto xml = projectState.createXml();
+            if (xml == nullptr)
+            {
+                safe->recordStatus.setText ("Could not serialize the session",
+                                            juce::dontSendNotification);
+                return;
+            }
+
             safe->recordStatus.setText ("Packaging session…",
                                         juce::dontSendNotification);
             safe->uiWorkPool.addJob (
                 new SessionPackageJob (
                     destination, xml->toString(), std::move (manifest),
-                    safe->buildDiagnosticsReport(), std::move (recordings),
+                    safe->buildDiagnosticsReport(),
+                    std::move (packageFiles),
                     [safe] (bool ok, juce::File folder)
                     {
                         if (safe == nullptr)

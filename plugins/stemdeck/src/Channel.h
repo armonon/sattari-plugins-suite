@@ -96,9 +96,10 @@ public:
         if (chans <= 0)
             return;
 
-        // Grow-only: only resizes if the host block exceeded the prepared size (rare).
+        // A host that changes block size must call prepareToPlay again. Never resize
+        // here: AudioBuffer::setSize can allocate on the real-time thread.
         if (scratch.getNumSamples() < ctx.numSamples)
-            scratch.setSize (scratch.getNumChannels(), ctx.numSamples, false, false, true);
+            return;
 
         scratch.clear (0, ctx.numSamples);
         body->processInto (scratch, ctx);
@@ -118,7 +119,8 @@ public:
         // Muted, or something else is soloed and this isn't it -> contribute nothing.
         // The body still ran above, so meters stay live and un-soloing is click-free.
         if (frameMuted.load (std::memory_order_relaxed)
-            || (ctx.anySoloed && ! soloed.load (std::memory_order_relaxed)))
+            || (ctx.anySoloed && ! soloed.load (std::memory_order_relaxed))
+            || ! body->contributesToMonitorMix())
             busGain = 0.0f;
 
         if (busGain <= 0.0f)

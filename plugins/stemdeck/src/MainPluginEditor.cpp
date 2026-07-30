@@ -869,7 +869,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (mixerButton);
 
-    // ── Four-workspace nav: LIBRARY / PERFORM / MIX / ARRANGE ───────────────
+    // ── Four-workspace nav: SETS / LIVE / MIX / STUDIO ──────────────────────
     // Icon + label are painted in paint(); buttons are naked click targets that
     // only show a subtle highlight when active.
     for (juce::Button* b : { (juce::Button*) &toggleLibraryButton, (juce::Button*) &navDecksButton,
@@ -878,14 +878,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         b->setButtonText ({});
         b->getProperties().set ("navNaked", true);
     }
-    toggleLibraryButton.setTitle ("Library");
-    toggleLibraryButton.setDescription ("Search and prepare music");
-    navDecksButton.setTitle ("Perform");
-    navDecksButton.setDescription ("Decks, stems, cues, and performance pads");
+    toggleLibraryButton.setTitle ("Sets");
+    toggleLibraryButton.setDescription ("Find music and prepare a live set");
+    navDecksButton.setTitle ("Live");
+    navDecksButton.setDescription ("Perform with decks, inputs, stems, cues, and pads");
     mixerButton.setTitle ("Mix");
     mixerButton.setDescription ("Channel strips, routing, effects, and metering");
-    pianoRollButton.setTitle ("Arrange");
-    pianoRollButton.setDescription ("Edit captured takes and clips");
+    pianoRollButton.setTitle ("Studio");
+    pianoRollButton.setDescription ("Arrange, refine, mix, and export captured takes");
     setupButton (navDecksButton);
     navDecksButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.55f));
     navDecksButton.onClick = [this]
@@ -1039,10 +1039,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     mixerView.getRoute = [this] (int i)
     {
+        const int slot = processorRef.getChannelSlot (i);
         if (processorRef.getChannelType (i) != ChannelType::trackDeck
-            || i >= MainPluginProcessor::numDecks)
+            || ! juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
             return juce::String ("CENTER");
-        const int side = processorRef.getDeckCfSide (i);
+        const int side = processorRef.getDeckCfSide (slot);
         return side == 0 ? juce::String ("A / C BUS")
                          : side == 2 ? juce::String ("B / D BUS")
                                      : juce::String ("CENTER");
@@ -1063,10 +1064,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     mixerView.getGainDb = [this] (int i)
     {
+        const int slot = processorRef.getChannelSlot (i);
         if (processorRef.getChannelType (i) == ChannelType::trackDeck
-            && i < MainPluginProcessor::numDecks)
+            && juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
             if (auto* value = processorRef.parameters().getRawParameterValue (
-                    deckPrefix (i) + "Volume"))
+                    deckPrefix (slot) + "Volume"))
                 return value->load();
         if (auto* input = dynamic_cast<InputBody*> (processorRef.getChannelBody (i)))
             return juce::Decibels::gainToDecibels (input->getInputGain(), -60.0f);
@@ -1077,11 +1079,12 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     mixerView.setGainDb = [this] (int i, float db)
     {
+        const int slot = processorRef.getChannelSlot (i);
         if (processorRef.getChannelType (i) == ChannelType::trackDeck
-            && i < MainPluginProcessor::numDecks)
+            && juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
         {
             if (auto* parameter = processorRef.parameters().getParameter (
-                    deckPrefix (i) + "Volume"))
+                    deckPrefix (slot) + "Volume"))
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 (db));
             return;
         }
@@ -1390,9 +1393,21 @@ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juc
 // body types are offered; the rest are later build-order steps.
 void MainPluginEditor::showAddChannelMenu (juce::Component* target)
 {
+    std::array<bool, MainPluginProcessor::numDecks> deckSlotUsed {};
+    for (int i = 0; i < processorRef.getNumChannels(); ++i)
+    {
+        const int slot = processorRef.getChannelSlot (i);
+        if (processorRef.getChannelType (i) == ChannelType::trackDeck
+            && juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
+            deckSlotUsed[(size_t) slot] = true;
+    }
+    const bool hasFreeDeckSlot =
+        std::find (deckSlotUsed.begin(), deckSlotUsed.end(), false)
+            != deckSlotUsed.end();
+
     juce::PopupMenu m;
     m.addSectionHeader ("Add channel");
-    m.addItem (1, "Track Deck");
+    m.addItem (1, "Track Deck", hasFreeDeckSlot);
     m.addItem (2, "Input (mic / line)");
     m.addItem (3, "MIDI Instrument");
 
@@ -2018,6 +2033,9 @@ void MainPluginEditor::toggleRecording()
 
         recordStatus.setText (savedMsg, juce::dontSendNotification);
         loadLastArrangementIntoView (savedMsg);
+        // Recording is the handoff boundary: put the completed take directly in
+        // front of the artist, ready to trim, arrange, mix, and export.
+        selectPrimarySurface (PrimarySurface::arranger);
         return;
     }
 
@@ -2190,6 +2208,11 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.fadeInSeconds        = clip.fadeInSeconds;
             spec.fadeOutSeconds       = clip.fadeOutSeconds;
             spec.lane                 = lane;
+            if (const auto* automation =
+                    arrangementView.editAutomationForLane (lane);
+                automation != nullptr && automation->visible
+                    && automation->target == 0)
+                spec.gainAutomation = automation->points;
             specs.push_back (spec);
         }
     }
@@ -2273,9 +2296,12 @@ juce::ValueTree MainPluginEditor::makeProjectState() const
 }
 
 void MainPluginEditor::restoreProjectState (const juce::ValueTree& root,
-                                            const juce::String& sourceLabel)
+                                            const juce::String& sourceLabel,
+                                            const juce::File& projectFile)
 {
-    const int fileVersion = (int) root.getProperty ("projectVersion", 1);
+    auto resolvedRoot = root.createCopy();
+    const int fileVersion =
+        (int) resolvedRoot.getProperty ("projectVersion", 1);
     if (fileVersion > kProjectVersion)
     {
         recordStatus.setText ("Project was saved by a newer StemDeck (v"
@@ -2284,17 +2310,64 @@ void MainPluginEditor::restoreProjectState (const juce::ValueTree& root,
         return;
     }
 
-    const auto encoded = root.getProperty ("processorState").toString();
+    // Portable package projects retain the original paths for diagnostics and map
+    // them to files relative to Session.stemdeck at open time.
+    juce::StringPairArray packagePaths;
+    if (projectFile.existsAsFile())
+    {
+        const auto mediaMap =
+            resolvedRoot.getChildWithName ("PACKAGE_MEDIA");
+        for (int i = 0; i < mediaMap.getNumChildren(); ++i)
+        {
+            const auto entry = mediaMap.getChild (i);
+            const auto original =
+                entry.getProperty ("original").toString();
+            const auto relative =
+                entry.getProperty ("relative").toString();
+            if (original.isNotEmpty() && relative.isNotEmpty())
+                packagePaths.set (
+                    original,
+                    projectFile.getParentDirectory()
+                        .getChildFile (relative).getFullPathName());
+        }
+    }
+
+    auto rewriteProjectPaths = [&packagePaths] (
+        auto&& self, juce::ValueTree node) -> void
+    {
+        for (int property = 0;
+             property < node.getNumProperties(); ++property)
+        {
+            const auto name = node.getPropertyName (property);
+            const auto current = node.getProperty (name).toString();
+            if (packagePaths.containsKey (current))
+                node.setProperty (
+                    name, packagePaths.getValue (current, current), nullptr);
+        }
+        for (int child = 0; child < node.getNumChildren(); ++child)
+            self (self, node.getChild (child));
+    };
+    rewriteProjectPaths (rewriteProjectPaths, resolvedRoot);
+
+    const auto encoded =
+        resolvedRoot.getProperty ("processorState").toString();
     if (encoded.isNotEmpty())
     {
         juce::MemoryBlock processorState;
         if (processorState.fromBase64Encoding (encoded) && processorState.getSize() > 0)
+        {
+            if (packagePaths.size() > 0)
+                processorRef.remapStateMediaPaths (
+                    processorState, packagePaths);
             processorRef.setStateInformation (processorState.getData(),
                                               (int) processorState.getSize());
+        }
     }
 
-    arrangementView.fromState (root.getChildWithName ("ARRANGEMENT"));
-    pianoRoll.fromState (root.getChildWithName ("PIANOROLL"));
+    arrangementView.fromState (
+        resolvedRoot.getChildWithName ("ARRANGEMENT"));
+    pianoRoll.fromState (
+        resolvedRoot.getChildWithName ("PIANOROLL"));
     refreshChannelStrips();
     refreshChannelButtons();
     resized();
@@ -2645,7 +2718,7 @@ void MainPluginEditor::loadProject()
             {
                 safe->checkpointSessionUndo ("Open project");
                 safe->restoreProjectState (juce::ValueTree::fromXml (*xml),
-                                           "project: " + f.getFileName());
+                                           "project: " + f.getFileName(), f);
             }
         });
 }
@@ -2687,15 +2760,25 @@ void MainPluginEditor::bounceArrangementEdits()
         if (! needsBounce || laneTimelineEnd < 0.05)
             continue;
 
-        std::unique_ptr<juce::AudioFormatReader> reader (thumbnailFormatManager.createReaderFor (sourceFile));
-        if (reader == nullptr)
+        // A lane may contain clips from unrelated files and sample rates. Pick one
+        // output format, then open and render EACH clip's own source below.
+        double sr = 0.0;
+        int channels = 0;
+        for (const auto& clip : laneClips)
+            if (std::unique_ptr<juce::AudioFormatReader> probe {
+                    thumbnailFormatManager.createReaderFor (clip.file) })
+            {
+                if (sr <= 0.0 && probe->sampleRate > 0.0)
+                    sr = probe->sampleRate;
+                channels = juce::jmax (
+                    channels, (int) juce::jmax (1u, probe->numChannels));
+            }
+        if (sr <= 0.0 || channels <= 0)
         {
             errors << laneName (i) << ": read failed. ";
             continue;
         }
-
-        const double sr = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
-        const int channels = (int) juce::jmax (1u, reader->numChannels);
+        channels = juce::jlimit (1, 8, channels);
         const int totalSamples = juce::jmax (1, (int) std::round (laneTimelineEnd * sr));
 
         // Flattened lane timeline: gaps are silence, each clip placed at its
@@ -2706,14 +2789,38 @@ void MainPluginEditor::bounceArrangementEdits()
         bool ok = true;
         for (const auto& clip : laneClips)
         {
-            const double startSec = juce::jlimit (0.0, clip.durationSeconds, clip.trimStartSeconds);
-            const double endSec   = juce::jlimit (startSec, clip.durationSeconds,
-                                                  clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds);
-            const int regionSamples = (int) std::round ((endSec - startSec) * sr);
-            if (regionSamples < 1) continue;
+            std::unique_ptr<juce::AudioFormatReader> reader (
+                thumbnailFormatManager.createReaderFor (clip.file));
+            if (reader == nullptr || reader->sampleRate <= 0.0)
+            {
+                ok = false;
+                break;
+            }
 
-            juce::AudioBuffer<float> region (channels, regionSamples);
-            if (! reader->read (&region, 0, regionSamples, (juce::int64) std::round (startSec * sr), true, true))
+            const double sourceSr = reader->sampleRate;
+            const double sourceDuration =
+                (double) reader->lengthInSamples / sourceSr;
+            const double startSec = juce::jlimit (
+                0.0, sourceDuration, clip.trimStartSeconds);
+            const double endSec = juce::jlimit (
+                startSec, sourceDuration,
+                clip.trimEndSeconds > 0.0
+                    ? clip.trimEndSeconds : sourceDuration);
+            const int sourceSamples = (int) std::round (
+                (endSec - startSec) * sourceSr);
+            const int renderedSamples = (int) std::round (
+                (endSec - startSec) * sr);
+            if (sourceSamples < 1 || renderedSamples < 1) continue;
+
+            const int sourceChannels =
+                (int) juce::jmax (1u, reader->numChannels);
+            juce::AudioBuffer<float> region (
+                sourceChannels, sourceSamples + 2);
+            region.clear();
+            if (! reader->read (
+                    &region, 0, sourceSamples,
+                    (juce::int64) std::round (startSec * sourceSr),
+                    true, true))
             {
                 ok = false;
                 break;
@@ -2722,20 +2829,38 @@ void MainPluginEditor::bounceArrangementEdits()
             const double regionLen = endSec - startSec;
             const double fadeIn  = juce::jlimit (0.0, regionLen, clip.fadeInSeconds);
             const double fadeOut = juce::jlimit (0.0, regionLen - fadeIn, clip.fadeOutSeconds);
-            const int fadeInSamples  = (int) std::round (fadeIn  * sr);
-            const int fadeOutSamples = (int) std::round (fadeOut * sr);
-            if (fadeInSamples > 1)
-                region.applyGainRamp (0, juce::jmin (fadeInSamples, regionSamples), 0.0f, 1.0f);
-            if (fadeOutSamples > 1)
-            {
-                const int n = juce::jmin (fadeOutSamples, regionSamples);
-                region.applyGainRamp (regionSamples - n, n, 1.0f, 0.0f);
-            }
-
             const int destOffset = juce::jlimit (0, totalSamples, (int) std::round (clip.timelineStartSeconds * sr));
-            const int copyLen = juce::jmin (regionSamples, totalSamples - destOffset);
-            for (int ch = 0; ch < channels; ++ch)
-                out.copyFrom (ch, destOffset, region, ch, 0, copyLen);
+            const int copyLen = juce::jmin (
+                renderedSamples, totalSamples - destOffset);
+            const double sourcePerOutput = sourceSr / sr;
+            for (int sample = 0; sample < copyLen; ++sample)
+            {
+                const double sourcePosition =
+                    juce::jmin ((double) sourceSamples - 1.0,
+                                (double) sample * sourcePerOutput);
+                const int s0 = (int) sourcePosition;
+                const int s1 = juce::jmin (sourceSamples - 1, s0 + 1);
+                const float frac =
+                    (float) (sourcePosition - (double) s0);
+                const double time = (double) sample / sr;
+                float fade = 1.0f;
+                if (fadeIn > 0.0 && time < fadeIn)
+                    fade *= (float) (time / fadeIn);
+                if (fadeOut > 0.0 && time > regionLen - fadeOut)
+                    fade *= (float) juce::jlimit (
+                        0.0, 1.0, (regionLen - time) / fadeOut);
+
+                for (int ch = 0; ch < channels; ++ch)
+                {
+                    const int sourceCh =
+                        juce::jmin (ch, sourceChannels - 1);
+                    const float* data = region.getReadPointer (sourceCh);
+                    const float value =
+                        data[s0] + frac * (data[s1] - data[s0]);
+                    out.addSample (ch, destOffset + sample,
+                                   value * fade);
+                }
+            }
         }
         if (! ok)
         {
@@ -2863,6 +2988,7 @@ void MainPluginEditor::showSyncAllDecksMenu()
 void MainPluginEditor::loadLastArrangementIntoView (juce::String statusLine)
 {
     const auto masterRec = processorRef.getMasterRecordingTarget();
+    const auto canonicalArrangement = processorRef.getLastArrangementFile();
     std::array<juce::File, MainPluginProcessor::numDecks> decks;
     bool anyDeck = false;
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
@@ -2874,10 +3000,21 @@ void MainPluginEditor::loadLastArrangementIntoView (juce::String statusLine)
 
     if (masterRec.existsAsFile() || anyDeck)
     {
-        arrangementView.setArrangement (masterRec, decks, std::move (statusLine));
+        const bool loadedCanonical =
+            arrangementView.setArrangementFromCapture (
+                canonicalArrangement, statusLine);
+        if (! loadedCanonical)
+            arrangementView.setArrangement (
+                masterRec, decks, std::move (statusLine));
         revealRecordingButton.setEnabled (true);
         reloadIntoDecksButton.setEnabled (anyDeck);
         bounceEditsButton.setEnabled (anyDeck);
+
+        // Canonical arrangement loading already imports all automation lanes and
+        // promotes the captured channel fader into editable automation. The legacy
+        // event-log parser is retained only for older takes.
+        if (loadedCanonical)
+            return;
 
         const auto eventLog = processorRef.getLastPerformanceEventLogFile();
         if (eventLog.existsAsFile())
@@ -3959,7 +4096,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
     // --- Four workspaces: icon above label, one calm accent for current context. ---
     {
-        static const char* navLabels[4] = { "Library", "Perform", "Mix", "Arrange" };
+        static const char* navLabels[4] = { "Sets", "Live", "Mix", "Studio" };
         const juce::Button* navBtns[4] = { &toggleLibraryButton, &navDecksButton,
                                            &mixerButton, &pianoRollButton };
         for (int i = 0; i < 4; ++i)
@@ -6722,29 +6859,6 @@ void MainPluginEditor::timerCallback()
     const bool arrPlaying = processorRef.isArrangementPlaying();
     arrangementView.setPlaybackPosition (processorRef.getArrangementPositionSeconds(), arrPlaying);
 
-    // Apply editable automation curves to their target parameters while playing.
-    if (arrPlaying)
-    {
-        const double arrPos = processorRef.getArrangementPositionSeconds();
-        for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
-        {
-            int target = -1;
-            const float v = arrangementView.automationValueAt (lane, arrPos, target);
-            if (v < 0.0f || target < 0)
-                continue;
-            juce::String pid;
-            switch (target)
-            {
-                case 0: pid = deckPrefix (lane) + "Fader";  break;
-                case 1: pid = deckPrefix (lane) + "Filter"; break;
-                case 2: pid = deckPrefix (lane) + "Pitch";  break;
-                case 3: pid = deckPrefix (lane) + "Stem" + DeckPlayer::stemLaneId (DeckPlayer::vocalsStem) + "Send"; break;
-                default: break;
-            }
-            if (auto* p = processorRef.parameters().getParameter (pid))
-                p->setValueNotifyingHost (v);   // curve stores the normalized 0..1 value
-        }
-    }
     playArrButton.setToggleState (arrPlaying, juce::dontSendNotification);
     playArrButton.setButtonText (arrPlaying ? u8 ("\xe2\x96\xa0") : u8 ("\xe2\x96\xb6"));   // ■ / ▶
     if (recording)

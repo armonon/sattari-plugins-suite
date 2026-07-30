@@ -1,9 +1,11 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
+#include "ChunkedAudioFile.h"
 
 /**
  * Sample-accurate arrangement playback engine.
@@ -26,6 +28,9 @@ public:
     struct Clip
     {
         std::shared_ptr<const juce::AudioBuffer<float>> audio;
+        // Long recordings use a bounded, read-ahead disk window instead of loading
+        // the complete take into RAM. Exactly one of audio/streamed is normally set.
+        std::shared_ptr<ChunkedAudioFile> streamed;
         double      sourceSampleRate     = 44100.0;
         juce::int64 timelineStartSamples = 0;   // engine sample-rate
         juce::int64 sourceStartSamples   = 0;   // source sample-rate
@@ -33,6 +38,7 @@ public:
         float       gain = 1.0f;
         juce::int64 fadeInSamples  = 0;         // engine sample-rate
         juce::int64 fadeOutSamples = 0;         // engine sample-rate
+        std::vector<std::pair<juce::int64, float>> gainAutomation;
     };
 
     using Schedule = std::vector<Clip>;
@@ -97,18 +103,29 @@ public:
         if (sched != nullptr && ! sched->empty())
         for (const auto& clip : *sched)
         {
-            if (clip.audio == nullptr || clip.timelineLengthSamples <= 0) continue;
+            if ((clip.audio == nullptr && clip.streamed == nullptr)
+                || clip.timelineLengthSamples <= 0) continue;
             const juce::int64 clipEnd = clip.timelineStartSamples + clip.timelineLengthSamples;
             if (clipEnd <= pos || clip.timelineStartSamples >= pos + n) continue;   // no overlap with this block
 
-            const auto& src = *clip.audio;
-            const int srcCh = juce::jmax (1, src.getNumChannels());
-            const int srcLen = src.getNumSamples();
+            const int srcCh = clip.streamed != nullptr
+                                  ? clip.streamed->numChannels()
+                                  : juce::jmax (1, clip.audio->getNumChannels());
+            const juce::int64 srcLen = clip.streamed != nullptr
+                                           ? clip.streamed->lengthInSamples()
+                                           : clip.audio->getNumSamples();
             if (srcLen <= 1) continue;
             const double ratio = clip.sourceSampleRate / sr;
 
             const juce::int64 from = juce::jmax (pos, clip.timelineStartSamples);
             const juce::int64 to   = juce::jmin (pos + n, clipEnd);
+            const double firstSourcePos =
+                (double) clip.sourceStartSamples
+                + (double) (from - clip.timelineStartSamples) * ratio;
+            const auto streamView = clip.streamed != nullptr
+                                        ? clip.streamed->acquireReadView (
+                                              firstSourcePos)
+                                        : ChunkedAudioFile::ReadView {};
 
             for (juce::int64 t = from; t < to; ++t)
             {
@@ -116,6 +133,7 @@ public:
                 const double srcPos = (double) clip.sourceStartSamples + (double) since * ratio;
 
                 float g = clip.gain;
+                g *= automationGainAt (clip.gainAutomation, t);
                 if (clip.fadeInSamples > 0 && since < clip.fadeInSamples)
                     g *= (float) since / (float) clip.fadeInSamples;
                 if (clip.fadeOutSamples > 0 && since > clip.timelineLengthSamples - clip.fadeOutSamples)
@@ -124,7 +142,12 @@ public:
                 const int i = (int) (t - pos);
                 for (int ch = 0; ch < outCh; ++ch)
                 {
-                    const float s = readInterpolated (src, juce::jmin (ch, srcCh - 1), srcPos);
+                    const int sourceChannel = juce::jmin (ch, srcCh - 1);
+                    const float s = clip.streamed != nullptr
+                                        ? ChunkedAudioFile::readInterpolated (
+                                              streamView, sourceChannel, srcPos)
+                                        : readInterpolated (
+                                              *clip.audio, sourceChannel, srcPos);
                     out.addSample (ch, i, s * g);
                 }
             }
@@ -147,6 +170,27 @@ public:
     }
 
 private:
+    static float automationGainAt (
+        const std::vector<std::pair<juce::int64, float>>& points,
+        juce::int64 timelineSample) noexcept
+    {
+        if (points.empty()) return 1.0f;
+        if (timelineSample <= points.front().first) return points.front().second;
+        if (timelineSample >= points.back().first)  return points.back().second;
+        const auto next = std::lower_bound (
+            points.begin(), points.end(), timelineSample,
+            [] (const auto& point, juce::int64 sample)
+            {
+                return point.first < sample;
+            });
+        const auto& b = *next;
+        const auto& a = *(next - 1);
+        const auto span = juce::jmax<juce::int64> (1, b.first - a.first);
+        const float alpha = (float) (timelineSample - a.first)
+                            / (float) span;
+        return a.second + alpha * (b.second - a.second);
+    }
+
     static float readInterpolated (const juce::AudioBuffer<float>& buf, int ch, double pos)
     {
         const int n = buf.getNumSamples();

@@ -389,20 +389,23 @@ public:
     {
         setSize (650, 470);
         setTitle ("Export Center");
-        setDescription ("Preflight and package the current StemDeck session.");
+        setDescription ("Render the finished set or package the complete StemDeck session.");
+        configure (mixdown, "Export Final Mix…");
         configure (package, "Export Session Package…");
         configure (project, "Save Project…");
         configure (bounce, "Bounce Arrangement Edits");
         configure (reveal, "Reveal Last Recording");
+        mixdown.onClick = [this] { if (onMixdown) onMixdown(); };
         package.onClick = [this] { if (onPackage) onPackage(); };
         project.onClick = [this] { if (onSaveProject) onSaveProject(); };
         bounce.onClick = [this] { if (onBounce) onBounce(); };
         reveal.onClick = [this] { if (onReveal) onReveal(); };
         reveal.setEnabled (state.hasRecording);
         package.setEnabled (state.hasProjectContent);
+        mixdown.setEnabled (state.hasProjectContent);
     }
 
-    std::function<void()> onPackage, onSaveProject, onBounce, onReveal;
+    std::function<void()> onMixdown, onPackage, onSaveProject, onBounce, onReveal;
 
     void paint (juce::Graphics& g) override
     {
@@ -424,7 +427,9 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (24);
-        auto actions = area.removeFromBottom (92);
+        auto actions = area.removeFromBottom (138);
+        mixdown.setBounds (actions.removeFromTop (38));
+        actions.removeFromTop (8);
         package.setBounds (actions.removeFromTop (38));
         actions.removeFromTop (8);
         project.setBounds (actions.removeFromLeft (116));
@@ -461,7 +466,7 @@ private:
     }
 
     State state;
-    juce::TextButton package, project, bounce, reveal;
+    juce::TextButton mixdown, package, project, bounce, reveal;
 };
 
 } // namespace stemdeck

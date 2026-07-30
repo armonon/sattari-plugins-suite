@@ -27,6 +27,9 @@ public:
                                  const juce::File& masterFile,
                                  const juce::File& micFile,
                                  const std::array<juce::File, numDecks>& deckFiles,
+                                 const std::array<juce::String, numDecks>& channelNames,
+                                 const std::array<juce::String, numDecks>& channelTypes,
+                                 const std::array<juce::int64, numDecks>& channelIds,
                                  const juce::File& arrangementFile) const;
 
     juce::var buildArrangementJson (const std::vector<PerformanceEvent>& events,
@@ -35,6 +38,9 @@ public:
                                     const juce::File& masterFile,
                                     const juce::File& micFile,
                                     const std::array<juce::File, numDecks>& deckFiles,
+                                    const std::array<juce::String, numDecks>& channelNames,
+                                    const std::array<juce::String, numDecks>& channelTypes,
+                                    const std::array<juce::int64, numDecks>& channelIds,
                                     const juce::File& eventLogFile) const;
 
 private:

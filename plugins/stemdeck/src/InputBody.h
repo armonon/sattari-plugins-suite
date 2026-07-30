@@ -34,6 +34,10 @@ public:
     float getInputGain() const noexcept        { return gain.load (std::memory_order_relaxed); }
     void  setMonitorEnabled (bool on) noexcept { monitor.store (on, std::memory_order_relaxed); }
     bool  isMonitorEnabled() const noexcept    { return monitor.load (std::memory_order_relaxed); }
+    bool  contributesToMonitorMix() const noexcept override
+    {
+        return monitor.load (std::memory_order_relaxed);
+    }
     // Which device input channel to take (mono source); -1 = take the buffer as-is.
     void  setSourceChannel (int ch) noexcept   { sourceChannel.store (ch, std::memory_order_relaxed); }
     int   getSourceChannel() const noexcept    { return sourceChannel.load (std::memory_order_relaxed); }
@@ -108,9 +112,11 @@ public:
             }
         }
 
-        // Monitor off = still captured/metered, just not audible. (Mute/solo are
-        // frame-level concerns handled by Channel, not duplicated here.)
-        scratch.applyGain (0, n, monitor.load (std::memory_order_relaxed) ? g : 0.0f);
+        // Always render the processed input at its record gain. The Channel frame
+        // invokes capture/metering first, then consults contributesToMonitorMix() to
+        // decide whether it reaches the master. This keeps monitor-off recordings
+        // intact instead of recording silence.
+        scratch.applyGain (0, n, g);
         peak.store (blockPeak * g, std::memory_order_relaxed);
     }
 

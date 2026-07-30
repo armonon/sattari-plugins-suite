@@ -70,6 +70,9 @@ juce::var ArrangementBuilder::buildEventLogJson (const std::vector<PerformanceEv
                                                  const juce::File& masterFile,
                                                  const juce::File& micFile,
                                                  const std::array<juce::File, numDecks>& deckFiles,
+                                                 const std::array<juce::String, numDecks>& channelNames,
+                                                 const std::array<juce::String, numDecks>& channelTypes,
+                                                 const std::array<juce::int64, numDecks>& channelIds,
                                                  const juce::File& arrangementFile) const
 {
     juce::Array<juce::var> eventVars;
@@ -80,6 +83,10 @@ juce::var ArrangementBuilder::buildEventLogJson (const std::vector<PerformanceEv
     for (int i = 0; i < numDecks; ++i)
         deckAudio.add (objectWith ({
             { "deck", deckName (i) },
+            { "name", channelNames[(size_t) i] },
+            { "channelType", channelTypes[(size_t) i] },
+            { "channelId", channelIds[(size_t) i] },
+            { "slotIndex", i },
             { "path", deckFiles[(size_t) i].getFullPathName() }
         }));
 
@@ -102,6 +109,9 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
                                                     const juce::File& masterFile,
                                                     const juce::File& micFile,
                                                     const std::array<juce::File, numDecks>& deckFiles,
+                                                    const std::array<juce::String, numDecks>& channelNames,
+                                                    const std::array<juce::String, numDecks>& channelTypes,
+                                                    const std::array<juce::int64, numDecks>& channelIds,
                                                     const juce::File& eventLogFile) const
 {
     const double endSeconds = sampleRate > 0.0 ? (double) endSample / sampleRate : 0.0;
@@ -110,6 +120,12 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
     for (int deckIndex = 0; deckIndex < numDecks; ++deckIndex)
     {
         const auto deck = deckName (deckIndex);
+        const auto channelName =
+            channelNames[(size_t) deckIndex].isNotEmpty()
+                ? channelNames[(size_t) deckIndex] : deck;
+        const auto channelType =
+            channelTypes[(size_t) deckIndex].isNotEmpty()
+                ? channelTypes[(size_t) deckIndex] : juce::String ("trackDeck");
         juce::String currentPath;
         double clipStart = -1.0;
         juce::Array<juce::var> clips;
@@ -172,8 +188,13 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
 
         lanes.add (objectWith ({
             { "id", deck.replaceCharacter (' ', '_').toLowerCase() },
-            { "name", deck },
-            { "type", "deck_lane" },
+            { "name", channelName },
+            { "type", channelType == "input" ? "input_lane"
+                      : channelType == "midiInstrument" ? "instrument_lane"
+                                                       : "deck_lane" },
+            { "channelType", channelType },
+            { "channelId", channelIds[(size_t) deckIndex] },
+            { "slotIndex", deckIndex },
             { "renderedAudio", deckFiles[(size_t) deckIndex].getFullPathName() },
             { "editable", true },
             { "clips", clips },

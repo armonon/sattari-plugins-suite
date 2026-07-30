@@ -73,6 +73,10 @@ juce::String HostGraph::chainId (Chain chain)
         return juce::String ("deck") + juce::String::charToString ((juce_wchar) ('A' + n / kNumStemsPerDeck))
              + "." + stems[n % kNumStemsPerDeck];
     }
+    if ((int) chain >= (int) Chain::channelExtraFirst
+        && (int) chain < (int) Chain::count)
+        return "channel" + juce::String (
+            (int) chain - (int) Chain::channelExtraFirst + 5);
     return "unknown";
 }
 
@@ -95,6 +99,12 @@ juce::String HostGraph::chainName (Chain chain)
         return "Deck " + juce::String::charToString ((juce_wchar) ('A' + n / kNumStemsPerDeck))
              + " " + stems[n % kNumStemsPerDeck] + " FX";
     }
+    if ((int) chain >= (int) Chain::channelExtraFirst
+        && (int) chain < (int) Chain::count)
+        return "Channel " + juce::String::charToString (
+            (juce_wchar) ('E' + (int) chain
+                          - (int) Chain::channelExtraFirst))
+            + " Plugin Chain";
     return "Plugin Chain";
 }
 

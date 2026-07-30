@@ -183,6 +183,24 @@ int main()
         check (idsExact,     "int64 ids survive beyond 2^53");
     }
 
+    // ── v1 positional-channel migration ─────────────────────────────────────
+    {
+        Header legacy;
+        legacy.schemaVersion = 1;
+        std::vector<Event> old (2);
+        old[0].type = EventType::param;
+        old[0].scope.kind = ScopeKind::channel;
+        old[0].scope.channel = 0;
+        old[1].type = EventType::param;
+        old[1].scope.kind = ScopeKind::stem;
+        old[1].scope.channel = 2;
+        const bool migrated = migrateV1PositionalScopes (
+            legacy, old, { 101, 205, 999 });
+        check (migrated && old[0].scope.channel == 101
+               && old[1].scope.channel == 999,
+               "schema v1 positional scopes migrate through saved slots");
+    }
+
     // ── Total order ──────────────────────────────────────────────────────────
     {
         auto shuffled = out;

@@ -86,6 +86,11 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
     const juce::AudioProcessorValueTreeState& parameters() const { return apvts; }
+    // Rewrites exact media-path values inside an opaque processor-state blob.
+    // Used by portable session packages before setStateInformation().
+    bool remapStateMediaPaths (
+        juce::MemoryBlock& stateData,
+        const juce::StringPairArray& replacements) const;
 
     void loadDeckFileAsync (int deckIndex, const juce::File& file);
     void loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file);
@@ -173,11 +178,11 @@ public:
     TrackAnalysis getDeckLiveAnalysis (int deckIndex) const;
     TrackAnalysis getDeckActiveAnalysis (int deckIndex) const;
 
-    // The DeckPlayer living inside channel `deckIndex` (TrackDeck channels only).
-    // Returns a null fallback for an out-of-range index or a non-TrackDeck channel,
-    // so existing deck-indexed call sites stay safe during the channel migration.
-    DeckPlayer&       deckAt (int deckIndex) noexcept;
-    const DeckPlayer& deckAt (int deckIndex) const noexcept;
+    // The TrackDeck bound to permanent parameter slot `deckSlot`.
+    // Legacy deckA..deckD APIs are slot-addressed; dynamic UI rows translate their
+    // list position with getChannelSlot() exactly once at the boundary.
+    DeckPlayer&       deckAt (int deckSlot) noexcept;
+    const DeckPlayer& deckAt (int deckSlot) const noexcept;
 
     // ── Channel list (message thread) ────────────────────────────────────────
     // Add/remove is zero-dropout: a new immutable snapshot is published atomically
@@ -196,6 +201,16 @@ public:
 
     juce::String getChannelName (int index) const;
     ChannelType  getChannelType (int index) const;
+    ChannelID    getChannelId (int index) const noexcept { return channelIdForIndex (index); }
+    int          getChannelSlot (int index) const noexcept
+    {
+        const auto id = channelIdForIndex (index);
+        return id >= 0 ? channelSlotForId (id) : -1;
+    }
+    ChannelID    getChannelIdForSlot (int slot) const noexcept
+    {
+        return channelIdForSlot (slot);
+    }
     // The channel's body, for type-specific UI (Input gain/monitor, instrument
     // activity). Message thread only. Returns nullptr for an invalid index.
     ChannelBody* getChannelBody (int index) const;
@@ -253,8 +268,8 @@ public:
         stemdeck::events::ParamId id {};
         stemdeck::events::Scope   scope;
     };
-    static ParamMapping mapApvtsId (const juce::String& apvtsId);
-    static juce::String apvtsIdFor (const stemdeck::events::Event& e);
+    ParamMapping mapApvtsId (const juce::String& apvtsId) const;
+    juce::String apvtsIdFor (const stemdeck::events::Event& e) const;
 
     std::atomic<bool> applyingEvent { false };
     bool isChannelMuted (int index) const;
@@ -377,6 +392,8 @@ public:
         double fadeInSeconds  = 0.0;
         double fadeOutSeconds = 0.0;
         int    lane = 0;   // which TE audio track (0..numDecks-1)
+        // Post-capture volume correction, in absolute timeline seconds.
+        std::vector<std::pair<double, float>> gainAutomation;
     };
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
@@ -506,6 +523,10 @@ private:
     // Bootstrapped with numDecks TrackDeck channels so existing deck-indexed code
     // keeps working while add/remove is layered on.
     std::vector<std::shared_ptr<Channel>> channels;
+    ChannelID nextChannelId = 0;   // monotonically increasing; never reused in a session
+    // Automation can arrive on the audio thread while a new immutable channel
+    // snapshot is published. Resolve APVTS slots without reading `channels`.
+    std::array<std::atomic<ChannelID>, kMaxChannels> channelIdBySlot {};
     ChannelGraph channelGraph;
     DeckPlayer   nullDeck;   // out-of-range fallback for deckAt()
     juce::MidiBuffer* currentBlockMidi = nullptr;   // audio thread only: this block's MIDI, for channel FX chains
@@ -514,8 +535,13 @@ private:
 
     // Republish `channels` as a new immutable snapshot (message thread only).
     void publishChannels();
-    // Build a fully-wired channel (body + frame hook) bound to parameter slot `index`.
-    std::shared_ptr<Channel> makeChannel (int index, ChannelType type);
+    // Build a fully-wired channel bound to an APVTS slot and a permanent identity.
+    // A negative id allocates the next never-reused session id.
+    std::shared_ptr<Channel> makeChannel (int slot, ChannelType type, ChannelID id = -1);
+    int channelIndexForId (ChannelID id) const noexcept;
+    ChannelID channelIdForIndex (int index) const noexcept;
+    ChannelID channelIdForSlot (int slot) const noexcept;
+    int channelSlotForId (ChannelID id) const noexcept;
     // Rebuild the channel list from the persisted <CHANNELS> state child.
     void restoreChannelsFromState();
     // Recompute plugin-delay compensation across channels and report total latency to

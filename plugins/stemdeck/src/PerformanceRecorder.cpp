@@ -85,7 +85,10 @@ void PerformanceRecorder::logEvent (int64_t sample,
 juce::File PerformanceRecorder::finishAndWrite (int64_t endSample,
                                                 const juce::File& masterFile,
                                                 const juce::File& micFile,
-                                                const std::array<juce::File, numDecks>& deckFiles)
+                                                const std::array<juce::File, numDecks>& deckFiles,
+                                                const std::array<juce::String, numDecks>& channelNames,
+                                                const std::array<juce::String, numDecks>& channelTypes,
+                                                const std::array<juce::int64, numDecks>& channelIds)
 {
     if (! active.load())
         return arrangementFile;
@@ -100,8 +103,12 @@ juce::File PerformanceRecorder::finishAndWrite (int64_t endSample,
     }
 
     writeJsonFile (eventLogFile, arrangementBuilder.buildEventLogJson (snapshot, endSample, currentSampleRate,
-                                                                       masterFile, micFile, deckFiles, arrangementFile));
+                                                                       masterFile, micFile, deckFiles,
+                                                                       channelNames, channelTypes, channelIds,
+                                                                       arrangementFile));
     writeJsonFile (arrangementFile, arrangementBuilder.buildArrangementJson (snapshot, endSample, currentSampleRate,
-                                                                            masterFile, micFile, deckFiles, eventLogFile));
+                                                                            masterFile, micFile, deckFiles,
+                                                                            channelNames, channelTypes, channelIds,
+                                                                            eventLogFile));
     return arrangementFile;
 }

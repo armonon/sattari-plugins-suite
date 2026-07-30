@@ -27,6 +27,9 @@ int main()
     }
 
     auto streamed = ChunkedAudioFile::create (file);
+    const auto firstWindow = streamed != nullptr
+                                 ? streamed->acquireReadView (100.25)
+                                 : ChunkedAudioFile::ReadView {};
     bool ok = streamed != nullptr
            && streamed->lengthInSamples() == source.getNumSamples()
            && std::abs (streamed->readInterpolated (0, 100.25) - 0.25f) < 1.0e-3f;
@@ -38,6 +41,11 @@ int main()
         juce::Thread::sleep (10);
 
     ok = std::abs (streamed->readInterpolated (0, distant) - 0.25f) < 1.0e-3f && ok;
+    // A render-block view remains valid after the worker publishes a distant
+    // window; reclamation is deferred to the worker thread.
+    ok = std::abs (ChunkedAudioFile::readInterpolated (
+                       firstWindow, 0, 100.25) - 0.25f) < 1.0e-3f
+         && ok;
     const auto fullBytes = (std::size_t) source.getNumChannels()
                          * (std::size_t) source.getNumSamples() * sizeof (float);
     ok = streamed->residentBytes() < fullBytes && ok;

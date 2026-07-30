@@ -7,7 +7,12 @@
 
 using namespace sdedit;
 
-MainPluginEditor::ArrangementRecorderView::ArrangementRecorderView() = default;
+MainPluginEditor::ArrangementRecorderView::ArrangementRecorderView()
+{
+    for (int i = 0; i < numLanes; ++i)
+        laneDisplayNames[(size_t) i] =
+            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
+}
 
 MainPluginEditor::ArrangementRecorderView::~ArrangementRecorderView()
 {
@@ -63,6 +68,8 @@ void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File
     deckFiles = decks;
     for (int i = 0; i < numLanes; ++i)
     {
+        laneDisplayNames[(size_t) i] =
+            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
         clips[(size_t) i].assign (1, LaneClip { decks[(size_t) i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
         if (deckThumbs[(size_t) i] != nullptr)
             loadThumbnail (*deckThumbs[(size_t) i], deckFiles[(size_t) i]);
@@ -77,6 +84,194 @@ void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File
     redoStack.clear();
     dragReadout.clear();
     repaint();
+}
+
+bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
+    const juce::File& arrangementFile, juce::String statusLine)
+{
+    if (! arrangementFile.existsAsFile() || formatManager == nullptr)
+        return false;
+
+    const auto json = juce::JSON::parse (arrangementFile);
+    const auto* root = json.getDynamicObject();
+    const auto* lanes = json.getProperty ("lanes", {}).getArray();
+    if (root == nullptr || lanes == nullptr
+        || ! json.getProperty ("schema", {}).toString().startsWith (
+                "SattariStemDeck.arrangement."))
+        return false;
+
+    mode = Mode::Finished;
+    status = std::move (statusLine);
+    selectedLane = selectedClip = -1;
+    activeDrag = {};
+    undoStack.clear();
+    redoStack.clear();
+    dragReadout.clear();
+    for (auto& lane : clips) lane.clear();
+    for (auto& curves : deckAutomation) curves.clear();
+    for (auto& a : editAuto) { a.points.clear(); a.visible = false; a.target = 0; }
+    for (int i = 0; i < numLanes; ++i)
+        laneDisplayNames[(size_t) i] =
+            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
+
+    masterFile = juce::File (
+        json.getProperty ("masterAudio", {}).toString());
+    if (masterThumb != nullptr)
+        loadThumbnail (*masterThumb, masterFile);
+
+    auto durationFor = [this] (const juce::File& file) -> double
+    {
+        if (! file.existsAsFile()) return 0.0;
+        if (std::unique_ptr<juce::AudioFormatReader> reader {
+                formatManager->createReaderFor (file) })
+            if (reader->sampleRate > 0.0)
+                return (double) reader->lengthInSamples / reader->sampleRate;
+        return 0.0;
+    };
+
+    auto laneNumber = [] (const juce::String& name) -> int
+    {
+        if (! name.startsWithIgnoreCase ("Deck ") || name.length() < 6)
+            return -1;
+        const int i = juce::CharacterFunctions::toUpperCase (name[5]) - 'A';
+        return juce::isPositiveAndBelow (i, numLanes) ? i : -1;
+    };
+
+    int highestUsedLane = -1;
+    int nextAuxLane = 0;
+    for (const auto& laneVar : *lanes)
+    {
+        const auto type = laneVar.getProperty ("type", {}).toString();
+        const auto name = laneVar.getProperty ("name", {}).toString();
+        if (type == "master_reference_lane")
+        {
+            const double duration = durationFor (masterFile);
+            if (duration > 0.0)
+                clips[(size_t) masterLane].push_back (
+                    LaneClip { masterFile, duration, 0.0, duration, 0.0,
+                               0.0, 0.0, false, "Live master reference" });
+            continue;
+        }
+
+        int lane = (int) laneVar.getProperty ("slotIndex", -1);
+        if (! juce::isPositiveAndBelow (lane, numLanes))
+            lane = laneNumber (name);
+        if (type == "mic_lane")
+        {
+            while (nextAuxLane < numLanes
+                   && (! clips[(size_t) nextAuxLane].empty()
+                       || nextAuxLane <= highestUsedLane))
+                ++nextAuxLane;
+            lane = nextAuxLane;
+        }
+        if (! juce::isPositiveAndBelow (lane, numLanes))
+            continue;
+
+        const juce::File rendered (
+            laneVar.getProperty ("renderedAudio", {}).toString());
+        const double duration = durationFor (rendered);
+        if (! rendered.existsAsFile() || duration <= 0.0
+            || rendered.getSize() <= 1024)
+            continue;
+
+        deckFiles[(size_t) lane] = rendered;
+        laneDisplayNames[(size_t) lane] =
+            type == "mic_lane" ? "INPUT RAW" : name.toUpperCase();
+        highestUsedLane = juce::jmax (highestUsedLane, lane);
+
+        if (const auto* clipVars =
+                laneVar.getProperty ("clips", {}).getArray())
+        {
+            for (const auto& clipVar : *clipVars)
+            {
+                const double start = juce::jlimit (
+                    0.0, duration,
+                    (double) clipVar.getProperty ("startSeconds", 0.0));
+                const double end = juce::jlimit (
+                    start, duration,
+                    (double) clipVar.getProperty ("endSeconds", duration));
+                if (end - start <= 0.001)
+                    continue;
+                LaneClip clip;
+                clip.file = rendered;
+                clip.durationSeconds = duration;
+                clip.trimStartSeconds = start;
+                clip.trimEndSeconds = end;
+                clip.timelineStartSeconds = start;
+                clip.label = type == "mic_lane"
+                                 ? "Raw input"
+                                 : juce::File (clipVar.getProperty (
+                                       "source", {}).toString())
+                                       .getFileNameWithoutExtension();
+                clips[(size_t) lane].push_back (std::move (clip));
+            }
+        }
+
+        // An Input/instrument lane may have no deck transport events. Its rendered
+        // capture is still first-class editable audio.
+        if (clips[(size_t) lane].empty())
+            clips[(size_t) lane].push_back (
+                LaneClip { rendered, duration, 0.0, duration, 0.0,
+                           0.0, 0.0, false, name });
+
+        if (deckThumbs[(size_t) lane] != nullptr)
+            loadThumbnail (*deckThumbs[(size_t) lane], rendered);
+
+        if (const auto* automation =
+                laneVar.getProperty ("automationLanes", {}).getArray())
+        {
+            for (const auto& autoVar : *automation)
+            {
+                AutomationCurve curve;
+                curve.label = autoVar.getProperty ("name", {}).toString();
+                curve.colour = juce::Colour (0xff67f6d2)
+                                   .withRotatedHue (
+                                       (float) deckAutomation[(size_t) lane].size()
+                                       * 0.13f);
+                curve.minValue = 0.0f;
+                curve.maxValue = 1.0f;
+                const auto id = autoVar.getProperty ("id", {}).toString();
+                if (id == "volume") { curve.minValue = -60.0f; curve.maxValue = 12.0f; }
+                else if (id == "pitch") { curve.minValue = -12.0f; curve.maxValue = 12.0f; }
+                else if (id == "tempo") { curve.minValue = 40.0f; curve.maxValue = 240.0f; }
+                else if (id == "eq") { curve.minValue = -24.0f; curve.maxValue = 24.0f; }
+                else if (id == "filter") { curve.minValue = -1.0f; curve.maxValue = 1.0f; }
+
+                if (const auto* points =
+                        autoVar.getProperty ("points", {}).getArray())
+                    for (const auto& point : *points)
+                    {
+                        const double time = point.getProperty (
+                            "timeSeconds", 0.0);
+                        const float value = (float) point.getProperty (
+                            "value", {}).toString().getDoubleValue();
+                        curve.points.emplace_back (time, value);
+
+                        // Captured deck renders already contain their performed
+                        // fader. Keep that curve as a visible reference, but do not
+                        // apply it a second time. User-created edit automation starts
+                        // at unity and is an additional post-capture correction.
+                    }
+                if (! curve.points.empty())
+                    deckAutomation[(size_t) lane].push_back (
+                        std::move (curve));
+            }
+        }
+    }
+
+    if (clips[(size_t) masterLane].empty())
+    {
+        const double duration = durationFor (masterFile);
+        if (duration > 0.0)
+            clips[(size_t) masterLane].push_back (
+                LaneClip { masterFile, duration, 0.0, duration, 0.0,
+                           0.0, 0.0, false, "Live master reference" });
+    }
+
+    if (highestUsedLane >= 0)
+        setVisibleLanes (highestUsedLane + 1);
+    repaint();
+    return highestUsedLane >= 0 || ! clips[(size_t) masterLane].empty();
 }
 
 void MainPluginEditor::ArrangementRecorderView::updateClipAfterBounce (int laneIndex,
@@ -2111,7 +2306,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         if (deckIndex >= 0 && deckIndex < numLanes && editAuto[(size_t) deckIndex].visible)
         {
             const auto& a = editAuto[(size_t) deckIndex];
-            static const char* targetNames[numAutoTargets] = { "VOL", "FILT", "PITCH", "VOC FX" };
+            static const char* targetNames[numAutoTargets] = { "VOL" };
 
             // Dim the lane so the curve reads as the active editing layer.
             g.setColour (juce::Colours::black.withAlpha (0.38f));
@@ -2177,7 +2372,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     for (int i = 0; i < visibleLanes; ++i)
     {
         auto laneRect = area.removeFromTop (laneHeight);
-        drawLane (laneRect, "CH " + juce::String::charToString ((juce_wchar) ('A' + i)),
+        drawLane (laneRect, laneDisplayNames[(size_t) i],
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
         if (i < visibleLanes - 1)
             area.removeFromTop (laneGap);

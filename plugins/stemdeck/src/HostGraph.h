@@ -22,10 +22,15 @@ public:
         // persisted in saved state, and renumbering would silently reassign a user's
         // FX to a different chain on load.
         stemFirst,
-        count = stemFirst + 16
+        // Appended after the original persisted chain ids and the 16 stem chains.
+        // These give dynamic channel slots E-H real insert racks without renumbering
+        // any existing session's chain.
+        channelExtraFirst = stemFirst + 16,
+        count = channelExtraFirst + 4
     };
 
     static constexpr int kNumDecks       = 4;
+    static constexpr int kNumChannelChains = 8;
     static constexpr int kNumStemsPerDeck = 4;   // drums, bass, music, vocals
 
     // stemIndex is 0..3 (drums, bass, music, vocals) — i.e. DeckPlayer::drumsStem - 1.
@@ -34,7 +39,23 @@ public:
         return (Chain) ((int) Chain::stemFirst + deckIndex * kNumStemsPerDeck + stemIndex);
     }
     static constexpr bool isStemChain (Chain c) noexcept
-    { return (int) c >= (int) Chain::stemFirst && (int) c < (int) Chain::count; }
+    {
+        return (int) c >= (int) Chain::stemFirst
+            && (int) c < (int) Chain::channelExtraFirst;
+    }
+    static constexpr Chain channelChain (int slot) noexcept
+    {
+        return slot < kNumDecks
+                   ? (Chain) slot
+                   : (Chain) ((int) Chain::channelExtraFirst
+                              + slot - kNumDecks);
+    }
+    static constexpr bool isChannelChain (Chain c) noexcept
+    {
+        return ((int) c >= 0 && (int) c < kNumDecks)
+            || ((int) c >= (int) Chain::channelExtraFirst
+                && (int) c < (int) Chain::count);
+    }
 
     struct ScanResult
     {

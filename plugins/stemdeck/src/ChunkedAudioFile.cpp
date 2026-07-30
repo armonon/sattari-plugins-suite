@@ -1,4 +1,5 @@
 #include "ChunkedAudioFile.h"
+#include <algorithm>
 
 std::shared_ptr<ChunkedAudioFile> ChunkedAudioFile::create (const juce::File& file)
 {
@@ -55,6 +56,11 @@ bool ChunkedAudioFile::loadAround (juce::int64 position)
     if (! reader->read (&next->audio, 0, count, start, true, true))
         return false;
 
+    // Hold the old window on the worker before publishing the replacement.
+    // It is reclaimed here after a grace period, never by the audio thread.
+    if (auto old = std::atomic_load (&cache))
+        retiredCaches.push_back (
+            { std::move (old), juce::Time::currentTimeMillis() + 2000 });
     std::atomic_store (&cache, std::shared_ptr<const Cache> (std::move (next)));
     return true;
 }
@@ -73,27 +79,53 @@ void ChunkedAudioFile::run()
             || (wanted >= end - margin && end < sourceLength))
             loadAround (wanted);
 
+        const auto now = juce::Time::currentTimeMillis();
+        retiredCaches.erase (
+            std::remove_if (
+                retiredCaches.begin(), retiredCaches.end(),
+                [now] (const RetiredCache& retired)
+                {
+                    return retired.releaseAfterMs <= now;
+                }),
+            retiredCaches.end());
+
         wait (20);
     }
 }
 
 float ChunkedAudioFile::readInterpolated (int channel, double sourcePosition) const noexcept
 {
+    return readInterpolated (acquireReadView (sourcePosition), channel,
+                             sourcePosition);
+}
+
+ChunkedAudioFile::ReadView ChunkedAudioFile::acquireReadView (
+    double sourcePosition) const noexcept
+{
     const auto target = (juce::int64) std::floor (sourcePosition);
     requestedPosition.store (juce::jlimit<juce::int64> (0, juce::jmax<juce::int64> (0, sourceLength - 1), target),
                              std::memory_order_relaxed);
     const auto current = std::atomic_load (&cache);
-    if (current == nullptr || current->audio.getNumSamples() < 2)
+    if (current == nullptr)
+        return {};
+    return { current, &current->audio, current->start };
+}
+
+float ChunkedAudioFile::readInterpolated (
+    const ReadView& view, int channel, double sourcePosition) noexcept
+{
+    if (view.audio == nullptr || view.audio->getNumSamples() < 2)
         return 0.0f;
 
-    const double local = sourcePosition - (double) current->start;
+    const double local = sourcePosition - (double) view.start;
     const int i0 = (int) std::floor (local);
-    if (i0 < 0 || i0 + 1 >= current->audio.getNumSamples())
+    if (i0 < 0 || i0 + 1 >= view.audio->getNumSamples())
         return 0.0f;
-    const int ch = juce::jlimit (0, current->audio.getNumChannels() - 1, channel);
+    const int ch = juce::jlimit (0, view.audio->getNumChannels() - 1,
+                                 channel);
     const float frac = (float) (local - i0);
-    const float a = current->audio.getSample (ch, i0);
-    return a + frac * (current->audio.getSample (ch, i0 + 1) - a);
+    const float a = view.audio->getSample (ch, i0);
+    return a + frac * (view.audio->getSample (ch, i0 + 1) - a);
 }
 
 std::size_t ChunkedAudioFile::residentBytes() const noexcept

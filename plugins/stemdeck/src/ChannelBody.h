@@ -43,6 +43,11 @@ public:
     // replace). The Channel frame handles gain / FX / bus routing afterwards.
     virtual void processInto (juce::AudioBuffer<float>& scratch, const BlockContext& ctx) noexcept = 0;
 
+    // Whether this body's processed signal should be summed into the monitor/master
+    // mix. Input channels use this to keep recording and metering alive while monitor
+    // is off; capture happens before Channel consults this flag.
+    virtual bool contributesToMonitorMix() const noexcept { return true; }
+
     // Latency this body introduces right now, in samples (e.g. a time-stretcher).
     // Read on the audio thread each block, so implementations must be RT-safe.
     virtual int getLatencySamples() const noexcept { return 0; }

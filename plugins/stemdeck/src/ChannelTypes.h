@@ -53,8 +53,9 @@ inline ChannelType channelTypeFromId (const juce::String& s) noexcept
 }
 
 // Stable, opaque channel identity. Distinct from a channel's slot index (which is a
-// transient binding to an APVTS param bank) and from its list order. A future
-// session-schema step will remap the legacy integer Event.deck onto these.
+// transient binding to an APVTS param bank) and from its list order. Event scopes
+// and capture metadata use this identity so removing/reordering channels cannot
+// retarget automation.
 using ChannelID = juce::int64;
 
 // Crossfader routing side for a channel's contribution to the master bus.

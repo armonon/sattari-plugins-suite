@@ -69,8 +69,20 @@ void expectPerformanceRecorderWritesArrangementV2()
     auto master = dir.getChildFile ("set.wav");
     auto mic = dir.getChildFile ("set-mic.wav");
     std::array<juce::File, PerformanceRecorder::numDecks> deckFiles;
+    std::array<juce::String, PerformanceRecorder::numDecks> channelNames;
+    std::array<juce::String, PerformanceRecorder::numDecks> channelTypes;
+    std::array<juce::int64, PerformanceRecorder::numDecks> channelIds;
+    channelIds.fill (-1);
     for (int i = 0; i < PerformanceRecorder::numDecks; ++i)
+    {
         deckFiles[(size_t) i] = dir.getChildFile ("set-deck-" + juce::String::charToString ((juce_wchar) ('A' + i)) + ".wav");
+        channelNames[(size_t) i] = "Deck " + juce::String::charToString ((juce_wchar) ('A' + i));
+        channelTypes[(size_t) i] = "trackDeck";
+        channelIds[(size_t) i] = i;
+    }
+    channelNames[1] = "Vocal";
+    channelTypes[1] = "input";
+    channelIds[1] = 99;
 
     PerformanceRecorder recorder;
     recorder.begin (master, 48000.0);
@@ -83,7 +95,9 @@ void expectPerformanceRecorderWritesArrangementV2()
     recorder.logEvent (24000, "play_stop", "Deck A", "play", "off");
     recorder.logEvent (26000, "mic_stop", {}, "mic_monitor", "off");
 
-    const auto arrangement = recorder.finishAndWrite (48000, master, mic, deckFiles);
+    const auto arrangement = recorder.finishAndWrite (
+        48000, master, mic, deckFiles,
+        channelNames, channelTypes, channelIds);
     const auto eventLog = recorder.getEventLogFile();
 
     if (! arrangement.existsAsFile() || ! eventLog.existsAsFile())
@@ -93,6 +107,10 @@ void expectPerformanceRecorderWritesArrangementV2()
     const auto eventLogText = eventLog.loadFileAsString();
     expectContains (arrangementText, "SattariStemDeck.arrangement.v2", "arrangement JSON");
     expectContains (arrangementText, "Deck A", "arrangement JSON");
+    expectContains (arrangementText, "channelId", "arrangement JSON");
+    expectContains (arrangementText, "slotIndex", "arrangement JSON");
+    expectContains (arrangementText, "input_lane", "arrangement JSON");
+    expectContains (arrangementText, "Vocal", "arrangement JSON");
     expectContains (arrangementText, "renderedDeckAudio", "arrangement JSON");
     expectContains (arrangementText, "Cues + Loops", "arrangement JSON");
     expectContains (arrangementText, "Master Output", "arrangement JSON");

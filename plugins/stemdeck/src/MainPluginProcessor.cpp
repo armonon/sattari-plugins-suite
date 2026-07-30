@@ -212,27 +212,36 @@ MainPluginProcessor::MainPluginProcessor()
 // ── Channel accessors ────────────────────────────────────────────────────────
 // No dynamic_cast: ChannelBody::trackDeckPlayer() is a virtual returning nullptr for
 // non-TrackDeck bodies, so this is safe to call from the audio thread.
-DeckPlayer& MainPluginProcessor::deckAt (int deckIndex) noexcept
+DeckPlayer& MainPluginProcessor::deckAt (int deckSlot) noexcept
 {
-    if (juce::isPositiveAndBelow (deckIndex, (int) channels.size()))
-        if (auto& ch = channels[(size_t) deckIndex])
+    for (auto& ch : channels)
+        if (ch != nullptr && ch->slotIndex == deckSlot)
             if (auto* body = ch->getBody())
                 if (auto* dp = body->trackDeckPlayer())
                     return *dp;
     return nullDeck;
 }
 
-const DeckPlayer& MainPluginProcessor::deckAt (int deckIndex) const noexcept
+const DeckPlayer& MainPluginProcessor::deckAt (int deckSlot) const noexcept
 {
-    return const_cast<MainPluginProcessor*> (this)->deckAt (deckIndex);
+    return const_cast<MainPluginProcessor*> (this)->deckAt (deckSlot);
 }
 
 void MainPluginProcessor::publishChannels()
 {
     // Does any channel need the live device input? (drives mic capture in processBlock)
     bool anyInput = false;
+    for (auto& id : channelIdBySlot)
+        id.store (-1, std::memory_order_relaxed);
     for (auto& c : channels)
-        if (c != nullptr && c->type() == ChannelType::input) { anyInput = true; break; }
+        if (c != nullptr)
+        {
+            if (juce::isPositiveAndBelow (c->slotIndex, kMaxChannels))
+                channelIdBySlot[(size_t) c->slotIndex].store (
+                    c->id, std::memory_order_release);
+            if (c->type() == ChannelType::input)
+                anyInput = true;
+        }
     hasInputChannels.store (anyInput, std::memory_order_relaxed);
 
     channelGraph.mutate ([this] (std::vector<std::shared_ptr<Channel>>& v) { v = channels; });
@@ -240,7 +249,7 @@ void MainPluginProcessor::publishChannels()
 
 // Build a fully-wired channel for slot `index` (frame hook included), so the
 // constructor bootstrap and runtime addChannel() stay identical.
-std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelType type)
+std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelType type, ChannelID requestedId)
 {
     std::unique_ptr<ChannelBody> body;
     juce::String defaultName;
@@ -270,7 +279,9 @@ std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelTyp
         }
     }
 
-    auto ch = std::make_shared<Channel> ((ChannelID) (index + 1), std::move (body));
+    const ChannelID assignedId = requestedId >= 0 ? requestedId : nextChannelId++;
+    nextChannelId = juce::jmax (nextChannelId, assignedId + 1);
+    auto ch = std::make_shared<Channel> (assignedId, std::move (body));
     ch->name      = defaultName;
     ch->slotIndex = index;
     ch->cfSide    = type != ChannelType::trackDeck ? CrossfaderSide::center
@@ -279,13 +290,10 @@ std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelTyp
     const int i = index;
     ch->onPostBody = [this, i] (juce::AudioBuffer<float>& buf, int numSamples)
     {
-        // Only the four track decks map to deckA..deckD. This used to read
-        // `i < Chain::count`, which sent channel 4 through the MIC chain and channel 5
-        // through MASTER — a fifth user channel silently inherited the mic's FX. With
-        // stem chains appended the same bug would have routed channels 6+ into stem
-        // chains, so the guard is now the real one.
-        if (currentBlockMidi != nullptr && i < HostGraph::kNumDecks)
-            hostGraph.processChain ((HostGraph::Chain) i, buf, *currentBlockMidi);
+        if (currentBlockMidi != nullptr
+            && i < HostGraph::kNumChannelChains)
+            hostGraph.processChain (
+                HostGraph::channelChain (i), buf, *currentBlockMidi);
 
         if (i < kMaxChannels)
         {
@@ -310,13 +318,17 @@ void MainPluginProcessor::restoreChannelsFromState()
     auto chTree = apvts.state.getChildWithName ("CHANNELS");
 
     std::vector<std::shared_ptr<Channel>> rebuilt;
+    nextChannelId = 0;
     if (chTree.isValid() && chTree.getNumChildren() > 0)
     {
         for (int i = 0; i < chTree.getNumChildren() && (int) rebuilt.size() < kMaxChannels; ++i)
         {
             const auto c = chTree.getChild (i);
             const int slot = juce::jlimit (0, kMaxChannels - 1, (int) c.getProperty ("slot", i));
-            auto ch = makeChannel (slot, channelTypeFromId (c.getProperty ("type", "trackDeck").toString()));
+            const ChannelID id = (ChannelID) (juce::int64) c.getProperty ("id", (juce::int64) -1);
+            auto ch = makeChannel (slot,
+                                   channelTypeFromId (c.getProperty ("type", "trackDeck").toString()),
+                                   id);
             const auto name = c.getProperty ("name").toString();
             if (name.isNotEmpty()) ch->name = name;
             ch->cfSide = (CrossfaderSide) (int) c.getProperty ("cfSide", (int) ch->cfSide);
@@ -337,6 +349,38 @@ void MainPluginProcessor::restoreChannelsFromState()
     publishChannels();
 }
 
+int MainPluginProcessor::channelIndexForId (ChannelID id) const noexcept
+{
+    for (int i = 0; i < (int) channels.size(); ++i)
+        if (channels[(size_t) i] != nullptr && channels[(size_t) i]->id == id)
+            return i;
+    return -1;
+}
+
+ChannelID MainPluginProcessor::channelIdForIndex (int index) const noexcept
+{
+    if (juce::isPositiveAndBelow (index, (int) channels.size())
+        && channels[(size_t) index] != nullptr)
+        return channels[(size_t) index]->id;
+    return -1;
+}
+
+ChannelID MainPluginProcessor::channelIdForSlot (int slot) const noexcept
+{
+    return juce::isPositiveAndBelow (slot, kMaxChannels)
+               ? channelIdBySlot[(size_t) slot].load (std::memory_order_acquire)
+               : -1;
+}
+
+int MainPluginProcessor::channelSlotForId (ChannelID id) const noexcept
+{
+    for (int slot = 0; slot < kMaxChannels; ++slot)
+        if (channelIdBySlot[(size_t) slot].load (
+                std::memory_order_acquire) == id)
+            return slot;
+    return -1;
+}
+
 // ── Plugin delay compensation (spec §3.3) ───────────────────────────────────
 // A channel whose FX chain reports latency arrives late. Delay every OTHER channel
 // by the difference so they all land aligned at the master bus, and tell the host
@@ -355,10 +399,10 @@ void MainPluginProcessor::refreshLatencyCompensation()
     for (size_t i = 0; i < channels.size(); ++i)
     {
         if (channels[i] == nullptr) continue;
-        const int chainIndex = (int) i;
-        // Same guard as the audio path: only the four decks own deckA..deckD chains.
-        int lat = chainIndex < HostGraph::kNumDecks
-                ? hostGraph.getChainLatencySamples ((HostGraph::Chain) chainIndex) : 0;
+        const int chainIndex = channels[i]->slotIndex;
+        int lat = chainIndex < HostGraph::kNumChannelChains
+                ? hostGraph.getChainLatencySamples (
+                      HostGraph::channelChain (chainIndex)) : 0;
 
         // Per-stem chains: publish each stem's latency to the deck body so it can align
         // the four stems before summing, and fold the SLOWEST stem into this channel's
@@ -384,19 +428,62 @@ void MainPluginProcessor::refreshLatencyCompensation()
 
 int MainPluginProcessor::addChannel (ChannelType type)
 {
+    // These enum values are reserved in the session schema but do not yet have
+    // concrete ChannelBody implementations. Refuse them instead of silently
+    // constructing a TrackDeckBody and persisting the wrong type.
+    if (type == ChannelType::sampler
+        || type == ChannelType::pluginHost)
+        return -1;
+
     if ((int) channels.size() >= kMaxChannels)
         return -1;   // parameter pool exhausted
 
-    const int index = (int) channels.size();
-    auto ch = makeChannel (index, type);
-    ch->prepare (currentSampleRate > 0.0 ? currentSampleRate : 44100.0,
-                 juce::jmax (1, getBlockSize()),
-                 juce::jmax (1, getTotalNumOutputChannels()));
+    std::array<bool, kMaxChannels> slotUsed {};
+    for (const auto& existing : channels)
+        if (existing != nullptr
+            && juce::isPositiveAndBelow (
+                existing->slotIndex, kMaxChannels))
+            slotUsed[(size_t) existing->slotIndex] = true;
+    int slot = -1;
+    for (int candidate = 0; candidate < kMaxChannels; ++candidate)
+        if (! slotUsed[(size_t) candidate])
+        {
+            slot = candidate;
+            break;
+        }
+    if (slot < 0)
+        return -1;
+    // TrackDeck has a fixed APVTS bank and full performance surface for A..D.
+    // Do not create a fifth silent/invisible deck until the parameter model itself
+    // is dynamically extensible.
+    if (type == ChannelType::trackDeck && slot >= numDecks)
+        return -1;
 
-    channels.push_back (std::move (ch));
-    publishChannels();   // atomic swap — channels already playing are undisturbed
-    refreshLatencyCompensation();
-    return index;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::channelAdd;
+    event.channelAdd.id = nextChannelId;
+    switch (type)
+    {
+        case ChannelType::input:
+            event.channelAdd.kind =
+                stemdeck::events::ChannelKind::input; break;
+        case ChannelType::midiInstrument:
+            event.channelAdd.kind =
+                stemdeck::events::ChannelKind::midiInstrument; break;
+        case ChannelType::sampler:
+            event.channelAdd.kind =
+                stemdeck::events::ChannelKind::sampler; break;
+        case ChannelType::pluginHost:
+            event.channelAdd.kind =
+                stemdeck::events::ChannelKind::pluginHost; break;
+        case ChannelType::trackDeck:
+        default:
+            event.channelAdd.kind =
+                stemdeck::events::ChannelKind::trackDeck; break;
+    }
+    event.channelAdd.slotIndex = (std::uint8_t) slot;
+    eventDispatcher->dispatch (event);
+    return channelIndexForId (event.channelAdd.id);
 }
 
 bool MainPluginProcessor::removeChannel (int index)
@@ -404,10 +491,11 @@ bool MainPluginProcessor::removeChannel (int index)
     if (! juce::isPositiveAndBelow (index, (int) channels.size()) || channels.size() <= 1)
         return false;   // always keep at least one channel
 
-    channels.erase (channels.begin() + index);
-    publishChannels();   // the retired channel stays alive in the previous snapshot
-    refreshLatencyCompensation();
-    return true;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::channelRemove;
+    event.channelRemove.id = channels[(size_t) index]->id;
+    eventDispatcher->dispatch (event);
+    return channelIndexForId (event.channelRemove.id) < 0;
 }
 
 ChannelType MainPluginProcessor::getChannelType (int index) const
@@ -431,9 +519,12 @@ float MainPluginProcessor::getChannelActivity (int index) const noexcept
     if (! juce::isPositiveAndBelow (index, (int) channels.size())
         || channels[(size_t) index] == nullptr)
         return 0.0f;
-    if (index < numDecks
-        && channels[(size_t) index]->type() == ChannelType::trackDeck)
-        return juce::jmax (getDeckPeak (index, 0), getDeckPeak (index, 1));
+    if (channels[(size_t) index]->type() == ChannelType::trackDeck)
+    {
+        const int slot = channels[(size_t) index]->slotIndex;
+        if (juce::isPositiveAndBelow (slot, numDecks))
+            return juce::jmax (getDeckPeak (slot, 0), getDeckPeak (slot, 1));
+    }
     if (auto* input = dynamic_cast<InputBody*> (channels[(size_t) index]->getBody()))
         return input->getInputPeak();
     if (auto* instrument = dynamic_cast<MidiInstrumentBody*> (
@@ -454,7 +545,7 @@ void MainPluginProcessor::toggleChannelMute (int index)
 
     stemdeck::events::Scope sc;
     sc.kind    = stemdeck::events::ScopeKind::channel;
-    sc.channel = index;
+    sc.channel = ch->id;
     eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::channelMute,
                                     ch->isMuted() ? 0.0 : 1.0);
 }
@@ -467,7 +558,7 @@ void MainPluginProcessor::toggleChannelSolo (int index)
 
     stemdeck::events::Scope sc;
     sc.kind    = stemdeck::events::ScopeKind::channel;
-    sc.channel = index;
+    sc.channel = ch->id;
     eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::channelSolo,
                                     ch->isSoloed() ? 0.0 : 1.0);
 }
@@ -476,33 +567,115 @@ void MainPluginProcessor::toggleChannelSolo (int index)
 void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
 {
     using namespace stemdeck::events;
+    if (e.type == EventType::channelAdd)
+    {
+        if (channelIndexForId ((ChannelID) e.channelAdd.id) >= 0
+            || (int) channels.size() >= kMaxChannels)
+            return;
+        ChannelType type = ChannelType::trackDeck;
+        switch (e.channelAdd.kind)
+        {
+            case ChannelKind::input:          type = ChannelType::input; break;
+            case ChannelKind::midiInstrument:type = ChannelType::midiInstrument; break;
+            case ChannelKind::sampler:        type = ChannelType::sampler; break;
+            case ChannelKind::pluginHost:     type = ChannelType::pluginHost; break;
+            case ChannelKind::trackDeck:
+            case ChannelKind::count:
+            default:                          break;
+        }
+        const int slot = juce::jlimit (
+            0, kMaxChannels - 1, (int) e.channelAdd.slotIndex);
+        for (const auto& existing : channels)
+            if (existing != nullptr && existing->slotIndex == slot)
+                return;   // malformed replay: two channels cannot own one bank
+        auto channel = makeChannel (
+            slot, type, (ChannelID) e.channelAdd.id);
+        channel->prepare (
+            currentSampleRate > 0.0 ? currentSampleRate : 44100.0,
+            juce::jmax (1, getBlockSize()),
+            juce::jmax (1, getTotalNumOutputChannels()));
+        channels.push_back (std::move (channel));
+        publishChannels();
+        refreshLatencyCompensation();
+        return;
+    }
+    if (e.type == EventType::channelRemove)
+    {
+        const int index = channelIndexForId (
+            (ChannelID) e.channelRemove.id);
+        if (! juce::isPositiveAndBelow (
+                index, (int) channels.size())
+            || channels.size() <= 1)
+            return;
+        const int retiredSlot = channels[(size_t) index]->slotIndex;
+        if (juce::isPositiveAndBelow (retiredSlot, kMaxChannels))
+            for (auto& generation : deckLoadGeneration[(size_t) retiredSlot])
+                generation.fetch_add (1, std::memory_order_relaxed);
+        channels.erase (channels.begin() + index);
+        publishChannels();
+        refreshLatencyCompensation();
+        return;
+    }
+    if (e.type == EventType::channelReorder)
+    {
+        const int from = channelIndexForId (
+            (ChannelID) e.channelReorder.id);
+        const int to = juce::jlimit (
+            0, (int) channels.size() - 1,
+            (int) e.channelReorder.toPos);
+        if (! juce::isPositiveAndBelow (
+                from, (int) channels.size()) || from == to)
+            return;
+        auto channel = channels[(size_t) from];
+        channels.erase (channels.begin() + from);
+        channels.insert (channels.begin() + to, std::move (channel));
+        publishChannels();
+        return;
+    }
     if (e.type != EventType::param) return;
 
-    const int idx = (int) e.scope.channel;
+    const bool positionalInsertScope = e.scope.kind == ScopeKind::insert;
+    std::shared_ptr<Channel> targetChannel;
+    if (e.scope.kind != ScopeKind::master && ! positionalInsertScope)
+    {
+        const auto snapshot = channelGraph.current();
+        for (const auto& channel : snapshot->channels)
+            if (channel != nullptr
+                && channel->id == (ChannelID) e.scope.channel)
+            {
+                targetChannel = channel;
+                break;
+            }
+    }
+    const int slot = positionalInsertScope
+                         ? (int) e.scope.channel
+                         : targetChannel != nullptr
+                               ? targetChannel->slotIndex : -1;
     switch (e.param.id)
     {
         case ParamId::channelMute:
-            if (juce::isPositiveAndBelow (idx, (int) channels.size()))
-                if (auto& c = channels[(size_t) idx]) c->setMuted (e.param.value > 0.5);
+            if (targetChannel != nullptr)
+                targetChannel->setMuted (e.param.value > 0.5);
             break;
 
         case ParamId::channelSolo:
-            if (juce::isPositiveAndBelow (idx, (int) channels.size()))
-                if (auto& c = channels[(size_t) idx]) c->setSoloed (e.param.value > 0.5);
+            if (targetChannel != nullptr)
+                targetChannel->setSoloed (e.param.value > 0.5);
             break;
 
         case ParamId::stemMute:
         case ParamId::stemSolo:
         {
             const int stem = (int) e.scope.stemLane - (int) StemLane::drums;
-            if (! juce::isPositiveAndBelow (idx, numDecks)
+            if (targetChannel == nullptr
+                || ! juce::isPositiveAndBelow (slot, numDecks)
                 || ! juce::isPositiveAndBelow (stem, HostGraph::kNumStemsPerDeck))
                 break;
 
-            auto parameterFor = [this, idx] (int s) -> juce::RangedAudioParameter*
+            auto parameterFor = [this, slot] (int s) -> juce::RangedAudioParameter*
             {
                 const int lane = DeckPlayer::drumsStem + s;
-                return apvts.getParameter (deckPrefix (idx) + "Stem"
+                return apvts.getParameter (deckPrefix (slot) + "Stem"
                                            + DeckPlayer::stemLaneId (lane) + "Gain");
             };
             auto writeGain = [this, &parameterFor] (int s, float percent)
@@ -523,35 +696,35 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
                 {
                     const float current = p->convertFrom0to1 (p->getValue());
                     if (enabled && current > muteEpsilon)
-                        stemRestoreGain[(size_t) idx][(size_t) stem] = current;
+                        stemRestoreGain[(size_t) slot][(size_t) stem] = current;
                 }
-                stemMuted[(size_t) idx][(size_t) stem] = enabled;
+                stemMuted[(size_t) slot][(size_t) stem] = enabled;
                 writeGain (stem, enabled ? stemdeck::stemgain::kMin
-                                         : stemRestoreGain[(size_t) idx][(size_t) stem]);
+                                         : stemRestoreGain[(size_t) slot][(size_t) stem]);
             }
             else
             {
-                stemSoloLane[(size_t) idx] = enabled ? stem : -1;
+                stemSoloLane[(size_t) slot] = enabled ? stem : -1;
                 for (int s = 0; s < HostGraph::kNumStemsPerDeck; ++s)
                 {
                     if (auto* p = parameterFor (s))
                     {
                         const float current = p->convertFrom0to1 (p->getValue());
                         if (current > muteEpsilon)
-                            stemRestoreGain[(size_t) idx][(size_t) s] = current;
+                            stemRestoreGain[(size_t) slot][(size_t) s] = current;
                     }
 
                     const bool shouldMute = enabled ? s != stem
-                                                    : stemMuted[(size_t) idx][(size_t) s];
+                                                    : stemMuted[(size_t) slot][(size_t) s];
                     writeGain (s, shouldMute ? stemdeck::stemgain::kMin
-                                             : stemRestoreGain[(size_t) idx][(size_t) s]);
+                                             : stemRestoreGain[(size_t) slot][(size_t) s]);
                 }
             }
             break;
         }
 
         case ParamId::cfSide:
-            applyDeckCfSide (idx, (int) e.param.value);
+            if (slot >= 0) applyDeckCfSide (slot, (int) e.param.value);
             break;
 
         // ── Input / instrument channels ──────────────────────────────────────
@@ -560,7 +733,10 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
         case ParamId::inputGain:
         case ParamId::inputMonitor:
         case ParamId::inputSource:
-            if (auto* in = dynamic_cast<InputBody*> (bodyAt (idx)))
+            if (auto* in = targetChannel != nullptr
+                               ? dynamic_cast<InputBody*> (
+                                     targetChannel->getBody())
+                               : nullptr)
             {
                 if (e.param.id == ParamId::inputGain)         in->setInputGain ((float) e.param.value);
                 else if (e.param.id == ParamId::inputMonitor) in->setMonitorEnabled (e.param.value > 0.5);
@@ -570,7 +746,10 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
 
         case ParamId::instGain:
         case ParamId::instMidiChannel:
-            if (auto* mi = dynamic_cast<MidiInstrumentBody*> (bodyAt (idx)))
+            if (auto* mi = targetChannel != nullptr
+                               ? dynamic_cast<MidiInstrumentBody*> (
+                                     targetChannel->getBody())
+                               : nullptr)
             {
                 if (e.param.id == ParamId::instGain) mi->setGain ((float) e.param.value);
                 else                                 mi->setMidiChannel ((int) e.param.value);
@@ -581,7 +760,7 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
         // Scope carries the chain in `channel` and the insert POSITION in `index`,
         // because HostGraph addresses inserts positionally.
         case ParamId::insertBypass:
-            setChainPluginBypassed (idx, (int) e.param.index, e.param.value > 0.5);
+            if (slot >= 0) setChainPluginBypassed (slot, (int) e.param.index, e.param.value > 0.5);
             break;
 
         case ParamId::insertParam:
@@ -589,10 +768,10 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             const int insertIndex = (int) ((e.param.index >> 16) & 0xffffu);
             const int parameterIndex = (int) (e.param.index & 0xffffu);
             hostGraph.setPluginParameterByStableId (
-                (HostGraph::Chain) idx, insertIndex, e.param.stableId,
+                (HostGraph::Chain) slot, insertIndex, e.param.stableId,
                 parameterIndex, (float) e.param.value);
             hostedParameterValues[
-                std::make_tuple (idx, insertIndex, e.param.stableId)]
+                std::make_tuple (slot, insertIndex, e.param.stableId)]
                     = (float) e.param.value;
             break;
         }
@@ -855,7 +1034,7 @@ const GlobalMap kGlobals[] = {
 };
 } // namespace
 
-MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::String& id)
+MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::String& id) const
 {
     using namespace stemdeck::events;
     ParamMapping m;
@@ -886,7 +1065,9 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
                 m.valid = true;
                 m.id = ParamId::gainStem;
                 m.scope.kind     = ScopeKind::stem;
-                m.scope.channel  = deck;
+                m.scope.channel =
+                    channelIdBySlot[(size_t) deck].load (
+                        std::memory_order_acquire);
                 m.scope.stemLane = (StemLane) lane;
                 return m;
             }
@@ -897,13 +1078,16 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
         if (rest == d.suffix)
         {
             m.valid = true; m.id = d.id;
-            m.scope.kind = ScopeKind::channel; m.scope.channel = deck;
+            m.scope.kind = ScopeKind::channel;
+            m.scope.channel =
+                channelIdBySlot[(size_t) deck].load (
+                    std::memory_order_acquire);
             return m;
         }
     return m;
 }
 
-juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e)
+juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e) const
 {
     using namespace stemdeck::events;
     if (e.type != EventType::param) return {};
@@ -911,7 +1095,7 @@ juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e)
     for (const auto& g : kGlobals)
         if (e.param.id == g.pid) return g.id;
 
-    const int deck = (int) e.scope.channel;
+    const int deck = channelSlotForId ((ChannelID) e.scope.channel);
     if (! juce::isPositiveAndBelow (deck, numDecks)) return {};
     const auto pfx = deckPrefix (deck);
 
@@ -948,37 +1132,37 @@ void MainPluginProcessor::parameterChanged (const juce::String& parameterID, flo
 // goes through the dispatcher, so the gesture is captured and replays identically.
 namespace
 {
-stemdeck::events::Scope channelScope (int index)
+stemdeck::events::Scope channelScope (ChannelID id)
 {
     stemdeck::events::Scope sc;
     sc.kind    = stemdeck::events::ScopeKind::channel;
-    sc.channel = index;
+    sc.channel = id;
     return sc;
 }
 } // namespace
 
 void MainPluginProcessor::setInputGainDispatched (int c, float linear)
-{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputGain, (double) linear); }
+{ eventDispatcher->dispatchParam (channelScope (channelIdForIndex (c)), stemdeck::events::ParamId::inputGain, (double) linear); }
 
 void MainPluginProcessor::setInputMonitorDispatched (int c, bool on)
-{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputMonitor, on ? 1.0 : 0.0); }
+{ eventDispatcher->dispatchParam (channelScope (channelIdForIndex (c)), stemdeck::events::ParamId::inputMonitor, on ? 1.0 : 0.0); }
 
 void MainPluginProcessor::setInputSourceDispatched (int c, int deviceChannel)
-{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::inputSource, (double) deviceChannel); }
+{ eventDispatcher->dispatchParam (channelScope (channelIdForIndex (c)), stemdeck::events::ParamId::inputSource, (double) deviceChannel); }
 
 void MainPluginProcessor::setInstGainDispatched (int c, float linear)
-{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::instGain, (double) linear); }
+{ eventDispatcher->dispatchParam (channelScope (channelIdForIndex (c)), stemdeck::events::ParamId::instGain, (double) linear); }
 
 void MainPluginProcessor::setInstMidiChannelDispatched (int c, int midiChannel)
-{ eventDispatcher->dispatchParam (channelScope (c), stemdeck::events::ParamId::instMidiChannel, (double) midiChannel); }
+{ eventDispatcher->dispatchParam (channelScope (channelIdForIndex (c)), stemdeck::events::ParamId::instMidiChannel, (double) midiChannel); }
 
 namespace
 {
-stemdeck::events::Scope stemScope (int deckIndex, int stemIndex)
+stemdeck::events::Scope stemScope (ChannelID id, int stemIndex)
 {
     stemdeck::events::Scope sc;
     sc.kind     = stemdeck::events::ScopeKind::stem;
-    sc.channel  = deckIndex;
+    sc.channel  = id;
     sc.stemLane = (stemdeck::events::StemLane) (DeckPlayer::drumsStem + stemIndex);
     return sc;
 }
@@ -986,30 +1170,38 @@ stemdeck::events::Scope stemScope (int deckIndex, int stemIndex)
 
 void MainPluginProcessor::setStemMutedDispatched (int deckIndex, int stemIndex, bool muted)
 {
-    eventDispatcher->dispatchParam (stemScope (deckIndex, stemIndex),
+    eventDispatcher->dispatchParam (stemScope (channelIdForSlot (deckIndex), stemIndex),
                                     stemdeck::events::ParamId::stemMute,
                                     muted ? 1.0 : 0.0);
 }
 
 void MainPluginProcessor::setStemSoloedDispatched (int deckIndex, int stemIndex, bool soloed)
 {
-    eventDispatcher->dispatchParam (stemScope (deckIndex, stemIndex),
+    eventDispatcher->dispatchParam (stemScope (channelIdForSlot (deckIndex), stemIndex),
                                     stemdeck::events::ParamId::stemSolo,
                                     soloed ? 1.0 : 0.0);
 }
 
 bool MainPluginProcessor::isStemMuted (int deckIndex, int stemIndex) const
 {
-    return juce::isPositiveAndBelow (deckIndex, numDecks)
+    const int slot = juce::isPositiveAndBelow (
+                         deckIndex, (int) channels.size())
+                         && channels[(size_t) deckIndex] != nullptr
+                         ? channels[(size_t) deckIndex]->slotIndex : -1;
+    return juce::isPositiveAndBelow (slot, numDecks)
         && juce::isPositiveAndBelow (stemIndex, HostGraph::kNumStemsPerDeck)
-        && stemMuted[(size_t) deckIndex][(size_t) stemIndex];
+        && stemMuted[(size_t) slot][(size_t) stemIndex];
 }
 
 bool MainPluginProcessor::isStemSoloed (int deckIndex, int stemIndex) const
 {
-    return juce::isPositiveAndBelow (deckIndex, numDecks)
+    const int slot = juce::isPositiveAndBelow (
+                         deckIndex, (int) channels.size())
+                         && channels[(size_t) deckIndex] != nullptr
+                         ? channels[(size_t) deckIndex]->slotIndex : -1;
+    return juce::isPositiveAndBelow (slot, numDecks)
         && juce::isPositiveAndBelow (stemIndex, HostGraph::kNumStemsPerDeck)
-        && stemSoloLane[(size_t) deckIndex] == stemIndex;
+        && stemSoloLane[(size_t) slot] == stemIndex;
 }
 
 void MainPluginProcessor::setInsertBypassDispatched (int chainIndex, int insertPos, bool bypassed)
@@ -1360,7 +1552,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             continue;
 
         // Crossfader assignment (0 = A/left bus, 1 = Center, 2 = B/right bus).
-        const int cfSide = i < numDecks ? getDeckCfSide (i) : 1;
+        const int slot = ch->slotIndex;
+        const int cfSide = juce::isPositiveAndBelow (slot, numDecks)
+                               ? getDeckCfSide (slot) : 1;
         ch->cfSide = cfSide == 0 ? CrossfaderSide::ac
                    : cfSide == 2 ? CrossfaderSide::bd
                                  : CrossfaderSide::center;
@@ -1371,10 +1565,10 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         if (auto* p = body->trackDeckParams())
         {
-            if (i >= kMaxChannels)
+            if (! juce::isPositiveAndBelow (slot, kMaxChannels))
                 continue;   // beyond the parameter pool
 
-            const auto& ids = deckIds[(size_t) i];   // pre-concatenated ids — no RT alloc
+            const auto& ids = deckIds[(size_t) slot];   // pre-concatenated ids — no RT alloc
             p->play        = getBoolParam  (ids.play);
             p->volume      = getFloatParam (ids.volume);
             p->fader       = getFloatParam (ids.fader);
@@ -1407,17 +1601,32 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             p->hostSync  = getBoolParam ("hostSync");
             p->beatSync  = getBoolParam ("beatSync");
             p->masterKey = (int) std::round (getFloatParam ("masterKey"));
-            p->liveKeyPitchClass = liveKeyPitchClass[(size_t) i].load (std::memory_order_relaxed);
-            p->liveKeyConfidence = liveKeyConfidence[(size_t) i].load (std::memory_order_relaxed);
+            p->liveKeyPitchClass = liveKeyPitchClass[(size_t) slot].load (std::memory_order_relaxed);
+            p->liveKeyConfidence = liveKeyConfidence[(size_t) slot].load (std::memory_order_relaxed);
         }
 
         ch->processBlock (buffer, blockCtx);
     }
 
+    // Preserve a raw, sample-aligned safety recording before any legacy mic-chain
+    // processing. Input channels separately capture their processed signal through
+    // their normal per-channel recorder.
+    if (micCaptured)
+        micRecorder.captureBlock (micInput);
+
     if (micCaptured)
     {
-        hostGraph.processChain (HostGraph::Chain::mic, micInput, midi);
-        const float micGain = juce::Decibels::decibelsToGain (getFloatParam ("micGain"));
+        const bool routedByInputChannel =
+            hasInputChannels.load (std::memory_order_relaxed);
+        const float micGain = routedByInputChannel
+                                  ? 1.0f
+                                  : juce::Decibels::decibelsToGain (
+                                        getFloatParam ("micGain"));
+
+        // The global mic chain is retained only for legacy projects with no typed
+        // Input channel. Once an Input channel exists it is the sole audible path.
+        if (! routedByInputChannel)
+            hostGraph.processChain (HostGraph::Chain::mic, micInput, midi);
 
         // Talkover ducking: measure mic peak, smooth it, duck the deck output
         if (talkoverEnabled.load (std::memory_order_relaxed))
@@ -1439,14 +1648,18 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             buffer.applyGain (talkoverDuckGain);
         }
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.addFrom (ch, 0, micInput, juce::jmin (ch, micInput.getNumChannels() - 1), 0, buffer.getNumSamples(), micGain);
+        if (! routedByInputChannel)
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.addFrom (ch, 0, micInput,
+                                juce::jmin (ch, micInput.getNumChannels() - 1),
+                                0, buffer.getNumSamples(), micGain);
     }
     else if (isCapturingPerformance && getTotalNumInputChannels() == 0)
     {
         micInput.setSize (juce::jmax (1, getTotalNumOutputChannels()), buffer.getNumSamples(), false, false, true);
         micInput.clear();
         micCaptured = true;   // capture silence so the mic recorder stays in sync
+        micRecorder.captureBlock (micInput);
     }
 
     std::array<float, PadBank::numPads> padGains {};
@@ -1529,8 +1742,6 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     masterRecorder.captureBlock (buffer);
     // Live MIDI played during the take (RT-safe ring; converted to beats on read).
     midiCapture.captureBlock (midi, blockRecordingStart);
-    if (micCaptured)
-        micRecorder.captureBlock (micInput);
     if (isCapturingPerformance)
         recordingSampleCounter.fetch_add (buffer.getNumSamples(), std::memory_order_relaxed);
     transportSampleCounter += buffer.getNumSamples();
@@ -2159,25 +2370,37 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             return juce::ThreadPoolJob::jobHasFinished;
 
         auto sched = std::make_shared<ArrangementPlayer::Schedule>();
+        std::map<juce::String, std::shared_ptr<ChunkedAudioFile>> streamedFiles;
         for (const auto& spec : payload->clips)
         {
             if (! alive->load (std::memory_order_acquire)
                 || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
                 return juce::ThreadPoolJob::jobHasFinished;
             if (! spec.file.existsAsFile() || spec.lengthSeconds <= 0.0) continue;
-            auto la = loadAudioFile (spec.file);
-            if (la == nullptr || la->audio.getNumSamples() < 2) continue;
+            const auto key = spec.file.getFullPathName();
+            auto& streamed = streamedFiles[key];
+            if (streamed == nullptr)
+                streamed = ChunkedAudioFile::create (spec.file);
+            if (streamed == nullptr || streamed->lengthInSamples() < 2)
+                continue;
 
             ArrangementPlayer::Clip c;
-            // Aliasing shared_ptr: keeps the LoadedAudio alive, points at its buffer.
-            c.audio                 = std::shared_ptr<const juce::AudioBuffer<float>> (la, &la->audio);
-            c.sourceSampleRate      = la->sourceSampleRate > 0.0 ? la->sourceSampleRate : payload->engineSr;
+            c.streamed              = streamed;
+            c.sourceSampleRate      = streamed->sampleRate() > 0.0
+                                          ? streamed->sampleRate()
+                                          : payload->engineSr;
             c.timelineStartSamples  = (juce::int64) std::llround (spec.timelineStartSeconds * payload->engineSr);
             c.sourceStartSamples    = (juce::int64) std::llround (spec.sourceStartSeconds   * c.sourceSampleRate);
             c.timelineLengthSamples = (juce::int64) std::llround (spec.lengthSeconds         * payload->engineSr);
             c.gain                  = spec.gain;
             c.fadeInSamples         = (juce::int64) std::llround (spec.fadeInSeconds  * payload->engineSr);
             c.fadeOutSamples        = (juce::int64) std::llround (spec.fadeOutSeconds * payload->engineSr);
+            c.gainAutomation.reserve (spec.gainAutomation.size());
+            for (const auto& [seconds, value] : spec.gainAutomation)
+                c.gainAutomation.emplace_back (
+                    (juce::int64) std::llround (
+                        seconds * payload->engineSr),
+                    juce::jlimit (0.0f, 2.0f, value));
             sched->push_back (std::move (c));
         }
 
@@ -2416,7 +2639,7 @@ void MainPluginProcessor::setDeckCfSide (int d, int side)
     if (! juce::isPositiveAndBelow (d, numDecks)) return;
     stemdeck::events::Scope sc;
     sc.kind    = stemdeck::events::ScopeKind::channel;
-    sc.channel = d;
+    sc.channel = channelIdForSlot (d);
     eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::cfSide,
                                     (double) juce::jlimit (0, 2, side));
 }
@@ -2574,6 +2797,19 @@ juce::File MainPluginProcessor::stopMasterRecording()
     // recorder's fixed 4-deck view, so copy into the leading slots.
     for (int i = 0; i < numDecks; ++i)
         lastDeckRecordingTargets[(size_t) i] = deckFiles[(size_t) i];
+    std::array<juce::String, numDecks> channelNames;
+    std::array<juce::String, numDecks> channelTypes;
+    std::array<juce::int64, numDecks> channelIds;
+    channelIds.fill (-1);
+    for (const auto& channel : channels)
+        if (channel != nullptr
+            && juce::isPositiveAndBelow (channel->slotIndex, numDecks))
+        {
+            const auto slot = (size_t) channel->slotIndex;
+            channelNames[slot] = channel->name;
+            channelTypes[slot] = channelTypeId (channel->type());
+            channelIds[slot] = channel->id;
+        }
     eventDispatcher->endCapture();
     {
         stemdeck::events::Header header;
@@ -2582,7 +2818,9 @@ juce::File MainPluginProcessor::stopMasterRecording()
         header.blockSize = (std::uint32_t) juce::jmax (1, preparedBlockSize);
         stemdeck::events::Writer::write (lastIntentStreamFile, header, eventDispatcher->takeRecorded());
     }
-    lastArrangementFile = performanceRecorder.finishAndWrite (endSample, masterFile, micFile, deckFiles);
+    lastArrangementFile = performanceRecorder.finishAndWrite (
+        endSample, masterFile, micFile, deckFiles,
+        channelNames, channelTypes, channelIds);
     lastPerformanceEventLogFile = performanceRecorder.getEventLogFile();
     return masterFile;
 }
@@ -3112,6 +3350,37 @@ void MainPluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.appendChild (chTree, nullptr);
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
+}
+
+bool MainPluginProcessor::remapStateMediaPaths (
+    juce::MemoryBlock& stateData,
+    const juce::StringPairArray& replacements) const
+{
+    std::unique_ptr<juce::XmlElement> xml (
+        getXmlFromBinary (stateData.getData(), (int) stateData.getSize()));
+    if (xml == nullptr)
+        return false;
+
+    auto tree = juce::ValueTree::fromXml (*xml);
+    auto rewrite = [&replacements] (auto&& self, juce::ValueTree node) -> void
+    {
+        for (int property = 0; property < node.getNumProperties(); ++property)
+        {
+            const auto name = node.getPropertyName (property);
+            const auto current = node.getProperty (name).toString();
+            if (replacements.containsKey (current))
+                node.setProperty (
+                    name, replacements.getValue (current, current), nullptr);
+        }
+        for (int child = 0; child < node.getNumChildren(); ++child)
+            self (self, node.getChild (child));
+    };
+    rewrite (rewrite, tree);
+    auto remappedXml = tree.createXml();
+    if (remappedXml == nullptr)
+        return false;
+    copyXmlToBinary (*remappedXml, stateData);
+    return true;
 }
 
 void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes)
