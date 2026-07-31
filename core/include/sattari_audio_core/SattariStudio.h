@@ -27,12 +27,12 @@ namespace sattari::studio
 
 namespace colour
 {
-inline const juce::Colour canvas       { 0xff090a0d };
-inline const juce::Colour canvasTop    { 0xff111319 };
-inline const juce::Colour surface      { 0xff14161b };
-inline const juce::Colour surfaceHigh  { 0xff1b1e25 };
-inline const juce::Colour surfacePress { 0xff232731 };
-inline const juce::Colour separator    { 0xff2a2e37 };
+inline const juce::Colour canvas       { 0xff1c1d21 };
+inline const juce::Colour canvasTop    { 0xff26272d };
+inline const juce::Colour surface      { 0xff26272c };
+inline const juce::Colour surfaceHigh  { 0xff2e3036 };
+inline const juce::Colour surfacePress { 0xff383a42 };
+inline const juce::Colour separator    { 0xff3a3d45 };
 inline const juce::Colour text         { 0xfff4f5f7 };
 inline const juce::Colour secondary    { 0xffa1a7b2 };
 inline const juce::Colour tertiary     { 0xff686f7c };
@@ -44,7 +44,7 @@ namespace metric
 {
 inline constexpr float outerMargin = 20.0f;
 inline constexpr float gap = 12.0f;
-inline constexpr float radius = 14.0f;
+inline constexpr float radius = 16.0f;
 inline constexpr float controlRadius = 9.0f;
 inline constexpr int headerHeight = 74;
 inline constexpr int commandHeight = 38;
@@ -162,7 +162,7 @@ public:
         sattari::control::drawRotarySlider (
             g, x, y, width, height, sliderPos, startAngle, endAngle,
             slider.isEnabled(), slider.isMouseOverOrDragging(),
-            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
+            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent_);
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -179,7 +179,7 @@ public:
             sattari::control::drawLinearSlider (
                 g, x, y, width, height, sliderPos, style,
                 slider.isEnabled(), slider.isMouseOverOrDragging(),
-                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
+                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent_);
             return;
         }
         juce::LookAndFeel_V4::drawLinearSlider (
@@ -190,7 +190,7 @@ public:
                        int, int, int, int, juce::ComboBox& box) override
     {
         sattari::control::drawComboBox (
-            g, width, height, down, box.hasKeyboardFocus (true));
+            g, width, height, down, box.hasKeyboardFocus (true), accent_);
     }
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
@@ -202,14 +202,17 @@ public:
     void drawButtonBackground (juce::Graphics& g, juce::Button& button,
                                const juce::Colour&, bool hover, bool down) override
     {
-        sattari::control::drawButtonBackground (g, button, hover, down);
+        sattari::control::drawButtonBackground (g, button, hover, down, accent_);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
                          bool, bool) override
     {
-        g.setColour (button.isEnabled() ? sattari::control::ink
-                                        : sattari::control::inkMuted.withAlpha (0.58f));
+        // A latched button is accent-filled, so its label has to invert with it.
+        const auto on = button.getToggleState();
+        g.setColour (! button.isEnabled()
+                         ? sattari::control::inkMuted.withAlpha (0.58f)
+                         : (on ? juce::Colours::white : sattari::control::ink));
         g.setFont (sattari::brand::font (11.5f, juce::Font::bold));
         g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (8, 2),
                           juce::Justification::centred, 1);
@@ -218,7 +221,7 @@ public:
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
                            bool hover, bool down) override
     {
-        sattari::control::drawToggleButton (g, button, hover, down);
+        sattari::control::drawToggleButton (g, button, hover, down, accent_);
     }
 
     int getDefaultScrollbarWidth() override { return 8; }
@@ -242,7 +245,7 @@ public:
     {
         sattari::control::drawTextEditorOutline (
             g, width, height, editor.isEnabled(),
-            editor.hasKeyboardFocus (true), editor.isReadOnly());
+            editor.hasKeyboardFocus (true), editor.isReadOnly(), accent_);
     }
 
     void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
@@ -258,7 +261,7 @@ public:
     {
         sattari::control::drawPopupMenuItem (
             g, area, separator, active, highlighted, ticked, hasSubMenu,
-            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f));
+            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f), accent_);
     }
 
     void drawTooltip (juce::Graphics& g, const juce::String& text,

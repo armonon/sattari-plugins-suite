@@ -1,5 +1,32 @@
 #pragma once
 
+// =============================================================================
+//  Sattari control surface — the suite's control vocabulary
+// -----------------------------------------------------------------------------
+//  Every control every plugin draws comes through here. The two LookAndFeels
+//  (SattariLookAndFeel, sattari::studio::LookAndFeel) are the ONLY callers, so
+//  this file is where the suite's look actually lives; changing it changes 49
+//  editors at once.
+//
+//  THE GRAMMAR
+//   * Capsule geometry. Tracks, buttons, switches and fields are fully rounded
+//     (radius = height/2), not softened rectangles. This is the single trait
+//     that carries the look — a 9px radius on a 20px control reads as a
+//     different product entirely.
+//   * Porcelain for anything you GRAB. Bright, physical, one soft shadow.
+//   * A single-hue accent gradient for anything you READ AS A VALUE. Never a
+//     rainbow: value fills that shift hue along their length make two different
+//     settings look like two different colours, which is a lie about the data.
+//   * The thumb rides INSIDE the track, it does not straddle it. That is what
+//     lets a slider stay a clean capsule at any size.
+//
+//  THE ACCENT IS A PARAMETER, NOT A CONSTANT. Products carry their own accent
+//  (mint / violet / amber / blue / crimson, see SattariBranding) and the whole
+//  point of the identity system is that a Create slot looks different from a
+//  Mix slot. Every function here therefore takes the accent, defaulted so that
+//  a caller which does not care still gets the suite default.
+// =============================================================================
+
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <sattari_audio_core/SattariBranding.h>
 
@@ -8,21 +35,60 @@
 namespace sattari::control
 {
 
-inline const juce::Colour porcelainTop    { 0xfffbfbfc };
-inline const juce::Colour porcelainBottom { 0xffdfe1e4 };
-inline const juce::Colour porcelainEdge   { 0xffbfc3c8 };
-inline const juce::Colour porcelainPress  { 0xffcfd3d8 };
-inline const juce::Colour ink             { 0xff191a1d };
-inline const juce::Colour inkMuted        { 0xff5f646b };
+// --- Porcelain: the material for things you grab ------------------------------
+inline const juce::Colour porcelainTop    { 0xfffdfdfe };
+inline const juce::Colour porcelainBottom { 0xffe4e6ea };
+inline const juce::Colour porcelainEdge   { 0xffc2c6cc };
+inline const juce::Colour porcelainPress  { 0xffd2d6db };
+inline const juce::Colour ink             { 0xff1b1c20 };
+inline const juce::Colour inkMuted        { 0xff62676e };
+
+// --- Recessed: the material for things you read --------------------------------
+//  Lifted off pure black. The reference sits on charcoal, not ink: at plugin
+//  sizes a near-black canvas makes every shadow disappear and the controls stop
+//  reading as physical.
+inline const juce::Colour overlay         { 0xff232429 };
+inline const juce::Colour overlayHigh     { 0xff2c2e34 };
+inline const juce::Colour overlayEdge     { 0xff3d404a };
+inline const juce::Colour overlayText     { 0xfff5f6f8 };
+inline const juce::Colour trough          { 0xffd7dade };   // empty part of a value track
+
+// Legacy spectrum stops. Kept because real spectrum displays legitimately want a
+// hue ramp; NO control uses them any more.
 inline const juce::Colour cyan            { 0xff19b9e8 };
 inline const juce::Colour blue            { 0xff5291ff };
 inline const juce::Colour violet          { 0xff9d86ff };
 inline const juce::Colour blush           { 0xffffb8c5 };
 inline const juce::Colour warm            { 0xffffe6a4 };
-inline const juce::Colour overlay         { 0xff17191e };
-inline const juce::Colour overlayHigh     { 0xff22252c };
-inline const juce::Colour overlayEdge     { 0xff3a3e48 };
-inline const juce::Colour overlayText     { 0xfff5f6f8 };
+
+inline juce::Colour defaultAccent() { return juce::Colour (sattari::brand::kAccent); }
+
+// The two stops of a value fill. Derived rather than hand-picked so every product
+// accent gets the same depth without a second colour needing to be authored.
+inline juce::Colour accentDeep (juce::Colour accent)
+{
+    return accent.withMultipliedSaturation (1.12f).withMultipliedBrightness (0.82f);
+}
+inline juce::Colour accentLift (juce::Colour accent)
+{
+    return accent.withRotatedHue (0.022f).withMultipliedSaturation (0.90f)
+                 .withMultipliedBrightness (1.16f);
+}
+
+// `along` runs deep -> lift in the direction the value grows, so a fuller control
+// reads brighter. Vertical tracks fill upward, hence the flip.
+inline void setAccentGradient (juce::Graphics& g, juce::Rectangle<float> bounds,
+                               juce::Colour accent, float alpha = 1.0f,
+                               bool vertical = false)
+{
+    const auto a = accentDeep (accent).withAlpha (alpha);
+    const auto b = accentLift (accent).withAlpha (alpha);
+    g.setGradientFill (vertical
+        ? juce::ColourGradient (b, bounds.getCentreX(), bounds.getY(),
+                                a, bounds.getCentreX(), bounds.getBottom(), false)
+        : juce::ColourGradient (a, bounds.getX(), bounds.getCentreY(),
+                                b, bounds.getRight(), bounds.getCentreY(), false));
+}
 
 inline void setSpectrumGradient (juce::Graphics& g, juce::Rectangle<float> bounds,
                                  float alpha = 1.0f)
@@ -37,205 +103,218 @@ inline void setSpectrumGradient (juce::Graphics& g, juce::Rectangle<float> bound
 }
 
 inline void drawFocusRing (juce::Graphics& g, juce::Rectangle<float> bounds,
-                           float radius, float alpha = 0.72f)
+                           float radius, juce::Colour accent = defaultAccent(),
+                           float alpha = 0.95f)
 {
-    setSpectrumGradient (g, bounds, alpha);
-    g.drawRoundedRectangle (bounds.reduced (0.75f), radius, 1.5f);
+    g.setColour (accentLift (accent).withAlpha (alpha));
+    g.drawRoundedRectangle (bounds.reduced (0.75f), radius, 1.6f);
 }
 
+// One ambient + one contact shadow. The previous three-layer stack turned to mud
+// once controls became capsules, because the expanded copies of a fully-rounded
+// shape overlap far more than they do on a 9px radius.
 inline void fillPorcelain (juce::Graphics& g, juce::Rectangle<float> bounds,
                            float radius, bool pressed = false)
 {
-    const float travel = pressed ? 0.8f : 2.0f;
+    const float travel = pressed ? 0.5f : 1.6f;
 
-    // Layered ambient/contact shadows read more naturally than a single dark
-    // duplicate and remain crisp at small plugin sizes.
-    g.setColour (juce::Colours::black.withAlpha (pressed ? 0.035f : 0.055f));
-    g.fillRoundedRectangle (bounds.expanded (3.0f).translated (0.0f, travel + 2.0f),
-                            radius + 3.0f);
-    g.setColour (juce::Colours::black.withAlpha (pressed ? 0.075f : 0.105f));
-    g.fillRoundedRectangle (bounds.expanded (1.25f).translated (0.0f, travel + 0.8f),
-                            radius + 1.25f);
-    g.setColour (juce::Colours::black.withAlpha (pressed ? 0.10f : 0.14f));
-    g.fillRoundedRectangle (bounds.translated (0.0f, travel), radius);
+    g.setColour (juce::Colours::black.withAlpha (pressed ? 0.10f : 0.20f));
+    g.fillRoundedRectangle (bounds.expanded (1.5f).translated (0.0f, travel + 1.4f),
+                            radius + 1.5f);
+    g.setColour (juce::Colours::black.withAlpha (pressed ? 0.12f : 0.20f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, travel * 0.5f), radius);
 
-    if (pressed)
-    {
-        g.setGradientFill (juce::ColourGradient (
-            porcelainPress, bounds.getX(), bounds.getY(),
-            porcelainBottom.darker (0.035f), bounds.getX(), bounds.getBottom(), false));
-        g.fillRoundedRectangle (bounds, radius);
-    }
-    else
-    {
-        g.setGradientFill (juce::ColourGradient (
-            porcelainTop, bounds.getX(), bounds.getY(),
-            porcelainBottom, bounds.getX(), bounds.getBottom(), false));
-        g.fillRoundedRectangle (bounds, radius);
-    }
+    g.setGradientFill (juce::ColourGradient (
+        pressed ? porcelainPress : porcelainTop, bounds.getX(), bounds.getY(),
+        pressed ? porcelainBottom.darker (0.04f) : porcelainBottom,
+        bounds.getX(), bounds.getBottom(), false));
+    g.fillRoundedRectangle (bounds, radius);
 
-    g.setColour (juce::Colours::white.withAlpha (pressed ? 0.42f : 0.88f));
-    g.drawRoundedRectangle (bounds.reduced (1.1f), juce::jmax (1.0f, radius - 1.0f), 1.0f);
-    g.setColour (porcelainEdge.withAlpha (pressed ? 0.84f : 0.72f));
+    g.setColour (juce::Colours::white.withAlpha (pressed ? 0.30f : 0.85f));
+    g.drawRoundedRectangle (bounds.reduced (1.0f), juce::jmax (0.5f, radius - 1.0f), 1.0f);
+    g.setColour (porcelainEdge.withAlpha (pressed ? 0.80f : 0.62f));
     g.drawRoundedRectangle (bounds.reduced (0.25f), radius, 1.0f);
-
-    // A restrained specular edge gives the surface the optical precision of
-    // machined glass without turning it glossy.
-    auto highlight = bounds.reduced (radius * 0.32f, 1.5f).removeFromTop (1.0f);
-    g.setColour (juce::Colours::white.withAlpha (pressed ? 0.26f : 0.70f));
-    g.fillRoundedRectangle (highlight, 0.5f);
 }
 
+// A recessed capsule: the empty part of any value track.
+inline void fillTrough (juce::Graphics& g, juce::Rectangle<float> bounds,
+                        bool enabled = true)
+{
+    const float r = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
+    g.setColour (juce::Colours::black.withAlpha (0.22f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), r);
+    g.setColour (trough.withAlpha (enabled ? 1.0f : 0.45f));
+    g.fillRoundedRectangle (bounds, r);
+    g.setColour (juce::Colours::black.withAlpha (0.09f));
+    g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
+}
+
+// --- Sliders ------------------------------------------------------------------
+//  A capsule trough, an accent fill grown from the zero end, and a porcelain
+//  thumb INSET INSIDE the track. Because the thumb never exceeds the track the
+//  whole control stays one clean capsule, which is what lets a row of them line
+//  up the way the reference does.
 inline void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
                               float sliderPos, juce::Slider::SliderStyle style,
-                              bool enabled, bool hover, bool down, bool focused)
+                              bool enabled, bool hover, bool down, bool focused,
+                              juce::Colour accent = defaultAccent())
 {
     const auto area = juce::Rectangle<float> ((float) x, (float) y,
-                                               (float) width, (float) height);
+                                              (float) width, (float) height);
     const bool vertical = style == juce::Slider::LinearVertical
                        || style == juce::Slider::LinearBarVertical;
+    const float alpha = enabled ? (hover ? 1.0f : 0.94f) : 0.34f;
 
     if (vertical)
     {
-        auto track = juce::Rectangle<float> (area.getCentreX() - 6.0f, area.getY() + 5.0f,
-                                              12.0f, area.getHeight() - 10.0f);
-        fillPorcelain (g, track, 6.0f);
-        auto groove = track.reduced (3.0f);
-        g.setColour (juce::Colour (0xffc5c8cd));
-        g.fillRoundedRectangle (groove, groove.getWidth() * 0.5f);
+        // Wide enough to carry the thumb inside it. Capped so a tall thin slot
+        // does not become a lozenge.
+        const float w = juce::jlimit (14.0f, 30.0f, area.getWidth() * 0.62f);
+        auto track = juce::Rectangle<float> (w, area.getHeight() - 2.0f)
+                         .withCentre (area.getCentre());
+        fillTrough (g, track, enabled);
 
-        const float valueY = juce::jlimit (groove.getY(), groove.getBottom(), sliderPos);
-        auto value = groove.withTop (valueY);
-        setSpectrumGradient (g, groove, enabled ? (hover ? 0.94f : 0.78f) : 0.28f);
-        g.fillRoundedRectangle (value, groove.getWidth() * 0.5f);
+        const float inset = juce::jmax (2.0f, w * 0.12f);
+        auto lane = track.reduced (inset);
+        const float valueY = juce::jlimit (lane.getY(), lane.getBottom(), sliderPos);
+        auto value = lane.withTop (valueY);
+        if (value.getHeight() > 0.5f)
+        {
+            setAccentGradient (g, lane, accent, alpha, true);
+            g.fillRoundedRectangle (value, lane.getWidth() * 0.5f);
+        }
 
-        auto thumb = juce::Rectangle<float> (18.0f, 18.0f)
-                         .withCentre ({ area.getCentreX(), valueY });
-        fillPorcelain (g, thumb, 9.0f, down);
-        if (focused)
-            drawFocusRing (g, thumb.expanded (2.0f), 11.0f);
+        const float d = lane.getWidth();
+        auto thumb = juce::Rectangle<float> (d, d)
+                         .withCentre ({ lane.getCentreX(),
+                                        juce::jlimit (lane.getY() + d * 0.5f,
+                                                      lane.getBottom() - d * 0.5f, valueY) });
+        fillPorcelain (g, thumb, d * 0.5f, down);
+        if (focused) drawFocusRing (g, track.expanded (2.0f), track.getWidth() * 0.5f + 2.0f, accent);
         return;
     }
 
-    auto shell = juce::Rectangle<float> (area.getX() + 3.0f, area.getCentreY() - 7.0f,
-                                          area.getWidth() - 6.0f, 14.0f);
-    fillPorcelain (g, shell, 7.0f);
+    const float h = juce::jlimit (12.0f, 26.0f, area.getHeight() * 0.62f);
+    auto track = juce::Rectangle<float> (area.getWidth() - 2.0f, h)
+                     .withCentre (area.getCentre());
+    fillTrough (g, track, enabled);
 
-    auto groove = shell.reduced (3.0f);
-    g.setColour (juce::Colour (0xffc5c8cd));
-    g.fillRoundedRectangle (groove, groove.getHeight() * 0.5f);
+    const float inset = juce::jmax (2.0f, h * 0.12f);
+    auto lane = track.reduced (inset);
+    const float valueX = juce::jlimit (lane.getX(), lane.getRight(), sliderPos);
+    auto value = lane.withRight (valueX);
+    if (value.getWidth() > 0.5f)
+    {
+        setAccentGradient (g, lane, accent, alpha);
+        g.fillRoundedRectangle (value, lane.getHeight() * 0.5f);
+    }
 
-    const float valueX = juce::jlimit (groove.getX(), groove.getRight(), sliderPos);
-    auto value = groove.withRight (valueX);
-    setSpectrumGradient (g, groove, enabled ? (hover ? 0.94f : 0.78f) : 0.28f);
-    g.fillRoundedRectangle (value, groove.getHeight() * 0.5f);
-
-    auto thumb = juce::Rectangle<float> (18.0f, 18.0f)
-                     .withCentre ({ valueX, area.getCentreY() });
-    fillPorcelain (g, thumb, 9.0f, down);
-    g.setColour (ink.withAlpha (enabled ? 0.18f : 0.08f));
-    g.fillEllipse (thumb.reduced (5.0f));
-    if (focused)
-        drawFocusRing (g, thumb.expanded (2.0f), 11.0f);
+    const float d = lane.getHeight();
+    auto thumb = juce::Rectangle<float> (d, d)
+                     .withCentre ({ juce::jlimit (lane.getX() + d * 0.5f,
+                                                  lane.getRight() - d * 0.5f, valueX),
+                                    lane.getCentreY() });
+    fillPorcelain (g, thumb, d * 0.5f, down);
+    if (focused) drawFocusRing (g, track.expanded (2.0f), track.getHeight() * 0.5f + 2.0f, accent);
 }
 
+// --- Rotary -------------------------------------------------------------------
+//  Same grammar bent into a circle: recessed arc, accent value arc, porcelain cap.
 inline void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                               float sliderPos, float startAngle, float endAngle,
-                              bool enabled, bool hover, bool down, bool focused)
+                              bool enabled, bool hover, bool down, bool focused,
+                              juce::Colour accent = defaultAccent())
 {
     auto area = juce::Rectangle<float> ((float) x, (float) y,
-                                        (float) width, (float) height).reduced (7.0f);
+                                        (float) width, (float) height).reduced (6.0f);
     const float radius = juce::jmax (8.0f, juce::jmin (area.getWidth(), area.getHeight()) * 0.5f);
     const auto centre = area.getCentre();
-    const float arcRadius = radius - 3.5f;
+    const float arcRadius = radius - 3.0f;
     const float angle = startAngle + sliderPos * (endAngle - startAngle);
-    const float lineWidth = juce::jlimit (2.0f, 4.5f, radius * 0.085f);
+    const float lineWidth = juce::jlimit (3.0f, 6.5f, radius * 0.135f);
+    const float alpha = enabled ? (hover ? 1.0f : 0.94f) : 0.32f;
 
     juce::Path track;
     track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
                          startAngle, endAngle, true);
-    g.setColour (porcelainEdge.withAlpha (enabled ? 0.66f : 0.28f));
+    g.setColour (trough.withAlpha (enabled ? 0.92f : 0.40f));
     g.strokePath (track, juce::PathStrokeType (
         lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    juce::Path value;
-    value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                         startAngle, angle, true);
-    setSpectrumGradient (g, area, enabled ? (hover ? 0.98f : 0.82f) : 0.28f);
-    g.strokePath (value, juce::PathStrokeType (
-        lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-    if (radius > 24.0f)
+    if (sliderPos > 0.0005f)
     {
-        setSpectrumGradient (g, area, enabled ? (hover ? 0.10f : 0.055f) : 0.02f);
-        g.drawEllipse (juce::Rectangle<float> (radius * 1.76f, radius * 1.76f)
-                           .withCentre (centre), lineWidth * 1.75f);
+        juce::Path value;
+        value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
+                             startAngle, angle, true);
+        setAccentGradient (g, area, accent, alpha);
+        g.strokePath (value, juce::PathStrokeType (
+            lineWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
-    auto knob = juce::Rectangle<float> (radius * 1.52f, radius * 1.52f)
-                    .withCentre (centre);
+    auto knob = juce::Rectangle<float> (radius * 1.44f, radius * 1.44f).withCentre (centre);
     fillPorcelain (g, knob, knob.getWidth() * 0.5f, down);
 
-    g.setGradientFill (juce::ColourGradient (
-        juce::Colours::white.withAlpha (enabled ? 0.94f : 0.48f),
-        knob.getX() + knob.getWidth() * 0.30f, knob.getY() + knob.getHeight() * 0.24f,
-        juce::Colour (0xffbfc3c9).withAlpha (enabled ? 0.96f : 0.50f),
-        knob.getRight(), knob.getBottom(), true));
-    g.fillEllipse (knob.reduced (3.0f));
-    g.setColour (juce::Colours::white.withAlpha (enabled ? 0.72f : 0.32f));
-    g.drawEllipse (knob.reduced (4.0f), 1.0f);
-    g.setColour (porcelainEdge.withAlpha (0.84f));
-    g.drawEllipse (knob.reduced (2.5f), 1.0f);
-
+    // Pointer, not an engraved line: it has to read at 26px.
     const auto direction = juce::Point<float> (
         std::cos (angle - juce::MathConstants<float>::halfPi),
         std::sin (angle - juce::MathConstants<float>::halfPi));
-    g.setColour (ink.withAlpha (enabled ? 0.64f : 0.28f));
-    g.drawLine ({ centre + direction * (radius * 0.22f),
-                  centre + direction * (radius * 0.55f) },
-                juce::jmax (1.3f, radius * 0.045f));
+    g.setColour (enabled ? ink.withAlpha (0.82f) : inkMuted.withAlpha (0.35f));
+    g.drawLine ({ centre + direction * (radius * 0.30f),
+                  centre + direction * (radius * 0.60f) },
+                juce::jmax (1.8f, radius * 0.075f));
 
     if (focused)
     {
-        setSpectrumGradient (g, knob, 0.74f);
-        g.drawEllipse (knob.expanded (2.0f), 1.5f);
+        g.setColour (accentLift (accent).withAlpha (0.95f));
+        g.drawEllipse (knob.expanded (2.0f), 1.6f);
     }
 }
 
+// --- Buttons ------------------------------------------------------------------
+//  Porcelain pill by default; when latched it fills with the accent and the text
+//  layer flips to white (drawButtonText reads the toggle state to match).
 inline void drawButtonBackground (juce::Graphics& g, juce::Button& button,
-                                  bool hover, bool down)
+                                  bool hover, bool down,
+                                  juce::Colour accent = defaultAccent())
 {
     auto bounds = button.getLocalBounds().toFloat().reduced (1.0f);
-    fillPorcelain (g, bounds, bounds.getHeight() * 0.5f, down);
+    const float r = bounds.getHeight() * 0.5f;
+    const bool on = button.getToggleState();
 
-    if (button.getToggleState())
+    if (on)
     {
-        setSpectrumGradient (g, bounds, button.isEnabled() ? 0.24f : 0.10f);
-        g.fillRoundedRectangle (bounds.reduced (2.0f), bounds.getHeight() * 0.5f - 2.0f);
+        g.setColour (juce::Colours::black.withAlpha (down ? 0.12f : 0.22f));
+        g.fillRoundedRectangle (bounds.translated (0.0f, down ? 0.5f : 1.6f), r);
+        setAccentGradient (g, bounds, accent, button.isEnabled() ? (hover ? 1.0f : 0.94f) : 0.34f);
+        g.fillRoundedRectangle (bounds, r);
+        g.setColour (juce::Colours::white.withAlpha (0.22f));
+        g.drawRoundedRectangle (bounds.reduced (0.75f), r, 1.0f);
     }
-    else if (hover && button.isEnabled())
+    else
     {
-        g.setColour (juce::Colours::white.withAlpha (0.25f));
-        g.fillRoundedRectangle (bounds.reduced (2.0f), bounds.getHeight() * 0.5f - 2.0f);
+        fillPorcelain (g, bounds, r, down);
+        if (hover && button.isEnabled())
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.30f));
+            g.fillRoundedRectangle (bounds.reduced (1.5f), r - 1.5f);
+        }
     }
 
     if (button.hasKeyboardFocus (true))
-        drawFocusRing (g, bounds, bounds.getHeight() * 0.5f);
+        drawFocusRing (g, bounds.expanded (1.5f), r + 1.5f, accent);
 }
 
 inline void drawComboBox (juce::Graphics& g, int width, int height, bool down,
-                          bool focused)
+                          bool focused, juce::Colour accent = defaultAccent())
 {
     auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
                       .reduced (1.0f);
-    fillPorcelain (g, bounds, bounds.getHeight() * 0.5f, down);
+    const float r = bounds.getHeight() * 0.5f;
+    fillPorcelain (g, bounds, r, down);
     if (focused)
-    {
-        setSpectrumGradient (g, bounds, 0.7f);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), bounds.getHeight() * 0.5f, 1.5f);
-    }
+        drawFocusRing (g, bounds, r, accent);
 
-    const float cx = (float) width - 16.0f;
+    const float cx = (float) width - 17.0f;
     const float cy = (float) height * 0.5f;
     juce::Path arrow;
     arrow.startNewSubPath (cx - 4.0f, cy - 2.0f);
@@ -243,44 +322,60 @@ inline void drawComboBox (juce::Graphics& g, int width, int height, bool down,
     arrow.lineTo (cx + 4.0f, cy - 2.0f);
     g.setColour (inkMuted);
     g.strokePath (arrow, juce::PathStrokeType (
-        1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
+// --- Switch -------------------------------------------------------------------
+//  Off: a recessed dark capsule with a porcelain knob at the left.
+//  On:  the same capsule filled with the accent, knob at the right.
 inline void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
-                              bool hover, bool down)
+                              bool hover, bool down,
+                              juce::Colour accent = defaultAccent())
 {
     const auto bounds = button.getLocalBounds().toFloat();
-    const float trackHeight = 20.0f;
+    const float trackHeight = 22.0f;
+    const float trackWidth  = 42.0f;
     auto track = juce::Rectangle<float> (
-        bounds.getX(), bounds.getCentreY() - trackHeight * 0.5f, 38.0f, trackHeight);
-    fillPorcelain (g, track, trackHeight * 0.5f, down);
-
+        bounds.getX(), bounds.getCentreY() - trackHeight * 0.5f, trackWidth, trackHeight);
+    const float r = trackHeight * 0.5f;
     const bool on = button.getToggleState();
+    const bool en = button.isEnabled();
+
+    g.setColour (juce::Colours::black.withAlpha (0.24f));
+    g.fillRoundedRectangle (track.translated (0.0f, 1.0f), r);
+
     if (on)
     {
-        setSpectrumGradient (g, track, button.isEnabled() ? (hover ? 0.90f : 0.76f) : 0.28f);
-        g.fillRoundedRectangle (track.reduced (2.0f), trackHeight * 0.5f - 2.0f);
+        setAccentGradient (g, track, accent, en ? (hover ? 1.0f : 0.94f) : 0.34f);
+        g.fillRoundedRectangle (track, r);
     }
-    else if (hover)
+    else
     {
-        g.setColour (juce::Colours::white.withAlpha (0.22f));
-        g.fillRoundedRectangle (track.reduced (2.0f), trackHeight * 0.5f - 2.0f);
+        g.setColour (overlayHigh.withAlpha (en ? 1.0f : 0.5f));
+        g.fillRoundedRectangle (track, r);
+        g.setColour (juce::Colours::white.withAlpha (hover && en ? 0.14f : 0.07f));
+        g.fillRoundedRectangle (track, r);
     }
+    g.setColour (juce::Colours::black.withAlpha (0.16f));
+    g.drawRoundedRectangle (track.reduced (0.5f), r, 1.0f);
 
-    const float diameter = 16.0f;
-    const float knobX = on ? track.getRight() - diameter - 2.0f : track.getX() + 2.0f;
-    auto knob = juce::Rectangle<float> (knobX, track.getY() + 2.0f, diameter, diameter);
-    fillPorcelain (g, knob, diameter * 0.5f, down);
+    const float pad = 2.5f;
+    const float d = trackHeight - pad * 2.0f;
+    const float knobX = on ? track.getRight() - d - pad : track.getX() + pad;
+    fillPorcelain (g, { knobX, track.getY() + pad, d, d }, d * 0.5f, down);
 
     if (button.hasKeyboardFocus (true))
-        drawFocusRing (g, track.expanded (2.0f), trackHeight * 0.5f + 2.0f);
+        drawFocusRing (g, track.expanded (2.0f), r + 2.0f, accent);
 
-    g.setColour (button.isEnabled() ? (on ? juce::Colours::white : juce::Colour (0xffc8ccd1))
-                                     : juce::Colour (0xffa3a7ad));
-    g.setFont (sattari::brand::font (11.5f));
-    g.drawText (button.getButtonText(),
-                bounds.withTrimmedLeft (47.0f).toNearestInt(),
-                juce::Justification::centredLeft, true);
+    if (button.getButtonText().isNotEmpty())
+    {
+        g.setColour (en ? overlayText.withAlpha (on ? 1.0f : 0.78f)
+                        : overlayText.withAlpha (0.35f));
+        g.setFont (sattari::brand::font (11.5f));
+        g.drawText (button.getButtonText(),
+                    bounds.withTrimmedLeft (trackWidth + 10.0f).toNearestInt(),
+                    juce::Justification::centredLeft, true);
+    }
 }
 
 inline void drawScrollbar (juce::Graphics& g, int x, int y, int width, int height,
@@ -289,8 +384,8 @@ inline void drawScrollbar (juce::Graphics& g, int x, int y, int width, int heigh
 {
     auto lane = juce::Rectangle<float> ((float) x, (float) y,
                                         (float) width, (float) height).reduced (2.0f);
-    g.setColour (juce::Colours::white.withAlpha (0.035f));
-    g.fillRoundedRectangle (lane, juce::jmin (4.0f, lane.getWidth() * 0.5f));
+    g.setColour (juce::Colours::white.withAlpha (0.04f));
+    g.fillRoundedRectangle (lane, juce::jmin (lane.getWidth(), lane.getHeight()) * 0.5f);
 
     juce::Rectangle<float> thumb;
     if (vertical)
@@ -298,38 +393,39 @@ inline void drawScrollbar (juce::Graphics& g, int x, int y, int width, int heigh
     else
         thumb = { (float) thumbStart, (float) y + 2.0f, (float) thumbSize, (float) height - 4.0f };
 
-    g.setColour (juce::Colours::white.withAlpha (down ? 0.56f : (hover ? 0.42f : 0.25f)));
-    g.fillRoundedRectangle (thumb, juce::jmin (4.0f, juce::jmin (thumb.getWidth(), thumb.getHeight()) * 0.5f));
+    g.setColour (juce::Colours::white.withAlpha (down ? 0.58f : (hover ? 0.44f : 0.26f)));
+    g.fillRoundedRectangle (thumb, juce::jmin (thumb.getWidth(), thumb.getHeight()) * 0.5f);
 }
 
 inline void fillTextEditorBackground (juce::Graphics& g, int width, int height)
 {
     auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
                       .reduced (0.5f);
-    g.setGradientFill (juce::ColourGradient (
-        overlayHigh, bounds.getX(), bounds.getY(),
-        overlay, bounds.getX(), bounds.getBottom(), false));
-    g.fillRoundedRectangle (bounds, juce::jmin (9.0f, bounds.getHeight() * 0.32f));
+    const float r = bounds.getHeight() * 0.5f;
+    g.setColour (overlay);
+    g.fillRoundedRectangle (bounds, r);
+    g.setColour (juce::Colours::black.withAlpha (0.20f));
+    g.drawRoundedRectangle (bounds.reduced (0.5f), r, 1.0f);
 }
 
 inline void drawTextEditorOutline (juce::Graphics& g, int width, int height,
-                                   bool enabled, bool focused, bool readOnly)
+                                   bool enabled, bool focused, bool readOnly,
+                                   juce::Colour accent = defaultAccent())
 {
     if (! enabled)
         return;
 
     auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
                       .reduced (0.5f);
-    const auto radius = juce::jmin (9.0f, bounds.getHeight() * 0.32f);
+    const float r = bounds.getHeight() * 0.5f;
     if (focused && ! readOnly)
-        drawFocusRing (g, bounds, radius, 0.74f);
+        drawFocusRing (g, bounds, r, accent);
     else
     {
-        g.setColour (overlayEdge.withAlpha (0.86f));
-        g.drawRoundedRectangle (bounds, radius, 1.0f);
+        g.setColour (overlayEdge.withAlpha (0.90f));
+        g.drawRoundedRectangle (bounds, r, 1.0f);
     }
 }
-
 inline void drawPopupMenuBackground (juce::Graphics& g, int width, int height)
 {
     auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height)
@@ -349,7 +445,8 @@ inline void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& ar
                                bool ticked, bool hasSubMenu, const juce::String& text,
                                const juce::String& shortcut, const juce::Drawable* icon,
                                const juce::Colour* requestedTextColour,
-                               juce::Font font, const juce::Path& tickShape)
+                               juce::Font font, const juce::Path& tickShape,
+                               juce::Colour accent = defaultAccent())
 {
     if (separator)
     {
@@ -362,10 +459,10 @@ inline void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& ar
     auto row = area.reduced (5, 2);
     if (highlighted && active)
     {
-        setSpectrumGradient (g, row.toFloat(), 0.16f);
-        g.fillRoundedRectangle (row.toFloat(), 7.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.12f));
-        g.drawRoundedRectangle (row.toFloat().reduced (0.5f), 6.5f, 1.0f);
+        // Accent, not the spectrum: a highlighted row is one state, so it is one hue.
+        const float r = (float) row.getHeight() * 0.5f;
+        setAccentGradient (g, row.toFloat(), accent, 0.92f);
+        g.fillRoundedRectangle (row.toFloat(), r);
     }
 
     auto content = row.reduced (7, 0);

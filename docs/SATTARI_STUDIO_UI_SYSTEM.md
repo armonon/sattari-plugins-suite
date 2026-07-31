@@ -19,10 +19,38 @@ Every product uses the same three layers:
 The shared implementation lives in
 `core/include/sattari_audio_core/SattariStudio.h`.
 
+## Control grammar
+
+Every control in the suite is drawn by `SattariControlSurface.h`. The two
+LookAndFeels are its only callers, so it is the single place the suite's look
+lives — and the single place to change it.
+
+- **Capsule geometry.** Tracks, buttons, switches and fields are fully rounded
+  (radius = height/2). This is the trait that carries the look; a 9 px radius on
+  a 20 px control reads as a different product.
+- **Porcelain for anything you grab.** Thumbs, knob caps, buttons, combo fields.
+  Bright, physical, one ambient plus one contact shadow.
+- **A single-hue accent gradient for anything you read as a value.** Never a
+  rainbow: a fill that shifts hue along its length makes two different settings
+  look like two different colours, which is a lie about the data.
+- **The thumb rides inside the track**, never straddling it, so a slider stays
+  one clean capsule at any size and a row of them lines up.
+- **The accent is a parameter, not a constant.** Products carry their own accent
+  and every primitive takes it. A Create slot must not look like a Mix slot.
+
+Accents: crimson (performance/transport), mint (default), violet (creative),
+amber (sampler/slicing), blue (session/analysis).
+
+Review a change with `SattariControlGallery`, which renders every control, in
+every state, in every accent, to one PNG. It fails if a block paints nothing —
+an empty tile is the failure mode a screenshot review misses, because empty
+looks tidy.
+
 ## Visual rules
 
-- Near-black canvas with a subtle top lift, not decorative glass.
-- Elevated surfaces use one-pixel separators and a 14 px radius.
+- Charcoal canvas with a subtle top lift, not decorative glass. Deliberately not
+  near-black: porcelain controls need a surface their shadows register against.
+- Elevated surfaces use one-pixel separators and a 16 px radius.
 - Product color communicates selection, live state and authority.
 - Text remains neutral; large colored headings are not product identity.
 - Uppercase metadata is 9.5–10.5 pt. Primary values are 16 pt or larger.

@@ -71,6 +71,21 @@ if(TARGET juce::juce_core)
             juce::juce_recommended_warning_flags)
 endif()
 
+# Renders the whole shared control vocabulary, every state, every product accent,
+# to one PNG. SattariControlSurface.h is inherited by all 49 editors, so this is
+# how a change to it gets reviewed without opening plugins in a DAW one at a time.
+if(TARGET juce::juce_audio_utils)
+    add_executable(SattariControlGallery
+        EXCLUDE_FROM_ALL
+        core/tests/control_gallery.cpp)
+    target_link_libraries(SattariControlGallery
+        PRIVATE
+            SattariAudioCore
+            juce::juce_audio_utils
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()
+
 if(TARGET juce::juce_audio_utils)
     add_executable(SattariRackHostContract
         EXCLUDE_FROM_ALL

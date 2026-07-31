@@ -31,17 +31,18 @@ namespace sattari::brand
 // builds stay visually consistent while gaining a shared system.
 // Modern, near-monochrome cool-dark base. Hairline separators and one accent
 // per product keep the workspace quiet beneath the suite's porcelain controls.
-inline constexpr std::uint32_t kBackground   = 0xff0c0d11; // app/plugin backdrop (flat)
-inline constexpr std::uint32_t kPanel        = 0xff14161b; // primary surface
-inline constexpr std::uint32_t kPanelRaised  = 0xff1c1f26; // combos / inset fields
-inline constexpr std::uint32_t kPanelDeep    = 0xff0e0f13; // subtle low surface
-inline constexpr std::uint32_t kPanelViolet  = 0xff14161b; // (legacy gradient stop; now flat)
-inline constexpr std::uint32_t kHairline     = 0xff272a31; // 1px separators / knob tracks
+inline constexpr std::uint32_t kBackground   = 0xff1c1d21; // app/plugin backdrop (flat)
+inline constexpr std::uint32_t kPanel        = 0xff26272c; // primary surface
+inline constexpr std::uint32_t kPanelRaised  = 0xff2e3036; // combos / inset fields
+inline constexpr std::uint32_t kPanelDeep    = 0xff191a1e; // subtle low surface
+inline constexpr std::uint32_t kPanelViolet  = 0xff26272c; // (legacy gradient stop; now flat)
+inline constexpr std::uint32_t kHairline     = 0xff3a3d45; // 1px separators / knob tracks
 
 inline constexpr std::uint32_t kAccent       = 0xff62f5c8; // signature mint (default)
 inline constexpr std::uint32_t kAccentViolet = 0xff9b7bff; // secondary highlight
 inline constexpr std::uint32_t kAccentAmber  = 0xfff5a24b; // sampler / slicing lane
 inline constexpr std::uint32_t kAccentBlue   = 0xff68a7ff; // session / analysis
+inline constexpr std::uint32_t kAccentCrimson = 0xffe8384f; // performance / transport
 inline constexpr std::uint32_t kTextPrimary  = 0xffeef1f6;
 inline constexpr std::uint32_t kTextMuted     = 0xff8b93a1;
 inline constexpr std::uint32_t kTextFaint     = 0xff555c69;

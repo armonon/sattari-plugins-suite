@@ -89,7 +89,7 @@ public:
         sattari::control::drawRotarySlider (
             g, x, y, width, height, sliderPos, startAngle, endAngle,
             slider.isEnabled(), slider.isMouseOverOrDragging(),
-            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
+            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent);
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
@@ -106,7 +106,7 @@ public:
             sattari::control::drawLinearSlider (
                 g, x, y, width, height, sliderPos, style,
                 slider.isEnabled(), slider.isMouseOverOrDragging(),
-                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true));
+                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent);
             return;
         }
 
@@ -118,21 +118,24 @@ public:
                        int, int, int, int, juce::ComboBox& box) override
     {
         sattari::control::drawComboBox (
-            g, width, height, isButtonDown, box.hasKeyboardFocus (true));
+            g, width, height, isButtonDown, box.hasKeyboardFocus (true), accent);
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&,
                                bool shouldDrawHighlighted, bool shouldDrawDown) override
     {
         sattari::control::drawButtonBackground (
-            g, b, shouldDrawHighlighted, shouldDrawDown);
+            g, b, shouldDrawHighlighted, shouldDrawDown, accent);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& button,
                          bool, bool) override
     {
-        g.setColour (button.isEnabled() ? sattari::control::ink
-                                        : sattari::control::inkMuted.withAlpha (0.58f));
+        // A latched button is accent-filled, so its label has to invert with it.
+        const auto on = button.getToggleState();
+        g.setColour (! button.isEnabled()
+                         ? sattari::control::inkMuted.withAlpha (0.58f)
+                         : (on ? juce::Colours::white : sattari::control::ink));
         g.setFont (sattari::brand::font (11.5f, juce::Font::bold));
         g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (10, 2),
                           juce::Justification::centred, 1);
@@ -143,7 +146,7 @@ public:
                            bool shouldDrawHighlighted, bool shouldDrawDown) override
     {
         sattari::control::drawToggleButton (
-            g, b, shouldDrawHighlighted, shouldDrawDown);
+            g, b, shouldDrawHighlighted, shouldDrawDown, accent);
     }
 
     int getDefaultScrollbarWidth() override { return 8; }
@@ -167,7 +170,7 @@ public:
     {
         sattari::control::drawTextEditorOutline (
             g, width, height, editor.isEnabled(),
-            editor.hasKeyboardFocus (true), editor.isReadOnly());
+            editor.hasKeyboardFocus (true), editor.isReadOnly(), accent);
     }
 
     void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
@@ -183,7 +186,7 @@ public:
     {
         sattari::control::drawPopupMenuItem (
             g, area, separator, active, highlighted, ticked, hasSubMenu,
-            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f));
+            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f), accent);
     }
 
     void drawTooltip (juce::Graphics& g, const juce::String& text,
