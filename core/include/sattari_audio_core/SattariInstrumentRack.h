@@ -147,6 +147,7 @@ public:
         // Reserve enough for one generously-sized event per sample. This keeps
         // per-layer filtering away from the allocator in realistic MIDI traffic.
         layerMidi_.ensureSize ((size_t) n * 16u + 64u);
+        chunkMidi_.ensureSize ((size_t) n * 16u + 64u);
 
         // Alignment delay lines, sized for the worst latency any module reports.
         int worst = 0;
@@ -181,6 +182,32 @@ public:
         const int n  = buffer.getNumSamples();
         const int ch = juce::jmin (2, buffer.getNumChannels());
         if (n <= 0 || ch <= 0) return;
+
+        // prepareToPlay's block size is a HINT — hosts may exceed it. layerBuf_ is
+        // sized to that hint, and `view` below is built over its pointers with the
+        // INCOMING n, so a larger block wrote past the allocation. The modules were
+        // hardened against exactly this; the rack above them was not.
+        //
+        // MIDI has to be sliced, not just forwarded: handing every chunk the whole
+        // buffer would replay each note-on once per chunk, at a wrong offset.
+        const int capacity = layerBuf_.getNumSamples();
+        if (capacity > 0 && n > capacity)
+        {
+            for (int start = 0; start < n; start += capacity)
+            {
+                const int count = juce::jmin (capacity, n - start);
+                juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                                buffer.getNumChannels(), start, count);
+                chunkMidi_.clear();
+                for (const auto meta : midi)
+                    if (meta.samplePosition >= start && meta.samplePosition < start + count)
+                        chunkMidi_.addEvent (meta.getMessage(), meta.samplePosition - start);
+
+                processBlock (chunk, chunkMidi_);   // depth 1: count <= capacity
+            }
+            midi.clear();
+            return;
+        }
 
         const auto transport = sattari::host::read (*this);
         const int  maxLat    = computeLatency();
@@ -706,6 +733,7 @@ private:
     std::atomic<bool> sourceReloadPending_ { false };
 
     juce::AudioBuffer<float> layerBuf_;                       // one layer's render
+    juce::MidiBuffer chunkMidi_;                              // oversized-block slicing
     juce::MidiBuffer         layerMidi_;                      // that layer's filtered MIDI
     std::array<juce::AudioBuffer<float>, kNumLayers> align_;  // per-layer alignment rings
     int alignCap_ = 1;

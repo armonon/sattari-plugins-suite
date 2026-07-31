@@ -30,33 +30,34 @@ namespace sattari::midi
 class SattariMidiLearn : private juce::AsyncUpdater
 {
 public:
+    //  THE CONSTRUCTOR MUST NOT TOUCH `state`. Five plugins declare their
+    //  SattariMidiLearn member ABOVE their apvts (Compass, Key, Harmony, Maqam,
+    //  Vocal Master), and members initialise in DECLARATION order — so this
+    //  constructor runs while apvts is still raw memory. Binding the reference is
+    //  legal; dereferencing it is not, and walking state.processor.getParameters()
+    //  here segfaulted every one of them on instantiation.
+    //
+    //  So the parameter table is built lazily, on the first MESSAGE-THREAD use.
+    //  That is not a compromise: MIDI learn does nothing until a mapping exists,
+    //  and a mapping can only arrive by the user arming one (armForParam) or by
+    //  state restore (loadFrom) — both message thread, both after construction.
     explicit SattariMidiLearn (juce::AudioProcessorValueTreeState& state)
+        : state_ (state)
     {
         for (auto& mappedIndex : ccToParameterIndex)
             mappedIndex.store (-1, std::memory_order_relaxed);
-
-        for (auto* parameter : state.processor.getParameters())
-            if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
-            {
-                parameterIds.push_back (withId->paramID);
-                parameters.push_back (parameter);
-            }
-
-        parameterCount = parameters.size();
-        pendingValues = std::make_unique<std::atomic<float>[]> (parameterCount);
-        pendingDirty  = std::make_unique<std::atomic<bool>[]> (parameterCount);
-        for (size_t i = 0; i < parameterCount; ++i)
-        {
-            pendingValues[i].store (0.0f, std::memory_order_relaxed);
-            pendingDirty[i].store (false, std::memory_order_relaxed);
-        }
     }
+
+    // Optional: call once from prepareToPlay if you want the table warm before
+    // the first mapping. Never required, and never call it from the audio thread.
+    void prepare() { ensureBuilt(); }
 
     ~SattariMidiLearn() override { cancelPendingUpdate(); }
 
     // Start listening for the next CC to bind to this param.
     void armForParam (const juce::String& paramId)
     {
+        ensureBuilt();
         armedParameterIndex.store (indexForParam (paramId), std::memory_order_release);
     }
     void cancelArm() noexcept { armedParameterIndex.store (-1, std::memory_order_release); }
@@ -84,6 +85,7 @@ public:
     // For UI: what's mapped to a given param (returns -1 if nothing).
     int ccForParam (const juce::String& paramId) const
     {
+        ensureBuilt();
         const int parameterIndex = indexForParam (paramId);
         if (parameterIndex < 0) return -1;
         for (int cc = 0; cc < (int) ccToParameterIndex.size(); ++cc)
@@ -103,6 +105,12 @@ public:
     // Audio thread entry point. Walks the buffer and queues parameter changes.
     void processMidi (const juce::MidiBuffer& midi)
     {
+        // Acquire pairs with the release in ensureBuilt(): if we observe `built`,
+        // every table write that preceded it is visible to us. If we do not, no
+        // mapping can exist yet, so there is nothing to apply.
+        if (! built.load (std::memory_order_acquire))
+            return;
+
         for (const auto m : midi)
         {
             const auto& msg = m.getMessage();
@@ -126,6 +134,7 @@ public:
     // --- State persistence ---------------------------------------------------
     void saveTo (juce::ValueTree& parent) const
     {
+        ensureBuilt();
         juce::ValueTree v ("MidiLearn");
         for (int cc = 0; cc < (int) ccToParameterIndex.size(); ++cc)
         {
@@ -142,6 +151,7 @@ public:
     }
     void loadFrom (const juce::ValueTree& parent)
     {
+        ensureBuilt();
         clearAll();
         const auto v = parent.getChildWithName ("MidiLearn");
         if (! v.isValid()) return;
@@ -158,6 +168,32 @@ public:
     }
 
 private:
+    // Message thread only. Built once, never rebuilt, so the audio thread needs
+    // no lock — just the acquire/release handshake on `built`.
+    void ensureBuilt() const
+    {
+        if (built.load (std::memory_order_acquire))
+            return;
+
+        for (auto* parameter : state_.processor.getParameters())
+            if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+            {
+                parameterIds.push_back (withId->paramID);
+                parameters.push_back (parameter);
+            }
+
+        parameterCount = parameters.size();
+        pendingValues = std::make_unique<std::atomic<float>[]> (parameterCount);
+        pendingDirty  = std::make_unique<std::atomic<bool>[]> (parameterCount);
+        for (size_t i = 0; i < parameterCount; ++i)
+        {
+            pendingValues[i].store (0.0f, std::memory_order_relaxed);
+            pendingDirty[i].store (false, std::memory_order_relaxed);
+        }
+
+        built.store (true, std::memory_order_release);   // publishes everything above
+    }
+
     int indexForParam (const juce::String& paramId) const
     {
         for (size_t i = 0; i < parameterIds.size(); ++i)
@@ -209,11 +245,17 @@ private:
 
     std::array<std::atomic<int>, 128> ccToParameterIndex;
     std::atomic<int> armedParameterIndex { -1 };
-    std::vector<juce::String> parameterIds;
-    std::vector<juce::AudioProcessorParameter*> parameters;
-    size_t parameterCount = 0;
-    std::unique_ptr<std::atomic<float>[]> pendingValues;
-    std::unique_ptr<std::atomic<bool>[]> pendingDirty;
+    juce::AudioProcessorValueTreeState& state_;
+
+    // `mutable` because ensureBuilt() is a lazy cache reachable from the const
+    // accessors (ccForParam, saveTo). Written once, on the message thread, and
+    // published to the audio thread by the release store to `built`.
+    mutable std::atomic<bool> built { false };
+    mutable std::vector<juce::String> parameterIds;
+    mutable std::vector<juce::AudioProcessorParameter*> parameters;
+    mutable size_t parameterCount = 0;
+    mutable std::unique_ptr<std::atomic<float>[]> pendingValues;
+    mutable std::unique_ptr<std::atomic<bool>[]> pendingDirty;
     std::atomic<bool> asyncPosted { false };
 };
 
