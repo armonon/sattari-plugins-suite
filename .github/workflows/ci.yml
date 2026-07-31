@@ -133,6 +133,27 @@ jobs:
       - name: Fetch vendored ONNX Runtime
         run: scripts/fetch_onnxruntime.sh
 
+      # models/ is gitignored (the beat model alone is 87 MB), so without an
+      # archive the neural smoke test skips and CI proves only that the neural
+      # code COMPILES — which is already more than it did before, but it does not
+      # prove the model runs. Same secret-archive shape as the corpus.
+      - name: Fetch neural models (optional)
+        env:
+          STEMDECK_MODEL_ARCHIVE_URL: ${{ secrets.STEMDECK_MODEL_ARCHIVE_URL }}
+        run: |
+          if [ -z "$STEMDECK_MODEL_ARCHIVE_URL" ]; then
+            echo "::warning::STEMDECK_MODEL_ARCHIVE_URL not configured; neural inference is not exercised (compile-only)"
+            exit 0
+          fi
+          mkdir -p models
+          curl --fail --location --silent --show-error \
+            "$STEMDECK_MODEL_ARCHIVE_URL" -o models/models.tar.gz
+          tar -xzf models/models.tar.gz -C models
+          beat="$(find models -name beat-model.onnx -print -quit)"
+          if [ -n "$beat" ]; then
+            echo "SATTARI_STEMDECK_BEAT_MODEL=$PWD/$beat" >> "$GITHUB_ENV"
+          fi
+
       - name: Configure
         run: >
           cmake -S plugins/stemdeck -B build/stemdeck -G Ninja

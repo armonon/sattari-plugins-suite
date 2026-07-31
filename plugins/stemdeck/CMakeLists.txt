@@ -615,6 +615,26 @@ target_link_libraries(StemDeckToolbarRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
+# ── Neural beat engine smoke test (does the model path RUN; not accuracy) ─────
+# Skips cleanly when ONNX is off or no model is installed, so it is safe in the
+# ordinary contract suite. Exists because the confidence computation was #if'd
+# out of every build until ONNX was enabled — it had never been compiled, and
+# enabling it immediately exposed two defects in one line.
+add_executable(StemDeckNeuralBeatSmoke EXCLUDE_FROM_ALL
+    tests/stemdeck_neural_beat_smoke.cpp
+    src/NeuralBeatEngine.cpp)
+add_dependencies(StemDeckNeuralBeatSmoke SattariStemDeck)
+target_include_directories(StemDeckNeuralBeatSmoke PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/include)
+target_compile_definitions(StemDeckNeuralBeatSmoke PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckNeuralBeatSmoke
+    PRIVATE juce::juce_audio_formats juce::juce_dsp
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_enable_onnx(StemDeckNeuralBeatSmoke)
+stemdeck_link_tracktion(StemDeckNeuralBeatSmoke)
+
 # ── Layout constraint solver (pure geometry — no editor, no audio, fast) ───────
 # Guards the two regressions LayoutStack was written to kill: header items
 # overlapping at narrow widths, and the stem waveform being starved by chrome.
@@ -1073,7 +1093,8 @@ if(BUILD_TESTING)
         StemDeckChannelDropout
         StemDeckTrackDeckBody
         StemDeckChannelCompile
-        StemDeckResamplerTest)
+        StemDeckResamplerTest
+        StemDeckNeuralBeatSmoke)
 
     foreach(_sd_test IN LISTS STEMDECK_CONTRACT_TESTS)
         if(TARGET ${_sd_test})
