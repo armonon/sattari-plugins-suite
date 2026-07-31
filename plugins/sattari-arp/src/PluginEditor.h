@@ -47,7 +47,7 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     juce::ComboBox preset, rate, pattern, velocityMode, userPresets;
-    juce::Label presetLabel, rateLabel, patternLabel, velocityLabel;
+    juce::Label rateLabel, patternLabel, velocityLabel;
     sattari::ui::KeyButton keyButton;
     juce::TextButton savePresetButton { "Save" };
     juce::TextButton midiLearnButton { "MIDI learn" };

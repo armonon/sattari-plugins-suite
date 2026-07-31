@@ -46,7 +46,7 @@ inline constexpr float outerMargin = 20.0f;
 inline constexpr float gap = 12.0f;
 inline constexpr float radius = 16.0f;
 inline constexpr float controlRadius = 9.0f;
-inline constexpr int headerHeight = 74;
+inline constexpr int headerHeight = 78;
 inline constexpr int commandHeight = 38;
 } // namespace metric
 
@@ -101,15 +101,56 @@ inline void paintSurface (juce::Graphics& g, juce::Rectangle<float> bounds,
     g.drawRoundedRectangle (bounds.reduced (1.5f), juce::jmax (1.0f, radius - 1.0f), 1.0f);
 }
 
+// Uppercase without tracking reads as a jammed block — the letterforms have no
+// descenders or x-height variation to separate them. JUCE has no tracking, so we
+// advance per glyph. Only ever used on short metadata strings.
+inline float trackedTextWidth (const juce::Font& font, const juce::String& text,
+                               float tracking)
+{
+    if (text.isEmpty()) return 0.0f;
+    return juce::GlyphArrangement::getStringWidth (font, text)
+         + tracking * (float) (text.length() - 1);
+}
+
+inline void drawTrackedText (juce::Graphics& g, const juce::String& text,
+                             juce::Rectangle<int> bounds, const juce::Font& font,
+                             float tracking, juce::Justification just)
+{
+    if (text.isEmpty()) return;
+    g.setFont (font);
+    const float total = trackedTextWidth (font, text, tracking);
+    float x = (float) bounds.getX();
+    if (just.testFlags (juce::Justification::right))
+        x = (float) bounds.getRight() - total;
+    else if (just.testFlags (juce::Justification::horizontallyCentred))
+        x = bounds.toFloat().getCentreX() - total * 0.5f;
+
+    const auto row = bounds.toFloat();
+    for (int i = 0; i < text.length(); ++i)
+    {
+        const auto ch = text.substring (i, i + 1);
+        const float w = juce::GlyphArrangement::getStringWidth (font, ch);
+        g.drawText (ch, juce::Rectangle<float> (x, row.getY(), w + 2.0f, row.getHeight()),
+                    juce::Justification::centredLeft, false);
+        x += w + tracking;
+    }
+}
+
 inline void paintSectionTitle (juce::Graphics& g, juce::Rectangle<int> bounds,
                                const juce::String& title,
                                const juce::String& detail = {})
 {
     auto row = bounds;
     g.setColour (colour::secondary);
-    g.setFont (sattari::brand::fontOptions (10.5f, juce::Font::bold));
-    g.drawText (title.toUpperCase(), row.removeFromLeft (juce::jmin (220, row.getWidth())),
-                juce::Justification::centredLeft, false);
+    const auto titleFont = juce::Font (sattari::brand::fontOptions (10.0f, juce::Font::bold));
+    const auto upper = title.toUpperCase();
+    // Take only the width the title actually needs. A fixed reservation steals
+    // room from the right-aligned detail and silently truncates it.
+    const int titleW = juce::jmin (row.getWidth(),
+                                   juce::roundToInt (trackedTextWidth (titleFont, upper, 0.9f)) + 4);
+    drawTrackedText (g, upper, row.removeFromLeft (titleW),
+                     titleFont, 0.9f, juce::Justification::left);
+    row.removeFromLeft (juce::jmin (12, row.getWidth()));
     if (detail.isNotEmpty())
     {
         g.setColour (colour::tertiary);
@@ -342,46 +383,75 @@ public:
         repaint();
     }
 
+    //  Hierarchy, top to bottom: brand, then what KIND of product this is, then
+    //  which one. The category rides ABOVE the name as an accent eyebrow rather
+    //  than below it as grey subtitle, which fixes two things at once — the
+    //  accent finally appears in the header, where product identity belongs, and
+    //  a short name stops looking stranded. "Arp" under a wide eyebrow reads as
+    //  deliberate; "Arp" over a wider grey subtitle just looked unbalanced.
+    //
+    //  The lockup gets its own zone behind a hairline instead of sitting inline.
+    //  It is a 3.69:1 image with a tagline line in it, so drawing it 42px tall
+    //  rendered that tagline as illegible mush AND made it compete with the
+    //  product name for the same job. Smaller and fenced off, it reads as a mark.
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds();
-        auto logoArea = area.removeFromLeft (136).withSizeKeepingCentre (126, 42);
-        sattari::branding::drawLogo (g, logoArea.toFloat());
-        area.removeFromLeft (12);
-        const int statusWidth = status_.isNotEmpty()
-            ? juce::jlimit (96, 184, 30 + status_.length() * 7)
-            : 0;
-        const int textWidth = juce::jmax (
-            180, juce::jmin (
-                470, area.getWidth()
-                    - (statusWidth > 0 ? statusWidth + 12 : 0)));
-        auto textArea = area.removeFromLeft (
-            juce::jmin (textWidth, area.getWidth()));
-        g.setColour (colour::text);
-        g.setFont (sattari::brand::fontOptions (23.0f, juce::Font::bold));
-        g.drawText (sattari::branding::compactProductName (product_),
-                    textArea.removeFromTop (34),
-                    juce::Justification::bottomLeft, false);
-        g.setColour (colour::secondary);
-        g.setFont (sattari::brand::fontOptions (11.0f));
-        g.drawText (category_, textArea.removeFromTop (20),
-                    juce::Justification::topLeft, false);
 
+        constexpr int kLogoZone = 112;
+        constexpr int kLogoW    = 96;
+        auto logoArea = area.removeFromLeft (kLogoZone)
+                            .withSizeKeepingCentre (kLogoW,
+                                juce::roundToInt ((float) kLogoW / 3.693f));
+        sattari::branding::drawLogo (g, logoArea.toFloat());
+
+        g.setColour (colour::separator);
+        g.fillRect (juce::Rectangle<int> (area.getX(), area.getCentreY() - 15, 1, 30));
+        area.removeFromLeft (17);
+
+        // Status pill, measured from its own text instead of a per-character guess.
         if (status_.isNotEmpty())
         {
-            g.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
-            auto pill = area.removeFromRight (statusWidth)
-                            .withSizeKeepingCentre (statusWidth, 26).toFloat();
-            g.setColour ((active_ ? accent_ : colour::surfaceHigh)
-                             .withAlpha (active_ ? 0.17f : 1.0f));
-            g.fillRoundedRectangle (pill, 13.0f);
-            g.setColour (active_ ? accent_ : colour::separator);
-            g.drawRoundedRectangle (pill.reduced (0.5f), 13.0f, 1.0f);
+            const auto statusFont = juce::Font (sattari::brand::fontOptions (9.5f, juce::Font::bold));
+            const int textW = juce::roundToInt (trackedTextWidth (statusFont, status_.toUpperCase(), 1.0f));
+            const int pillW = juce::jmin (area.getWidth(), textW + 40);
+            auto pill = area.removeFromRight (pillW)
+                            .withSizeKeepingCentre (pillW, 26).toFloat();
+            g.setColour (active_ ? accent_.withAlpha (0.16f) : colour::surfaceHigh);
+            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+            g.setColour (active_ ? accent_.withAlpha (0.55f) : colour::separator);
+            g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
+            g.setColour (active_ ? accent_ : colour::tertiary);
+            g.fillEllipse (pill.getX() + 13.0f, pill.getCentreY() - 3.0f, 6.0f, 6.0f);
             g.setColour (active_ ? accent_ : colour::secondary);
-            g.fillEllipse (pill.getX() + 10.0f, pill.getCentreY() - 3.0f, 6.0f, 6.0f);
-            g.drawText (status_, pill.withTrimmedLeft (21.0f).toNearestInt(),
-                        juce::Justification::centred, false);
+            drawTrackedText (g, status_.toUpperCase(),
+                             pill.withTrimmedLeft (25.0f).withTrimmedRight (6.0f).toNearestInt(),
+                             statusFont, 1.0f, juce::Justification::left);
+            area.removeFromRight (14);
         }
+
+        // Accent tick: the product's colour, at the point the eye enters the name.
+        auto tick = juce::Rectangle<float> ((float) area.getX(),
+                                            (float) area.getCentreY() - 17.0f, 3.0f, 34.0f);
+        g.setColour (accent_);
+        g.fillRoundedRectangle (tick, 1.5f);
+        area.removeFromLeft (15);
+
+        const juce::String name = sattari::branding::compactProductName (product_);
+        auto block = area.withSizeKeepingCentre (area.getWidth(), 44);
+
+        if (category_.isNotEmpty())
+        {
+            g.setColour (accent_);
+            drawTrackedText (g, category_.toUpperCase(), block.removeFromTop (13),
+                             juce::Font (sattari::brand::fontOptions (9.5f, juce::Font::bold)),
+                             1.15f, juce::Justification::left);
+            block.removeFromTop (2);
+        }
+
+        g.setColour (colour::text);
+        g.setFont (sattari::brand::fontOptions (27.0f, juce::Font::bold));
+        g.drawText (name, block, juce::Justification::topLeft, false);
     }
 
 private:

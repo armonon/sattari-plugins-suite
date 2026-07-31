@@ -37,7 +37,6 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
     addAndMakeVisible (midiLearnButton);
     refreshUserPresets();
 
-    setupFieldLabel (presetLabel, "Factory");
     setupCombo (preset, "Factory presets");
     preset.addItemList (juce::StringArray {
         "Classic 1/16 Up", "Wide Octave Bounce", "Trap 1/32 Repeat",
@@ -353,9 +352,11 @@ void SattariArpAudioProcessorEditor::resized()
     header.setBounds (area.removeFromTop (sattari::studio::metric::headerHeight));
 
     auto command = area.removeFromTop (54);
-    auto factoryCell = command.removeFromLeft (190);
-    presetLabel.setBounds (factoryCell.removeFromTop (16));
-    preset.setBounds (factoryCell.removeFromTop (34));
+    // Every other control in this row is vertically centred at 34 px. The factory
+    // combo used to carry a "Factory" caption above it, which pushed it 16 px low
+    // and left it visibly out of line with its four neighbours — and it was the
+    // only labelled one, while its own placeholder already reads "Factory presets".
+    preset.setBounds (command.removeFromLeft (190).withSizeKeepingCentre (190, 34));
     command.removeFromLeft (8);
     userPresets.setBounds (command.removeFromLeft (170).withSizeKeepingCentre (170, 34));
     command.removeFromLeft (8);
