@@ -4,11 +4,18 @@
 //  AnalysisCache — persistent SQLite cache of TrackAnalysis, keyed by a content
 //  hash of the audio file.
 // -----------------------------------------------------------------------------
-//  Loading a deck currently runs three full-track analyses (DSP TrackAnalyzer +
-//  neural beat sweep + neural key), ~10 s for a 5-minute track. In a studio
-//  workflow most loads are RE-loads, so a cache hit turns that into a
-//  sub-millisecond DB read. This is build-order item #1: the biggest instant-load
-//  win for the least work, and fully reversible (delete the DB to reset).
+//  ORIGINAL motivation, now historical: loading a deck used to run three full-
+//  track analyses in series (DSP TrackAnalyzer + neural beat sweep + neural
+//  key) before the deck was playable, ~10 s for a 5-minute track. That load
+//  path no longer exists — a deck is now playable on the DSP result alone and
+//  neural analysis refines it in the background (MainPluginProcessor::
+//  refineAnalysisAsync; root CLAUDE.md §7 item 1; StemDeckLoadLatency measures
+//  a 300 s track playable in ~32 ms, refined at ~617 ms, on synthetic material).
+//  This cache is still worth exactly what it always was, for a different
+//  reason: in a studio workflow most loads are RE-loads, so a cache hit turns
+//  even that fast first pass into a sub-millisecond DB read and skips
+//  redundant neural inference entirely. Build-order item #1: fully reversible
+//  (delete the DB to reset).
 //
 //  Thread-safe: the audio loader runs up to 4 concurrent jobs; every DB access is
 //  serialised by a lock and the connection opens in full-mutex mode.
