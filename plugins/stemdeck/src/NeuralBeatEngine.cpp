@@ -56,6 +56,19 @@ struct NeuralBeatEngine::Impl
             try { run->SetTerminate(); } catch (...) {}
     }
 
+    // Call at the top of detect(). Same bug and same fix as
+    // NeuralStemEngine::Impl::beginOperation() (see that comment for the full
+    // reasoning): cancellationRequested was write-only via cancelPending() and
+    // had NO reset anywhere in this file — not even on reload — so one
+    // cancellation made every future detect() call on this engine terminate
+    // immediately, forever. StemDeckStemCancelSmoke's "reuse after cancel" case
+    // is what exposed this pattern in the sibling engine; this one shares the
+    // exact same defect and the exact same fix.
+    void beginOperation() noexcept
+    {
+        cancellationRequested.store (false, std::memory_order_release);
+    }
+
     bool load (const juce::File& modelFile, juce::String& message)
     {
         if (! modelFile.existsAsFile()) { message = "No beat model at " + modelFile.getFullPathName(); return false; }
@@ -112,6 +125,7 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     Result r;
     if (! isAvailable() || sampleRate <= 0.0 || audio.getNumSamples() < (int) sampleRate)   // need >= ~1s
         return r;
+    impl->beginOperation();
 
     const auto cancelled = [&shouldCancel] { return shouldCancel && shouldCancel(); };
 

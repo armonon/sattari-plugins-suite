@@ -86,6 +86,33 @@ struct NeuralStemEngine::Impl
             try { run->SetTerminate(); } catch (...) {}
     }
 
+    // Call at the top of every public entry point (separate/separateStreaming).
+    //
+    // cancellationRequested was write-only outside load(): cancelPending() set it
+    // and nothing but reloading the model ever cleared it, so ONE cancellation
+    // made every future call on this engine instance terminate immediately and
+    // report "Inference failed" — a live model reporting itself broken forever,
+    // discovered by StemDeckStemCancelSmoke's "reuse after cancel" case, which
+    // failed against the real model until this fix. cancelPending()'s own doc
+    // comment promises interruption "during shutdown/cancel" (plural intent, not
+    // "shutdown only"), and callers reasonably expect a cancel to mean "stop
+    // THIS operation," not "this engine is now permanently unusable."
+    //
+    // Resetting here instead of relying on load() closes that without reopening
+    // the race beginRun()'s sticky check exists to prevent: a run created after
+    // cancelPending() has already stored `true` but not yet reached the (mutex-
+    // shared) point where beginRun() would otherwise catch it via the activeRuns
+    // snapshot. StemProvider's only current caller of cancelPending() is
+    // shutdown(), which sets shuttingDown under the same lock requestStemsAsync/
+    // requestStemsStreamingAsync check before enqueueing new work — so no new
+    // separate() call can start once a real cancellation is underway. If
+    // cancelPending() ever gains a second caller for a live, non-shutdown cancel,
+    // that guarantee needs re-examining before this reset can be trusted again.
+    void beginOperation() noexcept
+    {
+        cancellationRequested.store (false, std::memory_order_release);
+    }
+
     bool load (const juce::File& modelFile, juce::String& message)
     {
         ready = false;
@@ -220,6 +247,7 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
                                  std::function<bool()> shouldCancel)
 {
     if (! isAvailable()) { message = "Neural engine has no model loaded"; return false; }
+    impl->beginOperation();
 
     const int total = input.getNumSamples();
     if (total < 16) { message = "Input too short"; return false; }
@@ -251,7 +279,15 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
                 interleaved[(size_t) (2 * i + 1)] = r;
             }
             if (! impl->runWindow (interleaved.data(), win, outWin, shouldCancel))
-            { message = "Inference failed"; return false; }
+            {
+                // runWindow's own early-return (before touching the model) fires on
+                // the SAME predicate as cancellation, so a cancelled window used to
+                // be reported as "Inference failed" — a live model reporting a
+                // fabricated error for doing exactly what it was told to do.
+                message = ((shouldCancel && shouldCancel()) || impl->cancellationRequested.load (std::memory_order_acquire))
+                        ? "Neural separation cancelled" : "Inference failed";
+                return false;
+            }
 
             for (int64_t i = 0; i < n; ++i)
             {
@@ -280,7 +316,18 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
             for (auto* b : outs) { b->setSample (0, i, b->getSample (0, i) * g); b->setSample (1, i, b->getSample (1, i) * g); }
         }
     }
-    catch (const Ort::Exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
+    catch (const Ort::Exception& e)
+    {
+        // A SetTerminate()'d Session::Run throws an Ort::Exception — indistinguishable
+        // from a real inference failure by type, so check whether cancellation was
+        // actually in flight rather than report a fabricated model error for a
+        // deliberate cancel. This is exactly the message runWindow's own early-return
+        // uses above, for the same reason.
+        const bool wasCancelled = (shouldCancel && shouldCancel())
+                                 || impl->cancellationRequested.load (std::memory_order_acquire);
+        message = wasCancelled ? "Neural separation cancelled" : (juce::String ("ONNX run failed: ") + e.what());
+        return false;
+    }
     catch (const std::exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
 
     message = "Neural separation complete";
@@ -296,6 +343,7 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
                                           std::function<bool()> shouldCancel)
 {
     if (! isAvailable()) { message = "Neural engine has no model loaded"; return false; }
+    impl->beginOperation();
 
     const int64_t total = input.getNumSamples();
     if (total < 16) { message = "Input too short"; return false; }
@@ -333,7 +381,15 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
                 interleaved[(size_t) (2 * i + 1)] = r;
             }
             if (! impl->runWindow (interleaved.data(), win, outWin, shouldCancel))
-            { message = "Inference failed"; return false; }
+            {
+                // runWindow's own early-return (before touching the model) fires on
+                // the SAME predicate as cancellation, so a cancelled window used to
+                // be reported as "Inference failed" — a live model reporting a
+                // fabricated error for doing exactly what it was told to do.
+                message = ((shouldCancel && shouldCancel()) || impl->cancellationRequested.load (std::memory_order_acquire))
+                        ? "Neural separation cancelled" : "Inference failed";
+                return false;
+            }
 
             for (int s = 0; s < 4; ++s)
             {
@@ -348,7 +404,18 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
             if (onProgress) onProgress (juce::jlimit (0.0f, 1.0f, (float) (k + 1) / (float) order.size()));
         }
     }
-    catch (const Ort::Exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
+    catch (const Ort::Exception& e)
+    {
+        // A SetTerminate()'d Session::Run throws an Ort::Exception — indistinguishable
+        // from a real inference failure by type, so check whether cancellation was
+        // actually in flight rather than report a fabricated model error for a
+        // deliberate cancel. This is exactly the message runWindow's own early-return
+        // uses above, for the same reason.
+        const bool wasCancelled = (shouldCancel && shouldCancel())
+                                 || impl->cancellationRequested.load (std::memory_order_acquire);
+        message = wasCancelled ? "Neural separation cancelled" : (juce::String ("ONNX run failed: ") + e.what());
+        return false;
+    }
     catch (const std::exception& e) { message = juce::String ("ONNX run failed: ") + e.what(); return false; }
 
     message = "Streaming separation complete";

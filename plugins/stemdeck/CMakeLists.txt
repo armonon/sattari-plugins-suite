@@ -635,6 +635,23 @@ target_link_libraries(StemDeckNeuralBeatSmoke
 stemdeck_enable_onnx(StemDeckNeuralBeatSmoke)
 stemdeck_link_tracktion(StemDeckNeuralBeatSmoke)
 
+# ── Neural key engine smoke test (does the model path RUN; not accuracy) ──────
+# Same purpose as StemDeckNeuralBeatSmoke, for the key model. NeuralKeyEngine and
+# its SattariKeyNet/SattariHpcpChroma dependencies are header-only, so this target
+# only needs the test file itself.
+add_executable(StemDeckNeuralKeySmoke EXCLUDE_FROM_ALL tests/stemdeck_neural_key_smoke.cpp)
+add_dependencies(StemDeckNeuralKeySmoke SattariStemDeck)
+target_include_directories(StemDeckNeuralKeySmoke PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/include)
+target_compile_definitions(StemDeckNeuralKeySmoke PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckNeuralKeySmoke
+    PRIVATE juce::juce_audio_formats juce::juce_dsp
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+stemdeck_enable_onnx(StemDeckNeuralKeySmoke)
+stemdeck_link_tracktion(StemDeckNeuralKeySmoke)
+
 # ── Layout constraint solver (pure geometry — no editor, no audio, fast) ───────
 # Guards the two regressions LayoutStack was written to kill: header items
 # overlapping at narrow widths, and the stem waveform being starved by chrome.
@@ -1055,6 +1072,51 @@ if(STEMDECK_ONNX_ENABLED)
             juce::juce_recommended_warning_flags)
 
     stemdeck_link_tracktion(StemDeckNeuralSmoke)
+
+    # ── Deterministic stem-separation cancellation test ────────────────────────
+    # NeuralStemEngine::separate() already implements cancellation (shouldCancel +
+    # cancelPending()/SetTerminate, mirroring NeuralBeatEngine's pattern) — an
+    # audit initially assumed this needed to be BUILT, and found on inspection
+    # that it needed to be RUN: it had never actually been exercised. This runs
+    # the real model and cancels it mid-flight, on a background thread, with a
+    # bounded-latency assertion. Zero-arg (unlike StemDeckNeuralSmoke, which needs
+    # a WAV path), so it goes in the automatic contract suite below and skips
+    # cleanly when no separation model is installed.
+    add_executable(StemDeckStemCancelSmoke
+        EXCLUDE_FROM_ALL
+            tests/stemdeck_stemcancel_smoke.cpp
+            src/NeuralStemEngine.cpp)
+
+    add_dependencies(StemDeckStemCancelSmoke SattariStemDeck)
+
+    target_include_directories(StemDeckStemCancelSmoke
+        PRIVATE
+            src
+            ${ONNXRUNTIME_INCLUDE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+
+    target_compile_definitions(StemDeckStemCancelSmoke
+        PUBLIC
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+            JUCE_PLUGINHOST_AU=1
+            JUCE_PLUGINHOST_VST3=1
+            JUCE_PLUGINHOST_LV2=0
+            JUCE_PLUGINHOST_VST=0
+            JUCE_VST3_CAN_REPLACE_VST2=0
+        PRIVATE
+            SATTARI_STEMDECK_HAS_ONNX=1)
+
+    target_link_libraries(StemDeckStemCancelSmoke
+        PRIVATE
+            juce::juce_audio_utils
+            ${ONNXRUNTIME_LIB}
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+
+    stemdeck_link_tracktion(StemDeckStemCancelSmoke)
 endif()
 
 # ── CTest contract suite ──────────────────────────────────────────────────────
@@ -1094,14 +1156,22 @@ if(BUILD_TESTING)
         StemDeckTrackDeckBody
         StemDeckChannelCompile
         StemDeckResamplerTest
-        StemDeckNeuralBeatSmoke)
+        StemDeckNeuralBeatSmoke
+        StemDeckNeuralKeySmoke
+        StemDeckStemCancelSmoke)
 
     foreach(_sd_test IN LISTS STEMDECK_CONTRACT_TESTS)
         if(TARGET ${_sd_test})
             add_test(NAME ${_sd_test} COMMAND $<TARGET_FILE:${_sd_test}>)
-            set_tests_properties(${_sd_test} PROPERTIES
-                LABELS "stemdeck;contract"
-                TIMEOUT 120)
+            # StemDeckStemCancelSmoke runs the real ~370MB separation model,
+            # CPU-bound, four times (including a 30s waits-for-progress step) —
+            # 120s is tight for that specific test even though it's generous for
+            # every other zero-arg contract, so it alone gets more room.
+            if(_sd_test STREQUAL "StemDeckStemCancelSmoke")
+                set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 300)
+            else()
+                set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 120)
+            endif()
         endif()
     endforeach()
 
