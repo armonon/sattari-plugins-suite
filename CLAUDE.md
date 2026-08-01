@@ -130,19 +130,43 @@ Timing quality matters most (heard repeatedly on good speakers). Phase-locked ma
 
 ## 7. Neural stack status
 
-Items 1–3 below were open at the last review and are now closed. Read the caveats:
-"closed" means the mechanism is in place and gated by a test, **not** that it has
-been measured on real music.
+**The neural stack is now actually IN the product.** For most of this project's
+history `SATTARI_USE_ONNX` was OFF in every build config and the release script's
+default — so every item below describes code that had never been compiled, let
+alone run. It is now vendored (`third_party/onnxruntime-osx-universal2-1.22.0`,
+gitignored, fetched by `scripts/fetch_onnxruntime.sh`), on by default in
+`release_stemdeck.sh`, and both models have been loaded and run for real:
+`StemDeckNeuralBeatSmoke` and `StemDeckNeuralKeySmoke` (see §10) exercise the
+real `beat-model.onnx` / `keynet.onnx` against generated audio and assert their
+confidence values are finite, in range, and actually discriminate — a click
+track scores 0.99 beat-confidence against 0.00 for silence; a C-major triad
+scores 0.90 key-confidence and is correctly identified as C, against 0.14 for
+white noise. **This is still not an accuracy claim** — generated audio proves
+the code path executes and produces meaningful numbers, nothing about real
+music — but it is the difference between "this code exists" and "this code has
+ever run," which for the beat-confidence math genuinely was the gap: enabling
+ONNX for the first time immediately surfaced a compile error in it (a
+`juce::jmax<size_t>` call resolving against `SIMDRegister` template
+instantiation, `NeuralBeatEngine.cpp`), meaning the confidence computation this
+whole section describes had never actually been built anywhere before.
+
+Items 1–3 below were open at an earlier review and are closed in the sense that
+the mechanism is in place and gated by a test — **not** that it has been
+measured on real music.
 
 1. ~~**Load latency.**~~ **DONE.** Decks return playable on the DSP result;
    neural runs on `loadPool` and hot-swaps via `refineAnalysisAsync`. Measured by
    `StemDeckLoadLatency` — a 300 s track is playable in **32 ms** and refined at
    617 ms, against a 200 ms bound. *Synthetic signals only.*
 2. ~~**Unconditional neural override.**~~ **DONE for both.** The key model is
-   gated on `kNeuralKeyConfidenceFloor` (0.45); the beat model now carries a real
+   gated on `kNeuralKeyConfidenceFloor` (0.45); the beat model carries a real
    `confidence` (activation strength + grid regularity) and is gated on
    `kNeuralBeatConfidenceFloor` (0.35). Below either floor the DSP answer stands.
-   `TrackAnalysis::Source` records which engine won per field.
+   `TrackAnalysis::Source` records which engine won per field, and the deck
+   header's NEURAL/DSP chip now actually reads that record — it used to read
+   `deckHasNeuralStems()` (true for stems from ANY source, including the demucs
+   CLI, and true even in ONNX-disabled builds), so it could and did print NEURAL
+   for output the neural engine never touched.
 3. ~~**Downsample aliasing.**~~ **DONE, UNVERIFIED.** A 6th-order Butterworth
    pre-filter now runs before the 22.05 kHz decimation. `LagrangeInterpolator`
    interpolates but does not band-limit, so everything above 11.025 kHz was
@@ -152,27 +176,52 @@ been measured on real music.
    **This one can only be judged on real material.**
 4. **Naive peak-picking** (fixed 0.4 threshold) — **STILL OPEN.** Port beat_this's
    DBN; will fail on ambient intros/breakdowns. This is the remaining real defect
-   in the beat path and it is a multi-week job, not a patch.
+   in the beat path and it is a multi-week job, not a patch — do it AFTER the
+   corpus exists (item 4 in §10), or there is no way to tell whether it helped.
 
-**Teardown (added since the last review).** Destroying a processor while neural
-refinement was in flight SIGSEGV'd inside `onnxruntime::RunSince`. Teardown now
-cancels cooperatively, terminates in-flight `Session::Run` calls, and joins the
-pools while the engines are still alive; `StemDeckReplayHash` probes it. One gap
-remains: `NeuralStemEngine::separate()` is a single blocking call with no cancel
-hook, so a full-track in-process separation still cannot be interrupted.
+**Teardown.** Destroying a processor while neural refinement was in flight used
+to SIGSEGV inside `onnxruntime::RunSince`. Teardown now cancels cooperatively,
+terminates in-flight `Session::Run` calls, and joins the pools while the engines
+are still alive; `StemDeckReplayHash` probes it. `NeuralStemEngine::separate()`
+already had a cancel hook (`shouldCancel` + `cancelPending()`/`SetTerminate()`,
+wired end-to-end from `StemProvider::shutdown()`) — but until
+`StemDeckStemCancelSmoke` actually ran it against the real model, nobody had
+discovered that `cancellationRequested` was a STICKY flag with no reset outside
+`load()`: one cancellation left the engine reporting "Inference failed" on
+every future call, permanently, for the life of the object. Both neural engines
+had this bug (`NeuralBeatEngine`'s was worse — no reset even on reload); both
+are now fixed (`Impl::beginOperation()` resets the flag at the start of each
+public entry point) and both pass a real cancel-then-reuse test against real
+models.
 
 **Verified clean (don't re-litigate):** concurrency (`loadPool{4}` + shared engines —
 local buffers + thread-safe `Session::Run`); fallback safety (additive; no model →
-DSP stands); chunking fix (commit `02fac82`).
+DSP stands); chunking fix (commit `02fac82`); cancellation reuse (`NeuralBeatEngine`,
+`NeuralStemEngine`, both against real models — see §10).
 
-**Verified clean (don't re-litigate):** concurrency (`loadPool{4}` + shared engines — local buffers + thread-safe `Session::Run`); fallback safety (additive; no model → DSP stands); chunking fix (commit `02fac82`).
-
-**Process problem:** this project has repeatedly shipped code "verified" on synthetic/short inputs that fails on real material. **Build a real-corpus, real-length CI test gate before adding features.** Accuracy is honestly *unmeasured in StemDeck* — the 45%→56% key figure is a shared-core eval; beat_this's F-measure is the paper's.
+**Process problem:** this project has repeatedly shipped code "verified" on synthetic/short inputs that fails on real material — and, this review found, has also shipped code that was never even COMPILED (SATTARI_USE_ONNX=OFF hid the beat-confidence bug above from every build, forever, until this review turned ONNX on). **Build a real-corpus, real-length CI test gate before adding features**, and treat "have we ever built this with the feature flag ON" as its own separate question from "does it work" — the second question is meaningless until the first is checked. Accuracy is honestly *unmeasured in StemDeck* — the 45%→56% key figure is a shared-core eval (`core/tools/key_dataset_eval.cpp` on GiantSteps+GTZAN, not this app); beat_this's F-measure is the paper's.
 
 ---
 
 ## 8. Separation
-Demucs is still a stub and everything depends on it. **Two-tier:** fast causal (~20 ms, lower quality) for live; full Demucs running ahead of playback + again at export. Pre-separate on load into a cache; re-separate at full quality at export.
+"Demucs is still a stub" is stale — checked directly, on both paths StemDeck
+actually has. The `demucs` CLI is real (installed via
+`scripts/setup_stemdeck_demucs.sh`, invoked by `StemProvider::runSeparatorCommand`)
+and produces genuinely distinct stems — confirmed by ear/eye in the running app,
+four visibly different per-stem waveform envelopes on a loaded deck, not a
+placeholder. The on-device path (`NeuralStemEngine` + ONNX) loads the real
+`neural-model.onnx`, separates, and — as of this review — cancels and resumes
+correctly (§7). Neither path has been graded for separation QUALITY on real
+music; that is a real gap, just not the one "still a stub" describes.
+
+**Two-tier, as designed:** fast causal (~20 ms, lower quality) for live; full
+Demucs running ahead of playback + again at export. Pre-separate on load into a
+cache; re-separate at full quality at export. The live tier exists and is wired
+in: `RealTimeStemSeparator` (biquad crossovers + mid/side + transient gating, no
+FFT, no lookahead, RT-safe, and exactly reconstructs the dry signal by
+construction — `bass+vocals+drums+music == input`, sample-exact), driven via
+`MainPluginProcessor::isDeckRtssActive`. Not graded for separation quality
+against real music either, same caveat as the other two paths above.
 
 ---
 
