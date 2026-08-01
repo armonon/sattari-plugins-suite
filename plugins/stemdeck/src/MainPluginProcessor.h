@@ -492,6 +492,24 @@ private:
     std::atomic<bool> usingTeMidi { false };   // processBlock: skip MidiClipPlayer when true
     std::atomic<bool> teStopRequested { false }; // audio→message: defer TE transport stop (RT-safe)
 
+    // audio→message: defer a MIDI-triggered Play toggle. processBlock() used to
+    // call apvts.getParameter(deckPrefix(i) + "Play")->setValueNotifyingHost(...)
+    // directly on a mapped-note trigger — a heap-allocating string concatenation
+    // followed by a blocking CriticalSection (setValueNotifyingHost synchronously
+    // runs every parameter listener) on the audio thread, at a track-start
+    // transition — the worst possible moment for a dropped block. One flag per
+    // deck, same RT-safe defer-to-message-thread pattern as teStopRequested above.
+    //
+    // CAVEAT shared with teStopRequested: serviceDeferredActions() is currently
+    // only called from MainPluginEditor::timerCallback(), so a mapped Play trigger
+    // is serviced within one UI-timer tick (~30Hz) of the editor being open, not
+    // instantly and not at all with the editor closed. That is an existing
+    // architectural property of this defer mechanism, not something new here — but
+    // if hardware-controller-only operation with the window closed is meant to
+    // work, this (and teStopRequested) need a processor-owned timer instead of an
+    // editor-owned one.
+    std::array<std::atomic<bool>, numDecks> deckPlayToggleRequested {};
+
 public:
     // Message thread: services deferred audio-thread requests (e.g. stopping the TE
     // transport when the arrangement auto-stops). Called from the editor timer.

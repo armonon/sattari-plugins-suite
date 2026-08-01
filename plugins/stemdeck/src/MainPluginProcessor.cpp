@@ -1392,7 +1392,13 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     micScratch.setSize (juce::jmax (outputChannels, getTotalNumInputChannels()), samplesPerBlock);
     teScratch.setSize (juce::jmax (2, outputChannels), samplesPerBlock);
-    teMidiScratch.ensureSize (256);
+    // 4096, not 256: a MidiBuffer that runs out of reserved capacity reallocates
+    // on whatever thread calls addEvent() next, which for this buffer is the audio
+    // thread. 256 bytes is a comfortable margin for a quiet block but not for a
+    // dense one (a chord dump, a CC automation burst, an all-notes-off flurry),
+    // and a silent reallocation is exactly the kind of RT violation nobody notices
+    // until it glitches during a real performance. Paid once here, message thread.
+    teMidiScratch.ensureSize (4096);
     warpEngine.prepare (sampleRate, samplesPerBlock, outputChannels);
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
     masterFx.prepare (sampleRate, samplesPerBlock, outputChannels);
@@ -1466,8 +1472,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
             if (tr.action == MidiMappingManager::ActionPlay)
             {
-                if (auto* p = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (deckPrefix (tr.deck) + "Play")))
-                    p->setValueNotifyingHost (p->get() ? 0.0f : 1.0f);
+                // Deferred to the message thread (see deckPlayToggleRequested):
+                // deckPrefix(tr.deck) + "Play" heap-allocates a juce::String, and
+                // setValueNotifyingHost synchronously runs every listener under a
+                // blocking CriticalSection — both illegal on the audio thread, and
+                // this fires at exactly a track-start transition.
+                deckPlayToggleRequested[(size_t) tr.deck].store (true, std::memory_order_relaxed);
             }
             else if (tr.action == MidiMappingManager::ActionCue)
             {
@@ -1930,9 +1940,11 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
         }
     }
 
-    // Trained key model on top of the DSP result. SattariKeyNet measured 58% exact
-    // vs 45% for profile correlation, so when the model is installed it wins; when
-    // it isn't (or ONNX is absent) TrackAnalyzer's key stands. Background thread.
+    // Trained key model on top of the DSP result: when it's installed and clears
+    // the confidence floor it wins, otherwise TrackAnalyzer's key stands. The
+    // "58% exact vs 45%" figure sometimes cited for this model is a shared-core
+    // offline eval (core/tools/key_dataset_eval.cpp on GiantSteps+GTZAN) — see
+    // NeuralKeyEngine.h — not a measurement of this app. Background thread.
     if (neuralKey.isAvailable())
     {
         const auto k = neuralKey.detect (audio, sampleRate,
@@ -1942,9 +1954,11 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
         // CONFIDENCE GATE (§A3). "valid" only means the model ran — it says nothing
         // about whether the answer is any good. Below the floor we KEEP the DSP
         // result rather than let a low-confidence guess overwrite a measured one.
-        // The floor is deliberately conservative: KeyNet measured 58% exact vs 45%
-        // for profile correlation, so the model only earns the override when it is
-        // actually sure.
+        // The floor is deliberately conservative: the shared-core eval found the
+        // model beats profile correlation (see NeuralKeyEngine.h for the caveat on
+        // that number), so the model only earns the override when it is actually
+        // sure — not merely "sure enough to have beaten profile correlation on a
+        // different dataset through a different code path."
         if (k.valid && k.confidence >= kNeuralKeyConfidenceFloor)
         {
             out.keyPitchClass = k.root;
@@ -2482,6 +2496,14 @@ void MainPluginProcessor::serviceDeferredActions()
     if (teStopRequested.exchange (false, std::memory_order_relaxed))
         if (teWrapper != nullptr)
             teWrapper->edit->getTransport().stop (false, false);
+
+    // Message thread only. A MIDI-mapped Play trigger sets one of these on the
+    // audio thread (see processBlock); the actual parameter string lookup and
+    // setValueNotifyingHost happen here instead, off the audio thread.
+    for (int i = 0; i < numDecks; ++i)
+        if (deckPlayToggleRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
+            if (auto* p = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (deckPrefix (i) + "Play")))
+                p->setValueNotifyingHost (p->get() ? 0.0f : 1.0f);
 }
 
 void MainPluginProcessor::setArrangementPositionSeconds (double s)
