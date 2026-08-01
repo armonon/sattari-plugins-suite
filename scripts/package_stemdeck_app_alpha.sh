@@ -76,19 +76,62 @@ fi
 # like Rubber Band: copy the exact dylib the binary linked, rewrite the load
 # command to @rpath, then let the bundle validator prove there are no machine-local
 # paths left. Ordinary packages have SATTARI_USE_ONNX=OFF and skip this entirely.
-onnx_link="$(otool -L "$app_binary" | awk '/libonnxruntime.*\\.dylib/{print $1; exit}')"
-if [[ -n "$onnx_link" ]]; then
-  [[ -f "$onnx_link" ]] || {
-    echo "linked ONNX Runtime does not exist: $onnx_link" >&2
+#
+# TWO independent bugs made this block dead code for this script's entire
+# history — both only ever exercised today, the first time SATTARI_USE_ONNX=ON
+# actually reached this script:
+#
+#   1. The match pattern was `\\.dylib` (double backslash). In a single-quoted
+#      bash argument that reaches awk as a LITERAL backslash-dot in the regex —
+#      "match a backslash character, then any char" — which cannot match
+#      `otool -L` output (a real `.` before `dylib`, never a backslash). So
+#      onnx_link/onnx_ref was unconditionally empty and this whole block never
+#      ran, for anyone, ever.
+#
+#   2. Fixing #1 alone still fails: CMake links this dependency by @rpath (the
+#      correct, portable way), so `otool -L` reports the TOKEN
+#      "@rpath/libonnxruntime....dylib", not a filesystem path. The original
+#      code did `[[ -f "$onnx_link" ]]` directly on that token, which can never
+#      be true — "@rpath/..." is a dyld search instruction, not a path in any
+#      directory named "@rpath". @rpath only resolves by combining it with the
+#      binary's OWN LC_RPATH search entries, so that's what has to happen here.
+#
+# Net effect while both bugs stood: an ONNX-enabled build packaged with NO
+# onnxruntime dylib in Contents/Frameworks and NO install-name rewrite — the
+# binary kept its absolute build-machine LC_RPATH
+# (.../third_party/onnxruntime-osx-universal2-*/lib), so the package only ever
+# worked on the machine that built it, silently. This is exactly the class of
+# bug this audit exists to catch: the code reads as plausible and nobody had a
+# reason to doubt it, because SATTARI_USE_ONNX was OFF everywhere until today.
+onnx_ref="$(otool -L "$app_binary" | awk '/libonnxruntime.*\.dylib/{print $1; exit}')"
+if [[ -n "$onnx_ref" ]]; then
+  onnx_name="$(basename "$onnx_ref")"
+  onnx_real=""
+  if [[ "$onnx_ref" == /* ]]; then
+    onnx_real="$onnx_ref"   # already absolute (unusual, but handle it)
+  else
+    # Resolve the @rpath/@loader_path/@executable_path token against the
+    # binary's own LC_RPATH entries — the only paths dyld would actually search.
+    # Field-split on whitespace would truncate a path containing a space (this
+    # repo's own checkout path does: ".../StemDeck copy/..."), so strip the
+    # "path "/" (offset N)" wrapper instead of taking a whitespace field.
+    while IFS= read -r rpath_dir; do
+      [[ -n "$rpath_dir" ]] || continue
+      candidate="$rpath_dir/$onnx_name"
+      if [[ -f "$candidate" ]]; then onnx_real="$candidate"; break; fi
+    done < <(otool -l "$app_binary" \
+              | awk '/cmd LC_RPATH/{getline; getline; sub(/^ *path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print}')
+  fi
+  [[ -n "$onnx_real" && -f "$onnx_real" ]] || {
+    echo "could not resolve linked ONNX Runtime '$onnx_ref' against any LC_RPATH entry of $app_binary" >&2
+    otool -l "$app_binary" | grep -A2 LC_RPATH >&2
     exit 1
   }
-  onnx_real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$onnx_link")"
-  onnx_name="$(basename "$onnx_link")"
   ditto "$onnx_real" "$frameworks_dir/$onnx_name"
   /usr/bin/install_name_tool -id "@rpath/$onnx_name" "$frameworks_dir/$onnx_name"
-  /usr/bin/install_name_tool -change "$onnx_link" "@rpath/$onnx_name" "$app_binary"
+  /usr/bin/install_name_tool -change "$onnx_ref" "@rpath/$onnx_name" "$app_binary"
   /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$app_binary" 2>/dev/null || true
-  echo "--- bundled ONNX Runtime: $onnx_name"
+  echo "--- bundled ONNX Runtime: $onnx_name (resolved from $onnx_real)"
 fi
 
 # Optionally bundle the on-device neural models INTO the app so premium AI stem
@@ -109,6 +152,12 @@ if [[ "${STEMDECK_BUNDLE_MODELS:-0}" == "1" ]]; then
   }
   bundle_optional_model "neural-model.onnx"
   bundle_optional_model "beat-model.onnx"
+  # keynet.onnx is the neural KEY model — was never bundled here even though the
+  # other two neural models were, so a packaged app could only get key detection
+  # by depending on a shared-suite install at ~/Library/Sattari Audio/models/.
+  # NeuralKeyEngine::defaultModelFile() now checks Contents/Resources first (see
+  # ModelLocator.h), matching how the beat and separation models are found.
+  bundle_optional_model "keynet.onnx"
 else
   echo "--- STEMDECK_BUNDLE_MODELS!=1: shipping without embedded neural models (users install to ~/Library or set the model env var)"
 fi
@@ -118,16 +167,39 @@ fi
 codesign --force --deep --sign - "$app_bundle" >/dev/null
 codesign --verify --deep --strict --verbose=2 "$app_bundle"
 
-if otool -L "$app_binary" | grep -q '/opt/homebrew'; then
+# Capture-then-grep, not `producer | grep -q`, under `set -euo pipefail`: an
+# early match makes grep -q exit before the producer finishes writing, the
+# producer dies of SIGPIPE, and pipefail can turn that into a spurious
+# nonzero here — which for an `if pipeline; then fail; fi` check means a REAL
+# /opt/homebrew reference could silently pass instead of failing the build.
+# Confirmed as a genuine, reproducible race for this exact shape of check
+# (~4 failures in 5 runs) on the @executable_path validator check this script
+# now also runs — see validate_stemdeck_app_bundle.sh's header comment.
+app_binary_links="$(otool -L "$app_binary")"
+if grep -q '/opt/homebrew' <<<"$app_binary_links"; then
   echo "packaged app still references /opt/homebrew dylibs" >&2
-  otool -L "$app_binary" >&2
+  echo "$app_binary_links" >&2
   exit 1
 fi
-if [[ -e "$frameworks_dir/librubberband.3.dylib" ]] && otool -L "$frameworks_dir/librubberband.3.dylib" | grep -q '/opt/homebrew'; then
-  echo "bundled librubberband still references /opt/homebrew dylibs" >&2
-  otool -L "$frameworks_dir/librubberband.3.dylib" >&2
-  exit 1
+if [[ -e "$frameworks_dir/librubberband.3.dylib" ]]; then
+  rubberband_links="$(otool -L "$frameworks_dir/librubberband.3.dylib")"
+  if grep -q '/opt/homebrew' <<<"$rubberband_links"; then
+    echo "bundled librubberband still references /opt/homebrew dylibs" >&2
+    echo "$rubberband_links" >&2
+    exit 1
+  fi
 fi
+
+# Run the canonical validator ON THE PACKAGE ITSELF, not just ship it for someone
+# else to run later. It is copied into every package as scripts/validate_app.sh
+# and until now was never actually invoked here — so this pipeline could (and
+# did) produce a package that fails its own bundled validator: an ONNX-enabled
+# build's onnxruntime dylib was never copied into Contents/Frameworks (a bug in
+# the ONNX-detection regex just above, in this same file), meaning the ad-hoc
+# /opt/homebrew checks above passed while the binary's @rpath/libonnxruntime...
+# reference had no bundled dylib backing it — exactly what this validator exists
+# to catch, and would have, the first time this script ran with ONNX enabled.
+"$repo_root/scripts/validate_stemdeck_app_bundle.sh" "$app_bundle"
 
 if [[ -d "$build_dir/timepitch-benchmark" ]]; then
   ditto "$build_dir/timepitch-benchmark" "$package_dir/validation/timepitch-benchmark"
@@ -227,7 +299,7 @@ EOF_README
   if [[ -e "$frameworks_dir/libsamplerate.0.dylib" ]]; then
     echo "bundled_dylib: Contents/Frameworks/libsamplerate.0.dylib"
   fi
-  if [[ -n "$onnx_link" ]]; then
+  if [[ -n "$onnx_ref" ]]; then
     echo "bundled_dylib: Contents/Frameworks/$onnx_name"
   fi
   echo "app: Sattari StemDeck/Sattari StemDeck.app"

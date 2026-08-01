@@ -61,7 +61,15 @@ fi
 # real minimum-OS the linked binary will inherit.
 echo
 echo "archs: $(lipo -archs "${lib}" 2>/dev/null || echo unknown)"
-minos="$(otool -l "${lib}" 2>/dev/null | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+# Capture first, then awk over the captured text — not `otool -l | awk '...exit}'`.
+# This script runs under `set -euo pipefail` (line 26); an awk action ending in
+# `exit` closes its input as soon as it matches, which can SIGPIPE the still-
+# writing otool and, under pipefail, abort this whole script on a plain
+# informational lookup. Confirmed as a real, reproducible race for this exact
+# "early-exiting reader | late-writing producer" shape elsewhere in this repo's
+# packaging scripts — see validate_stemdeck_app_bundle.sh's header comment.
+load_commands="$(otool -l "${lib}" 2>/dev/null || true)"
+minos="$(awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}' <<<"${load_commands}")"
 echo "minos: ${minos:-unknown}"
 echo
 echo "StemDeck raises its own deployment floor to match this when SATTARI_USE_ONNX=ON."

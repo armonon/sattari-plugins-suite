@@ -61,7 +61,18 @@ if [[ -n "${EXPECTED_STEMDECK_APP_VERSION:-}" && "$bundle_version" != "$EXPECTED
   fail "expected version $EXPECTED_STEMDECK_APP_VERSION, got $bundle_version"
 fi
 
-file "$binary" | grep -q 'Mach-O' || fail "executable is not a Mach-O binary"
+# Capture-then-grep everywhere in this file, never `producer | grep -q`: this
+# script runs under `set -o pipefail`, and `grep -q` exits as soon as it finds
+# a match — closing its end of the pipe while the producer may still be
+# writing. The producer then dies of SIGPIPE, pipefail sees that nonzero exit,
+# and `||` fires even though the pattern WAS found. Confirmed empirically on
+# the @executable_path check below: genuinely flaky, ~4 failures in 5 runs
+# against a real bundle, despite the rpath being correctly present every time.
+# `$(...)` command substitution fully captures output with no concurrent
+# reader, so it can't race this way — apply it uniformly rather than judging
+# per call site which producer's output is "probably short enough."
+file_info="$(file "$binary")"
+grep -q 'Mach-O' <<<"$file_info" || fail "executable is not a Mach-O binary"
 
 binary_links="$(otool -L "$binary")"
 if grep -q '/opt/homebrew' <<<"$binary_links"; then
@@ -84,7 +95,9 @@ fi
 
 if [[ "$uses_rubberband" == true || "$uses_samplerate" == true || "$uses_onnx" == true ]]; then
   [[ -d "$frameworks" ]] || fail "@rpath dylibs are used but Contents/Frameworks is missing"
-  otool -l "$binary" | grep -q '@executable_path/../Frameworks' || fail "binary uses @rpath dylibs but lacks @executable_path/../Frameworks rpath"
+  binary_load_commands="$(otool -l "$binary")"
+  grep -q '@executable_path/../Frameworks' <<<"$binary_load_commands" \
+    || fail "binary uses @rpath dylibs but lacks @executable_path/../Frameworks rpath"
 fi
 
 check_bundled_dylib() {
@@ -109,7 +122,17 @@ if [[ "$uses_samplerate" == true ]]; then
   check_bundled_dylib "libsamplerate.0.dylib"
 fi
 if [[ "$uses_onnx" == true ]]; then
-  onnx_name="$(sed -n 's|.*@rpath/\\(libonnxruntime[^[:space:]]*\\.dylib\\).*|\\1|p' <<<"$binary_links" | head -1)"
+  # Was `\\(...\\)`/`\\.`/`\\1` (double backslash). In a single-quoted bash
+  # argument that reaches sed as a LITERAL backslash-paren / backslash-dot in a
+  # BRE pattern — "match a literal backslash character" — which never occurs in
+  # otool -L output, so this capture never matched and this check has never once
+  # passed on a real ONNX-linked binary. Fourth instance of this exact escaping
+  # mistake found in this codebase during this audit (see package_stemdeck_app_
+  # alpha.sh's onnx_ref extraction for the other two, and NeuralBeatEngine.cpp's
+  # jmax<size_t> for an unrelated one) — worth treating as a class of bug, not a
+  # one-off: any `\\` inside a single-quoted argument to awk/sed/grep is
+  # almost certainly not what was intended.
+  onnx_name="$(sed -n 's|.*@rpath/\(libonnxruntime[^[:space:]]*\.dylib\).*|\1|p' <<<"$binary_links" | head -1)"
   [[ -n "$onnx_name" ]] || fail "could not resolve bundled ONNX Runtime name"
   check_bundled_dylib "$onnx_name"
 fi
