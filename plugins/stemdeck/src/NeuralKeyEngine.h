@@ -4,10 +4,18 @@
 //  NeuralKeyEngine — trained neural key detection for StemDeck.
 // -----------------------------------------------------------------------------
 //  StemDeck's built-in key detection (TrackAnalyzer) is a chroma + Krumhansl
-//  profile correlation. The suite already ships a trained model (SattariKeyNet,
-//  a 24-class classifier over a 90-dim HPCP chroma feature) that measured 58%
-//  exact vs 45% for the profile method, so when that model is installed we use
-//  it and fall back to the DSP result when it isn't.
+//  profile correlation. The suite ships a trained model (SattariKeyNet, a
+//  24-class classifier over a 90-dim HPCP chroma feature); when that model is
+//  installed we use it and fall back to the DSP result when it isn't.
+//
+//  "58% exact vs 45%" is NOT a StemDeck measurement. It is core/tools/
+//  key_dataset_eval.cpp's held-out result on GiantSteps+GTZAN, run offline
+//  against the shared-core feature pipeline. It mirrors the plugin's analysis
+//  chain (see the feature-parity note below) but was never run through this
+//  class, TrackAnalysis, or StemDeckCorpusGate. Treat it as "the model is
+//  plausible," not as "the shipping app scores 58%." The number that actually
+//  describes this app's output is whatever StemDeckCorpusGate reports the day
+//  someone runs it against real, truth-labelled tracks — see docs' §7/§10.
 //
 //  CRITICAL — feature parity: the model only works if we hand it the exact
 //  feature it was TRAINED on. That recipe is core/tools/key_dataset_eval.cpp ::
@@ -30,6 +38,7 @@
 #include <vector>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariKeyNet.h>
+#include "ModelLocator.h"
 
 class NeuralKeyEngine
 {
@@ -37,11 +46,25 @@ public:
     static constexpr int kFftOrder = 12;
     static constexpr int kFftSize  = 1 << kFftOrder;   // 4096 — must match training
 
-    // The model Auto-Pitch also uses:
-    //   <userApplicationDataDirectory>/Sattari Audio/models/keynet.onnx
-    // (on macOS userApplicationDataDirectory is ~/Library, so ~/Library/Sattari Audio/...)
+    // Three-tier search, matching NeuralBeatEngine/NeuralStemEngine (see
+    // ModelLocator.h's documented contract, which this class did NOT actually
+    // follow until now — it went straight to the ~/Library path with no env
+    // override and no bundled-Resources check, so a packaged app could never
+    // ship its own copy and a developer could not point it at a test model
+    // without overwriting the real shared-suite install):
+    //   1. env SATTARI_STEMDECK_KEY_MODEL
+    //   2. bundled Contents/Resources/keynet.onnx (a packaged, self-contained app)
+    //   3. <userApplicationDataDirectory>/Sattari Audio/models/keynet.onnx
+    //      (on macOS userApplicationDataDirectory is ~/Library; this is the
+    //      shared-suite path Auto-Pitch also reads, so a manual install serves
+    //      every Sattari product at once)
     static juce::File defaultModelFile()
     {
+        const auto env = juce::SystemStats::getEnvironmentVariable ("SATTARI_STEMDECK_KEY_MODEL", {}).trim();
+        if (env.isNotEmpty())
+            return juce::File (env);
+        if (const auto bundled = stemdeck::bundledModelFile ("keynet.onnx"); bundled.existsAsFile())
+            return bundled;
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                  .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("keynet.onnx");
     }
