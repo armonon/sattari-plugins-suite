@@ -7,9 +7,12 @@
 #
 #    0. BUILD      — every _AU and *Contract target, so the things validated below
 #                    are the things in the working tree (skip with --no-build).
-#    0b. STALENESS — hard-fails if any installed .component predates the source.
+#    0b. FRESHNESS — hard-fails if an installed .component does not match what
+#                    this tree built, or if two bundles claim one plug-in ID.
 #    1. CONTRACTS  — every built *Contract executable in build/<tree>.
-#    2. auval      — every installed .component. The AU TYPE IS READ FROM THE
+#    2. auval      — every installed .component except products marked "excluded"
+#                    in config/products.json, which are SKIPPED OUT LOUD and
+#                    counted separately. The AU TYPE IS READ FROM THE
 #                    BUNDLE'S Info.plist, never guessed: this repo has aufx, aumf
 #                    and aumu plugins and guessing has produced false failures
 #                    (Gate is Gt01 not Gat1; Vocoder is aumf not aufx).
@@ -24,8 +27,8 @@
 #  BY DEFAULT IT BUILDS FIRST. It has twice reported green over crashes that were
 #  live in source, because ~/Library held components older than the code. Pass
 #  --no-build only when you have just built and want the checks alone; the
-#  staleness phase still runs, and still fails, if anything installed is older
-#  than the working tree.
+#  freshness phase still runs, and still fails, if anything installed does not
+#  match the build tree.
 #
 #  Exit 0 only if every phase passes.
 # =============================================================================
@@ -175,6 +178,18 @@ done < <(find "$BUILD" -type f -perm -111 -name '*Contract' \
 #  that publishes to the bus should be publishing to the real one.
 restore_bus
 hr; echo "auval (type read from each Info.plist)"; hr
+#  Products marked lifecycle "excluded" in config/products.json are not part of
+#  this release program and are not auval'd. They are announced, NOT dropped
+#  silently: a hidden skip makes "N green" read as "everything validated" when
+#  something was never tested, which is the same lie as validating a stale
+#  binary. Driven by the catalog rather than a hardcoded name so the list cannot
+#  drift away from the product data.
+excluded_names="$(python3 -c "
+import json
+with open('$ROOT/config/products.json') as f: d=json.load(f)
+print('\n'.join(p['name'] for p in d['products'] if p.get('lifecycle')=='excluded'))
+" 2>/dev/null)"
+skipped=0
 for comp in "$COMPONENTS"/*.component; do
     [ -d "$comp" ] || continue
     plist="$comp/Contents/Info.plist"
@@ -184,7 +199,10 @@ for comp in "$COMPONENTS"/*.component; do
     type="$(plutil -extract AudioComponents.0.type raw "$plist" 2>/dev/null)"
     sub="$(plutil -extract AudioComponents.0.subtype raw "$plist" 2>/dev/null)"
     nm="$(basename "$comp" .component)"
-    [ "$nm" = "Sattari StemDeck" ] && continue
+    if printf '%s\n' "$excluded_names" | grep -qxF "$nm"; then
+        printf '  skip  %-28s %s %s   (lifecycle: excluded)\n' "$nm" "$type" "$sub"
+        skipped=$((skipped+1)); continue
+    fi
     if auval -v "$type" "$sub" "$manu" 2>&1 | grep -q "VALIDATION SUCCEEDED"; then
         printf '  ok    %-28s %s %s\n' "$nm" "$type" "$sub"; pass=$((pass+1))
     else
@@ -204,9 +222,11 @@ for chk in check_brand_registry_sync.py check_rack_presets.py; do
 done
 
 hr
+skip_note=""
+[ "${skipped:-0}" -gt 0 ] && skip_note=", $skipped skipped (excluded products, NOT validated)"
 if [ $fails -eq 0 ]; then
-    echo "RELEASE CHECK PASSED — $pass checks green"
+    echo "RELEASE CHECK PASSED — $pass checks green$skip_note"
     exit 0
 fi
-echo "RELEASE CHECK FAILED — $fails failing, $pass green"
+echo "RELEASE CHECK FAILED — $fails failing, $pass green$skip_note"
 exit 1
