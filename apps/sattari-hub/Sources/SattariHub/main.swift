@@ -318,6 +318,9 @@ final class HubModel {
             throw error
         }
 
+        let superseded = retireSupersededBundles(
+            installed: committed.map(\.destination), backupRoot: backupRoot, stamp: stamp)
+
         receipts[product.id] = InstallReceipt(
             productId: product.id,
             version: product.version,
@@ -327,7 +330,79 @@ final class HubModel {
         )
         try saveReceipts()
 
-        return "Installed and verified \(prepared.count) bundle(s) for \(product.name). Restart or rescan your DAW."
+        var message = "Installed and verified \(prepared.count) bundle(s) for \(product.name)."
+        if superseded > 0 {
+            message += " Retired \(superseded) superseded bundle(s) claiming the same plug-in ID."
+        }
+        return message + " Restart or rescan your DAW."
+    }
+
+    /// A plug-in's real identity is its AU type/subtype/manufacturer or its VST3
+    /// class ID — never its file name. Both are derived from the four-character
+    /// codes, so RENAMING A PRODUCT DOES NOT CHANGE THEM.
+    ///
+    /// That is what makes a rename dangerous: "Sattari Brain" became "Sattari
+    /// Compass", the Hub installed the new bundle beside the old one, and both
+    /// claimed aumf/Br01/Satr and VST3 CID ...SatrBr01. macOS keys the component
+    /// registry on that identity, so which one a DAW loaded was undefined — and
+    /// the stale one was the older, buggier binary.
+    private func bundleIdentity(at url: URL) -> String? {
+        switch url.pathExtension.lowercased() {
+        case "component":
+            guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+                  let plist = try? PropertyListSerialization.propertyList(
+                      from: data, options: [], format: nil) as? [String: Any],
+                  let components = plist["AudioComponents"] as? [[String: Any]],
+                  let first = components.first,
+                  let type = first["type"] as? String,
+                  let subtype = first["subtype"] as? String,
+                  let manufacturer = first["manufacturer"] as? String
+            else { return nil }
+            return "au:\(type)/\(subtype)/\(manufacturer)"
+
+        case "vst3":
+            // moduleinfo.json is JSON5-ish (JUCE emits trailing commas), so
+            // JSONSerialization rejects it. Scan for the CID rather than parse.
+            let info = url.appendingPathComponent("Contents/Resources/moduleinfo.json")
+            guard let text = try? String(contentsOf: info, encoding: .utf8),
+                  let range = text.range(of: #""CID"\s*:\s*"[0-9A-Fa-f]+""#, options: .regularExpression),
+                  let value = text[range].split(separator: "\"").last
+            else { return nil }
+            return "vst3:\(value.uppercased())"
+
+        default:
+            return nil   // a Standalone .app has no shared registry to collide in
+        }
+    }
+
+    /// Move aside any OTHER bundle that claims the same identity as one we just
+    /// installed. Identity-based rather than a hardcoded rename list, so it keeps
+    /// working for renames nobody has made yet. Retired, not deleted: they go to
+    /// the same backup root the upgrade path already uses.
+    private func retireSupersededBundles(
+        installed: [URL], backupRoot: URL, stamp: String) -> Int
+    {
+        var retired = 0
+        for destination in installed {
+            guard let identity = bundleIdentity(at: destination) else { continue }
+            let folder = destination.deletingLastPathComponent()
+            guard let siblings = try? fileManager.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil) else { continue }
+
+            for sibling in siblings
+            where sibling.lastPathComponent != destination.lastPathComponent
+                && sibling.pathExtension == destination.pathExtension
+            {
+                guard bundleIdentity(at: sibling) == identity else { continue }
+                let candidate = backupRoot.appendingPathComponent(
+                    "\(stamp)-superseded-\(sibling.lastPathComponent)")
+                try? fileManager.removeItem(at: candidate)
+                if (try? fileManager.moveItem(at: sibling, to: candidate)) != nil {
+                    retired += 1
+                }
+            }
+        }
+        return retired
     }
 
     private func runRepairTool(_ executable: String, _ arguments: [String]) {
