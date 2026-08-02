@@ -20,7 +20,15 @@ jobs:
       - uses: actions/checkout@v4
       - id: matrix
         name: Export generated focused matrix
-        run: echo "matrix=$(tr -d '\\n' < config/ci-matrix.generated.json)" >> "$GITHUB_OUTPUT"
+        # GITHUB_OUTPUT is one key=value per LINE, so the matrix must collapse to a
+        # single line. This previously used `tr -d '\\n'`, where the doubled
+        # backslash survives the YAML plain scalar and reaches tr as a literal
+        # backslash — so tr deleted every BACKSLASH and every letter "n" instead of
+        # newlines. "include" became "iclude", "plugin" became "plugi", and 45
+        # lines went into a file that allows one. jq -c is correct by construction
+        # and also fails the step outright if the generated matrix is not valid
+        # JSON, instead of silently exporting garbage.
+        run: echo "matrix=$(jq -c . config/ci-matrix.generated.json)" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Fast, dependency-light gates. No JUCE / no submodules, so this finishes in
