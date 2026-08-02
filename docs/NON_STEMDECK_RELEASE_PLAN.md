@@ -6,18 +6,37 @@ track.
 
 ## Product shape
 
-Do not launch 48 products as though they are equally mature. The public suite
-should be understood in three layers:
+Do not launch 48 products as though they are equally mature — and do not present
+48 things at all. The 48 plugins are the IMPLEMENTATION. What anyone installs,
+buys or reasons about is six products, each a complete job rather than a shelf
+of parts:
 
-1. **Flagships** — a small set with direct value and complete evidence.
-2. **Racks** — Mix, Create, Vocal and Stack as the primary way to use the shared
-   module library.
-3. **Modules and utilities** — standalone shells remain available for saved
-   sessions and focused workflows, but are not all top-level launch stories.
+| Product | Verb | Tier | Plugins | What it is |
+|---|---|---|---|---|
+| **Compass** | knows | free | 4 | The session authority. Absorbs Key, Tuner, Scope. |
+| **Auto Pitch** | tunes | paid | 2 | Vocal tuning. Absorbs Maqam. |
+| **Instruments** | makes | paid | 8 | Everything that generates material — MIDI, voice-to-MIDI, playable instruments. |
+| **Vocal** | sings | paid | 8 | The vocal chain. Absorbs Harmony, Vocal Master, Royal Chain. |
+| **Mix** | controls | paid | 14 | Dynamics, tone, metering. |
+| **Create** | transforms | paid | 12 | Session-aware creative FX. |
 
-The canonical lifecycle and release profile live in `config/products.json`.
-Changing a lifecycle there regenerates C++ branding, Hub metadata, website
-visibility and the focused CI matrix.
+Compass is free on purpose: every install is a node in the session network and
+makes everything else work better. That is the distribution mechanism.
+
+Each product names exactly one PRIMARY plugin — the binary you launch to be "in"
+that product. Everything else is a component of it. A plugin belongs to exactly
+one product or is explicitly excluded; an unassigned plugin is a product with no
+shelf to sit on, which is how a catalog drifts back to being a list of 48 things.
+
+**Nothing is deleted to achieve this.** Product codes, parameter identifiers,
+state trees and saved sessions are untouched — the grouping is a data field
+(`suite` / `suiteRole`) in `config/products.json`, and every consumer regenerates
+from it. `scripts/check_brand_registry_sync.py` fails if a plugin escapes a
+product or a product gains a second primary.
+
+The canonical lifecycle and release profile live in the same file. Changing a
+lifecycle there regenerates C++ branding, Hub metadata, website visibility and
+the focused CI matrix.
 
 ## Release sequence
 

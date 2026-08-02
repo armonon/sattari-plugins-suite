@@ -66,15 +66,51 @@ def main() -> int:
         if len(built.get("bundles", [])) != 3:
             errors.append(f"{pid}: Hub must declare AU, VST3 and Standalone")
 
+    # The generated file now carries TWO assignments (catalog + suite), so parse
+    # each one by name instead of splitting on the last semicolon in the file.
     web_text = WEB.read_text()
-    prefix = "window.SATTARI_PRODUCT_CATALOG = "
-    try:
-        web_data = json.loads(web_text.split(prefix, 1)[1].rsplit(";", 1)[0])
-    except (IndexError, json.JSONDecodeError):
-        web_data = []
-        errors.append("could not parse generated web catalog")
+
+    def web_assignment(name: str):
+        match = re.search(rf"window\.{name} = (.*?);\n", web_text, re.S)
+        if not match:
+            errors.append(f"could not parse {name} from the generated web catalog")
+            return None
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            errors.append(f"{name} in the generated web catalog is not valid JSON")
+            return None
+
+    web_data = web_assignment("SATTARI_PRODUCT_CATALOG") or []
+    web_suite = web_assignment("SATTARI_SUITE") or []
     if {p["id"] for p in web_data} != set(by_id):
         errors.append("web lifecycle catalog ids differ from product catalog")
+
+    # --- the six-product grouping is an invariant, not a presentation detail ---
+    #  Forty-nine plugins are the implementation; six products are what anyone
+    #  buys. If a plugin can sit outside all six, the catalog quietly drifts back
+    #  to being a list of forty-nine things, which is the problem this solved.
+    suite_ids = {s["id"] for s in catalog.get("suite", [])}
+    if {s["id"] for s in web_suite} != suite_ids:
+        errors.append("web suite differs from the catalog suite")
+    orphans = sorted(
+        p["id"] for p in products
+        if p.get("suite") is None and p["lifecycle"] != "excluded"
+    )
+    if orphans:
+        errors.append(f"plugins belong to no suite product: {orphans}")
+    unknown = sorted(
+        p["id"] for p in products
+        if p.get("suite") is not None and p["suite"] not in suite_ids
+    )
+    if unknown:
+        errors.append(f"plugins reference an unknown suite product: {unknown}")
+    for entry in catalog.get("suite", []):
+        primaries = [p["id"] for p in products
+                     if p.get("suite") == entry["id"] and p.get("suiteRole") == "primary"]
+        if primaries != [entry["primary"]]:
+            errors.append(
+                f"suite {entry['id']}: primary should be [{entry['primary']}], got {primaries}")
     detailed_ids = set(re.findall(r'\bid:\s*"([^"]+)"', WEB_DETAILS.read_text()))
     visible_ids = {p["id"] for p in products if p["webVisible"]}
     if detailed_ids & visible_ids != visible_ids:

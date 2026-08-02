@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sattari Audio — Four racks. One session key.</title>
-<meta name="description" content="A Mac plugin suite built around four racks — Mix, Create, Vocal and Stack — that load 28 shared modules, plus standalone flagships. Every plugin follows one live session key." />
+<title>Sattari Audio — Six products. One session key.</title>
+<meta name="description" content="A Mac plugin suite of six products — Compass, Auto Pitch, Instruments, Vocal, Mix and Create — sharing 28 processors. Every plugin follows one live session key." />
 <link rel="canonical" href="https://sattari-audio-studio.armonon.chatgpt.site/index.html" />
 <meta property="og:type" content="website" />
-<meta property="og:title" content="Sattari Audio — Four racks. One session key." />
-<meta property="og:description" content="Four modular racks, 28 shared processors, and one live musical authority." />
+<meta property="og:title" content="Sattari Audio — Six products. One session key." />
+<meta property="og:description" content="Six products, 28 shared processors, and one live musical authority." />
 <meta property="og:url" content="https://sattari-audio-studio.armonon.chatgpt.site/index.html" />
 <meta property="og:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Sattari Audio — Four racks. One session key." />
-<meta name="twitter:description" content="Four modular racks, 28 shared processors, and one live musical authority." />
+<meta name="twitter:title" content="Sattari Audio — Six products. One session key." />
+<meta name="twitter:description" content="Six products, 28 shared processors, and one live musical authority." />
 <meta name="twitter:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
 <style>
 /* ─────────────────────────────────────────────────────────────
@@ -191,6 +191,26 @@ img{display:block;max-width:100%}
 .row p{font-size:15px;color:var(--ink-2);line-height:1.6}
 @media(min-width:760px){.rows{grid-template-columns:1fr 1fr}}
 
+
+/* Six-product grid. The tile leads with the VERB, because what a product does
+   for you is the thing worth scanning; the plugin count is reassurance, not
+   the pitch. */
+.suite-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.suite-card{position:relative;display:flex;flex-direction:column;background:#fff;
+  border:1px solid var(--line-2);border-radius:var(--radius);padding:26px 26px 22px;
+  transition:.2s;overflow:hidden}
+.suite-card:hover{border-color:var(--ink-3);transform:translateY(-2px);text-decoration:none}
+.suite-card::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:var(--sc)}
+.suite-card .sc-verb{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--sc);margin-bottom:9px}
+.suite-card h3{font-size:23px;font-weight:600;letter-spacing:-.02em;color:var(--ink);margin-bottom:9px}
+.suite-card p{font-size:15px;line-height:1.6;color:var(--ink-2);flex:1;margin-bottom:16px}
+.suite-card .sc-foot{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-3)}
+.suite-card .sc-tier{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+  text-transform:uppercase;padding:3px 9px;border-radius:980px;border:1px solid var(--line);
+  color:var(--ink-2)}
+.suite-card .sc-tier.free{border-color:var(--mint);color:var(--mint)}
+@media(max-width:640px){.suite-card{padding:22px}}
 .filter-bar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:36px}
 .filter-btn{font-family:inherit;font-size:14px;cursor:pointer;background:#fff;
   border:1px solid var(--line);color:var(--ink);border-radius:980px;padding:7px 17px;transition:all .18s}
@@ -330,6 +350,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
     </a>
     <div class="nav-links">
+      <a href="#suite">Products</a>
       <a href="#racks">Racks</a>
       <a href="#studio">Product UI</a>
       <a href="#bus">Session key</a>
@@ -366,13 +387,25 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
 <section class="stats">
   <div class="wrap stats-grid">
-    <div class="stat"><b>4</b><span>racks</span></div>
+    <div class="stat"><b>6</b><span>products</span></div>
     <div class="stat"><b>28</b><span>shared modules</span></div>
-    <div class="stat"><b>48</b><span>non-StemDeck products</span></div>
+    <div class="stat"><b>48</b><span>plugins inside them</span></div>
     <div class="stat"><b>1</b><span>session key</span></div>
   </div>
 </section>
 
+
+<section class="sec" id="suite">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">The suite</div>
+      <h2>Six products</h2>
+      <p class="sec-sub">Forty-eight plugins are the implementation. These six are
+        what you install, and each one is a complete job rather than a shelf of parts.</p>
+    </div>
+    <div class="suite-grid" id="suite-grid"></div>
+  </div>
+</section>
 <section class="sec">
   <div class="wrap narrow">
     <div class="sec-head">
@@ -759,6 +792,28 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 <script src="logos.js"></script>
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
+
+// Six products, rendered from the generated catalog so the page can never
+// disagree with config/products.json about what ships.
+(function () {
+  var suite = window.SATTARI_SUITE || [];
+  var host  = document.getElementById('suite-grid');
+  if (!host || !suite.length) return;
+  var HUE = { mint:'#00a37a', violet:'#7c5cff', amber:'#c77a1a', blue:'#0071e3', crimson:'#e8384f' };
+
+  host.innerHTML = suite.map(function (s) {
+    var n = s.count || 0;
+    return '<a class="suite-card" href="#plugins" style="--sc:' + (HUE[s.accent] || HUE.mint) + '">' +
+      '<div class="sc-verb">' + s.verb + '</div>' +
+      '<h3>' + s.name.replace('Sattari ', '') + '</h3>' +
+      '<p>' + s.tagline + '</p>' +
+      '<div class="sc-foot">' +
+        '<span class="sc-tier' + (s.tier === 'free' ? ' free' : '') + '">' + s.tier + '</span>' +
+        '<span>' + n + ' plugin' + (n === 1 ? '' : 's') + '</span>' +
+      '</div></a>';
+  }).join('');
+})();
+
 
 (function () {
   var lifecycle = {};

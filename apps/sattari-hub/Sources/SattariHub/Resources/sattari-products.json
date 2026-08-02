@@ -6,6 +6,62 @@
   "defaultUpdateChannel": "internal-alpha",
   "updateFeedURL": null,
   "updateFeedSHA256": null,
+  "suite": [
+    {
+      "id": "compass",
+      "name": "Sattari Compass",
+      "verb": "knows",
+      "accent": "blue",
+      "tier": "free",
+      "tagline": "The session authority. Detects and publishes key, tempo, maqam, section and groove to every other plugin.",
+      "primary": "brain"
+    },
+    {
+      "id": "auto-pitch",
+      "name": "Sattari Auto Pitch",
+      "verb": "tunes",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Vocal tuning that understands intonation systems beyond twelve-tone.",
+      "primary": "auto-pitch"
+    },
+    {
+      "id": "instruments",
+      "name": "Sattari Instruments",
+      "verb": "makes",
+      "accent": "amber",
+      "tier": "paid",
+      "tagline": "Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.",
+      "primary": "stack"
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "verb": "sings",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "A complete vocal chain, from correction through harmony to ensemble.",
+      "primary": "vocal"
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "verb": "controls",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.",
+      "primary": "mix"
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "verb": "transforms",
+      "accent": "violet",
+      "tier": "paid",
+      "tagline": "The only effects rack that stays in key and in time when the song changes.",
+      "primary": "create"
+    }
+  ],
   "products": [
     {
       "id": "auto-pitch",
@@ -22,6 +78,8 @@
       "lifecycle": "validation",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "auto-pitch",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -55,6 +113,8 @@
       "lifecycle": "validation",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -88,6 +148,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -121,6 +183,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -154,6 +218,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -187,6 +253,8 @@
       "lifecycle": "preview",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -220,6 +288,8 @@
       "lifecycle": "preview",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -253,6 +323,8 @@
       "lifecycle": "preview",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -286,6 +358,8 @@
       "lifecycle": "preview",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -319,6 +393,8 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -352,6 +428,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -385,6 +463,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -418,6 +498,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -451,6 +533,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "auto-pitch",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -484,6 +568,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -517,6 +603,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -550,6 +638,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -583,6 +673,8 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -616,6 +708,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -649,6 +743,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -682,6 +778,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -715,6 +813,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -748,6 +848,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -781,6 +883,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -814,6 +918,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -847,6 +953,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -880,6 +988,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -913,6 +1023,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -946,6 +1058,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -979,6 +1093,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1012,6 +1128,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1045,6 +1163,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1078,6 +1198,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1111,6 +1233,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1144,6 +1268,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1177,6 +1303,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1210,6 +1338,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1243,6 +1373,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1276,6 +1408,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1309,6 +1443,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1342,6 +1478,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1375,6 +1513,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1408,6 +1548,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1441,6 +1583,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1474,6 +1618,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1507,6 +1653,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
@@ -1540,6 +1688,8 @@
       "lifecycle": "alpha",
       "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
@@ -1573,6 +1723,8 @@
       "lifecycle": "experimental",
       "shippingProfile": null,
       "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
