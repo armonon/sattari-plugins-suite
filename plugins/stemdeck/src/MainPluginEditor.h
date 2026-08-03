@@ -359,11 +359,13 @@ private:
         }
         struct CapturedDspAutomation
         {
-            std::vector<std::pair<double, float>> lowDb, midDb, highDb, filter;
+            std::vector<std::pair<double, float>> lowDb, midDb, highDb, filter,
+                                                          reverbMix, echoMix;
             bool empty() const noexcept
             {
                 return lowDb.empty() && midDb.empty()
-                    && highDb.empty() && filter.empty();
+                    && highDb.empty() && filter.empty()
+                    && reverbMix.empty() && echoMix.empty();
             }
         };
         const CapturedDspAutomation* capturedDspForLane (
@@ -371,6 +373,24 @@ private:
         {
             return juce::isPositiveAndBelow (lane, numLanes)
                        ? &capturedDsp[(size_t) lane] : nullptr;
+        }
+        struct CapturedMasterAutomation
+        {
+            std::vector<std::pair<double, float>> gainDb, fxX, fxY,
+                                                          smartAmount,
+                                                          smartMode,
+                                                          smartOn,
+                                                          limiterCeilingDb;
+            bool empty() const noexcept
+            {
+                return gainDb.empty() && fxX.empty() && fxY.empty()
+                    && smartAmount.empty() && smartMode.empty()
+                    && smartOn.empty() && limiterCeilingDb.empty();
+            }
+        };
+        const CapturedMasterAutomation& capturedMasterAutomation() const noexcept
+        {
+            return capturedMaster;
         }
 
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
@@ -421,6 +441,7 @@ private:
         std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
         std::array<EditAutomation, numLanes> editAuto;
         std::array<CapturedDspAutomation, numLanes> capturedDsp;
+        CapturedMasterAutomation capturedMaster;
         int dragAutoLane = -1, dragAutoPointIdx = -1;
         bool showDemoBlocks = false;   // showcase placeholder timeline clips (opt-in via Settings)
         std::array<std::vector<MidiClipData>, numEditableLanes> midiClips {};

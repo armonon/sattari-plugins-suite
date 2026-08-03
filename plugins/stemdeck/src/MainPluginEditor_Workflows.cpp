@@ -109,6 +109,8 @@ struct MixdownClip
     std::vector<std::pair<double, float>> midAutomation;
     std::vector<std::pair<double, float>> highAutomation;
     std::vector<std::pair<double, float>> filterAutomation;
+    std::vector<std::pair<double, float>> reverbAutomation;
+    std::vector<std::pair<double, float>> echoAutomation;
 };
 
 struct MixdownMasterSettings
@@ -120,6 +122,13 @@ struct MixdownMasterSettings
     int smartMode = 0;
     float smartAmount = 0.0f;
     float limiterCeilingDb = -1.0f;
+    std::vector<std::pair<double, float>> gainAutomation;
+    std::vector<std::pair<double, float>> fxXAutomation;
+    std::vector<std::pair<double, float>> fxYAutomation;
+    std::vector<std::pair<double, float>> smartAmountAutomation;
+    std::vector<std::pair<double, float>> smartModeAutomation;
+    std::vector<std::pair<double, float>> smartOnAutomation;
+    std::vector<std::pair<double, float>> limiterAutomation;
 };
 
 class ArrangementMixdownJob final : public juce::ThreadPoolJob
@@ -154,6 +163,7 @@ public:
             juce::int64 timelineStart = 0, timelineLength = 0;
             EQProcessor eq;
             FilterProcessor filter;
+            std::unique_ptr<DeckFX> deckFx;
             bool dspEnabled = false;
         };
 
@@ -182,10 +192,14 @@ public:
                 clip.length * sampleRate);
             r.eq.prepare (sampleRate, 2);
             r.filter.prepare (sampleRate);
+            r.deckFx = std::make_unique<DeckFX>();
+            r.deckFx->prepare (sampleRate, 1);
             r.dspEnabled = ! clip.lowAutomation.empty()
                         || ! clip.midAutomation.empty()
                         || ! clip.highAutomation.empty()
-                        || ! clip.filterAutomation.empty();
+                        || ! clip.filterAutomation.empty()
+                        || ! clip.reverbAutomation.empty()
+                        || ! clip.echoAutomation.empty();
             totalSamples = juce::jmax (
                 totalSamples, r.timelineStart + r.timelineLength);
             runtime.push_back (std::move (r));
@@ -341,22 +355,53 @@ public:
                                 r.spec.filterAutomation,
                                 absoluteSeconds, 0.0f));
                     }
-                    block.addSample (0, dest, left * gain);
-                    block.addSample (1, dest, right * gain);
+                    left *= gain;
+                    right *= gain;
+                    if (! r.spec.reverbAutomation.empty()
+                        || ! r.spec.echoAutomation.empty())
+                        r.deckFx->processSample (
+                            left, right,
+                            automationValueAt (
+                                r.spec.reverbAutomation,
+                                (double) (from + n) / sampleRate, 0.0f),
+                            automationValueAt (
+                                r.spec.echoAutomation,
+                                (double) (from + n) / sampleRate, 0.0f));
+                    block.addSample (0, dest, left);
+                    block.addSample (1, dest, right);
                 }
             }
             midiPlayer.process (block, blockStart, count);
-            masterFx.process (block, master.fxX, master.fxY);
+            const double blockSeconds = (double) blockStart / sampleRate;
+            masterFx.process (
+                block,
+                automationValueAt (
+                    master.fxXAutomation, blockSeconds, master.fxX),
+                automationValueAt (
+                    master.fxYAutomation, blockSeconds, master.fxY));
             block.applyGain (
-                juce::Decibels::decibelsToGain (master.gainDb));
+                juce::Decibels::decibelsToGain (
+                    automationValueAt (
+                        master.gainAutomation, blockSeconds,
+                        master.gainDb)));
             smartMaster.process (
-                block, master.smartMode,
-                master.smartOn ? master.smartAmount : 0.0f);
+                block,
+                (int) std::lround (automationValueAt (
+                    master.smartModeAutomation, blockSeconds,
+                    (float) master.smartMode)),
+                automationValueAt (
+                    master.smartOnAutomation, blockSeconds,
+                    master.smartOn ? 1.0f : 0.0f) > 0.5f
+                    ? automationValueAt (
+                          master.smartAmountAutomation, blockSeconds,
+                          master.smartAmount)
+                    : 0.0f);
         };
 
         // First pass measures the edited mix. Do not boost quiet material; only
         // protect exports that exceed a -1 dBFS ceiling.
         float peak = 0.0f;
+        float outputGain = 1.0f;
         for (juce::int64 pos = 0; pos < totalSamples;
              pos += blockSize)
         {
@@ -368,11 +413,21 @@ public:
                 peak, juce::jmax (
                     block.getMagnitude (0, count),
                     block.getMagnitude (1, count)));
+            for (int sample = 0; sample < count; ++sample)
+            {
+                const double seconds = (double) (pos + sample) / sampleRate;
+                const float ceiling = juce::Decibels::decibelsToGain (
+                    automationValueAt (
+                        master.limiterAutomation, seconds,
+                        master.limiterCeilingDb));
+                const float magnitude = juce::jmax (
+                    std::abs (block.getSample (0, sample)),
+                    std::abs (block.getSample (1, sample)));
+                if (magnitude > ceiling)
+                    outputGain = juce::jmin (
+                        outputGain, ceiling / magnitude);
+            }
         }
-        const float target = juce::Decibels::decibelsToGain (
-            master.limiterCeilingDb);
-        const float outputGain =
-            peak > target ? target / peak : 1.0f;
 
         destination.getParentDirectory().createDirectory();
         destination.deleteFile();
@@ -396,6 +451,7 @@ public:
         {
             r.eq.reset();
             r.filter.reset();
+            r.deckFx->reset();
         }
         for (juce::int64 pos = 0; pos < totalSamples;
              pos += blockSize)
@@ -772,6 +828,8 @@ void MainPluginEditor::exportArrangementMixdown()
                 mix.midAutomation = dsp->midDb;
                 mix.highAutomation = dsp->highDb;
                 mix.filterAutomation = dsp->filter;
+                mix.reverbAutomation = dsp->reverbMix;
+                mix.echoAutomation = dsp->echoMix;
             }
             clips.push_back (std::move (mix));
         }
@@ -827,6 +885,15 @@ void MainPluginEditor::exportArrangementMixdown()
         value ("smartMasterMode", 0.0f));
     master.smartAmount = value ("smartMasterAmount", 0.0f);
     master.limiterCeilingDb = value ("limiterCeiling", -1.0f);
+    const auto& performedMaster =
+        arrangementView.capturedMasterAutomation();
+    master.gainAutomation = performedMaster.gainDb;
+    master.fxXAutomation = performedMaster.fxX;
+    master.fxYAutomation = performedMaster.fxY;
+    master.smartAmountAutomation = performedMaster.smartAmount;
+    master.smartModeAutomation = performedMaster.smartMode;
+    master.smartOnAutomation = performedMaster.smartOn;
+    master.limiterAutomation = performedMaster.limiterCeilingDb;
 
     if (clips.empty() && midiNotes.empty())
     {

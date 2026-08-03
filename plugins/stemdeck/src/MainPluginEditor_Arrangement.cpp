@@ -111,6 +111,7 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
     for (auto& curves : deckAutomation) curves.clear();
     for (auto& a : editAuto) { a.points.clear(); a.visible = false; a.target = 0; }
     for (auto& dsp : capturedDsp) dsp = {};
+    capturedMaster = {};
     for (int i = 0; i < numLanes; ++i)
         laneDisplayNames[(size_t) i] =
             "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
@@ -146,6 +147,35 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
         const auto name = laneVar.getProperty ("name", {}).toString();
         if (type == "master_reference_lane")
         {
+            if (const auto* automation =
+                    laneVar.getProperty ("automationLanes", {}).getArray())
+                for (const auto& autoVar : *automation)
+                    if (const auto* points =
+                            autoVar.getProperty ("points", {}).getArray())
+                        for (const auto& point : *points)
+                        {
+                            const double time = point.getProperty (
+                                "timeSeconds", 0.0);
+                            const auto parameter = point.getProperty (
+                                "parameter", {}).toString();
+                            const auto text = point.getProperty (
+                                "value", {}).toString();
+                            const float value = text.equalsIgnoreCase ("on")
+                                                    ? 1.0f
+                                                    : text.equalsIgnoreCase ("off")
+                                                          ? 0.0f
+                                                          : (float) text.getDoubleValue();
+                            std::vector<std::pair<double, float>>* destination = nullptr;
+                            if (parameter == "master_gain") destination = &capturedMaster.gainDb;
+                            else if (parameter == "master_fx_x") destination = &capturedMaster.fxX;
+                            else if (parameter == "master_fx_y") destination = &capturedMaster.fxY;
+                            else if (parameter == "smart_master_amount") destination = &capturedMaster.smartAmount;
+                            else if (parameter == "smart_master_mode") destination = &capturedMaster.smartMode;
+                            else if (parameter == "smart_master_on") destination = &capturedMaster.smartOn;
+                            else if (parameter == "limiter_ceiling") destination = &capturedMaster.limiterCeilingDb;
+                            if (destination != nullptr)
+                                destination->emplace_back (time, value);
+                        }
             const double duration = durationFor (masterFile);
             if (duration > 0.0)
                 clips[(size_t) masterLane].push_back (
@@ -265,6 +295,17 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
                         else if (id == "filter")
                             capturedDsp[(size_t) lane].filter.emplace_back (
                                 time, value);
+                        else if (id == "effects")
+                        {
+                            const auto parameter = point.getProperty (
+                                "parameter", {}).toString();
+                            if (parameter == "reverb_mix")
+                                capturedDsp[(size_t) lane].reverbMix.emplace_back (
+                                    time, value);
+                            else if (parameter == "echo_mix")
+                                capturedDsp[(size_t) lane].echoMix.emplace_back (
+                                    time, value);
+                        }
                     }
                 if (! curve.points.empty())
                     deckAutomation[(size_t) lane].push_back (
@@ -291,6 +332,8 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
             sortPoints (capturedDsp[(size_t) lane].midDb);
             sortPoints (capturedDsp[(size_t) lane].highDb);
             sortPoints (capturedDsp[(size_t) lane].filter);
+            sortPoints (capturedDsp[(size_t) lane].reverbMix);
+            sortPoints (capturedDsp[(size_t) lane].echoMix);
 
             auto valueAt = [] (const auto& points, double time, float fallback)
             {
@@ -331,6 +374,20 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
             editable.visible = ! editable.points.empty();
         }
     }
+
+    auto sortMasterPoints = [] (auto& points)
+    {
+        std::sort (points.begin(), points.end(),
+                   [] (const auto& a, const auto& b)
+                   { return a.first < b.first; });
+    };
+    sortMasterPoints (capturedMaster.gainDb);
+    sortMasterPoints (capturedMaster.fxX);
+    sortMasterPoints (capturedMaster.fxY);
+    sortMasterPoints (capturedMaster.smartAmount);
+    sortMasterPoints (capturedMaster.smartMode);
+    sortMasterPoints (capturedMaster.smartOn);
+    sortMasterPoints (capturedMaster.limiterCeilingDb);
 
     if (clips[(size_t) masterLane].empty())
     {
@@ -1245,8 +1302,38 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
             appendDsp ("eq_mid", dsp.midDb);
             appendDsp ("eq_high", dsp.highDb);
             appendDsp ("filter", dsp.filter);
+            appendDsp ("reverb_mix", dsp.reverbMix);
+            appendDsp ("echo_mix", dsp.echoMix);
         }
         root.appendChild (lt, nullptr);
+    }
+    if (! capturedMaster.empty())
+    {
+        juce::ValueTree masterAutomation ("MASTERAUTO");
+        auto append = [&masterAutomation] (
+            juce::StringRef parameter,
+            const std::vector<std::pair<double, float>>& points)
+        {
+            if (points.empty()) return;
+            juce::ValueTree lane ("PARAM");
+            lane.setProperty ("id", juce::String (parameter), nullptr);
+            for (const auto& [time, value] : points)
+            {
+                juce::ValueTree point ("AP");
+                point.setProperty ("t", time, nullptr);
+                point.setProperty ("v", (double) value, nullptr);
+                lane.appendChild (point, nullptr);
+            }
+            masterAutomation.appendChild (lane, nullptr);
+        };
+        append ("gain", capturedMaster.gainDb);
+        append ("fx_x", capturedMaster.fxX);
+        append ("fx_y", capturedMaster.fxY);
+        append ("smart_amount", capturedMaster.smartAmount);
+        append ("smart_mode", capturedMaster.smartMode);
+        append ("smart_on", capturedMaster.smartOn);
+        append ("limiter", capturedMaster.limiterCeilingDb);
+        root.appendChild (masterAutomation, nullptr);
     }
     return root;
 }
@@ -1257,9 +1344,36 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
     for (auto& v : clips) v.clear();
     for (auto& m : midiClips) m = {};
     for (auto& dsp : capturedDsp) dsp = {};
+    capturedMaster = {};
     loopStartSeconds = root.getProperty ("loopStart", 0.0);
     loopEndSeconds   = root.getProperty ("loopEnd",   0.0);
     loopEnabled      = root.getProperty ("loopEnabled", false);
+
+    if (const auto masterAutomation = root.getChildWithName ("MASTERAUTO");
+        masterAutomation.isValid())
+        for (int parameter = 0; parameter < masterAutomation.getNumChildren(); ++parameter)
+        {
+            const auto lane = masterAutomation.getChild (parameter);
+            if (! lane.hasType ("PARAM")) continue;
+            const auto id = lane.getProperty ("id").toString();
+            std::vector<std::pair<double, float>>* destination = nullptr;
+            if (id == "gain") destination = &capturedMaster.gainDb;
+            else if (id == "fx_x") destination = &capturedMaster.fxX;
+            else if (id == "fx_y") destination = &capturedMaster.fxY;
+            else if (id == "smart_amount") destination = &capturedMaster.smartAmount;
+            else if (id == "smart_mode") destination = &capturedMaster.smartMode;
+            else if (id == "smart_on") destination = &capturedMaster.smartOn;
+            else if (id == "limiter") destination = &capturedMaster.limiterCeilingDb;
+            if (destination == nullptr) continue;
+            for (int point = 0; point < lane.getNumChildren(); ++point)
+            {
+                const auto value = lane.getChild (point);
+                if (value.hasType ("AP"))
+                    destination->emplace_back (
+                        (double) value.getProperty ("t", 0.0),
+                        (float) (double) value.getProperty ("v", 0.0));
+            }
+        }
 
     bool anyClip = false;
     for (int i = 0; i < root.getNumChildren(); ++i)
@@ -1347,6 +1461,8 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
                 else if (parameter == "eq_mid") destination = &dsp.midDb;
                 else if (parameter == "eq_high") destination = &dsp.highDb;
                 else if (parameter == "filter") destination = &dsp.filter;
+                else if (parameter == "reverb_mix") destination = &dsp.reverbMix;
+                else if (parameter == "echo_mix") destination = &dsp.echoMix;
                 if (destination == nullptr) continue;
                 for (int point = 0;
                      point < automation.getNumChildren(); ++point)

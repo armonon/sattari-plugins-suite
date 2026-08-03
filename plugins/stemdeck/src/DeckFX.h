@@ -29,6 +29,45 @@ struct DeckFX
         wetScratch.setSize (2, juce::jmax (1, blockSize));
     }
 
+    void reset() noexcept
+    {
+        reverb.reset();
+        std::fill (echoL.begin(), echoL.end(), 0.0f);
+        std::fill (echoR.begin(), echoR.end(), 0.0f);
+        echoWritePos = 0;
+        wetScratch.clear();
+    }
+
+    // Stateful single-sample form for the arrangement renderer. This preserves
+    // the same echo -> reverb order as process() while allowing sample-accurate
+    // automation and overlapping clips without allocating temporary blocks.
+    void processSample (float& left, float& right,
+                        float reverbWet, float echoWet) noexcept
+    {
+        reverbWet = juce::jlimit (0.0f, 1.0f, reverbWet);
+        echoWet = juce::jlimit (0.0f, 1.0f, echoWet);
+        if (echoWet > 0.001f && ! echoL.empty())
+        {
+            const int echoLen = (int) echoL.size();
+            const int tapOffset = (int) (echoLen * 0.6f);
+            const int readPos = ((echoWritePos - tapOffset) + echoLen) % echoLen;
+            const float delayedLeft = echoL[(size_t) readPos];
+            const float delayedRight = echoR[(size_t) readPos];
+            echoL[(size_t) echoWritePos] = left + delayedLeft * 0.35f;
+            echoR[(size_t) echoWritePos] = right + delayedRight * 0.35f;
+            left += delayedLeft * echoWet;
+            right += delayedRight * echoWet;
+            echoWritePos = (echoWritePos + 1) % echoLen;
+        }
+        if (reverbWet > 0.001f)
+        {
+            float wetLeft = left, wetRight = right;
+            reverb.processStereo (&wetLeft, &wetRight, 1);
+            left += wetLeft * reverbWet;
+            right += wetRight * reverbWet;
+        }
+    }
+
     void process (juce::AudioBuffer<float>& buf, float reverbWet, float echoWet)
     {
         if (buf.getNumSamples() == 0) return;

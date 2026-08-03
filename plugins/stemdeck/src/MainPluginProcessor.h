@@ -36,6 +36,7 @@
 #include "EventDispatcher.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor,
+                                  private juce::AsyncUpdater,
                                   private juce::AudioProcessorValueTreeState::Listener
 {
 public:
@@ -262,6 +263,7 @@ public:
     // applyEvent writes the parameter back with `applyingEvent` set, so the
     // resulting notification is not re-dispatched into an infinite loop.
     void parameterChanged (const juce::String& parameterID, float newValue) override;
+    void handleAsyncUpdate() override;
 
     struct ParamMapping
     {
@@ -308,8 +310,10 @@ public:
     juce::File getPluginHostCacheFile() const;
     bool loadPluginHostCache();
     bool savePluginHostCache() const;
+    // Safe compatibility API: arbitrary third-party discovery is disabled until
+    // the plug-in engine has a real out-of-process sandbox.
     HostGraph::ScanResult scanPluginHostDefaultLocations (int maxPluginsPerFormat = 32, bool recursive = true);
-    // Sattari-only scan — the safe path (third-party plugins crash the host mid-scan).
+    // Trusted Sattari-suite scan.
     HostGraph::ScanResult scanSattariPlugins() { return hostGraph.scanSattariOnly(); }
     juce::StringArray getPluginHostChainNames() const;
     void loadHostPluginToChainAsync (int chainIndex, int pluginIndex, HostGraph::LoadCallback callback);
@@ -399,6 +403,8 @@ public:
         std::vector<std::pair<double, float>> midAutomation;
         std::vector<std::pair<double, float>> highAutomation;
         std::vector<std::pair<double, float>> filterAutomation;
+        std::vector<std::pair<double, float>> reverbAutomation;
+        std::vector<std::pair<double, float>> echoAutomation;
     };
     void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
     void stopArrangement();
@@ -676,6 +682,10 @@ private:
     AnalysisCache analysisCache;
 
     std::array<DeckParamIds, kMaxChannels> deckIds;
+    // Parameter listeners may run on the host's audio thread. They only set these
+    // latches; the AsyncUpdater builds vector-owning beat grids on the message
+    // thread and atomically publishes them to TrackDeckBody.
+    std::array<std::atomic<bool>, kMaxChannels> gridPublishNeeded {};
     void cacheDeckParamIds();
 
     // Pad gains were read as getFloatParam("pad" + String(i+1) + "Gain") inside

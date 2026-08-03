@@ -1,4 +1,5 @@
 #include "NeuralBeatEngine.h"
+#include "BeatGridDecoder.h"
 #include "ModelLocator.h"
 
 #if SATTARI_STEMDECK_HAS_ONNX
@@ -259,106 +260,23 @@ NeuralBeatEngine::Result NeuralBeatEngine::detect (const juce::AudioBuffer<float
     }
     catch (const std::exception&) { return r; }
 
-    // ── Tempo-continuity decoding ─────────────────────────────────────────────
-    // A fixed 0.4 peak threshold fragments a grid whenever a breakdown is quieter
-    // than a chorus. Decode one globally coherent path instead: estimate the beat
-    // period from activation autocorrelation, choose its best phase, then snap each
-    // predicted beat to the strongest nearby activation. This is the small,
-    // deterministic Viterbi/DBN-style decoder used by the app when madmom is not
-    // embedded: emission strength competes with a strong tempo-continuity prior.
+    // ── Probabilistic tempo-state decoding ────────────────────────────────────
+    // The neural network supplies emissions, not a finished grid. Decode an
+    // explicit (beat frame, beat period) state path so quiet intros/breakdowns
+    // retain clock continuity and gradual live-drum tempo movement remains
+    // editable. BeatGridDecoder is deterministic and independently contract-
+    // tested; it replaces both fixed-threshold peak picking and the old single-
+    // period autocorrelation snapper.
     const double fps = kModelSampleRate / (double) kHop;
     const double secPerFrame = 1.0 / fps;
-    const int minLag = juce::jmax (1, (int) std::floor (fps * 60.0 / 200.0));
-    const int maxLag = juce::jmax (minLag + 1, (int) std::ceil (fps * 60.0 / 60.0));
+    const auto decoded = stemdeck::BeatGridDecoder::decode (beatAct, fps);
+    if (! decoded) return r;
+    const auto& beatFrames = decoded.frames;
+    r.confidence = (float) decoded.confidence;
 
-    std::vector<float> sortedActivation = beatAct;
-    std::sort (sortedActivation.begin(), sortedActivation.end());
-    const float activationMedian = sortedActivation[sortedActivation.size() / 2];
-
-    int bestLag = 0;
-    double bestPeriodScore = -1.0;
-    for (int lag = minLag; lag <= maxLag; ++lag)
-    {
-        double score = 0.0;
-        int terms = 0;
-        for (int i = lag; i < T; ++i)
-        {
-            score += (double) beatAct[(size_t) i] * beatAct[(size_t) (i - lag)];
-            ++terms;
-        }
-        // Normalise for track length and use a very gentle 120-BPM prior only to
-        // break half/double-tempo ties; the activations remain authoritative.
-        const double bpm = 60.0 * fps / (double) lag;
-        const double prior = std::exp (-0.5 * std::pow (std::log2 (bpm / 120.0) / 1.5, 2.0));
-        score = terms > 0 ? score / (double) terms * (0.9 + 0.1 * prior) : 0.0;
-        if (score > bestPeriodScore) { bestPeriodScore = score; bestLag = lag; }
-    }
-    if (bestLag <= 0) return r;
-
-    int bestPhase = 0;
-    double bestPhaseScore = -1.0;
-    for (int phase = 0; phase < bestLag; ++phase)
-    {
-        double score = 0.0;
-        int terms = 0;
-        for (int f = phase; f < T; f += bestLag) { score += beatAct[(size_t) f]; ++terms; }
-        score = terms > 0 ? score / (double) terms : 0.0;
-        if (score > bestPhaseScore) { bestPhaseScore = score; bestPhase = phase; }
-    }
-
-    std::vector<int> beatFrames;
-    const int snapRadius = juce::jmax (1, bestLag / 5);
-    for (int predicted = bestPhase; predicted < T; predicted += bestLag)
-    {
-        const int lo = juce::jmax (0, predicted - snapRadius);
-        const int hi = juce::jmin (T - 1, predicted + snapRadius);
-        int strongest = lo;
-        for (int f = lo + 1; f <= hi; ++f)
-            if (beatAct[(size_t) f] > beatAct[(size_t) strongest])
-                strongest = f;
-        if (beatFrames.empty() || strongest > beatFrames.back())
-            beatFrames.push_back (strongest);
-    }
-    if ((int) beatFrames.size() < 4) return r;
-
-    double selectedStrength = 0.0;
-    double intervalError = 0.0;
-    for (size_t i = 0; i < beatFrames.size(); ++i)
-    {
-        selectedStrength += beatAct[(size_t) beatFrames[i]];
-        if (i > 0)
-        {
-            const double observed = (double) (beatFrames[i] - beatFrames[i - 1]);
-            intervalError += std::abs (observed - bestLag) / (double) bestLag;
-        }
-    }
-    const double meanStrength = selectedStrength / (double) beatFrames.size();
-    // Two bugs in the previous form:
-    //   juce::jmax<size_t> (1, beatFrames.size() - 1)
-    //
-    // 1. `size() - 1` is evaluated BEFORE jmax, so an empty vector underflowed to
-    //    SIZE_MAX and the guard it looked like it was providing did nothing.
-    // 2. Explicitly instantiating jmax<size_t> resolves against juce_dsp's
-    //    SIMDRegister overloads, and SIMDNativeOps<unsigned long> has no NEON
-    //    specialisation — a hard compile error. It never surfaced because this
-    //    whole file is #if'd out unless SATTARI_STEMDECK_HAS_ONNX is set, and
-    //    ONNX was disabled in every build config, so the beat-confidence code
-    //    had never actually been compiled.
-    const double intervals = beatFrames.size() > 1 ? (double) (beatFrames.size() - 1) : 1.0;
-    const double regularity = 1.0 / (1.0 + intervalError / intervals);
-    r.confidence = (float) juce::jlimit (0.0, 1.0,
-        ((meanStrength - activationMedian) / juce::jmax (0.05, 1.0 - (double) activationMedian)) * regularity);
-
-    for (int f : beatFrames)
+    for (const int f : beatFrames)
         r.beatGridSamples.push_back ((double) f * secPerFrame * sampleRate);
-
-    // Tempo = 60 / median inter-beat interval.
-    std::vector<double> iois;
-    for (size_t i = 1; i < beatFrames.size(); ++i)
-        iois.push_back ((double) (beatFrames[i] - beatFrames[i - 1]) * secPerFrame);
-    std::sort (iois.begin(), iois.end());
-    const double medIoi = iois[iois.size() / 2];
-    r.detectedBpm = medIoi > 1.0e-6 ? (float) (60.0 / medIoi) : 0.0f;
+    r.detectedBpm = (float) decoded.bpm;
 
     // ── Downbeat + meter ──────────────────────────────────────────────────────
     // Downbeats are the beats with the strongest 'down' activation. Meter = the

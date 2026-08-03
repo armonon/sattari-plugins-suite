@@ -194,7 +194,7 @@ endif()
 # accidentally re-enable a Homebrew runtime just because it was discovered.
 function(stemdeck_enable_onnx TARGET)
     if(STEMDECK_ONNX_ENABLED)
-        target_include_directories(${TARGET} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+        target_include_directories(${TARGET} SYSTEM PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
         target_link_libraries(${TARGET} PRIVATE ${ONNXRUNTIME_LIB})
         target_compile_definitions(${TARGET} PRIVATE
             SATTARI_STEMDECK_HAS_ONNX=1 SATTARI_HAS_ONNX=1)
@@ -341,6 +341,15 @@ target_link_libraries(StemDeckBeatDetectTest
     PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckBeatDetectTest)
+
+# Pure decoder contract: no JUCE or ONNX dependency, so the difficult continuity
+# cases remain cheap to run in every build configuration.
+add_executable(StemDeckBeatGridDecoderTest
+    EXCLUDE_FROM_ALL tests/stemdeck_beat_grid_decoder.cpp)
+target_include_directories(StemDeckBeatGridDecoderTest PRIVATE src)
+target_compile_features(StemDeckBeatGridDecoderTest PRIVATE cxx_std_17)
+target_link_libraries(StemDeckBeatGridDecoderTest
+    PRIVATE juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 # ── Real full-length music accuracy gate (manifest + private/licensed audio) ──
 # Links the NEURAL engines as well as the DSP analyser: the app's answer is the
@@ -1127,6 +1136,7 @@ if(BUILD_TESTING)
     set(STEMDECK_CONTRACT_TESTS
         StemDeckArchitectureContract
         StemDeckBeatDetectTest
+        StemDeckBeatGridDecoderTest
         StemDeckKeyDetectTest
         StemDeckAutomixTest
         StemDeckAnalysisCacheTest
@@ -1171,6 +1181,12 @@ if(BUILD_TESTING)
                 set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 300)
             else()
                 set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 120)
+            endif()
+            # This contract intentionally measures cold loading of a five-minute
+            # asset. Running it beside the neural model stress tests measures CPU
+            # contention rather than the load path and creates a false failure.
+            if(_sd_test STREQUAL "StemDeckLoadLatency")
+                set_tests_properties(${_sd_test} PROPERTIES RUN_SERIAL TRUE)
             endif()
         endif()
     endforeach()

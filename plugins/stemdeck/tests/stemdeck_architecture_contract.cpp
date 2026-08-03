@@ -91,7 +91,12 @@ void expectPerformanceRecorderWritesEditableSourceArrangement()
     recorder.logEvent (0, "track_loaded", "Deck A", "full_mix", "source.wav", dir.getChildFile ("source.wav").getFullPathName());
     recorder.logEvent (4800, "play_start", "Deck A", "play", "on", dir.getChildFile ("source.wav").getFullPathName());
     recorder.logEvent (9600, "parameter_change", "Deck A", "fader", "0.7500");
+    recorder.logEvent (10000, "parameter_change", "Deck A", "reverb_mix", "0.4200");
+    recorder.logEvent (10400, "parameter_change", "Deck A", "echo_mix", "0.3000");
     recorder.logEvent (12000, "parameter_change", {}, "crossfader", "0.2500");
+    recorder.logEvent (12400, "parameter_change", {}, "master_fx_x", "0.6500");
+    recorder.logEvent (12800, "effect_toggle", {}, "smart_master_on", "on");
+    recorder.logEvent (13200, "parameter_change", {}, "limiter_ceiling", "-1.5000");
     recorder.logEvent (14400, "sync_change", "Deck A", "sync_mode", "2");
     recorder.logEvent (16000, "mic_start", {}, "mic_monitor", "on");
     recorder.logEvent (24000, "play_stop", "Deck A", "play", "off");
@@ -116,6 +121,11 @@ void expectPerformanceRecorderWritesEditableSourceArrangement()
     expectContains (arrangementText, "sourceDeckAudio", "arrangement JSON");
     expectContains (arrangementText, "printedDeckAudio", "arrangement JSON");
     expectContains (arrangementText, "pre_fader_pre_insert", "arrangement JSON");
+    expectContains (arrangementText, "reverb_mix", "arrangement JSON");
+    expectContains (arrangementText, "echo_mix", "arrangement JSON");
+    expectContains (arrangementText, "master_fx_x", "arrangement JSON");
+    expectContains (arrangementText, "smart_master_on", "arrangement JSON");
+    expectContains (arrangementText, "limiter_ceiling", "arrangement JSON");
     expectContains (arrangementText, "Cues + Loops", "arrangement JSON");
     expectContains (arrangementText, "Master Output", "arrangement JSON");
     expectContains (arrangementText, "Add New Track", "arrangement JSON");
@@ -229,6 +239,26 @@ void expectHostGraphNoPluginPassThroughIsSafe()
     if (std::abs (buffer.getSample (0, 0) - 0.25f) > 0.0001f)
         fail ("HostGraph empty state round-trip changed audio");
     expectContains (graph.getStatusSummary(), "HostGraph", "HostGraph status");
+
+    juce::PluginDescription untrusted;
+    untrusted.name = "Untrusted Example";
+    // Metadata is attacker-controlled: claiming to be Sattari must not bypass
+    // the approved product/file identity allowlist.
+    untrusted.manufacturerName = "Sattari";
+    bool callbackRan = false;
+    bool unexpectedlyLoaded = false;
+    juce::String rejection;
+    graph.loadPluginToChainAsync (
+        HostGraph::Chain::deckA, untrusted,
+        [&] (bool loaded, juce::String message)
+        {
+            callbackRan = true;
+            unexpectedlyLoaded = loaded;
+            rejection = std::move (message);
+        });
+    if (! callbackRan || unexpectedlyLoaded)
+        fail ("HostGraph did not synchronously reject an untrusted in-process plug-in");
+    expectContains (rejection, "isolated helper process", "HostGraph sandbox rejection");
 }
 }
 
@@ -246,6 +276,7 @@ int main()
               << "  arrangement_v3=editable-source\n"
               << "  offline_stem_cache=guarded\n"
               << "  offline_separator_command=ready\n"
-              << "  host_graph_empty_chain=stateful-pass-through\n";
+              << "  host_graph_empty_chain=stateful-pass-through\n"
+              << "  third_party_plugins=blocked-without-sandbox\n";
     return 0;
 }

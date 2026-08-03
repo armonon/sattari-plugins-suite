@@ -13,7 +13,7 @@
 //  verified to 3e-5) is baked into the ONNX via a real conv-STFT, so there is NO
 //  C++ mel to keep in sync — the engine only resamples to 22.05 kHz mono and
 //  feeds samples. Output is two per-frame activation tracks (beat, downbeat) at
-//  ~50 fps that we peak-pick into a beat grid.
+//  ~50 fps that a tempo-state Viterbi decoder turns into a continuous beat grid.
 //
 //  Compiles the real inference only when SATTARI_STEMDECK_HAS_ONNX is defined;
 //  otherwise it reports unavailable and callers keep the DSP beat grid. Applied
@@ -49,14 +49,14 @@ public:
     {
         bool valid = false;
         float detectedBpm = 0.0f;
-        float confidence = 0.0f;             // activation strength + grid regularity
+        float confidence = 0.0f;             // neural evidence + state-path regularity
         double downbeatSample = 0.0;         // in the INPUT sample rate
         int beatsPerBar = 4;
         std::vector<double> beatGridSamples; // input-rate sample positions
     };
 
     // BLOCKING — background thread only. Resamples to 22.05 kHz, runs the model,
-    // peak-picks the beat/downbeat activations, and returns a grid in input-rate
+    // decodes the beat/downbeat activations, and returns a grid in input-rate
     // samples. Returns an invalid Result if unavailable or the audio is too short.
     // The optional cancellation probe is checked between preparation stages and
     // ONNX chunks. Inference itself is blocking, but a closing app will now leave

@@ -79,8 +79,12 @@ public:
     juce::Array<juce::PluginDescription> getKnownPlugins() const;
     juce::File getCacheFile() const;
 
+    // Compatibility entry point. Until an out-of-process helper host exists this
+    // deliberately refuses arbitrary third-party discovery and routes to the
+    // trusted-suite scanner instead; running unknown code inside the live audio
+    // process is not an acceptable failure mode on stage.
     ScanResult scanDefaultLocations (int maxPluginsPerFormat = 64, bool recursive = true);
-    // Scan ONLY the Sattari suite (safe: third-party plugins can crash the host mid-scan).
+    // Scan ONLY the trusted Sattari suite.
     ScanResult scanSattariOnly();
     bool loadCache();
     bool saveCache() const;
@@ -144,7 +148,6 @@ private:
     };
 
     juce::AudioPluginFormat* findFormatByName (const juce::String& formatName) const;
-    juce::File getDeadMansPedalFileForFormat (const juce::String& formatName) const;
     ChainState& stateFor (Chain chain);
     const ChainState& stateFor (Chain chain) const;
     void initialiseGraph (ChainState& state);

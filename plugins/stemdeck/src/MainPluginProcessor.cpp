@@ -908,6 +908,7 @@ MainPluginProcessor::~MainPluginProcessor()
     // Clear the alive flag BEFORE draining pools: any job that already posted its
     // completion closure will see false and skip touching this (soon-freed) processor.
     aliveFlag->store (false, std::memory_order_release);
+    cancelPendingUpdate();
     neuralBeat.cancelPending();
     // The provider can enqueue decoded-stem jobs on loadPool. Stop that producer
     // first so the analysis pool has a closed, finite set of work to drain.
@@ -1130,7 +1131,63 @@ void MainPluginProcessor::parameterChanged (const juce::String& parameterID, flo
     if (! m.valid || eventDispatcher == nullptr)
         return;
 
+    // Beat-grid controls invalidate a vector-owning render plan. Never rebuild it
+    // from this callback: DAWs are allowed to invoke parameter listeners on their
+    // real-time thread. Publish a replacement asynchronously and let the current
+    // coherent grid remain active for the handful of samples in between.
+    if (parameterID.startsWith ("deck") && parameterID.length() >= 6)
+    {
+        const int deck = parameterID[4] - 'A';
+        const auto suffix = parameterID.substring (5);
+        if (juce::isPositiveAndBelow (deck, kMaxChannels)
+            && (suffix == "Bpm" || suffix == "BeatOffset"
+                || suffix == "Downbeat" || suffix == "TempoInterpretation"
+                || suffix == "SyncMode"))
+        {
+            gridPublishNeeded[(size_t) deck].store (true, std::memory_order_release);
+            triggerAsyncUpdate();
+        }
+    }
+
     eventDispatcher->dispatchParam (m.scope, m.id, (double) newValue);
+}
+
+void MainPluginProcessor::handleAsyncUpdate()
+{
+    for (int deck = 0; deck < kMaxChannels; ++deck)
+    {
+        if (! gridPublishNeeded[(size_t) deck].exchange (
+                false, std::memory_order_acq_rel))
+            continue;
+
+        const auto snapshot = channelGraph.current();
+        std::shared_ptr<Channel> channel;
+        for (const auto& candidate : snapshot->channels)
+            if (candidate != nullptr && candidate->slotIndex == deck)
+            {
+                channel = candidate;
+                break;
+            }
+        auto* body = channel != nullptr
+                         ? dynamic_cast<TrackDeckBody*> (channel->getBody())
+                         : nullptr;
+        if (body == nullptr)
+            continue;
+
+        const auto deckAudio = deckAt (deck).getStemAudio (
+            DeckPlayer::fullMixStem);
+        const auto refined = deckAt (deck).getRefinedAnalysis();
+        const auto analysis = refined != nullptr ? *refined
+                            : deckAudio != nullptr ? deckAudio->analysis
+                                                   : TrackAnalysis {};
+        const auto& ids = deckIds[(size_t) deck];
+        body->publishGridForAnalysis (
+            analysis, deckAudio.get(), refined.get(),
+            getFloatParam (ids.bpm), getFloatParam (ids.beatOffset),
+            getFloatParam (ids.downbeat),
+            (int) std::round (getFloatParam (ids.tempoInterp)),
+            (int) std::round (getFloatParam (ids.syncMode)));
+    }
 }
 
 
@@ -2438,10 +2495,14 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             copyAutomation (spec.midAutomation, c.midAutomation);
             copyAutomation (spec.highAutomation, c.highAutomation);
             copyAutomation (spec.filterAutomation, c.filterAutomation);
+            copyAutomation (spec.reverbAutomation, c.reverbAutomation);
+            copyAutomation (spec.echoAutomation, c.echoAutomation);
             c.dspEnabled = ! c.lowAutomation.empty()
                         || ! c.midAutomation.empty()
                         || ! c.highAutomation.empty()
-                        || ! c.filterAutomation.empty();
+                        || ! c.filterAutomation.empty()
+                        || ! c.reverbAutomation.empty()
+                        || ! c.echoAutomation.empty();
             sched->push_back (std::move (c));
         }
 

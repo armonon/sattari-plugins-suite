@@ -8,6 +8,7 @@
 #include "ChunkedAudioFile.h"
 #include "EQProcessor.h"
 #include "FilterProcessor.h"
+#include "DeckFX.h"
 
 /**
  * Sample-accurate arrangement playback engine.
@@ -45,11 +46,14 @@ public:
         std::vector<std::pair<juce::int64, float>> midAutomation;
         std::vector<std::pair<juce::int64, float>> highAutomation;
         std::vector<std::pair<juce::int64, float>> filterAutomation;
+        std::vector<std::pair<juce::int64, float>> reverbAutomation;
+        std::vector<std::pair<juce::int64, float>> echoAutomation;
         bool dspEnabled = false;
         // Schedule ownership is immutable, but these are audio-thread-only render
         // histories. mutable permits stateful DSP without mutating clip placement.
         mutable EQProcessor eq;
         mutable FilterProcessor filter;
+        mutable std::unique_ptr<DeckFX> deckFx;
     };
 
     using Schedule = std::vector<Clip>;
@@ -186,16 +190,28 @@ public:
                 if (clip.fadeOutSamples > 0 && since > clip.timelineLengthSamples - clip.fadeOutSamples)
                     g *= juce::jlimit (0.0f, 1.0f, (float) (clip.timelineLengthSamples - since) / (float) clip.fadeOutSamples);
 
+                left *= g;
+                right *= g;
+                if (! clip.reverbAutomation.empty()
+                    || ! clip.echoAutomation.empty())
+                    if (clip.deckFx != nullptr)
+                        clip.deckFx->processSample (
+                        left, right,
+                        automationValueAt (
+                            clip.reverbAutomation, t, 0.0f),
+                        automationValueAt (
+                            clip.echoAutomation, t, 0.0f));
+
                 const int i = (int) (t - pos);
                 if (outCh == 1)
-                    out.addSample (0, i, 0.5f * (left + right) * g);
+                    out.addSample (0, i, 0.5f * (left + right));
                 else
                 {
-                    out.addSample (0, i, left * g);
-                    out.addSample (1, i, right * g);
+                    out.addSample (0, i, left);
+                    out.addSample (1, i, right);
                     for (int ch = 2; ch < outCh; ++ch)
                         out.addSample (
-                            ch, i, 0.5f * (left + right) * g);
+                            ch, i, 0.5f * (left + right));
                 }
             }
         }
@@ -267,8 +283,12 @@ private:
         {
             clip.eq.prepare (sr, 2);
             clip.filter.prepare (sr);
+            if (clip.deckFx == nullptr)
+                clip.deckFx = std::make_unique<DeckFX>();
+            clip.deckFx->prepare (sr, 1);
             clip.eq.reset();
             clip.filter.reset();
+            clip.deckFx->reset();
         }
     }
 

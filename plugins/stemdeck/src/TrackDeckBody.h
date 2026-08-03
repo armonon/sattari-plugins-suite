@@ -142,20 +142,11 @@ public:
                     gridDirty = false;
                 }
 
-            if (gridDirty || key != cachedKey)
-            {
-                // Fallback: a parameter the user just moved changed the grid inputs and
-                // no prebuilt grid matches yet. This still allocates on the audio thread
-                // and is a known remaining hazard — see StemDeckRtSafety. It is reached
-                // only on a live parameter change, never on analysis refinement, which
-                // is the path that fires on every track load.
-                cachedGrid = BeatSyncEngine::makeGrid (analysis, params.bpm, params.beatOffset, params.downbeat,
-                                                       BeatSyncEngine::tempoInterpretationFromChoice (params.tempoInterp),
-                                                       BeatSyncEngine::syncModeFromChoice (params.syncMode));
-                cachedKey  = key;
-                gridDirty  = false;
-                heldGrid.reset();   // the locally-built grid wins
-            }
+            // If a matching publication has not arrived yet, keep rendering the
+            // previous coherent grid. MainPluginProcessor's AsyncUpdater is already
+            // building the replacement off the audio thread. The previous fallback
+            // copied/sorted vectors here and could glitch exactly when a performer
+            // dragged BPM or downbeat—the worst possible moment for a live tool.
         }
 
         const bool hostTempoSync = params.hostSync && ctx.transport.bpm > 1.0;

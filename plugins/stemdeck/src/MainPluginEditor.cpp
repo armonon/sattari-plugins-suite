@@ -2225,6 +2225,8 @@ void MainPluginEditor::toggleArrangementPlayback()
                 spec.midAutomation = dsp->midDb;
                 spec.highAutomation = dsp->highDb;
                 spec.filterAutomation = dsp->filter;
+                spec.reverbAutomation = dsp->reverbMix;
+                spec.echoAutomation = dsp->echoMix;
             }
             specs.push_back (spec);
         }

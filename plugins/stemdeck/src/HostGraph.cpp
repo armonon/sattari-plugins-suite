@@ -2,14 +2,6 @@
 
 namespace
 {
-juce::StringArray pluginNamesForLog (const juce::Array<juce::PluginDescription>& plugins, int maxItems)
-{
-    juce::StringArray names;
-    for (int i = 0; i < juce::jmin (plugins.size(), maxItems); ++i)
-        names.add (plugins.getReference (i).name + " (" + plugins.getReference (i).pluginFormatName + ")");
-    return names;
-}
-
 juce::File hostDataDirectory()
 {
     auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
@@ -22,6 +14,14 @@ juce::File hostDataDirectory()
 }
 
 static bool isSattariPluginFile (const juce::String& fileName);   // defined below
+static bool isTrustedSattariDescription (
+    const juce::PluginDescription& description)
+{
+    return isSattariPluginFile (description.name)
+        || isSattariPluginFile (
+            juce::File (description.fileOrIdentifier)
+                .getFileNameWithoutExtension());
+}
 
 HostGraph::HostGraph()
 {
@@ -56,8 +56,7 @@ HostGraph::HostGraph()
     // Drop anything non-Sattari left in the cache from an older full scan, so a
     // third-party plugin can never be listed or instantiated (they crash the host).
     for (const auto& d : knownPluginList.getTypes())
-        if ((! isSattariPluginFile (d.name)
-             && ! d.manufacturerName.containsIgnoreCase ("Sattari"))
+        if (! isTrustedSattariDescription (d)
             || isPluginQuarantined (d))
             knownPluginList.removeType (d);
 }
@@ -366,8 +365,7 @@ juce::StringArray HostGraph::restoreState (
             messages.add ("Skipped an insert with invalid plugin identity.");
             continue;
         }
-        if ((! isSattariPluginFile (description.name)
-             && ! description.manufacturerName.containsIgnoreCase ("Sattari"))
+        if (! isTrustedSattariDescription (description)
             || isPluginQuarantined (description))
         {
             messages.add (
@@ -440,61 +438,14 @@ juce::AudioPluginFormat* HostGraph::findFormatByName (const juce::String& format
     return nullptr;
 }
 
-juce::File HostGraph::getDeadMansPedalFileForFormat (const juce::String& formatName) const
-{
-    auto safeName = formatName.retainCharacters ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ ")
-                              .trim().replaceCharacter (' ', '-');
-    return hostDataDirectory().getChildFile (safeName + "-dead-mans-pedal.txt");
-}
-
 HostGraph::ScanResult HostGraph::scanDefaultLocations (int maxPluginsPerFormat, bool recursive)
 {
-    ScanResult result;
-
-    for (auto* format : formatManager.getFormats())
-    {
-        if (format == nullptr)
-            continue;
-
-        const auto formatName = format->getName();
-        result.scannedFormats.add (formatName);
-
-        if (! format->canScanForPlugins())
-        {
-            result.messages.add (formatName + ": no directory scanner exposed.");
-            continue;
-        }
-
-        auto searchPath = format->getDefaultLocationsToSearch();
-        if (searchPath.getNumPaths() == 0)
-        {
-            result.messages.add (formatName + ": no default search path.");
-            continue;
-        }
-
-        juce::PluginDirectoryScanner scanner (knownPluginList,
-                                              *format,
-                                              searchPath,
-                                              recursive,
-                                              getDeadMansPedalFileForFormat (formatName),
-                                              true);
-
-        juce::String currentlyScanning;
-        int scannedCount = 0;
-        while (scannedCount < maxPluginsPerFormat && scanner.scanNextFile (true, currentlyScanning))
-            ++scannedCount;
-
-        result.blacklistedFiles.addArray (knownPluginList.getBlacklistedFiles());
-        result.messages.add (formatName + ": scanned " + juce::String (scannedCount)
-                             + " candidate" + (scannedCount == 1 ? "" : "s")
-                             + "; next: " + scanner.getNextPluginFileThatWillBeScanned());
-    }
-
-    saveCache();
-    result.plugins = knownPluginList.getTypes();
-    const auto sampleNames = pluginNamesForLog (result.plugins, 8);
-    if (! sampleNames.isEmpty())
-        result.messages.add ("Known plugin sample: " + sampleNames.joinIntoString (", "));
+    juce::ignoreUnused (maxPluginsPerFormat, recursive);
+    auto result = scanSattariOnly();
+    result.messages.insert (
+        0,
+        "Third-party scanning is disabled: StemDeck requires an out-of-process "
+        "sandbox before untrusted plug-ins can be used safely in a live set.");
     return result;
 }
 
@@ -502,6 +453,15 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
                                         const juce::PluginDescription& description,
                                         LoadCallback callback)
 {
+    if (! isTrustedSattariDescription (description))
+    {
+        if (callback)
+            callback (
+                false,
+                "Third-party plug-ins are disabled until StemDeck can host them "
+                "in an isolated helper process: " + description.name);
+        return;
+    }
     if (isPluginQuarantined (description))
     {
         if (callback)

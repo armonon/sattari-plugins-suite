@@ -96,7 +96,10 @@ function(sattari_enable_onnx target define_name)
         # the plugin fails to load for almost every user.
         sattari_onnx_check_deployment_floor("${ONNXRUNTIME_LIB}" "${target}")
 
-        target_include_directories(${target} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+        # ONNX Runtime is a vendored binary SDK. Its public headers trigger a
+        # large number of warnings under StemDeck's stricter warning flags; mark
+        # them as system headers so project diagnostics stay visible.
+        target_include_directories(${target} SYSTEM PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
         target_link_libraries(${target} PRIVATE ${ONNXRUNTIME_LIB})
         target_compile_definitions(${target} PRIVATE ${define_name}=1)
         message(STATUS "Sattari ONNX: enabled for ${target} (${ONNXRUNTIME_LIB})")
