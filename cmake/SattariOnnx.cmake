@@ -16,6 +16,7 @@
 include_guard(GLOBAL)
 
 option(SATTARI_USE_ONNX "Enable ONNX Runtime ML features (stem separation, ML pitch)" OFF)
+option(SATTARI_REQUIRE_ONNX "Fail configuration when ONNX was requested but cannot be linked" OFF)
 
 function(sattari_enable_onnx target define_name)
     if(NOT SATTARI_USE_ONNX)
@@ -36,6 +37,10 @@ function(sattari_enable_onnx target define_name)
         target_compile_definitions(${target} PRIVATE ${define_name}=1)
         message(STATUS "Sattari ONNX: enabled for ${target} (${ONNXRUNTIME_LIB})")
     else()
+        if(SATTARI_REQUIRE_ONNX)
+            message(FATAL_ERROR "SATTARI_USE_ONNX=ON and SATTARI_REQUIRE_ONNX=ON, but ONNX Runtime "
+                                "was not found (set ONNXRUNTIME_ROOT or the explicit include/library paths)")
+        endif()
         message(WARNING "SATTARI_USE_ONNX=ON but ONNX Runtime not found "
                         "(set ONNXRUNTIME_ROOT); building ${target} without it")
         target_compile_definitions(${target} PRIVATE ${define_name}=0)

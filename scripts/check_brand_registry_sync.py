@@ -23,6 +23,7 @@ ACCENTS = {
     "amber": "kAccentAmber",
     "blue": "kAccentBlue",
 }
+FORMATS = re.compile(r"^\s*FORMATS\s+([A-Za-z0-9_ ]+)\s*$", re.MULTILINE)
 
 
 def main() -> int:
@@ -63,8 +64,17 @@ def main() -> int:
         for key in ("name", "category", "lifecycle", "shippingProfile"):
             if built.get(key) != source.get(key):
                 errors.append(f"{pid}: Hub {key} drift")
-        if len(built.get("bundles", [])) != 3:
-            errors.append(f"{pid}: Hub must declare AU, VST3 and Standalone")
+        cmake_text = (ROOT / "plugins" / pid / "CMakeLists.txt").read_text()
+        format_match = FORMATS.search(cmake_text)
+        expected_formats = (
+            format_match.group(1).split()
+            if format_match else ["AU", "VST3", "Standalone"]
+        )
+        actual_formats = [bundle.get("kind") for bundle in built.get("bundles", [])]
+        if actual_formats != expected_formats or built.get("formats") != expected_formats:
+            errors.append(
+                f"{pid}: Hub formats {actual_formats} differ from CMake {expected_formats}"
+            )
 
     # The generated file now carries TWO assignments (catalog + suite), so parse
     # each one by name instead of splitting on the last semicolon in the file.

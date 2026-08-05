@@ -1,6 +1,9 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariEditorRender.h>
 
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <iostream>
 
 namespace
@@ -30,11 +33,54 @@ double rmsDifference (const juce::AudioBuffer<float>& a, const juce::AudioBuffer
 
     return std::sqrt (sum / (double) juce::jmax (1, count));
 }
+
+bool clickButtonNamed (juce::Component& parent, const juce::String& name)
+{
+    for (int i = 0; i < parent.getNumChildComponents(); ++i)
+    {
+        auto* child = parent.getChildComponent (i);
+        if (auto* button = dynamic_cast<juce::TextButton*> (child);
+            button != nullptr && button->getButtonText().equalsIgnoreCase (name))
+        {
+            button->setToggleState (true, juce::dontSendNotification);
+            if (button->onClick)
+                button->onClick();
+            return true;
+        }
+        if (child != nullptr && clickButtonNamed (*child, name))
+            return true;
+    }
+    return false;
+}
 }
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    if (argc == 3
+        && (std::strcmp (argv[1], "--render-ui") == 0
+            || std::strcmp (argv[1], "--render-ui-min") == 0
+            || std::strcmp (argv[1], "--render-ui-pro") == 0))
+    {
+        SattariAutoPitchAudioProcessor processor;
+        const bool minimumSize = std::strcmp (argv[1], "--render-ui-min") == 0;
+        const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
+        const juce::File destination (argv[2]);
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+        bool ok = editor != nullptr;
+        if (ok)
+        {
+            editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 680 : 700);
+            if (proTab)
+                ok = clickButtonNamed (*editor, "PRO");
+            if (ok)
+                ok = sattari::test::renderComponentToPng (*editor, destination);
+        }
+        std::printf ("%s %s\n", ok ? "rendered" : "FAIL render",
+                     destination.getFullPathName().toRawUTF8());
+        return ok ? 0 : 1;
+    }
 
     SattariAutoPitchAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);

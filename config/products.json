@@ -5,14 +5,14 @@
   "defaultUpdateChannel": "internal-alpha",
   "suite": [
     {"id":"compass","name":"Sattari Compass","verb":"knows","accent":"blue","tier":"free","tagline":"The session authority. Detects and publishes key, tempo, maqam, section and groove to every other plugin.","primary":"brain"},
-    {"id":"auto-pitch","name":"Sattari Auto Pitch","verb":"tunes","accent":"mint","tier":"paid","tagline":"Vocal tuning that understands intonation systems beyond twelve-tone.","primary":"auto-pitch"},
+    {"id":"auto-pitch","name":"Sattari Auto Pitch","verb":"tunes","accent":"mint","tier":"paid","tagline":"Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.","primary":"auto-pitch"},
     {"id":"instruments","name":"Sattari Instruments","verb":"makes","accent":"amber","tier":"paid","tagline":"Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.","primary":"stack"},
     {"id":"vocal","name":"Sattari Vocal","verb":"sings","accent":"mint","tier":"paid","tagline":"A complete vocal chain, from correction through harmony to ensemble.","primary":"vocal"},
     {"id":"mix","name":"Sattari Mix","verb":"controls","accent":"mint","tier":"paid","tagline":"Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.","primary":"mix"},
     {"id":"create","name":"Sattari Create","verb":"transforms","accent":"violet","tier":"paid","tagline":"The only effects rack that stays in key and in time when the song changes.","primary":"create"}
   ],
   "products": [
-    {"id":"auto-pitch","name":"Sattari Auto Pitch","category":"Vocal tuning","accent":"mint","lifecycle":"validation","role":"effect","shippingProfile":null,"webVisible":true,"ci":{"test":"AutoPitchCoreContract","render":"AutoPitchRender"},"suite":"auto-pitch","suiteRole":"primary"},
+    {"id":"auto-pitch","name":"Sattari Auto Pitch","category":"Vocal tuning","accent":"mint","lifecycle":"alpha","role":"effect","shippingProfile":"alpha","webVisible":true,"ci":{"test":"AutoPitchCoreContract","render":"AutoPitchRender","uiRender":true},"suite":"auto-pitch","suiteRole":"primary"},
     {"id":"song-key","name":"Sattari Key","category":"Key detection","accent":"mint","lifecycle":"validation","role":"session","shippingProfile":null,"webVisible":true,"ci":{"render":"SongKeyRender"},"suite":"compass","suiteRole":"component"},
     {"id":"voxkey","name":"Sattari VoxKey","category":"Voice-to-MIDI","accent":"mint","lifecycle":"experimental","role":"utility","shippingProfile":null,"webVisible":true,"suite":"instruments","suiteRole":"component"},
     {"id":"voxsynth","name":"Sattari VoxSynth","category":"Voice instrument","accent":"mint","lifecycle":"experimental","role":"instrument","shippingProfile":null,"webVisible":true,"ci":{"test":"VoxSynthMpeContract"},"suite":"instruments","suiteRole":"component"},

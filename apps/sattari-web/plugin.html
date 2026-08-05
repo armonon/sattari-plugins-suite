@@ -100,7 +100,7 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
     <a class="brand" href="index.html" aria-label="Sattari Audio home">
       <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
     </a>
-    <a class="cta" href="index.html#download">Alpha status&nbsp;›</a>
+    <a class="cta" href="index.html#status">Testing status&nbsp;›</a>
   </div>
 </nav>
 
@@ -127,6 +127,10 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   var id  = new URLSearchParams(location.search).get('id');
   var lifecycle = {};
   (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (x) { lifecycle[x.id] = x; });
+  var suiteNames = {};
+  (window.SATTARI_SUITE || []).forEach(function (x) {
+    suiteNames[x.id] = x.name;
+  });
   var all = (window.SATTARI_PLUGINS || []).filter(function (x) {
     return lifecycle[x.id] && lifecycle[x.id].webVisible;
   }).map(function (x) { return Object.assign({}, x, lifecycle[x.id]); });
@@ -142,14 +146,16 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   document.title = p.name + ' — Sattari Audio';
 
   var displayName = p.name.replace(/^Sattari\s+/, '');
-  var tags  = (p.formats  || []).map(function (f) { return '<span class="tag">' + f + '</span>'; }).join('');
+  var tags  = ['Part of ' + (suiteNames[p.suite] || 'Sattari Audio')]
+    .concat(p.formats || [])
+    .map(function (f) { return '<span class="tag">' + f + '</span>'; }).join('');
   var feats = (p.features || []).map(function (f) { return '<li>' + f + '</li>'; }).join('');
   var shot = (window.SATTARI_PRODUCT_SHOTS || {})[p.id];
   var visual = shot
     ? '<figure class="product-visual"><img src="' + shot.src + '" alt="' + shot.alt +
       '" /><figcaption>REAL INTERFACE · CURRENT DEVELOPMENT BUILD</figcaption></figure>'
     : '';
-  var others = all.filter(function (x) { return x.id !== p.id; })
+  var others = all.filter(function (x) { return x.id !== p.id && x.suite === p.suite; })
     .map(function (x) {
       return '<a class="more-card" href="plugin.html?id=' + encodeURIComponent(x.id) + '">' +
              '<span class="mi">' + SATTARI_LOGO(x.id) + '</span>' +
@@ -159,7 +165,8 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   el.innerHTML =
     '<div class="head">' +
       '<div class="icon">' + SATTARI_LOGO(p.id) + '</div>' +
-      '<div><div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div><h1>' + displayName + '</h1></div>' +
+      '<div><div class="cat">' + (suiteNames[p.suite] || p.category || '') + ' · ' +
+        (p.lifecycle || 'experimental') + '</div><h1>' + displayName + '</h1></div>' +
     '</div>' +
     '<p class="tagline">' + (p.tagline || '') + '</p>' +
     '<div class="tags">' + tags + '</div>' +
@@ -175,11 +182,11 @@ document.getElementById('yr').textContent = new Date().getFullYear();
       '<ul class="feature-list">' + feats + '</ul></div>' : '') +
 
     '<div class="cta-row">' +
-      '<a class="btn" href="index.html#download">View alpha status</a>' +
+      '<a class="btn" href="index.html#status">View testing status</a>' +
       '<a class="btn-ghost" href="index.html#plugins">Browse all plugins&nbsp;›</a>' +
     '</div>' +
 
-    '<div class="more"><div class="label">More in the suite</div>' +
+    '<div class="more"><div class="label">More in ' + (suiteNames[p.suite] || 'the suite') + '</div>' +
       '<div class="more-grid">' + others + '</div></div>';
 })();
 </script>

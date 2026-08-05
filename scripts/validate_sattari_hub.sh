@@ -31,12 +31,13 @@ for product in products:
         assert len(product.get("updateArchiveSHA256", "")) == 64
         assert product.get("updateArchiveBytes", 0) > 0
 assert {p["id"] for p in products if p.get("shippingProfile") == "alpha"} == {
-    "brain", "sattari-arp", "sub-conjurer"
+    "auto-pitch", "brain", "sattari-arp", "sub-conjurer"
 }
 print(f"manifest contract ok: products={len(products)} bundles={sum(len(p['bundles']) for p in products)}")
 PY
 
 # Identity, lifecycle, Hub, web and CI metadata all come from the catalog.
 python3 "$repo_root/scripts/check_brand_registry_sync.py"
+"$repo_root/scripts/validate_hub_alpha_payloads.sh"
 
-git -C "$repo_root" diff --check -- apps/sattari-hub apps/sattari-web config scripts/validate_sattari_hub.sh scripts/package_sattari_hub_alpha.sh core/include/sattari_audio_core/SattariBranding.h core/include/sattari_audio_core/SattariProductCatalog.generated.inc
+git -C "$repo_root" diff --check -- apps/sattari-hub apps/sattari-web config scripts/validate_sattari_hub.sh scripts/validate_hub_alpha_payloads.sh scripts/package_sattari_hub_alpha.sh core/include/sattari_audio_core/SattariBranding.h core/include/sattari_audio_core/SattariProductCatalog.generated.inc

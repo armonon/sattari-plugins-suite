@@ -10,7 +10,7 @@ pitch + key detectors, envelope follower, render harness, and an optional ML
 stem-separation seam. Every plugin builds through `cmake/SattariPlugin.cmake`.
 
 Vocal & tuning
-- `plugins/auto-pitch` — pitch correction (shared YIN + Rubber Band, AutoKey, key map).
+- `plugins/auto-pitch` — flagship monophonic correction plus a separate polyphonic tonal path; YIN/optional CREPE detection, Studio/Live/Low Latency engines, AutoKey, Song Key follow, and Key Map.
 - `plugins/maqam` — microtonal **quarter-tone** tuner for Arabic/Persian/Turkish maqamat.
 - `plugins/harmony` — diatonic harmoniser / choir: scale **or chord-track** follow, auto-tune, choir doubler.
 - `plugins/royal-chain` — nine-stage vocal chain with the Portal-style Vocal Crown Compass.
@@ -61,6 +61,27 @@ Build one plugin:
 cmake -S plugins/sub-conjurer -B build/sub-conjurer -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/sub-conjurer --config Release -j 4
 ```
+
+Build the distribution-shaped neural Auto Pitch lane (macOS 13.3+, universal,
+pinned ONNX Runtime, embedded dependency, contracts and render smoke):
+
+```bash
+./scripts/build_auto_pitch_neural.sh
+```
+
+Neural models are deliberately not packaged yet. The build/runtime path is
+reproducible, while `crepe.onnx`, `keynet.onnx`, and `keynet_spec.onnx` remain
+external until their exact provenance and redistribution rights are recorded.
+
+Assemble the traceable internal Auto Pitch DAW/listening kit with:
+
+```bash
+./scripts/package_auto_pitch_neural_tester.sh
+```
+
+It packages verified universal AU/VST3/standalone bundles, never copies model
+weights, and records the exact source and local model fingerprints used for the
+test candidate.
 
 Or build every plugin from the repository root:
 

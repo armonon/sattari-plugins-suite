@@ -12,7 +12,7 @@ not bundled; the plugin runs YIN until you install it.
 |---|---|---|
 | Inference wrapper | `core/include/sattari_audio_core/SattariCrepePitch.h` | done, unit-tested (`SattariAudioCoreCrepeContract`) |
 | Salience→Hz decode | same header, pure-std | done (+0.00 cents on synthetic spikes) |
-| ONNX build seam | `cmake/SattariOnnx.cmake` (`SATTARI_USE_ONNX`, OFF by default) | done |
+| ONNX build seam | `cmake/SattariOnnx.cmake` (`SATTARI_USE_ONNX` + required release mode) | done |
 | Worker thread | `plugins/auto-pitch` — inference runs off the audio thread | done |
 | UI toggle | Pro tab → **Neural Pitch** | done |
 | The model file | `~/Library/Sattari Audio/models/crepe.onnx` | **you generate it (below)** |
@@ -23,12 +23,15 @@ Neural Pitch never blocks or allocates on the realtime path.
 
 ## Three steps to turn it on
 
-### 1. Install ONNX Runtime (build dependency)
+### 1. Fetch the pinned ONNX Runtime build dependency
 
 ```bash
-brew install onnxruntime          # macOS; or download a release from
-                                  # https://github.com/microsoft/onnxruntime/releases
+./scripts/fetch_onnxruntime_macos.sh
 ```
+
+The script downloads Microsoft's universal2 1.22.0 release and verifies SHA-256
+`cfa6f6584d87555ed9f6e7e8a000d3947554d589efe3723b8bfa358cd263d03c` before
+extracting it into ignored `third_party/` state.
 
 ### 2. Generate the model
 
@@ -46,6 +49,18 @@ python tools/export_crepe_onnx.py --capacity tiny
 are more accurate but heavier.
 
 ### 3. Build with ONNX enabled
+
+The release-shaped path is one command:
+
+```bash
+./scripts/build_auto_pitch_neural.sh
+```
+
+It requires ONNX instead of silently falling back, embeds the runtime in all
+three bundles, rejects local absolute rpaths, and runs the core, render, and
+objective performance/safety benchmark checks.
+The official ONNX Runtime 1.22 universal dylib has a macOS 13.3 deployment
+minimum, so the neural Auto Pitch build declares macOS 13.3+.
 
 > **Architecture note (important):** the suite defaults to a **universal**
 > (arm64 + x86_64) build, but Homebrew's `onnxruntime` on Apple Silicon is
@@ -80,10 +95,23 @@ cmake --build build/onnx --target SattariAutoPitch_Standalone
 Then in the Pro tab, turn on **Neural Pitch**. If the model is missing or the
 build has no ONNX, the toggle is inert and YIN is used — no crash, no silence.
 
-> **Distribution note:** the binary links `@rpath/libonnxruntime.*.dylib`. For a
-> portable `.app`, copy that dylib into `Contents/Frameworks` and add an
-> `@loader_path/../Frameworks` rpath (or `install_name_tool`). For local runs the
-> build-tree rpath already resolves it.
+> **Distribution note:** `scripts/build_auto_pitch_neural.sh` embeds the dylib in
+> `Contents/Frameworks`, rewrites the rpath, signs the bundle, and runs
+> `scripts/verify_auto_pitch_bundle.sh`. Do not distribute an unverified raw
+> build-tree bundle.
+
+Create the traceable internal DAW/listening kit after the build passes:
+
+```bash
+./scripts/package_auto_pitch_neural_tester.sh
+```
+
+The kit includes universal AU, VST3, and standalone bundles, local install and
+validation helpers, exact binary/source fingerprints, and no neural weights.
+It requires all three local models by default so a tester candidate cannot be
+assembled after silently skipping the neural surface. Set
+`SATTARI_TESTER_ALLOW_MODEL_FALLBACK=1` only when deliberately testing fallback
+behavior.
 
 Verify the C++ inference path end-to-end (works from either build dir):
 
@@ -105,8 +133,13 @@ in without code changes.
 
 ## Honest limitations
 
-* The conversion could not be run in the current dev container (Python 3.14, no
-  ONNX Runtime installed) — hence the recipe rather than a checked-in binary.
+* The runtime is reproducible, but the three neural model files are external.
+  Do not bundle them until export/training provenance and redistribution rights
+  are documented.
+* `scripts/verify_auto_pitch_models.py` fingerprints local models. Passing its
+  normal audit is not redistribution approval. Its `--distribution --record`
+  mode requires a matching SHA-256, source URL, license, and explicit clearance;
+  start from `config/auto-pitch-model-release-record.example.json`.
 * Rubber Band remains the correction engine; CREPE only replaces the *pitch
   estimate* feeding correction. Pair with the PSOLA **Live Engine** for the
   lowest-latency monitor path.

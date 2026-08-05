@@ -1,4 +1,8 @@
 window.SATTARI_PRODUCT_SHOTS = {
+  "auto-pitch": {
+    src: "assets/products/auto-pitch.png",
+    alt: "Sattari Auto Pitch realtime vocal correction interface"
+  },
   "brain": {
     src: "assets/products/brain.png",
     alt: "Sattari Compass session conductor interface"

@@ -77,7 +77,7 @@ target_compile_definitions(AutoPitchRender
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
-        SATTARI_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+        SATTARI_REPO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 
 target_link_libraries(AutoPitchRender
     PRIVATE
@@ -110,7 +110,7 @@ target_compile_definitions(AutoPitchBench
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
-        SATTARI_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+        SATTARI_REPO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 target_link_libraries(AutoPitchBench
     PRIVATE
         SattariAudioCore

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "product": "Sattari Auto Pitch",
+  "models": [
+    {
+      "filename": "crepe.onnx",
+      "sha256": "",
+      "sourceURL": "",
+      "license": "",
+      "redistributionCleared": false,
+      "notes": "Record the exact export source, weights provenance, and permission before changing this flag."
+    },
+    {
+      "filename": "keynet.onnx",
+      "sha256": "",
+      "sourceURL": "",
+      "license": "",
+      "redistributionCleared": false,
+      "notes": "Record the training corpus rights, training commit, and export command."
+    },
+    {
+      "filename": "keynet_spec.onnx",
+      "sha256": "",
+      "sourceURL": "",
+      "license": "",
+      "redistributionCleared": false,
+      "notes": "Record the training corpus rights, training commit, and export command."
+    }
+  ]
+}

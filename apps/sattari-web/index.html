@@ -3,20 +3,20 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sattari Audio — Six products. One session key.</title>
-<meta name="description" content="A Mac plugin suite of six products — Compass, Auto Pitch, Instruments, Vocal, Mix and Create — sharing 28 processors. Every plugin follows one live session key." />
+<title>Sattari Audio — Six products. One musical system.</title>
+<meta name="description" content="Forty-eight Mac plugins organized into six products — Compass, Auto Pitch, Instruments, Vocal, Mix and Create — connected by one live musical authority." />
 <link rel="canonical" href="https://sattari-audio-studio.armonon.chatgpt.site/index.html" />
 <meta property="og:type" content="website" />
-<meta property="og:title" content="Sattari Audio — Six products. One session key." />
-<meta property="og:description" content="Six products, 28 shared processors, and one live musical authority." />
+<meta property="og:title" content="Sattari Audio — Six products. One musical system." />
+<meta property="og:description" content="Forty-eight plugins. Six products. One live musical authority." />
 <meta property="og:url" content="https://sattari-audio-studio.armonon.chatgpt.site/index.html" />
-<meta property="og:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
+<meta property="og:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Sattari Audio — Six products. One session key." />
-<meta name="twitter:description" content="Six products, 28 shared processors, and one live musical authority." />
-<meta name="twitter:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.jpg" />
+<meta name="twitter:title" content="Sattari Audio — Six products. One musical system." />
+<meta name="twitter:description" content="Forty-eight plugins. Six products. One live musical authority." />
+<meta name="twitter:image" content="https://sattari-audio-studio.armonon.chatgpt.site/assets/og.png" />
 <style>
 /* ─────────────────────────────────────────────────────────────
    Sattari — light theme. The font stack is deliberately the
@@ -197,10 +197,16 @@ img{display:block;max-width:100%}
    the pitch. */
 .suite-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 .suite-card{position:relative;display:flex;flex-direction:column;background:#fff;
-  border:1px solid var(--line-2);border-radius:var(--radius);padding:26px 26px 22px;
+  border:1px solid var(--line-2);border-radius:var(--radius);padding:0;
   transition:.2s;overflow:hidden}
 .suite-card:hover{border-color:var(--ink-3);transform:translateY(-2px);text-decoration:none}
 .suite-card::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:var(--sc)}
+.suite-card .sc-visual{height:172px;padding:18px 18px 0;background:#0b0c0d;
+  border-bottom:1px solid #222529;display:flex;align-items:flex-end;overflow:hidden}
+.suite-card .sc-visual img{width:100%;height:100%;object-fit:contain;object-position:center bottom;
+  filter:drop-shadow(0 13px 18px rgba(0,0,0,.52));transition:transform .25s ease}
+.suite-card:hover .sc-visual img{transform:translateY(-2px) scale(1.012)}
+.suite-card .sc-copy{display:flex;flex:1;flex-direction:column;padding:22px 24px 20px}
 .suite-card .sc-verb{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
   color:var(--sc);margin-bottom:9px}
 .suite-card h3{font-size:23px;font-weight:600;letter-spacing:-.02em;color:var(--ink);margin-bottom:9px}
@@ -210,7 +216,20 @@ img{display:block;max-width:100%}
   text-transform:uppercase;padding:3px 9px;border-radius:980px;border:1px solid var(--line);
   color:var(--ink-2)}
 .suite-card .sc-tier.free{border-color:var(--mint);color:var(--mint)}
-@media(max-width:640px){.suite-card{padding:22px}}
+@media(max-width:640px){.suite-card .sc-visual{height:154px}.suite-card .sc-copy{padding:20px}}
+
+.release-panel{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line-2);
+  border:1px solid var(--line-2);border-radius:var(--radius-l);overflow:hidden}
+.release-item{background:#fff;padding:30px}
+.release-item .signal{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;
+  letter-spacing:.055em;text-transform:uppercase;color:var(--mint);margin-bottom:11px}
+.release-item .signal::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--mint);
+  box-shadow:0 0 0 5px rgba(0,163,122,.11)}
+.release-item.pending .signal{color:#9a6b0a}.release-item.pending .signal::before{background:#d89a1d;
+  box-shadow:0 0 0 5px rgba(216,154,29,.12)}
+.release-item h3{font-size:21px;letter-spacing:-.02em;margin-bottom:8px}
+.release-item p{font-size:15px;color:var(--ink-2);line-height:1.6}
+@media(max-width:700px){.release-panel{grid-template-columns:1fr}.release-item{padding:25px 22px}}
 .filter-bar{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:36px}
 .filter-btn{font-family:inherit;font-size:14px;cursor:pointer;background:#fff;
   border:1px solid var(--line);color:var(--ink);border-radius:980px;padding:7px 17px;transition:all .18s}
@@ -351,12 +370,11 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     </a>
     <div class="nav-links">
       <a href="#suite">Products</a>
-      <a href="#racks">Racks</a>
+      <a href="#status">Testing</a>
+      <a href="#racks">System</a>
       <a href="#studio">Product UI</a>
-      <a href="#bus">Session key</a>
-      <a href="#flagships">Flagships</a>
       <a href="#plugins">All plugins</a>
-      <a href="#download">Alpha status</a>
+      <a href="#download">v0.2 alpha</a>
     </div>
   </div>
 </nav>
@@ -366,21 +384,21 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     <div class="hero-brand">
       <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
     </div>
-    <h1>Four racks.<br>One session key.</h1>
+    <h1>Six products.<br>One musical system.</h1>
     <p class="sub">
-      A Mac plugin suite where 28 shared processors load into four focused racks,
-      while every key-aware instrument follows one musical authority.
+      Forty-eight Mac plugins organized into Compass, Auto Pitch, Instruments,
+      Vocal, Mix and Create — all connected by one live musical authority.
     </p>
     <div class="hero-cta">
-      <a class="btn" href="#download">See alpha status</a>
-      <a class="btn-ghost" href="#racks">See how it works&nbsp;›</a>
+      <a class="btn" href="#suite">Explore the six products</a>
+      <a class="btn-ghost" href="#status">See testing status&nbsp;›</a>
     </div>
-    <p class="hero-note">Internal development suite · macOS · not yet public or notarized</p>
-    <div class="hero-stage" aria-label="Current Sattari Mix, Key and Scope product interfaces">
-      <div class="hero-stage-label">Real interfaces · current development build</div>
-      <figure class="hero-primary"><img src="assets/products/mix.png" alt="Sattari Mix eight-slot modular rack interface" fetchpriority="high" /></figure>
-      <figure class="hero-float hero-key"><img src="assets/products/song-key.png" alt="Sattari Key focused detection interface" /></figure>
-      <figure class="hero-float hero-scope"><img src="assets/products/scope.png" alt="Sattari Scope spectrum and stereo field interface" /></figure>
+    <p class="hero-note">v0.2.0 alpha · engineering gate 115/115 · structured internal testing</p>
+    <div class="hero-stage" aria-label="Current Sattari Compass, Auto Pitch and Stack product interfaces">
+      <div class="hero-stage-label">Real interfaces · current v0.2 development build</div>
+      <figure class="hero-primary"><img src="assets/products/brain.png" alt="Sattari Compass session conductor interface" fetchpriority="high" /></figure>
+      <figure class="hero-float hero-key"><img src="assets/products/auto-pitch.png" alt="Sattari Auto Pitch realtime vocal correction interface" /></figure>
+      <figure class="hero-float hero-scope"><img src="assets/products/stack.png" alt="Sattari Stack parallel instrument rack interface" /></figure>
     </div>
   </div>
 </header>
@@ -388,9 +406,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 <section class="stats">
   <div class="wrap stats-grid">
     <div class="stat"><b>6</b><span>products</span></div>
-    <div class="stat"><b>28</b><span>shared modules</span></div>
-    <div class="stat"><b>48</b><span>plugins inside them</span></div>
-    <div class="stat"><b>1</b><span>session key</span></div>
+    <div class="stat"><b>48</b><span>connected plugins</span></div>
+    <div class="stat"><b>115</b><span>engineering checks green</span></div>
+    <div class="stat"><b>1</b><span>session authority</span></div>
   </div>
 </section>
 
@@ -401,9 +419,42 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <div class="eyebrow">The suite</div>
       <h2>Six products</h2>
       <p class="sec-sub">Forty-eight plugins are the implementation. These six are
-        what you install, and each one is a complete job rather than a shelf of parts.</p>
+        the experience: each one completes a musical job instead of presenting a shelf of parts.</p>
     </div>
     <div class="suite-grid" id="suite-grid"></div>
+  </div>
+</section>
+
+<section class="sec grey" id="status">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Current build · v0.2.0 alpha</div>
+      <h2>Ready for structured internal testing</h2>
+      <p>The engineering baseline is green. The next proof comes from complete sessions,
+        real material and fresh distribution builds—not another round of isolated feature claims.</p>
+    </div>
+    <div class="release-panel">
+      <article class="release-item">
+        <div class="signal">Green</div>
+        <h3>DSP and host contracts</h3>
+        <p>All automated architecture, processing, rack, state and oversized-block checks pass.</p>
+      </article>
+      <article class="release-item">
+        <div class="signal">Green</div>
+        <h3>Installed Audio Units</h3>
+        <p>Every current non-StemDeck Audio Unit instantiates and passes Apple validation.</p>
+      </article>
+      <article class="release-item pending">
+        <div class="signal">Testing next</div>
+        <h3>Six-product workflow</h3>
+        <p>Compass, Auto Pitch, Instruments, Vocal, Mix and Create now need full-session DAW testing.</p>
+      </article>
+      <article class="release-item pending">
+        <div class="signal">Distribution next</div>
+        <h3>Public release</h3>
+        <p>Fresh Release binaries, VST3 validation, signing, notarization and listening evidence remain.</p>
+      </article>
+    </div>
   </div>
 </section>
 <section class="sec">
@@ -685,8 +736,8 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     </div>
     <div class="rows">
       <div class="row"><h5>Auto Pitch</h5>
-        <p>Realtime correction from invisible to hard-tuned, formant-preserving, with a polyphonic
-          mode that tunes whole chords and follows their overtones into key.</p></div>
+        <p>Realtime monophonic correction from restrained to hard-tuned, with a separate
+          polyphonic path for sustained tonal instruments and well-separated chords.</p></div>
       <div class="row"><h5>Key</h5>
         <p>The session's authority on key — a neural model plus an HPCP chromagram, publishing to
           every other plugin.</p></div>
@@ -707,22 +758,23 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 <section class="sec" id="plugins">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">Everything</div>
-      <h2>All plugins</h2>
-      <p>Open any one for what it does, how it works, and its full feature list.</p>
+      <div class="eyebrow">Inside the products</div>
+      <h2>All 48 plugins</h2>
+      <p>Browse by the product they belong to, then open any plugin for its current capability and maturity.</p>
     </div>
     <div class="search-wrap">
       <input class="search" id="search" type="search" autocomplete="off"
              placeholder="Search plugins — try “reverb” or “key”" aria-label="Search plugins" />
     </div>
     <div class="search-count" id="searchCount"></div>
-    <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by category">
+    <div class="filter-bar" id="filterBar" role="group" aria-label="Filter plugins by product">
       <button class="filter-btn active" data-cat="all" aria-pressed="true">All</button>
-      <button class="filter-btn" data-cat="Vocal" aria-pressed="false">Vocal</button>
-      <button class="filter-btn" data-cat="MIDI" aria-pressed="false">MIDI</button>
-      <button class="filter-btn" data-cat="Mix" aria-pressed="false">Mix</button>
-      <button class="filter-btn" data-cat="Key" aria-pressed="false">Key</button>
-      <button class="filter-btn" data-cat="Stem" aria-pressed="false">Stem</button>
+      <button class="filter-btn" data-cat="compass" aria-pressed="false">Compass</button>
+      <button class="filter-btn" data-cat="auto-pitch" aria-pressed="false">Auto Pitch</button>
+      <button class="filter-btn" data-cat="instruments" aria-pressed="false">Instruments</button>
+      <button class="filter-btn" data-cat="vocal" aria-pressed="false">Vocal</button>
+      <button class="filter-btn" data-cat="mix" aria-pressed="false">Mix</button>
+      <button class="filter-btn" data-cat="create" aria-pressed="false">Create</button>
     </div>
     <div class="grid" id="grid"></div>
   </div>
@@ -751,9 +803,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
         later without breaking saved sessions, so Stack was built as its own host from the start.</p>
     </details>
     <details>
-      <summary>Do I need Sattari Key for the rest to work?</summary>
-      <p>No. Every key-aware plugin has a manual key control and works fine on its own. Sattari Key
-        just means you set it once, in one place, and everything follows.</p>
+      <summary>Do I need Compass for the rest to work?</summary>
+      <p>No. Every key-aware plugin keeps manual controls and works independently. Compass is the
+        highest-authority session publisher; Sattari Key remains the focused fallback when you only need key.</p>
     </details>
     <details>
       <summary>What formats and machines?</summary>
@@ -766,14 +818,15 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
 
 <section class="sec" id="download">
   <div class="wrap narrow" style="text-align:center">
-    <div class="eyebrow">Get it</div>
+    <div class="eyebrow">Current availability</div>
     <h2 style="font-size:clamp(30px,4.4vw,46px);font-weight:600;letter-spacing:-.025em;margin-bottom:16px">
-      Internal alpha program</h2>
+      Internal testing build</h2>
     <p style="font-size:19px;color:var(--ink-2);margin-bottom:32px;line-height:1.5">
-      Compass, Arp and Sub Conjurer are the first curated alpha set. Public Hub downloads stay closed
-      until signed artifacts, notarization and integrity-pinned updates are live.</p>
+      The current source and installed Audio Units pass the engineering gate. A fresh six-product
+      Release installer is the next milestone; public downloads remain closed until it is signed,
+      notarized and verified in supported DAWs.</p>
     <span class="btn" aria-disabled="true">Public download not open</span>
-    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">Internal development · evidence gates in progress</p>
+    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">v0.2.0 alpha · internal testing · evidence gates in progress</p>
   </div>
 </section>
 
@@ -783,13 +836,14 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
       <span>© <span id="yr"></span></span>
     </div>
-    <div><a href="#racks">Racks</a> · <a href="#plugins">Plugins</a> · <a href="#download">Alpha status</a></div>
+    <div><a href="#suite">Products</a> · <a href="#status">Testing</a> · <a href="#plugins">Plugins</a></div>
   </div>
 </footer>
 
 <script src="product-catalog.js"></script>
 <script src="plugins-data.js"></script>
 <script src="logos.js"></script>
+<script src="product-shots.js"></script>
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 
@@ -800,17 +854,27 @@ document.getElementById('yr').textContent = new Date().getFullYear();
   var host  = document.getElementById('suite-grid');
   if (!host || !suite.length) return;
   var HUE = { mint:'#00a37a', violet:'#7c5cff', amber:'#c77a1a', blue:'#0071e3', crimson:'#e8384f' };
+  var catalog = {};
+  (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (p) { catalog[p.id] = p; });
+  var shots = window.SATTARI_PRODUCT_SHOTS || {};
 
   host.innerHTML = suite.map(function (s) {
     var n = s.count || 0;
-    return '<a class="suite-card" href="#plugins" style="--sc:' + (HUE[s.accent] || HUE.mint) + '">' +
-      '<div class="sc-verb">' + s.verb + '</div>' +
+    var primary = catalog[s.primary] || {};
+    var shot = shots[s.primary];
+    var visual = shot
+      ? '<div class="sc-visual"><img src="' + shot.src + '" alt="' + shot.alt + '" loading="lazy" /></div>'
+      : '';
+    return '<a class="suite-card" href="plugin.html?id=' + encodeURIComponent(s.primary) +
+      '" style="--sc:' + (HUE[s.accent] || HUE.mint) + '">' + visual +
+      '<div class="sc-copy"><div class="sc-verb">' + s.verb + '</div>' +
       '<h3>' + s.name.replace('Sattari ', '') + '</h3>' +
       '<p>' + s.tagline + '</p>' +
       '<div class="sc-foot">' +
         '<span class="sc-tier' + (s.tier === 'free' ? ' free' : '') + '">' + s.tier + '</span>' +
         '<span>' + n + ' plugin' + (n === 1 ? '' : 's') + '</span>' +
-      '</div></a>';
+        '<span>' + (primary.lifecycle || 'experimental') + '</span>' +
+      '</div></div></a>';
   }).join('');
 })();
 
@@ -818,6 +882,8 @@ document.getElementById('yr').textContent = new Date().getFullYear();
 (function () {
   var lifecycle = {};
   (window.SATTARI_PRODUCT_CATALOG || []).forEach(function (p) { lifecycle[p.id] = p; });
+  var suiteNames = {};
+  (window.SATTARI_SUITE || []).forEach(function (s) { suiteNames[s.id] = s.name.replace('Sattari ', ''); });
   var plugins = (window.SATTARI_PLUGINS || []).filter(function (p) {
     return lifecycle[p.id] && lifecycle[p.id].webVisible;
   }).map(function (p) {
@@ -838,7 +904,8 @@ document.getElementById('yr').textContent = new Date().getFullYear();
     a.innerHTML =
       '<div class="ico">' + SATTARI_LOGO(p.id) + '</div>' +
       '<h3>' + p.name.replace(/^Sattari\s+/, '') + '</h3>' +
-      '<div class="cat">' + (p.category || '') + ' · ' + (p.lifecycle || 'experimental') + '</div>' +
+      '<div class="cat">' + (suiteNames[p.suite] || p.category || '') + ' · ' +
+        (p.lifecycle || 'experimental') + '</div>' +
       '<div class="tag">' + (p.tagline || '') + '</div>';
     grid.appendChild(a);
     return a;
@@ -863,7 +930,7 @@ document.getElementById('yr').textContent = new Date().getFullYear();
       var p = plugins[i];
       var hay = (p.name + ' ' + (p.category || '') + ' ' + (p.tagline || '') + ' ' +
                  (p.cats || '')).toLowerCase();
-      var okCat = activeCat === 'all' || (c.dataset.cats || '').indexOf(activeCat) !== -1;
+      var okCat = activeCat === 'all' || p.suite === activeCat;
       var okQ = !query || hay.indexOf(query) !== -1;
       var show = okCat && okQ;
       c.style.display = show ? '' : 'none';

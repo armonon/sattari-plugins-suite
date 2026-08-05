@@ -10,7 +10,7 @@ fi
 workspace_root="$(cd "$repo_root/../.." && pwd)"
 hub_root="$repo_root/apps/sattari-hub"
 out_root="${1:-$workspace_root/deliverables/sattari-test-builds}"
-version="0.1.2"
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$hub_root/Packaging/Info.plist")"
 package_dir="$out_root/sattari-hub-alpha-v$version"
 app_dir="$package_dir/Sattari Hub.app"
 contents_dir="$app_dir/Contents"
@@ -18,7 +18,14 @@ macos_dir="$contents_dir/MacOS"
 resources_dir="$contents_dir/Resources"
 
 mkdir -p "$out_root"
-rm -rf "$package_dir"
+if [[ -e "$package_dir" || -e "$out_root/sattari-hub-alpha-v$version.tar.gz" ]]; then
+  previous="$out_root/.previous-sattari-hub-alpha-v$version-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$previous"
+  [[ ! -e "$package_dir" ]] || mv "$package_dir" "$previous/"
+  [[ ! -e "$out_root/sattari-hub-alpha-v$version.tar.gz" ]] \
+    || mv "$out_root/sattari-hub-alpha-v$version.tar.gz" "$previous/"
+  echo "previous Hub package preserved at $previous"
+fi
 mkdir -p "$macos_dir" "$resources_dir"
 
 swift build --package-path "$hub_root" -c release
@@ -34,6 +41,16 @@ cp "$hub_root/Sources/SattariHub/Resources/sattari-products.json" "$resources_di
 
 payload_dir="$resources_dir/Payload"
 mkdir -p "$payload_dir"
+build_tree="${SATTARI_BUILD_TREE:-build/all}"
+autopitch_build_dir="${SATTARI_AUTOPITCH_BUILD_DIR:-$repo_root/build/auto-pitch-neural}"
+resolve_source() {
+  local relative_path="$1"
+  if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
+    printf '%s/%s\n' "$autopitch_build_dir" "${relative_path#build/all/plugins/auto-pitch/}"
+  else
+    printf '%s/%s\n' "$repo_root" "${relative_path/build\/all/$build_tree}"
+  fi
+}
 validate_bundle() {
   local bundle="$1"
   [[ -d "$bundle" ]] || { echo "invalid payload (not a bundle directory): $bundle" >&2; return 1; }
@@ -46,11 +63,17 @@ validate_bundle() {
 copied=0
 while IFS= read -r relative_path; do
   [[ -n "$relative_path" ]] || continue
-  source_path="$repo_root/$relative_path"
+  source_path="$(resolve_source "$relative_path")"
   validate_bundle "$source_path"
+  if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
+    "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$source_path"
+  fi
   mkdir -p "$payload_dir/$(dirname "$relative_path")"
   ditto "$source_path" "$payload_dir/$relative_path"
   validate_bundle "$payload_dir/$relative_path"
+  if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
+    "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$payload_dir/$relative_path"
+  fi
   copied=$((copied + 1))
 done < <(python3 - <<'PY' "$hub_root/Sources/SattariHub/Resources/sattari-products.json"
 import json, sys
@@ -67,7 +90,17 @@ for product in manifest['products']:
             print(rel)
 PY
 )
-[[ "$copied" -eq 9 ]] || { echo "expected 9 complete alpha bundles, copied $copied" >&2; exit 1; }
+expected="$(python3 - <<'PY' "$hub_root/Sources/SattariHub/Resources/sattari-products.json"
+import json, sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text())
+print(len({bundle['relativeSourcePath']
+           for product in manifest['products']
+           if product.get('shippingProfile') == 'alpha'
+           for bundle in product['bundles']}))
+PY
+)"
+[[ "$copied" -eq "$expected" ]] || { echo "expected $expected complete alpha bundles, copied $copied" >&2; exit 1; }
 
 mkdir -p "$resources_dir/Legal"
 cp "$repo_root/LICENSE" "$resources_dir/Legal/GPL-3.0.txt"
@@ -114,7 +147,7 @@ Existing bundles are backed up under \`~/Library/Application Support/Sattari Hub
 
 ## Next gates
 
-- Bundle plugin packages inside the Hub DMG or connect a signed update feed.
+- Replace the embedded-only alpha channel with a signed, checksummed update feed.
 - Add Sparkle-style app self-update and per-product download/update checks.
 - Add uninstall/repair controls.
 - Add Developer ID signing + notarized DMG before any public distribution.

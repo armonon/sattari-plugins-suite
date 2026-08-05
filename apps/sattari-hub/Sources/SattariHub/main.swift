@@ -142,8 +142,23 @@ final class HubModel {
     }
 
     func sourceURL(for bundle: InstallBundle) -> URL? {
-        var candidates: [URL?] = [
-            repoRoot?.appendingPathComponent(bundle.relativeSourcePath),
+        var repositoryCandidates: [URL?] = []
+        let autoPitchPrefix = "build/all/plugins/auto-pitch/"
+        if bundle.relativeSourcePath.hasPrefix(autoPitchPrefix) {
+            let suffix = String(bundle.relativeSourcePath.dropFirst(autoPitchPrefix.count))
+            if let explicit = ProcessInfo.processInfo.environment["SATTARI_AUTOPITCH_BUILD_DIR"],
+               !explicit.isEmpty {
+                repositoryCandidates.append(
+                    URL(fileURLWithPath: explicit, isDirectory: true).appendingPathComponent(suffix)
+                )
+            }
+            repositoryCandidates.append(
+                repoRoot?.appendingPathComponent("build/auto-pitch-neural").appendingPathComponent(suffix)
+            )
+        }
+        repositoryCandidates.append(repoRoot?.appendingPathComponent(bundle.relativeSourcePath))
+
+        var candidates: [URL?] = repositoryCandidates + [
             Bundle.main.resourceURL?.appendingPathComponent("Payload").appendingPathComponent(bundle.relativeSourcePath),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("Payload")

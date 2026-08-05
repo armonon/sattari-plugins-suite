@@ -297,10 +297,14 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
       presetManager (p.parameters(), "auto-pitch")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (960, 600);
+    setResizable (true, true);
+    setResizeLimits (960, 680, 1600, 1000);
+    setSize (1120, 700);
 
     // Header
-    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Auto Pitch");
+    // The shared title treatment already paints the full Sattari mark. Keep the
+    // adjacent wordmark product-only so the brand is not repeated or clipped.
+    sattari::ui::SattariLookAndFeel::styleTitle (title, "Auto Pitch");
     addAndMakeVisible (title);
 
     vocalRange.addItemList ({
@@ -697,6 +701,13 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     transposeModeAttach    = std::make_unique<ButtonAttachment> (params, "xposeMode", transposeMode);
     transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
 
+    // Paint a meaningful engine value on the very first frame. Previously this
+    // remained blank until the 15 Hz editor timer fired.
+    const bool initialLowLat = params.getRawParameterValue ("lowLatency")->load() > 0.5f;
+    const bool initialLive   = params.getRawParameterValue ("liveEngine")->load() > 0.5f;
+    engineSelect.setSelectedItemIndex (initialLowLat ? 2 : (initialLive ? 1 : 0),
+                                       juce::dontSendNotification);
+
     showTab (0);
     startTimerHz (15);
 }
@@ -967,7 +978,7 @@ void SattariAutoPitchAudioProcessorEditor::resized()
 
     // Header row
     auto header = area.removeFromTop (50);
-    title.setBounds (header.removeFromLeft (170));
+    title.setBounds (header.removeFromLeft (240));
     header.removeFromLeft (10);
 
     auto vocalBlock = header.removeFromLeft (180);

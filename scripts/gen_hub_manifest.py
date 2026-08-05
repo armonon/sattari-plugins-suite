@@ -26,6 +26,7 @@ CI_MATRIX = ROOT / "config" / "ci-matrix.generated.json"
 
 TARGET = re.compile(r"TARGET\s+([A-Za-z0-9_]+)")
 PRODUCT = re.compile(r'PRODUCT_NAME\s+"([^"]+)"')
+FORMATS = re.compile(r"^\s*FORMATS\s+([A-Za-z0-9_ ]+)\s*$", re.MULTILINE)
 ACCENTS = {
     "mint": "kAccent",
     "violet": "kAccentViolet",
@@ -51,23 +52,29 @@ def deployment(product: dict) -> tuple[str, str, list[dict]]:
             f"!= CMake PRODUCT_NAME {deployed_name!r}"
         )
     base = f"build/all/plugins/{product['id']}/{target}_artefacts/Release"
-    bundles = [
-        {
+    format_match = FORMATS.search(text)
+    formats = format_match.group(1).split() if format_match else ["AU", "VST3", "Standalone"]
+    unknown_formats = set(formats) - {"AU", "VST3", "Standalone"}
+    if unknown_formats:
+        raise ValueError(f"{product['id']}: unsupported formats {sorted(unknown_formats)}")
+    bundle_by_format = {
+        "AU": {
             "kind": "AU",
             "installSubpath": f"Library/Audio/Plug-Ins/Components/{deployed_name}.component",
             "relativeSourcePath": f"{base}/AU/{deployed_name}.component",
         },
-        {
+        "VST3": {
             "kind": "VST3",
             "installSubpath": f"Library/Audio/Plug-Ins/VST3/{deployed_name}.vst3",
             "relativeSourcePath": f"{base}/VST3/{deployed_name}.vst3",
         },
-        {
+        "Standalone": {
             "kind": "Standalone",
             "installSubpath": f"Applications/{deployed_name}.app",
             "relativeSourcePath": f"{base}/Standalone/{deployed_name}.app",
         },
-    ]
+    }
+    bundles = [bundle_by_format[plugin_format] for plugin_format in formats]
     return target, deployed_name, bundles
 
 
@@ -90,7 +97,7 @@ def validate(catalog: dict) -> list[dict]:
             raise ValueError(f"{product['id']}: unknown accent {product['accent']}")
         deployment(product)
     alpha = {p["id"] for p in products if p["shippingProfile"] == "alpha"}
-    if alpha != {"brain", "sattari-arp", "sub-conjurer"}:
+    if alpha != {"auto-pitch", "brain", "sattari-arp", "sub-conjurer"}:
         raise ValueError(f"alpha profile drifted: {sorted(alpha)}")
     stem = next(p for p in products if p["id"] == "stemdeck")
     if stem["lifecycle"] != "excluded" or stem["webVisible"]:
@@ -165,7 +172,7 @@ def generate() -> None:
                 "crimson": "#e8384f",
             }[product["accent"]],
             "description": f"{product['name']} — {product['category']}.",
-            "formats": ["AU", "VST3", "Standalone"],
+            "formats": [bundle["kind"] for bundle in bundles],
             "status": product["lifecycle"],
             "lifecycle": product["lifecycle"],
             "shippingProfile": product["shippingProfile"],

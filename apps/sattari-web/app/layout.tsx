@@ -4,21 +4,21 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://sattari-audio-studio.armonon.chatgpt.site"),
-  title: "Sattari Audio — Four racks. One session key.",
+  title: "Sattari Audio — Six products. One musical system.",
   description:
-    "A Mac plugin suite with four modular racks, 28 shared processors, and one live session key.",
+    "Forty-eight Mac plugins organized into six products, all connected by one live musical authority.",
   openGraph: {
-    title: "Sattari Audio — Four racks. One session key.",
+    title: "Sattari Audio — Six products. One musical system.",
     description:
-      "Four modular racks, 28 shared processors, and one live musical authority.",
-    images: [{ url: "/assets/og.jpg", width: 1200, height: 630 }],
+      "Compass, Auto Pitch, Instruments, Vocal, Mix and Create — one connected music-production suite.",
+    images: [{ url: "/assets/og.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Sattari Audio — Four racks. One session key.",
+    title: "Sattari Audio — Six products. One musical system.",
     description:
-      "Four modular racks, 28 shared processors, and one live musical authority.",
-    images: ["/assets/og.jpg"],
+      "Forty-eight plugins. Six products. One live musical authority.",
+    images: ["/assets/og.png"],
   },
 };
 

@@ -3,7 +3,8 @@
     {
       "plugin": "auto-pitch",
       "test": "AutoPitchCoreContract",
-      "render": "AutoPitchRender"
+      "render": "AutoPitchRender",
+      "uiRender": true
     },
     {
       "plugin": "song-key",

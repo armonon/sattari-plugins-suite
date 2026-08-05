@@ -500,7 +500,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // Spin up the inference worker only when there's actually a model to run. It
     // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
     // that the model + buffers are fully configured.
-    if (crepeModelPresent)
+    if (crepeModelPresent || keyNetPresent || keyNetSpecPresent)
     {
         crepeThreadRun.store (true);
         crepeThread = std::thread ([this] { crepeWorkerLoop(); });
@@ -527,6 +527,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     chromaWritePos = 0;
     chromaSamplesSinceFft = 0;
     sidechainSeenAudio = false;
+    sidechainHoldSamples = 0;
     scMonoScratch.assign ((size_t) preparedBlockSize, 0.0f);
 
     // Reset the live neural-key accumulators so a previous session's key can't linger.
@@ -815,6 +816,21 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     resetRbFifo();
 #endif
+    publishUiFrame();
+}
+
+void SattariAutoPitchAudioProcessor::publishUiFrame() noexcept
+{
+    UiFrame frame;
+    frame.midi = lastPitchFrame.midi;
+    frame.targetMidi = lastPitchFrame.targetMidi;
+    frame.correctionCents = lastPitchFrame.correctionCents;
+    frame.confidence = lastPitchFrame.confidence;
+    frame.fedPitchScale = lastFedPitchScale;
+    frame.detectedRoot = detectedAutoRoot.load (std::memory_order_relaxed);
+    frame.detectedScale = detectedAutoScale.load (std::memory_order_relaxed);
+    frame.voiced = lastPitchFrame.voiced;
+    uiFrame.store (frame);
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1015,10 +1031,10 @@ int SattariAutoPitchAudioProcessor::currentCorrectionRootIndex() const
     // path only wrote detectedAutoRoot, which currentCorrectionRootIndex ignored
     // unless AutoKey was also on, so Use Key Map looked alive but did nothing.
     if (keyMapDriving())
-        return juce::jlimit (0, 11, detectedAutoRoot);
+        return juce::jlimit (0, 11, detectedAutoRoot.load (std::memory_order_relaxed));
 
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f)
-        return juce::jlimit (0, 11, detectedAutoRoot);
+        return juce::jlimit (0, 11, detectedAutoRoot.load (std::memory_order_relaxed));
 
     return juce::jlimit (0, 11, juce::roundToInt (apvts.getRawParameterValue ("keyRoot")->load()));
 }
@@ -1035,13 +1051,13 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
             return s.scale == 1 ? 1 : (s.scale == 2 ? 2 : 0);
 
     if (keyMapDriving())
-        return juce::jlimit (0, 2, detectedAutoScale);
+        return juce::jlimit (0, 2, detectedAutoScale.load (std::memory_order_relaxed));
 
     const int userScale = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
     // AutoKey auto-detects the mode too (unless the user picked Chromatic, which
     // means "no scale snapping" and has no major/minor to detect).
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f && userScale != 2)
-        return juce::jlimit (0, 1, detectedAutoScale);
+        return juce::jlimit (0, 1, detectedAutoScale.load (std::memory_order_relaxed));
 
     return userScale;
 }
@@ -1054,6 +1070,7 @@ bool SattariAutoPitchAudioProcessor::keyMapDriving() const
 
 SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::currentKeyOrigin() const
 {
+    const auto frame = uiFrame.load();
     KeyOrigin o;
 
     // Same precedence as currentCorrectionRootIndex() / effectiveScaleIndex(),
@@ -1070,16 +1087,16 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
     if (keyMapDriving())
     {
         o.source = KeyOrigin::Source::KeyMap;
-        o.root   = juce::jlimit (0, 11, detectedAutoRoot);
-        o.scale  = juce::jlimit (0, 2, detectedAutoScale);
+        o.root   = juce::jlimit (0, 11, frame.detectedRoot);
+        o.scale  = juce::jlimit (0, 2, frame.detectedScale);
         return o;
     }
 
     if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f)
     {
         o.source = KeyOrigin::Source::AutoKey;
-        o.root   = juce::jlimit (0, 11, detectedAutoRoot);
-        o.scale  = juce::jlimit (0, 2, effectiveScaleIndex());   // AutoKey auto-detects the mode
+        o.root   = juce::jlimit (0, 11, frame.detectedRoot);
+        o.scale  = juce::jlimit (0, 2, effectiveScaleIndex());   // preserves the user's Chromatic mode
         return o;
     }
 
@@ -1775,18 +1792,21 @@ bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFil
     keyMapScanCancel.store (false);   // fresh scan: clear any pending cancel request
     keyMapScanning.store (true);
     keyMapProgress.store (0);
-    keyMapLastError.clear();
+    {
+        const juce::ScopedLock l (keyMapLock);
+        keyMapLastError.clear();
+    }
     keyMapScanThread = std::make_unique<std::thread> ([this, audioFile] { runKeyMapScan (audioFile); });
     return true;
 }
 
 void SattariAutoPitchAudioProcessor::clearKeyMap()
 {
-    keyMapScanCancel.store (true);   // stop an in-progress scan promptly before join
-    if (keyMapScanThread && keyMapScanThread->joinable())
-        keyMapScanThread->join();
-    keyMapScanThread.reset();
-    keyMapScanCancel.store (false);
+    // Cancellation is asynchronous: a neural window can take long enough that joining
+    // here visibly freezes the editor. startKeyMapScan joins the completed worker before
+    // launching the next one; the destructor still joins before processor teardown.
+    const bool scanWasRunning = keyMapScanning.load (std::memory_order_acquire);
+    keyMapScanCancel.store (true);
     const juce::ScopedLock l (keyMapLock);
     keyMap.clear();
     keyMapWave.clear();
@@ -1794,7 +1814,8 @@ void SattariAutoPitchAudioProcessor::clearKeyMap()
     keyMapFileName.clear();
     keyMapProgress.store (-1);
     keyMapCurrentSegment.store (-1);
-    keyMapScanning.store (false);
+    if (! scanWasRunning)
+        keyMapScanning.store (false);
 }
 
 // --- Key Map visualisation accessors (message thread; copy under the lock) ------
@@ -1838,7 +1859,10 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     std::unique_ptr<juce::AudioFormatReader> reader (fmtMgr.createReaderFor (audioFile));
     if (reader == nullptr)
     {
-        keyMapLastError = "Could not open audio file";
+        {
+            const juce::ScopedLock l (keyMapLock);
+            keyMapLastError = "Could not open audio file";
+        }
         keyMapProgress.store (-1);
         keyMapScanning.store (false);
         return;
@@ -2032,7 +2056,6 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     // Leave keyMap untouched and mark the scan idle.
     if (keyMapScanCancel.load (std::memory_order_relaxed))
     {
-        keyMapProgress.store (-1);
         keyMapScanning.store (false);
         return;
     }
@@ -2269,6 +2292,14 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
     const bool useKeyMap = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f;
+    bool chromaSourceActiveThisBlock = false;
+    bool sidechainHasAudioThisBlock = false;
+
+    if (! autoKeyOn)
+    {
+        sidechainHoldSamples = 0;
+        sidechainSeenAudio = false;
+    }
 
     // Key Map: when on and the host gives us a playhead position, the live
     // correction key follows the offline-scanned map. This is how a single
@@ -2320,7 +2351,10 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                     energy += m * m;
                 }
                 if (energy > 1.0e-6f)
-                    sidechainSeenAudio = true;
+                {
+                    sidechainHasAudioThisBlock = true;
+                    chromaSourceActiveThisBlock = true;
+                }
                 pushSidechainBlock (scMonoScratch.data(), scN);
             }
         }
@@ -2338,7 +2372,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // neural key model read the actual harmony. Gated to poly, so a monophonic vocal
     // (main = single voice) still uses the pitch-histogram detector unchanged.
     const bool haveLiveSidechain = getBusCount (true) > 1
-        && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled();
+        && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled()
+        && sidechainHasAudioThisBlock;
     if (autoKeyOn && polyOn && ! haveLiveSidechain)
     {
         const int n = juce::jmin (numSamples, (int) scMonoScratch.size());
@@ -2353,9 +2388,19 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             energy += m * m;
         }
         if (energy > 1.0e-6f)
-            sidechainSeenAudio = true;   // prefer the chroma/neural key over the mono histogram
+            chromaSourceActiveThisBlock = true;
         pushSidechainBlock (scMonoScratch.data(), n);
     }
+
+    // Prefer full-mix chroma briefly after real analysis audio, then expire. The old
+    // one-way boolean permanently disabled the monophonic histogram after a sidechain
+    // was muted or disconnected, leaving AutoKey stuck on its last full-mix verdict.
+    if (chromaSourceActiveThisBlock)
+        sidechainHoldSamples = juce::jmax (sidechainHoldSamples,
+                                           (int) std::round (currentSampleRate * 0.75));
+    else
+        sidechainHoldSamples = juce::jmax (0, sidechainHoldSamples - numSamples);
+    sidechainSeenAudio = autoKeyOn && sidechainHoldSamples > 0;
 
     // Computed once per block: neural pitch feeds BOTH the correction override
     // (below) and the AutoKey histogram (in the loop) when a CREPE model is active.
@@ -2754,6 +2799,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         for (int i = 0; i < mainBuffer.getNumSamples(); ++i)
             d[i] = softCeiling (d[i]);
     }
+    publishUiFrame();
 }
 
 void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
@@ -3085,6 +3131,7 @@ juce::String SattariAutoPitchAudioProcessor::midiNoteName (double midi)
 
 juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 {
+    const auto frame = uiFrame.load();
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
@@ -3098,17 +3145,18 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 #endif
     const juce::String dot = juce::String::fromUTF8 ("   \xc2\xb7   ");   // "  ·  "
 
-    if (! lastPitchFrame.voiced)
+    if (! frame.voiced)
         return engine + dot + root + " " + scale + dot + "waiting for input";
 
     return engine + dot + root + " " + scale + dot + currentStyleChoice() + dot
-        + midiNoteName (lastPitchFrame.midi) + juce::String::fromUTF8 (" \xe2\x86\x92 ") + midiNoteName (lastPitchFrame.targetMidi)
-        + dot + juce::String (lastPitchFrame.correctionCents, 1) + " ct"
-        + dot + juce::String (lastPitchFrame.confidence * 100.0, 0) + "%";
+        + midiNoteName (frame.midi) + juce::String::fromUTF8 (" \xe2\x86\x92 ") + midiNoteName (frame.targetMidi)
+        + dot + juce::String (frame.correctionCents, 1) + " ct"
+        + dot + juce::String (frame.confidence * 100.0, 0) + "%";
 }
 
 sattari::audio_core::KeySignature SattariAutoPitchAudioProcessor::currentKeySignature() const
 {
+    const auto frame = uiFrame.load();
     const int scaleIndex = effectiveScaleIndex();
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     sattari::audio_core::MusicalMode mode = sattari::audio_core::MusicalMode::Unknown;
@@ -3118,7 +3166,7 @@ sattari::audio_core::KeySignature SattariAutoPitchAudioProcessor::currentKeySign
         mode = sattari::audio_core::MusicalMode::Minor;
 
     const double traceConfidence = (double) apvts.getRawParameterValue ("traceConfidence")->load();
-    const double liveConfidence = lastPitchFrame.voiced ? lastPitchFrame.confidence : 0.0;
+    const double liveConfidence = frame.voiced ? frame.confidence : 0.0;
     return {
         currentCorrectionRootIndex(),
         mode,
@@ -3134,14 +3182,31 @@ juce::String SattariAutoPitchAudioProcessor::currentSattariWheelCode() const
 
 juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
 {
-    // Minimal: just the key and how sure we are. (The harmonic-wheel / compatibility /
-    // bus-sharing detail used to live here but read as insider jargon in the UI.)
+    // Keep the readout musical, but identify the engine honestly. This matters when
+    // models are external: the user should never have to guess whether AutoKey is
+    // using a neural verdict, the deterministic fallback, a map, or the suite bus.
     const auto key = currentKeySignature();
+    const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, key.tonicPitchClass)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex())];
     const int confidence = juce::roundToInt (key.confidence * 100.0);
+    juce::String engine = "Manual";
+    if (origin.source == KeyOrigin::Source::FollowBus)
+        engine = "Song Key";
+    else if (origin.source == KeyOrigin::Source::KeyMap)
+        engine = keyNetSpecPresent ? "Neural Key Map" : "HPCP Key Map";
+    else if (origin.source == KeyOrigin::Source::AutoKey)
+    {
+        if (keyNetSpecPresent && akSpecValid.load (std::memory_order_acquire))
+            engine = "Neural spectrum";
+        else if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
+            engine = "Neural chroma";
+        else
+            engine = "Adaptive fallback";
+    }
     return "Key   " + root + " " + scale
-        + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence";
+        + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence"
+        + juce::String::fromUTF8 ("   \xc2\xb7   ") + engine;
 }
 
 int SattariAutoPitchAudioProcessor::rootToChoiceIndex (const juce::String& root)
@@ -3284,16 +3349,12 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
         auto restored = juce::ValueTree::fromXml (*xml);
         lastTraceSummary = restored.getProperty ("lastTraceSummary", "No trace loaded").toString();
 
-        // A background key-map scan may already be running (started before the host
-        // pushed this state). Cancel + join it BEFORE we overwrite keyMap, otherwise
-        // it would finish later and clobber the timeline we're about to restore. The
-        // scan loop polls keyMapScanCancel every window, so the join returns almost
-        // immediately — setStateInformation stays effectively non-blocking.
+        // Invalidate a scan that predates this restored state, but never join it from
+        // the host's state-load call. A 30-second neural window can still be inside file
+        // IO / feature extraction / inference, and synchronously waiting here freezes
+        // project loading. The worker observes the sticky cancel flag before publishing;
+        // the next explicit scan joins the now-finished thread and clears the flag.
         keyMapScanCancel.store (true);
-        if (keyMapScanThread && keyMapScanThread->joinable())
-            keyMapScanThread->join();
-        keyMapScanThread.reset();
-        keyMapScanCancel.store (false);
 
         // Pull any persisted Key Map back into memory.
         auto km = restored.getChildWithName ("KeyMap");

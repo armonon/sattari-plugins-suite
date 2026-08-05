@@ -137,13 +137,38 @@ jobs:
         run: command -v ninja >/dev/null 2>&1 || brew install ninja
 
       - name: Configure
-        run: >
-          cmake -S plugins/${{ matrix.plugin }}
-          -B build/${{ matrix.plugin }}
-          -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          if [ "${{ matrix.plugin }}" = "auto-pitch" ]; then
+            ort_dir="$(./scripts/fetch_onnxruntime_macos.sh)"
+            cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+              -DSATTARI_USE_ONNX=ON \
+              -DSATTARI_REQUIRE_ONNX=ON \
+              -DONNXRUNTIME_INCLUDE_DIR="$ort_dir/include" \
+              -DONNXRUNTIME_LIB="$ort_dir/lib/libonnxruntime.dylib"
+            grep -q -- '-DSATTARI_HAS_ONNX=1' build/${{ matrix.plugin }}/build.ninja
+          else
+            cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} \
+              -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
 
       - name: Build plugin (AU/VST3/Standalone)
         run: cmake --build build/${{ matrix.plugin }} --config Release -j"$(sysctl -n hw.ncpu)"
+
+      - name: Embed and verify Auto Pitch neural runtime
+        if: ${{ matrix.plugin == 'auto-pitch' }}
+        run: |
+          release_dir="build/auto-pitch/SattariAutoPitch_artefacts/Release"
+          bundles=(
+            "$release_dir/AU/Sattari Auto Pitch.component"
+            "$release_dir/VST3/Sattari Auto Pitch.vst3"
+            "$release_dir/Standalone/Sattari Auto Pitch.app"
+          )
+          ./scripts/bundle_auto_pitch_runtime_deps.sh "${bundles[@]}"
+          for bundle in "${bundles[@]}"; do
+            ./scripts/verify_auto_pitch_bundle.sh "$bundle"
+          done
 
       - name: Build + run contract test
         if: ${{ matrix.test != '' }}
@@ -162,6 +187,14 @@ jobs:
           "$bin" --render-ui "$image"
           test -s "$image"
           file "$image" | grep -q 'PNG image data'
+          if [ "${{ matrix.test }}" = "AutoPitchCoreContract" ]; then
+            pro_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-pro.png"
+            min_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-min.png"
+            "$bin" --render-ui-pro "$pro_image"
+            "$bin" --render-ui-min "$min_image"
+            test -s "$pro_image" -a -s "$min_image"
+            file "$pro_image" "$min_image" | grep -q 'PNG image data'
+          fi
 
       # Render harness in --smoke mode: proves the real audio path produces
       # finite, non-silent output. A strict null-test against the golden runs

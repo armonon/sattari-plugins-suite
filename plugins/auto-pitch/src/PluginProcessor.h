@@ -13,6 +13,7 @@
 #include <sattari_audio_core/SattariKeyNetSpec.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariHarmonicMask.h>
+#include <sattari_audio_core/SattariRealtime.h>
 #include <array>
 #include <atomic>
 #include <complex>
@@ -30,6 +31,18 @@ class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
                                              private juce::AsyncUpdater,
                                              private juce::Timer
 {
+    struct UiFrame
+    {
+        double midi = 0.0;
+        double targetMidi = 0.0;
+        double correctionCents = 0.0;
+        double confidence = 0.0;
+        double fedPitchScale = 1.0;
+        int detectedRoot = 9;
+        int detectedScale = 1;
+        bool voiced = false;
+    };
+
 public:
     SattariAutoPitchAudioProcessor();
     ~SattariAutoPitchAudioProcessor() override;
@@ -143,13 +156,14 @@ public:
 
     LiveSnapshot getLiveSnapshot() const noexcept
     {
+        const auto frame = uiFrame.load();
         LiveSnapshot s;
-        s.voiced = lastPitchFrame.voiced;
-        s.detectedMidi = lastPitchFrame.voiced
-            ? juce::jlimit (0, 127, (int) std::round (lastPitchFrame.midi)) : -1;
-        s.correctionCents = (float) juce::jlimit (-200.0, 200.0, lastPitchFrame.correctionCents);
-        s.confidence = (float) juce::jlimit (0.0, 1.0, lastPitchFrame.confidence);
-        s.detectedRoot = detectedAutoRoot;
+        s.voiced = frame.voiced;
+        s.detectedMidi = frame.voiced
+            ? juce::jlimit (0, 127, (int) std::round (frame.midi)) : -1;
+        s.correctionCents = (float) juce::jlimit (-200.0, 200.0, frame.correctionCents);
+        s.confidence = (float) juce::jlimit (0.0, 1.0, frame.confidence);
+        s.detectedRoot = frame.detectedRoot;
         return s;
     }
 
@@ -160,13 +174,14 @@ public:
     struct DebugFrame { double detectedMidi = 0, targetMidi = 0, wantedCents = 0, appliedCents = 0, confidence = 0; bool voiced = false; };
     DebugFrame getDebugFrame() const noexcept
     {
+        const auto frame = uiFrame.load();
         DebugFrame d;
-        d.voiced       = lastPitchFrame.voiced;
-        d.detectedMidi = lastPitchFrame.midi;
-        d.targetMidi   = lastPitchFrame.targetMidi;
-        d.wantedCents  = lastPitchFrame.correctionCents;                       // (target - detected) * 100
-        d.appliedCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, lastFedPitchScale));  // actual shift fed to engine
-        d.confidence   = lastPitchFrame.confidence;
+        d.voiced       = frame.voiced;
+        d.detectedMidi = frame.midi;
+        d.targetMidi   = frame.targetMidi;
+        d.wantedCents  = frame.correctionCents;
+        d.appliedCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, frame.fedPitchScale));
+        d.confidence   = frame.confidence;
         return d;
     }
 
@@ -199,6 +214,7 @@ private:
     void voicedRangeHzForSource (double& minHz, double& maxHz) const;
     PitchFrame analyseCurrentPitchFrame() const;
     PitchFrame buildCorrectionFrame (PitchFrame detected) const;
+    void publishUiFrame() noexcept;
     int currentCorrectionRootIndex() const;
     int effectiveScaleIndex() const;     // bus scale when Follow Song Key is on, else the param
     bool keyMapDriving() const;
@@ -251,6 +267,7 @@ private:
     int pitchWriteIndex = 0;
     int pitchSamplesUntilAnalysis = 0;
     PitchFrame lastPitchFrame;
+    sattari::rt::AtomicSnapshot<UiFrame> uiFrame;
 
     // Preallocated scratch so the audio thread never calls makeCopyOf():
     //  - formantScratch: dry copy for the no-RubberBand pitch-guide fallback
@@ -263,8 +280,8 @@ private:
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
     bool   lastXposeActive    = false; // Transpose mode ran last block (flush engines on toggle)
     std::array<double, 12> autoKeyHistogram {};
-    int detectedAutoRoot = 9;
-    int detectedAutoScale = 1;   // AutoKey auto-detected mode: 0=major, 1=minor
+    std::atomic<int> detectedAutoRoot { 9 };
+    std::atomic<int> detectedAutoScale { 1 };   // AutoKey auto-detected mode: 0=major, 1=minor
 
     // --- Note-transition retune modeling (Antares-class "feel") --------------
     // When the correction target jumps to a new note, transitionBoost spikes to
@@ -322,7 +339,8 @@ private:
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
     int chromaWritePos = 0;
     int chromaSamplesSinceFft = 0;
-    bool sidechainSeenAudio = false;                      // true when SC bus delivered non-silence
+    bool sidechainSeenAudio = false;                      // recent poly/sidechain analysis audio is active
+    int  sidechainHoldSamples = 0;                        // expires so muted/disconnected SC cannot freeze AutoKey
     std::vector<float> scMonoScratch;                     // per-block mono sum of sidechain, no allocation in process
 
     // --- Real polyphonic retune: per-peak phase-locked vocoder ---------------

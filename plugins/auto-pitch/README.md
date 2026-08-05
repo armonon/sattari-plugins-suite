@@ -1,45 +1,78 @@
 # Sattari Auto Pitch
 
-Realtime JUCE alpha for the Auto Pitch flagship lane.
+Flagship realtime tuning plugin for AU, VST3, and Standalone on macOS.
+
+## Current product
+
+Auto Pitch has two intentionally distinct audio paths:
+
+- **Monophonic vocal correction:** YIN detection by default, optional CREPE neural
+  detection, per-note scale targeting, vibrato/flex controls, formant control,
+  editable pitch classes, and Natural, Classic, Modern Rap, Robot, and Big
+  Harmony styles.
+- **Polyphonic tonal correction:** a phase-vocoder path for sustained instruments
+  and well-separated chords, with High Tracking, Tonal Focus, Scale Lock,
+  polyphonic harmony, and whole-source Transpose to Key.
+
+The musical target can come from a manual key, live AutoKey, the cross-plugin
+Song Key bus, or an offline Key Map that follows modulations across a track.
+The UI reports which source and detector are actually active rather than hiding
+fallback behavior.
+
+## Engines and measured baseline
+
+- **Studio:** Rubber Band, highest-fidelity print path.
+- **Live:** PSOLA monitoring path.
+- **Low Latency:** shortest PSOLA monitoring path.
+
+The current 48 kHz synthetic benchmark measured approximately 41.9 ms Studio,
+29.1 ms Live, and 15.9 ms Low Latency, with mean steady-note correction error
+of 0.01 cents for Rubber Band and 0.07 cents for PSOLA. These are controlled
+engineering measurements, not a claim about every singer or session.
+
+## Build and prove the neural release shape
+
+```bash
+./scripts/build_auto_pitch_neural.sh
+```
+
+That lane downloads Microsoft's pinned universal ONNX Runtime 1.22.0, verifies
+its SHA-256, requires neural code to compile, builds universal Release bundles,
+embeds the runtime, removes absolute build-machine rpaths, verifies signatures,
+and runs the core plus audio-render smoke tests. The official runtime requires
+macOS 13.3, so this neural lane uses that honest deployment floor without
+raising the rest of the suite.
+
+Models are loaded from `~/Library/Sattari Audio/models/`:
+
+- `crepe.onnx` — optional monophonic neural pitch
+- `keynet.onnx` — optional live neural key classification
+- `keynet_spec.onnx` — optional 30-second spectral key classification and Key Map
+
+The model binaries are not distributed by this repository. Record their exact
+training/export provenance and redistribution rights before including them in a
+tester or commercial package. Without them the plugin remains functional and
+visibly falls back to YIN plus deterministic key analysis.
+
+For a complete internal tester build, run
+`scripts/package_auto_pitch_neural_tester.sh`. It requires all three models to be
+present for build-machine validation, fingerprints them, and deliberately keeps
+them out of the package. Model distribution is separately gated by
+`scripts/verify_auto_pitch_models.py --distribution --record <record.json>`.
+
+## Validation commands
+
+```bash
+cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRender AutoPitchBench
+./build/auto-pitch-neural/AutoPitchCoreContract
+./build/auto-pitch-neural/AutoPitchRender --smoke
+./build/auto-pitch-neural/AutoPitchRender --hitracktest
+./build/auto-pitch-neural/AutoPitchBench
+```
 
 ## Truth label
 
-This is a local AU/VST3/Standalone realtime monophonic tuning alpha. It now performs audible pitch correction, but it is still **not** Antares-quality proof, not a public beta, not notarized, and not sale-ready.
-
-## Current scope
-
-- Audio effect plugin with live pitch detection, selected-key/scale snapping, and Rubber Band realtime pitch shifting when Rubber Band is available at build time.
-- AU, VST3, and Standalone targets.
-- UI controls for Key Root, Scale, Style, Correction On, AutoKey Follow, Amount, Speed, Do No Harm, gain, and trace confidence.
-- Key Detection tab bridge to Sattari Harmonic Lab: the plugin now links against `SattariAudioCore` and exposes Sattari Wheel code, confidence, compatibility labels, and “Send to Tune” state from the shared harmonic/key-analysis contracts.
-- Five performer modes for tester comparison: Natural, Classic, Modern Rap, Robot, and Big Harmony. These alter correction strength/retune behavior and add first-pass mode color; Big Harmony is a lightweight flavor layer, not a finished multi-voice harmony engine yet.
-- AutoKey Follow is an early live pitch-class histogram follower; Adapt Mode remains offline/prototype-gated.
-- Clipboard trace import path for JSON traces shaped like `prototypes/auto-pitch/out/demo-modern-trace.json`.
-- Fixture contract smoke test: `python3 scripts/auto_pitch_trace_contract_check.py`.
-- Core realtime contract test: `cmake --build build/auto-pitch-ready --target AutoPitchCoreContract && ./build/auto-pitch-ready/plugins/auto-pitch/AutoPitchCoreContract`.
-- Runtime dependency bundling helper: `scripts/bundle_auto_pitch_runtime_deps.sh` copies Rubber Band/libsamplerate into built AU/VST3/app bundles and rewrites install names for tester portability.
-
-## Verified on 2026-06-02
-
-- `AutoPitchCoreContract` passed with Rubber Band realtime engine and a detuned A4 test moving toward A4.
-- `python3 scripts/auto_pitch_trace_contract_check.py` passed.
-- `./scripts/validate_sources.sh` passed.
-- Apple `auval -v aufx Ap01 Satr` passed after local install.
-- `/Applications/pluginval.app/Contents/MacOS/pluginval --validate-in-process --strictness-level 5` passed for VST3.
-- Codesign verification passed for bundled AU, VST3, and standalone app bundles.
-
-## Next gates
-
-1. Run real vocal DAW/manual listening validation in Logic and Ableton.
-2. Tune pitch-detection latency, retune smoothing, and artifacts against owned/cleared dry vocal clips.
-3. Promote AutoKey from early histogram follower to robust offline/live key detection with confidence display.
-4. Feed the Key Detection tab with full offline `TrackAnalysis` data: Sattari Wheel alternates, segment keys, energy zones, cue points, and compatible reference-track suggestions.
-5. Add proper preset bank and vocalist-friendly UX polish.
-6. Replace ad-hoc signing with Developer ID signing/notarization before any public beta or sale-ready language.
-
-## Non-goals
-
-- No Antares-quality claim yet.
-- No public release claim.
-- No paid beta.
-- No bundled copyrighted/uncleared vocal material.
+This is ready for structured internal testing, not a sale-ready release. The
+remaining gates are real-vocal listening across voice types, dense polyphonic
+stress material, multi-instance/automation sessions in target DAWs, signed and
+notarized distribution, and a licensed model delivery decision.

@@ -22,7 +22,7 @@
       "verb": "tunes",
       "accent": "mint",
       "tier": "paid",
-      "tagline": "Vocal tuning that understands intonation systems beyond twelve-tone.",
+      "tagline": "Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.",
       "primary": "auto-pitch"
     },
     {
@@ -74,9 +74,9 @@
         "VST3",
         "Standalone"
       ],
-      "status": "validation",
-      "lifecycle": "validation",
-      "shippingProfile": null,
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
       "version": "0.2.0-alpha",
       "suite": "auto-pitch",
       "suiteRole": "primary",
@@ -666,8 +666,7 @@
       "description": "Sattari Arp \u2014 MIDI / creative.",
       "formats": [
         "AU",
-        "VST3",
-        "Standalone"
+        "VST3"
       ],
       "status": "alpha",
       "lifecycle": "alpha",
@@ -685,11 +684,6 @@
           "kind": "VST3",
           "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Arp.vst3",
           "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/VST3/Sattari Arp.vst3"
-        },
-        {
-          "kind": "Standalone",
-          "installSubpath": "Applications/Sattari Arp.app",
-          "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/Standalone/Sattari Arp.app"
         }
       ]
     },
