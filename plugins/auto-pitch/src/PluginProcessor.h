@@ -84,6 +84,11 @@ public:
     // label the Neural Pitch toggle honestly instead of silently doing nothing.
     bool neuralModelPresent() const noexcept { return crepeModelPresent; }
 
+    // Effective tuning reference. Manual Detune is used normally; when Follow
+    // Song Reference is armed and the suite bus publishes a reference, that
+    // value becomes authoritative alongside the followed song key.
+    double currentReferenceHz() const noexcept;
+
     // --- Track Key Map -------------------------------------------------------
     //  Offline scan of an audio file -> timeline of (timeSec, rootIdx, scaleIdx)
     //  segments. When `useKeyMap` is enabled and a map is loaded, the live
@@ -125,6 +130,23 @@ public:
     // marker even when Use Key Map is off.
     double getKeyMapPlayheadSec() const { return keyMapPlayheadSec.load (std::memory_order_relaxed); }
 
+    // --- Pitch Edit timeline -------------------------------------------------
+    // Capture detected note regions against the host timeline, then let the
+    // editor retarget or bypass individual regions. This is the realtime-safe
+    // foundation for Graph-style surgical correction without requiring ARA.
+    struct PitchEditEntry
+    {
+        double startSec = 0.0, endSec = 0.0;
+        int sourceMidi = 60, targetMidi = 60;
+        float confidence = 0.0f;
+        bool enabled = true;
+    };
+    std::vector<PitchEditEntry> getPitchEdits() const;
+    void clearPitchEdits();
+    void setPitchEditTarget (int index, int targetMidi);
+    void setPitchEditEnabled (int index, bool enabled);
+    int getPitchEditRevision() const noexcept { return pitchEditRevision.load (std::memory_order_relaxed); }
+
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
     // sensible defaults when nothing has been processed yet.
     struct LiveSnapshot
@@ -150,7 +172,7 @@ public:
         enum class Source { Manual, AutoKey, FollowBus, KeyMap };
         Source source = Source::Manual;
         int    root  = 9;   // 0..11, effective correction root
-        int    scale = 1;   // 0=major, 1=minor, 2=chromatic (effective)
+        int    scale = 1;   // index into the extended local scale/mode palette
     };
     KeyOrigin currentKeyOrigin() const;
 
@@ -316,6 +338,13 @@ private:
     // Follow Song Key: read the key Sattari Key (or any publisher) puts on the bus.
     sattari::xplugin::SessionReader sessionReader;
 
+    // Optional MIDI-note targeting, separate from MIDI Learn. The most recently
+    // held note becomes the exact correction target, enabling playable tuning
+    // and DAW MIDI-note automation without disturbing the scale workflow.
+    std::array<bool, 128> midiNotesHeld {};
+    std::atomic<int> midiTargetNote { -1 };
+    void updateMidiTargets (const juce::MidiBuffer& midi) noexcept;
+
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
@@ -422,6 +451,16 @@ private:
     std::unique_ptr<std::thread> keyMapScanThread;
     void runKeyMapScan (juce::File audioFile);
     void applyKeyMapAtSeconds (double seconds);
+
+    // Captured/editable note regions. Audio reads/writes only through try-locks;
+    // the vector is reserved on prepare so capture never allocates in processBlock.
+    mutable juce::CriticalSection pitchEditLock;
+    std::vector<PitchEditEntry> pitchEdits;
+    std::atomic<int> pitchEditRevision { 0 };
+    int lastCapturedPitchEdit = -1;
+    double lastCapturedEndSec = -1.0;
+    void capturePitchEditAtSeconds (double seconds, double blockDuration, const PitchFrame& frame);
+    void applyPitchEditAtSeconds (double seconds, PitchFrame& frame) const;
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

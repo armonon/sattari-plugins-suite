@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <complex>
 #include <cstring>
+#include <functional>
 #include <limits>
 
 namespace
@@ -20,11 +21,35 @@ constexpr double silenceRms = 0.0045;
 constexpr double minConfidence = 0.58;
 
 const juce::StringArray rootChoices { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-const juce::StringArray scaleChoices { "major", "minor", "chromatic" };
+// The original Scale parameter must remain exactly three choices: JUCE stores
+// AudioParameterChoice values normalised, so appending choices would silently
+// turn an old saved "minor" (0.5) into Mixolydian. scaleMode is the extended,
+// local/manual palette; Scale remains the compatibility + suite-bus value.
+const juce::StringArray legacyScaleChoices { "major", "minor", "chromatic" };
+const juce::StringArray scaleChoices {
+    "major", "minor", "chromatic", "dorian", "phrygian", "lydian",
+    "mixolydian", "locrian", "harmonic minor", "melodic minor",
+    "major pentatonic", "minor pentatonic", "blues"
+};
 const juce::StringArray styleChoices { "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" };
 
-const std::array<int, 7> majorDegrees { 0, 2, 4, 5, 7, 9, 11 };
-const std::array<int, 7> minorDegrees { 0, 2, 3, 5, 7, 8, 10 };
+constexpr std::array<unsigned short, 13> scaleMasks {
+    // Major, natural minor, chromatic, church modes, harmonic/melodic minor,
+    // pentatonics and blues. Bit n means scale degree n is allowed.
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10),
+    0x0fffu,
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10),
+    (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<6)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10),
+    (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<8)|(1u<<10),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<7)|(1u<<9),
+    (1u<<0)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<10),
+    (1u<<0)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<10)
+};
 
 // Output ceiling: identity below the knee, then a tanh soft-knee asymptoting to just
 // under 0 dBFS. It is a SAFETY ceiling, not a tone stage — the knee sits at -0.7 dBFS so
@@ -69,18 +94,18 @@ juce::var readObjectVar (const juce::var& object, const juce::Identifier& key)
     return {};
 }
 
-double midiFromHz (double frequencyHz)
+double midiFromHz (double frequencyHz, double referenceHz = 440.0)
 {
-    return (double) sattari::dsp::hzToMidi ((float) frequencyHz);
+    if (frequencyHz <= 0.0 || referenceHz <= 0.0)
+        return 0.0;
+    return 69.0 + 12.0 * std::log2 (frequencyHz / referenceHz);
 }
 
 bool scaleAllowsDegree (int degree, const juce::String& scaleName)
 {
-    if (scaleName == "chromatic")
-        return true;
-
-    const auto& degrees = scaleName == "major" ? majorDegrees : minorDegrees;
-    return std::find (degrees.begin(), degrees.end(), degree) != degrees.end();
+    const int idx = juce::jmax (0, scaleChoices.indexOf (scaleName));
+    return (scaleMasks[(size_t) juce::jlimit (0, (int) scaleMasks.size() - 1, idx)]
+            & (1u << juce::jlimit (0, 11, degree))) != 0;
 }
 
 int nearestScaleMidi (double sourceMidi, int rootIndex, const juce::String& scaleName)
@@ -137,6 +162,7 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // the audio thread).
     apvts.addParameterListener ("liveEngine", this);
     apvts.addParameterListener ("lowLatency", this);
+    apvts.addParameterListener ("scale", this);
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
     // the mono engines — listen so a toggle refreshes the host delay-comp figure.
     apvts.addParameterListener ("polyphonic", this);
@@ -157,6 +183,7 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     stopTimer();   // bus-publish heartbeat
     apvts.removeParameterListener ("liveEngine", this);
     apvts.removeParameterListener ("lowLatency", this);
+    apvts.removeParameterListener ("scale", this);
     apvts.removeParameterListener ("polyphonic", this);
     apvts.removeParameterListener ("xposeMode", this);
     apvts.removeParameterListener ("enableCorrection", this);
@@ -260,7 +287,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("keyRoot", "Key Root", rootChoices, 9));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale", scaleChoices, 1));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale", legacyScaleChoices, 1));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("scaleMode", "Scale Mode", scaleChoices, 1));
     // Default to Natural (clean correction). "Classic" and up apply tanh saturation as a
     // deliberate character — measured 2.4% THD at -6 dBFS, 8% at 0 dBFS — so shipping it as
     // the default made a plain vocal "distort" out of the box. Users who want warmth pick it.
@@ -340,6 +368,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
         juce::NormalisableRange<float> (0.1f, 12.0f, 0.01f), 5.5f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("vibratoOnset", "Vibrato Onset",
         juce::NormalisableRange<float> (0.0f, 2000.0f, 1.0f), 300.0f));
+
+    // Reference tuning parity: manual +/-100 cents like a traditional pro tuner,
+    // plus an opt-in path that consumes the referenceHz published by Sattari Key.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("referenceDetune", "Reference Detune",
+        juce::NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followReference", "Follow Song Reference", false));
+
+    // When armed, held MIDI notes override scale snapping and become exact note
+    // targets. This remains independent of the existing MIDI Learn layer.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("midiTarget", "Target Notes from MIDI", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("capturePitchEdits", "Capture Pitch Edits", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("usePitchEdits", "Use Pitch Edits", false));
 
     // --- Antares-class behavioural controls ----------------------------------
     // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
@@ -438,6 +478,10 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     preparedBlockSize = juce::jmax (samplesPerBlock, 512);
     sessionReader.start();   // Follow Song Key reads the bus published by Sattari Key
+    {
+        const juce::ScopedLock l (pitchEditLock);
+        pitchEdits.reserve (4096);
+    }
     resetPitchState (preparedBlockSize);
 
     // Live-monitor PSOLA engine, one shifter per output channel. Prepare it with a
@@ -703,8 +747,16 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     return rbLat;
 }
 
-void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float)
+void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
 {
+    // Preserve automation/session compatibility for the original 3-choice Scale
+    // parameter. New UI selections write scaleMode immediately afterwards, while
+    // old hosts/presets that only know Scale still select the expected base mode.
+    if (parameterID == "scale")
+        if (auto* extended = apvts.getParameter ("scaleMode"))
+            extended->setValueNotifyingHost (extended->convertTo0to1 (
+                (float) juce::jlimit (0, 2, juce::roundToInt (newValue))));
+
     // Engine toggle: the reported latency must change to match the now-active
     // engine. setLatencySamples() -> updateHostDisplay() must run on the message
     // thread, and parameterChanged may be called from the audio thread (host
@@ -779,6 +831,8 @@ double SattariAutoPitchAudioProcessor::getTailLengthSeconds() const
 // host calls reset() from the audio thread.
 void SattariAutoPitchAudioProcessor::reset()
 {
+    lastCapturedPitchEdit = -1;
+    lastCapturedEndSec = -1.0;
     resetPitchState (preparedBlockSize);
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     for (auto& s : rubberBand)
@@ -1012,10 +1066,52 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
 
     const double frequencyHz = currentSampleRate / refinedTau;
     result.frequencyHz = frequencyHz;
-    result.midi = midiFromHz (frequencyHz);
+    result.midi = midiFromHz (frequencyHz, currentReferenceHz());
     result.confidence = periodicity;
     result.voiced = frequencyHz >= rangeMinHz && frequencyHz <= rangeMaxHz;
     return result;
+}
+
+double SattariAutoPitchAudioProcessor::currentReferenceHz() const noexcept
+{
+    if (apvts.getRawParameterValue ("followReference")->load() > 0.5f)
+        if (const auto s = sessionReader.current(); s.valid && s.referenceHz >= 400.0 && s.referenceHz <= 480.0)
+            return s.referenceHz;
+
+    const double cents = (double) apvts.getRawParameterValue ("referenceDetune")->load();
+    return 440.0 * std::pow (2.0, cents / 1200.0);
+}
+
+void SattariAutoPitchAudioProcessor::updateMidiTargets (const juce::MidiBuffer& midi) noexcept
+{
+    int mostRecent = midiTargetNote.load (std::memory_order_relaxed);
+    for (const auto metadata : midi)
+    {
+        const auto message = metadata.getMessage();
+        if (message.isNoteOn())
+        {
+            const int note = juce::jlimit (0, 127, message.getNoteNumber());
+            midiNotesHeld[(size_t) note] = true;
+            mostRecent = note;
+        }
+        else if (message.isNoteOff())
+        {
+            const int note = juce::jlimit (0, 127, message.getNoteNumber());
+            midiNotesHeld[(size_t) note] = false;
+            if (mostRecent == note)
+            {
+                mostRecent = -1;
+                for (int n = 127; n >= 0; --n)
+                    if (midiNotesHeld[(size_t) n]) { mostRecent = n; break; }
+            }
+        }
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+        {
+            midiNotesHeld.fill (false);
+            mostRecent = -1;
+        }
+    }
+    midiTargetNote.store (mostRecent, std::memory_order_relaxed);
 }
 
 int SattariAutoPitchAudioProcessor::currentCorrectionRootIndex() const
@@ -1053,13 +1149,13 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
     if (keyMapDriving())
         return juce::jlimit (0, 2, detectedAutoScale.load (std::memory_order_relaxed));
 
-    const int userScale = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    const int userScale = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
     // AutoKey auto-detects the mode too (unless the user picked Chromatic, which
     // means "no scale snapping" and has no major/minor to detect).
-    if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f && userScale != 2)
+    if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f && (userScale == 0 || userScale == 1))
         return juce::jlimit (0, 1, detectedAutoScale.load (std::memory_order_relaxed));
 
-    return userScale;
+    return juce::jlimit (0, scaleChoices.size() - 1, userScale);
 }
 
 bool SattariAutoPitchAudioProcessor::keyMapDriving() const
@@ -1096,13 +1192,14 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
     {
         o.source = KeyOrigin::Source::AutoKey;
         o.root   = juce::jlimit (0, 11, frame.detectedRoot);
-        o.scale  = juce::jlimit (0, 2, effectiveScaleIndex());   // preserves the user's Chromatic mode
+        o.scale  = juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex());
         return o;
     }
 
     o.source = KeyOrigin::Source::Manual;
     o.root   = juce::jlimit (0, 11, juce::roundToInt (apvts.getRawParameterValue ("keyRoot")->load()));
-    o.scale  = juce::jlimit (0, 2, juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
+    o.scale  = juce::jlimit (0, scaleChoices.size() - 1,
+                             juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load()));
     return o;
 }
 
@@ -1122,7 +1219,7 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
 
 void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 {
-    const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+    const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
 
     int bestRoot = detectedAutoRoot;
@@ -1204,7 +1301,13 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     if (! lastBusPublishMs.compare_exchange_strong (prev, now, std::memory_order_relaxed)) return;
 
     const int root  = currentCorrectionRootIndex();
-    const int scale = juce::jlimit (0, 2, effectiveScaleIndex());
+    const int localScale = effectiveScaleIndex();
+    // The cross-plugin bus intentionally remains the stable major/minor/
+    // chromatic contract. Map extended modes to their closest tonal family.
+    const int scale = localScale == 2 ? 2
+                    : (localScale == 1 || localScale == 3 || localScale == 4
+                       || localScale == 7 || localScale == 8 || localScale == 9
+                       || localScale == 11 || localScale == 12) ? 1 : 0;
     // Publish the full session (key + host tempo + transient pulse) so other
     // Sattari plugins can follow the key AND lock to tempo / react to onsets.
     // Backward-compatible: key-only readers still parse this fine.
@@ -1905,7 +2008,11 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
     std::vector<float> wave;                 // peak envelope for the editor timeline
     wave.reserve ((size_t) (totalLen / juce::jmax (1, windowSamples) + 1) * 16);
 
-    while (pos + windowSamples <= totalLen)
+    // Analyse at least one zero-padded window. The old full-window-only loop
+    // returned an empty Key Map for every neural-mode clip shorter than 30 s
+    // (and every fallback clip shorter than 3.5 s), which made File/Key Map mode
+    // appear broken on loops and samples.
+    while (pos < totalLen)
     {
         // setStateInformation() (or teardown/clear) can ask us to stop so a scan
         // that started before the host restored state doesn't clobber the restored
@@ -1913,7 +2020,10 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         if (keyMapScanCancel.load (std::memory_order_relaxed))
             break;
 
-        reader->read (&readBuf, 0, windowSamples, pos, true, true);
+        readBuf.clear();
+        const int validSamples = (int) juce::jmin<juce::int64> ((juce::int64) windowSamples,
+                                                                 totalLen - pos);
+        reader->read (&readBuf, 0, validSamples, pos, true, true);
         // Mono-sum the window.
         for (int i = 0; i < windowSamples; ++i)
         {
@@ -1928,7 +2038,7 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
         // overlapping windows don't double-count and the envelope stays time-linear at
         // ~0.2 s per point regardless of the window/hop grid in use.
         {
-            const int envSpan = juce::jmin (hopSamples, windowSamples);
+            const int envSpan = juce::jmin (hopSamples, validSamples);
             const int buckets = juce::jmax (1, (int) (envSpan / juce::jmax (1.0, sr * 0.2)));
             const int per = juce::jmax (1, envSpan / buckets);
             for (int b = 0; b < buckets; ++b)
@@ -1953,7 +2063,7 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
                 if (kn.valid) { specRoot = kn.root; specMode = kn.minor ? 1 : 0; specConf = kn.confidence; }
             }
             wins.push_back ({ (double) pos / sr, specRoot, specMode, specConf });
-            pos += hopSamples;
+            pos += juce::jmin<juce::int64> ((juce::int64) hopSamples, totalLen - pos);
             keyMapProgress.store (juce::jlimit (0, 100, totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0));
             continue;
         }
@@ -2008,7 +2118,7 @@ void SattariAutoPitchAudioProcessor::runKeyMapScan (juce::File audioFile)
 
         wins.push_back ({ (double) pos / sr, bestRoot, bestMode, bestScore });
 
-        pos += hopSamples;
+        pos += juce::jmin<juce::int64> ((juce::int64) hopSamples, totalLen - pos);
         const int pct = totalLen > 0 ? (int) (100.0 * (double) pos / (double) totalLen) : 0;
         keyMapProgress.store (juce::jlimit (0, 100, pct));
     }
@@ -2118,6 +2228,104 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
     keyMapCurrentSegment.store (idx);
 }
 
+std::vector<SattariAutoPitchAudioProcessor::PitchEditEntry>
+SattariAutoPitchAudioProcessor::getPitchEdits() const
+{
+    const juce::ScopedLock l (pitchEditLock);
+    return pitchEdits;
+}
+
+void SattariAutoPitchAudioProcessor::clearPitchEdits()
+{
+    const juce::ScopedLock l (pitchEditLock);
+    pitchEdits.clear();
+    lastCapturedPitchEdit = -1;
+    lastCapturedEndSec = -1.0;
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+}
+
+void SattariAutoPitchAudioProcessor::setPitchEditTarget (int index, int targetMidi)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    if (index < 0 || index >= (int) pitchEdits.size()) return;
+    pitchEdits[(size_t) index].targetMidi = juce::jlimit (0, 127, targetMidi);
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+}
+
+void SattariAutoPitchAudioProcessor::setPitchEditEnabled (int index, bool enabled)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    if (index < 0 || index >= (int) pitchEdits.size()) return;
+    pitchEdits[(size_t) index].enabled = enabled;
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+}
+
+void SattariAutoPitchAudioProcessor::capturePitchEditAtSeconds (
+    double seconds, double blockDuration, const PitchFrame& frame)
+{
+    const juce::ScopedTryLock l (pitchEditLock);
+    if (! l.isLocked()) return;
+
+    if (! frame.voiced || seconds < 0.0)
+    {
+        lastCapturedPitchEdit = -1;
+        return;
+    }
+
+    const int source = juce::jlimit (0, 127, (int) std::round (frame.midi));
+    const int target = juce::jlimit (0, 127, (int) std::round (frame.targetMidi));
+    const double end = seconds + juce::jmax (0.001, blockDuration);
+    const bool canExtend = lastCapturedPitchEdit >= 0
+        && lastCapturedPitchEdit < (int) pitchEdits.size()
+        && pitchEdits[(size_t) lastCapturedPitchEdit].sourceMidi == source
+        && seconds >= pitchEdits[(size_t) lastCapturedPitchEdit].startSec
+        && seconds <= lastCapturedEndSec + 0.18;
+
+    if (canExtend)
+    {
+        auto& e = pitchEdits[(size_t) lastCapturedPitchEdit];
+        e.endSec = juce::jmax (e.endSec, end);
+        e.confidence = juce::jmax (e.confidence, (float) frame.confidence);
+    }
+    else if (pitchEdits.size() < 4096)
+    {
+        pitchEdits.push_back ({ seconds, end, source, target,
+                                (float) juce::jlimit (0.0, 1.0, frame.confidence), true });
+        lastCapturedPitchEdit = (int) pitchEdits.size() - 1;
+    }
+    lastCapturedEndSec = end;
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+}
+
+void SattariAutoPitchAudioProcessor::applyPitchEditAtSeconds (double seconds, PitchFrame& frame) const
+{
+    if (! frame.voiced || seconds < 0.0) return;
+    const juce::ScopedTryLock l (pitchEditLock);
+    if (! l.isLocked() || pitchEdits.empty()) return;
+
+    // Reverse scan makes the common playback case cheap. Do not early-break:
+    // capturing another pass after a host relocate can append an earlier-time
+    // region, so storage order is not guaranteed to remain chronological.
+    for (int i = (int) pitchEdits.size() - 1; i >= 0; --i)
+    {
+        const auto& e = pitchEdits[(size_t) i];
+        if (seconds >= e.startSec && seconds <= e.endSec)
+        {
+            if (! e.enabled)
+            {
+                frame.targetMidi = frame.midi;
+                frame.correctionCents = 0.0;
+            }
+            else
+            {
+                frame.targetMidi = (double) e.targetMidi;
+                frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
+            }
+            return;
+        }
+    }
+}
+
 SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::buildCorrectionFrame (PitchFrame detected) const
 {
     if (! detected.voiced)
@@ -2127,6 +2335,13 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     const int scaleIndex = effectiveScaleIndex();
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     int targetMidi = nearestScaleMidi (detected.midi, rootIndex, scaleName);
+
+    if (apvts.getRawParameterValue ("midiTarget")->load() > 0.5f)
+    {
+        const int held = midiTargetNote.load (std::memory_order_relaxed);
+        if (held >= 0)
+            targetMidi = held;
+    }
 
     // Edit Notes mask: bit-N of `enabledNotes` enables pitch-class N. If the
     // scale snap landed on a blocked note, search outward for the nearest
@@ -2246,13 +2461,19 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
         }
     }
 
-    const double limitedCents = juce::jlimit (-700.0, 700.0, frame.correctionCents * strength);
+    // Scale correction stays conservative, while explicit MIDI/graph targets may
+    // request a full octave. The shifters are already bounded to 0.5..2.0.
+    const bool exactTarget = apvts.getRawParameterValue ("midiTarget")->load() > 0.5f
+                          || apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f;
+    const double limit = exactTarget ? 1200.0 : 700.0;
+    const double limitedCents = juce::jlimit (-limit, limit, frame.correctionCents * strength);
     return std::pow (2.0, limitedCents / 1200.0);
 }
 
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    updateMidiTargets (midi);
     midiLearn.processMidi (midi);
 
     // Refresh the offline flag FIRST, before any sidechain/chroma work — pushSidechainBlock
@@ -2292,6 +2513,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
     const bool useKeyMap = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f;
+    double hostTimeSeconds = -1.0;
     bool chromaSourceActiveThisBlock = false;
     bool sidechainHasAudioThisBlock = false;
 
@@ -2314,6 +2536,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 hostBpmForBus.store (*bpm);
             if (auto t = pos->getTimeInSeconds())
             {
+                hostTimeSeconds = *t;
                 // Always publish the playhead so the editor's Key Map timeline can
                 // draw a position marker even when Use Key Map is off.
                 keyMapPlayheadSec.store (*t, std::memory_order_relaxed);
@@ -2435,7 +2658,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                     if (crepeResultVoiced.load (std::memory_order_relaxed) && chz > 0.0f)
                     {
                         forHist.frequencyHz = chz;
-                        forHist.midi        = midiFromHz (chz);
+                        forHist.midi        = midiFromHz (chz, currentReferenceHz());
                         forHist.confidence  = juce::jmax (forHist.confidence,
                                                           (double) crepeResultConf.load (std::memory_order_relaxed));
                         forHist.voiced      = true;
@@ -2498,7 +2721,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             {
                 PitchFrame nf = lastPitchFrame;
                 nf.frequencyHz = crHz;
-                nf.midi        = midiFromHz (crHz);
+                nf.midi        = midiFromHz (crHz, currentReferenceHz());
                 nf.confidence  = juce::jmax (nf.confidence, (double) crConf);
                 lastPitchFrame = buildCorrectionFrame (nf);
             }
@@ -2508,6 +2731,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             }
         }
     }
+
+    const double blockDuration = (double) numSamples / juce::jmax (1.0, currentSampleRate);
+    if (apvts.getRawParameterValue ("capturePitchEdits")->load() > 0.5f)
+        capturePitchEditAtSeconds (hostTimeSeconds, blockDuration, lastPitchFrame);
+    if (apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f)
+        applyPitchEditAtSeconds (hostTimeSeconds, lastPitchFrame);
 
     // Polyphonic mode retunes per-peak in the spectral vocoder below, so the mono
     // single-ratio smoother is held at unity and left unused in that mode.
@@ -3286,7 +3515,13 @@ bool SattariAutoPitchAudioProcessor::applyTraceContractJson (const juce::String&
     const double doNoHarmEvents = readObjectDouble (summary, "do_no_harm_events", 0.0);
 
     setParameterValue ("keyRoot", (float) rootToChoiceIndex (root));
-    setParameterValue ("scale", (float) scaleToChoiceIndex (scale));
+    const int extendedScale = scaleToChoiceIndex (scale);
+    const int legacyScale = extendedScale == 2 ? 2
+                          : (extendedScale == 1 || extendedScale == 3 || extendedScale == 4
+                             || extendedScale == 7 || extendedScale == 8 || extendedScale == 9
+                             || extendedScale == 11 || extendedScale == 12) ? 1 : 0;
+    setParameterValue ("scale", (float) legacyScale);
+    setParameterValue ("scaleMode", (float) extendedScale);
     setParameterValue ("style", (float) styleToChoiceIndex (style));
     setParameterValue ("traceConfidence", (float) juce::jlimit (0.0, 1.0, confidence));
 
@@ -3335,6 +3570,23 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
     }
     state.appendChild (km, nullptr);
 
+    juce::ValueTree edits ("PitchEdits");
+    {
+        const juce::ScopedLock l (pitchEditLock);
+        for (const auto& e : pitchEdits)
+        {
+            juce::ValueTree note ("Note");
+            note.setProperty ("start", e.startSec, nullptr);
+            note.setProperty ("end", e.endSec, nullptr);
+            note.setProperty ("source", e.sourceMidi, nullptr);
+            note.setProperty ("target", e.targetMidi, nullptr);
+            note.setProperty ("confidence", e.confidence, nullptr);
+            note.setProperty ("enabled", e.enabled, nullptr);
+            edits.appendChild (note, nullptr);
+        }
+    }
+    state.appendChild (edits, nullptr);
+
     midiLearn.saveTo (state);
 
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
@@ -3347,6 +3599,15 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        bool hasExtendedScale = false;
+        std::function<void (const juce::ValueTree&)> findExtendedScale = [&] (const juce::ValueTree& tree)
+        {
+            if (tree.getProperty ("id").toString() == "scaleMode")
+                hasExtendedScale = true;
+            for (int i = 0; i < tree.getNumChildren() && ! hasExtendedScale; ++i)
+                findExtendedScale (tree.getChild (i));
+        };
+        findExtendedScale (restored);
         lastTraceSummary = restored.getProperty ("lastTraceSummary", "No trace loaded").toString();
 
         // Invalidate a scan that predates this restored state, but never join it from
@@ -3377,9 +3638,42 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
             keyMapProgress.store (keyMap.empty() ? -1 : 100);
         }
 
+        auto edits = restored.getChildWithName ("PitchEdits");
+        {
+            // Loading a state without graph data must clear the current graph;
+            // otherwise a preset/project from another instance inherits stale notes.
+            std::vector<PitchEditEntry> rebuilt;
+            if (edits.isValid())
+            {
+                rebuilt.reserve ((size_t) juce::jmin (4096, edits.getNumChildren()));
+                for (int i = 0; i < edits.getNumChildren() && i < 4096; ++i)
+                {
+                    const auto note = edits.getChild (i);
+                    PitchEditEntry e;
+                    e.startSec = (double) note.getProperty ("start", 0.0);
+                    e.endSec = juce::jmax (e.startSec, (double) note.getProperty ("end", e.startSec));
+                    e.sourceMidi = juce::jlimit (0, 127, (int) note.getProperty ("source", 60));
+                    e.targetMidi = juce::jlimit (0, 127, (int) note.getProperty ("target", e.sourceMidi));
+                    e.confidence = juce::jlimit (0.0f, 1.0f, (float) (double) note.getProperty ("confidence", 0.0));
+                    e.enabled = (bool) note.getProperty ("enabled", true);
+                    rebuilt.push_back (e);
+                }
+            }
+            const juce::ScopedLock l (pitchEditLock);
+            pitchEdits = std::move (rebuilt);
+            pitchEdits.reserve (4096);
+            pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+        }
+
         midiLearn.loadFrom (restored);
 
         apvts.replaceState (restored);
+        if (! hasExtendedScale)
+        {
+            const int legacy = juce::jlimit (0, 2,
+                juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
+            setParameterValue ("scaleMode", (float) legacy);
+        }
     }
 }
 

@@ -8,16 +8,37 @@ Auto Pitch has two intentionally distinct audio paths:
 
 - **Monophonic vocal correction:** YIN detection by default, optional CREPE neural
   detection, per-note scale targeting, vibrato/flex controls, formant control,
-  editable pitch classes, and Natural, Classic, Modern Rap, Robot, and Big
-  Harmony styles.
+  editable pitch classes, MIDI note targeting, reference tuning, generated
+  vibrato, and Natural, Classic, Modern Rap, Robot, and Big Harmony styles.
 - **Polyphonic tonal correction:** a phase-vocoder path for sustained instruments
   and well-separated chords, with High Tracking, Tonal Focus, Scale Lock,
   polyphonic harmony, and whole-source Transpose to Key.
 
-The musical target can come from a manual key, live AutoKey, the cross-plugin
-Song Key bus, or an offline Key Map that follows modulations across a track.
+The musical target can come from a manual key (major/minor/chromatic, church
+modes, harmonic/melodic minor, pentatonics, or blues), held MIDI notes, live
+AutoKey, the cross-plugin Song Key bus, an offline Key Map that follows
+modulations across a track, or captured note objects in the Edit timeline.
 The UI reports which source and detector are actually active rather than hiding
 fallback behavior.
+
+## Three-part workflow
+
+- **Basic:** choose the sound source, effective key/mode, correction feel, and
+  Studio/Live engine. The large key control always shows whether Manual,
+  AutoKey, Key Map, or Song Key is authoritative.
+- **Pro:** tune detector/engine behaviour, reference pitch, MIDI targets,
+  formants, Flex-Tune, humanize, throat, vibrato, polyphonic scale lock, and the
+  modulation-aware Key Map scanner.
+- **Edit:** arm Capture, play the song, then drag captured note objects vertically
+  to retarget them or right-click to bypass individual corrections. Edits persist
+  in the host session and are applied by transport time.
+
+Factory starting points now cover natural correction, hard/vintage tuning,
+modern rap, robot, low-latency tracking, MIDI-directed tuning, graph editing,
+and generated natural vibrato.
+
+See [`docs/auto-pitch-parity.md`](../../docs/auto-pitch-parity.md) for the
+feature-by-feature implementation and remaining external SDK gates.
 
 ## Engines and measured baseline
 
@@ -65,6 +86,7 @@ them out of the package. Model distribution is separately gated by
 ```bash
 cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRender AutoPitchBench
 ./build/auto-pitch-neural/AutoPitchCoreContract
+./build/auto-pitch-neural/AutoPitchCoreContract --render-ui-edit /tmp/auto-pitch-edit.png
 ./build/auto-pitch-neural/AutoPitchRender --smoke
 ./build/auto-pitch-neural/AutoPitchRender --hitracktest
 ./build/auto-pitch-neural/AutoPitchBench
@@ -72,7 +94,11 @@ cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRe
 
 ## Truth label
 
-This is ready for structured internal testing, not a sale-ready release. The
-remaining gates are real-vocal listening across voice types, dense polyphonic
+This is ready for structured internal testing, not a sale-ready release. It now
+has the core workflows expected of a modern automatic tuner, but equivalence to
+Auto-Tune Pro is not claimed: ARA-style offline capture, AAX/Pro Tools delivery,
+advanced curve/line tools, note split/join, MusicXML/score integration, and a
+licensed proprietary-quality neural corpus remain external or future work. The
+release gates are real-vocal listening across voice types, dense polyphonic
 stress material, multi-instance/automation sessions in target DAWs, signed and
 notarized distribution, and a licensed model delivery decision.

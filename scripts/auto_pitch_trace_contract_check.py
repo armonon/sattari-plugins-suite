@@ -24,11 +24,20 @@ NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 REQUIRED_PARAMETER_IDS = [
     "keyRoot",
     "scale",
+    "scaleMode",
     "style",
     "amount",
     "speed",
     "doNoHarm",
     "traceConfidence",
+    "referenceDetune",
+    "followReference",
+    "midiTarget",
+    "capturePitchEdits",
+    "usePitchEdits",
+    "addVibrato",
+    "vibratoRate",
+    "vibratoOnset",
 ]
 
 

@@ -126,6 +126,36 @@ private:
 };
 
 // -----------------------------------------------------------------------------
+// PitchEditTimeline: captured note objects on the host timeline. Drag a block
+// vertically to retarget it; right-click toggles correction for that region.
+// -----------------------------------------------------------------------------
+class PitchEditTimeline final : public juce::Component
+{
+public:
+    using Entry = SattariAutoPitchAudioProcessor::PitchEditEntry;
+    std::function<void(int, int)> onTargetChanged;
+    std::function<void(int, bool)> onEnabledChanged;
+
+    void setData (std::vector<Entry> newEntries, double newPlayhead);
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+
+private:
+    juce::Rectangle<float> entryRect (int index) const;
+    int hitEntry (juce::Point<float>) const;
+    int minMidi() const;
+    int maxMidi() const;
+
+    std::vector<Entry> entries;
+    double playheadSec = 0.0;
+    double timelineDurationSec = 10.0;
+    int selected = -1;
+    int dragStartTarget = 60;
+    float dragStartY = 0.0f;
+};
+
+// -----------------------------------------------------------------------------
 // Editor proper.
 // -----------------------------------------------------------------------------
 class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
@@ -163,14 +193,14 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     // --- Tab strip ------------------------------------------------------------
-    juce::TextButton tabBasic { "BASIC" }, tabPro { "PRO" };
+    juce::TextButton tabBasic { "BASIC" }, tabPro { "PRO" }, tabEdit { "EDIT" };
     int currentTab = 0;
     float keyLock = 0.0f;   // smoothed detection-confidence for the readout meter
-    juce::Component basicPanel, proPanel;
+    juce::Component basicPanel, proPanel, editPanel;
 
     // --- Header (shared by both tabs) ----------------------------------------
     juce::Label title;
-    juce::ComboBox vocalRange, keyRoot, scale;
+    juce::ComboBox vocalRange, keyRoot, scale, scaleMode;
     juce::Label vocalRangeCaption;
     juce::ComboBox factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save" };
@@ -192,10 +222,12 @@ private:
     juce::ComboBox engineSelect;
     juce::Label engineCaption;
 
-    juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption;
+    juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption, styleCaptionLabel;
     juce::Slider retuneSpeed, flexTune, humanize;
-    juce::ToggleButton style;        // off = Modern, on = Classic
-    juce::Label modernLabel, classicLabel;
+    // Five real DSP styles are exposed directly. The previous two-position
+    // Modern/Classic switch could display "Modern" while a preset had actually
+    // selected Natural, Robot, or Big Harmony.
+    juce::ComboBox styleSelect;
 
     // --- Pro tab widgets -----------------------------------------------------
     juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
@@ -211,6 +243,10 @@ private:
     // --- Antares-class behaviour controls (Pro tab) --------------------------
     juce::ToggleButton classicMode { "Hard Tune" };   // instant/robotic retune — distinct from the Style=Classic character
     juce::Slider flexAmt, transition, throat, vibratoKnob;
+    juce::Slider addVibrato, vibratoRate, vibratoOnset, referenceDetune;
+    juce::Label addVibratoCaption, vibratoRateCaption, vibratoOnsetCaption, referenceDetuneCaption;
+    juce::ToggleButton followReference { "Follow song reference" };
+    juce::ToggleButton midiTarget { "Target notes from MIDI" };
     // Poly Harmony amount — adds an in-key diatonic-3rd voice in Polyphonic mode.
     juce::Slider polyHarmonyKnob;
     juce::Label  polyHarmonyCaption;
@@ -247,17 +283,29 @@ private:
     std::unique_ptr<juce::FileChooser> trackFileChooser;
     std::unique_ptr<ButtonAttachment> useKeyMapAttach;
 
+    // --- Edit tab ------------------------------------------------------------
+    PitchEditTimeline pitchEditTimeline;
+    juce::ToggleButton capturePitchEdits { "Capture notes" };
+    juce::ToggleButton usePitchEdits { "Use edited notes" };
+    juce::TextButton clearPitchEdits { "Clear" };
+    juce::Label pitchEditHelp, pitchEditStatus;
+    int pitchEditShownRevision = -1;
+    std::unique_ptr<ButtonAttachment> capturePitchEditsAttach, usePitchEditsAttach;
+
     void onScanTrackClicked();
 
     // --- APVTS attachments ---------------------------------------------------
-    std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach;
+    std::unique_ptr<ComboAttachment> vocalRangeAttach, keyRootAttach, scaleAttach, scaleModeAttach, styleAttach;
     std::unique_ptr<SliderAttachment> retuneSpeedAttach, flexTuneAttach, humanizeAttach,
                                        inputGainAttach, outputGainAttach, formantShiftAttach;
     std::unique_ptr<ButtonAttachment> autoKeyAttach, followKeyAttach,
                                        enableCorrectionAttach, doNoHarmAttach, formantPreserveAttach,
                                        polyphonicAttach, classicModeAttach;
-    std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach;
-    std::unique_ptr<ButtonAttachment> neuralPitchAttach, transposeModeAttach;
+    std::unique_ptr<SliderAttachment> flexAmtAttach, transitionAttach, throatAttach, vibratoAttach,
+                                      addVibratoAttach, vibratoRateAttach, vibratoOnsetAttach,
+                                      referenceDetuneAttach;
+    std::unique_ptr<ButtonAttachment> neuralPitchAttach, transposeModeAttach,
+                                      followReferenceAttach, midiTargetAttach;
     std::unique_ptr<SliderAttachment> transposeSemisAttach;
     std::unique_ptr<SliderAttachment> polyHarmonyAttach, highTrackAttach, tonalFocusAttach;
 

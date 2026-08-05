@@ -61,11 +61,13 @@ int main (int argc, char** argv)
     if (argc == 3
         && (std::strcmp (argv[1], "--render-ui") == 0
             || std::strcmp (argv[1], "--render-ui-min") == 0
-            || std::strcmp (argv[1], "--render-ui-pro") == 0))
+            || std::strcmp (argv[1], "--render-ui-pro") == 0
+            || std::strcmp (argv[1], "--render-ui-edit") == 0))
     {
         SattariAutoPitchAudioProcessor processor;
         const bool minimumSize = std::strcmp (argv[1], "--render-ui-min") == 0;
         const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
+        const bool editTab = std::strcmp (argv[1], "--render-ui-edit") == 0;
         const juce::File destination (argv[2]);
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         bool ok = editor != nullptr;
@@ -74,6 +76,8 @@ int main (int argc, char** argv)
             editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 680 : 700);
             if (proTab)
                 ok = clickButtonNamed (*editor, "PRO");
+            if (editTab)
+                ok = clickButtonNamed (*editor, "EDIT");
             if (ok)
                 ok = sattari::test::renderComponentToPng (*editor, destination);
         }
@@ -86,8 +90,30 @@ int main (int argc, char** argv)
     processor.prepareToPlay (48000.0, 512);
 
     auto& apvts = processor.parameters();
+    const juce::StringArray parityParameters {
+        "scaleMode", "referenceDetune", "followReference", "midiTarget",
+        "capturePitchEdits", "usePitchEdits", "addVibrato", "vibratoRate", "vibratoOnset"
+    };
+    for (const auto& id : parityParameters)
+        if (apvts.getParameter (id) == nullptr)
+        {
+            std::cerr << "missing parity parameter: " << id << "\n";
+            return 1;
+        }
+
+    setParameter (apvts, "followReference", 0.0f);
+    setParameter (apvts, "referenceDetune", 100.0f);
+    if (std::abs (processor.currentReferenceHz() - 466.1637615) > 0.01)
+    {
+        std::cerr << "reference detune did not move A4 by +100 cents: "
+                  << processor.currentReferenceHz() << " Hz\n";
+        return 1;
+    }
+    setParameter (apvts, "referenceDetune", 0.0f);
+
     setParameter (apvts, "keyRoot", 0.0f); // C
     setParameter (apvts, "scale", 0.0f); // major
+    setParameter (apvts, "scaleMode", 0.0f); // major
     setParameter (apvts, "style", 2.0f); // hard
     setParameter (apvts, "amount", 1.0f);
     setParameter (apvts, "speed", 1.0f);
@@ -156,6 +182,7 @@ int main (int argc, char** argv)
         auto& nApvts = noiseProc.parameters();
         setParameter (nApvts, "keyRoot", 9.0f);   // A
         setParameter (nApvts, "scale", 0.0f);     // major
+        setParameter (nApvts, "scaleMode", 0.0f); // major
         setParameter (nApvts, "enableCorrection", 1.0f);
         setParameter (nApvts, "doNoHarm", 0.0f);
         setParameter (nApvts, "vocalRange", 0.0f); // Wide
@@ -205,6 +232,7 @@ int main (int argc, char** argv)
         auto& modeApvts = modeProcessor.parameters();
         setParameter (modeApvts, "keyRoot", 0.0f);
         setParameter (modeApvts, "scale", 0.0f);
+        setParameter (modeApvts, "scaleMode", 0.0f);
         setParameter (modeApvts, "style", (float) mode);
         setParameter (modeApvts, "amount", 1.0f);
         setParameter (modeApvts, "speed", 1.0f);
@@ -242,6 +270,53 @@ int main (int argc, char** argv)
         {
             std::cerr << "mode did not produce audible correction: " << expectedModes[mode]
                       << ", changedEnergy=" << modeChangedEnergy << "\n";
+            return 1;
+        }
+    }
+
+    // Extended scales are real correction modes, not labels grafted onto the
+    // legacy three-choice parameter. The summary reports the effective mode.
+    setParameter (apvts, "scaleMode", 3.0f); // Dorian
+    if (! processor.getKeyDetectionTabSummary().containsIgnoreCase ("dorian"))
+    {
+        std::cerr << "extended scale mode did not become effective: "
+                  << processor.getKeyDetectionTabSummary() << "\n";
+        return 1;
+    }
+
+    // Held MIDI must become an exact note target (independent of MIDI Learn).
+    {
+        SattariAutoPitchAudioProcessor midiProcessor;
+        midiProcessor.prepareToPlay (sampleRate, blockSize);
+        auto& m = midiProcessor.parameters();
+        setParameter (m, "keyRoot", 0.0f);
+        setParameter (m, "scale", 0.0f);
+        setParameter (m, "scaleMode", 0.0f);
+        setParameter (m, "midiTarget", 1.0f);
+        setParameter (m, "amount", 1.0f);
+        setParameter (m, "speed", 1.0f);
+        setParameter (m, "doNoHarm", 0.0f);
+
+        double midiPhase = 0.0;
+        for (int block = 0; block < 60; ++block)
+        {
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float sample = 0.18f * std::sin ((float) midiPhase);
+                midiPhase += juce::MathConstants<double>::twoPi * 440.0 / sampleRate;
+                buffer.setSample (0, i, sample);
+                buffer.setSample (1, i, sample);
+            }
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 72, (juce::uint8) 100), 0); // C5
+            midiProcessor.processBlock (buffer, midi);
+        }
+        const auto midiStatus = midiProcessor.getLiveStatusSummary();
+        if (! midiStatus.contains (juce::String::fromUTF8 ("A4 \xe2\x86\x92 C5")))
+        {
+            std::cerr << "MIDI note target was not applied: " << midiStatus << "\n";
             return 1;
         }
     }

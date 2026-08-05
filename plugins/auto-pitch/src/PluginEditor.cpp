@@ -4,6 +4,26 @@
 namespace
 {
 const juce::StringArray noteNames { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+const juce::StringArray scaleNames {
+    "Major", "Minor", "Chromatic", "Dorian", "Phrygian", "Lydian",
+    "Mixolydian", "Locrian", "Harmonic Minor", "Melodic Minor",
+    "Major Pentatonic", "Minor Pentatonic", "Blues"
+};
+constexpr std::array<unsigned short, 13> uiScaleMasks {
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10),
+    0x0fffu,
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10),
+    (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<6)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10),
+    (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<8)|(1u<<10),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11),
+    (1u<<0)|(1u<<2)|(1u<<4)|(1u<<7)|(1u<<9),
+    (1u<<0)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<10),
+    (1u<<0)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<10)
+};
 }
 
 // ============================================================================
@@ -94,17 +114,12 @@ void KeyPillRow::paint (juce::Graphics& g)
     bounds.removeFromTop (6.0f);
     auto botRow = bounds.removeFromTop (pillH);
 
-    // Scale intervals (matches scaleChoices: 0=major, 1=minor, 2=chromatic).
+    // Scale intervals mirror the processor's stable scale-index table.
     auto inScale = [&] (int pc) -> bool
     {
         const int degree = ((pc - keyRootIdx) % 12 + 12) % 12;
-        if (scaleIdx == 2) return true; // chromatic
-        if (scaleIdx == 0)
-            return degree == 0 || degree == 2 || degree == 4 || degree == 5
-                || degree == 7 || degree == 9 || degree == 11;
-        // minor
-        return degree == 0 || degree == 2 || degree == 3 || degree == 5
-            || degree == 7 || degree == 8 || degree == 10;
+        const int idx = juce::jlimit (0, (int) uiScaleMasks.size() - 1, scaleIdx);
+        return (uiScaleMasks[(size_t) idx] & (1u << degree)) != 0;
     };
 
     auto drawPill = [&] (juce::Rectangle<float> r, int pc)
@@ -246,9 +261,8 @@ void KeyButton::paint (juce::Graphics& g)
 
     // Big key name (centre) — the headline the whole plugin is tuning to.
     static const char* names[]   = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
-    static const char* scaleNm[] = { "major", "minor", "chromatic" };
     const juce::String keyText = juce::String (names[juce::jlimit (0, 11, rootIdx)])
-                               + "  " + scaleNm[juce::jlimit (0, 2, scaleIndex)];
+                               + "  " + scaleNames[juce::jlimit (0, scaleNames.size() - 1, scaleIndex)].toLowerCase();
     g.setColour (juce::Colour (sattari::brand::kTextPrimary));
     g.setFont (sattari::brand::fontOptions (juce::jmin (32.0f, inner.getHeight() * 0.9f), juce::Font::bold));
     g.drawText (keyText, inner, juce::Justification::centredLeft, false);
@@ -269,12 +283,12 @@ void KeyButton::mouseDown (const juce::MouseEvent&)
     for (int root = 0; root < 12; ++root)
     {
         juce::PopupMenu sub;
-        sub.addItem (100 + root * 2 + 0, "Major", true, mode == Mode::Manual && rootIdx == root && scaleIndex == 0);
-        sub.addItem (100 + root * 2 + 1, "Minor", true, mode == Mode::Manual && rootIdx == root && scaleIndex == 1);
+        for (int scale = 0; scale < scaleNames.size(); ++scale)
+            sub.addItem (100 + root * 20 + scale, scaleNames[scale], true,
+                         mode == Mode::Manual && rootIdx == root && scaleIndex == scale);
         manual.addSubMenu (names[root], sub);
     }
     menu.addSubMenu ("Set key manually", manual);
-    menu.addItem (3, "Chromatic  (correct to nearest semitone)", true, mode == Mode::Manual && scaleIndex == 2);
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
         [this] (int id)
@@ -283,10 +297,157 @@ void KeyButton::mouseDown (const juce::MouseEvent&)
             repaint();
             if (id == 1)       { if (onLinkAuto)   onLinkAuto(); }
             else if (id == 2)  { if (onLinkFollow) onLinkFollow(); }
-            else if (id == 3)  { if (onManualKey)  onManualKey (rootIdx, 2); }   // chromatic
-            else if (id >= 100){ const int root = (id - 100) / 2, sc = (id - 100) % 2;
+            else if (id >= 100){ const int root = (id - 100) / 20, sc = (id - 100) % 20;
                                  if (onManualKey) onManualKey (root, sc); }
         });
+}
+
+// ============================================================================
+// PitchEditTimeline
+// ============================================================================
+void PitchEditTimeline::setData (std::vector<Entry> newEntries, double newPlayhead)
+{
+    entries = std::move (newEntries);
+    playheadSec = juce::jmax (0.0, newPlayhead);
+    timelineDurationSec = 10.0;
+    for (const auto& entry : entries)
+        timelineDurationSec = juce::jmax (timelineDurationSec, entry.endSec + 1.0);
+    if (selected >= (int) entries.size()) selected = -1;
+    repaint();
+}
+
+int PitchEditTimeline::minMidi() const
+{
+    int result = 60;
+    if (! entries.empty())
+    {
+        result = 127;
+        for (const auto& e : entries) result = juce::jmin (result, e.sourceMidi, e.targetMidi);
+    }
+    return juce::jlimit (0, 120, result - 2);
+}
+
+int PitchEditTimeline::maxMidi() const
+{
+    int result = 72;
+    if (! entries.empty())
+    {
+        result = 0;
+        for (const auto& e : entries) result = juce::jmax (result, e.sourceMidi, e.targetMidi);
+    }
+    return juce::jlimit (7, 127, result + 2);
+}
+
+juce::Rectangle<float> PitchEditTimeline::entryRect (int index) const
+{
+    if (index < 0 || index >= (int) entries.size()) return {};
+    const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
+    const int lo = minMidi(), hi = maxMidi();
+    const auto& e = entries[(size_t) index];
+    const float x0 = juce::jmap ((float) e.startSec, 0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
+    const float x1 = juce::jmap ((float) e.endSec,   0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
+    const float row = plot.getHeight() / (float) juce::jmax (1, hi - lo + 1);
+    const float y = plot.getBottom() - ((float) (e.targetMidi - lo) + 1.0f) * row;
+    return { x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (5.0f, row - 1.0f) };
+}
+
+int PitchEditTimeline::hitEntry (juce::Point<float> point) const
+{
+    for (int i = (int) entries.size() - 1; i >= 0; --i)
+        if (entryRect (i).expanded (2.0f).contains (point)) return i;
+    return -1;
+}
+
+void PitchEditTimeline::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    const auto plot = bounds.reduced (44.0f, 20.0f);
+    const auto accent = juce::Colour (sattari::brand::productAccent ("auto-pitch"));
+    g.setColour (juce::Colour (sattari::brand::kPanel));
+    g.fillRoundedRectangle (bounds, 14.0f);
+    g.setColour (juce::Colour (sattari::brand::kHairline));
+    g.drawRoundedRectangle (bounds.reduced (0.5f), 14.0f, 1.0f);
+
+    const int lo = minMidi(), hi = maxMidi();
+    const float row = plot.getHeight() / (float) juce::jmax (1, hi - lo + 1);
+    g.setFont (sattari::brand::fontOptions (9.0f));
+    for (int midi = lo; midi <= hi; ++midi)
+    {
+        const float y = plot.getBottom() - ((float) (midi - lo) + 0.5f) * row;
+        const bool cLine = midi % 12 == 0;
+        g.setColour (juce::Colour (cLine ? sattari::brand::kHairline : sattari::brand::kPanelRaised));
+        g.drawHorizontalLine ((int) y, plot.getX(), plot.getRight());
+        if (cLine)
+        {
+            g.setColour (juce::Colour (sattari::brand::kTextMuted));
+            g.drawText ("C" + juce::String (midi / 12 - 1), 4, (int) y - 7, 36, 14,
+                        juce::Justification::centredRight, false);
+        }
+    }
+
+    static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    for (int i = 0; i < (int) entries.size(); ++i)
+    {
+        const auto& e = entries[(size_t) i];
+        auto r = entryRect (i);
+        const auto colour = e.enabled ? accent : juce::Colour (sattari::brand::kTextFaint);
+        g.setColour (colour.withAlpha (i == selected ? 0.95f : 0.62f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (colour.brighter (0.2f));
+        g.drawRoundedRectangle (r, 4.0f, i == selected ? 2.0f : 1.0f);
+        if (r.getWidth() > 30.0f)
+        {
+            const int pc = ((e.targetMidi % 12) + 12) % 12;
+            g.setColour (juce::Colour (sattari::brand::kBackground));
+            g.setFont (sattari::brand::fontOptions (9.0f, juce::Font::bold));
+            g.drawText (names[pc], r.toNearestInt(), juce::Justification::centred, false);
+        }
+    }
+
+    if (playheadSec <= timelineDurationSec)
+    {
+        const float x = juce::jmap ((float) playheadSec, 0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
+        g.setColour (accent.withAlpha (0.9f));
+        g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom());
+    }
+
+    if (entries.empty())
+    {
+        g.setColour (juce::Colour (sattari::brand::kTextMuted));
+        g.setFont (sattari::brand::fontOptions (14.0f));
+        g.drawText ("Arm Capture notes and play the vocal", plot.toNearestInt(),
+                    juce::Justification::centred, false);
+    }
+}
+
+void PitchEditTimeline::mouseDown (const juce::MouseEvent& e)
+{
+    selected = hitEntry (e.position);
+    if (selected < 0) { repaint(); return; }
+    dragStartY = e.position.y;
+    dragStartTarget = entries[(size_t) selected].targetMidi;
+    if (e.mods.isPopupMenu())
+    {
+        const bool next = ! entries[(size_t) selected].enabled;
+        entries[(size_t) selected].enabled = next;
+        if (onEnabledChanged) onEnabledChanged (selected, next);
+    }
+    repaint();
+}
+
+void PitchEditTimeline::mouseDrag (const juce::MouseEvent& e)
+{
+    if (selected < 0 || selected >= (int) entries.size()) return;
+    const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
+    const float row = plot.getHeight() / (float) juce::jmax (1, maxMidi() - minMidi() + 1);
+    const int delta = juce::roundToInt ((dragStartY - e.position.y) / juce::jmax (1.0f, row));
+    const int target = juce::jlimit (0, 127, dragStartTarget + delta);
+    if (entries[(size_t) selected].targetMidi != target)
+    {
+        entries[(size_t) selected].targetMidi = target;
+        if (onTargetChanged) onTargetChanged (selected, target);
+        repaint();
+    }
 }
 
 // ============================================================================
@@ -298,8 +459,8 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 {
     setLookAndFeel (&lookAndFeel);
     setResizable (true, true);
-    setResizeLimits (960, 680, 1600, 1000);
-    setSize (1120, 700);
+    setResizeLimits (960, 760, 1600, 1100);
+    setSize (1120, 820);
 
     // Header
     // The shared title treatment already paints the full Sattari mark. Keep the
@@ -317,6 +478,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // key control, so we don't add keyRoot/scale/keyScaleCaption to the view.
     keyRoot.addItemList ({ "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
     scale.addItemList ({ "Major", "Minor", "Chromatic" }, 1);
+    scaleMode.addItemList (scaleNames, 1);
     for (auto* c : { &vocalRange, &factoryPresets, &userPresets })
         addAndMakeVisible (*c);
 
@@ -343,17 +505,22 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // Tabs
     tabBasic.setClickingTogglesState (true);
     tabPro.setClickingTogglesState (true);
+    tabEdit.setClickingTogglesState (true);
     tabBasic.setRadioGroupId (10);
     tabPro.setRadioGroupId (10);
+    tabEdit.setRadioGroupId (10);
     tabBasic.setToggleState (true, juce::dontSendNotification);
     tabBasic.onClick = [this] { showTab (0); };
     tabPro.onClick   = [this] { showTab (1); };
+    tabEdit.onClick  = [this] { showTab (2); };
     addAndMakeVisible (tabBasic);
     addAndMakeVisible (tabPro);
+    addAndMakeVisible (tabEdit);
 
     // Panels
     addAndMakeVisible (basicPanel);
     addAndMakeVisible (proPanel);
+    addAndMakeVisible (editPanel);
 
     // ----- Basic -----
     // One unified tactile key control (replaces the AutoKey / Follow toggles +
@@ -377,7 +544,12 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         setKeyParam ("autoKey", 0.0f);
         setKeyParam ("followSongKey", 0.0f);
         setKeyParam ("keyRoot", (float) root);
-        setKeyParam ("scale", (float) scaleIdx);
+        const int legacy = scaleIdx == 2 ? 2
+                         : (scaleIdx == 1 || scaleIdx == 3 || scaleIdx == 4
+                            || scaleIdx == 7 || scaleIdx == 8 || scaleIdx == 9
+                            || scaleIdx == 11 || scaleIdx == 12) ? 1 : 0;
+        setKeyParam ("scale", (float) legacy);
+        setKeyParam ("scaleMode", (float) scaleIdx);
     };
 
     // Three explicit action buttons under the readout — the discoverable controls.
@@ -392,24 +564,24 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         static const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
         auto& a = audioProcessor.parameters();
         const int curRoot  = juce::jlimit (0, 11, (int) std::round (a.getRawParameterValue ("keyRoot")->load()));
-        const int curScale = juce::jlimit (0,  2, (int) std::round (a.getRawParameterValue ("scale")->load()));
+        const int curScale = juce::jlimit (0, scaleNames.size() - 1,
+            (int) std::round (a.getRawParameterValue ("scaleMode")->load()));
         const bool manual  = a.getRawParameterValue ("autoKey")->load() < 0.5f
                           && a.getRawParameterValue ("followSongKey")->load() < 0.5f;
         juce::PopupMenu menu;
         for (int root = 0; root < 12; ++root)
         {
             juce::PopupMenu sub;
-            sub.addItem (100 + root * 2 + 0, "Major", true, manual && curRoot == root && curScale == 0);
-            sub.addItem (100 + root * 2 + 1, "Minor", true, manual && curRoot == root && curScale == 1);
+            for (int scaleIdx = 0; scaleIdx < scaleNames.size(); ++scaleIdx)
+                sub.addItem (100 + root * 20 + scaleIdx, scaleNames[scaleIdx], true,
+                             manual && curRoot == root && curScale == scaleIdx);
             menu.addSubMenu (names[root], sub);
         }
-        menu.addSeparator();
-        menu.addItem (3, "Chromatic  (nearest semitone)", true, manual && curScale == 2);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&setKeyBtn),
             [this, curRoot] (int id)
             {
-                if (id == 3)         { if (keyButton.onManualKey) keyButton.onManualKey (curRoot, 2); }
-                else if (id >= 100)  { const int root = (id - 100) / 2, sc = (id - 100) % 2;
+                juce::ignoreUnused (curRoot);
+                if (id >= 100)  { const int root = (id - 100) / 20, sc = (id - 100) % 20;
                                        if (keyButton.onManualKey) keyButton.onManualKey (root, sc); }
             });
     };
@@ -482,12 +654,10 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     basicPanel.addAndMakeVisible (flexTuneCaption);
     basicPanel.addAndMakeVisible (humanizeCaption);
 
-    style.setButtonText ("");
-    basicPanel.addAndMakeVisible (style);
-    styleCaption (modernLabel, "MODERN");
-    styleCaption (classicLabel, "CLASSIC");
-    basicPanel.addAndMakeVisible (modernLabel);
-    basicPanel.addAndMakeVisible (classicLabel);
+    styleCaption (styleCaptionLabel, "STYLE");
+    styleSelect.addItemList ({ "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" }, 1);
+    basicPanel.addAndMakeVisible (styleCaptionLabel);
+    basicPanel.addAndMakeVisible (styleSelect);
 
     styleCaption (detuneLabel, "Detune live");
     basicPanel.addAndMakeVisible (detuneLabel);
@@ -615,6 +785,30 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (flexAmtCaption);
     proPanel.addAndMakeVisible (transitionCaption);
     proPanel.addAndMakeVisible (throatCaption);
+
+    // Full vibrato creation controls: preserve the singer's vibrato above, or
+    // generate a new one with independent depth, rate, and onset.
+    for (auto* s : { &addVibrato, &vibratoRate, &vibratoOnset })
+        styleKnob (*s);
+    addVibrato.setTextValueSuffix (" ct");
+    vibratoRate.setTextValueSuffix (" Hz");
+    vibratoOnset.setTextValueSuffix (" ms");
+    styleCaption (addVibratoCaption, "ADD VIBRATO");
+    styleCaption (vibratoRateCaption, "RATE");
+    styleCaption (vibratoOnsetCaption, "ONSET");
+    for (auto* c : { &addVibratoCaption, &vibratoRateCaption, &vibratoOnsetCaption })
+        proPanel.addAndMakeVisible (*c);
+    for (auto* s : { &addVibrato, &vibratoRate, &vibratoOnset })
+        proPanel.addAndMakeVisible (*s);
+
+    referenceDetune.setSliderStyle (juce::Slider::LinearHorizontal);
+    referenceDetune.setTextBoxStyle (juce::Slider::TextBoxRight, false, 68, 20);
+    referenceDetune.setTextValueSuffix (" ct");
+    styleCaption (referenceDetuneCaption, "REFERENCE TUNING");
+    proPanel.addAndMakeVisible (referenceDetuneCaption);
+    proPanel.addAndMakeVisible (referenceDetune);
+    proPanel.addAndMakeVisible (followReference);
+    proPanel.addAndMakeVisible (midiTarget);
     // loadTraceButton is a dev-only JSON trace import. Plumbing kept for the
     // contract test (loadTraceFromClipboard) but the button stays off-UI in
     // shipping builds - it's not a user feature.
@@ -655,28 +849,38 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
     };
 
+    // ----- Edit -----
+    editPanel.addAndMakeVisible (capturePitchEdits);
+    editPanel.addAndMakeVisible (usePitchEdits);
+    editPanel.addAndMakeVisible (clearPitchEdits);
+    editPanel.addAndMakeVisible (pitchEditTimeline);
+    editPanel.addAndMakeVisible (pitchEditHelp);
+    editPanel.addAndMakeVisible (pitchEditStatus);
+    pitchEditHelp.setText (
+        "Play with Capture armed to create note objects. Drag a note vertically to retarget; right-click to bypass it.",
+        juce::dontSendNotification);
+    pitchEditHelp.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    pitchEditHelp.setJustificationType (juce::Justification::centredLeft);
+    pitchEditStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+    clearPitchEdits.onClick = [this] { audioProcessor.clearPitchEdits(); };
+    pitchEditTimeline.onTargetChanged = [this] (int index, int target) {
+        audioProcessor.setPitchEditTarget (index, target);
+    };
+    pitchEditTimeline.onEnabledChanged = [this] (int index, bool enabled) {
+        audioProcessor.setPitchEditEnabled (index, enabled);
+    };
+
     // Attachments
     auto& params = audioProcessor.parameters();
     vocalRangeAttach     = std::make_unique<ComboAttachment> (params, "vocalRange", vocalRange);
     keyRootAttach        = std::make_unique<ComboAttachment> (params, "keyRoot", keyRoot);
     scaleAttach          = std::make_unique<ComboAttachment> (params, "scale", scale);
+    scaleModeAttach      = std::make_unique<ComboAttachment> (params, "scaleMode", scaleMode);
 
     autoKeyAttach        = std::make_unique<ButtonAttachment> (params, "autoKey", autoKey);
     followKeyAttach      = std::make_unique<ButtonAttachment> (params, "followSongKey", followKey);
 
-    // Style is a Choice param (5 modes), not Bool. The Modern/Classic toggle maps
-    // off=Modern Rap (idx 2), on=Classic (idx 1). Other style values still live
-    // and can be selected by factory presets; the toggle just reflects whichever
-    // of those two is currently active.
-    style.onClick = [this] {
-        const int idx = style.getToggleState() ? 1 : 2;
-        if (auto* param = audioProcessor.parameters().getParameter ("style"))
-        {
-            param->beginChangeGesture();
-            param->setValueNotifyingHost (param->convertTo0to1 ((float) idx));
-            param->endChangeGesture();
-        }
-    };
+    styleAttach           = std::make_unique<ComboAttachment> (params, "style", styleSelect);
 
     retuneSpeedAttach    = std::make_unique<SliderAttachment> (params, "speed", retuneSpeed);
     flexTuneAttach       = std::make_unique<SliderAttachment> (params, "amount", flexTune);
@@ -697,8 +901,16 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     transitionAttach       = std::make_unique<SliderAttachment> (params, "transition", transition);
     throatAttach           = std::make_unique<SliderAttachment> (params, "throat", throat);
     vibratoAttach          = std::make_unique<SliderAttachment> (params, "vibrato", vibratoKnob);
+    addVibratoAttach       = std::make_unique<SliderAttachment> (params, "addVibrato", addVibrato);
+    vibratoRateAttach      = std::make_unique<SliderAttachment> (params, "vibratoRate", vibratoRate);
+    vibratoOnsetAttach     = std::make_unique<SliderAttachment> (params, "vibratoOnset", vibratoOnset);
+    referenceDetuneAttach  = std::make_unique<SliderAttachment> (params, "referenceDetune", referenceDetune);
     neuralPitchAttach      = std::make_unique<ButtonAttachment> (params, "neuralPitch", neuralPitch);
     transposeModeAttach    = std::make_unique<ButtonAttachment> (params, "xposeMode", transposeMode);
+    followReferenceAttach  = std::make_unique<ButtonAttachment> (params, "followReference", followReference);
+    midiTargetAttach       = std::make_unique<ButtonAttachment> (params, "midiTarget", midiTarget);
+    capturePitchEditsAttach = std::make_unique<ButtonAttachment> (params, "capturePitchEdits", capturePitchEdits);
+    usePitchEditsAttach     = std::make_unique<ButtonAttachment> (params, "usePitchEdits", usePitchEdits);
     transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
 
     // Paint a meaningful engine value on the very first frame. Previously this
@@ -737,16 +949,34 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
     using PV = sattari::presets::SattariPresetManager::PresetValues;
     presetManager.addFactoryPreset ("Natural", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.6f},{"speed",0.4f},{"doNoHarm",1},
-        {"formantPreserve",1},{"formantShift",0},{"lowLatency",0} });
+        {"formantPreserve",1},{"formantShift",0},{"classicMode",0},{"flexTune",0.55f},
+        {"humanize",0.55f},{"lowLatency",0},{"liveEngine",0} });
     presetManager.addFactoryPreset ("Hard Tune", PV {
         {"style",1},{"enableCorrection",1},{"amount",1.0f},{"speed",1.0f},{"doNoHarm",0},
-        {"formantPreserve",1},{"formantShift",0},{"lowLatency",0} });
+        {"formantPreserve",1},{"formantShift",0},{"classicMode",1},{"flexTune",0.0f},
+        {"humanize",0.0f},{"transition",0.0f},{"lowLatency",0} });
     presetManager.addFactoryPreset ("Modern Rap", PV {
         {"style",2},{"enableCorrection",1},{"amount",0.95f},{"speed",0.9f},{"doNoHarm",0},
-        {"formantPreserve",1},{"formantShift",0},{"lowLatency",1} });
+        {"formantPreserve",1},{"formantShift",0},{"classicMode",0},{"flexTune",0.08f},
+        {"humanize",0.08f},{"transition",0.08f},{"lowLatency",1},{"liveEngine",1} });
     presetManager.addFactoryPreset ("Robot", PV {
         {"style",3},{"enableCorrection",1},{"amount",1.0f},{"speed",1.0f},{"doNoHarm",0},
-        {"formantPreserve",0},{"formantShift",0},{"lowLatency",1} });
+        {"formantPreserve",0},{"formantShift",0},{"classicMode",1},{"flexTune",0.0f},
+        {"humanize",0.0f},{"vibrato",0.0f},{"lowLatency",1},{"liveEngine",1} });
+    presetManager.addFactoryPreset ("Live Tracking", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.72f},{"speed",0.62f},{"doNoHarm",1},
+        {"formantPreserve",1},{"classicMode",0},{"flexTune",0.32f},{"humanize",0.35f},
+        {"liveEngine",1},{"lowLatency",1} });
+    presetManager.addFactoryPreset ("MIDI Directed", PV {
+        {"style",0},{"enableCorrection",1},{"amount",1.0f},{"speed",0.82f},{"doNoHarm",1},
+        {"formantPreserve",1},{"midiTarget",1},{"classicMode",0},{"liveEngine",1} });
+    presetManager.addFactoryPreset ("Graph Editor", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.9f},{"speed",0.72f},{"doNoHarm",1},
+        {"formantPreserve",1},{"capturePitchEdits",1},{"usePitchEdits",1},{"classicMode",0} });
+    presetManager.addFactoryPreset ("Natural Vibrato", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.68f},{"speed",0.48f},{"doNoHarm",1},
+        {"formantPreserve",1},{"vibrato",0.65f},{"addVibrato",18.0f},{"vibratoRate",5.4f},
+        {"vibratoOnset",380.0f},{"classicMode",0} });
     presetManager.addFactoryPreset ("Deeper Throat", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.7f},{"speed",0.5f},{"doNoHarm",1},
         {"formantPreserve",1},{"formantShift",-3},{"lowLatency",0} });
@@ -809,12 +1039,26 @@ void SattariAutoPitchAudioProcessorEditor::showTab (int idx)
     currentTab = idx;
     basicPanel.setVisible (idx == 0);
     proPanel.setVisible   (idx == 1);
+    editPanel.setVisible  (idx == 2);
 }
 
 void SattariAutoPitchAudioProcessorEditor::timerCallback()
 {
     const auto snap = audioProcessor.getLiveSnapshot();
     noteDisplay.setSnapshot (snap);
+
+    if (currentTab == 2)
+    {
+        auto edits = audioProcessor.getPitchEdits();
+        const int revision = audioProcessor.getPitchEditRevision();
+        pitchEditTimeline.setData (edits, audioProcessor.getKeyMapPlayheadSec());
+        pitchEditShownRevision = revision;
+        pitchEditStatus.setText (juce::String ((int) edits.size()) + " note objects"
+            + juce::String::fromUTF8 ("   \xc2\xb7   ")
+            + juce::String (audioProcessor.parameters().getRawParameterValue ("usePitchEdits")->load() > 0.5f
+                                ? "edited playback active" : "edited playback off"),
+            juce::dontSendNotification);
+    }
 
     // Keep the Scale Lock macro lit only while it is actually armed (Polyphonic + AutoKey),
     // so toggling either underlying control directly stays reflected.
@@ -946,11 +1190,13 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     const bool xposeOn = ap.getRawParameterValue ("xposeMode")->load() > 0.5f;
     const bool correctionActive = corrOn && ! xposeOn;
     juce::Component* correctionControls[] = {
-        &retuneSpeed, &flexTune, &humanize, &style, &modernLabel, &classicLabel,
+        &retuneSpeed, &flexTune, &humanize, &styleSelect, &styleCaptionLabel,
         &retuneSpeedCaption, &flexTuneCaption, &humanizeCaption, &pillRow, &editNotesLabel,
         &flexAmt, &transition, &throat, &vibratoKnob, &classicMode, &doNoHarm,
         &formantPreserve, &polyphonic, &formantShift, &flexAmtCaption, &transitionCaption,
-        &throatCaption, &vibratoCaption, &formantCaption
+        &throatCaption, &vibratoCaption, &formantCaption, &addVibrato, &vibratoRate,
+        &vibratoOnset, &addVibratoCaption, &vibratoRateCaption, &vibratoOnsetCaption,
+        &midiTarget
     };
     for (auto* c : correctionControls)
         setControlActive (*c, correctionActive);
@@ -1007,12 +1253,15 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     tabBasic.setBounds (tabRow.removeFromLeft (90));
     tabRow.removeFromLeft (6);
     tabPro.setBounds (tabRow.removeFromLeft (90));
+    tabRow.removeFromLeft (6);
+    tabEdit.setBounds (tabRow.removeFromLeft (90));
 
     area.removeFromTop (10);
 
     // Panels share the body area
     basicPanel.setBounds (area);
     proPanel.setBounds (area);
+    editPanel.setBounds (area);
 
     // ---- Basic panel ----
     auto bArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (4);
@@ -1063,10 +1312,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     humanize.setBounds (humanizeCell);
 
     right.removeFromTop (12);
-    auto styleRow = right.removeFromTop (30);
-    modernLabel.setBounds (styleRow.removeFromLeft (70));
-    style.setBounds (styleRow.removeFromLeft (50));
-    classicLabel.setBounds (styleRow.removeFromLeft (70));
+    styleCaptionLabel.setBounds (right.removeFromTop (14));
+    styleSelect.setBounds (right.removeFromTop (30));
 
     // ---- Pro panel ----
     auto pArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (8);
@@ -1074,18 +1321,20 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     pArea.removeFromLeft (12);
     auto pRight = pArea;
 
-    enableCorrection.setBounds (pLeft.removeFromTop (28));
+    auto toggles1 = pLeft.removeFromTop (28);
+    enableCorrection.setBounds (toggles1.removeFromLeft (toggles1.getWidth() / 2));
+    doNoHarm.setBounds (toggles1);
     pLeft.removeFromTop (4);
-    doNoHarm.setBounds (pLeft.removeFromTop (28));
+    auto toggles2 = pLeft.removeFromTop (28);
+    formantPreserve.setBounds (toggles2.removeFromLeft (toggles2.getWidth() / 2));
+    polyphonic.setBounds (toggles2);
     pLeft.removeFromTop (4);
-    formantPreserve.setBounds (pLeft.removeFromTop (28));
-    pLeft.removeFromTop (4);
-    polyphonic.setBounds (pLeft.removeFromTop (28));
-    pLeft.removeFromTop (4);
-    scaleLock.setBounds (pLeft.removeFromTop (28));
-    pLeft.removeFromTop (12);
+    auto toggles3 = pLeft.removeFromTop (28);
+    scaleLock.setBounds (toggles3.removeFromLeft (toggles3.getWidth() / 2));
+    neuralPitch.setBounds (toggles3);
+    pLeft.removeFromTop (10);
 
-    auto knobsRow = pLeft.removeFromTop (140);
+    auto knobsRow = pLeft.removeFromTop (112);
     const int pKw = knobsRow.getWidth() / 3;
     auto iCell = knobsRow.removeFromLeft (pKw);
     inputCaption.setBounds (iCell.removeFromTop (14));
@@ -1097,17 +1346,12 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     formantCaption.setBounds (fCell.removeFromTop (14));
     formantShift.setBounds (fCell);
 
-    // Detector toggle: Neural Pitch (CREPE). The engine choice lives on the Basic tab
-    // as the single Engine selector (Studio / Live / Live Low-Latency).
-    pLeft.removeFromTop (10);
-    neuralPitch.setBounds (pLeft.removeFromTop (28));
-
-    // Antares-class behaviour row: Classic Mode toggle + Flex / Transition /
-    // Throat / Vibrato.
-    pLeft.removeFromTop (10);
-    classicMode.setBounds (pLeft.removeFromTop (28));
+    pLeft.removeFromTop (8);
+    auto modeRow = pLeft.removeFromTop (28);
+    classicMode.setBounds (modeRow.removeFromLeft (modeRow.getWidth() / 2));
+    midiTarget.setBounds (modeRow);
     pLeft.removeFromTop (6);
-    auto behaviourRow = pLeft.removeFromTop (140);
+    auto behaviourRow = pLeft.removeFromTop (105);
     const int bKw = behaviourRow.getWidth() / 4;
     auto flexAmtCell = behaviourRow.removeFromLeft (bKw);
     flexAmtCaption.setBounds (flexAmtCell.removeFromTop (14));
@@ -1121,6 +1365,24 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     auto vibratoCell = behaviourRow;
     vibratoCaption.setBounds (vibratoCell.removeFromTop (14));
     vibratoKnob.setBounds (vibratoCell);
+
+    pLeft.removeFromTop (4);
+    auto generatedRow = pLeft.removeFromTop (92);
+    const int gKw = generatedRow.getWidth() / 3;
+    auto depthCell = generatedRow.removeFromLeft (gKw);
+    addVibratoCaption.setBounds (depthCell.removeFromTop (14));
+    addVibrato.setBounds (depthCell);
+    auto rateCell = generatedRow.removeFromLeft (gKw);
+    vibratoRateCaption.setBounds (rateCell.removeFromTop (14));
+    vibratoRate.setBounds (rateCell);
+    auto onsetCell = generatedRow;
+    vibratoOnsetCaption.setBounds (onsetCell.removeFromTop (14));
+    vibratoOnset.setBounds (onsetCell);
+
+    pLeft.removeFromTop (4);
+    referenceDetuneCaption.setBounds (pLeft.removeFromTop (14));
+    referenceDetune.setBounds (pLeft.removeFromTop (26));
+    followReference.setBounds (pLeft.removeFromTop (26));
 
     // Transpose to Key (top of right column): whole-mix transpose for beats/instruments.
     transposeCaption.setBounds (pRight.removeFromTop (16));
@@ -1166,4 +1428,19 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     keyMapTimeline.setBounds (pRight.removeFromTop (juce::jmax (54, pRight.getHeight() - 30)));
     pRight.removeFromTop (4);
     keyMapStatusLabel.setBounds (pRight);
+
+    // ---- Edit panel ----
+    auto eArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (8);
+    auto editToolbar = eArea.removeFromTop (32);
+    capturePitchEdits.setBounds (editToolbar.removeFromLeft (150));
+    editToolbar.removeFromLeft (8);
+    usePitchEdits.setBounds (editToolbar.removeFromLeft (170));
+    editToolbar.removeFromLeft (8);
+    clearPitchEdits.setBounds (editToolbar.removeFromLeft (90));
+    editToolbar.removeFromLeft (14);
+    pitchEditStatus.setBounds (editToolbar);
+    eArea.removeFromTop (8);
+    pitchEditHelp.setBounds (eArea.removeFromTop (24));
+    eArea.removeFromTop (8);
+    pitchEditTimeline.setBounds (eArea);
 }

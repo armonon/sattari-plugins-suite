@@ -21,13 +21,14 @@ instrument.
 **First 30 seconds:**
 - Header → pick **Sound Source** (Alto/Tenor, Bass Voice, or one of the three
   Instrument bands).
-- Header → pick **Key & Scale** (e.g. A Minor) — or turn on **AutoKey Listen**
-  and route the master into the Sidechain input for polyphonic AutoKey.
+- BASIC → use the large key control to set **Key & Scale** (e.g. A Minor),
+  auto-detect this track, or follow Sattari Key from the song bus.
 - **Retune Speed** dialed for the feel (high = "hard tune", low = natural).
 - For per-section keys: PRO tab → **Scan Track…** → pick the song's audio file.
   Enable **Use Key Map** to follow the timeline at playback.
-**Tabs:** BASIC = performance controls; PRO = correction toggles, gains,
-formant shift, key-map.
+**Tabs:** BASIC = performance controls; PRO = detector, MIDI/reference,
+formant/vibrato and key-map controls; EDIT = capture note objects, drag to
+retarget, or right-click to bypass a note.
 **A/B compare:** A | B | x in the header.
 
 ## 2. Sattari Align — time alignment
