@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_AUTO_PITCH_PLUGIN VERSION 0.3.1)
+project(SATTARI_AUTO_PITCH_PLUGIN VERSION 0.4.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,6 +57,17 @@ sattari_add_plugin(
         src/PluginEditor.cpp
         ${_sattari_extra_sources})
 
+# The MIT CREPE-tiny model is embedded so Neural Pitch is a real, portable
+# capability rather than a machine-specific toggle. ONNX-less builds link no
+# inference code and the linker drops the unreferenced model object.
+juce_add_binary_data(SattariAutoPitchModelData
+    HEADER_NAME SattariAutoPitchModelData.h
+    NAMESPACE SattariAutoPitchModelData
+    SOURCES
+        models/crepe.onnx
+        models/CREPE-LICENSE.txt)
+target_link_libraries(SattariAutoPitch PRIVATE SattariAutoPitchModelData)
+
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)
 
@@ -82,6 +93,7 @@ target_compile_definitions(AutoPitchCoreContract
 
 target_link_libraries(AutoPitchCoreContract
     PRIVATE
+        SattariAutoPitchModelData
         SattariAudioCore
         juce::juce_audio_utils
         juce::juce_dsp
@@ -117,6 +129,7 @@ target_compile_definitions(AutoPitchRender
 
 target_link_libraries(AutoPitchRender
     PRIVATE
+        SattariAutoPitchModelData
         SattariAudioCore
         juce::juce_audio_utils
         juce::juce_dsp
@@ -149,6 +162,7 @@ target_compile_definitions(AutoPitchBench
         SATTARI_REPO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 target_link_libraries(AutoPitchBench
     PRIVATE
+        SattariAutoPitchModelData
         SattariAudioCore
         juce::juce_audio_utils
         juce::juce_dsp

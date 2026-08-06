@@ -143,6 +143,8 @@ mkdir -p "$legal"
 cp "$repo_root/LICENSE" "$legal/GPL-3.0.txt"
 cp "$repo_root/LICENSING.md" "$legal/LICENSING.md"
 cp "$repo_root/third_party/JUCE/LICENSE.md" "$legal/JUCE-LICENSE.md"
+cp "$repo_root/plugins/auto-pitch/models/CREPE-LICENSE.txt" "$legal/CREPE-MIT-LICENSE.txt"
+cp "$repo_root/plugins/auto-pitch/models/model-release.json" "$legal/CREPE-MODEL-PROVENANCE.json"
 source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 source_remote="$(git -C "$repo_root" remote get-url origin)"
 cat > "$legal/SOURCE-OFFER.txt" <<EOF
@@ -169,6 +171,7 @@ if [[ "$source_state" == "internal-uncommitted" ]]; then
     cp "$repo_root/scripts/build_auto_pitch_neural.sh" "$legal/Source-Tools/"
     cp "$repo_root/scripts/bundle_auto_pitch_runtime_deps.sh" "$legal/Source-Tools/"
     cp "$repo_root/scripts/fetch_onnxruntime_macos.sh" "$legal/Source-Tools/"
+    cp "$repo_root/scripts/fetch_crepe_onnx.py" "$legal/Source-Tools/"
     cp "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$legal/Source-Tools/"
     cp "$repo_root/scripts/verify_auto_pitch_models.py" "$legal/Source-Tools/"
 fi

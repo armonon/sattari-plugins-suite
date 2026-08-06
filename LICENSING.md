@@ -41,6 +41,7 @@ is open. (Ardour, Surge XT, Vital's engine, and many others ship this way.)
 3. Keep the upstream license notices intact:
    - Rubber Band: `third_party/rubberband/COPYING`
    - JUCE: `third_party/JUCE/LICENSE.md`
+   - CREPE model: `plugins/auto-pitch/models/CREPE-LICENSE.txt`
 4. Don't add further restrictions on top of GPLv3 (no "you may not redistribute" EULA).
 
 ## Splash screen

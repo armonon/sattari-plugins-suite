@@ -45,13 +45,15 @@ bench_bin="$(find "$build_dir" -type f -name AutoPitchBench -perm +111 | head -n
 "$render_bin" --xposetest
 "$bench_bin" | tee "$validation_dir/objective-benchmark.txt"
 
+bundled_model_dir="$repo_root/plugins/auto-pitch/models"
+"$repo_root/scripts/verify_auto_pitch_models.py" \
+  --model-dir "$bundled_model_dir" \
+  --record "$bundled_model_dir/model-release.json" \
+  --distribution --require crepe.onnx
+"$render_bin" --crepe
+
 model_dir="$HOME/Library/Sattari Audio/models"
 "$repo_root/scripts/verify_auto_pitch_models.py" --model-dir "$model_dir"
-if [[ -f "$model_dir/crepe.onnx" ]]; then
-  "$render_bin" --crepe
-else
-  echo "CREPE model proof skipped: $model_dir/crepe.onnx is not installed"
-fi
 if [[ -f "$model_dir/keynet.onnx" ]]; then
   "$render_bin" --livekeytest
 else
@@ -71,4 +73,4 @@ for bundle in "${bundles[@]}"; do
 done
 
 echo "Auto Pitch neural release build passed: $release_dir"
-echo "Models remain external until their redistribution rights and provenance are recorded."
+echo "CREPE-tiny is embedded with verified MIT provenance; optional key models remain external."

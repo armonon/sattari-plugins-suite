@@ -66,3 +66,4 @@ validation/fma/
 validation/*.npz
 validation/*.npy
 *.onnx
+!plugins/auto-pitch/models/crepe.onnx

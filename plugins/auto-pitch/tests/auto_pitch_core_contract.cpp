@@ -101,7 +101,18 @@ int main (int argc, char** argv)
     }
 
     SattariAutoPitchAudioProcessor processor;
+    // Hosts are allowed to renegotiate format repeatedly. This also exercises
+    // safe teardown/reload of the embedded ONNX session and its environment.
+    processor.prepareToPlay (44100.0, 256);
     processor.prepareToPlay (48000.0, 512);
+
+   #if SATTARI_HAS_ONNX
+    if (! processor.neuralModelPresent())
+    {
+        std::cerr << "ONNX build did not load the embedded CREPE model\n";
+        return 1;
+    }
+   #endif
 
     auto& apvts = processor.parameters();
     const juce::StringArray parityParameters {

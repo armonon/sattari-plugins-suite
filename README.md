@@ -69,9 +69,10 @@ pinned ONNX Runtime, embedded dependency, contracts and render smoke):
 ./scripts/build_auto_pitch_neural.sh
 ```
 
-Neural models are deliberately not packaged yet. The build/runtime path is
-reproducible, while `crepe.onnx`, `keynet.onnx`, and `keynet_spec.onnx` remain
-external until their exact provenance and redistribution rights are recorded.
+The MIT CREPE-tiny pitch model is reproducibly converted, hash-locked, and
+embedded in Auto Pitch. The optional `keynet.onnx` and `keynet_spec.onnx` key
+models remain external until their provenance and redistribution rights are
+recorded.
 
 Assemble the traceable internal Auto Pitch DAW/listening kit with:
 
@@ -79,8 +80,8 @@ Assemble the traceable internal Auto Pitch DAW/listening kit with:
 ./scripts/package_auto_pitch_neural_tester.sh
 ```
 
-It packages verified universal AU/VST3/standalone bundles, never copies model
-weights, and records the exact source and local model fingerprints used for the
+It packages verified universal AU/VST3/standalone bundles, the CREPE license and
+model provenance, plus fingerprints for any external key models used by the
 test candidate.
 
 Or build every plugin from the repository root:

@@ -17,11 +17,13 @@
 // Paths are resolved relative to the repo root via SATTARI_REPO_ROOT (set by the
 // CMake target) so the .wav and golden land in validation/ regardless of CWD.
 #include "PluginProcessor.h"
+#include <SattariAutoPitchModelData.h>
 #include <sattari_audio_core/SattariRenderHarness.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
 #include <sattari_audio_core/SattariLogSpec.h>
 
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -1108,7 +1110,7 @@ int main (int argc, char** argv)
     }
 
     // --gainstage: guard the input-drive / output-trim split. Input gain must drive
-    // the Style saturator (Classic tanh); output gain must be a clean post-Style
+    // the explicit Robot Style saturator; output gain must be a clean post-Style
     // level trim that does NOT add distortion. Before the split these were summed,
     // so +6 dB of output was bit-identical to +6 dB of input — this proves that
     // regression cannot return.
@@ -1125,7 +1127,7 @@ int main (int argc, char** argv)
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
             setParam (a, "keyRoot", 0.0f);        setParam (a, "scale", 0.0f);
-            setParam (a, "followSongKey", 0.0f);  setParam (a, "style", 1.0f); // Classic (pure tanh saturator)
+            setParam (a, "followSongKey", 0.0f);  setParam (a, "style", 3.0f); // Robot (explicit tanh effect)
             setParam (a, "amount", 1.0f);         setParam (a, "speed", 0.9f);
             setParam (a, "enableCorrection", 1.0f);
             setParam (a, "neuralPitch", 0.0f);    // pin OFF: keep golden machine-independent
@@ -1177,8 +1179,7 @@ int main (int argc, char** argv)
     // --vibtest: prove the SYNTHETIC vibrato generator (addVibrato) adds a real,
     // periodic ~5.5 Hz pitch modulation on a sustained in-tune note — and that
     // depth 0 is a strict no-op (bit-identical to no vibrato). Rendered through
-    // the PSOLA live engine (clean fast retune, no Rubber Band phase jitter to
-    // contaminate the pitch-track measurement).
+    // the quality-locked Studio engine.
     if (vibtest)
     {
         // A sustained, in-tune A4 (440 Hz) in A major: correction is ~0, so any
@@ -1441,23 +1442,23 @@ int main (int argc, char** argv)
     // ---- CREPE (C++ ONNX) proof: load the real model + track known tones ------
     // Deterministic: drives CrepePitchTracker directly (synchronous analyse, no
     // worker-timing race) so it proves the C++ ONNX path loads crepe.onnx and
-    // decodes pitch correctly. Requires -DSATTARI_USE_ONNX=ON and the model at
-    // ~/Library/Sattari Audio/models/crepe.onnx.
+    // decodes pitch correctly. This always proves the exact CREPE model embedded
+    // in shipping builds, independent of any old model installed on the machine.
     if (crepeTest)
     {
        #if SATTARI_HAS_ONNX
         sattari::dsp::CrepePitchTracker t;
         t.prepare (sr);
-        auto model = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                         .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("crepe.onnx");
-        const bool loaded = t.loadModel (model.getFullPathName().toStdString());
+        const bool loaded = t.loadModel (SattariAutoPitchModelData::crepe_onnx,
+                                         (std::size_t) SattariAutoPitchModelData::crepe_onnxSize);
         std::printf ("crepe model: loaded=%d available=%d\n  %s\n",
-                     (int) loaded, (int) t.isAvailable(), model.getFullPathName().toRawUTF8());
+                     (int) loaded, (int) t.isAvailable(), "embedded CREPE-tiny");
         if (! t.isAvailable()) { std::fprintf (stderr, "FAIL: crepe model not available\n"); return 1; }
 
         int fails = 0;
         for (double hz : { 220.0, 440.0, 660.0 })
         {
+            t.reset();
             std::vector<float> buf ((size_t) block);
             double ph = 0.0;
             for (int b = 0; b < 24; ++b)   // ~256 ms, more than one model frame
@@ -1471,6 +1472,15 @@ int main (int argc, char** argv)
                          hz, r.frequencyHz, cents, r.confidence, (int) r.voiced);
             if (! r.voiced || std::fabs (cents) > 30.0) ++fails;
         }
+        constexpr int timedRuns = 250;
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < timedRuns; ++i)
+            (void) t.analyse (0.4f);
+        const double elapsedMs = std::chrono::duration<double, std::milli>
+                                 (std::chrono::steady_clock::now() - start).count();
+        const double meanMs = elapsedMs / timedRuns;
+        std::printf ("  inference: %.3f ms/frame; %.1f%% of one core at 83 Hz\n",
+                     meanMs, meanMs * 83.0 / 10.0);
         std::printf (fails == 0 ? "Auto Pitch CREPE (C++ ONNX) proof ok\n"
                                 : "Auto Pitch CREPE proof FAILED (%d)\n", fails);
         return fails == 0 ? 0 : 1;
@@ -1480,20 +1490,13 @@ int main (int argc, char** argv)
        #endif
     }
 
-    // ---- Feature proof: vibrato preservation + PSOLA live engine -------------
+    // ---- Feature proof: vibrato preservation + Studio engine -------------------
     // Separate from the golden null-test. Uses a vibrato tone (A3 + 5.5 Hz, +/-40
     // cents) tuned to A: with vibrato preservation OFF the wiggle is flattened;
     // ON, it survives. Also proves the PSOLA engine produces valid audio.
     //
-    // Measured through the PSOLA (live) engine on purpose. Vibrato preservation is
-    // only observable at FAST retune (a slow retune can't cancel a 5.5 Hz wiggle,
-    // so there is nothing for "preserve" to add back). At fast retune the Rubber
-    // Band phase vocoder phase-glitches on the vibrato-cancelling ratio, and those
-    // glitches inflate a pitch-std measurement of the FLATTEN case specifically,
-    // inverting the comparison. PSOLA renders the same (correct) ratio without the
-    // phase glitch, so the pitch-std ordering reflects the real feature: preserve
-    // ON keeps clearly more wiggle than OFF. The ratio injection is upstream of the
-    // engine, so this validates the feature for both engines.
+    // Vibrato preservation is only observable at fast retune: a slow correction
+    // cannot flatten a 5.5 Hz wiggle enough to leave anything meaningful to restore.
     if (features)
     {
         juce::AudioBuffer<float> vib;
@@ -1508,6 +1511,7 @@ int main (int argc, char** argv)
             setParam (a, "keyRoot", 9.0f);            // A
             setParam (a, "scale", 0.0f);              // major
             setParam (a, "followSongKey", 0.0f);
+            setParam (a, "neuralPitch", 1.0f);        // deterministic embedded detector
             setParam (a, "style", 2.0f);              // Modern Rap: strong + fast retune
             setParam (a, "amount", 1.0f);
             setParam (a, "speed", 0.95f);
@@ -1517,12 +1521,13 @@ int main (int argc, char** argv)
             setParam (a, "flexTune", 0.0f);
             setParam (a, "vibrato", vibAmt);
             setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+            p.setNonRealtime (true);                    // deterministic synchronous CREPE
             return sattari::harness::renderThrough (p, vib, sr, block);
         };
 
-        const auto noVib = render (0.0f, true);
-        const auto keptVib = render (0.9f, true);
-        const auto liveOut = render (0.0f, true);
+        const auto noVib = render (0.0f, false);
+        const auto keptVib = render (0.9f, false);
+        const auto liveOut = render (0.0f, false);
 
         const double sNo   = pitchStdCents (noVib, sr);
         const double sKept = pitchStdCents (keptVib, sr);
@@ -1536,7 +1541,7 @@ int main (int argc, char** argv)
             if (! std::isfinite (v)) finite = false;
             peak = std::max (peak, std::fabs (v));
         }
-        std::printf ("PSOLA live engine: finite=%d peak=%.3f\n", (int) finite, peak);
+        std::printf ("Studio engine: finite=%d peak=%.3f\n", (int) finite, peak);
 
         // Core claim, stated as the property that is actually robust here: with
         // preservation ON the corrected vibrato depth tracks the singer's NATURAL depth
@@ -1551,8 +1556,8 @@ int main (int argc, char** argv)
         int fails = 0;
         if (errKept >= errNo)      { std::fprintf (stderr, "FAIL: vibrato not preserved (0.9 not closer to natural depth than off)\n"); ++fails; }
         if (sKept <= inStd * 0.5)  { std::fprintf (stderr, "FAIL: vibrato-0.9 collapsed too far below the natural wiggle\n"); ++fails; }
-        if (! finite)              { std::fprintf (stderr, "FAIL: PSOLA produced non-finite samples\n"); ++fails; }
-        if (peak < 1.0e-3f)        { std::fprintf (stderr, "FAIL: PSOLA output is silent\n"); ++fails; }
+        if (! finite)              { std::fprintf (stderr, "FAIL: Studio produced non-finite samples\n"); ++fails; }
+        if (peak < 1.0e-3f)        { std::fprintf (stderr, "FAIL: Studio output is silent\n"); ++fails; }
 
         std::printf (fails == 0 ? "Auto Pitch feature proof ok\n" : "Auto Pitch feature proof FAILED (%d)\n", fails);
         return fails == 0 ? 0 : 1;

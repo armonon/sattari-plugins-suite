@@ -83,8 +83,8 @@ public:
     juce::String getLastTraceSummary() const { return lastTraceSummary; }
     juce::String getLiveStatusSummary() const;
     juce::String getKeyDetectionTabSummary() const;
-    // Whether a crepe.onnx model was found + loaded at prepare time — lets the UI
-    // label the Neural Pitch toggle honestly instead of silently doing nothing.
+    // Whether the embedded CREPE model loaded at prepare time — lets the UI label
+    // the Neural Pitch toggle honestly in ONNX and fallback builds.
     bool neuralModelPresent() const noexcept { return crepeModelPresent; }
 
     // Effective tuning reference. Manual Detune is used normally; when Follow
@@ -537,9 +537,8 @@ private:
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
-    // When a crepe.onnx model is present and "Neural Pitch" is on, its estimate
-    // overrides YIN (killing octave errors on breathy vocals). Absent a model,
-    // isAvailable() is false and YIN is used — zero behavioural change.
+    // When "Neural Pitch" is on, the embedded CREPE estimate overrides YIN for
+    // difficult breathy/noisy frames. ONNX-less builds keep using YIN.
     sattari::dsp::CrepePitchTracker crepe;
     bool  crepeModelPresent = false;
     sattari::dsp::KeyNet keyNet;              // neural key model (90-dim HPCP feature -> 24 keys)

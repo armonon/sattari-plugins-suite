@@ -10,11 +10,11 @@
 //  YIN, which is exactly the failure mode that makes correction feel "off".
 //
 //  This wrapper drives a CREPE-format ONNX model behind the same seam as the
-//  stem separator (cmake/SattariOnnx.cmake -> SATTARI_HAS_ONNX). The model file
-//  is NOT bundled (weights are ~a few MB for crepe-tiny); drop a `crepe.onnx`
-//  exported with input [1,1024] float32 and output [1,360] and call loadModel().
-//  When ONNX is absent, or no model is loaded, isAvailable() is false and the
-//  caller keeps using the built-in YIN detector — zero new hard dependency.
+//  stem separator (cmake/SattariOnnx.cmake -> SATTARI_HAS_ONNX). Auto Pitch's
+//  neural build embeds the pinned MIT CREPE-tiny model; the wrapper also accepts
+//  a file or memory model with input [N,1024] float32 and output [N,360]. When
+//  ONNX is absent, or no model loads, isAvailable() is false and the caller keeps
+//  using the built-in YIN detector — zero hard dependency for other products.
 //
 //  The salience->frequency DECODE (the bug-prone part) is a pure-std free
 //  function, compiled and unit-tested regardless of the ONNX backend
@@ -111,9 +111,15 @@ public:
         ring.assign ((size_t) ringLen, 0.0f);
         frame.assign ((size_t) kFrame, 0.0f);
         pos = 0;
+        clearPitchHistory();
     }
 
-    void reset() { std::fill (ring.begin(), ring.end(), 0.0f); pos.store (0, std::memory_order_release); }
+    void reset()
+    {
+        std::fill (ring.begin(), ring.end(), 0.0f);
+        pos.store (0, std::memory_order_release);
+        clearPitchHistory();
+    }
 
     bool isAvailable() const noexcept
     {
@@ -127,6 +133,10 @@ public:
     bool loadModel (const std::string& onnxModelPath)
     {
        #if SATTARI_HAS_ONNX
+        // A host may call prepareToPlay repeatedly. Tear down the old session
+        // before replacing its environment; ONNX Runtime requires the Env to
+        // outlive every Session created from it.
+        clearModel();
         try
         {
             env = std::make_unique<Ort::Env> (ORT_LOGGING_LEVEL_WARNING, "sattari-crepe");
@@ -134,11 +144,35 @@ public:
             opts.SetIntraOpNumThreads (1);
             opts.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
             session = std::make_unique<Ort::Session> (*env, onnxModelPath.c_str(), opts);
-            return session != nullptr;
+            return finishModelLoad();
         }
-        catch (...) { session.reset(); return false; }
+        catch (...) { clearModel(); return false; }
        #else
         (void) onnxModelPath; return false;
+       #endif
+    }
+
+    // Load an embedded ONNX model without writing it to a temporary file. This
+    // is the shipping path: every neural Auto Pitch bundle carries the exact,
+    // hash-locked CREPE model that was validated with the binary.
+    bool loadModel (const void* onnxModelData, std::size_t onnxModelBytes)
+    {
+       #if SATTARI_HAS_ONNX
+        clearModel();
+        if (onnxModelData == nullptr || onnxModelBytes == 0)
+            return false;
+        try
+        {
+            env = std::make_unique<Ort::Env> (ORT_LOGGING_LEVEL_WARNING, "sattari-crepe");
+            Ort::SessionOptions opts;
+            opts.SetIntraOpNumThreads (1);
+            opts.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
+            session = std::make_unique<Ort::Session> (*env, onnxModelData, onnxModelBytes, opts);
+            return finishModelLoad();
+        }
+        catch (...) { clearModel(); return false; }
+       #else
+        (void) onnxModelData; (void) onnxModelBytes; return false;
        #endif
     }
 
@@ -196,18 +230,15 @@ public:
 
         try
         {
-            Ort::AllocatorWithDefaultOptions alloc;
-            const auto inName  = session->GetInputNameAllocated (0, alloc);
-            const auto outName = session->GetOutputNameAllocated (0, alloc);
-            const char* inNames[]  = { inName.get() };
-            const char* outNames[] = { outName.get() };
+            const char* inNames[]  = { inputName.c_str() };
+            const char* outNames[] = { outputName.c_str() };
             auto memInfo = Ort::MemoryInfo::CreateCpu (OrtArenaAllocator, OrtMemTypeDefault);
             const std::array<int64_t, 2> shape { 1, (int64_t) kFrame };
             auto inTensor = Ort::Value::CreateTensor<float> (memInfo, frame.data(), frame.size(),
                                                              shape.data(), shape.size());
             auto out = session->Run (Ort::RunOptions { nullptr }, inNames, &inTensor, 1, outNames, 1);
             const float* sal = out[0].GetTensorMutableData<float>();
-            r = decodeCrepeSalience (sal, 360, voicedThreshold);
+            r = smoothDecodedPitch (decodeCrepeSalience (sal, 360, voicedThreshold));
         }
         catch (...) { /* leave r unvoiced on any inference error */ }
        #else
@@ -217,13 +248,96 @@ public:
     }
 
 private:
+    void clearPitchHistory() noexcept
+    {
+        pitchHistory.fill (0.0f);
+        pitchHistoryCount = 0;
+        pitchHistoryWrite = 0;
+        consecutiveUnvoiced = 0;
+    }
+
+    // A causal 3-frame median removes isolated CNN-bin/octave spikes. A real
+    // note transition wins after its second frame, so the price is only one
+    // neural hop while sustained vibrato and slides remain intact.
+    CrepePitch smoothDecodedPitch (CrepePitch result) noexcept
+    {
+        if (! result.voiced || result.frequencyHz <= 0.0f)
+        {
+            if (++consecutiveUnvoiced >= 3)
+                clearPitchHistory();
+            return result;
+        }
+
+        consecutiveUnvoiced = 0;
+        const float cents = 1200.0f * std::log2 (result.frequencyHz);
+        pitchHistory[(size_t) pitchHistoryWrite] = cents;
+        pitchHistoryWrite = (pitchHistoryWrite + 1) % (int) pitchHistory.size();
+        pitchHistoryCount = std::min ((int) pitchHistory.size(), pitchHistoryCount + 1);
+        if (pitchHistoryCount == (int) pitchHistory.size())
+        {
+            auto sorted = pitchHistory;
+            std::sort (sorted.begin(), sorted.end());
+            result.frequencyHz = std::pow (2.0f, sorted[1] / 1200.0f);
+        }
+        return result;
+    }
+
     double sr = 44100.0;
     int    ringLen = 0;
     std::atomic<int> pos { 0 };          // producer (audio) write pos; consumer (worker) snapshots it
     std::vector<float> ring, frame;
+    std::array<float, 3> pitchHistory {};
+    int pitchHistoryCount = 0, pitchHistoryWrite = 0, consecutiveUnvoiced = 0;
    #if SATTARI_HAS_ONNX
+    void clearModel() noexcept
+    {
+        session.reset();
+        env.reset();
+        inputName.clear();
+        outputName.clear();
+    }
+
+    bool finishModelLoad()
+    {
+        if (session == nullptr || session->GetInputCount() != 1 || session->GetOutputCount() != 1)
+        {
+            clearModel();
+            return false;
+        }
+
+        // TensorTypeAndShapeInfo is an unowned view into TypeInfo in ORT 1.22;
+        // keep the owning wrappers alive until all shape reads are complete.
+        const auto inputType = session->GetInputTypeInfo (0);
+        const auto outputType = session->GetOutputTypeInfo (0);
+        const auto inputInfo = inputType.GetTensorTypeAndShapeInfo();
+        const auto outputInfo = outputType.GetTensorTypeAndShapeInfo();
+        const auto inputShape = inputInfo.GetShape();
+        const auto outputShape = outputInfo.GetShape();
+        if (inputInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
+            || outputInfo.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
+            || inputShape.size() != 2 || inputShape.back() != kFrame
+            || outputShape.size() != 2 || outputShape.back() != 360)
+        {
+            clearModel();
+            return false;
+        }
+
+        Ort::AllocatorWithDefaultOptions allocator;
+        const auto input = session->GetInputNameAllocated (0, allocator);
+        const auto output = session->GetOutputNameAllocated (0, allocator);
+        inputName = input.get();
+        outputName = output.get();
+        if (inputName.empty() || outputName.empty())
+        {
+            clearModel();
+            return false;
+        }
+        return true;
+    }
+
     std::unique_ptr<Ort::Env>     env;
     std::unique_ptr<Ort::Session> session;
+    std::string inputName, outputName;
    #endif
 };
 

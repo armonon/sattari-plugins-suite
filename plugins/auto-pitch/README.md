@@ -23,8 +23,9 @@ fallback behavior.
 
 ## Three-part workflow
 
-- **Basic:** choose the sound source, effective key/mode, correction feel, and
-  Studio/Live engine. The large key control always shows whether Manual,
+- **Basic:** choose the sound source, effective key/mode, and correction feel.
+  The quality-locked Studio engine avoids the experimental PSOLA path. The
+  large key control always shows whether Manual,
   AutoKey, Key Map, or Song Key is authoritative.
 - **Pro:** tune detector/engine behaviour, reference pitch, MIDI targets,
   formants, Flex-Tune, humanize, throat, vibrato, polyphonic scale lock, and the
@@ -33,23 +34,20 @@ fallback behavior.
   to retarget them or right-click to bypass individual corrections. Edits persist
   in the host session and are applied by transport time.
 
-Factory starting points now cover natural correction, hard/vintage tuning,
-modern rap, robot, low-latency tracking, MIDI-directed tuning, graph editing,
-and generated natural vibrato.
+Factory starting points cover natural correction, hard/vintage tuning, modern
+rap, robot, MIDI-directed tuning, graph editing, and generated natural vibrato.
 
 See [`docs/auto-pitch-parity.md`](../../docs/auto-pitch-parity.md) for the
 feature-by-feature implementation and remaining external SDK gates.
 
 ## Engines and measured baseline
 
-- **Studio:** Rubber Band, highest-fidelity print path.
-- **Live:** PSOLA monitoring path.
-- **Low Latency:** shortest PSOLA monitoring path.
+- **Studio:** Rubber Band, the quality-locked monophonic path.
 
-The current 48 kHz synthetic benchmark measured approximately 41.9 ms Studio,
-29.1 ms Live, and 15.9 ms Low Latency, with mean steady-note correction error
-of 0.01 cents for Rubber Band and 0.07 cents for PSOLA. These are controlled
-engineering measurements, not a claim about every singer or session.
+The current 48 kHz synthetic benchmark measured approximately 41.9 ms latency
+and 0.01 cents mean steady-note correction error. The experimental PSOLA path
+remains serialized for old-session compatibility but is not selectable until
+it passes real-vocal quality testing.
 
 ## Build and prove the neural release shape
 
@@ -64,22 +62,22 @@ and runs the core plus audio-render smoke tests. The official runtime requires
 macOS 13.3, so this neural lane uses that honest deployment floor without
 raising the rest of the suite.
 
-Models are loaded from `~/Library/Sattari Audio/models/`:
+The MIT CREPE-tiny pitch model is embedded in every neural build. Its pinned
+source, hashes, license, release record, and deterministic converter live in
+`plugins/auto-pitch/models/` and `scripts/fetch_crepe_onnx.py`.
 
-- `crepe.onnx` — optional monophonic neural pitch
+Optional key models are still loaded from `~/Library/Sattari Audio/models/`:
+
 - `keynet.onnx` — optional live neural key classification
 - `keynet_spec.onnx` — optional 30-second spectral key classification and Key Map
 
-The model binaries are not distributed by this repository. Record their exact
-training/export provenance and redistribution rights before including them in a
-tester or commercial package. Without them the plugin remains functional and
-visibly falls back to YIN plus deterministic key analysis.
+Neural Pitch is opt-in because the CNN costs materially more CPU than YIN. If
+the key models are absent, AutoKey and Key Map visibly fall back to deterministic
+analysis; pitch detection still has both YIN and the bundled neural option.
 
 For a complete internal tester build, run
-`scripts/package_auto_pitch_neural_tester.sh`. It requires all three models to be
-present for build-machine validation, fingerprints them, and deliberately keeps
-them out of the package. Model distribution is separately gated by
-`scripts/verify_auto_pitch_models.py --distribution --record <record.json>`.
+`scripts/package_auto_pitch_neural_tester.sh`. It includes the embedded pitch
+model's MIT notice and provenance while keeping optional key models external.
 
 ## Validation commands
 

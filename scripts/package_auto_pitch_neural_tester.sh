@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble an internal, traceable Auto Pitch tester kit from the proven neural lane.
-# Models remain external; the package records local fingerprints but never copies them.
+# CREPE-tiny is embedded; optional key models remain external and fingerprinted.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,7 +25,6 @@ done
 model_requirements=()
 if [[ "${SATTARI_TESTER_ALLOW_MODEL_FALLBACK:-0}" != "1" ]]; then
   model_requirements=(
-    --require crepe.onnx
     --require keynet.onnx
     --require keynet_spec.onnx
   )
@@ -78,11 +77,14 @@ fi
 cp "$repo_root/LICENSE" "$package_dir/Legal/GPL-3.0.txt"
 cp "$repo_root/LICENSING.md" "$package_dir/Legal/LICENSING.md"
 cp "$repo_root/third_party/JUCE/LICENSE.md" "$package_dir/Legal/JUCE-LICENSE.md"
+cp "$repo_root/plugins/auto-pitch/models/CREPE-LICENSE.txt" "$package_dir/Legal/CREPE-MIT-LICENSE.txt"
+cp "$repo_root/plugins/auto-pitch/models/model-release.json" "$package_dir/Legal/CREPE-MODEL-PROVENANCE.json"
 cp "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$package_dir/scripts/verify_auto_pitch_bundle.sh"
 cp "$repo_root/scripts/verify_auto_pitch_models.py" "$package_dir/scripts/verify_auto_pitch_models.py"
 cp "$repo_root/scripts/build_auto_pitch_neural.sh" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/bundle_auto_pitch_runtime_deps.sh" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/fetch_onnxruntime_macos.sh" "$package_dir/Legal/Source-Tools/"
+cp "$repo_root/scripts/fetch_crepe_onnx.py" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/verify_auto_pitch_models.py" "$package_dir/Legal/Source-Tools/"
 chmod +x "$package_dir/scripts/verify_auto_pitch_bundle.sh" "$package_dir/scripts/verify_auto_pitch_models.py"
@@ -137,9 +139,9 @@ self-containment, pluginval when installed, and the installed Audio Unit via auv
 
 ## Neural models
 
-No ONNX model is included. The plugin remains functional with deterministic YIN
-and key-analysis fallbacks. For the full neural test surface, place locally
-authorized copies of \`crepe.onnx\`, \`keynet.onnx\`, and \`keynet_spec.onnx\` in:
+The original MIT CREPE-tiny pitch model is embedded and Neural Pitch works
+without a separate install. For the optional neural-key test surface, place
+locally authorized copies of \`keynet.onnx\` and \`keynet_spec.onnx\` in:
 
 \`~/Library/Sattari Audio/models/\`
 

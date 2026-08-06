@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <SattariAutoPitchModelData.h>
 
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
@@ -335,10 +336,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Band stays the default for the higher-fidelity printed sound.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("liveEngine", "Live Engine (PSOLA)", false));
 
-    // Neural Pitch (CREPE): the most advanced detector — default ON so new instances
-    // use it whenever a crepe.onnx is installed AND the build has ONNX. Fully inert
-    // and falls back to YIN when the model is absent, so this default is always safe.
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", true));
+    // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
+    // CNN costs roughly a quarter of one performance core at an 83 Hz cadence on
+    // the reference Mac, so a new session stays on efficient YIN until requested.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", false));
 
     // Transpose to Key (whole-mix): instead of per-note correction, shift the ENTIRE
     // signal by a fixed number of semitones via Rubber Band (formant-aware) so a whole
@@ -514,8 +515,10 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         psolaSwapReady.store (false, std::memory_order_relaxed);
     }
 
-    // Optional CREPE model: look in the suite's conventional models folder. Absent
-    // a model (or an ONNX-less build) this is a no-op and YIN is used.
+    // CREPE model: every ONNX-enabled shipping build uses the same provenance-
+    // locked tiny model embedded in its binary. Developers can explicitly point
+    // SATTARI_AUTOPITCH_CREPE_MODEL at another contract-compatible model; an old
+    // file in Application Support must never silently replace the release model.
     //
     // Stop + JOIN the inference worker BEFORE touching the tracker: crepe.prepare()
     // and crepe.loadModel() reconfigure model/buffer state that the worker's
@@ -529,10 +532,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     crepe.prepare (currentSampleRate);
     crepeModelPresent = false;
     {
-        auto modelFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                             .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("crepe.onnx");
-        if (modelFile.existsAsFile())
-            crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
+        const auto overridePath = juce::SystemStats::getEnvironmentVariable ("SATTARI_AUTOPITCH_CREPE_MODEL", {});
+        const juce::File overrideFile (overridePath);
+        if (overridePath.isNotEmpty() && overrideFile.existsAsFile())
+            crepeModelPresent = crepe.loadModel (overrideFile.getFullPathName().toStdString());
+       #if SATTARI_HAS_ONNX
+        if (! crepeModelPresent)
+            crepeModelPresent = crepe.loadModel (SattariAutoPitchModelData::crepe_onnx,
+                                                 (std::size_t) SattariAutoPitchModelData::crepe_onnxSize);
+       #endif
     }
     // Neural key model (optional). Used by the Key Map scan (offline) for far more
     // accurate key detection than the fixed profile. Absent -> falls back to profiles.
@@ -2898,7 +2906,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
         lastCrepeHz = crHz;
         lastCrepeConfidence = crConf;
-        if (crVoiced && crHz > 0.0f && lastPitchFrame.voiced)
+        if (crVoiced && crHz > 0.0f && lastPitchFrame.rms >= silenceRms)
         {
             // Range-gate the CREPE estimate to the selected Sound Source, exactly
             // like the YIN gate (analyseCurrentPitchFrame -> result.voiced). An
@@ -2915,6 +2923,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 nf.frequencyHz = crHz;
                 nf.midi        = midiFromHz (crHz, currentReferenceHz());
                 nf.confidence  = juce::jmax (nf.confidence, (double) crConf);
+                nf.voiced      = true;
                 lastPitchFrame = buildCorrectionFrame (nf);
             }
             else
@@ -3111,8 +3120,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     }
 
     // Input drive and output trim are kept SEPARATE. Input gain feeds the pitch
-    // engine and the Style stage — turning it up is meant to push the Classic/Robot
-    // saturators and the harmony blend harder (it is a drive control). Output gain
+    // engine and the Style stage — turning it up is meant to push the explicit Robot
+    // saturator and the harmony blend harder (it is a drive control). Output gain
     // is a clean level trim applied AFTER the Style stage (below), so raising output
     // level never drives the saturators/harmony into extra distortion — it just sets
     // how hot the block leaves the plugin, bounded by the final soft ceiling.
@@ -3619,12 +3628,15 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
 #else
         "Guide";
 #endif
+    const bool neuralActive = crepeModelPresent
+        && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f;
+    const juce::String detector = neuralActive ? "Neural" : "YIN";
     const juce::String dot = juce::String::fromUTF8 ("   \xc2\xb7   ");   // "  ·  "
 
     if (! frame.voiced)
-        return engine + dot + root + " " + scale + dot + "waiting for input";
+        return engine + dot + detector + dot + root + " " + scale + dot + "waiting for input";
 
-    return engine + dot + root + " " + scale + dot + currentStyleChoice() + dot
+    return engine + dot + detector + dot + root + " " + scale + dot + currentStyleChoice() + dot
         + midiNoteName (frame.midi) + juce::String::fromUTF8 (" \xe2\x86\x92 ") + midiNoteName (frame.targetMidi)
         + dot + juce::String (frame.correctionCents, 1) + " ct"
         + dot + juce::String (frame.confidence * 100.0, 0) + "%";

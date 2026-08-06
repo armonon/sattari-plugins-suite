@@ -4,7 +4,7 @@
 // SCORECARD of MEASURED numbers (not synthetic pass/fail): correction accuracy in
 // cents, reported-vs-measured latency, THD %, real-time factor, note-transition
 // glide time, vibrato depth, and a peak/finite safety audit. Where it matters each
-// metric is measured per engine (Rubber Band print engine vs Live Engine / PSOLA).
+// legacy Live/Low-Latency automation is also probed to prove the Studio quality lock.
 //
 // Every threshold is documented inline; a one-word PASS/WARN is printed against it,
 // but the raw number is always shown so you can judge for yourself. Only a genuine
@@ -270,7 +270,7 @@ const int    kBlock = 512;
 //  (every probe note is in-scale). Measure the settled OUTPUT pitch and report the
 //  |cents error to the nearest scale tone| (snapMidiToScale on the output). Method:
 //  YIN on the settled tail, median. Threshold: mean error < 5 ct = PASS (a good
-//  tuner), < 15 ct = WARN, else FAIL. Reported per engine (RB vs Live/PSOLA).
+//  tuner), < 15 ct = WARN, else FAIL. The legacy Live parameter is checked too.
 // ============================================================================
 void runAccuracy()
 {
@@ -327,7 +327,7 @@ void runAccuracy()
         const double mean = cases > 0 ? sumErr / (double) cases : 999.0;
         const char*  v = verdict (mean < 5.0, mean < 15.0);
         std::printf ("  %-12s mean=%6.2f ct   max=%6.2f ct   (n=%d)   [%s]\n",
-                     live ? "Live/PSOLA" : "Rubber Band", mean, maxErr, cases, v);
+                     live ? "Studio lock" : "Rubber Band", mean, maxErr, cases, v);
     }
     std::printf ("  thresholds: mean < 5 ct PASS, < 15 ct WARN\n");
 }
@@ -369,8 +369,8 @@ void runLatency()
     };
     const int inOnset = halfRiseIdx (sig);
 
-    // Sweep all three latency modes: Rubber Band (print quality), Live/PSOLA, and the
-    // low-latency vocal mode (PSOLA with a raised min-Hz floor -> much shorter delay).
+    // Sweep the current state plus both legacy engine parameters. All must remain on
+    // the same honest Studio latency while PSOLA is quality-locked.
     for (int engine = 0; engine < 3; ++engine)
     {
         const bool live   = (engine >= 1);
@@ -392,14 +392,12 @@ void runLatency()
         const double repMs  = 1000.0 * (double) reported / kSr;
         const double measMs = 1000.0 * (double) measured / kSr;
         const double diffMs = std::fabs (repMs - measMs);
-        const char*  label  = engine == 0 ? "Rubber Band" : engine == 1 ? "Live/PSOLA" : "PSOLA LowLat";
-        // Low-latency mode must actually BE low: reported latency under 20 ms.
+        const char*  label  = engine == 0 ? "Rubber Band" : engine == 1 ? "Studio lock" : "LowLat lock";
         const bool honest = (measured >= 0 && diffMs <= 3.0);
-        const bool ok = lowLat ? (honest && repMs < 20.0) : honest;
         std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
-                     label, reported, repMs, measured, measMs, diffMs, verdict (ok, measured >= 0));
+                     label, reported, repMs, measured, measMs, diffMs, verdict (honest, measured >= 0));
     }
-    std::printf ("  threshold: |reported - measured| <= 3 ms honest; LowLat reported < 20 ms\n");
+    std::printf ("  threshold: |reported - measured| <= 3 ms; legacy params stay quality-locked\n");
 }
 
 // ============================================================================
@@ -452,7 +450,7 @@ void runArtifacts()
         const double alias    = aliasOf (clean) * 100.0;
         const char*  v = verdict (thdClean < 3.0, thdClean < 8.0);
         std::printf ("  %-12s THD in-tune=%5.2f%%   THD corrected=%5.2f%%   alias=%5.2f%%   [%s]\n",
-                     live ? "Live/PSOLA" : "Rubber Band", thdClean, thdDet, alias, v);
+                     live ? "Studio lock" : "Rubber Band", thdClean, thdDet, alias, v);
     }
     std::printf ("  threshold: in-tune THD < 3%% PASS, < 8%% WARN\n");
 }
@@ -464,7 +462,7 @@ void runArtifacts()
 //  per block (steady_clock). RTF = total process time / audio duration; RTF < 1 =
 //  real-time-capable. Also p95 per-block time (ms). Method: feed a fixed 512-sample
 //  sine block repeatedly (isolates DSP cost from signal generation). If a Neural
-//  Pitch (crepe.onnx) model is present, also time Live + Neural Pitch on.
+//  Pitch model is present, also time Studio + Neural Pitch on.
 //  Threshold: RTF < 0.5 PASS (2x+ headroom), < 1.0 WARN.
 // ============================================================================
 void runCpu()
@@ -520,8 +518,8 @@ void runCpu()
     { SattariAutoPitchAudioProcessor q; q.prepareToPlay (kSr, kBlock); neuralPresent = q.neuralModelPresent(); }
 
     run ("Rubber Band", false, false);
-    run ("Live/PSOLA",  true,  false);
-    if (neuralPresent) run ("Live + Neural Pitch", true, true);
+    run ("Studio lock", true, false);
+    if (neuralPresent) run ("Studio + Neural Pitch", true, true);
     std::printf ("  neural model (crepe.onnx) present: %s\n", neuralPresent ? "yes" : "no");
     std::printf ("  threshold: RTF < 0.5 PASS, < 1.0 WARN\n");
 }
@@ -538,8 +536,7 @@ void runCpu()
 //  the onset boost is off and the pull-in is governed purely by the Speed-driven
 //  sustain retune. Measured entirely in the OUTPUT timeline, so latency-independent.
 //  Measured at Speed = {0.10, 0.50, 0.95}; assert monotonic (higher Speed = faster)
-//  and buffer-size independence (block 64 vs 1024 must agree — a fixed bug). Run on
-//  the Live/PSOLA engine (clean tracking, no RB phase jitter to contaminate).
+//  and buffer-size independence (block 64 vs 1024 must agree).
 //  Threshold: strictly-decreasing convergence PASS; block-size delta <= 8 ms PASS.
 // ============================================================================
 void runTransition()
@@ -561,7 +558,7 @@ void runTransition()
         // masks it. With the boost off, the pull-in is governed purely by the Speed-driven
         // sustain retune, so this convergence time reflects what Speed does.
         setParam (a, "doNoHarm", 0.0f);         setParam (a, "transition", 0.0f);
-        setParam (a, "liveEngine", 1.0f);
+        setParam (a, "liveEngine", 0.0f);
         // Same reason as section 1: the neural detector's async worker made the
         // buffer-independence spread swing 29-69 ms across identical runs (PASS to
         // FAIL at random). Convergence timing is exactly what that asynchrony
@@ -613,8 +610,7 @@ void runTransition()
 // ----------------------------------------------------------------------------
 //  (a) PRESERVATION: a 5.5 Hz / 40 ct vibrato tone (A3, in A major) hard-tuned with
 //      Preserve Vibrato = 1 vs = 0. Report retained output depth (cents; depth =
-//      std * sqrt2) and the retained ratio vs the 40 ct input. Run on Live/PSOLA
-//      (fast retune where preservation is observable, no RB phase jitter).
+//      std * sqrt2) and the retained ratio vs the 40 ct input. Run on Studio.
 //      Threshold: preserve-ON depth > 1.5x preserve-OFF AND ratio > 0.4 PASS.
 //  (b) SYNTHETIC: addVibrato = 50 ct, rate 5.5 Hz, on an in-tune A4. Report measured
 //      output depth (cents) and rate (Hz). Threshold: depth in [30,70] ct AND rate
@@ -638,7 +634,7 @@ void runVibrato()
         setParam (a, "speed", 0.95f);           setParam (a, "enableCorrection", 1.0f);
         setParam (a, "doNoHarm", 0.0f);         setParam (a, "classicMode", 0.0f);
         setParam (a, "flexTune", 0.0f);         setParam (a, "vibrato", amt);
-        setParam (a, "liveEngine", 1.0f);
+        setParam (a, "liveEngine", 0.0f);
         const auto out = sattari::harness::renderThrough (p, vibIn, kSr, kBlock);
         auditSafety (out, "vibrato-preserve");
         return trackStdCents (pitchTrackMidi (out, kSr, 256, out.getNumSamples() / 3, 120.0f, 600.0f)) * std::sqrt (2.0);

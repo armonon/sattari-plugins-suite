@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "filename": "crepe.onnx",
+      "role": "monophonic neural pitch",
+      "sha256": "027006c98e649e4bd9c795fb84cb4df6f23d8a7a54255f38789c68e85b56bd60",
+      "sourceURL": "https://github.com/marl/crepe/tree/bb29b8d99a89924476d112d27ed470e4ac5617c0",
+      "sourceWeightsSha256": "409254d6a537cc432061112b7ec5f6fd283658f108fc2abc24db9c25858b42df",
+      "license": "MIT",
+      "licenseFile": "CREPE-LICENSE.txt",
+      "redistributionCleared": true
+    }
+  ]
+}
