@@ -683,20 +683,14 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     styleCaption (editNotesLabel, "EDIT NOTES");
     basicPanel.addAndMakeVisible (editNotesLabel);
 
-    // Engine selector (replaces the old Live-Engine + Low-Latency toggles). One 3-way
-    // choice driving the liveEngine + lowLatency params, so presets/automation still work.
+    // Quality-locked engine selector. Legacy Live/Low-Latency parameters remain
+    // serializable, but the PSOLA path is hidden until it passes real-vocal QA.
     styleCaption (engineCaption, "ENGINE");
-    engineSelect.addItemList ({ "Studio  (best quality)", "Live",
-                                juce::String::fromUTF8 ("Live \xc2\xb7 Low-Latency") }, 1);
+    engineSelect.addItem ("Studio  (quality locked)", 1);
     engineSelect.onChange = [this]
     {
-        switch (engineSelect.getSelectedItemIndex())
-        {
-            case 0: setKeyParam ("liveEngine", 0.0f); setKeyParam ("lowLatency", 0.0f); break;  // Studio (RB)
-            case 1: setKeyParam ("liveEngine", 1.0f); setKeyParam ("lowLatency", 0.0f); break;  // Live (PSOLA)
-            case 2: setKeyParam ("liveEngine", 1.0f); setKeyParam ("lowLatency", 1.0f); break;  // Live low-latency
-            default: break;
-        }
+        setKeyParam ("liveEngine", 0.0f);
+        setKeyParam ("lowLatency", 0.0f);
     };
     basicPanel.addAndMakeVisible (engineCaption);
     basicPanel.addAndMakeVisible (engineSelect);
@@ -1110,18 +1104,18 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
     presetManager.addFactoryPreset ("Modern Rap", PV {
         {"style",2},{"enableCorrection",1},{"amount",0.95f},{"speed",0.9f},{"doNoHarm",0},
         {"formantPreserve",1},{"formantShift",0},{"classicMode",0},{"flexTune",0.08f},
-        {"humanize",0.08f},{"transition",0.08f},{"lowLatency",1},{"liveEngine",1} });
+        {"humanize",0.08f},{"transition",0.08f},{"lowLatency",0},{"liveEngine",0} });
     presetManager.addFactoryPreset ("Robot", PV {
         {"style",3},{"enableCorrection",1},{"amount",1.0f},{"speed",1.0f},{"doNoHarm",0},
         {"formantPreserve",0},{"formantShift",0},{"classicMode",1},{"flexTune",0.0f},
-        {"humanize",0.0f},{"vibrato",0.0f},{"lowLatency",1},{"liveEngine",1} });
+        {"humanize",0.0f},{"vibrato",0.0f},{"lowLatency",0},{"liveEngine",0} });
     presetManager.addFactoryPreset ("Live Tracking", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.72f},{"speed",0.62f},{"doNoHarm",1},
         {"formantPreserve",1},{"classicMode",0},{"flexTune",0.32f},{"humanize",0.35f},
-        {"liveEngine",1},{"lowLatency",1} });
+        {"liveEngine",0},{"lowLatency",0} });
     presetManager.addFactoryPreset ("MIDI Directed", PV {
         {"style",0},{"enableCorrection",1},{"amount",1.0f},{"speed",0.82f},{"doNoHarm",1},
-        {"formantPreserve",1},{"midiTarget",1},{"classicMode",0},{"liveEngine",1} });
+        {"formantPreserve",1},{"midiTarget",1},{"classicMode",0},{"liveEngine",0},{"lowLatency",0} });
     presetManager.addFactoryPreset ("Graph Editor", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.9f},{"speed",0.72f},{"doNoHarm",1},
         {"formantPreserve",1},{"capturePitchEdits",1},{"usePitchEdits",1},{"classicMode",0} });
@@ -1274,15 +1268,8 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     traceStatus.setText (audioProcessor.getLiveStatusSummary(), juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
 
-    // Reflect the engine (params -> selector) so presets/automation keep it in sync.
-    {
-        auto& a = audioProcessor.parameters();
-        const bool lowLat = a.getRawParameterValue ("lowLatency")->load() > 0.5f;
-        const bool live   = a.getRawParameterValue ("liveEngine")->load() > 0.5f;
-        const int idx = lowLat ? 2 : (live ? 1 : 0);
-        if (engineSelect.getSelectedItemIndex() != idx)
-            engineSelect.setSelectedItemIndex (idx, juce::dontSendNotification);
-    }
+    if (engineSelect.getSelectedItemIndex() != 0)
+        engineSelect.setSelectedItemIndex (0, juce::dontSendNotification);
 
     // Transpose-to-Key readout: detected source key -> shift -> resulting key.
     {

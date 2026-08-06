@@ -226,9 +226,8 @@ private:
     // a confidence lock meter; the buttons make every mode a single visible click.
     KeyButton keyButton;
     juce::TextButton autoDetectBtn { "AUTO-DETECT" }, followSongBtn { "FOLLOW SONG" }, setKeyBtn { "SET KEY" };
-    // One engine selector replaces the old Live-Engine + Low-Latency toggles:
-    // Studio (Rubber Band) / Live (PSOLA) / Live Low-Latency (PSOLA, raised floor).
-    // Drives the liveEngine + lowLatency params underneath (preset/automation compat).
+    // Quality-locked Studio selector. Legacy live parameters remain in the
+    // processor so old sessions still deserialize safely.
     juce::ComboBox engineSelect;
     juce::Label engineCaption;
 

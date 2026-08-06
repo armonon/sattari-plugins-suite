@@ -291,9 +291,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("keyRoot", "Key Root", rootChoices, 9));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale", legacyScaleChoices, 1));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scaleMode", "Scale Mode", scaleChoices, 1));
-    // Default to Natural (clean correction). "Classic" and up apply tanh saturation as a
-    // deliberate character — measured 2.4% THD at -6 dBFS, 8% at 0 dBFS — so shipping it as
-    // the default made a plain vocal "distort" out of the box. Users who want warmth pick it.
+    // Default to Natural. Natural, Classic and Modern Rap are all clean tuning
+    // laws; only explicitly effect-named modes (Robot / Big Harmony) colour audio.
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("style", "Style", styleChoices, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("enableCorrection", "Enable Correction", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("autoKey", "AutoKey Follow", false));
@@ -306,9 +305,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // overrode the dropdowns with no visual feedback.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("followSongKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("amount", "Amount",
-        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.82f));
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("speed", "Speed",
-        juce::NormalisableRange<float> (0.05f, 1.0f, 0.01f), 0.70f));
+        juce::NormalisableRange<float> (0.05f, 1.0f, 0.01f), 0.85f));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("doNoHarm", "Do No Harm", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("formantPreserve", "Formant Preserve", true));
     // "Sound Source" replaces the vocals-only "Vocal Range" param. Adding
@@ -684,10 +683,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // Seed the engine-swap detector with the engine that will run first, so the
     // first processBlock after prepare doesn't spuriously flush both paths (they
     // are already freshly primed here).
-    lastUseLiveEngine = (apvts.getRawParameterValue ("liveEngine") != nullptr
-                         && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f)
-                     || (apvts.getRawParameterValue ("lowLatency") != nullptr
-                         && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f);
+    lastUseLiveEngine = false;
     // Seed the transpose seam too (siblings above are seeded), so a project restored
     // with Transpose already ON doesn't fire a spurious engine flush on the first block.
     lastXposeActive = (apvts.getRawParameterValue ("xposeMode") != nullptr
@@ -732,19 +728,12 @@ int SattariAutoPitchAudioProcessor::psolaLatencyFor (bool lowLatency) const
 
 int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
 {
-    const bool lowLatOn  = apvts.getRawParameterValue ("lowLatency") != nullptr
-                           && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
-    const bool liveEngOn = apvts.getRawParameterValue ("liveEngine") != nullptr
-                           && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
     const bool polyOn    = apvts.getRawParameterValue ("polyphonic") != nullptr
                            && apvts.getRawParameterValue ("polyphonic")->load() > 0.5f;
     const bool corrOn    = apvts.getRawParameterValue ("enableCorrection") == nullptr
                            || apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f;
     const bool xposeOn   = apvts.getRawParameterValue ("xposeMode") != nullptr
                            && apvts.getRawParameterValue ("xposeMode")->load() > 0.5f;
-    // Analytic (not psola.front()) so a Low Latency toggle reports the new value at
-    // once, even in the 1-block window before the freshly-built shifter is swapped in.
-    const int psolaLatency = psolaLatencyFor (lowLatOn);
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     const int rbLat = rbLatency + rbCushion;
 #else
@@ -753,11 +742,10 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     // Mirror processBlock's engine precedence EXACTLY, or the host is delay-compensated
     // for the wrong engine:
     //   Transpose-to-Key always runs Rubber Band, whatever else is on;
-    //   then Polyphonic (phase vocoder); then PSOLA (Live/Low-Latency); else Rubber Band.
+    //   then Polyphonic (phase vocoder); otherwise the quality-locked Rubber Band path.
     int engineLatency = rbLat;
     if (xposeOn)               engineLatency = rbLat;
     else if (polyOn && corrOn) engineLatency = pvInFifoLatency;
-    else if (lowLatOn || liveEngOn) engineLatency = psolaLatency;
     const bool timeOn = apvts.getRawParameterValue ("graphTimeCorrection") != nullptr
                      && apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f;
     return engineLatency + (timeOn ? (int) std::round (0.5 * currentSampleRate) : 0);
@@ -945,10 +933,17 @@ void SattariAutoPitchAudioProcessor::voicedRangeHzForSource (double& minHz, doub
     maxHz = maxVoiceHz;
     switch (sourceIdx)
     {
+        case 0: minHz =  55.0; maxHz = 1100.0; break;   // Wide
+        case 1: minHz =  65.0; maxHz =  380.0; break;   // Bass Voice
+        case 2: minHz =  75.0; maxHz =  480.0; break;   // Baritone
+        case 3: minHz =  90.0; maxHz =  650.0; break;   // Tenor
+        case 4: minHz =  90.0; maxHz =  850.0; break;   // Alto / Tenor
+        case 5: minHz = 120.0; maxHz =  950.0; break;   // Alto
+        case 6: minHz = 160.0; maxHz = 1200.0; break;   // Soprano
         case 7: minHz =  40.0; maxHz =  500.0; break;   // Instrument: Bass
         case 8: minHz =  60.0; maxHz = 1500.0; break;   // Instrument: Mid
         case 9: minHz = 110.0; maxHz = 2200.0; break;   // Instrument: High
-        default: break;                                  // voice ranges -> unchanged
+        default: break;
     }
 }
 
@@ -1063,6 +1058,22 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::analy
                 && dprime[(size_t) shorter] < yinThreshold * 1.5)
             {
                 chosenTau = shorter;
+                break;
+            }
+        }
+        // Mirror the test above for octave-UP mistakes. A strong upper harmonic
+        // can make YIN choose T/2 even though the equally-periodic T candidate is
+        // the one continuous with the previous frame. The old one-sided guard
+        // fixed octave-down flicker only, leaving upward jumps to drive the pitch
+        // shifter into a brief metallic chirp.
+        for (int k = 2; k <= 4; ++k)
+        {
+            const int longer = chosenTau * k;
+            if (longer > maxLag) break;
+            if (std::abs (longer - prevTau) <= 2
+                && dprime[(size_t) longer] < yinThreshold * 1.5)
+            {
+                chosenTau = longer;
                 break;
             }
         }
@@ -2999,7 +3010,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Blend by the boost, scaled by the Transition amount. Classic Mode forces
     // near-instant retune regardless (the hard snap).
     double retune = classicMode
-        ? 0.95
+        // Rubber Band is most accurate on a moving vocal when the ratio is
+        // allowed to settle over a few analysis hops. A 0.95 block coefficient
+        // chased every YIN fluctuation and produced metallic chatter; 0.75 is
+        // still a sub-20 ms hard snap at normal buffer sizes without that buzz.
+        ? 0.75
         : sustainRetune + transition * transitionBoost * (onsetRetune - sustainRetune);
     retune = juce::jlimit (0.01, 0.98, retune);
 
@@ -3106,15 +3121,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const float inputGain  = juce::Decibels::decibelsToGain (inputDb);
     const float outputGain = juce::Decibels::decibelsToGain (outputDb);
 
-    // Engine select. Live Engine (PSOLA) is the near-zero-latency monitor path;
-    // Rubber Band is the default higher-fidelity "print" engine. Low Latency is an
-    // alias for the same low-latency PSOLA path — turning EITHER on swaps to PSOLA
-    // at runtime, which is the honest runtime effect that makes Low Latency more
-    // than a dead prepare-only toggle. The reported latency (prepareToPlay) tracks
-    // the active engine, so the delay-comp figure matches the audible latency.
-    const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
-    const bool lowLatency = apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
-    const bool useLiveEngine = liveEngine || lowLatency;
+    // Quality lock. Legacy sessions still deserialize Live/Low-Latency values,
+    // but the current PSOLA path failed real-vocal validation (worse pitch error
+    // plus grain). Keep the parameters for compatibility while always rendering
+    // monophonic correction through the proven print engine.
+    const bool useLiveEngine = false;
 
     // Engine swapped since last block: flush BOTH paths so the switch is clean. The
     // OUTGOING engine still holds ~one pipeline of already-processed audio (the RB
@@ -3538,19 +3549,12 @@ void SattariAutoPitchAudioProcessor::processFallbackFormantGuide (juce::AudioBuf
 void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float>& buffer) const
 {
     const auto style = currentStyleChoice();
-    if (style == "Natural" || style == "Classic")
-    {
-        if (style == "Classic")
-        {
-            // Gentle vintage warmth: near-unity low-level gain (0.65 * 1.5), soft peak
-            // compression. ~1% THD at -6 dBFS, ~3% at 0 dBFS — musical, not the 8% the old
-            // 1.12/0.96 drive produced. Character you'd reach for, not a distortion pedal.
-            for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-                for (int i = 0; i < buffer.getNumSamples(); ++i)
-                    buffer.setSample (channel, i, std::tanh (buffer.getSample (channel, i) * 0.65f) * 1.5f);
-        }
+    // Natural, Classic and Modern Rap differ in correction law and retune speed,
+    // not in an always-on distortion stage. Classic previously added tanh THD and
+    // Modern Rap added a block-reset edge enhancer; both could make an otherwise
+    // clean vocal sound clipped or buzzy. Keep explicit FX in Robot/Big Harmony.
+    if (style == "Natural" || style == "Classic" || style == "Modern Rap")
         return;
-    }
 
     if (style == "Robot")
     {
@@ -3563,22 +3567,6 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
                     held = buffer.getSample (channel, i);
                 const auto shaped = std::tanh ((buffer.getSample (channel, i) * 0.62f + held * 0.38f) * 1.9f) * 0.72f;
                 buffer.setSample (channel, i, shaped);
-            }
-        }
-        return;
-    }
-
-    if (style == "Modern Rap")
-    {
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-        {
-            float previous = 0.0f;
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-            {
-                const auto sample = buffer.getSample (channel, i);
-                const auto edge = sample - previous;
-                previous = sample;
-                buffer.setSample (channel, i, softCeiling (sample * 1.02f + edge * 0.08f));
             }
         }
         return;
@@ -3625,13 +3613,11 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
-    const bool liveEngine = apvts.getRawParameterValue ("liveEngine")->load() > 0.5f
-                         || apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
     const juce::String engine =
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        liveEngine ? "PSOLA" : "Rubber Band";
+        "Rubber Band";
 #else
-        liveEngine ? "PSOLA" : "Guide";
+        "Guide";
 #endif
     const juce::String dot = juce::String::fromUTF8 ("   \xc2\xb7   ");   // "  ·  "
 
