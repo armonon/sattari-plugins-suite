@@ -8,6 +8,20 @@
 
 namespace
 {
+class TestPlayHead final : public juce::AudioPlayHead
+{
+public:
+    juce::Optional<juce::AudioPlayHead::PositionInfo> getPosition() const override
+    {
+        juce::AudioPlayHead::PositionInfo info;
+        info.setTimeInSeconds (seconds);
+        info.setTimeInSamples ((juce::int64) std::round (seconds * 48000.0));
+        info.setIsPlaying (true);
+        return info;
+    }
+    double seconds = 0.0;
+};
+
 void setParameter (juce::AudioProcessorValueTreeState& apvts, const juce::String& id, float value)
 {
     auto* parameter = apvts.getParameter (id);
@@ -92,7 +106,8 @@ int main (int argc, char** argv)
     auto& apvts = processor.parameters();
     const juce::StringArray parityParameters {
         "scaleMode", "referenceDetune", "followReference", "midiTarget",
-        "capturePitchEdits", "usePitchEdits", "addVibrato", "vibratoRate", "vibratoOnset"
+        "capturePitchEdits", "usePitchEdits", "graphTimeCorrection",
+        "addVibrato", "vibratoRate", "vibratoOnset"
     };
     for (const auto& id : parityParameters)
         if (apvts.getParameter (id) == nullptr)
@@ -110,6 +125,99 @@ int main (int argc, char** argv)
         return 1;
     }
     setParameter (apvts, "referenceDetune", 0.0f);
+
+    // Graph objects are stable-ID entities with reversible structural and
+    // per-object edits. Capture through the real detector/transport path so this
+    // contract covers the hand-off from audio analysis to the editor model.
+    {
+        TestPlayHead playHead;
+        processor.setPlayHead (&playHead);
+        setParameter (apvts, "capturePitchEdits", 1.0f);
+        double capturePhase = 0.0;
+        for (int block = 0; block < 24; ++block)
+        {
+            juce::AudioBuffer<float> captureBuffer (2, 512);
+            for (int i = 0; i < captureBuffer.getNumSamples(); ++i)
+            {
+                const float sample = 0.2f * std::sin ((float) capturePhase);
+                capturePhase += juce::MathConstants<double>::twoPi * 220.0 / 48000.0;
+                captureBuffer.setSample (0, i, sample);
+                captureBuffer.setSample (1, i, sample);
+            }
+            juce::MidiBuffer midi;
+            processor.processBlock (captureBuffer, midi);
+            playHead.seconds += 512.0 / 48000.0;
+        }
+        setParameter (apvts, "capturePitchEdits", 0.0f);
+        processor.setPlayHead (nullptr);
+
+        auto edits = processor.getPitchEdits();
+        if (edits.empty() || edits.front().id == 0)
+        {
+            std::cerr << "graph capture did not produce a stable note object\n";
+            return 1;
+        }
+        const auto original = edits.front();
+        if (! processor.splitPitchEdit (original.id, 0.5 * (original.startSec + original.endSec))
+            || processor.getPitchEdits().size() != edits.size() + 1)
+        {
+            std::cerr << "graph split failed\n";
+            return 1;
+        }
+        auto changed = processor.getPitchEdits().front();
+        changed.amount = 0.37f;
+        changed.retune = 0.91f;
+        changed.formantSemitones = 3.0f;
+        changed.timeOffsetSec = -0.125;
+        changed.gainDb = -2.5f;
+        if (! processor.setPitchEditEntry (changed.id, changed)
+            || std::abs (processor.getPitchEdits().front().timeOffsetSec + 0.125) > 1.0e-6)
+        {
+            std::cerr << "per-object graph controls failed\n";
+            return 1;
+        }
+        juce::MemoryBlock graphState;
+        processor.getStateInformation (graphState);
+        SattariAutoPitchAudioProcessor restoredGraph;
+        restoredGraph.setStateInformation (graphState.getData(), (int) graphState.getSize());
+        const auto restoredEdits = restoredGraph.getPitchEdits();
+        if (restoredEdits.empty() || restoredEdits.front().id != changed.id
+            || std::abs (restoredEdits.front().amount - 0.37f) > 0.001f
+            || std::abs (restoredEdits.front().formantSemitones - 3.0f) > 0.001f
+            || std::abs (restoredEdits.front().timeOffsetSec + 0.125) > 1.0e-6
+            || std::abs (restoredEdits.front().gainDb + 2.5f) > 0.001f)
+        {
+            std::cerr << "graph object state round-trip failed\n";
+            return 1;
+        }
+        if (! processor.undoPitchEdit() || ! processor.redoPitchEdit())
+        {
+            std::cerr << "graph undo/redo failed\n";
+            return 1;
+        }
+        if (! processor.joinPitchEdit (changed.id) || ! processor.deletePitchEdit (changed.id))
+        {
+            std::cerr << "graph join/delete failed\n";
+            return 1;
+        }
+        processor.clearPitchEdits();
+        std::cout << "  graphObjectEditing=PASS (split/join/delete, object controls, undo/redo)\n";
+    }
+
+    {
+        SattariAutoPitchAudioProcessor baselineLatency;
+        baselineLatency.prepareToPlay (48000.0, 512);
+        SattariAutoPitchAudioProcessor timedLatency;
+        setParameter (timedLatency.parameters(), "graphTimeCorrection", 1.0f);
+        timedLatency.prepareToPlay (48000.0, 512);
+        const int added = timedLatency.getLatencySamples() - baselineLatency.getLatencySamples();
+        if (added != 24000)
+        {
+            std::cerr << "graph time correction did not report its 500 ms look-ahead: " << added << " samples\n";
+            return 1;
+        }
+        std::cout << "  graphTimeLatency=PASS (24000 samples reported at 48 kHz)\n";
+    }
 
     setParameter (apvts, "keyRoot", 0.0f); // C
     setParameter (apvts, "scale", 0.0f); // major

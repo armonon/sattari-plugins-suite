@@ -133,13 +133,20 @@ class PitchEditTimeline final : public juce::Component
 {
 public:
     using Entry = SattariAutoPitchAudioProcessor::PitchEditEntry;
-    std::function<void(int, int)> onTargetChanged;
-    std::function<void(int, bool)> onEnabledChanged;
+    std::function<void(const Entry&)> onEntryChanged;
+    std::function<void(juce::int64)> onSelectionChanged;
+    std::function<void()> onGestureBegin, onGestureEnd;
 
     void setData (std::vector<Entry> newEntries, double newPlayhead);
+    void zoomIn();
+    void zoomOut();
+    void fitAll();
+    juce::int64 selectedId() const noexcept { return selectedEntryId; }
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     juce::Rectangle<float> entryRect (int index) const;
@@ -150,7 +157,10 @@ private:
     std::vector<Entry> entries;
     double playheadSec = 0.0;
     double timelineDurationSec = 10.0;
+    double viewStartSec = 0.0, viewDurationSec = 10.0;
+    bool fitToContent = true;
     int selected = -1;
+    juce::int64 selectedEntryId = 0;
     int dragStartTarget = 60;
     float dragStartY = 0.0f;
 };
@@ -287,10 +297,22 @@ private:
     PitchEditTimeline pitchEditTimeline;
     juce::ToggleButton capturePitchEdits { "Capture notes" };
     juce::ToggleButton usePitchEdits { "Use edited notes" };
-    juce::TextButton clearPitchEdits { "Clear" };
+    juce::ToggleButton graphTimeCorrection { "Time correction" };
+    juce::TextButton clearPitchEdits { "Clear" }, undoPitchEdit { "Undo" }, redoPitchEdit { "Redo" },
+                     splitPitchEdit { "Split" }, joinPitchEdit { "Join" }, deletePitchEdit { "Delete" },
+                     zoomInPitchEdit { "+" }, zoomOutPitchEdit { "-" }, fitPitchEdit { "Fit" };
+    juce::Slider objectAmount, objectRetune, objectTransition, objectHumanize, objectVibrato,
+                 objectFormant, objectTime, objectGain;
+    juce::Label objectAmountLabel, objectRetuneLabel, objectTransitionLabel, objectHumanizeLabel, objectVibratoLabel,
+                objectFormantLabel, objectTimeLabel, objectGainLabel;
     juce::Label pitchEditHelp, pitchEditStatus;
     int pitchEditShownRevision = -1;
-    std::unique_ptr<ButtonAttachment> capturePitchEditsAttach, usePitchEditsAttach;
+    juce::int64 selectedPitchEditId = 0;
+    PitchEditTimeline::Entry selectedPitchEdit;
+    bool syncingPitchEditControls = false;
+    std::unique_ptr<ButtonAttachment> capturePitchEditsAttach, usePitchEditsAttach, graphTimeCorrectionAttach;
+    void selectPitchEdit (juce::int64 id);
+    void updateSelectedPitchEdit();
 
     void onScanTrackClicked();
 

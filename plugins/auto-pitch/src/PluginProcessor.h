@@ -27,6 +27,9 @@
 #endif
 
 class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
+#if JucePlugin_Enable_ARA
+                                             public juce::AudioProcessorARAExtension,
+#endif
                                              private juce::AudioProcessorValueTreeState::Listener,
                                              private juce::AsyncUpdater,
                                              private juce::Timer
@@ -136,15 +139,31 @@ public:
     // foundation for Graph-style surgical correction without requiring ARA.
     struct PitchEditEntry
     {
+        juce::int64 id = 0;
         double startSec = 0.0, endSec = 0.0;
         int sourceMidi = 60, targetMidi = 60;
         float confidence = 0.0f;
         bool enabled = true;
+        // Per-object overrides. A negative value means "follow the global control"
+        // so old sessions migrate without changing their sound.
+        float amount = -1.0f, retune = -1.0f, transition = -1.0f;
+        float humanize = -1.0f, vibrato = -1.0f;
+        float formantSemitones = -100.0f;
+        float gainDb = 0.0f;
+        double timeOffsetSec = 0.0;
     };
     std::vector<PitchEditEntry> getPitchEdits() const;
     void clearPitchEdits();
-    void setPitchEditTarget (int index, int targetMidi);
-    void setPitchEditEnabled (int index, bool enabled);
+    bool setPitchEditEntry (juce::int64 id, const PitchEditEntry& entry);
+    bool splitPitchEdit (juce::int64 id, double splitSec);
+    bool joinPitchEdit (juce::int64 id);
+    bool deletePitchEdit (juce::int64 id);
+    void beginPitchEditGesture();
+    void endPitchEditGesture();
+    bool undoPitchEdit();
+    bool redoPitchEdit();
+    bool canUndoPitchEdit() const;
+    bool canRedoPitchEdit() const;
     int getPitchEditRevision() const noexcept { return pitchEditRevision.load (std::memory_order_relaxed); }
 
     // Live snapshot for the editor (timer-polled). Trivially-copyable POD with
@@ -216,6 +235,10 @@ private:
         double correctionCents = 0.0;
         double confidence = 0.0;
         double rms = 0.0;
+        float objectAmount = -1.0f, objectRetune = -1.0f, objectTransition = -1.0f;
+        float objectHumanize = -1.0f, objectVibrato = -1.0f;
+        float objectFormantSemitones = -100.0f, objectGainDb = 0.0f;
+        bool objectActive = false;
         bool voiced = false;
     };
 
@@ -249,12 +272,15 @@ private:
     void correlateAutoKeyHistogram();
     float styleCorrectionStrength() const;
     float styleRetuneCoefficient() const;
+    float styleCorrectionStrengthFor (float amount) const;
+    float styleRetuneCoefficientFor (float speed) const;
     juce::String currentStyleChoice() const;
     double pitchScaleForFrame (const PitchFrame& frame) const;
     void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
                                 bool straightTranspose = false);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
+    void applyGraphTimeCorrection (juce::AudioBuffer<float>& buffer, double hostTimeSeconds);
 
     // Reported latency of whichever engine is active right now: the streaming
     // PSOLA path (Low Latency / Live Engine) has a small fixed delay; the Rubber
@@ -456,11 +482,25 @@ private:
     // the vector is reserved on prepare so capture never allocates in processBlock.
     mutable juce::CriticalSection pitchEditLock;
     std::vector<PitchEditEntry> pitchEdits;
+    std::vector<std::vector<PitchEditEntry>> pitchEditUndo, pitchEditRedo;
     std::atomic<int> pitchEditRevision { 0 };
+    juce::int64 nextPitchEditId = 1;
+    bool pitchEditGestureActive = false;
+    bool pitchEditGestureChanged = false;
     int lastCapturedPitchEdit = -1;
     double lastCapturedEndSec = -1.0;
+    void pushPitchEditUndoLocked();
+    void markPitchEditChangedLocked();
     void capturePitchEditAtSeconds (double seconds, double blockDuration, const PitchFrame& frame);
     void applyPitchEditAtSeconds (double seconds, PitchFrame& frame) const;
+
+    // Graph time correction is an opt-in, latency-compensated fractional delay.
+    // The fixed 500 ms look-ahead allows note objects to move earlier as well as
+    // later without reading future host audio. Storage is allocated in prepare.
+    juce::AudioBuffer<float> graphTimeRing;
+    int graphTimeRingSize = 0, graphTimeWrite = 0;
+    double graphTimeDelaySamples = 0.0;
+    bool graphTimeWasActive = false;
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

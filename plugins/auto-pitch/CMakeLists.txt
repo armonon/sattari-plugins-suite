@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_AUTO_PITCH_PLUGIN VERSION 0.2.0)
+project(SATTARI_AUTO_PITCH_PLUGIN VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,37 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
 
+set(SATTARI_AUTOPITCH_ARA_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../third_party/ARA_SDK"
+    CACHE PATH "Path to the ARA SDK 2.2 checkout")
+if(EXISTS "${SATTARI_AUTOPITCH_ARA_SDK_PATH}/ARA_API")
+    set(_sattari_ara_default ON)
+else()
+    set(_sattari_ara_default OFF)
+endif()
+option(SATTARI_AUTOPITCH_ENABLE_ARA "Build the Auto Pitch ARA2 extension" ${_sattari_ara_default})
+
+set(SATTARI_AAX_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../third_party/AAX_SDK"
+    CACHE PATH "Path to a licensed Avid AAX SDK checkout")
+option(SATTARI_AUTOPITCH_ENABLE_AAX "Build Auto Pitch in AAX format for Pro Tools" OFF)
+
+set(_sattari_formats AU VST3 Standalone)
+set(_sattari_ara_args)
+set(_sattari_extra_sources)
+if(SATTARI_AUTOPITCH_ENABLE_ARA)
+    if(NOT EXISTS "${SATTARI_AUTOPITCH_ARA_SDK_PATH}/ARA_API")
+        message(FATAL_ERROR "ARA2 requested but the SDK was not found. Run scripts/fetch_ara_sdk.sh or set SATTARI_AUTOPITCH_ARA_SDK_PATH.")
+    endif()
+    list(APPEND _sattari_ara_args IS_ARA_EFFECT)
+    list(APPEND _sattari_extra_sources src/AutoPitchARA.cpp)
+endif()
+
+if(SATTARI_AUTOPITCH_ENABLE_AAX)
+    if(NOT EXISTS "${SATTARI_AAX_SDK_PATH}")
+        message(FATAL_ERROR "AAX requested but Avid's licensed SDK was not found. Set SATTARI_AAX_SDK_PATH to your SDK checkout.")
+    endif()
+    list(APPEND _sattari_formats AAX)
+endif()
+
 sattari_add_plugin(
     TARGET SattariAutoPitch
     SLUG auto-pitch
@@ -17,9 +48,14 @@ sattari_add_plugin(
     PLUGIN_CODE Ap01
     VERSION ${PROJECT_VERSION}
     EDITOR_WANTS_KEYBOARD_FOCUS
+    ${_sattari_ara_args}
+    ARA_SDK_PATH ${SATTARI_AUTOPITCH_ARA_SDK_PATH}
+    AAX_SDK_PATH ${SATTARI_AAX_SDK_PATH}
+    FORMATS ${_sattari_formats}
     SOURCES
         src/PluginProcessor.cpp
-        src/PluginEditor.cpp)
+        src/PluginEditor.cpp
+        ${_sattari_extra_sources})
 
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)

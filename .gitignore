@@ -1,5 +1,6 @@
 # Build products
 build/
+/build-*/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
@@ -35,6 +36,7 @@ apps/sattari-hub/.build/
 #   Rubber Band-dependent plugins build from a clean checkout with no extra fetch.
 #   Only the broken-extract scratch dir stays ignored.
 third_party/.rubberband_broken/
+third_party/ARA_SDK/
 
 # Logs + FUSE filesystem leftovers.
 *.log

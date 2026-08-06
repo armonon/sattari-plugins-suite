@@ -30,8 +30,8 @@ include_guard(GLOBAL)
 get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 function(sattari_add_plugin)
-    set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)
-    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION)
+    set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
+    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ARA_SDK_PATH AAX_SDK_PATH)
     set(multiValueArgs FORMATS SOURCES)
     cmake_parse_arguments(SAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -97,8 +97,25 @@ function(sattari_add_plugin)
         target_link_libraries(SattariAudioCore INTERFACE SattariBrandAssets)
     endif()
 
+    if(SAP_IS_ARA_EFFECT)
+        if(NOT SAP_ARA_SDK_PATH)
+            message(FATAL_ERROR "sattari_add_plugin(${SAP_TARGET}): ARA_SDK_PATH is required for IS_ARA_EFFECT")
+        endif()
+        if(NOT TARGET juce_ara_sdk)
+            juce_set_ara_sdk_path("${SAP_ARA_SDK_PATH}")
+        endif()
+    endif()
+    if("AAX" IN_LIST SAP_FORMATS)
+        if(NOT SAP_AAX_SDK_PATH)
+            message(FATAL_ERROR "sattari_add_plugin(${SAP_TARGET}): AAX_SDK_PATH is required for AAX format")
+        endif()
+        if(NOT TARGET juce_aax_sdk)
+            juce_set_aax_sdk_path("${SAP_AAX_SDK_PATH}")
+        endif()
+    endif()
+
     # Option flags -> TRUE/FALSE for juce_add_plugin.
-    foreach(flag IN ITEMS IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)
+    foreach(flag IN ITEMS IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
         if(SAP_${flag})
             set(${flag}_VAL TRUE)
         else()
@@ -113,6 +130,7 @@ function(sattari_add_plugin)
         NEEDS_MIDI_OUTPUT           ${NEEDS_MIDI_OUTPUT_VAL}
         IS_MIDI_EFFECT              ${IS_MIDI_EFFECT_VAL}
         EDITOR_WANTS_KEYBOARD_FOCUS ${EDITOR_WANTS_KEYBOARD_FOCUS_VAL}
+        IS_ARA_EFFECT               ${IS_ARA_EFFECT_VAL}
         COPY_PLUGIN_AFTER_BUILD     TRUE
         PLUGIN_MANUFACTURER_CODE    ${SAP_MANUFACTURER_CODE}
         PLUGIN_CODE                 ${SAP_PLUGIN_CODE}

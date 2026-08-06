@@ -311,8 +311,44 @@ void PitchEditTimeline::setData (std::vector<Entry> newEntries, double newPlayhe
     playheadSec = juce::jmax (0.0, newPlayhead);
     timelineDurationSec = 10.0;
     for (const auto& entry : entries)
-        timelineDurationSec = juce::jmax (timelineDurationSec, entry.endSec + 1.0);
-    if (selected >= (int) entries.size()) selected = -1;
+        timelineDurationSec = juce::jmax (timelineDurationSec, entry.endSec + entry.timeOffsetSec + 1.0);
+    selected = -1;
+    for (int i = 0; i < (int) entries.size(); ++i)
+        if (entries[(size_t) i].id == selectedEntryId) { selected = i; break; }
+    if (selected < 0) selectedEntryId = 0;
+    if (fitToContent)
+    {
+        viewStartSec = 0.0;
+        viewDurationSec = timelineDurationSec;
+    }
+    viewDurationSec = juce::jlimit (0.25, timelineDurationSec, viewDurationSec);
+    viewStartSec = juce::jlimit (0.0, juce::jmax (0.0, timelineDurationSec - viewDurationSec), viewStartSec);
+    repaint();
+}
+
+void PitchEditTimeline::zoomIn()
+{
+    fitToContent = false;
+    const double centre = viewStartSec + 0.5 * viewDurationSec;
+    viewDurationSec = juce::jmax (0.25, viewDurationSec * 0.65);
+    viewStartSec = juce::jlimit (0.0, juce::jmax (0.0, timelineDurationSec - viewDurationSec), centre - 0.5 * viewDurationSec);
+    repaint();
+}
+
+void PitchEditTimeline::zoomOut()
+{
+    fitToContent = false;
+    const double centre = viewStartSec + 0.5 * viewDurationSec;
+    viewDurationSec = juce::jmin (timelineDurationSec, viewDurationSec / 0.65);
+    viewStartSec = juce::jlimit (0.0, juce::jmax (0.0, timelineDurationSec - viewDurationSec), centre - 0.5 * viewDurationSec);
+    repaint();
+}
+
+void PitchEditTimeline::fitAll()
+{
+    fitToContent = true;
+    viewStartSec = 0.0;
+    viewDurationSec = timelineDurationSec;
     repaint();
 }
 
@@ -344,8 +380,10 @@ juce::Rectangle<float> PitchEditTimeline::entryRect (int index) const
     const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
     const int lo = minMidi(), hi = maxMidi();
     const auto& e = entries[(size_t) index];
-    const float x0 = juce::jmap ((float) e.startSec, 0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
-    const float x1 = juce::jmap ((float) e.endSec,   0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
+    const double visualStart = e.startSec + e.timeOffsetSec;
+    const double visualEnd = e.endSec + e.timeOffsetSec;
+    const float x0 = juce::jmap ((float) visualStart, (float) viewStartSec, (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
+    const float x1 = juce::jmap ((float) visualEnd,   (float) viewStartSec, (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
     const float row = plot.getHeight() / (float) juce::jmax (1, hi - lo + 1);
     const float y = plot.getBottom() - ((float) (e.targetMidi - lo) + 1.0f) * row;
     return { x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (5.0f, row - 1.0f) };
@@ -404,9 +442,10 @@ void PitchEditTimeline::paint (juce::Graphics& g)
         }
     }
 
-    if (playheadSec <= timelineDurationSec)
+    if (playheadSec >= viewStartSec && playheadSec <= viewStartSec + viewDurationSec)
     {
-        const float x = juce::jmap ((float) playheadSec, 0.0f, (float) timelineDurationSec, plot.getX(), plot.getRight());
+        const float x = juce::jmap ((float) playheadSec, (float) viewStartSec,
+                                    (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
         g.setColour (accent.withAlpha (0.9f));
         g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom());
     }
@@ -423,6 +462,8 @@ void PitchEditTimeline::paint (juce::Graphics& g)
 void PitchEditTimeline::mouseDown (const juce::MouseEvent& e)
 {
     selected = hitEntry (e.position);
+    selectedEntryId = selected >= 0 ? entries[(size_t) selected].id : 0;
+    if (onSelectionChanged) onSelectionChanged (selectedEntryId);
     if (selected < 0) { repaint(); return; }
     dragStartY = e.position.y;
     dragStartTarget = entries[(size_t) selected].targetMidi;
@@ -430,8 +471,9 @@ void PitchEditTimeline::mouseDown (const juce::MouseEvent& e)
     {
         const bool next = ! entries[(size_t) selected].enabled;
         entries[(size_t) selected].enabled = next;
-        if (onEnabledChanged) onEnabledChanged (selected, next);
+        if (onEntryChanged) onEntryChanged (entries[(size_t) selected]);
     }
+    else if (onGestureBegin) onGestureBegin();
     repaint();
 }
 
@@ -445,9 +487,38 @@ void PitchEditTimeline::mouseDrag (const juce::MouseEvent& e)
     if (entries[(size_t) selected].targetMidi != target)
     {
         entries[(size_t) selected].targetMidi = target;
-        if (onTargetChanged) onTargetChanged (selected, target);
+        if (onEntryChanged) onEntryChanged (entries[(size_t) selected]);
         repaint();
     }
+}
+
+void PitchEditTimeline::mouseUp (const juce::MouseEvent& e)
+{
+    if (! e.mods.isPopupMenu() && selected >= 0 && onGestureEnd) onGestureEnd();
+}
+
+void PitchEditTimeline::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    fitToContent = false;
+    if (std::abs (wheel.deltaY) >= std::abs (wheel.deltaX))
+    {
+        const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
+        const double anchor = juce::jmap ((double) juce::jlimit (plot.getX(), plot.getRight(), e.position.x),
+                                          (double) plot.getX(), (double) plot.getRight(),
+                                          viewStartSec, viewStartSec + viewDurationSec);
+        const double scale = wheel.deltaY > 0.0f ? 0.78 : 1.0 / 0.78;
+        const double nextDuration = juce::jlimit (0.25, timelineDurationSec, viewDurationSec * scale);
+        const double fraction = plot.getWidth() > 0.0f ? (e.position.x - plot.getX()) / plot.getWidth() : 0.5;
+        viewStartSec = juce::jlimit (0.0, juce::jmax (0.0, timelineDurationSec - nextDuration),
+                                     anchor - fraction * nextDuration);
+        viewDurationSec = nextDuration;
+    }
+    else
+    {
+        viewStartSec = juce::jlimit (0.0, juce::jmax (0.0, timelineDurationSec - viewDurationSec),
+                                     viewStartSec - (double) wheel.deltaX * viewDurationSec);
+    }
+    repaint();
 }
 
 // ============================================================================
@@ -852,23 +923,59 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // ----- Edit -----
     editPanel.addAndMakeVisible (capturePitchEdits);
     editPanel.addAndMakeVisible (usePitchEdits);
+    editPanel.addAndMakeVisible (graphTimeCorrection);
     editPanel.addAndMakeVisible (clearPitchEdits);
+    for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit,
+                          &deletePitchEdit, &zoomInPitchEdit, &zoomOutPitchEdit, &fitPitchEdit })
+        editPanel.addAndMakeVisible (*button);
     editPanel.addAndMakeVisible (pitchEditTimeline);
     editPanel.addAndMakeVisible (pitchEditHelp);
     editPanel.addAndMakeVisible (pitchEditStatus);
     pitchEditHelp.setText (
-        "Play with Capture armed to create note objects. Drag a note vertically to retarget; right-click to bypass it.",
+        "Select a note, then tune its pitch, feel, formant, level or timing. Drag vertically to retarget; wheel to zoom.",
         juce::dontSendNotification);
     pitchEditHelp.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     pitchEditHelp.setJustificationType (juce::Justification::centredLeft);
     pitchEditStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     clearPitchEdits.onClick = [this] { audioProcessor.clearPitchEdits(); };
-    pitchEditTimeline.onTargetChanged = [this] (int index, int target) {
-        audioProcessor.setPitchEditTarget (index, target);
+    undoPitchEdit.onClick = [this] { audioProcessor.undoPitchEdit(); };
+    redoPitchEdit.onClick = [this] { audioProcessor.redoPitchEdit(); };
+    splitPitchEdit.onClick = [this] { if (selectedPitchEditId != 0) audioProcessor.splitPitchEdit (selectedPitchEditId, audioProcessor.getKeyMapPlayheadSec()); };
+    joinPitchEdit.onClick = [this] { if (selectedPitchEditId != 0) audioProcessor.joinPitchEdit (selectedPitchEditId); };
+    deletePitchEdit.onClick = [this] { if (selectedPitchEditId != 0) audioProcessor.deletePitchEdit (selectedPitchEditId); };
+    zoomInPitchEdit.onClick = [this] { pitchEditTimeline.zoomIn(); };
+    zoomOutPitchEdit.onClick = [this] { pitchEditTimeline.zoomOut(); };
+    fitPitchEdit.onClick = [this] { pitchEditTimeline.fitAll(); };
+    pitchEditTimeline.onEntryChanged = [this] (const auto& entry) { audioProcessor.setPitchEditEntry (entry.id, entry); };
+    pitchEditTimeline.onSelectionChanged = [this] (juce::int64 id) { selectPitchEdit (id); };
+    pitchEditTimeline.onGestureBegin = [this] { audioProcessor.beginPitchEditGesture(); };
+    pitchEditTimeline.onGestureEnd = [this] { audioProcessor.endPitchEditGesture(); };
+
+    struct ObjectControl { juce::Slider* slider; juce::Label* label; const char* name; double lo, hi, step; const char* suffix; };
+    const ObjectControl objectControls[] {
+        { &objectAmount, &objectAmountLabel, "Amount", 0.0, 1.0, 0.01, "" },
+        { &objectRetune, &objectRetuneLabel, "Retune", 0.05, 1.0, 0.01, "" },
+        { &objectTransition, &objectTransitionLabel, "Transition", 0.0, 1.0, 0.01, "" },
+        { &objectHumanize, &objectHumanizeLabel, "Humanize", 0.0, 1.0, 0.01, "" },
+        { &objectVibrato, &objectVibratoLabel, "Vibrato", 0.0, 1.0, 0.01, "" },
+        { &objectFormant, &objectFormantLabel, "Formant", -12.0, 12.0, 0.1, " st" },
+        { &objectTime, &objectTimeLabel, "Time", -500.0, 500.0, 1.0, " ms" },
+        { &objectGain, &objectGainLabel, "Gain", -24.0, 12.0, 0.1, " dB" }
     };
-    pitchEditTimeline.onEnabledChanged = [this] (int index, bool enabled) {
-        audioProcessor.setPitchEditEnabled (index, enabled);
-    };
+    for (const auto& control : objectControls)
+    {
+        editPanel.addAndMakeVisible (*control.slider);
+        editPanel.addAndMakeVisible (*control.label);
+        control.slider->setSliderStyle (juce::Slider::LinearHorizontal);
+        control.slider->setTextBoxStyle (juce::Slider::TextBoxRight, false, 58, 20);
+        control.slider->setRange (control.lo, control.hi, control.step);
+        control.slider->setTextValueSuffix (control.suffix);
+        styleCaption (*control.label, control.name);
+        control.slider->setEnabled (false);
+        control.slider->onDragStart = [this] { audioProcessor.beginPitchEditGesture(); };
+        control.slider->onDragEnd = [this] { audioProcessor.endPitchEditGesture(); };
+        control.slider->onValueChange = [this] { updateSelectedPitchEdit(); };
+    }
 
     // Attachments
     auto& params = audioProcessor.parameters();
@@ -911,6 +1018,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     midiTargetAttach       = std::make_unique<ButtonAttachment> (params, "midiTarget", midiTarget);
     capturePitchEditsAttach = std::make_unique<ButtonAttachment> (params, "capturePitchEdits", capturePitchEdits);
     usePitchEditsAttach     = std::make_unique<ButtonAttachment> (params, "usePitchEdits", usePitchEdits);
+    graphTimeCorrectionAttach = std::make_unique<ButtonAttachment> (params, "graphTimeCorrection", graphTimeCorrection);
     transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
 
     // Paint a meaningful engine value on the very first frame. Previously this
@@ -928,6 +1036,50 @@ SattariAutoPitchAudioProcessorEditor::~SattariAutoPitchAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void SattariAutoPitchAudioProcessorEditor::selectPitchEdit (juce::int64 id)
+{
+    const auto edits = audioProcessor.getPitchEdits();
+    const auto it = std::find_if (edits.begin(), edits.end(), [id] (const auto& entry) { return entry.id == id; });
+    const bool valid = it != edits.end() && id != 0;
+    selectedPitchEditId = valid ? id : 0;
+    if (valid) selectedPitchEdit = *it;
+
+    syncingPitchEditControls = true;
+    for (auto* slider : { &objectAmount, &objectRetune, &objectTransition, &objectHumanize, &objectVibrato,
+                          &objectFormant, &objectTime, &objectGain })
+        slider->setEnabled (valid);
+    splitPitchEdit.setEnabled (valid);
+    joinPitchEdit.setEnabled (valid);
+    deletePitchEdit.setEnabled (valid);
+    if (valid)
+    {
+        const auto global = [this] (const char* idToRead) { return audioProcessor.parameters().getRawParameterValue (idToRead)->load(); };
+        objectAmount.setValue (selectedPitchEdit.amount >= 0.0f ? selectedPitchEdit.amount : global ("amount"), juce::dontSendNotification);
+        objectRetune.setValue (selectedPitchEdit.retune >= 0.0f ? selectedPitchEdit.retune : global ("speed"), juce::dontSendNotification);
+        objectTransition.setValue (selectedPitchEdit.transition >= 0.0f ? selectedPitchEdit.transition : global ("transition"), juce::dontSendNotification);
+        objectHumanize.setValue (selectedPitchEdit.humanize >= 0.0f ? selectedPitchEdit.humanize : global ("humanize"), juce::dontSendNotification);
+        objectVibrato.setValue (selectedPitchEdit.vibrato >= 0.0f ? selectedPitchEdit.vibrato : global ("vibrato"), juce::dontSendNotification);
+        objectFormant.setValue (selectedPitchEdit.formantSemitones >= -12.0f ? selectedPitchEdit.formantSemitones : global ("formantShift"), juce::dontSendNotification);
+        objectTime.setValue (selectedPitchEdit.timeOffsetSec * 1000.0, juce::dontSendNotification);
+        objectGain.setValue (selectedPitchEdit.gainDb, juce::dontSendNotification);
+    }
+    syncingPitchEditControls = false;
+}
+
+void SattariAutoPitchAudioProcessorEditor::updateSelectedPitchEdit()
+{
+    if (syncingPitchEditControls || selectedPitchEditId == 0) return;
+    selectedPitchEdit.amount = (float) objectAmount.getValue();
+    selectedPitchEdit.retune = (float) objectRetune.getValue();
+    selectedPitchEdit.transition = (float) objectTransition.getValue();
+    selectedPitchEdit.humanize = (float) objectHumanize.getValue();
+    selectedPitchEdit.vibrato = (float) objectVibrato.getValue();
+    selectedPitchEdit.formantSemitones = (float) objectFormant.getValue();
+    selectedPitchEdit.timeOffsetSec = objectTime.getValue() * 0.001;
+    selectedPitchEdit.gainDb = (float) objectGain.getValue();
+    audioProcessor.setPitchEditEntry (selectedPitchEditId, selectedPitchEdit);
 }
 
 void SattariAutoPitchAudioProcessorEditor::styleKnob (juce::Slider& s, bool feature)
@@ -1052,7 +1204,16 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         auto edits = audioProcessor.getPitchEdits();
         const int revision = audioProcessor.getPitchEditRevision();
         pitchEditTimeline.setData (edits, audioProcessor.getKeyMapPlayheadSec());
+        if (revision != pitchEditShownRevision && selectedPitchEditId != 0
+            && ! objectAmount.isMouseButtonDown() && ! objectRetune.isMouseButtonDown()
+            && ! objectTransition.isMouseButtonDown() && ! objectHumanize.isMouseButtonDown()
+            && ! objectVibrato.isMouseButtonDown()
+            && ! objectFormant.isMouseButtonDown() && ! objectTime.isMouseButtonDown()
+            && ! objectGain.isMouseButtonDown())
+            selectPitchEdit (selectedPitchEditId);
         pitchEditShownRevision = revision;
+        undoPitchEdit.setEnabled (audioProcessor.canUndoPitchEdit());
+        redoPitchEdit.setEnabled (audioProcessor.canRedoPitchEdit());
         pitchEditStatus.setText (juce::String ((int) edits.size()) + " note objects"
             + juce::String::fromUTF8 ("   \xc2\xb7   ")
             + juce::String (audioProcessor.parameters().getRawParameterValue ("usePitchEdits")->load() > 0.5f
@@ -1432,15 +1593,52 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     // ---- Edit panel ----
     auto eArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (8);
     auto editToolbar = eArea.removeFromTop (32);
-    capturePitchEdits.setBounds (editToolbar.removeFromLeft (150));
+    capturePitchEdits.setBounds (editToolbar.removeFromLeft (132));
     editToolbar.removeFromLeft (8);
-    usePitchEdits.setBounds (editToolbar.removeFromLeft (170));
+    usePitchEdits.setBounds (editToolbar.removeFromLeft (152));
     editToolbar.removeFromLeft (8);
-    clearPitchEdits.setBounds (editToolbar.removeFromLeft (90));
+    graphTimeCorrection.setBounds (editToolbar.removeFromLeft (158));
     editToolbar.removeFromLeft (14);
     pitchEditStatus.setBounds (editToolbar);
-    eArea.removeFromTop (8);
+
+    eArea.removeFromTop (5);
+    auto commandBar = eArea.removeFromTop (28);
+    for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit, &deletePitchEdit, &clearPitchEdits })
+    {
+        button->setBounds (commandBar.removeFromLeft (70));
+        commandBar.removeFromLeft (5);
+    }
+    commandBar.removeFromLeft (10);
+    zoomOutPitchEdit.setBounds (commandBar.removeFromLeft (34));
+    commandBar.removeFromLeft (3);
+    zoomInPitchEdit.setBounds (commandBar.removeFromLeft (34));
+    commandBar.removeFromLeft (3);
+    fitPitchEdit.setBounds (commandBar.removeFromLeft (52));
+    eArea.removeFromTop (5);
     pitchEditHelp.setBounds (eArea.removeFromTop (24));
-    eArea.removeFromTop (8);
+
+    eArea.removeFromTop (4);
+    auto controlsArea = eArea.removeFromTop (104);
+    auto layoutControlRow = [] (juce::Rectangle<int> row,
+                                std::initializer_list<std::pair<juce::Label*, juce::Slider*>> controls)
+    {
+        const int gap = 8;
+        const int width = (row.getWidth() - gap * ((int) controls.size() - 1)) / (int) controls.size();
+        for (const auto& control : controls)
+        {
+            auto cell = row.removeFromLeft (width);
+            control.first->setBounds (cell.removeFromTop (16));
+            control.second->setBounds (cell);
+            row.removeFromLeft (gap);
+        }
+    };
+    layoutControlRow (controlsArea.removeFromTop (48), {
+        { &objectAmountLabel, &objectAmount }, { &objectRetuneLabel, &objectRetune },
+        { &objectTransitionLabel, &objectTransition }, { &objectHumanizeLabel, &objectHumanize } });
+    controlsArea.removeFromTop (6);
+    layoutControlRow (controlsArea.removeFromTop (48), {
+        { &objectVibratoLabel, &objectVibrato }, { &objectFormantLabel, &objectFormant },
+        { &objectTimeLabel, &objectTime }, { &objectGainLabel, &objectGain } });
+    eArea.removeFromTop (7);
     pitchEditTimeline.setBounds (eArea);
 }

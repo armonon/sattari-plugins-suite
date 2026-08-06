@@ -171,6 +171,7 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // Polyphonic engine back to the mono path. Listen so the reported latency follows.
     apvts.addParameterListener ("xposeMode", this);
     apvts.addParameterListener ("enableCorrection", this);
+    apvts.addParameterListener ("graphTimeCorrection", this);
 
     // Publish the correction key to the cross-plugin bus on a message-thread heartbeat,
     // so followers keep tracking even with the editor closed and no neural model. The
@@ -187,6 +188,7 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     apvts.removeParameterListener ("polyphonic", this);
     apvts.removeParameterListener ("xposeMode", this);
     apvts.removeParameterListener ("enableCorrection", this);
+    apvts.removeParameterListener ("graphTimeCorrection", this);
     // A latency-refresh may be queued on the message thread; cancel it before we
     // start tearing members down.
     cancelPendingUpdate();
@@ -380,6 +382,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> ("midiTarget", "Target Notes from MIDI", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("capturePitchEdits", "Capture Pitch Edits", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("usePitchEdits", "Use Pitch Edits", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("graphTimeCorrection", "Graph Time Correction", false));
 
     // --- Antares-class behavioural controls ----------------------------------
     // These model the *feel* of Auto-Tune Pro, not its exact code. Each is real,
@@ -483,6 +486,16 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         pitchEdits.reserve (4096);
     }
     resetPitchState (preparedBlockSize);
+    graphTimeRingSize = juce::jmax (preparedBlockSize * 2, (int) std::ceil (currentSampleRate * 1.05) + preparedBlockSize);
+    graphTimeRing.setSize (juce::jmax (1, getTotalNumOutputChannels()), graphTimeRingSize);
+    graphTimeRing.clear();
+    graphTimeWrite = 0;
+    graphTimeDelaySamples = 0.5 * currentSampleRate;
+    graphTimeWasActive = false;
+#if JucePlugin_Enable_ARA
+    prepareToPlayForARA (currentSampleRate, preparedBlockSize,
+                         juce::jmax (1, getTotalNumOutputChannels()), getProcessingPrecision());
+#endif
 
     // Live-monitor PSOLA engine, one shifter per output channel. Prepare it with a
     // min-Hz that matches the SELECTED Sound Source's low bound so it stays
@@ -741,10 +754,13 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     // for the wrong engine:
     //   Transpose-to-Key always runs Rubber Band, whatever else is on;
     //   then Polyphonic (phase vocoder); then PSOLA (Live/Low-Latency); else Rubber Band.
-    if (xposeOn)               return rbLat;
-    if (polyOn && corrOn)      return pvInFifoLatency;
-    if (lowLatOn || liveEngOn) return psolaLatency;
-    return rbLat;
+    int engineLatency = rbLat;
+    if (xposeOn)               engineLatency = rbLat;
+    else if (polyOn && corrOn) engineLatency = pvInFifoLatency;
+    else if (lowLatOn || liveEngOn) engineLatency = psolaLatency;
+    const bool timeOn = apvts.getRawParameterValue ("graphTimeCorrection") != nullptr
+                     && apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f;
+    return engineLatency + (timeOn ? (int) std::round (0.5 * currentSampleRate) : 0);
 }
 
 void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
@@ -763,7 +779,8 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
     if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic"
-        || parameterID == "xposeMode" || parameterID == "enableCorrection")
+        || parameterID == "xposeMode" || parameterID == "enableCorrection"
+        || parameterID == "graphTimeCorrection")
         triggerAsyncUpdate();
 }
 
@@ -800,6 +817,9 @@ void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
 
 void SattariAutoPitchAudioProcessor::releaseResources()
 {
+#if JucePlugin_Enable_ARA
+    releaseResourcesForARA();
+#endif
     sessionReader.stop();
     crepeThreadRun.store (false);
     if (crepeThread.joinable())
@@ -834,6 +854,10 @@ void SattariAutoPitchAudioProcessor::reset()
     lastCapturedPitchEdit = -1;
     lastCapturedEndSec = -1.0;
     resetPitchState (preparedBlockSize);
+    graphTimeRing.clear();
+    graphTimeWrite = 0;
+    graphTimeDelaySamples = 0.5 * currentSampleRate;
+    graphTimeWasActive = false;
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     for (auto& s : rubberBand)
         if (s != nullptr)
@@ -2238,27 +2262,148 @@ SattariAutoPitchAudioProcessor::getPitchEdits() const
 void SattariAutoPitchAudioProcessor::clearPitchEdits()
 {
     const juce::ScopedLock l (pitchEditLock);
+    if (! pitchEdits.empty()) pushPitchEditUndoLocked();
     pitchEdits.clear();
     lastCapturedPitchEdit = -1;
     lastCapturedEndSec = -1.0;
     pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
 }
 
-void SattariAutoPitchAudioProcessor::setPitchEditTarget (int index, int targetMidi)
+void SattariAutoPitchAudioProcessor::pushPitchEditUndoLocked()
 {
-    const juce::ScopedLock l (pitchEditLock);
-    if (index < 0 || index >= (int) pitchEdits.size()) return;
-    pitchEdits[(size_t) index].targetMidi = juce::jlimit (0, 127, targetMidi);
+    pitchEditUndo.push_back (pitchEdits);
+    if (pitchEditUndo.size() > 64) pitchEditUndo.erase (pitchEditUndo.begin());
+    pitchEditRedo.clear();
+}
+
+void SattariAutoPitchAudioProcessor::markPitchEditChangedLocked()
+{
+    pitchEditGestureChanged = pitchEditGestureActive;
     pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
 }
 
-void SattariAutoPitchAudioProcessor::setPitchEditEnabled (int index, bool enabled)
+void SattariAutoPitchAudioProcessor::beginPitchEditGesture()
 {
     const juce::ScopedLock l (pitchEditLock);
-    if (index < 0 || index >= (int) pitchEdits.size()) return;
-    pitchEdits[(size_t) index].enabled = enabled;
-    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+    if (pitchEditGestureActive) return;
+    pushPitchEditUndoLocked();
+    pitchEditGestureActive = true;
+    pitchEditGestureChanged = false;
 }
+
+void SattariAutoPitchAudioProcessor::endPitchEditGesture()
+{
+    const juce::ScopedLock l (pitchEditLock);
+    if (! pitchEditGestureActive) return;
+    pitchEditGestureActive = false;
+    if (! pitchEditGestureChanged && ! pitchEditUndo.empty())
+        pitchEditUndo.pop_back();
+}
+
+bool SattariAutoPitchAudioProcessor::setPitchEditEntry (juce::int64 id, const PitchEditEntry& requested)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    const auto it = std::find_if (pitchEdits.begin(), pitchEdits.end(),
+                                  [id] (const auto& e) { return e.id == id; });
+    if (it == pitchEdits.end()) return false;
+    if (! pitchEditGestureActive) pushPitchEditUndoLocked();
+    auto changed = requested;
+    changed.id = id;
+    changed.startSec = juce::jmax (0.0, changed.startSec);
+    changed.endSec = juce::jmax (changed.startSec + 0.001, changed.endSec);
+    changed.sourceMidi = juce::jlimit (0, 127, changed.sourceMidi);
+    changed.targetMidi = juce::jlimit (0, 127, changed.targetMidi);
+    changed.confidence = juce::jlimit (0.0f, 1.0f, changed.confidence);
+    changed.amount = changed.amount < 0.0f ? -1.0f : juce::jlimit (0.0f, 1.0f, changed.amount);
+    changed.retune = changed.retune < 0.0f ? -1.0f : juce::jlimit (0.05f, 1.0f, changed.retune);
+    changed.transition = changed.transition < 0.0f ? -1.0f : juce::jlimit (0.0f, 1.0f, changed.transition);
+    changed.humanize = changed.humanize < 0.0f ? -1.0f : juce::jlimit (0.0f, 1.0f, changed.humanize);
+    changed.vibrato = changed.vibrato < 0.0f ? -1.0f : juce::jlimit (0.0f, 1.0f, changed.vibrato);
+    changed.formantSemitones = changed.formantSemitones < -12.0f
+        ? -100.0f : juce::jlimit (-12.0f, 12.0f, changed.formantSemitones);
+    changed.gainDb = juce::jlimit (-24.0f, 12.0f, changed.gainDb);
+    changed.timeOffsetSec = juce::jlimit (-0.5, 0.5, changed.timeOffsetSec);
+    *it = changed;
+    markPitchEditChangedLocked();
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::splitPitchEdit (juce::int64 id, double splitSec)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    const auto it = std::find_if (pitchEdits.begin(), pitchEdits.end(), [id] (const auto& e) { return e.id == id; });
+    if (it == pitchEdits.end()) return false;
+    const double split = splitSec > it->startSec + 0.01 && splitSec < it->endSec - 0.01
+        ? splitSec : 0.5 * (it->startSec + it->endSec);
+    if (split <= it->startSec + 0.001 || split >= it->endSec - 0.001 || pitchEdits.size() >= 4096) return false;
+    pushPitchEditUndoLocked();
+    auto right = *it;
+    right.id = nextPitchEditId++;
+    right.startSec = split;
+    it->endSec = split;
+    pitchEdits.insert (std::next (it), right);
+    markPitchEditChangedLocked();
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::joinPitchEdit (juce::int64 id)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    auto left = std::find_if (pitchEdits.begin(), pitchEdits.end(), [id] (const auto& e) { return e.id == id; });
+    if (left == pitchEdits.end()) return false;
+    auto right = pitchEdits.end();
+    for (auto it = pitchEdits.begin(); it != pitchEdits.end(); ++it)
+        if (it != left && it->startSec >= left->startSec && (right == pitchEdits.end() || it->startSec < right->startSec)) right = it;
+    if (right == pitchEdits.end()) return false;
+    pushPitchEditUndoLocked();
+    const double leftLength = juce::jmax (0.001, left->endSec - left->startSec);
+    const double rightLength = juce::jmax (0.001, right->endSec - right->startSec);
+    left->sourceMidi = juce::roundToInt ((left->sourceMidi * leftLength + right->sourceMidi * rightLength) / (leftLength + rightLength));
+    left->confidence = juce::jmax (left->confidence, right->confidence);
+    left->endSec = juce::jmax (left->endSec, right->endSec);
+    pitchEdits.erase (right);
+    markPitchEditChangedLocked();
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::deletePitchEdit (juce::int64 id)
+{
+    const juce::ScopedLock l (pitchEditLock);
+    const auto it = std::find_if (pitchEdits.begin(), pitchEdits.end(), [id] (const auto& e) { return e.id == id; });
+    if (it == pitchEdits.end()) return false;
+    pushPitchEditUndoLocked();
+    pitchEdits.erase (it);
+    lastCapturedPitchEdit = -1;
+    markPitchEditChangedLocked();
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::undoPitchEdit()
+{
+    const juce::ScopedLock l (pitchEditLock);
+    if (pitchEditUndo.empty()) return false;
+    pitchEditRedo.push_back (pitchEdits);
+    pitchEdits = std::move (pitchEditUndo.back());
+    pitchEditUndo.pop_back();
+    lastCapturedPitchEdit = -1;
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::redoPitchEdit()
+{
+    const juce::ScopedLock l (pitchEditLock);
+    if (pitchEditRedo.empty()) return false;
+    pitchEditUndo.push_back (pitchEdits);
+    pitchEdits = std::move (pitchEditRedo.back());
+    pitchEditRedo.pop_back();
+    lastCapturedPitchEdit = -1;
+    pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
+    return true;
+}
+
+bool SattariAutoPitchAudioProcessor::canUndoPitchEdit() const { const juce::ScopedLock l (pitchEditLock); return ! pitchEditUndo.empty(); }
+bool SattariAutoPitchAudioProcessor::canRedoPitchEdit() const { const juce::ScopedLock l (pitchEditLock); return ! pitchEditRedo.empty(); }
 
 void SattariAutoPitchAudioProcessor::capturePitchEditAtSeconds (
     double seconds, double blockDuration, const PitchFrame& frame)
@@ -2289,8 +2434,18 @@ void SattariAutoPitchAudioProcessor::capturePitchEditAtSeconds (
     }
     else if (pitchEdits.size() < 4096)
     {
-        pitchEdits.push_back ({ seconds, end, source, target,
-                                (float) juce::jlimit (0.0, 1.0, frame.confidence), true });
+        PitchEditEntry entry;
+        entry.id = nextPitchEditId++;
+        entry.startSec = seconds; entry.endSec = end;
+        entry.sourceMidi = source; entry.targetMidi = target;
+        entry.confidence = (float) juce::jlimit (0.0, 1.0, frame.confidence);
+        entry.amount = apvts.getRawParameterValue ("amount")->load();
+        entry.retune = apvts.getRawParameterValue ("speed")->load();
+        entry.transition = apvts.getRawParameterValue ("transition")->load();
+        entry.humanize = apvts.getRawParameterValue ("humanize")->load();
+        entry.vibrato = apvts.getRawParameterValue ("vibrato")->load();
+        entry.formantSemitones = apvts.getRawParameterValue ("formantShift")->load();
+        pitchEdits.push_back (entry);
         lastCapturedPitchEdit = (int) pitchEdits.size() - 1;
     }
     lastCapturedEndSec = end;
@@ -2321,6 +2476,14 @@ void SattariAutoPitchAudioProcessor::applyPitchEditAtSeconds (double seconds, Pi
                 frame.targetMidi = (double) e.targetMidi;
                 frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
             }
+            frame.objectAmount = e.amount;
+            frame.objectRetune = e.retune;
+            frame.objectTransition = e.transition;
+            frame.objectHumanize = e.humanize;
+            frame.objectVibrato = e.vibrato;
+            frame.objectFormantSemitones = e.formantSemitones;
+            frame.objectGainDb = e.gainDb;
+            frame.objectActive = true;
             return;
         }
     }
@@ -2380,8 +2543,13 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
 
 float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 {
+    return styleCorrectionStrengthFor (apvts.getRawParameterValue ("amount")->load());
+}
+
+float SattariAutoPitchAudioProcessor::styleCorrectionStrengthFor (float amount) const
+{
     const auto style = currentStyleChoice();
-    const float amount = apvts.getRawParameterValue ("amount")->load();
+    amount = juce::jlimit (0.0f, 1.0f, amount);
     // Amount is a real 0..1 control: at 1.0 EVERY style corrects FULLY (in-tune),
     // so a user who cranks Amount is actually in tune. The style shapes the CURVE
     // (how gentle the low/mid of the knob is), not a hidden ceiling on max
@@ -2402,8 +2570,13 @@ float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 
 float SattariAutoPitchAudioProcessor::styleRetuneCoefficient() const
 {
+    return styleRetuneCoefficientFor (apvts.getRawParameterValue ("speed")->load());
+}
+
+float SattariAutoPitchAudioProcessor::styleRetuneCoefficientFor (float speed) const
+{
     const auto style = currentStyleChoice();
-    const float speed = apvts.getRawParameterValue ("speed")->load();
+    speed = juce::jlimit (0.05f, 1.0f, speed);
     if (style == "Natural")
         return juce::jlimit (0.03f, 0.32f, speed * 0.22f);
     if (style == "Classic")
@@ -2435,7 +2608,9 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
         && (frame.confidence < minConfidence || frame.rms < silenceRms))
         return 1.0;
 
-    double strength = (double) styleCorrectionStrength();
+    const float selectedAmount = frame.objectActive && frame.objectAmount >= 0.0f
+        ? frame.objectAmount : apvts.getRawParameterValue ("amount")->load();
+    double strength = (double) styleCorrectionStrengthFor (selectedAmount);
 
     if (classic)
     {
@@ -2473,6 +2648,12 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+#if JucePlugin_Enable_ARA
+    // When bound by an ARA-capable host this replaces the ordinary insert input
+    // with the host-managed source regions; the existing tuning DSP then runs on
+    // that audio, so ARA and insert mode stay sonically identical.
+    processBlockForARA (buffer, isRealtime(), getPlayHead());
+#endif
     updateMidiTargets (midi);
     midiLearn.processMidi (midi);
 
@@ -2761,7 +2942,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // retune is SLOW (letting vibrato / natural drift survive). This per-note
     // speed shaping is the core of a natural Auto-Tune "feel".
     const bool classicMode = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
-    const double transition = (double) apvts.getRawParameterValue ("transition")->load();
+    const double transition = (double) (lastPitchFrame.objectActive && lastPitchFrame.objectTransition >= 0.0f
+        ? lastPitchFrame.objectTransition : apvts.getRawParameterValue ("transition")->load());
 
     if (lastPitchFrame.voiced)
     {
@@ -2787,7 +2969,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // the note centre, lags 5-7 Hz vibrato); the residual (detected - centre) is
     // the vibrato we keep. Reset on note onset so new notes still snap; disabled
     // in Classic Mode (the deliberate dead-flat sound).
-    const double vibRetain = (double) apvts.getRawParameterValue ("vibrato")->load();
+    const double vibRetain = (double) (lastPitchFrame.objectActive && lastPitchFrame.objectVibrato >= 0.0f
+        ? lastPitchFrame.objectVibrato : apvts.getRawParameterValue ("vibrato")->load());
     if (vibRetain > 0.001 && lastPitchFrame.voiced && ! classicMode && ! polyOn)
     {
         if (vibratoCenterMidi < -900.0 || transitionBoost > 0.6)
@@ -2809,7 +2992,9 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     }
 
     // Sustain retune from the Style/Speed control; onset retune is much faster.
-    const double sustainRetune = (double) styleRetuneCoefficient();
+    const float selectedRetune = lastPitchFrame.objectActive && lastPitchFrame.objectRetune >= 0.0f
+        ? lastPitchFrame.objectRetune : apvts.getRawParameterValue ("speed")->load();
+    const double sustainRetune = (double) styleRetuneCoefficientFor (selectedRetune);
     const double onsetRetune   = juce::jlimit (0.0, 1.0, sustainRetune + 0.55);
     // Blend by the boost, scaled by the Transition amount. Classic Mode forces
     // near-instant retune regardless (the hard snap).
@@ -2841,7 +3026,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // don't drift faster than that), max ±25 cents at humanize=1. Applied
     // multiplicatively on the smoothed pitch scale so the natural vocal vibrato
     // shape stays intact - we're just biasing the centre of tuning.
-    const float humanize = apvts.getRawParameterValue ("humanize")->load();
+    const float humanize = lastPitchFrame.objectActive && lastPitchFrame.objectHumanize >= 0.0f
+        ? lastPitchFrame.objectHumanize : apvts.getRawParameterValue ("humanize")->load();
     if (humanize > 0.0001f)
     {
         if (--humanizeBlocksUntilNewTarget <= 0)
@@ -3015,6 +3201,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     }
     applyModeCharacter (mainBuffer);
 
+    // Per-object gain is intentionally post-character and pre-master trim: editing
+    // one note's level cannot change the saturation character of that note.
+    if (lastPitchFrame.objectActive && std::abs (lastPitchFrame.objectGainDb) > 0.001f)
+        mainBuffer.applyGain (juce::Decibels::decibelsToGain (lastPitchFrame.objectGainDb));
+
+    applyGraphTimeCorrection (mainBuffer, hostTimeSeconds);
+
     // Output trim: a pure post-Style level change. Applied here (not folded into the
     // engine drive) so pushing output level cannot deepen the Style saturation — it
     // only scales the finished signal, which the soft ceiling below then bounds.
@@ -3029,6 +3222,73 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             d[i] = softCeiling (d[i]);
     }
     publishUiFrame();
+}
+
+void SattariAutoPitchAudioProcessor::applyGraphTimeCorrection (juce::AudioBuffer<float>& buffer,
+                                                               double hostTimeSeconds)
+{
+    const bool enabled = apvts.getRawParameterValue ("graphTimeCorrection")->load() >= 0.5f;
+    if (! enabled)
+    {
+        graphTimeWasActive = false;
+        return;
+    }
+    if (graphTimeRingSize <= 1 || graphTimeRing.getNumChannels() < buffer.getNumChannels())
+        return;
+    if (! graphTimeWasActive)
+    {
+        graphTimeRing.clear();
+        graphTimeWrite = 0;
+        graphTimeDelaySamples = 0.5 * currentSampleRate;
+        graphTimeWasActive = true;
+    }
+
+    const double baseDelay = 0.5 * currentSampleRate;
+    double targetDelay = baseDelay;
+    if (hostTimeSeconds >= 0.0)
+    {
+        const double centreTime = hostTimeSeconds + 0.5 * (double) buffer.getNumSamples() / currentSampleRate;
+        const juce::ScopedTryLock l (pitchEditLock);
+        if (l.isLocked())
+        {
+            for (auto it = pitchEdits.rbegin(); it != pitchEdits.rend(); ++it)
+            {
+                // The region is tested at its destination time. Positive offsets
+                // delay a note; negative offsets consume the 500 ms look-ahead.
+                if (centreTime >= it->startSec + it->timeOffsetSec
+                    && centreTime <= it->endSec + it->timeOffsetSec)
+                {
+                    targetDelay = baseDelay + it->timeOffsetSec * currentSampleRate;
+                    break;
+                }
+            }
+        }
+    }
+    targetDelay = juce::jlimit (0.0, (double) graphTimeRingSize - 3.0, targetDelay);
+
+    const int n = buffer.getNumSamples();
+    const double startDelay = graphTimeDelaySamples;
+    for (int i = 0; i < n; ++i)
+    {
+        const double mix = n > 1 ? (double) i / (double) (n - 1) : 1.0;
+        const double delay = startDelay + mix * (targetDelay - startDelay);
+        double readPosition = (double) graphTimeWrite - delay;
+        while (readPosition < 0.0) readPosition += (double) graphTimeRingSize;
+        while (readPosition >= (double) graphTimeRingSize) readPosition -= (double) graphTimeRingSize;
+        const int r0 = (int) std::floor (readPosition);
+        const int r1 = (r0 + 1) % graphTimeRingSize;
+        const float frac = (float) (readPosition - (double) r0);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const float input = buffer.getSample (ch, i);
+            graphTimeRing.setSample (ch, graphTimeWrite, input);
+            const float a = graphTimeRing.getSample (ch, r0);
+            const float b = graphTimeRing.getSample (ch, r1);
+            buffer.setSample (ch, i, a + frac * (b - a));
+        }
+        graphTimeWrite = (graphTimeWrite + 1) % graphTimeRingSize;
+    }
+    graphTimeDelaySamples = targetDelay;
 }
 
 void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
@@ -3091,7 +3351,8 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     // included — so we force preservation OFF regardless of the vocal Formant Preserve param.
     const bool formantPreserve = ! straightTranspose
                               && apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
-    const float formantShiftSemis = apvts.getRawParameterValue ("formantShift")->load();
+    const float formantShiftSemis = lastPitchFrame.objectActive && lastPitchFrame.objectFormantSemitones >= -12.0f
+        ? lastPitchFrame.objectFormantSemitones : apvts.getRawParameterValue ("formantShift")->load();
     // Throat: vocal-tract-length ratio (1.0 = natural). Combines multiplicatively
     // with the semitone Formant Shift so both controls move the formant envelope
     // together. A throat > 1 lengthens the tract (darker/bigger); < 1 shortens it.
@@ -3576,12 +3837,21 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
         for (const auto& e : pitchEdits)
         {
             juce::ValueTree note ("Note");
+            note.setProperty ("id", e.id, nullptr);
             note.setProperty ("start", e.startSec, nullptr);
             note.setProperty ("end", e.endSec, nullptr);
             note.setProperty ("source", e.sourceMidi, nullptr);
             note.setProperty ("target", e.targetMidi, nullptr);
             note.setProperty ("confidence", e.confidence, nullptr);
             note.setProperty ("enabled", e.enabled, nullptr);
+            note.setProperty ("amount", e.amount, nullptr);
+            note.setProperty ("retune", e.retune, nullptr);
+            note.setProperty ("transition", e.transition, nullptr);
+            note.setProperty ("humanize", e.humanize, nullptr);
+            note.setProperty ("vibrato", e.vibrato, nullptr);
+            note.setProperty ("formant", e.formantSemitones, nullptr);
+            note.setProperty ("gain", e.gainDb, nullptr);
+            note.setProperty ("timeOffset", e.timeOffsetSec, nullptr);
             edits.appendChild (note, nullptr);
         }
     }
@@ -3650,18 +3920,32 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                 {
                     const auto note = edits.getChild (i);
                     PitchEditEntry e;
+                    e.id = (juce::int64) note.getProperty ("id", (juce::int64) (i + 1));
                     e.startSec = (double) note.getProperty ("start", 0.0);
                     e.endSec = juce::jmax (e.startSec, (double) note.getProperty ("end", e.startSec));
                     e.sourceMidi = juce::jlimit (0, 127, (int) note.getProperty ("source", 60));
                     e.targetMidi = juce::jlimit (0, 127, (int) note.getProperty ("target", e.sourceMidi));
                     e.confidence = juce::jlimit (0.0f, 1.0f, (float) (double) note.getProperty ("confidence", 0.0));
                     e.enabled = (bool) note.getProperty ("enabled", true);
+                    e.amount = juce::jlimit (-1.0f, 1.0f, (float) (double) note.getProperty ("amount", -1.0));
+                    e.retune = juce::jlimit (-1.0f, 1.0f, (float) (double) note.getProperty ("retune", -1.0));
+                    e.transition = juce::jlimit (-1.0f, 1.0f, (float) (double) note.getProperty ("transition", -1.0));
+                    e.humanize = juce::jlimit (-1.0f, 1.0f, (float) (double) note.getProperty ("humanize", -1.0));
+                    e.vibrato = juce::jlimit (-1.0f, 1.0f, (float) (double) note.getProperty ("vibrato", -1.0));
+                    e.formantSemitones = juce::jlimit (-100.0f, 12.0f, (float) (double) note.getProperty ("formant", -100.0));
+                    e.gainDb = juce::jlimit (-24.0f, 12.0f, (float) (double) note.getProperty ("gain", 0.0));
+                    e.timeOffsetSec = juce::jlimit (-0.5, 0.5, (double) note.getProperty ("timeOffset", 0.0));
                     rebuilt.push_back (e);
                 }
             }
             const juce::ScopedLock l (pitchEditLock);
             pitchEdits = std::move (rebuilt);
             pitchEdits.reserve (4096);
+            nextPitchEditId = 1;
+            for (const auto& e : pitchEdits) nextPitchEditId = juce::jmax (nextPitchEditId, e.id + 1);
+            pitchEditUndo.clear();
+            pitchEditRedo.clear();
+            pitchEditGestureActive = false;
             pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
         }
 
