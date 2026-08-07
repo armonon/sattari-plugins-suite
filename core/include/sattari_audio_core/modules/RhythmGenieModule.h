@@ -6,6 +6,7 @@
 #include <sattari_audio_core/SattariDrumLooper.h>
 #include <sattari_audio_core/SattariBeatGrid.h>
 #include <sattari_audio_core/SattariGroove.h>
+#include <sattari_audio_core/SattariStepClock.h>
 #include <sattari_audio_core/SattariRhythmPatterns.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 
@@ -122,6 +123,9 @@ public:
                                                  DT::Clap, DT::Tom, DT::Rim, DT::Ride };
         for (int l = 0; l < kKitLanes; ++l) kit.setLaneType (l, laneVoice[l]);
         kit.prepare (currentSampleRate);
+        // Seeded here as well as in reset(): the clock must know the sample rate
+        // before the first block, and prepare() is the only place that learns it.
+        stepClock.prepare (currentSampleRate);
         kit.reset();
         kitScratch.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
         kitHitCount = 0;
@@ -267,19 +271,33 @@ public:
         }
         wasGenerating = true;
 
-        const double endPpq     = startPpq + blockBeats;
-        const double swingPpq   = (double) param ("swing") * 0.125;  // delay odd 16ths up to half a step
+        // Step emission now comes from the SHARED clock (SattariStepClock) rather
+        // than an inline loop, so drums, notes and parameter modulation are all
+        // driven by one implementation with one timing contract behind it.
+        //
+        // The swing maths is identical, not merely similar: the old code delayed
+        // odd steps by swing * 0.125 beats, and the clock delays them by
+        // swing * stepBeats * 0.5, which for sixteenths is swing * 0.25 * 0.5 —
+        // the same number. That equality is why this migration is a swap and not
+        // a retune.
+        //
+        // hasPpq is asserted here because THIS module has already resolved
+        // host-versus-free-run above (it also drives the looper's own clock from
+        // that decision). Letting the step clock free-run as well would give the
+        // two of them separate ideas of the position.
+        sattari::dsp::StepTransport stepTransport;
+        stepTransport.bpm       = bpm;
+        stepTransport.ppq       = startPpq;
+        stepTransport.hasPpq    = true;
+        stepTransport.isPlaying = true;
 
-        // Emit every step whose (swung) onset lands inside this block.
-        for (int k = (int) std::floor (startPpq * 4.0) - 1; ; ++k)
-        {
-            const double onset = (double) k * 0.25 + ((k & 1) ? swingPpq : 0.0);
-            if (onset >= endPpq) break;
-            if (onset < startPpq) continue;
-            const int offset = juce::jlimit (0, juce::jmax (0, numSamples - 1),
-                                             (int) std::lround ((onset - startPpq) * samplesPerBeat));
-            emitStep (((k % rhythm::kSteps) + rhythm::kSteps) % rhythm::kSteps, offset, generated, samplesPerStep);
-        }
+        sattari::dsp::StepTick ticks[64];
+        const int numTicks = stepClock.process (
+            stepTransport, numSamples, 4, rhythm::kSteps,
+            param ("swing"), ticks, (int) (sizeof (ticks) / sizeof (ticks[0])));
+
+        for (int i = 0; i < numTicks; ++i)
+            emitStep (ticks[i].step, ticks[i].sampleOffset, generated, samplesPerStep);
 
         // Resolve note-offs (existing + the ones just scheduled) against this block.
         pendingOffScratchCount = 0;
@@ -324,6 +342,7 @@ public:
         pendingOffScratchCount = 0;
         internalPpq = 0.0;
         loopClockBeats = 0.0;
+        stepClock.prepare (currentSampleRate);
         wasLoopOn = false;
         wasGenerating = false;
         liveWrite.store (0); liveRead.store (0);
@@ -622,6 +641,7 @@ private:
 
     double currentSampleRate = 44100.0;
     double internalPpq = 0.0;          // free-run clock when the host has no PPQ
+    sattari::dsp::StepClock stepClock;  // shared step emission (SattariStepClock)
     bool   wasGenerating = false;
 
     struct PendingOff { int note; int samplesRemaining; };
