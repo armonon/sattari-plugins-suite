@@ -45,13 +45,37 @@ public:
     void process (juce::AudioBuffer<float>&, juce::MidiBuffer&) override
     {
         ++calls;
+        // Recorded through the normal read path, so this is exactly what any
+        // module would see: the user's setting plus whatever the rack modulated.
+        seenGain = cachedParameterValue ("gain");
+        userGain = rawParameterValue ("gain");
     }
     int latencySamples() const noexcept override { return 17; }
 
     int calls = 0;
+    float seenGain = 0.0f;   // modulated
+    float userGain = 0.0f;   // unmodulated
 
 private:
     std::string displayName_;
+};
+
+// A playhead the test drives directly. Modulation is a function of song
+// POSITION, so position has to be something the test can set — otherwise the
+// phase-lock assertion cannot be written at all.
+class TestPlayHead final : public juce::AudioPlayHead
+{
+public:
+    double ppq = 0.0;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setBpm (120.0);
+        info.setPpqPosition (ppq);
+        info.setIsPlaying (true);
+        info.setTimeInSamples (0);
+        return info;
+    }
 };
 
 class TestRack final : public sattari::rack::SattariRackProcessor
@@ -92,6 +116,7 @@ public:
     {}
 
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    TestPlayHead head;
     bool hasEditor() const override { return false; }
 
     void select (int slot, bool bypass)
@@ -271,6 +296,89 @@ int main (int argc, char** argv)
         const auto tailMessage = std::string (moduleName) + " oversized block tail was bypassed";
         check (finite, finiteMessage.c_str());
         check (tailDifference > 1.0e-6f, tailMessage.c_str());
+    }
+
+    // --- MODULATION ---------------------------------------------------------
+    //  A rack of eight processors with no cross-module modulation is eight
+    //  plugins in one window. These pin the three things that make it more: the
+    //  value actually moves, it releases cleanly, and it is phase-locked to song
+    //  POSITION rather than free-running — which is what makes a looped section
+    //  repeat identically instead of drifting somewhere new on every pass.
+    {
+        TestRack rack;                                   // CountingModule in the roster
+        rack.setPlayHead (&rack.head);
+        rack.select (0, false);                          // slot 1 = the module
+        rack.prepareToPlay (48000.0, 512);
+
+        auto* mod = dynamic_cast<CountingModule*> (rack.moduleAt (0));
+        check (mod != nullptr, "modulation: no module in slot 1");
+
+        if (mod != nullptr)
+        {
+            check (mod->modulationTargetCount() > 0, "modulation: module exposes no targets");
+            check (mod->modulationTargetId (0) != nullptr, "modulation: target 0 has no id");
+
+            auto setP = [&rack] (const char* id, float v)
+            {
+                if (auto* prm = rack.parameters().getParameter (id))
+                    prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+            };
+            auto runAt = [&] (double ppq)
+            {
+                rack.head.ppq = ppq;
+                juce::AudioBuffer<float> buf (2, 512);
+                buf.clear();
+                juce::MidiBuffer midi;
+                rack.processBlock (buf, midi);
+            };
+
+            setP ("counting.gain", 0.5f);                // mid-range, room to move both ways
+            setP ("mod1.target", 1.0f);                  // slot 1
+            setP ("mod1.param",  0.0f);                  // its first target
+            setP ("mod1.shape",  0.0f);                  // sine
+            setP ("mod1.rate",   4.0f);                  // one bar = 4 beats
+            setP ("mod1.phase",  0.0f);
+            setP ("mod1.depth",  0.0f);
+
+            runAt (0.0);
+            const float user = mod->userGain;
+            check (std::abs (mod->seenGain - user) < 1.0e-5f,
+                   "modulation: depth 0 changed the value");
+
+            // sin(0) = 0 at ppq 0; the peak of a 4-beat sine is a quarter cycle in.
+            setP ("mod1.depth", 1.0f);
+            runAt (0.0);
+            const float atZero = mod->seenGain;
+            runAt (1.0);
+            const float atPeak = mod->seenGain;
+
+            check (std::abs (atZero - user) < 1.0e-5f,
+                   "modulation: sine at phase 0 should leave the value alone");
+            check (std::abs (atPeak - user) > 1.0e-4f,
+                   "modulation: full depth did not move the value");
+            check (atPeak > user, "modulation: sine peak should move the value upward");
+
+            // Phase-lock: 40 blocks at scattered positions, then return. Same
+            // position must give the same value.
+            for (int i = 0; i < 40; ++i) runAt (0.37 * (double) i);
+            runAt (1.0);
+            check (std::abs (mod->seenGain - atPeak) < 1.0e-5f,
+                   "modulation: value at a given song position drifted over time");
+
+            // Releasing must be complete — a stale offset left applied reads as a
+            // broken parameter, not as leftover modulation.
+            setP ("mod1.depth", 0.0f);
+            runAt (1.0);
+            check (std::abs (mod->seenGain - user) < 1.0e-5f,
+                   "modulation: value stayed modulated after depth returned to zero");
+
+            // Off must also mean off, independently of depth.
+            setP ("mod1.depth", 1.0f);
+            setP ("mod1.target", 0.0f);
+            runAt (1.0);
+            check (std::abs (mod->seenGain - user) < 1.0e-5f,
+                   "modulation: target Off still modulated the value");
+        }
     }
 
     if (failures != 0)

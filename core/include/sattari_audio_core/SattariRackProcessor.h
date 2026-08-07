@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sattari_audio_core/SattariModMatrix.h>
 #include <sattari_audio_core/SattariModule.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariPresetManager.h>
@@ -49,6 +50,9 @@ class SattariRackProcessor : public juce::AudioProcessor,
 {
 public:
     static constexpr int kNumSlots = 8;
+    static constexpr int kNumModSlots = 4;
+
+    static juce::String modParamPrefix (int slot) { return "mod" + juce::String (slot + 1) + "."; }
 
     using ModuleFactory = std::function<std::vector<std::unique_ptr<dsp::SattariModule>>()>;
 
@@ -77,6 +81,19 @@ public:
                 apvts.getRawParameterValue (slotBypassParamId (s));
             jassert (slotControls_[(size_t) s].selection != nullptr
                      && slotControls_[(size_t) s].bypass != nullptr);
+        }
+
+        for (int m = 0; m < kNumModSlots; ++m)
+        {
+            const auto pre = modParamPrefix (m);
+            auto& c = modControls_[(size_t) m];
+            c.target = apvts.getRawParameterValue (pre + "target");
+            c.param  = apvts.getRawParameterValue (pre + "param");
+            c.shape  = apvts.getRawParameterValue (pre + "shape");
+            c.rate   = apvts.getRawParameterValue (pre + "rate");
+            c.depth  = apvts.getRawParameterValue (pre + "depth");
+            c.phase  = apvts.getRawParameterValue (pre + "phase");
+            jassert (c.target != nullptr && c.depth != nullptr);
         }
     }
 
@@ -122,6 +139,18 @@ public:
         // at any moment and the audio thread must never allocate.
         for (auto& m : modules)
             m->prepare (sampleRate, n, ch);
+
+        // One offset array per module, sized to its own parameter count, allocated
+        // here and never resized — process() must not allocate. The bus is pointed
+        // at it once; the rack only ever rewrites the values behind the pointer.
+        modOffsets_.resize (modules.size());
+        for (std::size_t i = 0; i < modules.size(); ++i)
+        {
+            modOffsets_[i].assign ((std::size_t) juce::jmax (1, modules[i]->modulationTargetCount()), 0.0f);
+            modules[i]->setModulationBus (
+                dsp::ModulationBus { modOffsets_[i].data(), (int) modOffsets_[i].size() });
+        }
+        freePpq_ = 0.0;
 
         reportedLatency_ = computeLatency();
         pendingLatency_.store (reportedLatency_, std::memory_order_relaxed);
@@ -186,6 +215,9 @@ public:
         // Existing/automated duplicate states remain loadable, but only the first
         // active occurrence processes. This preserves the fixed host parameter
         // contract without processing one delay/filter state twice per block.
+        lastBlockSamples_ = buffer.getNumSamples();
+        applyModulation (transport);
+
         std::array<int, kNumSlots> processedModules {};
         int numProcessed = 0;
         for (int s = 0; s < kNumSlots; ++s)
@@ -316,7 +348,89 @@ private:
         for (auto& m : modules)
             m->addParameters (p, juce::String (m->moduleId()) + ".");
 
+        // --- Modulation, APPENDED LAST ------------------------------------
+        //  Appended after the modules on purpose: adding parameters ahead of
+        //  them would shift every existing parameter's position and rewire the
+        //  automation in every saved session, the index-versus-identity trap the
+        //  slot rosters already carry warnings about.
+        const juce::StringArray shapes { "Sine", "Triangle", "Saw", "Square", "Random" };
+        const juce::StringArray rates {
+            "1/16", "1/8", "1/4", "1/2", "1 bar", "2 bars", "4 bars", "8 bars" };
+        juce::StringArray targetSlots { "Off" };
+        for (int sl = 0; sl < kNumSlots; ++sl) targetSlots.add ("Slot " + juce::String (sl + 1));
+
+        for (int m = 0; m < kNumModSlots; ++m)
+        {
+            const auto tag = juce::String (m + 1);
+            const auto pre = modParamPrefix (m);
+            p.push_back (std::make_unique<juce::AudioParameterChoice> (
+                juce::ParameterID { pre + "target", 1 }, "Mod " + tag + " Target", targetSlots, 0));
+            p.push_back (std::make_unique<juce::AudioParameterInt> (
+                juce::ParameterID { pre + "param", 1 }, "Mod " + tag + " Parameter", 0, 63, 0));
+            p.push_back (std::make_unique<juce::AudioParameterChoice> (
+                juce::ParameterID { pre + "shape", 1 }, "Mod " + tag + " Shape", shapes, 0));
+            p.push_back (std::make_unique<juce::AudioParameterChoice> (
+                juce::ParameterID { pre + "rate", 1 }, "Mod " + tag + " Rate", rates, 4));
+            p.push_back (std::make_unique<juce::AudioParameterFloat> (
+                juce::ParameterID { pre + "depth", 1 }, "Mod " + tag + " Depth",
+                juce::NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+            p.push_back (std::make_unique<juce::AudioParameterFloat> (
+                juce::ParameterID { pre + "phase", 1 }, "Mod " + tag + " Phase",
+                juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
+        }
+
         return { p.begin(), p.end() };
+    }
+
+    //  Rewrite every module's modulation offsets for this block.
+    //
+    //  Offsets are ZEROED FIRST and rebuilt from scratch each block, never
+    //  accumulated: a stale offset from a mod slot the user just turned off would
+    //  otherwise stay applied forever, which reads as a broken parameter rather
+    //  than as leftover modulation.
+    //
+    //  Position drives the shapes, so the motion is phase-locked to the song and
+    //  survives a transport jump unchanged. Free-running would put the filter
+    //  somewhere different on every loop pass.
+    void applyModulation (const sattari::host::TransportSnapshot& transport) noexcept
+    {
+        for (auto& offsets : modOffsets_)
+            std::fill (offsets.begin(), offsets.end(), 0.0f);
+
+        const double ppq = transport.hasPpq ? transport.ppqPosition : freePpq_;
+        if (! transport.hasPpq)
+        {
+            const double bpm = transport.bpm > 0.0 ? transport.bpm : 120.0;
+            freePpq_ += (double) lastBlockSamples_ * bpm / (60.0 * juce::jmax (1.0, sr_));
+        }
+
+        for (int m = 0; m < kNumModSlots; ++m)
+        {
+            const auto& c = modControls_[(size_t) m];
+            if (c.target == nullptr) continue;
+
+            const int slot = (int) c.target->load();          // 0 = Off
+            if (slot <= 0) continue;
+            const float depth = c.depth->load();
+            if (depth == 0.0f) continue;
+
+            const auto& sc = slotControls_[(size_t) (slot - 1)];
+            const int sel = (int) sc.selection->load();
+            if (sel <= 0) continue;
+            const int moduleIndex = sel - 1;
+            if (! juce::isPositiveAndBelow (moduleIndex, (int) modules.size())) continue;
+
+            auto& offsets = modOffsets_[(size_t) moduleIndex];
+            const int paramIndex = (int) c.param->load();
+            if (! juce::isPositiveAndBelow (paramIndex, (int) offsets.size())) continue;
+
+            const float value = dsp::modValue (
+                (dsp::ModShape) (int) c.shape->load(), ppq,
+                dsp::modCycleBeats ((int) c.rate->load()), c.phase->load());
+
+            offsets[(size_t) paramIndex] =
+                juce::jlimit (-1.0f, 1.0f, offsets[(size_t) paramIndex] + value * depth);
+        }
     }
 
     int computeLatency() const
@@ -369,6 +483,20 @@ protected:
     sattari::presets::SattariPresetManager presetBank;   // declared AFTER apvts
 
 private:
+    struct ModControls
+    {
+        std::atomic<float>* target = nullptr;   // 0 = Off, N = slot N
+        std::atomic<float>* param  = nullptr;   // index into the module's targets
+        std::atomic<float>* shape  = nullptr;
+        std::atomic<float>* rate   = nullptr;
+        std::atomic<float>* depth  = nullptr;
+        std::atomic<float>* phase  = nullptr;
+    };
+    std::array<ModControls, kNumModSlots> modControls_ {};
+    std::vector<std::vector<float>> modOffsets_;   // [module][parameter], -1..+1
+    double freePpq_ = 0.0;                        // used only when the host has none
+    int    lastBlockSamples_ = 0;
+
     struct SlotControls
     {
         std::atomic<float>* selection = nullptr;

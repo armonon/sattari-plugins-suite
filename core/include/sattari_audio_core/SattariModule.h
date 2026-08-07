@@ -37,8 +37,54 @@
 namespace sattari::dsp
 {
 
+// =============================================================================
+//  Modulation
+// -----------------------------------------------------------------------------
+//  A rack slot with eight processors and no cross-module modulation answers the
+//  question "why is this better than eight separate plugins?" with "presets and
+//  one window", which is not much of an answer. Modulation is the thing separate
+//  plugins structurally cannot do: one sequencer, clocked from the session,
+//  moving parameters across every slot in time with the song.
+//
+//  It is applied HERE, at cachedParameterValue(), because that is the single
+//  point every module already reads its parameters through — so all 28 modules
+//  gain modulation without one line changing in any of them.
+//
+//  Offsets are NORMALISED (-1..+1) and applied in 0..1 space through the
+//  parameter's own range before being converted back. That matters: a raw offset
+//  is meaningless across parameters measured in Hz, dB, seconds and ratios, and
+//  a "50% up" sweep should mean the same gesture on a filter as on a mix knob.
+//
+//  The values are owned by the rack and rewritten once per block on the audio
+//  thread before any module runs. Nothing here allocates or locks.
+struct ModulationBus
+{
+    const float* offsets = nullptr;   // normalised, -1..+1, indexed by parameter
+    int          count   = 0;
+
+    float at (int index) const noexcept
+    {
+        return (offsets != nullptr && index >= 0 && index < count) ? offsets[index] : 0.0f;
+    }
+};
+
+
 class SattariModule
 {
+    // Declared before anything that returns it: a member struct defined further
+    // down is not visible to an earlier member function's return type, and the
+    // compiler's "did you mean juce::URL::ParameterHandling?" is not a hint that
+    // points anywhere near the real problem.
+    struct ParameterBinding
+    {
+        std::string id;
+        std::atomic<float>* value = nullptr;
+        // The parameter's own range, so a normalised offset maps to the right
+        // physical amount, and a stable index so a rack can address it.
+        const juce::NormalisableRange<float>* range = nullptr;
+        int modIndex = -1;
+    };
+
 public:
     using ParamList = std::vector<std::unique_ptr<juce::RangedAudioParameter>>;
 
@@ -68,8 +114,14 @@ public:
                 continue;
 
             if (auto* value = apvts.getRawParameterValue (withId->paramID))
+            {
+                const juce::NormalisableRange<float>* range = nullptr;
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
+                    range = &ranged->getNormalisableRange();
                 parameterCache.push_back (
-                    { withId->paramID.substring (prefix.length()).toStdString(), value });
+                    { withId->paramID.substring (prefix.length()).toStdString(),
+                      value, range, -1 });
+            }
         }
 
         std::sort (parameterCache.begin(), parameterCache.end(),
@@ -77,6 +129,11 @@ public:
                    {
                        return a.id < b.id;
                    });
+
+        // Modulation index is assigned AFTER the sort, so it is stable for a given
+        // module build regardless of the order the host reported parameters in.
+        for (std::size_t i = 0; i < parameterCache.size(); ++i)
+            parameterCache[i].modIndex = (int) i;
 
         linkModule (apvts, prefix);
     }
@@ -123,12 +180,41 @@ public:
     // the following process() call — never retain it.
     virtual void setSidechain (const juce::AudioBuffer<float>*) noexcept {}
 
+    // --- Modulation -------------------------------------------------------
+    //  Set by the host rack, once, after link(). The rack rewrites the values
+    //  behind this pointer each block; the module never owns them.
+    void setModulationBus (const ModulationBus& bus) noexcept { modulation = bus; }
+    void clearModulation() noexcept { modulation = {}; }
+
+    // How many modulatable parameters this module exposes, and their ids in
+    // modulation-index order — what a rack needs to build a target menu.
+    int  modulationTargetCount() const noexcept { return (int) parameterCache.size(); }
+    const char* modulationTargetId (int index) const noexcept
+    {
+        return juce::isPositiveAndBelow (index, (int) parameterCache.size())
+             ? parameterCache[(std::size_t) index].id.c_str() : nullptr;
+    }
+
 protected:
     // Module-specific link hook. Implementations can cache frequently-read raw
     // pointers directly; cachedParameterValue() covers variable/generated ids
     // without constructing a juce::String on the audio thread.
     virtual void linkModule (juce::AudioProcessorValueTreeState& apvts,
                              const juce::String& prefix) = 0;
+
+    const ParameterBinding* cachedBinding (const char* id) const noexcept
+    {
+        const auto it = std::lower_bound (
+            parameterCache.begin(), parameterCache.end(), id,
+            [] (const ParameterBinding& binding, const char* wanted)
+            {
+                return binding.id.compare (wanted) < 0;
+            });
+        if (it != parameterCache.end() && std::strcmp (it->id.c_str(), id) == 0)
+            return &(*it);
+        jassertfalse;
+        return nullptr;
+    }
 
     std::atomic<float>* cachedParameterPointer (const char* id) const noexcept
     {
@@ -148,19 +234,34 @@ protected:
 
     float cachedParameterValue (const char* id, float fallback = 0.0f) const noexcept
     {
+        const auto* binding = cachedBinding (id);
+        if (binding == nullptr || binding->value == nullptr)
+            return fallback;
+
+        const float raw = binding->value->load();
+        const float offset = modulation.at (binding->modIndex);
+        if (offset == 0.0f || binding->range == nullptr)
+            return raw;
+
+        // Apply in normalised space through the parameter's own range: the same
+        // gesture then means the same proportion on a Hz control and a ratio.
+        const float moved = binding->range->convertTo0to1 (raw) + offset;
+        return binding->range->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, moved));
+    }
+
+    // The unmodulated value, for anything that must read the user's setting
+    // itself — a display, or a parameter whose modulation would be nonsense.
+    float rawParameterValue (const char* id, float fallback = 0.0f) const noexcept
+    {
         if (auto* value = cachedParameterPointer (id))
             return value->load();
         return fallback;
     }
 
 private:
-    struct ParameterBinding
-    {
-        std::string id;
-        std::atomic<float>* value = nullptr;
-    };
 
     std::vector<ParameterBinding> parameterCache;
+    ModulationBus modulation;
 };
 
 } // namespace sattari::dsp
