@@ -154,6 +154,16 @@ target_link_libraries(SattariAudioCoreGrooveContract
     PRIVATE
         SattariAudioCore)
 
+# Shared step clock contract. The clock is about to drive drums, notes AND
+# parameter modulation, so a timing error would surface as three unrelated-looking
+# bugs; this pins placement accuracy, block-size independence and swing.
+add_executable(SattariAudioCoreStepClockContract
+    tests/step_clock_contract.cpp)
+
+target_link_libraries(SattariAudioCoreStepClockContract
+    PRIVATE
+        SattariAudioCore)
+
 # Streaming TD-PSOLA pitch shifter contract (pure-std; no JUCE needed).
 add_executable(SattariAudioCorePsolaContract
     tests/psola_shifter_contract.cpp)

@@ -115,6 +115,7 @@ if(BUILD_TESTING)
         SattariAudioCoreDrumLooperContract
         SattariAudioCoreBeatGridContract
         SattariAudioCoreGrooveContract
+        SattariAudioCoreStepClockContract
         SattariAudioCorePsolaContract
         SattariAudioCoreCrepeContract
         SattariAudioCoreVoxContract
