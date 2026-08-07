@@ -5518,7 +5518,8 @@ void MainPluginEditor::resized()
     // per-deck channel meters. Rarely-used utilities stay advanced-only.
     juce::Component* mixExtras[] = { &micGain, &hostSync, &beatSync, &micMonitor,
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
-                                     &razorButton, &bounceEditsButton, &undoButton, &redoButton };
+                                     &razorButton, &bounceEditsButton, &undoButton, &redoButton,
+                                     &stemLinkToggle };
     auto mixer = mixerStrip.reduced (2, 5);
     mixerPanel.setBounds (mixer.removeFromLeft (140));
     auto mixControls = mixer.reduced (10, 8);
@@ -5571,6 +5572,7 @@ void MainPluginEditor::resized()
         micGain.setBounds (util.removeFromLeft (84)); util.removeFromLeft (6);
         chip (camelotButton, 44); chip (midiLearnButton, 48); chip (snapToggleButton, 48);
         chip (razorButton, 50); chip (bounceEditsButton, 64); chip (undoButton, 46); chip (redoButton, 46);
+        chip (stemLinkToggle, 96);   // was created + attached but never laid out (invisible)
         area.removeFromTop (6);
     }
     else
@@ -5911,6 +5913,9 @@ void MainPluginEditor::timerCallback()
         arrangementView.setIdle ("Hit Record to capture your set across four deck lanes.");
     }
 
+    // Refresh the disk-touching status strings ~4x/sec instead of every UI frame.
+    const bool statusTextDue = (++statusRefreshTick % 8) == 0;
+
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         // Update slip button visual state
@@ -5925,9 +5930,13 @@ void MainPluginEditor::timerCallback()
                 b.setToggleState (false, juce::dontSendNotification);
         }
 
-        deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckTimePitchStatus (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckBeatSyncStatus (i),
-                                                   juce::dontSendNotification);
-        deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
+        // Throttled: these build several juce::Strings and stat the stem cache.
+        if (statusTextDue)
+        {
+            deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckTimePitchStatus (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckBeatSyncStatus (i),
+                                                       juce::dontSendNotification);
+            deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
+        }
 
         const auto path = processorRef.getDeckPath (i);
         if (path != deckPaths[(size_t) i])

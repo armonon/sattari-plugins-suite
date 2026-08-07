@@ -537,6 +537,11 @@ private:
     std::array<juce::String, MainPluginProcessor::numDecks> deckPaths;
     std::array<std::array<juce::String, DeckPlayer::numStemLanes>, MainPluginProcessor::numDecks> deckStemPaths {};
     std::array<bool, MainPluginProcessor::numDecks> lastDeckPlayingUI {};
+
+    // The deck status strings query the stem cache, which stats the filesystem. At the
+    // 30 Hz UI rate that was ~120 syscalls/sec of pure idle churn. These texts change
+    // slowly (separation progress, key analysis), so refresh them a few times a second.
+    int statusRefreshTick = 0;
     std::array<juce::String, MainPluginProcessor::numDecks> lastBeatGridKey {};
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };

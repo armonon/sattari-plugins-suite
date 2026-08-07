@@ -1,20 +1,28 @@
 # Sattari StemDeck — working notes for a focused session
 
 You're working on **StemDeck in isolation**. It's a DJ-style 4-deck remix plugin/app
-(VST3 + Standalone, **no AU**), plugin code `Sd01`, ~6.5k LOC, **app-first** direction.
+(VST3 + Standalone, **no AU**), plugin code `Sd01`, **~19.9k LOC across 66 files**,
+**app-first** direction. It now embeds **Tracktion Engine** (arrangement + MIDI
+playback), **ONNX neural stem separation**, an automix planner, and a piano roll.
 The rest of the Sattari suite is not your concern here unless you touch `core/`.
 
 ## You are inside a git worktree
 
-This directory (`~/Downloads/sattari-plugins-stemdeck/`) is a **git worktree** on the
-`stemdeck` branch. The sibling `~/Downloads/sattari-plugins-main/` is the same repo on
-`main`. The two branches edit independent working trees but share `.git` state, so:
+This directory (`~/Projects/sattari-plugins-stemdeck/`) is a **git worktree** on the
+`te-migration` branch (the Tracktion Engine line; the older `stemdeck` branch is a
+stale ancestor). The sibling `~/Projects/sattari-plugins-main/` is the same repo on
+`main`. Both were moved out of `~/Downloads` because macOS App Management sealing
+kept pruning the worktree link. The two branches edit independent working trees but
+share `.git` state, so:
 
 * You can `git commit` here without touching `main`.
 * `third_party/JUCE` and `third_party/rubberband` are **symlinks** back to the main
   worktree — you do not need to re-clone them. Build dirs (`build/`) are per-worktree.
-* When you're done, `cd ../sattari-plugins-main && git merge stemdeck` to land the work
-  on `main` (or open a PR if you push the branch).
+* When you're done, `cd ../sattari-plugins-main && git merge te-migration` to land the
+  work on `main` (or open a PR if you push the branch).
+* `third_party/tracktion_engine` is a submodule carrying **uncommitted JUCE 8 fixes**.
+  They are backed up in `patches/tracktion_engine-juce8-fixes.patch` — re-apply after
+  any fresh clone or forced submodule update, or the build breaks. See `patches/README.md`.
 
 ## Build & validate (per-plugin — fast, no need to build the whole suite)
 
@@ -48,11 +56,12 @@ plumbing is proven; the hard DSP is not. See
    `src/BeatSyncEngine.cpp`. Currently a granular key-lock backend; not DAW-validated.
    Rubber Band is available via `sattari_enable_rubberband()` if you want to lean on it
    (it's already linked — GPLv3, see `/LICENSING.md`).
-2. **Plugin-host audio routing** — `src/PluginHostManager.{h,cpp}` deliberately stops at
-   discovery + instantiation; the loaded plugin is **not routed** into `DeckPlayer`/
-   `processBlock`. RT-safety is the hard part: loads are async on a background thread, so
-   processing a swappable instance on the audio thread needs a lock-free swap (don't
-   `new`/`delete` or lock on the audio thread). Read the header comment first.
+2. **Plugin-host UI** — audio routing itself is **done**: `src/HostGraph.{h,cpp}` hosts
+   VST3/AU chains per deck/mic/master, instantiates async off the audio thread, and
+   processes via `ScopedTryLock` in `processBlock`. (The old `PluginHostManager` scaffold
+   was superseded and deleted.) What remains is product-side: the FX-host UI is gated
+   behind `STEMDECK_ENABLE_PLUGIN_HOST` (default 0) in `MainPluginEditor.h` — flip it to
+   1 to work on the surfacing.
 3. **Beatgrid / downbeat detection** — `src/TrackAnalysis.cpp` (lightweight Krumhansl
    chroma key + host-PPQ/BPM beat-offset; no transient/downbeat detection or beatgrid edit).
 4. **Notarized installer / onboarding** — `src/MainPluginEditor.cpp` has the standalone
