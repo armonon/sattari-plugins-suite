@@ -154,6 +154,16 @@ target_link_libraries(SattariAudioCoreGrooveContract
     PRIVATE
         SattariAudioCore)
 
+# Note engine contract: the CENTS UNIFICATION. Twelve-tone and maqam scales
+# become one data type, so "a third above, in this key" is one code path for a
+# diatonic third and a Rast neutral third. Tested on both, every time.
+add_executable(SattariAudioCoreNoteEngineContract
+    tests/note_engine_contract.cpp)
+
+target_link_libraries(SattariAudioCoreNoteEngineContract
+    PRIVATE
+        SattariAudioCore)
+
 # Arrangement contract: phrase position, fill windows and edge-triggered section
 # changes. This is what lets a generative rhythm fill BEFORE the chorus, which no
 # context-free step sequencer can do.
