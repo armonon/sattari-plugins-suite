@@ -154,6 +154,16 @@ target_link_libraries(SattariAudioCoreGrooveContract
     PRIVATE
         SattariAudioCore)
 
+# Arrangement contract: phrase position, fill windows and edge-triggered section
+# changes. This is what lets a generative rhythm fill BEFORE the chorus, which no
+# context-free step sequencer can do.
+add_executable(SattariAudioCoreArrangementContract
+    tests/arrangement_contract.cpp)
+
+target_link_libraries(SattariAudioCoreArrangementContract
+    PRIVATE
+        SattariAudioCore)
+
 # Shared step clock contract. The clock is about to drive drums, notes AND
 # parameter modulation, so a timing error would surface as three unrelated-looking
 # bugs; this pins placement accuracy, block-size independence and swing.
