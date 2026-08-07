@@ -44,10 +44,12 @@ feature-by-feature implementation and remaining external SDK gates.
 
 - **Studio:** Rubber Band, the quality-locked monophonic path.
 
-The current 48 kHz synthetic benchmark measured approximately 41.9 ms latency
-and 0.01 cents mean steady-note correction error. The experimental PSOLA path
-remains serialized for old-session compatibility but is not selectable until
-it passes real-vocal quality testing.
+The current 48 kHz synthetic benchmark measured approximately 43.3 ms group
+delay against 42.7 ms reported latency and 0.01 cents mean steady-note error.
+Adaptive 128-sample ratio interpolation keeps note-transition timing within
+5.3 ms across 64–1024-sample host buffers without taxing stationary notes. The
+experimental PSOLA path remains serialized for old-session compatibility but
+is not selectable until it passes real-vocal quality testing.
 
 ## Build and prove the neural release shape
 

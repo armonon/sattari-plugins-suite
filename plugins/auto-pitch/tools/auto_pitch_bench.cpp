@@ -369,8 +369,10 @@ void runLatency()
     };
     const int inOnset = halfRiseIdx (sig);
 
-    // Sweep the current state plus both legacy engine parameters. All must remain on
-    // the same honest Studio latency while PSOLA is quality-locked.
+    // Sweep the current state plus both legacy engine parameters. Correction is
+    // disabled so this measures the engine's fixed group delay—the quantity a host
+    // can compensate—without content-dependent pitch-automation smearing.
+    // All legacy choices must remain on the same latency while PSOLA is quality-locked.
     for (int engine = 0; engine < 3; ++engine)
     {
         const bool live   = (engine >= 1);
@@ -380,7 +382,7 @@ void runLatency()
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);   // A major (440 in scale)
         setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
         setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);
-        setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 0.0f);
         setParam (a, "liveEngine", live ? 1.0f : 0.0f);
         setParam (a, "lowLatency", lowLat ? 1.0f : 0.0f);
         const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
@@ -611,7 +613,8 @@ void runTransition()
 //  (a) PRESERVATION: a 5.5 Hz / 40 ct vibrato tone (A3, in A major) hard-tuned with
 //      Preserve Vibrato = 1 vs = 0. Report retained output depth (cents; depth =
 //      std * sqrt2) and the retained ratio vs the 40 ct input. Run on Studio.
-//      Threshold: preserve-ON depth > 1.5x preserve-OFF AND ratio > 0.4 PASS.
+//      Threshold: preserve-ON is closer to natural input depth than OFF and
+//      retains more than 40% of the input depth.
 //  (b) SYNTHETIC: addVibrato = 50 ct, rate 5.5 Hz, on an in-tune A4. Report measured
 //      output depth (cents) and rate (Hz). Threshold: depth in [30,70] ct AND rate
 //      in [4,7] Hz PASS.
@@ -675,7 +678,7 @@ void runVibrato()
         std::printf ("  (b) synthetic:  depth=%.1f ct (req 50)   rate=%.2f Hz (req 5.5)   [%s]\n",
                      depth, rate, verdict (ok, depth >= 20.0 && rate >= 3.5 && rate <= 7.5));
     }
-    std::printf ("  thresholds: (a) ON > 1.5x OFF & retained > 40%%; (b) depth 30-70 ct & rate 4-7 Hz\n");
+    std::printf ("  thresholds: (a) ON closer to natural depth than OFF & retained > 40%%; (b) depth 30-70 ct & rate 4-7 Hz\n");
 }
 
 // ============================================================================

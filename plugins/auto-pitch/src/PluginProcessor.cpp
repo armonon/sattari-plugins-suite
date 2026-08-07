@@ -16,6 +16,9 @@ namespace
 {
 constexpr int pitchFrameSize = 2048;
 constexpr int pitchHopSize = 256;
+// Fixed DSP-control grid: host callback sizes must not change pitch automation.
+constexpr int rubberBandAutomationQuantum = 128;
+constexpr double rubberBandStationaryCents = 1.0;
 constexpr double minVoiceHz = 70.0;
 constexpr double maxVoiceHz = 950.0;
 constexpr double silenceRms = 0.0045;
@@ -649,7 +652,9 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     {
         auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
             currentSampleRate, 1, opts, 1.0, 1.0);
-        stretcher->setMaxProcessSize ((size_t) preparedBlockSize);
+        // Stationary ratios use chunks up to 512 samples; moving ratios use the
+        // finer automation grid below. This cap is independent of host buffers.
+        stretcher->setMaxProcessSize (512);
         stretcher->setPitchScale (1.0);
         rubberBand.push_back (std::move (stretcher));
     }
@@ -670,7 +675,9 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // and click. A one-block floor covers the trivial (unity) case.
     const int startDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
     rbLatency = startDelay;
-    rbCushion = juce::jmax (preparedBlockSize, startDelay);
+    // Fixed latency floor: a host's declared buffer size must not change the
+    // engine's delay or the amount of automation queued ahead of playback.
+    rbCushion = juce::jmax (512, startDelay);
     rbFifoCap = rbCushion + startDelay + 8 * preparedBlockSize + 16384;
     rbFifo.setSize (numChannels, rbFifoCap);
     resetRbFifo();
@@ -3002,7 +3009,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // Keep a fraction of the vibrato swing (clamped to +/-1 semitone so note
         // jumps / detector errors aren't amplified), faded out during onsets.
         const double vibSemis = juce::jlimit (-1.0, 1.0, lastPitchFrame.midi - vibratoCenterMidi);
-        const double keep = vibRetain * (1.0 - transitionBoost) * vibSemis;
+        // CREPE already applies a causal median contour before this stage. Its
+        // correction path therefore leaves more of the original fast modulation
+        // intact than raw YIN; reinjecting the full YIN-calibrated residual can
+        // exaggerate neural vibrato to ~150% of the singer's depth. Restore only
+        // the measured missing fraction on that path.
+        const double detectorPreserveScale = neuralHist ? 0.40 : 1.0;
+        const double keep = vibRetain * detectorPreserveScale * (1.0 - transitionBoost) * vibSemis;
         targetPitchScale *= std::pow (2.0, keep / 12.0);
         targetPitchScale = juce::jlimit (0.5, 2.0, targetPitchScale);
     }
@@ -3340,23 +3353,40 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
-    // Oversized-block guard. Rubber Band was configured with
-    // setMaxProcessSize(preparedBlockSize) and rubberBandOutput / rbFifo are sized
-    // for that. If a host ever delivers a block larger than it declared in
-    // prepareToPlay, feeding it whole would (a) overrun Rubber Band's max process
-    // size (contract violation) and (b) reallocate rubberBandOutput mid-callback.
-    // Instead, process the block in <=preparedBlockSize sub-chunks that alias the
-    // buffer's channels (no allocation — AudioBuffer's referencing ctor uses inline
-    // channel-pointer storage for <=32 channels). Each sub-chunk recurses exactly
-    // once (its length is already within the cap).
-    const int maxChunk = juce::jmax (1, preparedBlockSize);
-    if (numSamples > maxChunk)
+    // Deliver automation on a fixed grid, independent of the host callback. The
+    // correction smoother supplies the endpoint for this callback; logarithmic
+    // interpolation from the last delivered endpoint reconstructs the glide at
+    // 128-sample resolution while the ratio is moving. Sub-one-cent detector
+    // jitter is treated as stationary so settled notes retain full-block quality
+    // and CPU efficiency. This removes buffer-dependent correction timing and
+    // the large ratio steps Rubber Band can render as metallic vibrato chatter.
+    // Sub-buffers alias the host buffer, so this path is allocation-free.
+    const double ratioMotionLog2 = std::abs (std::log2 (juce::jmax (1.0e-6, pitchScale)
+                                                         / juce::jmax (1.0e-6, rubberBandEnginePitchScale)));
+    bool movingRatio = false;
+    if (numSamples > rubberBandAutomationQuantum)
     {
-        for (int offset = 0; offset < numSamples; offset += maxChunk)
+        if (ratioMotionLog2 * 1200.0 > rubberBandStationaryCents)
+            rubberBandAutomationHoldSamples = (int) std::round (0.120 * currentSampleRate);
+        else
+            rubberBandAutomationHoldSamples = juce::jmax (0, rubberBandAutomationHoldSamples - numSamples);
+        movingRatio = rubberBandAutomationHoldSamples > 0;
+    }
+    // Even a stationary ratio is capped at 512 samples, so a host that violates
+    // its declared maximum—or simply runs a 1024/2048 buffer—cannot exceed the
+    // Rubber Band process contract or require a host-sized FIFO cushion.
+    const int processQuantum = movingRatio ? rubberBandAutomationQuantum : 512;
+    if (numSamples > processQuantum)
+    {
+        const double startLog2 = std::log2 (juce::jmax (1.0e-6, rubberBandEnginePitchScale));
+        const double endLog2 = std::log2 (juce::jmax (1.0e-6, pitchScale));
+        for (int offset = 0; offset < numSamples; offset += processQuantum)
         {
-            const int chunk = juce::jmin (maxChunk, numSamples - offset);
+            const int chunk = juce::jmin (processQuantum, numSamples - offset);
+            const double fraction = (double) (offset + chunk) / (double) numSamples;
+            const double chunkScale = std::pow (2.0, startLog2 + fraction * (endLog2 - startLog2));
             juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), numChannels, offset, chunk);
-            processWithRubberBand (sub, pitchScale, linearGain, straightTranspose);
+            processWithRubberBand (sub, chunkScale, linearGain, straightTranspose);
         }
         return;
     }
@@ -3393,6 +3423,7 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     if (! haveAllStretchers)
     {
         buffer.applyGain (linearGain);
+        rubberBandEnginePitchScale = pitchScale;
         return;
     }
 
@@ -3480,6 +3511,7 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     }
 
     buffer.applyGain (linearGain);
+    rubberBandEnginePitchScale = pitchScale;
 #else
     juce::ignoreUnused (buffer, pitchScale, linearGain);
 #endif
@@ -3492,6 +3524,8 @@ void SattariAutoPitchAudioProcessor::resetRbFifo()
     rbFifoRead  = 0;
     rbFifoCount = 0;
     rbPrimed    = false;
+    rubberBandEnginePitchScale = 1.0;
+    rubberBandAutomationHoldSamples = 0;
 }
 
 // Append n samples (per channel) from src[chSrcBase + ch] into the ring. Callers

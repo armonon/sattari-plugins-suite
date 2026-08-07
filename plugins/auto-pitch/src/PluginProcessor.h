@@ -521,6 +521,8 @@ private:
     int  rbCushion   = 0;             // samples buffered before popping begins
     bool rbPrimed    = false;         // has the cushion filled yet?
     int  rbLatency   = 0;             // Rubber Band start delay (samples)
+    double rubberBandEnginePitchScale = 1.0; // last ratio delivered on the fixed control grid
+    int rubberBandAutomationHoldSamples = 0; // hysteresis: finish a moving-ratio glide on-grid
     void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);
     void resetRbFifo();
 #endif
