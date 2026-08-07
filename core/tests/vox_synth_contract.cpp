@@ -120,6 +120,49 @@ int main()
         check (std::abs (hz - 261.6) < 10.0, "quantize snaps sharp pitch onto the scale");
     }
 
+    // --- MAQAM QUANTIZE -----------------------------------------------------
+    //  The old quantiser searched for the nearest in-scale SEMITONE, so a neutral
+    //  third was unreachable whatever scale you set — a voice near it was pulled
+    //  to the major or minor third every time.
+    //
+    //  Measured DIFFERENTIALLY, on purpose. The neutral third (320.2 Hz) and the
+    //  major third (329.6 Hz) are 9.4 Hz apart, which is smaller than this file's
+    //  own pitch estimator error — test4 above lands 5 Hz off a known target. An
+    //  absolute assertion here would be measuring the estimator, not the scale.
+    //  Driving the SAME input through two scales cancels that error: whatever the
+    //  estimator's bias, it applies to both, so the DIFFERENCE is trustworthy.
+    {
+        const int rastCents[]  = { 0, 200, 350, 500, 700, 900, 1050 };  // neutral 3rd
+        const int majorCents[] = { 0, 200, 400, 500, 700, 900, 1100 };
+
+        auto pitchWithScale = [&] (const int* cents) -> double
+        {
+            sattari::dsp::VoxSynthEngine engine;
+            engine.prepare (SR);
+            engine.setCentScale (sattari::dsp::fromCents (cents, 7, 0));
+            sattari::dsp::VoxSynthEngine::Params p;
+            p.quantize = 1.0f;      // fully snapped
+            p.glideMs  = 0.0f;
+            p.level    = 0.9f;
+            engine.setParams (p);
+            return pitchOf (drive (engine, 317.0f, 0.9f, 1200.0f, true, 0.5));
+        };
+
+        const double rastHz  = pitchWithScale (rastCents);
+        const double majorHz = pitchWithScale (majorCents);
+        const double centsApart = 1200.0 * std::log2 (majorHz / rastHz);
+
+        std::printf ("  same 317 Hz input: rast %.1f Hz vs major %.1f Hz"
+                     " = %.0f cents apart (want ~50)\n", rastHz, majorHz, centsApart);
+
+        // A semitone quantiser gives BOTH scales the same answer, so any real
+        // separation proves cents are being used. ~50 is the true figure.
+        check (centsApart > 25.0,
+               "rast and major snapped to the same pitch - quantiser is still semitone-based");
+        check (centsApart < 80.0, "rast/major separation is not the expected ~50 cents");
+        check (rastHz < majorHz, "the neutral third should sit BELOW the major third");
+    }
+
     std::printf (fails == 0 ? "Sattari VoxSynthEngine contract ok\n" : "FAIL: VoxSynthEngine contract (%d)\n", fails);
     return fails == 0 ? 0 : 1;
 }

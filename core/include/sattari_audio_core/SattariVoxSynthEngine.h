@@ -16,6 +16,8 @@
 //  Two PolyBLEP oscillators + a TPT state-variable filter. Pure-std, RT-safe.
 #pragma once
 
+#include <sattari_audio_core/SattariNoteEngine.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -63,11 +65,26 @@ public:
     void setParams (const Params& p) noexcept { p_ = p; }
 
     // 12 pitch classes: true = in scale. tonic 0..11. Used only when quantize > 0.
+    //
+    //  Kept for every existing caller, but it now builds a CentScale internally —
+    //  so the quantiser has ONE path, and a semitone scale is just a cent scale
+    //  whose degrees happen to land on hundreds.
     void setScale (const bool inScale[12]) noexcept
     {
-        for (int i = 0; i < 12; ++i) scale_[(size_t) i] = inScale[i];
+        int cents[sattari::dsp::CentScale::kMaxDegrees];
+        int n = 0;
+        for (int i = 0; i < 12 && n < sattari::dsp::CentScale::kMaxDegrees; ++i)
+            if (inScale[i]) cents[n++] = i * 100;
+        scale_ = sattari::dsp::fromCents (cents, n, 0);
     }
-    void setScaleChromatic() noexcept { for (auto& b : scale_) b = true; }
+    void setScaleChromatic() noexcept { scale_ = sattari::dsp::chromaticScale (0); }
+
+    //  THE POINT: hand it a maqam and the synth plays the maqam. The old
+    //  quantiser searched the nearest in-scale SEMITONE, so a neutral third was
+    //  unreachable no matter what scale you asked for — it would land on the
+    //  major or minor third every time.
+    void setCentScale (const sattari::dsp::CentScale& scale) noexcept { scale_ = scale; }
+    const sattari::dsp::CentScale& centScale() const noexcept { return scale_; }
 
     // Push a fresh analysis frame. Targets are ramped toward in render().
     void setTarget (float freqHz, float amplitude, float centroidHz, bool voiced) noexcept
@@ -120,21 +137,21 @@ private:
         return 1.0f - std::exp (-1.0f / (t * (float) sr_));
     }
 
+    //  Snapping happens in CENTS, never in semitones, so a quarter-tone degree is
+    //  reachable. Quantize stays a BLEND rather than a switch: partway between
+    //  continuous and snapped is the setting that keeps a sung line expressive
+    //  while still landing in the key.
     float maybeQuantise (float freqHz) const noexcept
     {
-        if (p_.quantize <= 0.0f) return freqHz;
-        const float midi = 69.0f + 12.0f * std::log2 (freqHz / p_.tuningRefHz);
-        // nearest in-scale semitone
-        int best = (int) std::lround (midi); float bestD = 1e9f;
-        for (int d = -6; d <= 6; ++d)
-        {
-            const int m = (int) std::lround (midi) + d;
-            if (! scale_[(size_t) (((m % 12) + 12) % 12)]) continue;
-            const float dist = std::abs (midi - m);
-            if (dist < bestD) { bestD = dist; best = m; }
-        }
-        const float snappedMidi = midi + p_.quantize * (best - midi);
-        return p_.tuningRefHz * std::pow (2.0f, (snappedMidi - 69.0f) / 12.0f);
+        if (p_.quantize <= 0.0f || ! scale_.valid() || freqHz <= 0.0f) return freqHz;
+
+        // Referenced to the engine's own tuning, so a non-440 reference still
+        // snaps to the right pitches rather than to concert pitch.
+        const double refOffset = 1200.0 * std::log2 ((double) p_.tuningRefHz / 440.0);
+        const double cents = sattari::dsp::hzToCents ((double) freqHz) - refOffset;
+        const double snapped = sattari::dsp::snapToScale (scale_, cents);
+        const double blended = cents + (double) p_.quantize * (snapped - cents);
+        return (float) sattari::dsp::centsToHz (blended + refOffset);
     }
 
     static float polyBlep (float t, float dt) noexcept
@@ -182,7 +199,7 @@ private:
 
     double sr_ = 48000.0;
     Params p_;
-    std::array<bool, 12> scale_ { };
+    sattari::dsp::CentScale scale_ = sattari::dsp::chromaticScale (0);
     float ph1_ = 0, ph2_ = 0, triZ1_ = 0, triZ2_ = 0, triZ_ = 0;
     float curFreq_ = 0, tgtFreq_ = 0, curAmp_ = 0, tgtAmp_ = 0, curCut_ = 300, tgtCut_ = 300;
     float ic1_ = 0, ic2_ = 0;
