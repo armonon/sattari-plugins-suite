@@ -55,3 +55,30 @@ target_link_libraries(RhythmGenieRender
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Step TIMING contract. Written before migrating the module onto the shared
+# SattariStepClock: the pattern core had a contract, the clock that played it had
+# none, so any refactor of step emission was unverifiable. Run with --trace to
+# dump the firing table for a before/after comparison.
+add_executable(RhythmGenieTimingContract
+    EXCLUDE_FROM_ALL
+        tests/rhythm_genie_timing_contract.cpp)
+add_dependencies(RhythmGenieTimingContract SattariRhythmGenie)
+target_include_directories(RhythmGenieTimingContract
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariRhythmGenie_artefacts/JuceLibraryCode)
+target_compile_definitions(RhythmGenieTimingContract
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(RhythmGenieTimingContract
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)

@@ -140,6 +140,7 @@ if(BUILD_TESTING)
         HarmonyCoreContract
         MaqamCoreContract
         RhythmGenieCoreContract
+        RhythmGenieTimingContract
         VocalMasterCoreContract
         SubConjurerContract
         WarpContract
