@@ -20,8 +20,8 @@ fi
 download_tmp="$(mktemp -d "${TMPDIR:-/tmp}/sattari-ort.XXXXXX")"
 trap 'rm -rf "$download_tmp"' EXIT
 
-curl --fail --location --retry 3 --output "$download_tmp/$ort_archive" "$ort_url"
-printf '%s  %s\n' "$ort_sha256" "$download_tmp/$ort_archive" | shasum -a 256 --check
+curl --fail --location --retry 3 --output "$download_tmp/$ort_archive" "$ort_url" >&2
+printf '%s  %s\n' "$ort_sha256" "$download_tmp/$ort_archive" | shasum -a 256 --check >&2
 tar -xzf "$download_tmp/$ort_archive" -C "$repo_root/third_party"
 
 [[ -f "$ort_dir/include/onnxruntime_cxx_api.h" ]] || {
@@ -34,7 +34,7 @@ tar -xzf "$download_tmp/$ort_archive" -C "$repo_root/third_party"
 }
 
 if command -v lipo >/dev/null 2>&1; then
-  lipo "$ort_dylib" -verify_arch arm64 x86_64
+  lipo "$ort_dylib" -verify_arch arm64 x86_64 >&2
 fi
 
 echo "$ort_dir"

@@ -151,6 +151,17 @@ jobs:
         run: |
           if [ "${{ matrix.plugin }}" = "auto-pitch" ]; then
             ort_dir="$(./scripts/fetch_onnxruntime_macos.sh)"
+            # The script's stdout IS the return value, so anything else it
+            # prints becomes part of a compiler path. That is not hypothetical:
+            # curl, shasum and lipo all wrote to stdout on the cache-miss path,
+            # so a cold runner produced
+            #   '<tmp>/onnxruntime-1.22.0.tgz: OK/Users/runner/.../libonnxruntime.dylib'
+            # and the only symptom was ninja reporting a missing file 20 lines
+            # into a build. A warm cache hid it completely. Fail here instead.
+            if [ ! -d "$ort_dir" ]; then
+              echo "::error::fetch_onnxruntime_macos.sh must print ONLY the install dir; got: $ort_dir"
+              exit 1
+            fi
             cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
