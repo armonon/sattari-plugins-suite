@@ -20,6 +20,7 @@ fi
 }
 
 package_name="Sattari-Audio-Closed-Beta-v$version"
+mkdir -p "$out_root"
 stage="$(mktemp -d "$out_root/.closed-beta.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 package="$stage/$package_name"
@@ -39,7 +40,6 @@ cp "$repo_root/scripts/qualify_auto_pitch_corpus.py" "$package/Validation/"
     | xargs -0 shasum -a 256 > SHA256SUMS.txt
 )
 
-mkdir -p "$out_root"
 final_dir="$out_root/$package_name"
 archive="$out_root/$package_name.tar.gz"
 [[ ! -e "$final_dir" && ! -e "$archive" ]] || {
