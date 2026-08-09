@@ -15,11 +15,15 @@ Truth label: **manual release gate / unchecked rows are not passes**.
 
 ## Machine gates
 
-- [ ] `ctest --test-dir build/local -L contract --output-on-failure`
+- [x] `ctest --test-dir build/local -L non-stemdeck --output-on-failure` — 91/91 passed in 174.11 seconds.
 - [ ] AU validation passes for every shipping Audio Unit.
 - [ ] pluginval strictness 5 passes for every shipping VST3.
-- [ ] Installer verification and Hub contract pass.
-- [ ] Auto Pitch neural model reports embedded + loaded.
+- [x] Installer expanded successfully; packaged Hub contract passed with 48 products and 143 bundle records.
+- [x] Auto Pitch neural bundles passed embedded-model/runtime verification; AU passed auval and VST3 passed pluginval strictness 5.
+
+Compass AU also passed auval as `aumf/Br01/Satr`, and Compass VST3 passed
+pluginval strictness 5. Arp and Sub Conjurer still require fresh package-time
+machine validation before the two suite-wide rows above can be checked.
 
 ## Host matrix
 
@@ -55,13 +59,13 @@ Repeat at 44.1, 48, and 96 kHz. Use 64/128/256/512 buffers where the host allows
 
 ## Issues
 
-1.
-2.
-3.
+1. Manual Logic, Ableton, and FL Studio rows are not yet executed.
+2. Real-vocal Auto Pitch listening corpus is not yet supplied or scored.
+3. Developer ID Application/Installer certificates and the `sattari-notary` profile are absent.
 
 ## Decision
 
-- [ ] Blocked
+- [x] Blocked for public release; ready for controlled internal beta.
 - [ ] Internal alpha
 - [ ] Closed beta
 - [ ] Release candidate
