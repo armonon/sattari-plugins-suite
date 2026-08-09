@@ -29,8 +29,14 @@ if [[ "${SATTARI_TESTER_ALLOW_MODEL_FALLBACK:-0}" != "1" ]]; then
     --require keynet_spec.onnx
   )
 fi
-"$repo_root/scripts/verify_auto_pitch_models.py" \
-  --model-dir "$model_dir" "${model_requirements[@]}"
+if (( ${#model_requirements[@]} > 0 )); then
+  "$repo_root/scripts/verify_auto_pitch_models.py" \
+    --model-dir "$model_dir" "${model_requirements[@]}"
+else
+  # macOS still ships Bash 3.2, where expanding an empty array under `set -u`
+  # raises "unbound variable". Keep the intentional fallback lane explicit.
+  "$repo_root/scripts/verify_auto_pitch_models.py" --model-dir "$model_dir"
+fi
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
   "$release_dir/Standalone/Sattari Auto Pitch.app/Contents/Info.plist")"
