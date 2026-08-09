@@ -18,12 +18,26 @@ DSP questions are answered here and the C++ port follows, the same way
     tests/exp0_*.py   analysis accuracy vs that ground truth
     tests/exp1_*.py   envelope shootout — which method survives transposition
     tests/exp2_*.py   round trip + the transposition claim, against resampling
+    tests/exp3_*.py   transposition range sweep, -24 to +24 semitones
 
 ## Chosen envelope method: LPC
 
 Adaptive order (2/3 of the available harmonics) and pre-emphasis 0.5. Both of
 those numbers came out of Experiment 1 and neither is the textbook value; see
 `lpc_order_for()` for the sweep that forced the change.
+
+## Playable range
+
+Measured, not assumed. Spectral error against the true throat stays under 3 dB
+across the whole -24..+24 sweep for all three source pitches — transposition
+distance turns out NOT to be the limiting factor. SOURCE PITCH is:
+
+    bass source (110 Hz)     0.56 dB mean      9% of the resampling control
+    alto source (220 Hz)     0.89 dB          15%
+    soprano source (440 Hz)  1.86 dB          26%
+
+A soprano recording makes a worse instrument at EVERY pitch, including its own.
+That is a recording-guidance finding, not a synthesis one: capture low.
 
 ## Where it stands
 

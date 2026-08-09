@@ -23,6 +23,48 @@ from envelope import envelope_at
 from model import VoiceInstrumentModel
 
 
+def measured_tilt_db_per_octave(model: VoiceInstrumentModel,
+                                default: float = -6.0) -> float:
+    """The source's own spectral slope, fitted to its harmonics.
+
+    Replaces a hard-coded -6 dB/octave roll-off above the reliable ceiling. That
+    constant is the textbook glottal slope and it is only ever right by accident:
+    measured on synthetic vowels whose true tilt was varied, with everything else
+    identical, the error in the extrapolated region was
+
+        source tilt  -6 dB/oct  ->  2.51 dB     (matches the constant)
+        source tilt  -9 dB/oct  ->  6.08 dB
+        source tilt -12 dB/oct  ->  8.50 dB
+
+    A fixed roll-off is an assumption about the singer, and a breathy or a
+    pressed voice violates it in opposite directions. The slope is already
+    measurable from the harmonics the model carries, so it is measured.
+    """
+    hz = np.asarray(model.harmonics.frequency_hz, dtype=float)
+    db = np.asarray(model.harmonics.amplitude_db, dtype=float)
+    ceiling = model.harmonics.reliable_up_to_hz
+    # AMPLITUDE-GATED AT -45 dB, WELL CLEAR OF THE NOISE FLOOR. Fitting every
+    # harmonic up to the ceiling measures the knee where partials sink into the
+    # noise, not the voice's tilt: on a source whose true slope was -6 dB/octave
+    # that fit returned -18, pinned at the clamp. It happened to improve the
+    # result — steeper is closer than too-shallow — which is exactly the kind of
+    # accidental pass that looks like a working feature.
+    usable = (hz > 0) & (db > -45.0) & ((hz <= ceiling) if ceiling > 0 else True)
+    # Skip the first few harmonics: down there the envelope is formant structure,
+    # not tilt, and F1 alone can swing a two-point fit by tens of dB.
+    if np.count_nonzero(usable) >= 8:
+        lower = hz[usable][max(2, np.count_nonzero(usable) // 4)]
+        trimmed = usable & (hz >= lower)
+        if np.count_nonzero(trimmed) >= 5:
+            usable = trimmed
+    if np.count_nonzero(usable) < 4:
+        return default
+    slope = float(np.polyfit(np.log2(hz[usable]), db[usable], 1)[0])
+    # Clamped: a fit that runs away turns silence into noise or noise into
+    # sizzle, and neither belongs above a range where nothing was measured.
+    return float(np.clip(slope, -18.0, -2.0))
+
+
 def render(model: VoiceInstrumentModel, f0_hz: float, duration_s: float = 2.0,
            sr: int = 48000, apply_vibrato: bool = False,
            apply_noise: bool = True, seed: int = 0) -> np.ndarray:
@@ -64,12 +106,13 @@ def render(model: VoiceInstrumentModel, f0_hz: float, duration_s: float = 2.0,
     # harmonics land in that region.
     ceiling_hz = model.harmonics.reliable_up_to_hz or nyquist
     ceiling_db = float(envelope_at(model.envelope, [ceiling_hz])[0])
+    rolloff = measured_tilt_db_per_octave(model)
 
     stored_phase = model.harmonics.phase_rad
     for k in range(1, max_k + 1):
         harmonic_hz = f0_hz * k
         if harmonic_hz > ceiling_hz:
-            amp_db = ceiling_db - 6.0 * np.log2(harmonic_hz / ceiling_hz)
+            amp_db = ceiling_db + rolloff * np.log2(harmonic_hz / ceiling_hz)
         else:
             amp_db = float(envelope_at(model.envelope, [harmonic_hz])[0])
 
