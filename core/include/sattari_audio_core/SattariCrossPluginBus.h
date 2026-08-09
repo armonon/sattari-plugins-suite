@@ -8,7 +8,10 @@
 //  can broadcast the currently-detected key and a reader (e.g. Royal Chain's
 //  Tune module) can follow it.
 //
-//  Storage: <userAppData>/Sattari Audio/cross-plugin/key-bus.json, where
+//  Storage: <userAppData>/Sattari Audio/cross-plugin/key-bus[-<session>].json,
+//  where an optional session id comes from SATTARI_SESSION_ID (or an explicit
+//  API argument). This isolates concurrently-open DAW projects while preserving
+//  the legacy unscoped file when no id is configured.
 //  userAppData is juce::File::userApplicationDataDirectory — on macOS that is
 //  ~/Library (NOT ~/Library/Application Support), on Windows %APPDATA%, on Linux
 //  ~/.config. All suite plugins call keyBusFile() so they always agree on the
@@ -83,24 +86,54 @@ inline juce::InterProcessLock& keyBusPublishLock()
     return lock;
 }
 
-inline juce::File keyBusFile()
+inline juce::String sanitiseSessionId (juce::String id)
+{
+    id = id.trim().retainCharacters (
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_");
+    return id.substring (0, 48);
+}
+
+inline juce::String configuredSessionId()
+{
+    return sanitiseSessionId (
+        juce::SystemStats::getEnvironmentVariable ("SATTARI_SESSION_ID", {}));
+}
+
+inline juce::String effectiveSessionId (const juce::String& requestedSessionId)
+{
+    return requestedSessionId.isNotEmpty() ? sanitiseSessionId (requestedSessionId)
+                                           : configuredSessionId();
+}
+
+inline juce::File crossPluginBusRoot()
 {
     auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                     .getChildFile ("Sattari Audio").getChildFile ("cross-plugin");
     root.createDirectory();
-    return root.getChildFile ("key-bus.json");
+    return root;
 }
 
-inline bool publishKey (const juce::String& publisherId, int root, int scale)
+inline juce::File keyBusFile (const juce::String& requestedSessionId = {})
+{
+    const auto sessionId = effectiveSessionId (requestedSessionId);
+    const auto suffix = sessionId.isEmpty() ? juce::String() : "-" + sessionId;
+    return crossPluginBusRoot().getChildFile ("key-bus" + suffix + ".json");
+}
+
+inline bool publishKey (const juce::String& publisherId, int root, int scale,
+                        const juce::String& requestedSessionId = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
-    const auto file = keyBusFile();
+    const auto sessionId = effectiveSessionId (requestedSessionId);
+    const auto file = keyBusFile (sessionId);
     if (! mayPublish (file, publisherId))
         return false;
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("publisher", publisherId);
+    obj->setProperty ("schemaVersion", 3);
+    if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, root));
     obj->setProperty ("scale", juce::jlimit (0, 2, scale));
@@ -108,9 +141,10 @@ inline bool publishKey (const juce::String& publisherId, int root, int scale)
     return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
-inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
+inline std::optional<KeyMessage> readPublishedKey (
+    int maxAgeSeconds = 30, const juce::String& requestedSessionId = {})
 {
-    auto file = keyBusFile();
+    auto file = keyBusFile (requestedSessionId);
     if (! file.existsAsFile()) return std::nullopt;
     const auto parsed = juce::JSON::parse (file.loadFileAsString());
     if (! parsed.isObject()) return std::nullopt;
@@ -135,14 +169,16 @@ inline std::optional<KeyMessage> readPublishedKey (int maxAgeSeconds = 30)
 //  publishKey / readPublishedKey readers keep working unchanged (they just ignore
 //  the extra fields); session readers fall back to sensible defaults when a
 //  key-only publisher wrote the file.
-//  SessionState (schemaVersion 2): the full Compass context. All fields beyond the
+//  SessionState (schemaVersion 3): the full Compass context. v3 adds an optional
+//  project/session namespace; all musical fields beyond the
 //  original root/scale/bpm/transientId are ADDITIVE — a key-only or v1 publisher
 //  simply omits them and every reader falls back to the safe defaults below, so no
 //  existing subscriber breaks. Numeric fields are RT-safe (they ride the SessionReader
 //  atomics); `progression` is a message-only convenience (read off the audio thread).
 struct SessionMessage
 {
-    int    schemaVersion = 2;
+    int    schemaVersion = 3;
+    juce::String sessionId;       // optional project namespace (message thread only)
     bool   hasSceneContext = false; // scene fields were explicitly published
     int    root = 0;           // 0..11
     int    scale = 0;          // 0=major, 1=minor, 2=chromatic
@@ -163,17 +199,20 @@ struct SessionMessage
 };
 
 inline bool publishSession (const juce::String& publisherId, int root, int scale,
-                            double bpm, juce::int64 transientId)
+                            double bpm, juce::int64 transientId,
+                            const juce::String& requestedSessionId = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
-    const auto file = keyBusFile();
+    const auto sessionId = effectiveSessionId (requestedSessionId);
+    const auto file = keyBusFile (sessionId);
     if (! mayPublish (file, publisherId))
         return false;
 
     auto* obj = new juce::DynamicObject();
-    obj->setProperty ("schemaVersion", 2);
+    obj->setProperty ("schemaVersion", 3);
     obj->setProperty ("publisher", publisherId);
+    if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, root));
     obj->setProperty ("scale", juce::jlimit (0, 2, scale));
@@ -185,17 +224,21 @@ inline bool publishSession (const juce::String& publisherId, int root, int scale
 
 // Full SessionState publisher (the Compass path). Writes every field; base-field-only
 // readers ignore the extras, SessionState readers pick up whatever is present.
-inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s)
+inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s,
+                                 const juce::String& requestedSessionId = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
-    const auto file = keyBusFile();
+    const auto sessionId = effectiveSessionId (
+        requestedSessionId.isNotEmpty() ? requestedSessionId : s.sessionId);
+    const auto file = keyBusFile (sessionId);
     if (! mayPublish (file, publisherId))
         return false;
 
     auto* obj = new juce::DynamicObject();
-    obj->setProperty ("schemaVersion", 2);
+    obj->setProperty ("schemaVersion", 3);
     obj->setProperty ("publisher", publisherId);
+    if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, s.root));
     obj->setProperty ("scale", juce::jlimit (0, 2, s.scale));
@@ -215,9 +258,10 @@ inline bool publishSessionState (const juce::String& publisherId, const SessionM
     return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
-inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
+inline std::optional<SessionMessage> readSession (
+    int maxAgeSeconds = 30, const juce::String& requestedSessionId = {})
 {
-    auto file = keyBusFile();
+    auto file = keyBusFile (requestedSessionId);
     if (! file.existsAsFile()) return std::nullopt;
     const auto parsed = juce::JSON::parse (file.loadFileAsString());
     if (! parsed.isObject()) return std::nullopt;
@@ -229,6 +273,7 @@ inline std::optional<SessionMessage> readSession (int maxAgeSeconds = 30)
 
     SessionMessage s;
     s.schemaVersion = (int) parsed.getProperty ("schemaVersion", 1);
+    s.sessionId = parsed.getProperty ("sessionId", juce::String()).toString();
     s.hasSceneContext =
         parsed.hasProperty ("swing")
         || parsed.hasProperty ("sectionId")
@@ -391,31 +436,36 @@ private:
 //  the session tempo; a transient detector (Side Chain) can bump the pulse id.
 //  Consumers (Arp, Space) read it as a fallback when the host reports no tempo.
 // =============================================================================
-inline juce::File tempoBusFile()
+inline juce::File tempoBusFile (const juce::String& requestedSessionId = {})
 {
-    auto root = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                    .getChildFile ("Sattari Audio").getChildFile ("cross-plugin");
-    root.createDirectory();
-    return root.getChildFile ("tempo-bus.json");
+    const auto sessionId = effectiveSessionId (requestedSessionId);
+    const auto suffix = sessionId.isEmpty() ? juce::String() : "-" + sessionId;
+    return crossPluginBusRoot().getChildFile ("tempo-bus" + suffix + ".json");
 }
 
 struct TempoMessage { double bpm = 0.0; juce::int64 transientId = 0; bool hasTempo = false; };
 
-inline void publishTempo (const juce::String& publisherId, double bpm, juce::int64 transientId)
+inline void publishTempo (const juce::String& publisherId, double bpm,
+                          juce::int64 transientId,
+                          const juce::String& requestedSessionId = {})
 {
+    const auto sessionId = effectiveSessionId (requestedSessionId);
     auto* obj = new juce::DynamicObject();
+    obj->setProperty ("schemaVersion", 3);
     obj->setProperty ("publisher", publisherId);
+    if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("bpm", bpm > 0.0 ? bpm : 0.0);
     obj->setProperty ("transientId", transientId);
     obj->setProperty ("timestampMs",
         (juce::int64) std::chrono::duration_cast<std::chrono::milliseconds> (
             std::chrono::system_clock::now().time_since_epoch()).count());
-    tempoBusFile().replaceWithText (juce::JSON::toString (juce::var (obj)));
+    tempoBusFile (sessionId).replaceWithText (juce::JSON::toString (juce::var (obj)));
 }
 
-inline std::optional<TempoMessage> readTempo (int maxAgeSeconds = 10)
+inline std::optional<TempoMessage> readTempo (
+    int maxAgeSeconds = 10, const juce::String& requestedSessionId = {})
 {
-    auto file = tempoBusFile();
+    auto file = tempoBusFile (requestedSessionId);
     if (! file.existsAsFile()) return std::nullopt;
     const auto parsed = juce::JSON::parse (file.loadFileAsString());
     if (! parsed.isObject()) return std::nullopt;

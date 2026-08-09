@@ -3,7 +3,7 @@
 // =============================================================================
 //  Sattari Audio Suite — reusable A/B compare row
 // -----------------------------------------------------------------------------
-//  A 3-button row (A | B | x) wired to a SattariPresetManager. First click on A
+//  A 3-button row (A | B | Swap) wired to a SattariPresetManager. First click on A
 //  or B captures the current state into that slot; subsequent clicks recall it.
 //  x swaps A <-> B in place. Editors drop one of these in next to the preset
 //  combos with a single addAndMakeVisible() and a setBounds() in resized().
@@ -75,7 +75,7 @@ private:
     }
 
     sattari::presets::SattariPresetManager& manager;
-    juce::TextButton a { "A" }, b { "B" }, swap { "x" };
+    juce::TextButton a { "A" }, b { "B" }, swap { "Swap" };
     int active = 0;
 };
 

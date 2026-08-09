@@ -33,6 +33,9 @@ CONTRACTS=(
   "SattariAudioCoreDrumLooperContract|core/SattariAudioCoreDrumLooperContract"
   "SattariAudioCoreBeatGridContract|core/SattariAudioCoreBeatGridContract"
   "SattariAudioCoreGrooveContract|core/SattariAudioCoreGrooveContract"
+  "SattariAudioCoreStepClockContract|core/SattariAudioCoreStepClockContract"
+  "SattariAudioCoreArrangementContract|core/SattariAudioCoreArrangementContract"
+  "SattariAudioCoreNoteEngineContract|core/SattariAudioCoreNoteEngineContract"
   "SattariAudioCorePsolaContract|core/SattariAudioCorePsolaContract"
   "SattariAudioCoreCrepeContract|core/SattariAudioCoreCrepeContract"
   "SattariAudioCoreVoxContract|core/SattariAudioCoreVoxContract"
@@ -55,6 +58,7 @@ CONTRACTS=(
   "HarmonyCoreContract|plugins/harmony/HarmonyCoreContract"
   "MaqamCoreContract|plugins/maqam/MaqamCoreContract"
   "RhythmGenieCoreContract|plugins/rhythm-genie/RhythmGenieCoreContract"
+  "RhythmGenieTimingContract|plugins/rhythm-genie/RhythmGenieTimingContract"
   "VocalMasterCoreContract|plugins/vocal-master/VocalMasterCoreContract"
   "SongKeyRender|plugins/song-key/SongKeyRender"
   "SubConjurerContract|plugins/sub-conjurer/SubConjurerContract"
@@ -86,6 +90,7 @@ CONTRACTS=(
   "GranulatorContract|plugins/granulator/GranulatorContract"
   "GlassChoirContract|plugins/glass-choir/GlassChoirContract"
   "BrainContract|plugins/brain/BrainContract"
+  "VoxSynthMpeContract|plugins/voxsynth/VoxSynthMpeContract"
   "SattariStackLayerContract|plugins/stack/SattariStackLayerContract"
 )
 

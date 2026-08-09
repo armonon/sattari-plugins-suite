@@ -5,6 +5,12 @@
 #include <sattari_audio_core/modules/DoubleModule.h>
 #include <sattari_audio_core/modules/FaceModule.h>
 #include <sattari_audio_core/modules/GlassChoirModule.h>
+#include <sattari_audio_core/modules/CleanModule.h>
+#include <sattari_audio_core/modules/GateModule.h>
+#include <sattari_audio_core/modules/EqModule.h>
+#include <sattari_audio_core/modules/CompModule.h>
+#include <sattari_audio_core/modules/HeatModule.h>
+#include <sattari_audio_core/modules/SpaceModule.h>
 
 // Vocal's roster. De-Ess is also in Mix — a module is DSP, not a product.
 //
@@ -19,6 +25,12 @@ static std::vector<std::unique_ptr<sattari::dsp::SattariModule>> makeVocalModule
     v.push_back (std::make_unique<sattari::dsp::DoubleModule>());  // 2
     v.push_back (std::make_unique<sattari::dsp::FaceModule>());    // 3
     v.push_back (std::make_unique<sattari::dsp::GlassChoirModule>());   // 4
+    v.push_back (std::make_unique<sattari::dsp::CleanModule>());   // 5
+    v.push_back (std::make_unique<sattari::dsp::GateModule>());    // 6
+    v.push_back (std::make_unique<sattari::dsp::EqModule>());      // 7
+    v.push_back (std::make_unique<sattari::dsp::CompModule>());    // 8
+    v.push_back (std::make_unique<sattari::dsp::HeatModule>());    // 9
+    v.push_back (std::make_unique<sattari::dsp::SpaceModule>());   // 10
     return v;
 }
 
@@ -44,6 +56,28 @@ SattariVocalAudioProcessor::SattariVocalAudioProcessor()
 void SattariVocalAudioProcessor::registerFactoryPresets()
 {
     using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    addChainPreset ("Vocal Studio",
+        { "clean", "gate", "deess", "eq", "comp", "heat", "double", "space" },
+        PV{ {"clean.amount", 0.25f}, {"gate.threshold", -48.0f},
+            {"deess.threshold", -30.0f}, {"deess.range", 7.0f},
+            {"comp.threshold", -20.0f}, {"comp.ratio", 3.0f}, {"comp.autoRelease", 1.0f},
+            {"heat.drive", 3.0f}, {"heat.mix", 0.35f},
+            {"double.detune", 8.0f}, {"double.timing", 14.0f}, {"double.level", 0.28f},
+            {"space.revmix", 0.16f}, {"space.delaymix", 0.08f} });
+
+    addChainPreset ("Lead Polish",
+        { "deess", "eq", "comp", "heat", "double", "space" },
+        PV{ {"deess.threshold", -29.0f}, {"deess.range", 8.0f},
+            {"comp.threshold", -18.0f}, {"comp.ratio", 3.5f}, {"comp.attack", 12.0f},
+            {"heat.drive", 4.0f}, {"heat.mix", 0.42f},
+            {"double.level", 0.22f}, {"space.revmix", 0.2f} });
+
+    addChainPreset ("Dialogue Focus",
+        { "clean", "gate", "deess", "eq", "comp" },
+        PV{ {"clean.amount", 0.4f}, {"gate.threshold", -46.0f}, {"gate.range", 24.0f},
+            {"deess.threshold", -33.0f}, {"deess.range", 9.0f},
+            {"comp.threshold", -22.0f}, {"comp.ratio", 2.5f}, {"comp.autoGain", 1.0f} });
 
     addChainPreset ("Natural Double",
         { "deess", "double" },

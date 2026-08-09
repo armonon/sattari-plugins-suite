@@ -1,0 +1,65 @@
+diff --git a/plugins/stemdeck/src/WaveformDisplay.cpp b/plugins/stemdeck/src/WaveformDisplay.cpp
+index a15696e..41df6a7 100644
+--- a/plugins/stemdeck/src/WaveformDisplay.cpp
++++ b/plugins/stemdeck/src/WaveformDisplay.cpp
+@@ -4,10 +4,10 @@ namespace
+ {
+ juce::Colour accentForTitle (const juce::String& title)
+ {
+-    if (title.containsIgnoreCase ("B")) return juce::Colour (0xffff4c5f);
+-    if (title.containsIgnoreCase ("C")) return juce::Colour (0xff50f06b);
+-    if (title.containsIgnoreCase ("D")) return juce::Colour (0xffffcf4a);
+-    return juce::Colour (0xff26d9ff);
++    if (title.containsIgnoreCase ("B")) return juce::Colour (0xff67d84f);
++    if (title.containsIgnoreCase ("C")) return juce::Colour (0xffff9718);
++    if (title.containsIgnoreCase ("D")) return juce::Colour (0xff9b5cff);
++    return juce::Colour (0xff21a8ff);
+ }
+ }
+ 
+@@ -43,6 +43,45 @@ void WaveformDisplay::paint (juce::Graphics& g)
+ {
+     auto area = getLocalBounds().toFloat().reduced (2.0f);
+     const auto accent = accentForTitle (title);
++    if (getHeight() < 92)
++    {
++        g.setColour (juce::Colour (0xff071018));
++        g.fillRoundedRectangle (area, 4.0f);
++
++        g.setColour (juce::Colours::white.withAlpha (0.045f));
++        for (int i = 1; i < 8; ++i)
++        {
++            const float x = area.getX() + area.getWidth() * (float) i / 8.0f;
++            g.drawVerticalLine ((int) std::round (x), area.getY(), area.getBottom());
++        }
++
++        if (thumbnail.getTotalLength() > 0.0)
++        {
++            g.setColour (accent.withAlpha (0.34f));
++            thumbnail.drawChannels (g, area.toNearestInt(), 0.0, thumbnail.getTotalLength(), 1.0f);
++            g.setColour (accent.brighter (0.18f));
++            thumbnail.drawChannels (g, area.toNearestInt(), 0.0, thumbnail.getTotalLength(), 0.86f);
++        }
++        else
++        {
++            juce::Random random (title.hashCode());
++            const int bars = juce::jmax (22, area.toNearestInt().getWidth() / 7);
++            for (int i = 0; i < bars; ++i)
++            {
++                const float x = area.getX() + (float) i * area.getWidth() / (float) bars;
++                const float h = area.getHeight() * (0.18f + 0.76f * random.nextFloat());
++                const auto r = juce::Rectangle<float> (x + 1.0f, area.getCentreY() - h * 0.5f,
++                                                       juce::jmax (2.0f, area.getWidth() / (float) bars - 2.0f), h);
++                g.setColour (accent.interpolatedWith (juce::Colours::white, random.nextFloat() * 0.2f).withAlpha (0.78f));
++                g.fillRoundedRectangle (r, 1.5f);
++            }
++        }
++
++        g.setColour (accent.withAlpha (0.52f));
++        g.drawRoundedRectangle (area, 4.0f, 1.0f);
++        return;
++    }
++
+     g.setGradientFill (juce::ColourGradient (juce::Colour (0xff06070c), area.getTopLeft(),
+                                              juce::Colour (0xff141725), area.getBottomRight(), false));
+     g.fillRoundedRectangle (area, 10.0f);

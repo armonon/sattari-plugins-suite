@@ -1,0 +1,522 @@
+#include "StemProvider.h"
+
+namespace
+{
+inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
+
+juce::var objectWith (std::initializer_list<std::pair<juce::Identifier, juce::var>> properties)
+{
+    auto* object = new juce::DynamicObject();
+    for (const auto& [key, value] : properties)
+        object->setProperty (key, value);
+    return juce::var (object);
+}
+}
+
+class StemProvider::StemJob final : public juce::ThreadPoolJob
+{
+public:
+    StemJob (StemProvider& owner, juce::File source, Callback cb)
+        : ThreadPoolJob ("StemDeck offline stem cache"), provider (owner), sourceFile (std::move (source)), callback (std::move (cb)) {}
+
+    JobStatus runJob() override
+    {
+        auto result = provider.inspectCache (sourceFile);
+        provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, true, provider.getSeparatorCommand().trim().isNotEmpty(), u8 ("Preparing premium offline stem cache\xe2\x80\xa6")));
+        if (! result.allCoreStemsReady)
+        {
+            juce::String message;
+            // Prefer in-process on-device neural (ONNX/CoreML) when a model is loaded
+            // — faster, no subprocess; else fall back to the demucs CLI.
+            bool done = provider.neuralAvailable()
+                     && provider.runNeuralSeparation (sourceFile, result.cacheDirectory, message);
+            if (! done)
+            {
+                juce::String cliMsg;
+                if (StemProvider::runSeparatorCommand (provider.getSeparatorCommand(), sourceFile, result.cacheDirectory, cliMsg))
+                    done = true;
+                message = message.isNotEmpty() ? message + u8 (" \xe2\x80\xa2 ") + cliMsg : cliMsg;
+            }
+            if (done)
+                result = provider.inspectCache (sourceFile);
+
+            if (message.isNotEmpty())
+                result.message = message + u8 (" \xe2\x80\xa2 ") + result.message;
+        }
+        provider.updateStatus (sourceFile, StemProvider::statusFromResult (result, false, false, provider.getSeparatorCommand().trim().isNotEmpty()));
+        provider.writeManifest (result);
+
+        juce::MessageManager::callAsync ([result, cb = callback]() mutable
+        {
+            if (cb)
+                cb (std::move (result));
+        });
+        return jobHasFinished;
+    }
+
+private:
+    StemProvider& provider;
+    juce::File sourceFile;
+    Callback callback;
+};
+
+StemProvider::StemProvider()
+{
+    setCacheRoot (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                    .getChildFile ("Sattari")
+                    .getChildFile ("StemDeck")
+                    .getChildFile ("StemCache"));
+    separatorCommand = juce::SystemStats::getEnvironmentVariable ("SATTARI_STEMDECK_SEPARATOR_CMD", {});
+    if (separatorCommand.trim().isEmpty())
+    {
+        auto configFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                            .getChildFile ("Sattari")
+                            .getChildFile ("StemDeck")
+                            .getChildFile ("StemProvider")
+                            .getChildFile ("separator-command.txt");
+        if (configFile.existsAsFile())
+            separatorCommand = configFile.loadFileAsString().trim();
+    }
+
+    // Auto-detect demucs if still not configured. An optional model override
+    // (e.g. "htdemucs_ft" — the fine-tuned, higher-quality model) is read from
+    // StemProvider/separator-model.txt and passed via demucs' -n flag.
+    if (separatorCommand.trim().isEmpty())
+    {
+        juce::String modelArgs;
+        {
+            auto modelFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                               .getChildFile ("Sattari").getChildFile ("StemDeck")
+                               .getChildFile ("StemProvider").getChildFile ("separator-model.txt");
+            if (modelFile.existsAsFile())
+            {
+                const auto model = modelFile.loadFileAsString().trim();
+                if (model.isNotEmpty() && ! model.containsAnyOf (" \t\r\n\"'"))
+                    modelArgs = " -n " + model;
+            }
+        }
+
+        const juce::StringArray candidatePaths {
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.9/bin/demucs",
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.10/bin/demucs",
+            "/Users/" + juce::SystemStats::getLogonName() + "/Library/Python/3.11/bin/demucs",
+            "/usr/local/bin/demucs",
+            "/opt/homebrew/bin/demucs",
+            "/opt/homebrew/opt/demucs/bin/demucs",
+        };
+        for (const auto& path : candidatePaths)
+        {
+            if (juce::File (path).existsAsFile())
+            {
+                separatorCommand = path + modelArgs + " --out {output} {input}";
+                break;
+            }
+        }
+        // Also try `which demucs` via PATH
+        if (separatorCommand.trim().isEmpty())
+        {
+            juce::ChildProcess which;
+            if (which.start ({ "which", "demucs" }))
+            {
+                const auto path = which.readAllProcessOutput().trim().upToFirstOccurrenceOf ("\n", false, false).trim();
+                if (path.isNotEmpty() && juce::File (path).existsAsFile())
+                    separatorCommand = path + modelArgs + " --out {output} {input}";
+            }
+        }
+    }
+
+    // On-device neural model (ONNX/CoreML), if the build has ONNX support and a
+    // model file is present. When loaded, it is preferred over the demucs CLI.
+    if (NeuralStemEngine::isCompiledIn())
+    {
+        const auto modelFile = NeuralStemEngine::defaultModelFile();
+        if (modelFile.existsAsFile())
+        {
+            juce::String msg;
+            neuralEngine.loadModel (modelFile, msg);
+        }
+    }
+}
+
+StemProvider::~StemProvider()
+{
+    pool.removeAllJobs (true, 3000);
+}
+
+bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message)
+{
+    if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (sourceFile));
+    if (reader == nullptr) { message = "could not read source for neural separation"; return false; }
+
+    const int len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, (juce::int64) (reader->sampleRate * 600.0));
+    juce::AudioBuffer<float> input (2, juce::jmax (1, len));
+    reader->read (&input, 0, len, 0, true, true);
+    const double sr = reader->sampleRate;
+
+    juce::AudioBuffer<float> d, b, m, v;
+    if (! neuralEngine.separate (input, sr, d, b, m, v, nullptr, message))
+        return false;
+
+    cacheDirectory.createDirectory();
+    auto writeWav = [&] (const juce::AudioBuffer<float>& buf, const juce::String& name) -> bool
+    {
+        auto outFile = cacheDirectory.getChildFile (name);
+        outFile.deleteFile();
+        std::unique_ptr<juce::FileOutputStream> os (outFile.createOutputStream());
+        if (os == nullptr) return false;
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (os.get(), sr, 2, 24, {}, 0));
+        if (writer == nullptr) return false;
+        os.release();   // writer takes ownership of the stream
+        return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+    };
+
+    const bool ok = writeWav (d, "drums.wav") && writeWav (b, "bass.wav")
+                 && writeWav (m, "music.wav") && writeWav (v, "vocals.wav");
+    message = ok ? "on-device neural separation complete" : "neural stem write failed";
+    return ok;
+}
+
+void StemProvider::setCacheRoot (const juce::File& root)
+{
+    cacheRoot = root;
+    if (! cacheRoot.exists())
+        cacheRoot.createDirectory();
+}
+
+juce::File StemProvider::getCacheRoot() const
+{
+    return cacheRoot;
+}
+
+void StemProvider::setSeparatorCommand (juce::String command)
+{
+    separatorCommand = std::move (command);
+}
+
+juce::String StemProvider::getSeparatorCommand() const
+{
+    return separatorCommand;
+}
+
+juce::String StemProvider::hashForFile (const juce::File& sourceFile)
+{
+    juce::String key = sourceFile.getFullPathName() + ":" + juce::String (sourceFile.getSize())
+                     + ":" + juce::String (sourceFile.getLastModificationTime().toMilliseconds());
+    return juce::String::toHexString ((int64) key.hashCode64());
+}
+
+juce::File StemProvider::getCacheDirectoryForSource (const juce::File& sourceFile) const
+{
+    return cacheRoot.getChildFile (hashForFile (sourceFile));
+}
+
+juce::String StemProvider::laneCacheName (int lane)
+{
+    return DeckPlayer::stemLaneId (lane).toLowerCase() + ".wav";
+}
+
+bool StemProvider::isCoreStemLane (int lane) noexcept
+{
+    return lane == DeckPlayer::drumsStem || lane == DeckPlayer::bassStem
+        || lane == DeckPlayer::musicStem || lane == DeckPlayer::vocalsStem;
+}
+
+void StemProvider::requestStemsAsync (const juce::File& sourceFile, Callback callback)
+{
+    if (! sourceFile.existsAsFile())
+        return;
+
+    // Dedupe: if a job for this exact source is already queued or running, drop the
+    // duplicate. Two jobs share the same cache + "-separating" temp dir and would
+    // race on deleteRecursively/moveFileTo. A completed job clears both flags, so
+    // re-requests after completion still work.
+    {
+        const juce::ScopedLock lock (statusLock);
+        auto it = statusByHash.find (hashForFile (sourceFile));
+        if (it != statusByHash.end() && (it->second.jobQueued || it->second.jobRunning))
+            return;
+    }
+
+    const auto result = inspectCache (sourceFile);
+    updateStatus (sourceFile, statusFromResult (result, true, false, getSeparatorCommand().trim().isNotEmpty(),
+                                                result.allCoreStemsReady ? "Premium stems already cached." : "Queued premium AI stem split."));
+    pool.addJob (new StemJob (*this, sourceFile, std::move (callback)), true);
+}
+
+StemProvider::Result StemProvider::inspectCache (const juce::File& sourceFile) const
+{
+    Result result;
+    result.sourceFile = sourceFile;
+    result.cacheDirectory = getCacheDirectoryForSource (sourceFile);
+    result.cacheDirectory.createDirectory();
+
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+    {
+        auto& stem = result.stems[(size_t) lane];
+        stem.lane = lane;
+        stem.file = lane == DeckPlayer::fullMixStem ? sourceFile : result.cacheDirectory.getChildFile (laneCacheName (lane));
+        stem.ready = stem.file.existsAsFile();
+        stem.status = stem.ready ? "ready" : (isCoreStemLane (lane) ? "missing_cached_offline_stem" : "source_full_mix");
+    }
+
+    result.allCoreStemsReady = true;
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        if (isCoreStemLane (lane))
+            result.allCoreStemsReady = result.allCoreStemsReady && result.stems[(size_t) lane].ready;
+
+    result.message = result.allCoreStemsReady
+        ? "Cached offline stems ready."
+        : "Offline stem cache inspected; separation backend not run yet, so only existing cached WAVs will be loaded.";
+    return result;
+}
+
+int StemProvider::readyCoreStemCount (const Result& result) noexcept
+{
+    int ready = 0;
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        if (isCoreStemLane (lane) && result.stems[(size_t) lane].ready)
+            ++ready;
+    return ready;
+}
+
+StemProvider::Status StemProvider::statusFromResult (const Result& result,
+                                                     bool queued,
+                                                     bool running,
+                                                     bool backendConfigured,
+                                                     const juce::String& detailOverride)
+{
+    Status status;
+    status.sourceFile = result.sourceFile;
+    status.cacheDirectory = result.cacheDirectory;
+    status.readyCoreStems = readyCoreStemCount (result);
+    status.allCoreStemsReady = result.allCoreStemsReady;
+    status.jobQueued = queued;
+    status.jobRunning = running;
+    status.backendConfigured = backendConfigured;
+
+    if (status.allCoreStemsReady)
+        status.headline = u8 ("AI stems ready \xe2\x80\x94 vocals, drums, bass, music");
+    else if (running)
+        status.headline = backendConfigured ? u8 ("Splitting AI stems offline\xe2\x80\xa6") : juce::String ("Waiting for AI stem backend");
+    else if (queued)
+        status.headline = "AI stem split queued";
+    else if (status.readyCoreStems > 0)
+        status.headline = "Partial AI stem cache: " + juce::String (status.readyCoreStems) + "/" + juce::String (status.totalCoreStems);
+    else
+        status.headline = backendConfigured ? "AI stems not cached yet" : "AI stem backend not configured";
+
+    status.detail = detailOverride.isNotEmpty() ? detailOverride : result.message;
+    return status;
+}
+
+StemProvider::Status StemProvider::getStatusForSource (const juce::File& sourceFile) const
+{
+    if (! sourceFile.existsAsFile())
+    {
+        Status status;
+        status.backendConfigured = getSeparatorCommand().trim().isNotEmpty();
+        status.headline = "Load a full mix to enable AI stems";
+        status.detail = status.backendConfigured ? "Offline separator configured." : "No offline separator configured.";
+        return status;
+    }
+
+    const auto key = hashForFile (sourceFile);
+    {
+        const juce::ScopedLock lock (statusLock);
+        auto found = statusByHash.find (key);
+        if (found != statusByHash.end())
+            return found->second;
+    }
+
+    return statusFromResult (inspectCache (sourceFile), false, false, getSeparatorCommand().trim().isNotEmpty());
+}
+
+juce::var StemProvider::statusToManifest (const Status& status)
+{
+    return objectWith ({
+        { "headline", status.headline },
+        { "detail", status.detail },
+        { "readyCoreStems", status.readyCoreStems },
+        { "totalCoreStems", status.totalCoreStems },
+        { "allCoreStemsReady", status.allCoreStemsReady },
+        { "jobQueued", status.jobQueued },
+        { "jobRunning", status.jobRunning },
+        { "backendConfigured", status.backendConfigured }
+    });
+}
+
+void StemProvider::updateStatus (const juce::File& sourceFile, const Status& status)
+{
+    const juce::ScopedLock lock (statusLock);
+    statusByHash[hashForFile (sourceFile)] = status;
+}
+
+juce::var StemProvider::resultToManifest (const Result& result)
+{
+    juce::Array<juce::var> stemVars;
+    for (const auto& stem : result.stems)
+    {
+        stemVars.add (objectWith ({
+            { "lane", stem.lane },
+            { "id", DeckPlayer::stemLaneId (stem.lane) },
+            { "label", DeckPlayer::stemLaneLabel (stem.lane) },
+            { "path", stem.file.getFullPathName() },
+            { "ready", stem.ready },
+            { "status", stem.status }
+        }));
+    }
+
+    return objectWith ({
+        { "schema", "SattariStemDeck.stemCache.v1" },
+        { "source", result.sourceFile.getFullPathName() },
+        { "cacheDirectory", result.cacheDirectory.getFullPathName() },
+        { "allCoreStemsReady", result.allCoreStemsReady },
+        { "message", result.message },
+        { "premiumStatus", statusToManifest (statusFromResult (result, false, false, result.allCoreStemsReady)) },
+        { "stems", stemVars }
+    });
+}
+
+void StemProvider::writeManifest (const Result& result) const
+{
+    auto manifest = result.cacheDirectory.getChildFile ("manifest.json");
+    manifest.replaceWithText (juce::JSON::toString (resultToManifest (result), true), false, false, "\n");
+}
+
+bool StemProvider::runSeparatorCommand (const juce::String& command,
+                                        const juce::File& sourceFile,
+                                        const juce::File& cacheDirectory,
+                                        juce::String& message)
+{
+    if (command.trim().isEmpty())
+    {
+        message = "No offline separator command configured. Set SATTARI_STEMDECK_SEPARATOR_CMD.";
+        return false;
+    }
+
+    auto tempDirectory = cacheDirectory.getSiblingFile (cacheDirectory.getFileName() + "-separating");
+    if (tempDirectory.exists())
+        tempDirectory.deleteRecursively();
+    tempDirectory.createDirectory();
+
+    auto expanded = command;
+    expanded = expanded.replace ("{input}", sourceFile.getFullPathName().quoted());
+    expanded = expanded.replace ("{output}", tempDirectory.getFullPathName().quoted());
+    expanded = expanded.replace ("{cache}", cacheDirectory.getFullPathName().quoted());
+
+    auto arguments = juce::StringArray::fromTokens (expanded, " \n\r\t", "\"'");
+    for (auto& arg : arguments)
+    {
+        arg = arg.trim().unquoted();
+        if (arg.startsWithChar ('\'') && arg.endsWithChar ('\'') && arg.length() >= 2)
+            arg = arg.substring (1, arg.length() - 1);
+    }
+
+    if (! arguments.contains (sourceFile.getFullPathName()))
+    {
+        arguments.add ("--input");
+        arguments.add (sourceFile.getFullPathName());
+    }
+
+    if (! arguments.contains (tempDirectory.getFullPathName()))
+    {
+        arguments.add ("--output-dir");
+        arguments.add (tempDirectory.getFullPathName());
+    }
+
+    juce::ChildProcess process;
+    if (arguments.isEmpty() || ! process.start (arguments))
+    {
+        message = "Could not start offline separator command.";
+        tempDirectory.deleteRecursively();
+        return false;
+    }
+
+    juce::String output;
+    const uint32 startMs = juce::Time::getMillisecondCounter();
+    constexpr uint32 timeoutMs = 45u * 60u * 1000u;
+    while (process.isRunning())
+    {
+        output += process.readAllProcessOutput();
+        if (juce::Time::getMillisecondCounter() - startMs > timeoutMs)
+        {
+            process.kill();
+            message = "Offline separator timed out.";
+            tempDirectory.deleteRecursively();
+            return false;
+        }
+        juce::Thread::sleep (100);
+    }
+    output += process.readAllProcessOutput();
+
+    const auto exitCode = process.getExitCode();
+    if (exitCode != 0)
+    {
+        message = "Offline separator failed with exit " + juce::String ((int64) exitCode) + ": " + output.trim().substring (0, 240);
+        tempDirectory.deleteRecursively();
+        return false;
+    }
+
+    const std::array<juce::String, 4> expected { "drums.wav", "bass.wav", "music.wav", "vocals.wav" };
+
+    // Demucs writes to a subdirectory: {output}/{model}/{trackname}/stem.wav
+    // Flatten any such subdirectory structure up to tempDirectory root.
+    {
+        juce::Array<juce::File> topDirs;
+        tempDirectory.findChildFiles (topDirs, juce::File::findDirectories, false);
+        for (auto& modelDir : topDirs)
+        {
+            juce::Array<juce::File> trackDirs;
+            modelDir.findChildFiles (trackDirs, juce::File::findDirectories, false);
+            // Also handle the case where stems are directly inside modelDir (not nested)
+            if (trackDirs.isEmpty())
+                trackDirs.add (modelDir);
+            for (auto& trackDir : trackDirs)
+            {
+                for (const auto& name : expected)
+                {
+                    auto src = trackDir.getChildFile (name);
+                    if (src.existsAsFile() && ! tempDirectory.getChildFile (name).existsAsFile())
+                        src.copyFileTo (tempDirectory.getChildFile (name));
+                }
+                // demucs 4-stem model uses "other.wav" instead of "music.wav"
+                auto other = trackDir.getChildFile ("other.wav");
+                if (other.existsAsFile() && ! tempDirectory.getChildFile ("music.wav").existsAsFile())
+                    other.copyFileTo (tempDirectory.getChildFile ("music.wav"));
+            }
+        }
+    }
+
+    // Also handle other.wav at root level
+    if (! tempDirectory.getChildFile ("music.wav").existsAsFile()
+        && tempDirectory.getChildFile ("other.wav").existsAsFile())
+        tempDirectory.getChildFile ("other.wav").copyFileTo (tempDirectory.getChildFile ("music.wav"));
+
+    bool allReady = true;
+    for (const auto& name : expected)
+        allReady = allReady && tempDirectory.getChildFile (name).existsAsFile();
+
+    if (! allReady)
+    {
+        message = "Offline separator finished but did not produce drums/bass/music/vocals WAVs.";
+        tempDirectory.deleteRecursively();
+        return false;
+    }
+
+    cacheDirectory.createDirectory();
+    for (const auto& name : expected)
+    {
+        auto finalFile = cacheDirectory.getChildFile (name);
+        finalFile.deleteFile();
+        tempDirectory.getChildFile (name).moveFileTo (finalFile);
+    }
+
+    tempDirectory.deleteRecursively();
+    message = "Offline separator generated cached stems.";
+    return true;
+}

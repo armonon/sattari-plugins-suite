@@ -33,6 +33,10 @@
       "uiRender": true
     },
     {
+      "plugin": "rhythm-genie",
+      "test": "RhythmGenieTimingContract"
+    },
+    {
       "plugin": "sattari-arp",
       "test": "SattariArpTimingContract",
       "uiRender": true

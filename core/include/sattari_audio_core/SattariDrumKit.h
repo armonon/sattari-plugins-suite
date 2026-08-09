@@ -82,6 +82,7 @@ public:
             case DrumType::Tom:       ampTau_ = 0.05f  + 0.22f * d; pitchTau_ = 0.06f;  break;
             case DrumType::Rim:       ampTau_ = 0.006f + 0.015f * d; pitchTau_ = 0.005f; break;
             case DrumType::Ride:      ampTau_ = 0.12f  + 0.40f * d; pitchTau_ = 0.01f;  break;
+            case DrumType::kCount:    ampTau_ = 0.1f; pitchTau_ = 0.02f; break;
             default: ampTau_ = 0.1f; pitchTau_ = 0.02f; break;
         }
         ampCoeff_   = std::exp (-1.0f / (float) (sr_ * ampTau_));
@@ -108,6 +109,7 @@ public:
                 case DrumType::Ride:                     s = renderMetal();     break;
                 case DrumType::Clap:                     s = renderClap();      break;
                 case DrumType::Rim:                      s = renderRim();       break;
+                case DrumType::kCount:                                           break;
                 default: break;
             }
 

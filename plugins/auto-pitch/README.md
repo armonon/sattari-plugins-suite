@@ -96,8 +96,8 @@ cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRe
 
 This is ready for structured internal testing, not a sale-ready release. It now
 has the core workflows expected of a modern automatic tuner, but equivalence to
-Auto-Tune Pro is not claimed: ARA-style offline capture, AAX/Pro Tools delivery,
-advanced curve/line tools, note split/join, MusicXML/score integration, and a
+Auto-Tune Pro is not claimed: qualified ARA host delivery, AAX/Pro Tools delivery,
+advanced curve/line tools, MusicXML/score integration, multi-track editing, and a
 licensed proprietary-quality neural corpus remain external or future work. The
 release gates are real-vocal listening across voice types, dense polyphonic
 stress material, multi-instance/automation sessions in target DAWs, signed and

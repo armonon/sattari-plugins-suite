@@ -94,6 +94,10 @@ public:
                 row->slider->setRange (range.start, range.end, range.interval);
                 if (range.skew != 1.0f)
                     row->slider->setSkewFactor (range.skew, range.symmetricSkew);
+                const int decimals = range.interval >= 1.0f ? 0
+                                   : range.interval >= 0.1f ? 1
+                                   : range.interval >= 0.01f ? 2 : 3;
+                row->slider->setNumDecimalPlacesToDisplay (decimals);
                 row->slider->setTextValueSuffix (
                     parameter->getLabel().isNotEmpty()
                         ? " " + parameter->getLabel() : juce::String());

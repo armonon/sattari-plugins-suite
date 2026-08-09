@@ -7,8 +7,9 @@
 //  Sattari Vocal — the vocal-finishing rack.
 // -----------------------------------------------------------------------------
 //  "Finish the vocal": 8 reorderable slots holding the suite's vocal utilities —
-//  de-essing, doubling, formant/gender shaping — so a vocal chain is assembled
-//  rather than fixed.
+//  cleanup, gating, de-essing, EQ, compression, saturation, doubling, formant
+//  shaping and ambience — so a complete finishing chain is assembled rather
+//  than fixed.
 //
 //  All the rack machinery lives in sattari::rack::SattariRackProcessor — Mix,
 //  Create and Vocal are the same machine with different rosters. This file is
@@ -27,8 +28,8 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    // Face carries Rubber Band latency and Double a delay line, so leave a tail.
-    double getTailLengthSeconds() const override { return 0.5; }
+    // Space carries a reverb/delay tail; Double and Face also retain short state.
+    double getTailLengthSeconds() const override { return 5.0; }
 
 private:
     void registerFactoryPresets();

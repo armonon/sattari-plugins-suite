@@ -85,6 +85,15 @@ jobs:
             core/tests/groove_contract.cpp -o /tmp/groove_contract
           /tmp/groove_contract
           g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/step_clock_contract.cpp -o /tmp/step_clock_contract
+          /tmp/step_clock_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/arrangement_contract.cpp -o /tmp/arrangement_contract
+          /tmp/arrangement_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/note_engine_contract.cpp -o /tmp/note_engine_contract
+          /tmp/note_engine_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/slice_table_contract.cpp -o /tmp/slice_table_contract
           /tmp/slice_table_contract
           g++ -std=c++17 -Icore/include -Wall -Wextra \
@@ -123,9 +132,11 @@ jobs:
   build:
     name: Build ${{ matrix.plugin }}
     needs: catalog
-    runs-on: [self-hosted, macOS]
+    runs-on: macos-14
+    timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +233,8 @@ jobs:
   # ---------------------------------------------------------------------------
   suite-build:
     name: Build complete non-StemDeck suite
-    runs-on: [self-hosted, macOS]
+    runs-on: macos-14
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:

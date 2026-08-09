@@ -10,6 +10,7 @@
 //   4. Stale entries (older than maxAge) are ignored.
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <cstdio>
+#include <cstdlib>
 #include <chrono>
 #include <thread>
 
@@ -17,6 +18,15 @@ using namespace sattari::xplugin;
 
 int main()
 {
+    // Never contend with a real DAW session (or another test process) while
+    // exercising publisher leases and stale-state behavior.
+    const auto contractSession = "contract-" + juce::String (currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", contractSession.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", contractSession.toRawUTF8(), 1);
+   #endif
+
     int fails = 0;
     auto check = [&fails] (bool ok, const char* what)
     {
@@ -135,7 +145,7 @@ int main()
         check (ts.valid && std::abs (ts.bpm - 140.0) < 1e-6 && ts.transientId == 9, "TempoReader snapshot wrong");
     }
 
-    // 8) SessionState v2: publishSessionState round-trips the full Brain context
+    // 8) SessionState v2+: publishSessionState round-trips the full Brain context
     //    (chord/timeSig/swing/section/energy/maqam/reference), AND a plain v1
     //    publishSession leaves the v2 fields at safe defaults (backward compat).
     {
@@ -168,6 +178,45 @@ int main()
             check (std::abs (d->referenceHz - 440.0) < 1e-6, "v1 default reference wrong");
         }
     }
+
+    // 9) Schema v3 project namespaces isolate concurrently-open DAW sessions.
+    //    The unscoped legacy path remains available when no id is supplied.
+    {
+        const auto unique = juce::String (currentTimeMs());
+        const auto sessionA = "contract-a-" + unique;
+        const auto sessionB = "contract-b-" + unique;
+
+        check (publishSession ("brain", 1, 0, 101.0, 11, sessionA),
+               "session A publish failed");
+        check (publishSession ("brain", 10, 1, 139.0, 22, sessionB),
+               "session B publish failed");
+
+        const auto a = readSession (30, sessionA);
+        const auto b = readSession (30, sessionB);
+        check (a && a->root == 1 && std::abs (a->bpm - 101.0) < 1e-6,
+               "session A leaked or was not readable");
+        check (b && b->root == 10 && std::abs (b->bpm - 139.0) < 1e-6,
+               "session B leaked or was not readable");
+        check (a && a->schemaVersion == 3 && a->sessionId == sessionA,
+               "session A v3 namespace metadata missing");
+        check (keyBusFile (sessionA) != keyBusFile (sessionB),
+               "namespaced key files must differ");
+
+        publishTempo ("rhythm-genie", 101.0, 1, sessionA);
+        publishTempo ("rhythm-genie", 139.0, 2, sessionB);
+        const auto tempoA = readTempo (10, sessionA);
+        const auto tempoB = readTempo (10, sessionB);
+        check (tempoA && tempoB && tempoA->transientId == 1 && tempoB->transientId == 2,
+               "tempo namespaces leaked across sessions");
+
+        keyBusFile (sessionA).deleteFile();
+        keyBusFile (sessionB).deleteFile();
+        tempoBusFile (sessionA).deleteFile();
+        tempoBusFile (sessionB).deleteFile();
+    }
+
+    keyBusFile().deleteFile();
+    tempoBusFile().deleteFile();
 
     if (fails != 0) { std::fprintf (stderr, "Cross-plugin bus contract FAILED (%d)\n", fails); return 1; }
     std::printf ("Cross-plugin session bus contract ok\n");

@@ -1,4 +1,4 @@
-# Auto Pitch 0.3 parity record
+# Auto Pitch 0.4.1 parity record
 
 Comparison target: Auto-Tune Pro 11's published product surface and manual
 (checked 2026-08-05):
@@ -8,7 +8,7 @@ Comparison target: Auto-Tune Pro 11's published product surface and manual
 
 This record is an engineering scope map, not a sound-quality or trademark claim.
 
-| Workflow | Sattari Auto Pitch 0.3 | Status |
+| Workflow | Sattari Auto Pitch 0.4.1 | Status |
 |---|---|---|
 | Realtime automatic tuning | YIN/optional CREPE, Natural through Hard/Robot styles, Flex, Humanize, transition, throat, formant and vibrato controls | Implemented |
 | Low-latency tracking | Studio Rubber Band, Live PSOLA and Low-Latency PSOLA with measured/reported latency contract | Implemented |
@@ -54,7 +54,7 @@ cmake -S plugins/auto-pitch -B build-auto-pitch-aax \
 
 ## Release boundary
 
-Version 0.3 is an internal test candidate. A commercial parity statement needs
+Version 0.4.1 is an internal test candidate. A commercial parity statement needs
 real-vocal blind listening against the chosen references, DAW automation/state
 round-trips, multi-instance stress, signed/notarized installers, licensed model
 distribution, ARA/AAX host certification, and the remaining freehand Graph tools above.

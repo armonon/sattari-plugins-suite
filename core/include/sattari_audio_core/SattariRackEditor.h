@@ -178,9 +178,9 @@ public:
         command.removeFromLeft (8);
         userPresets.setBounds (command.removeFromLeft (170));
         command.removeFromLeft (8);
-        savePresetButton.setBounds (command.removeFromLeft (70));
+        savePresetButton.setBounds (command.removeFromLeft (96));
         command.removeFromLeft (8);
-        abRow.setBounds (command.removeFromLeft (94));
+        abRow.setBounds (command.removeFromLeft (124));
 
         area.removeFromTop ((int) studio::metric::gap);
         chainArea = area.removeFromLeft (
@@ -351,7 +351,7 @@ private:
     juce::Viewport inspectorViewport;
 
     juce::ComboBox factoryPreset, userPresets;
-    juce::TextButton savePresetButton { "Save" };
+    juce::TextButton savePresetButton { "Save preset" };
     juce::Label duplicateNotice;
     struct SlotRow
     {

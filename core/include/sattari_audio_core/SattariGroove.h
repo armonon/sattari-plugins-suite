@@ -78,6 +78,7 @@ inline void generate (BeatGrid& g, GrooveStyle style, float density, std::uint32
         case GrooveStyle::Trap:      kickP = 2 + (int) (3 * d); hatP = 12; openEvery = 0; break;
         case GrooveStyle::Breakbeat: kickP = 3 + (int) (2 * d); hatP = 8;  openEvery = 8; break;
         case GrooveStyle::HalfTime:  kickP = 1 + (int) (2 * d); hatP = 8;  openEvery = 0; break;
+        case GrooveStyle::kCount:                                              break;
         default: break;
     }
     hatP = (int) (hatP * (0.4f + 0.6f * d));            // density thins/fills the hats

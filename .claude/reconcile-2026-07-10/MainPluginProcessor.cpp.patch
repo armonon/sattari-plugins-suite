@@ -1,0 +1,219 @@
+diff --git a/plugins/stemdeck/src/MainPluginProcessor.cpp b/plugins/stemdeck/src/MainPluginProcessor.cpp
+index fc6a2cc..5f9c5a7 100644
+--- a/plugins/stemdeck/src/MainPluginProcessor.cpp
++++ b/plugins/stemdeck/src/MainPluginProcessor.cpp
+@@ -51,6 +51,45 @@ juce::String deckNameFor (int deckIndex)
+ {
+     return "Deck " + juce::String::charToString ((juce_wchar) ('A' + juce::jlimit (0, MainPluginProcessor::numDecks - 1, deckIndex)));
+ }
++
++struct DeckParamIds
++{
++    const char* play;
++    const char* bpm;
++    const char* tempoInterpretation;
++    const char* syncMode;
++    const char* volume;
++    const char* fader;
++    const char* pitch;
++    const char* beatOffset;
++    const char* downbeat;
++    const char* keyLock;
++    const char* liveKey;
++    const char* keyTarget;
++    const char* low;
++    const char* mid;
++    const char* high;
++    const char* filter;
++    const char* stemGain[DeckPlayer::numStemLanes];
++};
++
++constexpr DeckParamIds kDeckParamIds[MainPluginProcessor::numDecks] =
++{
++    { "deckAPlay", "deckABpm", "deckATempoInterpretation", "deckASyncMode", "deckAVolume", "deckAFader", "deckAPitch", "deckABeatOffset", "deckADownbeat", "deckAKeyLock", "deckALiveKey", "deckAKeyTarget", "deckALow", "deckAMid", "deckAHigh", "deckAFilter",
++      { "deckAStemFullGain", "deckAStemDrumsGain", "deckAStemBassGain", "deckAStemMusicGain", "deckAStemVocalsGain" } },
++    { "deckBPlay", "deckBBpm", "deckBTempoInterpretation", "deckBSyncMode", "deckBVolume", "deckBFader", "deckBPitch", "deckBBeatOffset", "deckBDownbeat", "deckBKeyLock", "deckBLiveKey", "deckBKeyTarget", "deckBLow", "deckBMid", "deckBHigh", "deckBFilter",
++      { "deckBStemFullGain", "deckBStemDrumsGain", "deckBStemBassGain", "deckBStemMusicGain", "deckBStemVocalsGain" } },
++    { "deckCPlay", "deckCBpm", "deckCTempoInterpretation", "deckCSyncMode", "deckCVolume", "deckCFader", "deckCPitch", "deckCBeatOffset", "deckCDownbeat", "deckCKeyLock", "deckCLiveKey", "deckCKeyTarget", "deckCLow", "deckCMid", "deckCHigh", "deckCFilter",
++      { "deckCStemFullGain", "deckCStemDrumsGain", "deckCStemBassGain", "deckCStemMusicGain", "deckCStemVocalsGain" } },
++    { "deckDPlay", "deckDBpm", "deckDTempoInterpretation", "deckDSyncMode", "deckDVolume", "deckDFader", "deckDPitch", "deckDBeatOffset", "deckDDownbeat", "deckDKeyLock", "deckDLiveKey", "deckDKeyTarget", "deckDLow", "deckDMid", "deckDHigh", "deckDFilter",
++      { "deckDStemFullGain", "deckDStemDrumsGain", "deckDStemBassGain", "deckDStemMusicGain", "deckDStemVocalsGain" } }
++};
++
++constexpr const char* kPadGainIds[PadBank::numPads] =
++{
++    "pad1Gain", "pad2Gain", "pad3Gain", "pad4Gain",
++    "pad5Gain", "pad6Gain", "pad7Gain", "pad8Gain"
++};
+ }
+ 
+ MainPluginProcessor::MainPluginProcessor()
+@@ -187,6 +226,13 @@ float MainPluginProcessor::getFloatParam (const juce::String& id) const
+     return 0.0f;
+ }
+ 
++float MainPluginProcessor::getFloatParam (const char* id) const
++{
++    if (auto* value = apvts.getRawParameterValue (id))
++        return value->load();
++    return 0.0f;
++}
++
+ bool MainPluginProcessor::getBoolParam (const juce::String& id) const
+ {
+     if (auto* value = apvts.getRawParameterValue (id))
+@@ -194,6 +240,13 @@ bool MainPluginProcessor::getBoolParam (const juce::String& id) const
+     return false;
+ }
+ 
++bool MainPluginProcessor::getBoolParam (const char* id) const
++{
++    if (auto* value = apvts.getRawParameterValue (id))
++        return value->load() > 0.5f;
++    return false;
++}
++
+ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+ {
+     juce::ignoreUnused (midi);
+@@ -209,7 +262,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
+     const float masterBpm = juce::jlimit (40.0f, 240.0f, getFloatParam ("masterBpm"));
+     bool anyDeckPlaying = false;
+     for (int i = 0; i < numDecks; ++i)
+-        anyDeckPlaying = anyDeckPlaying || getBoolParam (deckPrefix (i) + "Play");
++        anyDeckPlaying = anyDeckPlaying || getBoolParam (kDeckParamIds[(size_t) i].play);
+     if (! syncSnapshot.hostPlaying)
+     {
+         syncSnapshot.bpm = masterBpm;
+@@ -225,22 +278,22 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
+ 
+     for (int i = 0; i < numDecks; ++i)
+     {
+-        const auto deck = deckPrefix (i);
++        const auto& deckIds = kDeckParamIds[(size_t) i];
+         const float deckMixGain = (i % 2 == 0) ? leftBusGain : rightBusGain;
+         const auto deckAudio = decks[(size_t) i].getLoadedAudio();
+         const auto analysisForGrid = getDeckAnalysis (i);
+         const auto beatGrid = BeatSyncEngine::makeGrid (analysisForGrid,
+-                                                        getFloatParam (deck + "Bpm"),
+-                                                        getFloatParam (deck + "BeatOffset"),
+-                                                        getFloatParam (deck + "Downbeat"),
+-                                                        BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
+-                                                        BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
++                                                        getFloatParam (deckIds.bpm),
++                                                        getFloatParam (deckIds.beatOffset),
++                                                        getFloatParam (deckIds.downbeat),
++                                                        BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deckIds.tempoInterpretation))),
++                                                        BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deckIds.syncMode))));
+         const bool hostTempoSync = getBoolParam ("hostSync") && syncSnapshot.bpm > 1.0;
+ 
+-        auto analysis = getBoolParam (deck + "LiveKey") ? getDeckLiveAnalysisFromAtomics (i) : getDeckAnalysis (i);
++        auto analysis = getBoolParam (deckIds.liveKey) ? getDeckLiveAnalysisFromAtomics (i) : getDeckAnalysis (i);
+         if (! analysis.hasKey())
+             analysis = getDeckAnalysis (i);
+-        const int targetKey = keyTargetChoiceToPitchClass ((int) std::round (getFloatParam (deck + "KeyTarget")));
++        const int targetKey = keyTargetChoiceToPitchClass ((int) std::round (getFloatParam (deckIds.keyTarget)));
+         const float matchShift = analysis.hasKey() && targetKey >= 0
+                                ? (float) TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey)
+                                : 0.0f;
+@@ -248,21 +301,21 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
+                                                    beatGrid,
+                                                    deckAudio ? deckAudio->sourceSampleRate : currentSampleRate,
+                                                    deckAudio ? (double) deckAudio->audio.getNumSamples() : 0.0,
+-                                                   getFloatParam (deck + "Pitch") + matchShift,
+-                                                   getBoolParam (deck + "KeyLock"),
++                                                   getFloatParam (deckIds.pitch) + matchShift,
++                                                   getBoolParam (deckIds.keyLock),
+                                                    hostTempoSync && getBoolParam ("beatSync"));
+ 
+         std::array<float, DeckPlayer::numStemLanes> stemGains {};
+         for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+-            stemGains[(size_t) lane] = getFloatParam (deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain");
++            stemGains[(size_t) lane] = getFloatParam (deckIds.stemGain[(size_t) lane]);
+ 
+         auto& deckBuffer = deckScratchBuffers[(size_t) i];
+         deckBuffer.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
+         deckBuffer.clear();
+-        decks[(size_t) i].process (deckBuffer, 0, buffer.getNumSamples(), getBoolParam (deck + "Play"), getFloatParam (deck + "Volume"),
+-                                   getFloatParam (deck + "Fader"),
+-                                   getFloatParam (deck + "Low"), getFloatParam (deck + "Mid"), getFloatParam (deck + "High"),
+-                                   getFloatParam (deck + "Filter"), deckMixGain, warpPlan.timePitch, stemGains,
++        decks[(size_t) i].process (deckBuffer, 0, buffer.getNumSamples(), getBoolParam (deckIds.play), getFloatParam (deckIds.volume),
++                                   getFloatParam (deckIds.fader),
++                                   getFloatParam (deckIds.low), getFloatParam (deckIds.mid), getFloatParam (deckIds.high),
++                                   getFloatParam (deckIds.filter), deckMixGain, warpPlan.timePitch, stemGains,
+                                    warpPlan.beatSync);
+         hostGraph.processChain ((HostGraph::Chain) i, deckBuffer, midi);
+         deckRecorders[(size_t) i].captureBlock (deckBuffer);
+@@ -285,7 +338,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
+ 
+     std::array<float, PadBank::numPads> padGains {};
+     for (int i = 0; i < PadBank::numPads; ++i)
+-        padGains[(size_t) i] = getFloatParam ("pad" + juce::String (i + 1) + "Gain");
++        padGains[(size_t) i] = getFloatParam (kPadGainIds[(size_t) i]);
+     padBank.process (buffer, 0, buffer.getNumSamples(), padGains);
+ 
+     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
+@@ -645,17 +698,17 @@ juce::String MainPluginProcessor::getDeckKeyInfo (int deckIndex) const
+     if (analysis.hasKey() && targetKey >= 0)
+     {
+         const int matchShift = TrackAnalyzer::nearestSemitoneDelta (analysis.keyPitchClass, targetKey);
+-        text += " → " + TrackAnalyzer::pitchClassName (targetKey) + " (" + (matchShift >= 0 ? "+" : "") + juce::String (matchShift) + " st)";
++        text += " -> " + TrackAnalyzer::pitchClassName (targetKey) + " (" + (matchShift >= 0 ? "+" : "") + juce::String (matchShift) + " st)";
+     }
+ 
+     if (std::abs (manualShift) > 0.01f)
+         text += " + manual " + juce::String (manualShift, 1) + " st";
+ 
+     if (getBoolParam (deck + "KeyLock"))
+-        text += " • preserve requested";
++        text += " | preserve requested";
+ 
+     if (liveKeyEnabled && ! liveAnalysis.hasKey())
+-        text += " • live listening…";
++        text += " | live listening...";
+ 
+     return text;
+ }
+@@ -710,11 +763,11 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
+ 
+     juce::String text = plan.statusLabel;
+     if (analysis.detectedBpm > 1.0f)
+-        text += " • detected " + juce::String (analysis.detectedBpm, 1);
++        text += " | detected " + juce::String (analysis.detectedBpm, 1);
+     if (! analysis.beatGridSamples.empty())
+-        text += " • " + juce::String ((int) analysis.beatGridSamples.size()) + " beats";
++        text += " | " + juce::String ((int) analysis.beatGridSamples.size()) + " beats";
+     if (! analysis.transientAnchorSamples.empty())
+-        text += " • " + juce::String ((int) analysis.transientAnchorSamples.size()) + " anchors";
++        text += " | " + juce::String ((int) analysis.transientAnchorSamples.size()) + " anchors";
+     return text;
+ }
+ 
+@@ -735,7 +788,7 @@ juce::String MainPluginProcessor::getPluginHostStatus() const
+ 
+ juce::String MainPluginProcessor::getStemProviderStatus() const
+ {
+-    return stemProvider.getName() + " • cache: " + stemProvider.getCacheRoot().getFullPathName();
++    return stemProvider.getName() + " | cache: " + stemProvider.getCacheRoot().getFullPathName();
+ }
+ 
+ juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) const
+@@ -747,13 +800,13 @@ juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) cons
+     const auto status = stemProvider.getStatusForSource (juce::File (path));
+     juce::String text = status.headline;
+     if (status.sourceFile.existsAsFile())
+-        text += " • " + juce::String (status.readyCoreStems) + "/" + juce::String (status.totalCoreStems) + " stems";
++        text += " | " + juce::String (status.readyCoreStems) + "/" + juce::String (status.totalCoreStems) + " stems";
+     if (status.jobQueued && ! status.jobRunning)
+-        text += " • queued";
++        text += " | queued";
+     if (status.jobRunning)
+-        text += " • processing";
++        text += " | processing";
+     if (status.detail.isNotEmpty())
+-        text += " • " + status.detail;
++        text += " | " + status.detail;
+     return text;
+ }
+ 

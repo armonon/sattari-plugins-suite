@@ -3,4 +3,4 @@
 	url = https://github.com/juce-framework/JUCE.git
 [submodule "third_party/tracktion_engine"]
 	path = third_party/tracktion_engine
-	url = https://github.com/Tracktion/tracktion_engine.git
+	url = https://github.com/armonon/tracktion_engine.git
