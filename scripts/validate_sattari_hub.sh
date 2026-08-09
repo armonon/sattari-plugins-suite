@@ -16,6 +16,11 @@ assert manifest["schemaVersion"] == 1
 assert manifest["suiteName"] == "Sattari Audio Suite"
 products = manifest["products"]
 assert len(products) == 48
+suites = manifest["suite"]
+assert len(suites) == 6
+assert {s["id"] for s in suites} == {
+    "compass", "auto-pitch", "instruments", "vocal", "mix", "create"
+}
 ids = {p["id"] for p in products}
 for required in ["auto-pitch", "voxkey", "brain", "sub-conjurer", "side-chain-master", "royal-chain", "sattari-arp"]:
     assert required in ids, required
@@ -33,7 +38,13 @@ for product in products:
 assert {p["id"] for p in products if p.get("shippingProfile") == "alpha"} == {
     "auto-pitch", "brain", "sattari-arp", "sub-conjurer"
 }
-print(f"manifest contract ok: products={len(products)} bundles={sum(len(p['bundles']) for p in products)}")
+for suite in suites:
+    members = [p for p in products if p.get("suite") == suite["id"]]
+    assert members, f"{suite['id']} has no components"
+    primaries = [p for p in members if p.get("suiteRole") == "primary"]
+    assert len(primaries) == 1, f"{suite['id']} must have one primary"
+    assert primaries[0]["id"] == suite["primary"], f"{suite['id']} primary mismatch"
+print(f"manifest contract ok: suites={len(suites)} products={len(products)} bundles={sum(len(p['bundles']) for p in products)}")
 PY
 
 # Identity, lifecycle, Hub, web and CI metadata all come from the catalog.

@@ -13,7 +13,7 @@
       "verb": "knows",
       "accent": "blue",
       "tier": "free",
-      "tagline": "The session authority. Detects and publishes key, tempo, maqam, section and groove to every other plugin.",
+      "tagline": "The session authority. Detects key and reference, reads host tempo, and publishes the musical context you approve.",
       "primary": "brain"
     },
     {
@@ -58,7 +58,7 @@
       "verb": "transforms",
       "accent": "violet",
       "tier": "paid",
-      "tagline": "The only effects rack that stays in key and in time when the song changes.",
+      "tagline": "Musical effects that can follow approved key and tempo context from Compass.",
       "primary": "create"
     }
   ],

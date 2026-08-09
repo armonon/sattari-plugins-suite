@@ -16,14 +16,16 @@ Truth label: **manual release gate / unchecked rows are not passes**.
 ## Machine gates
 
 - [x] `ctest --test-dir build/local -L non-stemdeck --output-on-failure` — 91/91 passed in 174.11 seconds.
-- [ ] AU validation passes for every shipping Audio Unit.
-- [ ] pluginval strictness 5 passes for every shipping VST3.
-- [x] Installer expanded successfully; packaged Hub contract passed with 48 products and 143 bundle records.
+- [x] AU validation passes for every shipping Audio Unit.
+- [x] pluginval strictness 5 passes for every shipping VST3.
+- [x] Installer expanded successfully; packaged Hub contract passed with six suites, 48 implementation plugins, and 143 bundle records.
 - [x] Auto Pitch neural bundles passed embedded-model/runtime verification; AU passed auval and VST3 passed pluginval strictness 5.
 
 Compass AU also passed auval as `aumf/Br01/Satr`, and Compass VST3 passed
-pluginval strictness 5. Arp and Sub Conjurer still require fresh package-time
-machine validation before the two suite-wide rows above can be checked.
+pluginval strictness 5. Fresh Release and packaged-copy validation now also
+passes for Arp (`aumi/Arp1/Satr`, VST3) and Sub Conjurer
+(`aumf/Sc01/Satr`, VST3, Standalone). These are machine gates only; the host
+matrix below remains open.
 
 ## Host matrix
 

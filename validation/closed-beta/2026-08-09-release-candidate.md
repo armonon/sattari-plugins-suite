@@ -9,7 +9,9 @@ Source commit: `6e0cd25e8d6f1d765a02de1cf856971b6dbadb9a`
 - Local non-StemDeck CTest lane: **91/91 passed** in 174.11 seconds.
 - Sattari Compass: contract passed; `aumf/Br01/Satr` AU passed auval; VST3 passed pluginval strictness 5.
 - Sattari Auto Pitch: neural bundle/runtime verification passed for AU, VST3, and standalone; AU passed auval; VST3 passed pluginval strictness 5.
-- Sattari Hub: release build and packaged binary contract passed with 48 products, 143 bundle records, 25 locally available products, and 0 public-download products.
+- Sattari Hub: release build and packaged binary contract passed with six customer-facing suites, 48 implementation plugins, 143 bundle records, 25 locally available products, and 0 public-download products.
+- Sattari Arp: fresh AU/VST3 Release bundles and packaged copies passed signatures, timing contract, `aumi/Arp1/Satr` auval, and pluginval strictness 5.
+- Sub Conjurer: fresh AU/VST3/Standalone Release bundles and packaged copies passed signatures, the corrected 60 Hz -> 30 Hz Deep/Follow Pitch contract, `aumf/Sc01/Satr` auval, and pluginval strictness 5.
 - Internal installer: expanded successfully; contains Sattari Hub plus 11 alpha payload bundles.
 - Website: Sites version 8 published from its pushed source commit with current Compass, Auto Pitch Pro, and eight-stage Vocal renders.
 
@@ -28,6 +30,5 @@ reports no Developer ID package signature.
 
 1. Fill the real-vocal corpus with at least five owned/cleared clips covering all required vocal tags, render, and score it.
 2. Complete the Logic Pro Creator Studio, Ableton Live 12 Suite, and FL Studio 2026 host matrix.
-3. Rebuild and machine-validate Sattari Arp and Sub Conjurer at package time.
-4. Install Developer ID Application and Installer certificates and configure the `sattari-notary` keychain profile.
-5. Repackage, sign, submit, staple, and verify the final public artifact.
+3. Install Developer ID Application and Installer certificates and configure the `sattari-notary` keychain profile.
+4. Repackage, sign, submit, staple, and verify the final public artifact.

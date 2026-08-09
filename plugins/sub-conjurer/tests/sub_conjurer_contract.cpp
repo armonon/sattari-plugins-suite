@@ -20,6 +20,7 @@ juce::AudioBuffer<float> render (double hz, double seconds, double& peakOut)
     const double sr = 48000.0; const int block = 512;
     SubConjurerAudioProcessor p; auto& a = p.parameters();
     setParam (a, "mode", 2.0f);        // Deep
+    setParam (a, "tuning", 0.0f);      // Follow Pitch (default is Lock Note)
     setParam (a, "amount", 1.0f);
     setParam (a, "subonly", 1.0f);     // isolate the synthesized sub
     setParam (a, "glide", 0.0f);       // near-instant lock
@@ -97,7 +98,11 @@ int main (int argc, char** argv)
 
     if (! finite)        { std::printf ("  FAIL non-finite\n"); ++fails; }
     if (rms < 5.0e-3)    { std::printf ("  FAIL sub silent (envelope never opened?)\n"); ++fails; }
-    if (domHz > 200.0)   { std::printf ("  FAIL output not sub-band (domHz %.1f)\n", domHz); ++fails; }
+    // Deep mode must follow the source one octave down. This assertion is
+    // intentionally narrow enough to catch a detector that silently remains on
+    // the default 55 Hz lock note (which produces 27.5 Hz here).
+    if (std::abs (domHz - 30.0) > 2.0)
+                         { std::printf ("  FAIL pitch follow expected ~30 Hz, got %.1f\n", domHz); ++fails; }
     if (peak > 1.0)      { std::printf ("  FAIL output clips past limiter ceiling\n"); ++fails; }
 
     // 2) Silence in -> essentially silent out (gate closed, no self-oscillation).

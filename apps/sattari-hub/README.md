@@ -7,8 +7,10 @@ Sattari Hub is the Mac-first downloadable application layer for the Sattari Audi
 ## What it does now
 
 - Loads `sattari-products.json` from the app resources.
-- Shows the 48 non-StemDeck products generated from `config/products.json`, with
-  lifecycle status and a three-product internal alpha profile.
+- Presents six customer-facing products generated from `config/products.json`:
+  Compass, Auto Pitch, Instruments, Vocal, Mix, and Create.
+- Expands each product into its implementation components only when requested,
+  so the customer sees a coherent suite instead of 48 unrelated plugin cards.
 - Installs a product only when every declared AU, VST3, and Standalone bundle is
   present, executable, staged, copied, and post-copy validated.
 - Rolls an interrupted/failed multi-bundle install back instead of writing a
@@ -16,8 +18,10 @@ Sattari Hub is the Mac-first downloadable application layer for the Sattari Audi
 - Accepts remote archives only when the manifest pins both SHA-256 and byte size;
   archive paths and links are checked before extraction.
 - Writes install receipts to `~/Library/Application Support/Sattari Hub/receipts.json`.
-- Treats version mismatch as an update, but batch install is limited to Brain,
-  Arp, and Sub Conjurer rather than presenting 48 experiments as release-ready.
+- Treats version mismatch as an update, but installation is limited to the four
+  qualified internal-alpha plugins: Compass, Auto Pitch, Arp, and Sub Conjurer.
+- Disables installation for preview and experimental components instead of
+  presenting unqualified products as available downloads.
 - Backs up replaced bundles under `~/Library/Application Support/Sattari Hub/Backups/` before copying a new build.
 
 ## Build
@@ -58,3 +62,6 @@ SATTARI_REPO_ROOT=/path/to/repos/sattari-plugins swift run SattariHub --contract
 - No notarized DMG/PKG yet.
 - No license/login/download entitlement layer yet.
 - Product quality remains gated by each plugin's own DAW/listening validation.
+- Instruments, Vocal, Mix, and Create are customer-facing product directions,
+  but their primary rack plugins remain preview builds; their component lists
+  communicate scope, not release readiness.

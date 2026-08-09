@@ -140,17 +140,27 @@ function(sattari_add_plugin)
 
     juce_generate_juce_header(${SAP_TARGET})
 
+    # JUCE ad-hoc signs AU/VST3 bundles during its copy-after-build step, but a
+    # raw macOS Standalone target can remain unsigned. That made a clean build
+    # fail the suite's own `codesign --verify --deep --strict` gate even though
+    # the later packaging script repaired its copy. Sign the source artifact so
+    # package-time validation and every downstream packager see the same valid
+    # bundle. Public releases still replace this ad-hoc identity with Developer
+    # ID before notarization.
+    if(APPLE AND "Standalone" IN_LIST SAP_FORMATS)
+        add_custom_command(TARGET ${SAP_TARGET}_Standalone POST_BUILD
+            COMMAND /usr/bin/codesign --force --deep --sign -
+                "$<TARGET_BUNDLE_DIR:${SAP_TARGET}_Standalone>"
+            COMMENT "Ad-hoc signing ${SAP_PRODUCT_NAME} Standalone bundle")
+    endif()
+
     target_sources(${SAP_TARGET} PRIVATE ${SAP_SOURCES})
 
     target_compile_definitions(${SAP_TARGET}
         PUBLIC
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
-            JUCE_VST3_CAN_REPLACE_VST2=0
-            # The suite ships under GPLv3 (see LICENSING.md), which exempts it from
-            # JUCE's free-tier splash-screen requirement. Do NOT set this under a
-            # JUCE "Personal" (non-GPL) licence.
-            JUCE_DISPLAY_SPLASH_SCREEN=0)
+            JUCE_VST3_CAN_REPLACE_VST2=0)
 
     target_link_libraries(${SAP_TARGET}
         PRIVATE

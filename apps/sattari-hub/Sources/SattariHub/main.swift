@@ -10,7 +10,18 @@ struct HubManifest: Codable {
     let defaultUpdateChannel: String
     let updateFeedURL: String?
     let updateFeedSHA256: String?
+    let suite: [HubSuite]
     let products: [HubProduct]
+}
+
+struct HubSuite: Codable {
+    let id: String
+    let name: String
+    let verb: String
+    let accent: String
+    let tier: String
+    let tagline: String
+    let primary: String
 }
 
 struct HubProduct: Codable {
@@ -28,6 +39,8 @@ struct HubProduct: Codable {
     let updateArchiveBytes: Int64?
     let lifecycle: String?
     let shippingProfile: String?
+    let suite: String?
+    let suiteRole: String?
 }
 
 struct InstallBundle: Codable {
@@ -616,6 +629,7 @@ final class HubWindowController: NSWindowController {
     private let sessionField = NSTextField(string: SessionIdentity.current())
     private let dawMenu = NSPopUpButton()
     private var dawURLs: [URL] = []
+    private var expandedSuites: Set<String> = []
 
     init(model: HubModel) {
         self.model = model
@@ -724,7 +738,7 @@ final class HubWindowController: NSWindowController {
         root.addArrangedSubview(sessionBox)
 
         // Batch actions are limited to the explicitly curated alpha profile. A
-        // 49-product "Install All" makes unvalidated experiments look shippable.
+        // 48-plugin "Install All" makes unvalidated experiments look shippable.
         let actionRow = NSStackView()
         actionRow.orientation = .horizontal
         actionRow.spacing = 12
@@ -763,8 +777,19 @@ final class HubWindowController: NSWindowController {
             view.removeFromSuperview()
         }
 
-        for product in model.manifest.products {
-            stack.addArrangedSubview(card(for: product))
+        for suite in model.manifest.suite {
+            let members = model.manifest.products.filter { $0.suite == suite.id }
+            stack.addArrangedSubview(card(for: suite, members: members))
+        }
+    }
+
+    private static func accentColor(_ name: String) -> NSColor {
+        switch name {
+        case "blue": return NSColor(calibratedRed: 0.41, green: 0.65, blue: 1.0, alpha: 1)
+        case "violet": return NSColor(calibratedRed: 0.61, green: 0.48, blue: 1.0, alpha: 1)
+        case "amber": return NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.29, alpha: 1)
+        case "crimson": return NSColor(calibratedRed: 0.91, green: 0.22, blue: 0.31, alpha: 1)
+        default: return NSColor(calibratedRed: 0.38, green: 0.96, blue: 0.78, alpha: 1)
         }
     }
 
@@ -778,72 +803,146 @@ final class HubWindowController: NSWindowController {
                        alpha: 1)
     }
 
-    private func card(for product: HubProduct) -> NSView {
-        let accent = Self.accentColor(product.accent)
+    private func card(for suite: HubSuite, members: [HubProduct]) -> NSView {
+        let accent = Self.accentColor(suite.accent)
+        let shipping = members.filter { $0.shippingProfile != nil }
+        let primary = members.first { $0.id == suite.primary }
 
         let box = NSBox()
         box.boxType = .custom
-        box.cornerRadius = 14
+        box.cornerRadius = 16
         box.borderWidth = 1
-        box.borderColor = accent.withAlphaComponent(0.32)
+        box.borderColor = accent.withAlphaComponent(0.34)
         box.fillColor = NSColor(calibratedRed: 0.07, green: 0.09, blue: 0.13, alpha: 1)
 
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 18
-        row.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        box.contentView?.addSubview(row)
+        let content = NSStackView()
+        content.orientation = .vertical
+        content.spacing = 12
+        content.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        box.contentView?.addSubview(content)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: box.contentView!.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: box.contentView!.trailingAnchor),
-            row.topAnchor.constraint(equalTo: box.contentView!.topAnchor),
-            row.bottomAnchor.constraint(equalTo: box.contentView!.bottomAnchor)
+            content.leadingAnchor.constraint(equalTo: box.contentView!.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: box.contentView!.trailingAnchor),
+            content.topAnchor.constraint(equalTo: box.contentView!.topAnchor),
+            content.bottomAnchor.constraint(equalTo: box.contentView!.bottomAnchor)
         ])
 
-        // Per-product accent stripe (shared brand colour).
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 16
+        content.addArrangedSubview(header)
+
         let accentBar = NSView()
         accentBar.wantsLayer = true
         accentBar.layer?.backgroundColor = accent.cgColor
         accentBar.layer?.cornerRadius = 2.5
         accentBar.translatesAutoresizingMaskIntoConstraints = false
         accentBar.widthAnchor.constraint(equalToConstant: 5).isActive = true
-        accentBar.heightAnchor.constraint(equalToConstant: 48).isActive = true
-        row.addArrangedSubview(accentBar)
+        accentBar.heightAnchor.constraint(equalToConstant: 62).isActive = true
+        header.addArrangedSubview(accentBar)
 
         let copy = NSStackView()
         copy.orientation = .vertical
         copy.spacing = 5
-        row.addArrangedSubview(copy)
+        header.addArrangedSubview(copy)
 
-        let name = NSTextField(labelWithString: product.name)
-        name.font = NSFont.boldSystemFont(ofSize: 18)
+        let name = NSTextField(labelWithString: suite.name)
+        name.font = NSFont.boldSystemFont(ofSize: 20)
         name.textColor = .white
         copy.addArrangedSubview(name)
 
-        let meta = NSTextField(labelWithString: "\(product.category) • \(product.formats.joined(separator: ", ")) • \(product.version)")
-        meta.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let meta = NSTextField(labelWithString:
+            "\(suite.verb.uppercased())  •  \(suite.tier.uppercased())  •  \(members.count) PLUGINS")
+        meta.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         meta.textColor = accent
         copy.addArrangedSubview(meta)
 
-        let desc = NSTextField(labelWithString: product.description)
-        desc.font = NSFont.systemFont(ofSize: 12)
-        desc.textColor = NSColor(calibratedWhite: 0.74, alpha: 1)
-        copy.addArrangedSubview(desc)
+        let tagline = NSTextField(wrappingLabelWithString: suite.tagline)
+        tagline.font = NSFont.systemFont(ofSize: 12)
+        tagline.textColor = NSColor(calibratedWhite: 0.75, alpha: 1)
+        copy.addArrangedSubview(tagline)
 
-        let state = NSTextField(labelWithString: model.statusText(for: product))
-        state.font = NSFont.systemFont(ofSize: 11)
-        state.textColor = NSColor(calibratedWhite: 0.62, alpha: 1)
-        copy.addArrangedSubview(state)
+        let disclosure = NSButton(
+            title: expandedSuites.contains(suite.id) ? "Hide components" : "Components",
+            target: self,
+            action: #selector(toggleSuiteClicked(_:)))
+        disclosure.identifier = NSUserInterfaceItemIdentifier(suite.id)
+        disclosure.bezelStyle = .rounded
+        header.addArrangedSubview(disclosure)
 
-        let button = NSButton(title: model.productNeedsUpdate(product) ? "Install / Update" : "Reinstall", target: self, action: #selector(installClicked(_:)))
-        button.identifier = NSUserInterfaceItemIdentifier(product.id)
-        button.bezelStyle = .rounded
-        button.isEnabled = model.productIsAvailable(product) || model.productCanDownloadUpdate(product)
-        row.addArrangedSubview(button)
+        let install = NSButton(
+            title: shipping.isEmpty ? "Preview" : (shipping.count == 1 ? "Install alpha" : "Install alpha set"),
+            target: self,
+            action: #selector(installSuiteClicked(_:)))
+        install.identifier = NSUserInterfaceItemIdentifier(suite.id)
+        install.bezelStyle = .rounded
+        install.isEnabled = !shipping.isEmpty && shipping.allSatisfy {
+            model.productIsAvailable($0) || model.productCanDownloadUpdate($0)
+        }
+        install.toolTip = shipping.isEmpty
+            ? "This suite is a preview and has no public install profile."
+            : "Installs only the evidence-backed alpha products in this suite."
+        header.addArrangedSubview(install)
+
+        let state = NSTextField(labelWithString: primary.map { model.statusText(for: $0) }
+            ?? "Primary product metadata is unavailable.")
+        state.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        state.textColor = NSColor(calibratedWhite: 0.58, alpha: 1)
+        content.addArrangedSubview(state)
+
+        if expandedSuites.contains(suite.id) {
+            let separator = NSBox()
+            separator.boxType = .separator
+            content.addArrangedSubview(separator)
+            for product in members.sorted(by: componentOrder) {
+                content.addArrangedSubview(componentRow(for: product, accent: accent))
+            }
+        }
 
         return box
+    }
+
+    private func componentOrder(_ left: HubProduct, _ right: HubProduct) -> Bool {
+        if left.suiteRole != right.suiteRole { return left.suiteRole == "primary" }
+        return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+    }
+
+    private func componentRow(for product: HubProduct, accent: NSColor) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 4)
+
+        let role = product.suiteRole == "primary" ? "PRIMARY" : "COMPONENT"
+        let name = NSTextField(labelWithString: product.name)
+        name.font = NSFont.systemFont(ofSize: 13, weight: product.suiteRole == "primary" ? .semibold : .regular)
+        name.textColor = .white
+        name.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(name)
+
+        let meta = NSTextField(labelWithString:
+            "\(role)  •  \((product.lifecycle ?? product.status).uppercased())  •  \(product.formats.joined(separator: "/"))")
+        meta.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+        meta.textColor = product.shippingProfile == nil
+            ? NSColor(calibratedWhite: 0.5, alpha: 1)
+            : accent
+        row.addArrangedSubview(meta)
+
+        let action = NSButton(
+            title: product.shippingProfile == nil
+                ? "Not shipping"
+                : (model.productNeedsUpdate(product) ? "Install" : "Reinstall"),
+            target: self,
+            action: #selector(installClicked(_:)))
+        action.identifier = NSUserInterfaceItemIdentifier(product.id)
+        action.bezelStyle = .rounded
+        action.isEnabled = product.shippingProfile != nil
+            && (model.productIsAvailable(product) || model.productCanDownloadUpdate(product))
+        row.addArrangedSubview(action)
+        return row
     }
 
     @objc private func installClicked(_ sender: NSButton) {
@@ -856,6 +955,29 @@ final class HubWindowController: NSWindowController {
             statusLabel.stringValue = "Install failed: \(error.localizedDescription)"
             NSSound.beep()
         }
+    }
+
+    @objc private func toggleSuiteClicked(_ sender: NSButton) {
+        guard let suiteId = sender.identifier?.rawValue else { return }
+        if expandedSuites.contains(suiteId) {
+            expandedSuites.remove(suiteId)
+        } else {
+            expandedSuites.insert(suiteId)
+        }
+        reloadProductCards()
+    }
+
+    @objc private func installSuiteClicked(_ sender: NSButton) {
+        guard let suiteId = sender.identifier?.rawValue,
+              let suite = model.manifest.suite.first(where: { $0.id == suiteId }) else { return }
+        let products = model.manifest.products.filter {
+            $0.suite == suiteId && $0.shippingProfile != nil
+        }
+        guard !products.isEmpty else {
+            statusLabel.stringValue = "\(suite.name) is still a preview; no install profile is published."
+            return
+        }
+        installMany(products: products, label: suite.name)
     }
 
     @objc private func installAllClicked(_ sender: NSButton) {
@@ -951,8 +1073,16 @@ if CommandLine.arguments.contains("--contract-check") {
         let model = try HubModel()
         let productCount = model.manifest.products.count
         let bundleCount = model.manifest.products.reduce(0) { $0 + $1.bundles.count }
+        guard model.manifest.suite.count == 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected exactly 6 suite products, got \(model.manifest.suite.count)"]) }
         guard productCount >= 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected at least 6 products, got \(productCount)"]) }
-        guard model.manifest.products.contains(where: { $0.id == "vocal" }) else { throw NSError(domain: "SattariHub", code: 11, userInfo: [NSLocalizedDescriptionKey: "Missing Vocal product (Auto Pitch lives here as a module)"]) }
+        guard model.manifest.products.contains(where: { $0.id == "vocal" }) else { throw NSError(domain: "SattariHub", code: 11, userInfo: [NSLocalizedDescriptionKey: "Missing Vocal product"]) }
+        for suite in model.manifest.suite {
+            let members = model.manifest.products.filter { $0.suite == suite.id }
+            guard !members.isEmpty,
+                  members.filter({ $0.suiteRole == "primary" }).map(\.id) == [suite.primary] else {
+                throw NSError(domain: "SattariHub", code: 16, userInfo: [NSLocalizedDescriptionKey: "Suite grouping contract failed for \(suite.id)"])
+            }
+        }
         guard model.manifest.products.flatMap({ $0.bundles }).contains(where: { $0.kind == "VST3" }) else { throw NSError(domain: "SattariHub", code: 12, userInfo: [NSLocalizedDescriptionKey: "Missing VST3 bundle entry"]) }
         let available = model.manifest.products.filter { model.productIsAvailable($0) }.count
         let downloadable = model.manifest.products.filter { model.productCanDownloadUpdate($0) }.count
@@ -968,7 +1098,7 @@ if CommandLine.arguments.contains("--contract-check") {
                 throw NSError(domain: "SattariHub", code: 15, userInfo: [NSLocalizedDescriptionKey: "Downloaded archive did not expose Auto Pitch payload"])
             }
         }
-        print("SattariHub contract ok: products=\(productCount) bundles=\(bundleCount) availableProducts=\(available) downloadableProducts=\(downloadable) channel=\(model.manifest.defaultUpdateChannel)")
+        print("SattariHub contract ok: suites=\(model.manifest.suite.count) products=\(productCount) bundles=\(bundleCount) availableProducts=\(available) downloadableProducts=\(downloadable) channel=\(model.manifest.defaultUpdateChannel)")
         exit(0)
     } catch {
         fputs("SattariHub contract failed: \(error.localizedDescription)\n", stderr)

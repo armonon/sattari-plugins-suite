@@ -1,135 +1,120 @@
-# Sattari Audio Suite — Quick Start (one-pager per plugin)
+# Sattari Audio Suite — internal alpha quick start
 
-These are the smallest installs and first-pattern wirings for each of the nine
-plugins. For deeper guides see each `plugins/<slug>/README.md`. The whole suite
-is GPLv3 (see `LICENSING.md`).
+Truth label: **controlled internal alpha; not public, notarized, or sale-ready**.
+The suite is six customer-facing products backed by 48 implementation plugins.
+Only Compass, Auto Pitch, Arp, and Sub Conjurer are in the current installable
+alpha. The suite is GPLv3 under the current JUCE/Rubber Band dependency terms;
+see `LICENSING.md` before making a commercial distribution decision.
 
-## Install (the whole suite)
+## Install the current alpha
 
-1. Run `scripts/package_suite_installer.sh` once to produce
-   `build/installer/Sattari-Audio-Suite.pkg` (~86 MB; bundles all 9 plugins).
-2. Double-click the `.pkg`. `Sattari Hub.app` lands in `/Applications`.
-3. Open the Hub → **Install All**. AU, VST3, and Standalone bundles are copied
-   into `~/Library/Audio/Plug-Ins/{Components,VST3}/` and `/Applications/`.
-4. Restart your DAW (Logic / Ableton / FL / Reaper / Live).
+1. Build the four shipping plugins and run their machine validation gates.
+2. Build the internal package with `scripts/package_suite_installer.sh`.
+3. Install the package, then open **Sattari Hub**.
+4. The Hub shows six products. Expand **Components** to see lifecycle and format
+   details; only alpha-qualified components expose an Install action.
+5. Restart the target DAW after installing AU or VST3 bundles.
 
----
+The Hub is the authority for what is installable. A visible experimental
+component is not a claim that the component is finished or downloadable.
 
-## 1. Sattari Auto Pitch — vocal & instrument tuning
-**Where:** insert on a mono or stereo audio track with a vocal or monophonic
-instrument.
-**First 30 seconds:**
-- Header → pick **Sound Source** (Alto/Tenor, Bass Voice, or one of the three
-  Instrument bands).
-- BASIC → use the large key control to set **Key & Scale** (e.g. A Minor),
-  auto-detect this track, or follow Sattari Key from the song bus.
-- **Retune Speed** dialed for the feel (high = "hard tune", low = natural).
-- For per-section keys: PRO tab → **Scan Track…** → pick the song's audio file.
-  Enable **Use Key Map** to follow the timeline at playback.
-**Tabs:** BASIC = performance controls; PRO = detector, MIDI/reference,
-formant/vibrato and key-map controls; EDIT = capture note objects, drag to
-retarget, or right-click to bypass a note.
-**A/B compare:** A | B | x in the header.
+## 1. Sattari Compass — knows the session
 
-## 2. Sattari Align — time alignment
-**Where:** insert on the track to shift (the "target"). Route the reference
-into the plugin's Guide sidechain input.
-**First 30 seconds:**
-- **Search Range:** how far the cross-correlator looks (start at 100 ms).
-- **Sensitivity / Smoothing:** for jitter control.
-- Watch the big offset readout — when "Guide: active" lights up, the lag will
-  start tracking. Hit **Lock** to print the aligned take.
-**Limits:** v1 = bulk-shift only. Realtime can only delay the target to catch
-up to the guide; if target is earlier than guide, swap which signal you route
-as Guide.
+Compass is the session authority: it detects major/minor key and reference
+tuning, reads host tempo, and publishes that evidence together with the chord,
+groove, maqam, section, and energy context the user explicitly approves.
 
-## 3. Sattari Royal Chain — vocal channel chain
-**Where:** insert on a vocal track. AU/VST3/Standalone.
-**First 30 seconds:**
-- Top row: **Vocal Style** preset (Modern Rap / R&B / Pop / Persian-World Pop /
-  Indie / Podcast / Background / Hook / Demo Rescue / Live).
-- **Vocal Crown Compass** (Portal-style): drag the 5 module nodes radially —
-  TUNE, WIDTH, CONTROL, FINISH, SMOOTH. Centre = 0, outer ring = 100. Bright
-  pulse around a node = you hit the rail.
-- **Sync Key from Auto Pitch** toggle (new): when on, the Tune module's
-  key/scale follows whatever Auto Pitch is currently detecting on its bus.
-- Macro row at the bottom: Clean / Tune / Control / Tone / Air / Smooth /
-  Glow / Width / Space / Royal.
+- Insert Compass early in the session and feed it representative program audio.
+- Confirm the detected musical context rather than treating detection as
+  infallible.
+- Let following products consume the approved session context.
+- Sattari Key, Tuner, and Scope are components of this product direction, not
+  separate top-level products.
 
-## 4. Sattari Bus — channel strip
-**Where:** insert on any bus / aux / master.
-**First 30 seconds:**
-- **Mode:** Clean / Glue / Console / Tape.
-- **Drive** at 0 = bit-transparent. Turn up for harmonic colour with 4×
-  oversampling (anti-aliased).
-- **6 factory presets**: Mix Glue / Drum Bus / Master Polish / Parallel
-  Crush / Tape Warm / Wide & Open.
+Current state: **alpha**. Machine contracts pass; manual host and musical-corpus
+validation remain release gates.
 
-## 5. Side Chain Master — sidechain ducker
-**Where:** insert on the channel to duck (the bass / pad / etc.). Route the
-trigger into the Sidechain input.
-**First 30 seconds:**
-- **Use External Sidechain** on, or stay on the internal-detector fallback.
-- **Tempo sync duck** for the classic EDM pump — no sidechain needed; the
-  curve locks to host PPQ.
-- **Lookahead:** up to 10 ms; host PDC compensates.
-- Watch the **GR history graph** at the bottom.
+## 2. Sattari Auto Pitch — tunes the performance
 
-## 6. Sub Conjurer — sub-bass synth
-**Where:** insert on kick or bass.
-**First 30 seconds:**
-- **Mode:** Clean / Power / Deep / 808 / Perc-to-Sub.
-- **Tuning:** Follow Pitch (tracks the source), Lock Note (fixed), MIDI Note
-  (incoming MIDI sets the pitch).
-- **Sub Amount** controls how loud the synthesized sub sits under the source.
-- 10 genre presets: Clean 808 / Heavy Trap / Bass Guitar Weight / Kick
-  Reinforcer / Club Low-End / Warm R&B / Subtle Mix Weight / Deep Synth /
-  Tight Low-End / Cinematic Sub.
+Auto Pitch provides realtime monophonic correction, graph editing, note-object
+controls, formant/vibrato controls, MIDI/reference control, and key-map support.
+Sattari Maqam extends the direction into microtonal tuning.
 
-## 7. Sattari VoxKey — voice → MIDI
-**Where:** insert on a vocal track. AU/VST3/Standalone.
-**First 30 seconds:**
-- Dry vocal passes through unchanged.
-- MIDI output drives a synth on another track. In Ableton: VoxKey on the
-  vocal track, MIDI track receives `MIDI From: VoxKey` with `Monitor: In`.
-- **Mode:** Melody / Bass Follow / Harmony / Drum Mouth / Pad-Soul Layer.
-- **Key & Scale:** snaps detected notes to the chosen scale.
-- **Bend Range** (semitones) matches the receiving synth's pitch-bend range.
-- **Glide / Legato**: overlap new notes so a mono synth glides instead of
-  retriggering its amp envelope.
+- Insert on an isolated vocal or monophonic instrument.
+- Set the voice/instrument range before tuning.
+- Select or follow the correct key and scale.
+- Start with slower correction and preserved formants; increase retune strength
+  only after confirming tracking stability.
+- Use Edit mode for deliberate note-level repair instead of forcing difficult
+  phrases through aggressive realtime correction.
 
-## 8. Sattari Arp — MIDI arpeggiator
-**Where:** insert as a MIDI effect / MIDI plugin **before** the synth in a
-MIDI chain. AU MIDI FX in Logic; "MIDI Effect Rack → MIDI Effects" in Ableton.
-**First 30 seconds:**
-- Hold a chord. The arp outputs the notes.
-- **Pattern:** Up / Down / Up-Down / Down-Up / As Played / Random / Chord Pulse.
-- **Rate:** 1/4 to 1/32 (with triplets).
-- **Scale Root + Scale** (8 scales) quantize the output to a key.
-- **Host Sync** on for transport panic + loop-reset.
-- Sample-accurate timing — contract test asserts 0-sample spacing error.
+Current state: **alpha**. Synthetic accuracy and safety tests pass, but a scored,
+owned real-vocal corpus and manual DAW listening matrix are still mandatory.
 
-## 9. Sattari StemDeck — 4-deck DJ remix
-**Where:** Standalone macOS app (no AU). VST3 also available.
-**First 30 seconds:**
-- Open the Standalone.
-- Drag a full mix onto Deck A, B, C, or D.
-- Mix with per-deck fader, EQ, filter, and the A/C ⇄ B/D crossfaders.
-- **AI Split** runs Demucs (configure with `scripts/setup_stemdeck_demucs.sh`).
-- **Record WAV** captures the performance.
-- Truth label: deepest DSP work is on the separate `stemdeck` worktree.
+## 3. Sattari Instruments — makes musical material
 
----
+Instruments is the playable/generative family: Stack, Arp, Chop, Granulator,
+Rhythm Genie, Scaler, VoxKey, and VoxSynth.
 
-## Cross-plugin "Send to Tune"
+Current installable component: **Sattari Arp (alpha)**.
 
-Place a Sattari Auto Pitch on any vocal track. Place a Sattari Royal Chain on
-any vocal track. Toggle Royal Chain's **Sync Key from Auto Pitch** on. Royal
-Chain's Tune module now follows Auto Pitch's live detected key — one detector
-steers the project. (Backed by a JSON file under
-`~/Library/Application Support/Sattari Audio/cross-plugin/`.)
+- Place Arp before an instrument in a MIDI chain.
+- Hold a chord, select the pattern and rhythmic rate, then enable host sync.
+- Use root and scale quantization when the pattern must follow Compass context.
+- Validate MIDI routing and loop-reset behavior in the target DAW before using
+  it in a live or critical session.
 
-## Tester feedback
+Stack is the intended primary product shell, but remains a **preview**. The
+other Instruments components are experimental.
 
-Until a dedicated channel is set up, report issues on the project GitHub or
-via email to the address in `README.md`.
+## 4. Sattari Vocal — finishes the voice
+
+Vocal is an eight-slot finishing rack covering cleanup, tuning handoff,
+dynamics, tone, doubling, harmony, character, and space. Royal Chain, Harmony,
+Vocal Master, Double, De-Ess, Face, and Glass Choir are component technologies
+behind that rack.
+
+Current state: **preview**. Do not treat the rack or its experimental components
+as qualified deliverables. The next proof is an owned vocal corpus spanning
+clean, breathy, raspy, low, high, vibrato, consonant-heavy, and noisy material.
+
+## 5. Sattari Mix — controls dynamics and tone
+
+Mix is the steady, context-aware production rack: EQ, compression, cleanup,
+transients, limiting, imaging, metering, bus tone, alignment, gating,
+multiband control, sidechain control, and low-end synthesis.
+
+Current installable component: **Sub Conjurer (alpha)**.
+
+- Insert Sub Conjurer on kick or bass material.
+- Choose pitch follow, fixed note, or MIDI control.
+- Add sub conservatively and monitor below 100 Hz on suitable playback.
+- Check phase, translation, silence gating, and pitch tracking on the actual
+  source before committing the result.
+
+The Mix rack is still a **preview**; most component technologies are
+experimental and must earn their place through listening tests.
+
+## 6. Sattari Create — transforms in key and time
+
+Create is the musical-effects rack: Morph, Warp, Space, Vocoder, Shimmer, Echo,
+Heat, Riser, Pulse, 808, and Warble. Its product thesis is that creative effects
+follow approved key, tempo, section, and groove context from Compass.
+
+Current state: **preview**. The direction is differentiated, but it needs a
+small set of unmistakable signature workflows, stronger macro interaction, and
+musical A/B evidence before it becomes a product rather than a collection.
+
+## Required tester record
+
+For every alpha session, record:
+
+- exact plugin build and source commit;
+- DAW/version, plugin format, macOS version, and Apple Silicon/Intel path;
+- source type and whether the audio is owned or cleared for testing;
+- crash, CPU, latency, artifact, timing, recall, and automation results;
+- a short musical judgment: better, neutral, or worse, with the reason.
+
+Report reproducible issues through the project tracker with the smallest source
+clip and session needed to demonstrate the problem. Do not upload uncleared
+commercial recordings.

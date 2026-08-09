@@ -43,18 +43,21 @@ the focused CI matrix.
 ### Internal alpha
 
 - Sattari Compass
+- Sattari Auto Pitch
 - Sattari Arp
 - Sub Conjurer
 
-This set is intentionally small. It tests the session-authority concept, a
-MIDI/creative product and an audio effect without depending on the still-open
-real-vocal or rack-usability studies.
+This set is intentionally small. It tests the session-authority concept, the
+flagship tuner, a MIDI/creative product, and an audio effect. Auto Pitch remains
+blocked from customer beta by the owned real-vocal listening corpus even after
+its synthetic and machine-format gates pass.
 
 ### Validation candidates
 
 - Sattari Key: expand the labeled key corpus and publish reproducible metrics.
-- Sattari Auto Pitch: run the real-vocal corpus, monitor latency, and complete
-  blind listening against dry/reference renders.
+- Sattari Auto Pitch: complete its alpha qualification by running the real-vocal
+  corpus, monitoring latency, and completing blind listening against
+  dry/reference renders.
 
 ### Rack preview
 
@@ -67,7 +70,8 @@ real-vocal or rack-usability studies.
 
 Every promoted product needs an evidence record containing:
 
-- clean universal build of AU, VST3 and Standalone artifacts;
+- clean universal build of every format declared for that product (Arp is AU
+  MIDI FX + VST3 and intentionally has no Standalone target);
 - its synthetic contract and render smoke profile;
 - pluginval and `auval` logs for the exact packaged bundle;
 - codesign verification, Developer ID signing, notarization and stapling;

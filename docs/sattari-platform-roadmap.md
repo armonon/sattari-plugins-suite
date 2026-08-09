@@ -2,13 +2,18 @@
 type: program-plan
 category: sattari
 area: audio-platform
-status: active
+status: superseded
 created: 2026-06-17
-updated: 2026-06-17
+updated: 2026-08-09
 source: Platform strategy — Core once, StemDeck as the forcing flagship
 ---
 
 # Sattari Audio — Platform Roadmap
+
+> Historical strategy. Its StemDeck-led sequencing is no longer the active
+> product plan. StemDeck is excluded from the current suite. The authoritative
+> six-product direction and current qualification sequence live in
+> `docs/six-product-suite.md` and `config/products.json`.
 
 The strategy: stop solving a seven-way breadth problem and build **one platform plus
 sequenced products**. The engine, packaging, UI, and licensing get built once;
