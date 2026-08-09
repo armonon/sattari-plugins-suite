@@ -36,10 +36,24 @@ VOWELS: dict[str, list[tuple[float, float, float]]] = {
 }
 
 
+# --- Nasal pole-zero pairs --------------------------------------------------
+#  (zero Hz, pole Hz, bandwidth Hz). Nasal coupling adds a ZERO to the transfer
+#  function, and a zero is a dip that an all-pole model cannot produce — it can
+#  only approximate one by spending poles on the shoulders either side. This is
+#  the assumption LPC actually rests on, so it is the one worth breaking.
+#  The paired pole keeps the far field flat: alone, a zero tilts the whole
+#  spectrum upward and the test would measure tilt rather than nasality.
+NASAL = {
+    "light": [(1000.0, 800.0, 120.0)],
+    "heavy": [(1000.0, 800.0, 90.0), (2100.0, 1800.0, 130.0)],
+}
+
+
 def formant_envelope_db(freq_hz: np.ndarray,
                         formants: list[tuple[float, float, float]],
                         tilt_db_per_octave: float = -6.0,
-                        ref_hz: float = 500.0) -> np.ndarray:
+                        ref_hz: float = 500.0,
+                        antiformants: list[tuple[float, float, float]] | None = None) -> np.ndarray:
     """The TRUE envelope, in dB, at arbitrary frequencies.
 
     Each formant is a resonance whose magnitude response is evaluated directly,
@@ -59,6 +73,13 @@ def formant_envelope_db(freq_hz: np.ndarray,
         total += (10.0 ** (gain_db / 20.0)) * magnitude
 
     envelope_db = 20.0 * np.log10(np.maximum(total, 1e-9))
+
+    for zero_hz, pole_hz, bandwidth in (antiformants or []):
+        qz, qp = zero_hz / bandwidth, pole_hz / bandwidth
+        rz, rp = freq / zero_hz, freq / pole_hz
+        zero_db = 10.0 * np.log10((1.0 - rz ** 2) ** 2 + (rz / qz) ** 2)
+        pole_db = 10.0 * np.log10((1.0 - rp ** 2) ** 2 + (rp / qp) ** 2)
+        envelope_db += zero_db - pole_db
     # Glottal source tilt: real voices lose energy with frequency, and an
     # analyzer that only ever sees flat sources will look better than it is.
     envelope_db += tilt_db_per_octave * np.log2(freq / ref_hz)
@@ -73,6 +94,8 @@ def synth_vowel(
     tilt_db_per_octave: float = -6.0,
     breath_db: float = -120.0,
     amp_jitter_db: float = 0.0,
+    antiformants: list[tuple[float, float, float]] | None = None,
+    formant_drift: float = 0.0,
     vibrato_hz: float = 0.0,
     vibrato_cents: float = 0.0,
     tremolo_hz: float = 0.0,
@@ -99,6 +122,20 @@ def synth_vowel(
         f0 = f0_hz * 2.0 ** ((vibrato_cents / 1200.0) * np.sin(2 * np.pi * vibrato_hz * t))
 
     formants = VOWELS[vowel]
+
+    def formants_at(position: float):
+        """The tract at a normalised time 0..1.
+
+        A real singer's tract does not hold still — vowels drift, jaws move, and
+        the "sustained note" the model assumes is an idealisation. `formant_drift`
+        slides every formant by that fraction across the note, which breaks
+        stationarity: no STATIC envelope can be correct for the whole note, only
+        for one instant of it.
+        """
+        if formant_drift == 0.0:
+            return formants
+        scale = 1.0 + formant_drift * (position - 0.5)
+        return [(c * scale, b, g) for c, b, g in formants]
     # Only harmonics below Nyquist, with margin — an aliased harmonic would be
     # measured at the wrong frequency and blamed on the analyzer.
     max_harmonic = int((sample_rate * 0.45) / f0_hz)
@@ -106,10 +143,16 @@ def synth_vowel(
     audio = np.zeros(n)
     true_freqs, true_amps_db = [], []
 
+    # Amplitude trajectories, when the tract moves. Evaluated on a coarse grid
+    # and interpolated: the tract moves far slower than the waveform.
+    steps = np.linspace(0.0, 1.0, 64) if formant_drift != 0.0 else None
+
     for k in range(1, max_harmonic + 1):
         harmonic_hz = f0_hz * k
-        amp_db = formant_envelope_db(np.array([harmonic_hz]), formants,
-                                     tilt_db_per_octave)[0]
+        # Truth is the tract at the MIDPOINT — the best a static model could do.
+        amp_db = formant_envelope_db(np.array([harmonic_hz]), formants_at(0.5),
+                                     tilt_db_per_octave,
+                                     antiformants=antiformants)[0]
         # REAL VOICES DO NOT SIT ON A SMOOTH CURVE. Source irregularity, glottal
         # pulse shape and phase interaction scatter harmonic amplitudes several dB
         # around the tract envelope. Without this the synthetic harmonics ARE
@@ -122,7 +165,17 @@ def synth_vowel(
         # Phase from the integral of instantaneous frequency.
         phase = 2.0 * np.pi * np.cumsum(f0 * k) / sample_rate
         phase += rng.uniform(0, 2 * np.pi)      # random start phase, as a real voice has
-        audio += amp * np.sin(phase)
+
+        if steps is not None:
+            trajectory = np.array([
+                formant_envelope_db(np.array([harmonic_hz]), formants_at(p),
+                                    tilt_db_per_octave,
+                                    antiformants=antiformants)[0] for p in steps])
+            if amp_jitter_db > 0.0:
+                trajectory += (amp_db - trajectory[len(steps) // 2])
+            audio += 10.0 ** (np.interp(t / t[-1], steps, trajectory) / 20.0) * np.sin(phase)
+        else:
+            audio += amp * np.sin(phase)
 
         true_freqs.append(harmonic_hz)
         true_amps_db.append(amp_db)
@@ -138,7 +191,8 @@ def synth_vowel(
         noise = rng.normal(0.0, 1.0, n)
         spectrum = np.fft.rfft(noise)
         freqs = np.fft.rfftfreq(n, 1.0 / sample_rate)
-        shape_db = formant_envelope_db(freqs, formants, tilt_db_per_octave)
+        shape_db = formant_envelope_db(freqs, formants_at(0.5), tilt_db_per_octave,
+                                       antiformants=antiformants)
         spectrum *= 10.0 ** (shape_db / 20.0)
         shaped = np.fft.irfft(spectrum, n)
         shaped /= (np.max(np.abs(shaped)) or 1.0)
@@ -172,6 +226,8 @@ def synth_vowel(
         "tremolo_db": float(tremolo_db),
         "breath_db": float(breath_db),
         "amp_jitter_db": float(amp_jitter_db),
+        "antiformants": antiformants or [],
+        "formant_drift": float(formant_drift),
         "sample_rate": int(sample_rate),
         "attack_s": float(attack_s),
         "release_s": float(release_s),
@@ -181,6 +237,7 @@ def synth_vowel(
         # makes it possible to score envelope estimates BETWEEN the harmonics —
         # the region that determines down-transposition quality.
         "envelope_db_at": lambda f: formant_envelope_db(
-            np.asarray(f, dtype=float), formants, tilt_db_per_octave),
+            np.asarray(f, dtype=float), formants_at(0.5), tilt_db_per_octave,
+            antiformants=antiformants),
     }
     return audio.astype(np.float32), truth

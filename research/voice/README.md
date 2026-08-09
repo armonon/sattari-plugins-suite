@@ -19,12 +19,19 @@ DSP questions are answered here and the C++ port follows, the same way
     tests/exp1_*.py   envelope shootout — which method survives transposition
     tests/exp2_*.py   round trip + the transposition claim, against resampling
     tests/exp3_*.py   transposition range sweep, -24 to +24 semitones
+    tests/exp4_*.py   nasality + moving tract: where the assumption breaks
 
-## Chosen envelope method: LPC
+## Chosen envelope method: LPC — with one caveat
 
 Adaptive order (2/3 of the available harmonics) and pre-emphasis 0.5. Both of
 those numbers came out of Experiment 1 and neither is the textbook value; see
 `lpc_order_for()` for the sweep that forced the change.
+
+Experiment 4 qualifies this: LPC is all-pole, and nasality adds a ZERO. On a
+heavily nasal vowel LPC degrades most of the four (+1.16 dB) while the methods
+that assume no pole structure barely move (+0.15 to +0.45), and PeakInterp ends
+up ahead. LPC still wins overall, but "best on clean vowels" and "best on nasal
+ones" are not the same method — a per-voice choice is a real option later.
 
 ## Playable range
 
@@ -45,6 +52,10 @@ Octave down, envelope distance from the source throat: **0.12 dB** through the
 model, **8.92 dB** through naive resampling. Octave up is 3.38 dB — worse, and
 honestly so: at 330 Hz the harmonics are 330 Hz apart and the envelope is
 sampled half as often.
+
+Nasality and a moving tract are now tested (Experiment 4) and the failures are
+graceful: a tract sliding 50% across the note drops confidence to `estimated`
+and raises a warning naming the drift in dB.
 
 Everything so far is synthetic. The synthetic vowels obey the same source-filter
 decomposition the analyzer assumes, so they test the ANALYSIS, not the

@@ -323,8 +323,13 @@ def estimate_envelope(audio: np.ndarray, sr: int, pitch: PitchTrack,
     # Frame-to-frame disagreement is the honest confidence signal: an envelope
     # that reads the same every frame is measured, one that jumps is not.
     spread = float(np.median(np.std(stacked, axis=0)))
-    result.confidence = (Confidence.DETECTED if spread < 3.0
-                         else Confidence.ESTIMATED if spread < 8.0
+    # TIGHTENED FROM 3.0/8.0. Those thresholds let a tract sliding 50% across
+    # the note report DETECTED with 2.1 dB of frame-to-frame spread — the signal
+    # was being measured correctly and then thrown away by a bar set too low to
+    # trip. A steady vowel reads 0.0-0.3 dB here, so anything past 1 dB is the
+    # spectrum genuinely moving and the caller deserves to hear about it.
+    result.confidence = (Confidence.DETECTED if spread < 1.0
+                         else Confidence.ESTIMATED if spread < 4.0
                          else Confidence.LOW)
     result.notes = f"{len(frames)} frames, median frame spread {spread:.1f} dB"
     return result

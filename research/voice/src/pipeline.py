@@ -39,27 +39,44 @@ def _noise_model(audio, sr, pitch, start_s, end_s, f0_hz, envelope) -> NoiseMode
     if b - a < 4096 or f0_hz <= 0:
         return noise
 
-    n_fft = 4096
-    segment = audio[a:a + n_fft] * np.hanning(n_fft)
-    mag = np.abs(np.fft.rfft(segment))
+    # SHORT WINDOWS AT EACH FRAME'S OWN F0, not one long window at the median.
+    # A single 4096-sample window is 85 ms and a vibrato'd note sweeps right
+    # through it, smearing every harmonic into the bins that are supposed to
+    # hold only breath. That counted the singer's own harmonics as noise and
+    # reported HNR -2.6 dB for a vowel with a -20 dB breath floor — noise
+    # louder than voice, which was never true. Same failure the harmonic
+    # extractor had, in a different stage.
+    n_fft = 2048
+    pitch_times = np.asarray(pitch.times_s)
+    pitch_hz = np.asarray(pitch.frequency_hz)
     hz = np.fft.rfftfreq(n_fft, 1.0 / sr)
-    mag_db = 20.0 * np.log10(np.maximum(mag, 1e-12))
+    window = np.hanning(n_fft)
 
-    # Bins within a quarter-harmonic of a multiple of f0 are "at a harmonic";
-    # the rest are the floor between them.
-    nearest = np.round(hz / f0_hz)
-    distance = np.abs(hz - nearest * f0_hz)
-    at_harmonic = (distance < f0_hz * 0.25) & (nearest >= 1)
-    between = (~at_harmonic) & (hz > f0_hz) & (hz < sr * 0.45)
-    if not np.any(between) or not np.any(at_harmonic):
+    ratios, floors, shapes = [], [], []
+    for pos in range(a, b - n_fft, max(1, int(0.02 * sr))):
+        frame_f0 = (float(np.interp((pos + n_fft * 0.5) / sr, pitch_times, pitch_hz))
+                    if pitch_times.size > 1 else f0_hz)
+        if frame_f0 <= 0:
+            continue
+        mag_db = 20.0 * np.log10(np.maximum(
+            np.abs(np.fft.rfft(audio[pos:pos + n_fft] * window)), 1e-12))
+
+        nearest = np.round(hz / frame_f0)
+        at_harmonic = (np.abs(hz - nearest * frame_f0) < frame_f0 * 0.25) & (nearest >= 1)
+        between = (~at_harmonic) & (hz > frame_f0) & (hz < sr * 0.45)
+        if not np.any(between) or not np.any(at_harmonic):
+            continue
+        ratios.append(float(np.median(mag_db[at_harmonic]) - np.median(mag_db[between])))
+        floors.append(float(np.median(mag_db[between])))
+        shapes.append(np.interp(DEFAULT_FREQS, hz[between], mag_db[between]))
+
+    if not ratios:
         return noise
 
-    noise.harmonic_to_noise_db = float(np.median(mag_db[at_harmonic])
-                                       - np.median(mag_db[between]))
-    noise.overall_level_db = float(np.median(mag_db[between]))
-    grid = DEFAULT_FREQS
-    noise.frequency_hz = grid.tolist()
-    noise.magnitude_db = np.interp(grid, hz[between], mag_db[between]).tolist()
+    noise.harmonic_to_noise_db = float(np.median(ratios))
+    noise.overall_level_db = float(np.median(floors))
+    noise.frequency_hz = DEFAULT_FREQS.tolist()
+    noise.magnitude_db = np.median(np.stack(shapes), axis=0).tolist()
     noise.confidence = (Confidence.DETECTED if noise.harmonic_to_noise_db > 3.0
                         else Confidence.LOW)
     return noise
@@ -200,7 +217,35 @@ def analyse_voice(audio: np.ndarray, sr: int, filename: str = "",
         if lfo:
             m.lfos.append(lfo)
 
+    # --- did the tract MOVE during the "stable" region? ---
+    #
+    # The region finder cannot see this. Flux is a frame-to-frame difference, so
+    # a tract sliding slowly across three seconds produces almost none per frame
+    # and the onset sets the threshold anyway. Measured: formants drifting 50%
+    # across the note still yielded a 2.85s "stable" region, against 2.90s for a
+    # perfectly steady one. The drift is only visible CUMULATIVELY.
+    #
+    # Comparing an envelope from the first third against one from the last third
+    # measures exactly that, using machinery already here.
+    third = (b_s - a_s) / 3.0
+    if third > 0.15:
+        head = estimate_envelope(audio, sr, m.pitch, a_s, a_s + third,
+                                 envelope_method, harmonics=m.harmonics)
+        tail = estimate_envelope(audio, sr, m.pitch, b_s - third, b_s,
+                                 envelope_method, harmonics=m.harmonics)
+        if head.magnitude_db and tail.magnitude_db:
+            h = np.asarray(head.magnitude_db)
+            t = np.asarray(tail.magnitude_db)
+            drift_db = float(np.mean(np.abs((h - np.median(h)) - (t - np.median(t)))))
+            m.stable_region.reason += f"; tract drift {drift_db:.1f} dB"
+            if drift_db > 1.5:
+                m.warn(f"the vocal tract moved {drift_db:.1f} dB across the "
+                       "region; a static model can only describe one instant of it")
+                if m.stable_region.confidence == Confidence.DETECTED:
+                    m.stable_region.confidence = Confidence.ESTIMATED
+
     weakest = min(m.envelope.confidence, m.pitch.overall_confidence,
+                  m.stable_region.confidence,
                   key=lambda c: list(Confidence).index(c))
     m.analysis_confidence = weakest
     if m.harmonics.reliable_up_to_hz < 3000.0:
