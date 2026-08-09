@@ -441,6 +441,38 @@ void SattariGlassChoirAudioProcessor::processBlock (juce::AudioBuffer<float>& bu
     // Engine quality: Live(PSOLA)=0, Studio(RB)=1. RB voices capped: 8 only in Studio.
     const bool  useRb    = ((int) std::lround (param ("engineQuality")) == 1);
 
+    // Hosts should call prepareToPlay again before increasing their block size,
+    // but some do not. Never index or feed a pitch engine past its prepared
+    // capacity; emit a safe, gain-matched dry block instead.
+    if (n > preparedBlockSize)
+    {
+        const float fallbackGain = inGain * outGain;
+        float peak = 0.0f;
+        // Walk outputs backwards so a mono input aliased to output channel 0 is
+        // copied to channel 1 before channel 0 is gain-scaled in place.
+        for (int ch = leadCh - 1; ch >= 0; --ch)
+        {
+            const int srcCh = juce::jmin (ch, juce::jmax (0, inCh - 1));
+            const float* src = inCh > 0 ? inBus.getReadPointer (srcCh) : nullptr;
+            float* dst = leadBus.getWritePointer (ch);
+            for (int i = 0; i < n; ++i)
+            {
+                dst[i] = src != nullptr ? src[i] * fallbackGain : 0.0f;
+                peak = juce::jmax (peak, std::abs (dst[i]));
+            }
+        }
+        for (int b = 1; b < getBusCount (false); ++b)
+            if (auto* bus = getBus (false, b); bus && bus->isEnabled())
+                getBusBuffer (buffer, false, b).clear();
+        const auto peakDbNow = juce::Decibels::gainToDecibels (peak, -100.0f);
+        leadDb.store (peakDbNow, std::memory_order_relaxed);
+        choirDbAtomic.store (-100.0f, std::memory_order_relaxed);
+        atmosDb.store (-100.0f, std::memory_order_relaxed);
+        duckGr.store (1.0f, std::memory_order_relaxed);
+        charAtomic.store (param ("character"), std::memory_order_relaxed);
+        return;
+    }
+
     // Mono-sum the (input-gained) lead for pitch detection + shifting.
     for (int i = 0; i < n; ++i)
     {

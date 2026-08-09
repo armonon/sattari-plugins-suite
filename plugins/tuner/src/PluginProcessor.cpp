@@ -66,7 +66,7 @@ void SattariTunerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // Mono-sum into the preallocated scratch for detection (audio is untouched).
     if ((int) monoScratch.size() < n)
-        monoScratch.assign ((size_t) n, 0.0f);
+        return;
     for (int i = 0; i < n; ++i)
     {
         float s = 0.0f;

@@ -1,12 +1,13 @@
 #pragma once
 
-// SattariFxRack — a first-class FX-rack panel for the Master Control Band (it takes
-// the crossfader's slot). Pick a chain (deck / mic / master), add Sattari-suite FX
-// with "+ FX", and each loaded plugin gets a row with an [edit] (opens its editor
-// window) and [x] (remove). The host supplies the data + actions via callbacks.
+// SattariFxRack — the performance-safe insert router. Effects are always added to an
+// explicit destination (master, channel/input, or an individual stem), and the full
+// signal path remains visible while the rack is edited. The host supplies the target
+// menu and insert actions via callbacks.
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "DesignTokens.h"
+#include "FxTargetModel.h"
 #include <vector>
 #include <functional>
 
@@ -16,6 +17,8 @@ namespace stemdeck
 class SattariFxRack : public juce::Component
 {
 public:
+    using TargetKind = FxTargetModel::Kind;
+
     // Host wiring.
     std::function<int()>              getPluginCount;   // for the selected chain
     std::function<juce::String (int)> getPluginName;
@@ -25,33 +28,39 @@ public:
     std::function<bool (int)>         isBypassed;      // per-insert bypass state
     std::function<void (int)>         onToggleBypass;
     std::function<void (int,int)>     onReorder;       // drag an insert to a new position
+    // Called by the MASTER / CHANNEL / STEM chips and the current-target button.
+    // A negative kind requests the complete target menu.
+    std::function<void (int)>         onChooseTarget;
 
-    // Scope selector. The reference (§5) shows master / channel / per-STEM scopes; the
-    // engine has master, deckA-D and mic chains only, so only those are offered. A
-    // per-stem scope needs stem-level plugin chains in HostGraph, which do not exist.
-    // Segment labels and the CHAIN each one targets. These are not the same numbering:
-    // the engine has 22 chains, and the selector only ever offers the handful that are
-    // in context (master, the focused deck, that deck's four stems).
-    void setScopes (juce::StringArray names, juce::Array<int> chainIndices)
+    // Target labels, chains, and kinds use matching indices. The selected CHAIN is
+    // preserved when the channel list is rebuilt, so focusing another deck never
+    // silently moves a user's effect destination.
+    void setTargets (juce::StringArray names, juce::Array<int> chainIndices,
+                     juce::Array<int> targetKinds)
     {
-        scopes = std::move (names);
-        scopeChains = std::move (chainIndices);
-        scope = juce::jlimit (0, juce::jmax (0, scopes.size() - 1), scope);
+        targetModel.setTargets (std::move (names), std::move (chainIndices),
+                                std::move (targetKinds));
         repaint();
     }
-    int  currentScope() const noexcept { return scope; }
-    void setScope (int i) { scope = juce::jlimit (0, juce::jmax (0, scopes.size() - 1), i); repaint(); }
+    int currentTarget() const noexcept { return targetModel.currentIndex(); }
+    bool selectChain (int chainIndex)
+    {
+        if (! targetModel.selectChain (chainIndex)) return false;
+        repaint();
+        if (onChainChanged) onChainChanged();
+        return true;
+    }
+    TargetKind currentTargetKind() const noexcept { return targetModel.currentKind(); }
+    juce::String currentTargetName() const { return targetModel.currentName(); }
 
     SattariFxRack()
     {
-        // The chain combo and "+ FX" button are gone: the scope is now a painted
-        // segmented control in the header, and adding is the always-present "add FX"
-        // slot at the end of the rail. Leaving them as children drew a stray combo box
-        // over the new header.
+        // The destination chips, breadcrumb and add slot are painted together so the
+        // action always reads in signal-flow order: WHERE -> WHAT -> INSERT ORDER.
     }
 
     int currentChainIndex() const
-    { return juce::isPositiveAndBelow (scope, scopeChains.size()) ? scopeChains[scope] : 0; }
+    { return targetModel.currentChain(); }
     void setStatus (juce::String s) { status = std::move (s); repaint(); }
 
     // Everything is painted, so there are no child bounds to assign. Hit regions are
@@ -60,6 +69,7 @@ public:
 
     // Anchor for the add-FX popup menu; the slot is painted, not a component.
     juce::Rectangle<int> addSlotBounds() const noexcept { return addRect; }
+    juce::Rectangle<int> targetPickerBounds() const noexcept { return targetRect; }
 
     void paint (juce::Graphics& g) override
     {
@@ -73,41 +83,47 @@ public:
 
         auto body = full.reduced (T::gap7);
 
-        // ── Header: label + scope segmented control ──
-        auto header = body.removeFromTop (22);
+        // ── Header: routing class + explicit destination breadcrumb ──
+        auto header = body.removeFromTop (24);
         g.setColour (T::c (T::fgTertiary));
         g.setFont (juce::FontOptions (T::tSmall, juce::Font::bold).withKerningFactor (0.06f));
-        auto labelR = header.removeFromLeft (68);
-        g.drawText ("SATTARI FX", labelR, juce::Justification::centredLeft);
-        header.removeFromLeft (T::gap6);
+        auto labelR = header.removeFromLeft (58);
+        g.drawText ("FX ROUTE", labelR, juce::Justification::centredLeft);
+        header.removeFromLeft (T::gap4);
 
-        scopeRects.clear();
-        if (! scopes.isEmpty())
+        kindRects.clear();
+        static const char* const kindNames[] = { "MASTER", "CHANNEL", "STEM" };
+        const int currentKind = (int) currentTargetKind();
+        for (int i = 0; i < 3; ++i)
         {
-            int wanted = 0;
-            g.setFont (juce::FontOptions (T::tSmall));
-            for (const auto& n : scopes)
-                wanted += (int) std::ceil (g.getCurrentFont().getStringWidthFloat (n)) + 22;
-
-            auto track = header.removeFromLeft (juce::jmin (wanted + 2 * T::gap2, header.getWidth()));
-            g.setColour (T::c (T::bgWell2));
-            g.fillRoundedRectangle (track.toFloat(), 7.0f);
-
-            auto seg = track.reduced (T::gap2);
-            for (int i = 0; i < scopes.size() && seg.getWidth() > 0; ++i)
+            const int w = i == 1 ? 64 : 52;
+            auto cell = header.removeFromLeft (juce::jmin (w, header.getWidth()));
+            kindRects.push_back ({ i, cell });
+            if (i == currentKind)
             {
-                const int w = juce::jmin (seg.getWidth(),
-                    (int) std::ceil (g.getCurrentFont().getStringWidthFloat (scopes[i])) + 22);
-                auto cell = seg.removeFromLeft (w);
-                scopeRects.push_back ({ i, cell });
-                if (i == scope)
-                {
-                    g.setColour (T::c (T::bgControl));
-                    g.fillRoundedRectangle (cell.toFloat(), T::radiusInner);
-                }
-                g.setColour (T::c (i == scope ? T::fgPrimary : T::fgTertiary));
-                g.drawText (scopes[i], cell, juce::Justification::centred);
+                g.setColour (accent.withAlpha (0.18f));
+                g.fillRoundedRectangle (cell.toFloat(), T::radiusPill);
             }
+            g.setColour (i == currentKind ? accent : T::c (T::fgMuted));
+            g.setFont (juce::FontOptions (T::tCaption, juce::Font::bold));
+            g.drawText (kindNames[i], cell, juce::Justification::centred);
+            header.removeFromLeft (T::gap2);
+        }
+
+        header.removeFromLeft (T::gap4);
+        targetRect = header;
+        if (! targetRect.isEmpty())
+        {
+            g.setColour (T::c (T::bgControl));
+            g.fillRoundedRectangle (targetRect.toFloat(), T::radiusPill);
+            g.setColour (T::c (T::borderSubtle).brighter (0.18f));
+            g.drawRoundedRectangle (targetRect.toFloat().reduced (0.5f), T::radiusPill, 1.0f);
+            g.setColour (T::c (T::fgPrimary));
+            g.setFont (juce::FontOptions (T::tSmall, juce::Font::bold));
+            g.drawFittedText (currentTargetName() + "  "
+                                  + juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe")),
+                              targetRect.reduced (9, 0),
+                              juce::Justification::centredLeft, 1);
         }
 
         body.removeFromTop (T::gap5);
@@ -246,8 +262,9 @@ public:
         }
         dragFrom = -1;
 
-        for (const auto& [i, rect] : scopeRects)
-            if (rect.contains (p)) { setScope (i); if (onChainChanged) onChainChanged(); return; }
+        for (const auto& [i, rect] : kindRects)
+            if (rect.contains (p) && onChooseTarget) { onChooseTarget (i); return; }
+        if (targetRect.contains (p) && onChooseTarget) { onChooseTarget (-1); return; }
         for (const auto& [i, rect] : bypassRects) if (rect.contains (p) && onToggleBypass) { onToggleBypass (i); repaint(); return; }
         for (const auto& [i, rect] : editRects)   if (rect.contains (p) && onEdit)   { onEdit (i);   return; }
         for (const auto& [i, rect] : removeRects) if (rect.contains (p) && onRemove) { onRemove (i); return; }
@@ -258,11 +275,9 @@ public:
 
 private:
     juce::String status;
-    std::vector<std::pair<int, juce::Rectangle<int>>> editRects, removeRects, bypassRects, tileRects, scopeRects;
-    juce::Rectangle<int> addRect;
-    juce::StringArray scopes;
-    juce::Array<int> scopeChains;
-    int scope = 0;
+    std::vector<std::pair<int, juce::Rectangle<int>>> editRects, removeRects, bypassRects, tileRects, kindRects;
+    juce::Rectangle<int> addRect, targetRect;
+    FxTargetModel targetModel;
     int dragFrom = -1;
     juce::Colour accent { stemdeck::tokens::deckA };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariFxRack)

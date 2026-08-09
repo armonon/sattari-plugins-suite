@@ -77,7 +77,9 @@ void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File
     clips[(size_t) masterLane].assign (1, LaneClip { masterAudio, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
     if (masterThumb != nullptr)
         loadThumbnail (*masterThumb, masterFile);
-    selectedLane = -1;
+    // Keep the contextual inspector useful as soon as a take opens. The user
+    // can still click the canvas to clear the selection afterwards.
+    selectedLane = 0;
     selectedClip = -1;
     activeDrag = {};
     undoStack.clear();
@@ -399,7 +401,11 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
     }
 
     if (highestUsedLane >= 0)
+    {
         setVisibleLanes (highestUsedLane + 1);
+        selectedLane = 0;
+        selectedClip = -1;
+    }
     repaint();
     return highestUsedLane >= 0 || ! clips[(size_t) masterLane].empty();
 }
@@ -474,7 +480,7 @@ MainPluginEditor::ArrangementRecorderView::hitTestAt (juce::Point<int> p) const
             return h;
         }
 
-        const int labelWidth = 118;
+        const int labelWidth = trackHeaderWidth;
         auto track = laneRect.withTrimmedLeft (labelWidth).reduced (4, 3);
         auto timeToX = [&] (double t) -> int { return timeToXIn (track, t); };
         const int edgeBand = 8;
@@ -540,7 +546,7 @@ double MainPluginEditor::ArrangementRecorderView::timeAtX (int laneIndex, int x)
     const double maxLen = computeMaxLengthSeconds();
     if (maxLen <= 0.0 || ! juce::isPositiveAndBelow (laneIndex, numEditableLanes))
         return 0.0;
-    const int labelWidth = 118;
+    const int labelWidth = trackHeaderWidth;
     const auto track = laneRects[(size_t) laneIndex].withTrimmedLeft (labelWidth).reduced (4, 3);
     if (track.getWidth() <= 0) return 0.0;
     return juce::jlimit (0.0, maxLen, xToTimeIn (track, x));
@@ -573,6 +579,96 @@ float MainPluginEditor::ArrangementRecorderView::automationValueAt (int lane, do
 
 void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEvent& e)
 {
+    // Pulsebox-style editing rail. Every action maps to an existing native edit
+    // operation, so the rail is a faster entry point rather than parallel state.
+    for (int toolIndex = 0; toolIndex < (int) toolRailButtonRects.size(); ++toolIndex)
+    {
+        if (! toolRailButtonRects[(size_t) toolIndex].contains (e.getPosition()))
+            continue;
+        if (toolIndex == 0)
+        {
+            razorMode = false;
+            for (int i = 0; i < numLanes; ++i) editAuto[(size_t) i].visible = false;
+        }
+        else if (toolIndex == 1)
+        {
+            razorMode = true;
+            for (int i = 0; i < numLanes; ++i) editAuto[(size_t) i].visible = false;
+        }
+        else if (toolIndex == 2)
+        {
+            razorMode = false;
+            if (juce::isPositiveAndBelow (selectedLane, numLanes))
+                editAuto[(size_t) selectedLane].visible = ! editAuto[(size_t) selectedLane].visible;
+            else
+            {
+                bool anyVisible = false;
+                for (int i = 0; i < visibleLanes; ++i)
+                    anyVisible = anyVisible || editAuto[(size_t) i].visible;
+                for (int i = 0; i < visibleLanes; ++i)
+                    editAuto[(size_t) i].visible = ! anyVisible;
+            }
+        }
+        else if (toolIndex == 3)
+        {
+            if (juce::isPositiveAndBelow (selectedLane, numEditableLanes)
+                && juce::isPositiveAndBelow (selectedClip, (int) clips[(size_t) selectedLane].size()))
+                duplicateClip (selectedLane, selectedClip);
+        }
+        else if (toolIndex == 4)
+        {
+            if (juce::isPositiveAndBelow (selectedLane, numEditableLanes)
+                && juce::isPositiveAndBelow (selectedClip, (int) clips[(size_t) selectedLane].size()))
+                setClipLocked (selectedLane, selectedClip,
+                               ! clips[(size_t) selectedLane][(size_t) selectedClip].locked);
+        }
+        repaint();
+        return;
+    }
+
+    if (inspectorMixTabRect.contains (e.getPosition()))
+    {
+        inspectorShowsFx = false;
+        repaint();
+        return;
+    }
+    if (inspectorFxTabRect.contains (e.getPosition()))
+    {
+        inspectorShowsFx = true;
+        repaint();
+        return;
+    }
+    if (juce::isPositiveAndBelow (selectedLane, numEditableLanes))
+    {
+        if (inspectorMuteRect.contains (e.getPosition()))
+        {
+            toggleLaneMute (selectedLane);
+            return;
+        }
+        if (inspectorSoloRect.contains (e.getPosition()))
+        {
+            toggleLaneSolo (selectedLane);
+            return;
+        }
+        if (inspectorAutomationRect.contains (e.getPosition()) && selectedLane < numLanes)
+        {
+            editAuto[(size_t) selectedLane].visible = ! editAuto[(size_t) selectedLane].visible;
+            repaint();
+            return;
+        }
+        if (inspectorGainTrackRect.expanded (14, 5).contains (e.getPosition()))
+        {
+            draggingInspectorGain = true;
+            const float norm = juce::jlimit (0.0f, 1.0f,
+                (float) (inspectorGainTrackRect.getBottom() - e.getPosition().y)
+                    / (float) juce::jmax (1, inspectorGainTrackRect.getHeight()));
+            laneGainDb[(size_t) selectedLane] = -60.0f + 66.0f * norm;
+            if (onLaneMixChanged) onLaneMixChanged();
+            repaint();
+            return;
+        }
+    }
+
     if (scrollThumbBounds.contains (e.getPosition()) || scrollTrackBounds.contains (e.getPosition()))
     {
         draggingScrollBar = true;
@@ -615,13 +711,27 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         }
     }
 
+    for (int i = 0; i < numEditableLanes; ++i)
+    {
+        if (! gainSliderRects[(size_t) i].contains (e.getPosition()))
+            continue;
+        dragGainLane = i;
+        const auto r = gainSliderRects[(size_t) i];
+        const float n = juce::jlimit (0.0f, 1.0f,
+            (float) (e.getPosition().x - r.getX()) / (float) juce::jmax (1, r.getWidth()));
+        laneGainDb[(size_t) i] = -60.0f + 66.0f * n;
+        if (onLaneMixChanged) onLaneMixChanged();
+        repaint();
+        return;
+    }
+
     // Automation editing takes over a lane while its curve is visible: click adds
     // a point, dragging an existing point moves it, right-click deletes it.
     for (int i = 0; i < numLanes; ++i)
     {
         auto& a = editAuto[(size_t) i];
         if (! a.visible) continue;
-        const int labelWidth = 118;
+        const int labelWidth = trackHeaderWidth;
         const auto track = laneRects[(size_t) i].withTrimmedLeft (labelWidth).reduced (4, 3);
         if (! track.contains (e.getPosition())) continue;
 
@@ -835,7 +945,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         && clips[(size_t) hit.lane][(size_t) hit.clip].locked)
     {
         const auto& clip = clips[(size_t) hit.lane][(size_t) hit.clip];
-        const auto track = laneRects[(size_t) hit.lane].withTrimmedLeft (118).reduced (4, 3);
+        const auto track = laneRects[(size_t) hit.lane].withTrimmedLeft (trackHeaderWidth).reduced (4, 3);
         const int clipX1 = timeToXIn (track, clip.timelineEndSeconds());
         const juce::Rectangle<int> badgeZone (clipX1 - 20, track.getY(), 20, 16);
         if (badgeZone.contains (e.getPosition()))
@@ -890,13 +1000,41 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEvent& e)
 {
+    if (draggingInspectorGain && juce::isPositiveAndBelow (selectedLane, numEditableLanes))
+    {
+        const float norm = juce::jlimit (0.0f, 1.0f,
+            (float) (inspectorGainTrackRect.getBottom() - e.getPosition().y)
+                / (float) juce::jmax (1, inspectorGainTrackRect.getHeight()));
+        laneGainDb[(size_t) selectedLane] = -60.0f + 66.0f * norm;
+        dragReadout = (selectedLane == masterLane ? juce::String ("Master")
+                                                  : laneDisplayNames[(size_t) selectedLane])
+                    + " gain: " + juce::String (laneGainDb[(size_t) selectedLane], 1) + " dB";
+        if (onLaneMixChanged) onLaneMixChanged();
+        repaint();
+        return;
+    }
+
+    if (dragGainLane >= 0 && juce::isPositiveAndBelow (dragGainLane, numEditableLanes))
+    {
+        const auto r = gainSliderRects[(size_t) dragGainLane];
+        const float n = juce::jlimit (0.0f, 1.0f,
+            (float) (e.getPosition().x - r.getX()) / (float) juce::jmax (1, r.getWidth()));
+        laneGainDb[(size_t) dragGainLane] = -60.0f + 66.0f * n;
+        dragReadout = (dragGainLane == masterLane ? juce::String ("Master")
+                                                   : laneDisplayNames[(size_t) dragGainLane])
+                    + " gain: " + juce::String (laneGainDb[(size_t) dragGainLane], 1) + " dB";
+        if (onLaneMixChanged) onLaneMixChanged();
+        repaint();
+        return;
+    }
+
     // Automation point drag: clamp between neighbouring points so order holds.
     if (dragAutoLane >= 0 && juce::isPositiveAndBelow (dragAutoLane, numLanes))
     {
         auto& a = editAuto[(size_t) dragAutoLane];
         if (juce::isPositiveAndBelow (dragAutoPointIdx, (int) a.points.size()))
         {
-            const int labelWidth = 118;
+            const int labelWidth = trackHeaderWidth;
             const auto track = laneRects[(size_t) dragAutoLane].withTrimmedLeft (labelWidth).reduced (4, 3);
             double t = timeAtX (dragAutoLane, e.getPosition().x);
             const double lo = dragAutoPointIdx > 0 ? a.points[(size_t) (dragAutoPointIdx - 1)].first + 0.01 : 0.0;
@@ -914,9 +1052,8 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
     if (activeMidiDrag.valid())
     {
-        // Same label-column width as hit-test/paint (118) — a mismatched 90 here
-        // made dragged MIDI clips drift ~15% against the cursor.
-        const int trackW = juce::jmax (1, laneRects[(size_t) activeMidiDrag.lane].getWidth() - 118 - 8);
+        // Keep MIDI movement locked to the same track geometry used by paint/hit-test.
+        const int trackW = juce::jmax (1, laneRects[(size_t) activeMidiDrag.lane].getWidth() - trackHeaderWidth - 8);
         const double secondsPerPixel = visibleSeconds() / (double) trackW;
         const double newStart = juce::jmax (0.0, snapTime (dragStartMidiStart
                                               + (double) (e.getPosition().x - dragStartPoint.x) * secondsPerPixel));
@@ -999,7 +1136,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
     }
 
     const auto laneRect = laneRects[(size_t) laneIdx];
-    const int labelWidth = 118;
+    const int labelWidth = trackHeaderWidth;
     const int trackWidth = juce::jmax (1, laneRect.getWidth() - labelWidth - 8);
     const double secondsPerPixel = visibleSeconds() / (double) trackWidth;
     const double delta = (double) (e.getPosition().x - dragStartPoint.x) * secondsPerPixel;
@@ -1054,6 +1191,22 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
 
 void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent& e)
 {
+    if (draggingInspectorGain)
+    {
+        draggingInspectorGain = false;
+        dragReadout.clear();
+        repaint();
+        return;
+    }
+
+    if (dragGainLane >= 0)
+    {
+        dragGainLane = -1;
+        dragReadout.clear();
+        repaint();
+        return;
+    }
+
     if (dragAutoLane >= 0)
     {
         // Automation edit finished — push the pre-edit snapshot so it is undoable
@@ -1483,7 +1636,8 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
     mode = anyClip ? Mode::Finished : Mode::Idle;
     undoStack.clear();
     redoStack.clear();
-    selectedLane = selectedClip = -1;
+    selectedLane = anyClip ? 0 : -1;
+    selectedClip = -1;
     repaint();
 }
 
@@ -1539,7 +1693,7 @@ MainPluginEditor::ArrangementRecorderView::midiClipAt (juce::Point<int> p) const
     if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return {};
     const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
     const double spb = 60.0 / bpm;
-    const int labelWidth = 118;
+    const int labelWidth = trackHeaderWidth;
     const auto track = laneRects[(size_t) lane].withTrimmedLeft (labelWidth).reduced (4, 3);
     const auto& vec = midiClips[(size_t) lane];
     for (int ci = (int) vec.size() - 1; ci >= 0; --ci)   // topmost (last drawn) first
@@ -1556,12 +1710,30 @@ MainPluginEditor::ArrangementRecorderView::midiClipAt (juce::Point<int> p) const
 
 void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::MouseEvent& e)
 {
+    if (inspectorGainTrackRect.expanded (14, 5).contains (e.getPosition())
+        && juce::isPositiveAndBelow (selectedLane, numEditableLanes))
+    {
+        laneGainDb[(size_t) selectedLane] = 0.0f;
+        if (onLaneMixChanged) onLaneMixChanged();
+        repaint();
+        return;
+    }
+
+    for (int lane = 0; lane < numEditableLanes; ++lane)
+        if (gainSliderRects[(size_t) lane].contains (e.getPosition()))
+        {
+            laneGainDb[(size_t) lane] = 0.0f;
+            if (onLaneMixChanged) onLaneMixChanged();
+            repaint();
+            return;
+        }
+
     const auto ref = midiClipAt (e.getPosition());
     if (ref.valid()) { if (onEditMidiClip) onEditMidiClip (ref.lane, ref.clip); return; }
 
     const int lane = laneAtY (e.getPosition().y);   // double-click empty lane area → new MIDI clip there
     if (lane < 0) return;
-    const int labelWidth = 118;
+    const int labelWidth = trackHeaderWidth;
     const auto hit = hitTestAt (e.getPosition());
     if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
     {
@@ -1708,7 +1880,7 @@ void MainPluginEditor::ArrangementRecorderView::setPlaybackPosition (double seco
     const bool changed = active != playbackActive || std::abs (seconds - playbackPositionSeconds) > 0.02;
     playbackPositionSeconds = seconds;
     playbackActive = active;
-    if (active)   // follow: page the view so the playhead stays visible when zoomed in
+    if (active && followPlayback)   // page the view so the playhead stays visible when zoomed in
     {
         const double vis = visibleSeconds();
         if (seconds < viewStartSeconds || seconds > viewStartSeconds + vis * 0.98)
@@ -2065,7 +2237,7 @@ void MainPluginEditor::ArrangementRecorderView::setZoomAnchored (double newZoom,
 void MainPluginEditor::ArrangementRecorderView::mouseWheelMove (const juce::MouseEvent& e,
                                                                 const juce::MouseWheelDetails& wheel)
 {
-    const int labelWidth = 118;
+    const int labelWidth = trackHeaderWidth;
     auto track = laneRects[0].withTrimmedLeft (labelWidth).reduced (4, 3);
     if (track.getWidth() <= 0)
         track = getLocalBounds().withTrimmedLeft (labelWidth + 20).reduced (16, 12);
@@ -2099,10 +2271,11 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     using namespace sattari::brand;
     const auto bounds = getLocalBounds().toFloat();
 
-    // djay-Pro-style arrangement panel: OLED-cold deep navy.
-    const auto panelBase = juce::Colour (stemdeck::tokens::bgWell).darker (0.12f);
+    // Neutral, low-glare DAW canvas: dense enough for long sessions while the
+    // clips and performance state carry the colour.
+    const auto panelBase = juce::Colour (0xff17191d);
     g.setColour (panelBase);
-    g.fillRoundedRectangle (bounds, 10.0f);
+    g.fillRoundedRectangle (bounds, 7.0f);
 
     juce::Colour accent;
     juce::String modeLabel;
@@ -2113,17 +2286,131 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         case Mode::Idle:      accent = juce::Colour (kTextMuted);  modeLabel = "READY";       break;
     }
     g.setColour (accent.withAlpha (0.55f));
-    g.drawRoundedRectangle (bounds.reduced (0.75f), 10.0f, 1.0f);
+    g.drawRoundedRectangle (bounds.reduced (0.75f), 7.0f, 1.0f);
 
-    auto area = getLocalBounds().reduced (16, 12);
+    auto area = getLocalBounds().reduced (8, 7);
 
-    // Title row.
-    auto header = area.removeFromTop (22);
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    // Pulsebox's most useful structural idea is a stable tool rail plus a
+    // contextual inspector around one continuous timeline. Keep both adaptive:
+    // the timeline gets the full component on compact windows.
+    const bool showToolRail = getWidth() >= 760;
+    const bool showInspector = getWidth() >= 1320 && getHeight() >= 500;
+    toolRailBounds = showToolRail ? area.removeFromLeft (42) : juce::Rectangle<int>();
+    if (showToolRail) area.removeFromLeft (5);
+    inspectorBounds = showInspector ? area.removeFromRight (244) : juce::Rectangle<int>();
+    if (showInspector) area.removeFromRight (5);
+
+    if (! toolRailBounds.isEmpty())
+    {
+        g.setColour (juce::Colour (0xff10151b));
+        g.fillRoundedRectangle (toolRailBounds.toFloat(), 6.0f);
+        g.setColour (juce::Colour (kHairline).withAlpha (0.72f));
+        g.drawRoundedRectangle (toolRailBounds.toFloat().reduced (0.5f), 6.0f, 1.0f);
+
+        bool anyAutomation = false;
+        for (int i = 0; i < visibleLanes; ++i)
+            anyAutomation = anyAutomation || editAuto[(size_t) i].visible;
+        const std::array<bool, 5> active {{ ! razorMode && ! anyAutomation,
+                                            razorMode, anyAutomation, false, false }};
+        int y = toolRailBounds.getY() + 10;
+        for (int i = 0; i < 5; ++i)
+        {
+            if (i == 3) y += 10;
+            auto button = juce::Rectangle<int> (toolRailBounds.getX() + 4, y,
+                                                 toolRailBounds.getWidth() - 8, 34);
+            toolRailButtonRects[(size_t) i] = button;
+            if (active[(size_t) i])
+            {
+                g.setColour (juce::Colour (0xff28323d));
+                g.fillRoundedRectangle (button.toFloat(), 6.0f);
+                g.setColour (juce::Colour (kAccent));
+                g.fillRoundedRectangle ((float) button.getX(), (float) button.getY() + 4.0f,
+                                        2.0f, (float) button.getHeight() - 8.0f, 1.0f);
+            }
+
+            const auto icon = button.toFloat().reduced (9.0f);
+            g.setColour ((active[(size_t) i] ? juce::Colours::white
+                                             : juce::Colour (kTextMuted)).withAlpha (0.9f));
+            if (i == 0) // pointer/select
+            {
+                juce::Path p;
+                p.startNewSubPath (icon.getX() + 2.0f, icon.getY() + 1.0f);
+                p.lineTo (icon.getRight() - 2.0f, icon.getCentreY());
+                p.lineTo (icon.getCentreX(), icon.getBottom() - 1.0f);
+                p.closeSubPath();
+                g.strokePath (p, juce::PathStrokeType (1.7f));
+            }
+            else if (i == 1) // razor/scissors
+            {
+                g.drawEllipse (icon.getX(), icon.getY() + 1.0f, 5.0f, 5.0f, 1.4f);
+                g.drawEllipse (icon.getX(), icon.getBottom() - 6.0f, 5.0f, 5.0f, 1.4f);
+                g.drawLine (icon.getX() + 4.5f, icon.getY() + 4.0f,
+                            icon.getRight(), icon.getBottom() - 1.0f, 1.5f);
+                g.drawLine (icon.getX() + 4.5f, icon.getBottom() - 4.0f,
+                            icon.getRight(), icon.getY() + 1.0f, 1.5f);
+            }
+            else if (i == 2) // automation curve
+            {
+                juce::Path p;
+                p.startNewSubPath (icon.getX(), icon.getBottom() - 2.0f);
+                p.lineTo (icon.getCentreX(), icon.getY() + 3.0f);
+                p.lineTo (icon.getRight(), icon.getCentreY());
+                g.strokePath (p, juce::PathStrokeType (1.5f));
+                for (auto pt : { juce::Point<float> (icon.getX(), icon.getBottom() - 2.0f),
+                                 juce::Point<float> (icon.getCentreX(), icon.getY() + 3.0f),
+                                 juce::Point<float> (icon.getRight(), icon.getCentreY()) })
+                    g.fillEllipse (pt.x - 2.0f, pt.y - 2.0f, 4.0f, 4.0f);
+            }
+            else if (i == 3) // duplicate
+            {
+                g.drawRoundedRectangle (icon.translated (3.0f, -2.0f), 2.0f, 1.3f);
+                g.drawRoundedRectangle (icon.translated (-2.0f, 3.0f), 2.0f, 1.3f);
+            }
+            else // lock
+            {
+                auto body = icon.withTrimmedTop (icon.getHeight() * 0.42f);
+                g.drawRoundedRectangle (body, 2.0f, 1.4f);
+                juce::Path shackle;
+                shackle.addCentredArc (icon.getCentreX(), body.getY(), icon.getWidth() * 0.28f,
+                                       icon.getHeight() * 0.32f, 0.0f,
+                                       juce::MathConstants<float>::pi,
+                                       juce::MathConstants<float>::twoPi, true);
+                g.strokePath (shackle, juce::PathStrokeType (1.4f));
+            }
+            y += 40;
+        }
+    }
+    else
+        toolRailButtonRects.fill ({});
+
+    if (! inspectorBounds.isEmpty())
+    {
+        g.setColour (juce::Colour (stemdeck::tokens::bgPanel2));
+        g.fillRoundedRectangle (inspectorBounds.toFloat(), 6.0f);
+        g.setColour (juce::Colour (kHairline).withAlpha (0.78f));
+        g.drawRoundedRectangle (inspectorBounds.toFloat().reduced (0.5f), 6.0f, 1.0f);
+    }
+
+    // Project/context row. The transport lives above this component; this row
+    // answers the editing questions: where am I, how long is the take, and what
+    // state is the capture in?
+    auto header = area.removeFromTop (28);
+    auto titleBox = header.removeFromLeft (trackHeaderWidth);
+    g.setFont (stemdeck::tokens::section (14.5f));
     g.setColour (juce::Colour (kTextPrimary));
-    g.drawText ("Arrangement", header.removeFromLeft (200), juce::Justification::centredLeft);
+    g.drawText ("ARRANGEMENT VIEW", titleBox.reduced (10, 0), juce::Justification::centredLeft);
 
-    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    const double maxLen = computeMaxLengthSeconds();
+    const double projectBpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
+    const double projectBars = maxLen * projectBpm / 60.0 / 4.0;
+    auto metrics = header.removeFromRight (270);
+    g.setFont (stemdeck::tokens::numeric (9.5f, true));
+    g.setColour (juce::Colour (kTextMuted));
+    g.drawText (juce::String (projectBpm, 1) + " BPM    4/4    "
+                    + juce::String (juce::jmax (1, (int) std::ceil (projectBars))) + " BARS",
+                metrics, juce::Justification::centredRight);
+
+    g.setFont (stemdeck::tokens::technical (10.5f, true));
     g.setColour (accent.withAlpha (0.95f));
     if (mode == Mode::Recording)
     {
@@ -2131,27 +2418,31 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         const auto blink = ((juce::Time::currentTimeMillis() / 500) % 2) == 0;
         const juce::String dot = blink ? juce::String (juce::CharPointer_UTF8 ("\xe2\x97\x8f ")) : juce::String ("  ");
         g.drawText (dot + modeLabel + "  " + juce::String::formatted ("%02d:%02d", total / 60, total % 60),
-                    header, juce::Justification::centredRight);
+                    header.reduced (8, 0), juce::Justification::centredLeft);
     }
     else
     {
-        g.drawText (modeLabel, header, juce::Justification::centredRight);
+        g.drawText (modeLabel, header.reduced (8, 0), juce::Justification::centredLeft);
     }
-    area.removeFromTop (8);
+    area.removeFromTop (3);
 
-    const double maxLen = computeMaxLengthSeconds();
-    const bool hasAudio = mode == Mode::Finished && maxLen > 0.0;
-
-    const int labelWidth = 118;       // must match hitTestAt()
-    const int rulerHeight = 18;
-    const int statusHeight = 16;
+    const int labelWidth = trackHeaderWidth;
+    const int rulerHeight = 26;
+    const int statusHeight = 20;
 
     auto statusArea = area.removeFromBottom (statusHeight);
-    area.removeFromBottom (4);
+    area.removeFromBottom (3);
 
-    const int scrollBarH = 9;                       // horizontal scrollbar strip
+    // The wide contextual inspector owns clip/channel detail. Compact layouts
+    // retain the original bottom detail strip instead of squeezing the tracks.
+    const bool showDetailPanel = inspectorBounds.isEmpty() && getHeight() >= 430;
+    detailPanelBounds = showDetailPanel ? area.removeFromBottom (68) : juce::Rectangle<int>();
+    if (showDetailPanel)
+        area.removeFromBottom (4);
+
+    const int scrollBarH = 10;                       // horizontal scrollbar strip
     auto scrollStrip = area.removeFromBottom (scrollBarH);
-    area.removeFromBottom (4);
+    area.removeFromBottom (3);
 
     // Bar/beat math driven by snap BPM (default 120). Empty arrangement shows 8 empty bars.
     const double bpm = juce::jlimit (40.0, 240.0, snapBpm > 0.0 ? snapBpm : 120.0);
@@ -2166,29 +2457,36 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     timelineMapRect = mapRect;   // remembered for click-to-seek hit-testing
 
     auto ruler = area.removeFromTop (rulerHeight);
-    g.setColour (juce::Colour (kPanelDeep).darker (0.4f));   // FL timebar strip
+    g.setColour (juce::Colour (0xff202329));
     g.fillRect (ruler);
     auto rulerLabel = ruler.removeFromLeft (labelWidth);
     rulerBounds = ruler;   // timeline portion of the ruler — click here to seek
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     g.setColour (juce::Colour (kTextMuted));
-    g.drawText ("BARS", rulerLabel.reduced (8, 0), juce::Justification::centredLeft);
+    g.drawText ("TRACKS", rulerLabel.reduced (10, 0), juce::Justification::centredLeft);
 
     auto rulerTimeToX = [&] (double t) -> int { return timeToXIn (mapRect, t); };
 
     const int totalBars = juce::jmax (1, (int) std::ceil (rulerLen / secsPerBar));
+    // Only visit bars in the viewport. Long live recordings used to redraw the
+    // entire song grid once per track, even when the editor showed a tiny window.
+    const int firstVisibleBar = juce::jlimit (0, totalBars,
+        (int) std::floor (viewStartSeconds / secsPerBar) - 1);
+    const int lastVisibleBar = juce::jlimit (firstVisibleBar, totalBars,
+        (int) std::ceil ((viewStartSeconds + visibleSeconds()) / secsPerBar) + 1);
+    const int visibleBarCount = juce::jmax (1, lastVisibleBar - firstVisibleBar);
     int labelStep = 1;
-    if      (totalBars > 96) labelStep = 16;
-    else if (totalBars > 48) labelStep = 8;
-    else if (totalBars > 24) labelStep = 4;
-    else if (totalBars > 12) labelStep = 2;
+    if      (visibleBarCount > 96) labelStep = 16;
+    else if (visibleBarCount > 48) labelStep = 8;
+    else if (visibleBarCount > 24) labelStep = 4;
+    else if (visibleBarCount > 12) labelStep = 2;
 
     g.setColour (juce::Colour (kHairline));
     g.drawHorizontalLine (ruler.getBottom() - 1, (float) ruler.getX(), (float) ruler.getRight());
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     g.saveState();
     g.reduceClipRegion (ruler);
-    for (int bar = 0; bar <= totalBars; ++bar)
+    for (int bar = firstVisibleBar; bar <= lastVisibleBar; ++bar)
     {
         const double t = (double) bar * secsPerBar;
         if (t > rulerLen) break;
@@ -2236,42 +2534,77 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 
         const bool isSelected = (deckIndex >= 0 && deckIndex == selectedLane);
 
-        // Track header column (left).
+        // Fixed track controls, visually separated from the scrolling timeline.
         auto headerCell = lane.removeFromLeft (labelWidth);
-        g.setColour (juce::Colour (kPanelRaised));
+        g.setColour (isSelected ? juce::Colour (0xff30343b) : juce::Colour (0xff272a30));
         g.fillRect (headerCell);
-        g.setColour (colour);
-        g.fillRect (headerCell.removeFromLeft (3));
+        g.setColour (colour.withAlpha (isSelected ? 1.0f : 0.78f));
+        g.fillRect (headerCell.getX(), headerCell.getY(), 5, headerCell.getHeight());
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.drawHorizontalLine (headerCell.getBottom() - 1, (float) headerCell.getX(), (float) headerCell.getRight());
 
-        auto hc = headerCell.reduced (5, 1);
-        if (deckIndex >= 0 && deckIndex != masterLane && deckIndex < numEditableLanes)   // M/S on deck lanes
+        auto hc = headerCell.reduced (10, 4);
+        auto topLine = hc.removeFromTop (juce::jmin (22, hc.getHeight()));
+        auto numberBox = topLine.removeFromLeft (24);
+        g.setColour (colour.withAlpha (0.18f));
+        g.fillRoundedRectangle (numberBox.toFloat().reduced (1.0f), 3.0f);
+        g.setColour (colour.withAlpha (0.95f));
+        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        g.drawText (deckIndex == masterLane ? "M" : juce::String (deckIndex + 1),
+                    numberBox, juce::Justification::centred);
+
+        auto laneTitleBox = topLine.reduced (6, 0);
+        g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.96f : 0.42f));
+        g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+        g.drawText (title, laneTitleBox, juce::Justification::centredLeft, true);
+
+        auto drawTag = [&] (juce::Rectangle<int> r, const char* tag, bool on, juce::Colour onCol)
         {
-            auto sRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
-            hc.removeFromRight (3);
-            auto mRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
-            hc.removeFromRight (4);
+            g.setColour (on ? onCol.withAlpha (0.92f) : juce::Colour (0xff15171b));
+            g.fillRoundedRectangle (r.toFloat(), 3.0f);
+            g.setColour (on ? juce::Colours::black.withAlpha (0.88f) : juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawText (tag, r, juce::Justification::centred);
+        };
+
+        auto controls = hc.removeFromTop (juce::jmin (18, hc.getHeight()));
+        if (deckIndex >= 0 && deckIndex != masterLane && deckIndex < numEditableLanes)
+        {
+            auto mRect = controls.removeFromLeft (22).reduced (1, 1);
+            auto sRect = controls.removeFromLeft (22).reduced (1, 1);
+            auto aRect = controls.removeFromLeft (22).reduced (1, 1);
             muteBtnRects[(size_t) deckIndex] = mRect;
             soloBtnRects[(size_t) deckIndex] = sRect;
-            auto drawTag = [&] (juce::Rectangle<int> r, const char* tag, bool on, juce::Colour onCol)
-            {
-                g.setColour (on ? onCol.withAlpha (0.9f) : juce::Colour (kPanelDeep).withAlpha (0.85f));
-                g.fillRoundedRectangle (r.toFloat(), 2.5f);
-                g.setColour (on ? juce::Colours::black.withAlpha (0.85f) : juce::Colour (kTextMuted));
-                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-                g.drawText (tag, r, juce::Justification::centred);
-            };
+            autoBtnRects[(size_t) deckIndex] = aRect;
             drawTag (mRect, "M", laneMuted[(size_t) deckIndex], juce::Colour (kDanger));
             drawTag (sRect, "S", laneSoloed[(size_t) deckIndex], juce::Colour (kAccent));
-
-            // "A" toggles the lane's editable automation curve.
-            auto aRect = hc.removeFromRight (16).withSizeKeepingCentre (16, juce::jmin (hc.getHeight(), 14));
-            hc.removeFromRight (3);
-            autoBtnRects[(size_t) deckIndex] = aRect;
             drawTag (aRect, "A", editAuto[(size_t) deckIndex].visible, juce::Colour (kAccentViolet));
         }
-        g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.92f : 0.4f));
-        g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        g.drawText (title, hc, juce::Justification::centredLeft);
+        else if (deckIndex == masterLane)
+        {
+            muteBtnRects[(size_t) deckIndex] = soloBtnRects[(size_t) deckIndex] = {};
+            g.setColour (juce::Colour (kTextFaint));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText ("MASTER BUS", controls, juce::Justification::centredLeft);
+        }
+
+        // Compact but real track gain: drag horizontally; double-click returns to 0 dB.
+        auto gainRow = hc.getHeight() > 5 ? hc.withTrimmedTop (juce::jmax (0, hc.getHeight() - 13)) : controls;
+        auto gainValue = gainRow.removeFromRight (42);
+        auto gainTrack = gainRow.reduced (1, 5);
+        gainSliderRects[(size_t) deckIndex] = gainTrack.expanded (0, 4);
+        g.setColour (juce::Colour (0xff111317));
+        g.fillRoundedRectangle (gainTrack.toFloat(), 2.0f);
+        const float gainNorm = juce::jlimit (0.0f, 1.0f, (laneGainDb[(size_t) deckIndex] + 60.0f) / 66.0f);
+        const float gainX = (float) gainTrack.getX() + gainNorm * (float) gainTrack.getWidth();
+        g.setColour (colour.withAlpha (0.82f));
+        g.fillRoundedRectangle (gainTrack.toFloat().withWidth (juce::jmax (1.0f, gainX - (float) gainTrack.getX())), 2.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillEllipse (gainX - 2.5f, (float) gainTrack.getCentreY() - 2.5f, 5.0f, 5.0f);
+        g.setColour (juce::Colour (kTextMuted));
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.drawText (laneGainDb[(size_t) deckIndex] <= -59.9f ? "-inf" : juce::String (laneGainDb[(size_t) deckIndex], 1),
+                    gainValue, juce::Justification::centredRight);
 
         // Track timeline area — must match hitTestAt: lane.withTrimmedLeft (labelWidth).reduced (4, 3)
         auto track = lane.reduced (4, 3);
@@ -2283,18 +2616,18 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 
         // Sunken "well": the track lane is distinctly darker than the panel around
         // it, with a top inner-shadow so it reads as recessed below the mixer.
-        g.setColour (juce::Colour (0xff08090b));
+        g.setColour (juce::Colour (isSelected ? 0xff15181d : 0xff101216));
         g.fillRect (track);
         g.setColour (juce::Colours::black.withAlpha (0.55f));
         g.drawLine ((float) track.getX(), (float) track.getY() + 0.5f, (float) track.getRight(), (float) track.getY() + 0.5f, 1.0f);
         g.setColour (juce::Colours::white.withAlpha (0.03f));   // faint bottom lip
         g.drawLine ((float) track.getX(), (float) track.getBottom() - 0.5f, (float) track.getRight(), (float) track.getBottom() - 0.5f, 1.0f);
 
-        // FL-style bar/beat grid over this lane (track spans the same x-range as the ruler).
+        // Adaptive bar/beat grid over only the visible time window.
         {
             auto gx = [&] (double t) { return timeToXIn (track, t); };
             const float top = (float) track.getY(), bot = (float) track.getBottom();
-            for (int bar = 0; bar < totalBars; ++bar)
+            for (int bar = firstVisibleBar; bar < lastVisibleBar; ++bar)
             {
                 const double t = (double) bar * secsPerBar;
                 if (t > rulerLen) break;
@@ -2319,7 +2652,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                     }
                 }
             }
-            for (int bar = 0; bar <= totalBars; ++bar)   // bar lines on top; every 4th brighter
+            for (int bar = firstVisibleBar; bar <= lastVisibleBar; ++bar)   // bar lines on top; every 4th brighter
             {
                 const double t = (double) bar * secsPerBar;
                 if (t > rulerLen) break;
@@ -2404,12 +2737,14 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 g.setColour (clipSelected ? juce::Colours::white.withAlpha (0.9f) : clipColour.withAlpha (0.7f));
                 g.drawRoundedRectangle (clipF, radius, clipSelected ? 1.8f : 1.0f);
 
-                // Chevron + source filename (only label the first clip to avoid clutter).
-                if (ci == 0)
+                // Every region carries its own identity; split/duplicated clips remain
+                // understandable once they are moved away from the first region.
+                if (clipRect.getWidth() > 24)
                 {
                     g.setColour (juce::Colours::black.withAlpha (0.78f));
                     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-                    const auto chevron = juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe "));
+                    const auto chevron = clipSelected ? juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb6 "))
+                                                      : juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbe "));
                     const auto labelText = clip.label.isNotEmpty() ? clip.label : clip.file.getFileName();
                     g.drawText (chevron + labelText, patternHeader.reduced (5, 0),
                                 juce::Justification::centredLeft, true);
@@ -2419,7 +2754,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 if (clip.locked)
                 {
                     auto lr = patternHeader.removeFromRight (15).withSizeKeepingCentre (13, 11);
-                    g.setColour (juce::Colour (0xffffb020).withAlpha (0.92f));
+                    g.setColour (stemdeck::tokens::c (stemdeck::tokens::warn).withAlpha (0.92f));
                     g.fillRoundedRectangle (lr.toFloat(), 2.0f);
                     g.setColour (juce::Colours::black.withAlpha (0.9f));
                     g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
@@ -2608,22 +2943,331 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         g.restoreState();   // end track clip region
     };
 
-    auto masterLaneRect = area.removeFromTop (laneHeight);
-    drawLane (masterLaneRect, "MASTER", juce::Colour (kAccent), masterThumb.get(), masterFile, masterLane);
-    area.removeFromTop (laneGap);
-
+    // Arrangement convention: source tracks top-to-bottom, master bus anchored
+    // at the bottom of the stack.
     for (int i = 0; i < visibleLanes; ++i)
     {
         auto laneRect = area.removeFromTop (laneHeight);
         drawLane (laneRect, laneDisplayNames[(size_t) i],
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
-        if (i < visibleLanes - 1)
-            area.removeFromTop (laneGap);
+        area.removeFromTop (laneGap);
     }
+    auto masterLaneRect = area.removeFromTop (laneHeight);
+    drawLane (masterLaneRect, "MASTER", juce::Colour (kAccent), masterThumb.get(), masterFile, masterLane);
     // Lanes past the channel count are not drawn, so their cached rectangles must
     // not linger — laneAtY()/hitTestAt() read these to route clicks.
     for (int i = visibleLanes; i < numLanes; ++i)
         laneRects[(size_t) i] = {};
+
+    // Clip detail view: a persistent, glanceable equivalent of a DAW's lower
+    // inspector. The existing context menu remains the editing surface, while
+    // this panel makes the selected region's timing and fades immediately clear.
+    if (! detailPanelBounds.isEmpty())
+    {
+        g.setColour (juce::Colour (0xff202329));
+        g.fillRoundedRectangle (detailPanelBounds.toFloat(), 5.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.drawRoundedRectangle (detailPanelBounds.toFloat().reduced (0.5f), 5.0f, 1.0f);
+
+        auto detail = detailPanelBounds.reduced (10, 7);
+        auto identity = detail.removeFromLeft (juce::jmin (260, detail.getWidth() / 3));
+        const bool validSelection = juce::isPositiveAndBelow (selectedLane, numEditableLanes)
+            && juce::isPositiveAndBelow (selectedClip, (int) clips[(size_t) selectedLane].size());
+
+        if (validSelection)
+        {
+            const auto& clip = clips[(size_t) selectedLane][(size_t) selectedClip];
+            const auto clipColour = clip.colourArgb != 0 ? juce::Colour (clip.colourArgb)
+                                                         : (selectedLane == masterLane ? juce::Colour (kAccent)
+                                                                                       : deckAccent (selectedLane));
+            g.setColour (clipColour);
+            g.fillRoundedRectangle (identity.removeFromLeft (5).toFloat(), 2.0f);
+            identity.removeFromLeft (9);
+            g.setColour (juce::Colour (kTextPrimary));
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            const auto clipName = clip.label.isNotEmpty() ? clip.label : clip.file.getFileNameWithoutExtension();
+            g.drawText (clipName.isNotEmpty() ? clipName : "Recorded Clip",
+                        identity.removeFromTop (22), juce::Justification::centredLeft, true);
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (9.5f));
+            g.drawText ((selectedLane == masterLane ? juce::String ("MASTER") : laneDisplayNames[(size_t) selectedLane])
+                            + "  /  AUDIO CLIP" + (clip.locked ? "  /  LOCKED" : ""),
+                        identity.removeFromTop (18), juce::Justification::centredLeft, true);
+
+            auto field = [&] (juce::String label, juce::String value)
+            {
+                auto box = detail.removeFromLeft (juce::jmin (118, juce::jmax (1, detail.getWidth())));
+                detail.removeFromLeft (5);
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText (label, box.removeFromTop (16), juce::Justification::centredLeft);
+                g.setColour (juce::Colour (kTextPrimary));
+                g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+                g.drawText (value, box.removeFromTop (22), juce::Justification::centredLeft, true);
+            };
+            auto beatPosition = [&] (double seconds)
+            {
+                const double beat = seconds / secsPerBeat;
+                const int bar = (int) std::floor (beat / 4.0) + 1;
+                const int inBar = (int) std::floor (std::fmod (juce::jmax (0.0, beat), 4.0)) + 1;
+                const int sixteenth = (int) std::floor (std::fmod (juce::jmax (0.0, beat), 1.0) * 4.0) + 1;
+                return juce::String (bar) + "." + juce::String (inBar) + "." + juce::String (sixteenth);
+            };
+            field ("POSITION", beatPosition (clip.timelineStartSeconds));
+            field ("LENGTH", juce::String (clip.lengthSeconds(), 2) + " s");
+            field ("SOURCE IN", juce::String (clip.trimStartSeconds, 2) + " s");
+            field ("FADE IN / OUT", juce::String (clip.fadeInSeconds, 2) + " / "
+                                      + juce::String (clip.fadeOutSeconds, 2) + " s");
+        }
+        else
+        {
+            g.setColour (juce::Colour (kTextPrimary));
+            g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+            g.drawText ("CLIP DETAIL", identity.removeFromTop (22), juce::Justification::centredLeft);
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (10.0f));
+            g.drawText ("Select a region to inspect timing, source trims and fades.",
+                        detail, juce::Justification::centredLeft, true);
+            g.setColour (juce::Colour (kAccent).withAlpha (0.75f));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawText ("DRAG AUDIO TO A TRACK   /   DOUBLE-CLICK EMPTY SPACE FOR MIDI",
+                        detail, juce::Justification::centredRight, true);
+        }
+    }
+
+    // Contextual channel inspector. This is the Pulsebox pattern translated to
+    // StemDeck's real arranger state: channel mix changes update playback/export,
+    // and the FX page reports captured editable automation instead of dummy knobs.
+    if (! inspectorBounds.isEmpty())
+    {
+        auto panel = inspectorBounds.reduced (8, 7);
+        auto tabs = panel.removeFromTop (30);
+        inspectorMixTabRect = tabs.removeFromLeft ((tabs.getWidth() - 4) / 2);
+        tabs.removeFromLeft (4);
+        inspectorFxTabRect = tabs;
+
+        auto drawInspectorTab = [&] (juce::Rectangle<int> r, const char* label, bool activeTab)
+        {
+            g.setColour (activeTab ? juce::Colour (0xff28323d) : juce::Colour (0xff10151b));
+            g.fillRoundedRectangle (r.toFloat(), 5.0f);
+            if (activeTab)
+            {
+                g.setColour (juce::Colour (kAccent));
+                g.fillRoundedRectangle ((float) r.getX() + 7.0f, (float) r.getBottom() - 2.0f,
+                                        (float) r.getWidth() - 14.0f, 2.0f, 1.0f);
+            }
+            g.setColour ((activeTab ? juce::Colour (kTextPrimary)
+                                    : juce::Colour (kTextMuted)).withAlpha (0.94f));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawText (label, r, juce::Justification::centred);
+        };
+        drawInspectorTab (inspectorMixTabRect, "MIX", ! inspectorShowsFx);
+        drawInspectorTab (inspectorFxTabRect,  "EFFECTS", inspectorShowsFx);
+        panel.removeFromTop (10);
+
+        const bool validLane = juce::isPositiveAndBelow (selectedLane, numEditableLanes);
+        if (! validLane)
+        {
+            inspectorMuteRect = inspectorSoloRect = inspectorAutomationRect = inspectorGainTrackRect = {};
+            g.setColour (juce::Colour (kTextPrimary));
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.drawText ("SELECT A TRACK", panel.removeFromTop (24), juce::Justification::centredLeft);
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (9.5f));
+            g.drawFittedText ("Choose a track or clip to edit its mix, automation and captured effects.",
+                              panel.removeFromTop (58), juce::Justification::topLeft, 3);
+        }
+        else
+        {
+            const auto channelColour = selectedLane == masterLane ? juce::Colour (kAccent)
+                                                                   : deckAccent (selectedLane);
+            auto channelHead = panel.removeFromTop (54);
+            g.setColour (channelColour);
+            g.fillRoundedRectangle (channelHead.removeFromLeft (5).toFloat(), 2.0f);
+            channelHead.removeFromLeft (9);
+            g.setColour (juce::Colour (kTextFaint));
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText (selectedLane == masterLane ? "MASTER CHANNEL" : "SELECTED CHANNEL",
+                        channelHead.removeFromTop (16), juce::Justification::centredLeft);
+            g.setColour (juce::Colour (kTextPrimary));
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            const auto laneName = selectedLane == masterLane ? juce::String ("MASTER")
+                                                              : laneDisplayNames[(size_t) selectedLane];
+            g.drawText (laneName, channelHead.removeFromTop (24), juce::Justification::centredLeft, true);
+            panel.removeFromTop (6);
+
+            if (! inspectorShowsFx)
+            {
+                auto actions = panel.removeFromTop (28);
+                const int gap = 5;
+                const int bw = (actions.getWidth() - gap * 2) / 3;
+                inspectorMuteRect = actions.removeFromLeft (bw);
+                actions.removeFromLeft (gap);
+                inspectorSoloRect = actions.removeFromLeft (bw);
+                actions.removeFromLeft (gap);
+                inspectorAutomationRect = actions;
+
+                auto inspectorButton = [&] (juce::Rectangle<int> r, const char* text,
+                                             bool on, juce::Colour onColour)
+                {
+                    g.setColour (on ? onColour.withAlpha (0.88f) : juce::Colour (0xff10161d));
+                    g.fillRoundedRectangle (r.toFloat(), 4.0f);
+                    g.setColour (on ? juce::Colours::black.withAlpha (0.9f)
+                                    : juce::Colour (kTextMuted));
+                    g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+                    g.drawText (text, r, juce::Justification::centred);
+                };
+                inspectorButton (inspectorMuteRect, "MUTE", laneMuted[(size_t) selectedLane], juce::Colour (kDanger));
+                inspectorButton (inspectorSoloRect, "SOLO", laneSoloed[(size_t) selectedLane], juce::Colour (0xffffc342));
+                inspectorButton (inspectorAutomationRect, "AUTO",
+                                 selectedLane < numLanes && editAuto[(size_t) selectedLane].visible,
+                                 juce::Colour (kAccentViolet));
+
+                panel.removeFromTop (14);
+                auto mixArea = panel.removeFromTop (210);
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText ("CHANNEL LEVEL", mixArea.removeFromTop (17), juce::Justification::centred);
+
+                auto faderArea = mixArea.removeFromLeft (80).withSizeKeepingCentre (72, 172);
+                inspectorGainTrackRect = juce::Rectangle<int> (faderArea.getCentreX() - 4,
+                                                               faderArea.getY() + 12, 8,
+                                                               faderArea.getHeight() - 36);
+                g.setColour (juce::Colour (0xff0d1116));
+                g.fillRoundedRectangle (inspectorGainTrackRect.toFloat(), 3.0f);
+                const float gainNorm = juce::jlimit (0.0f, 1.0f,
+                    (laneGainDb[(size_t) selectedLane] + 60.0f) / 66.0f);
+                const float gainY = (float) inspectorGainTrackRect.getBottom()
+                                  - gainNorm * (float) inspectorGainTrackRect.getHeight();
+                g.setColour (channelColour.withAlpha (0.8f));
+                g.fillRoundedRectangle (juce::Rectangle<float> ((float) inspectorGainTrackRect.getX(), gainY,
+                                                                 (float) inspectorGainTrackRect.getWidth(),
+                                                                 (float) inspectorGainTrackRect.getBottom() - gainY), 3.0f);
+                auto cap = juce::Rectangle<float> ((float) inspectorGainTrackRect.getCentreX() - 12.0f,
+                                                    gainY - 4.0f, 24.0f, 8.0f);
+                g.setColour (juce::Colour (kTextPrimary));
+                g.fillRoundedRectangle (cap, 3.0f);
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.0f));
+                g.drawText ("+6", faderArea.withHeight (12), juce::Justification::centredRight);
+                g.drawText ("0", faderArea.withHeight (12).withCentre ({ faderArea.getCentreX(),
+                                                                         inspectorGainTrackRect.getY()
+                                                                         + inspectorGainTrackRect.getHeight() * 1 / 11 }),
+                            juce::Justification::centredRight);
+                g.drawText ("-60", faderArea.withHeight (12).withBottomY (faderArea.getBottom()),
+                            juce::Justification::centredRight);
+
+                auto readout = mixArea.reduced (8, 14);
+                g.setColour (channelColour.withAlpha (0.12f));
+                g.fillRoundedRectangle (readout.toFloat(), 6.0f);
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText ("GAIN", readout.removeFromTop (20), juce::Justification::centred);
+                g.setColour (juce::Colour (kTextPrimary));
+                g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+                g.drawText (laneGainDb[(size_t) selectedLane] <= -59.9f
+                                ? juce::String ("-inf")
+                                : juce::String (laneGainDb[(size_t) selectedLane], 1),
+                            readout.removeFromTop (34), juce::Justification::centred);
+                g.setColour (juce::Colour (kTextMuted));
+                g.setFont (juce::FontOptions (9.0f));
+                g.drawText ("dB", readout.removeFromTop (16), juce::Justification::centred);
+
+                panel.removeFromTop (8);
+                g.setColour (juce::Colour (kHairline));
+                g.fillRect (panel.removeFromTop (1));
+                panel.removeFromTop (9);
+                const bool validClip = juce::isPositiveAndBelow (
+                    selectedClip, (int) clips[(size_t) selectedLane].size());
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText (validClip ? "SELECTED CLIP" : "TRACK DETAIL",
+                            panel.removeFromTop (18), juce::Justification::centredLeft);
+                if (validClip)
+                {
+                    const auto& clip = clips[(size_t) selectedLane][(size_t) selectedClip];
+                    const auto name = clip.label.isNotEmpty() ? clip.label
+                                                              : clip.file.getFileNameWithoutExtension();
+                    g.setColour (juce::Colour (kTextPrimary));
+                    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+                    g.drawText (name.isNotEmpty() ? name : juce::String ("Recorded Clip"),
+                                panel.removeFromTop (23), juce::Justification::centredLeft, true);
+                    g.setColour (juce::Colour (kTextMuted));
+                    g.setFont (juce::FontOptions (9.0f));
+                    g.drawText ("Position  " + juce::String (clip.timelineStartSeconds, 2) + " s",
+                                panel.removeFromTop (18), juce::Justification::centredLeft);
+                    g.drawText ("Length    " + juce::String (clip.lengthSeconds(), 2) + " s",
+                                panel.removeFromTop (18), juce::Justification::centredLeft);
+                    g.drawText ("Fades     " + juce::String (clip.fadeInSeconds, 2) + " / "
+                                    + juce::String (clip.fadeOutSeconds, 2) + " s",
+                                panel.removeFromTop (18), juce::Justification::centredLeft);
+                }
+                else
+                {
+                    g.setColour (juce::Colour (kTextMuted));
+                    g.setFont (juce::FontOptions (9.0f));
+                    g.drawFittedText ("Drop audio onto this lane or double-click empty space for MIDI.",
+                                      panel.removeFromTop (44), juce::Justification::topLeft, 3);
+                }
+            }
+            else
+            {
+                inspectorMuteRect = inspectorSoloRect = inspectorAutomationRect = inspectorGainTrackRect = {};
+                g.setColour (juce::Colour (kTextFaint));
+                g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+                g.drawText ("CAPTURED EFFECT AUTOMATION", panel.removeFromTop (20),
+                            juce::Justification::centredLeft);
+                panel.removeFromTop (5);
+
+                auto effectRow = [&] (const char* name, bool editable)
+                {
+                    auto row = panel.removeFromTop (38);
+                    g.setColour (juce::Colour (editable ? 0xff1c2730 : 0xff10161d));
+                    g.fillRoundedRectangle (row.toFloat(), 5.0f);
+                    auto state = row.removeFromRight (62);
+                    g.setColour (editable ? channelColour : juce::Colour (kTextFaint));
+                    g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+                    g.drawText (editable ? "EDITABLE" : "PRINTED", state, juce::Justification::centred);
+                    g.setColour (juce::Colour (kTextPrimary).withAlpha (editable ? 0.94f : 0.62f));
+                    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+                    g.drawText (name, row.reduced (10, 0), juce::Justification::centredLeft);
+                    panel.removeFromTop (5);
+                };
+
+                if (selectedLane < numLanes)
+                {
+                    const auto& dsp = capturedDsp[(size_t) selectedLane];
+                    effectRow ("LOW EQ",       ! dsp.lowDb.empty());
+                    effectRow ("MID EQ",       ! dsp.midDb.empty());
+                    effectRow ("HIGH EQ",      ! dsp.highDb.empty());
+                    effectRow ("FILTER",       ! dsp.filter.empty());
+                    effectRow ("REVERB SEND",  ! dsp.reverbMix.empty());
+                    effectRow ("ECHO SEND",    ! dsp.echoMix.empty());
+                }
+                else
+                {
+                    effectRow ("MASTER GAIN",  ! capturedMaster.gainDb.empty());
+                    effectRow ("MASTER FX X",  ! capturedMaster.fxX.empty());
+                    effectRow ("MASTER FX Y",  ! capturedMaster.fxY.empty());
+                    effectRow ("SMART MASTER", ! capturedMaster.smartAmount.empty());
+                    effectRow ("LIMITER",      ! capturedMaster.limiterCeilingDb.empty());
+                }
+
+                if (! panel.isEmpty())
+                {
+                    g.setColour (juce::Colour (kTextMuted));
+                    g.setFont (juce::FontOptions (8.8f));
+                    g.drawFittedText ("Editable lanes replay performance intent. Printed lanes preserve audio when a processor cannot be reconstructed safely.",
+                                      panel.reduced (2, 8), juce::Justification::topLeft, 4);
+                }
+            }
+        }
+    }
+    else
+    {
+        inspectorMixTabRect = inspectorFxTabRect = {};
+        inspectorMuteRect = inspectorSoloRect = inspectorAutomationRect = inspectorGainTrackRect = {};
+    }
 
     // Clip launcher slot-state overlay: WaitingToStart = pulsing amber, Running = solid green.
     {
@@ -2635,8 +3279,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             const auto lr = laneRects[(size_t) i];
             const auto trackR = lr.withTrimmedLeft (labelWidth).reduced (2, 1);
             const juce::Colour col = (st == SlotState::WaitingToStart)
-                ? juce::Colour (0xffffb020).withAlpha (blink ? 0.95f : 0.35f)   // amber pulse
-                : juce::Colour (0xff37d98a).withAlpha (0.9f);                    // green solid
+                ? stemdeck::tokens::c (stemdeck::tokens::warn).withAlpha (blink ? 0.95f : 0.35f)
+                : stemdeck::tokens::c (stemdeck::tokens::signal).withAlpha (0.9f);
             g.setColour (col);
             g.drawRect (trackR, 2);
             // Launch-arrow glyph on the left edge of the track area
@@ -2688,11 +3332,12 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             if (px >= gridLeft && px <= gridRight)
             {
                 g.setColour (juce::Colours::white.withAlpha (playbackActive ? 0.92f : 0.5f));
-                g.fillRect (px - 1, gridTop, playbackActive ? 2 : 1, gridBottom - gridTop);
+                g.fillRect (px - 1, rulerBounds.getY(), playbackActive ? 2 : 1,
+                            gridBottom - rulerBounds.getY());
                 juce::Path head;
-                head.addTriangle ((float) px - 5.0f, (float) gridTop,
-                                  (float) px + 5.0f, (float) gridTop,
-                                  (float) px,        (float) gridTop + 6.0f);
+                head.addTriangle ((float) px - 6.0f, (float) rulerBounds.getY(),
+                                  (float) px + 6.0f, (float) rulerBounds.getY(),
+                                  (float) px,        (float) rulerBounds.getY() + 8.0f);
                 g.setColour (juce::Colour (kAccent).withAlpha (playbackActive ? 1.0f : 0.7f));
                 g.fillPath (head);
             }
@@ -2732,9 +3377,18 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 
     if (snapEnabled)
     {
+        juce::String gridName;
+        if      (snapBeatGrid >= 3.999) gridName = "1 BAR";
+        else if (snapBeatGrid >= 1.999) gridName = "1/2";
+        else if (snapBeatGrid >= 0.999) gridName = "1/4";
+        else if (snapBeatGrid >= 0.499) gridName = "1/8";
+        else if (snapBeatGrid >= 0.249) gridName = "1/16";
+        else                            gridName = "1/32";
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         g.setColour (juce::Colour (kAccent).withAlpha (0.8f));
-        g.drawText (u8 ("SNAP \xe2\x97\x86 ") + juce::String (snapBeatGrid, 2) + " beat @ " + juce::String (snapBpm, 1) + " BPM",
+        g.drawText (u8 ("SNAP \xe2\x97\x86 ") + gridName + "    "
+                        + (followPlayback ? "FOLLOW ON" : "FOLLOW OFF") + "    "
+                        + juce::String (snapBpm, 1) + " BPM",
                     statusArea, juce::Justification::centredRight);
     }
 }

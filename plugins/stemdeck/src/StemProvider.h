@@ -105,7 +105,10 @@ public:
                                        juce::int64 playheadSample,
                                        const ProgressiveStemCallback& onProgressiveStem, juce::String& message,
                                        const std::function<bool()>& shouldCancel = {});
-    bool neuralAvailable() const { return neuralEngine.isAvailable(); }
+    // Lazily loads the large neural model on the separation worker. Merely opening
+    // StemDeck or loading a song should not reserve hundreds of MB for an optional
+    // feature the performer may never use.
+    bool neuralAvailable();
 
 private:
     class StemJob;
@@ -113,6 +116,9 @@ private:
     juce::File cacheRoot;
     juce::String separatorCommand;
     NeuralStemEngine neuralEngine;
+    juce::File neuralModelFile;
+    juce::CriticalSection neuralLoadLock;
+    bool neuralLoadAttempted = false;
     juce::ThreadPool pool { 2 };
     juce::CriticalSection lifecycleLock;
     bool shuttingDown = false;

@@ -236,7 +236,7 @@ juce::var PerformanceCapture::buildArrangementJson (const std::vector<Event>& so
         addAutomationLane (automation, "eq", "EQ", automationPointsFor (sourceEvents, { "eq_low", "eq_mid", "eq_high" }, deck));
         addAutomationLane (automation, "filter", "Filter", automationPointsFor (sourceEvents, { "filter" }, deck));
         addAutomationLane (automation, "effects", "Effects", automationPointsFor (sourceEvents, { "key_lock", "live_key", "effect_toggle" }, deck));
-        addAutomationLane (automation, "sync", "Sync Changes", automationPointsFor (sourceEvents, { "sync_mode", "beat_offset", "downbeat", "host_sync", "beat_sync" }, deck));
+        addAutomationLane (automation, "sync", "Sync Changes", automationPointsFor (sourceEvents, { "project_sync", "sync_mode", "beat_offset", "downbeat", "host_sync", "beat_sync" }, deck));
 
         lanes.add (objectWith ({
             { "id", deck.replaceCharacter (' ', '_').toLowerCase() },

@@ -107,7 +107,7 @@ void SubConjurerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
     if ((int) monoScratch.size() < numSamples)
-        monoScratch.resize ((size_t) numSamples);
+        return; // host exceeded the prepared block size; keep the dry signal
 
     std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
     for (int ch = 0; ch < numChannels; ++ch)

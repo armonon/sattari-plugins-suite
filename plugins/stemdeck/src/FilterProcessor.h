@@ -10,6 +10,8 @@ public:
     void processSample (float& left, float& right, float control);
 
 private:
+    enum class Mode { bypass, lowPass, highPass };
+
     struct ChannelState
     {
         float low = 0.0f;
@@ -18,6 +20,10 @@ private:
 
     double sr = 44100.0;
     std::array<ChannelState, 2> state;
+    Mode mode = Mode::bypass;
+    float cachedControl = 2.0f;
+    float coefficient = 0.0f;
 
-    float processOne (float input, ChannelState& s, float control);
+    void updateCoefficients (float control) noexcept;
+    float processOne (float input, ChannelState& s) noexcept;
 };

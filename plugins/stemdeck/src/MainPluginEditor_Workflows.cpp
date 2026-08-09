@@ -497,7 +497,7 @@ juce::File MainPluginEditor::onboardingMarkerFile()
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
         .getChildFile ("Sattari Audio")
         .getChildFile ("StemDeck")
-        .getChildFile ("onboarding-v1.done");
+        .getChildFile ("onboarding-v2.done");
 }
 
 juce::String MainPluginEditor::buildDiagnosticsReport() const
@@ -706,7 +706,7 @@ void MainPluginEditor::showOnboarding (bool force)
             box->dismiss();
         if (safe != nullptr)
             safe->recordStatus.setText (
-                "Welcome guide complete · press Command-K for any action",
+                "Welcome guide complete | press Command-K for any action",
                 juce::dontSendNotification);
     };
     juce::CallOutBox::launchAsynchronously (
@@ -898,7 +898,7 @@ void MainPluginEditor::exportArrangementMixdown()
     if (clips.empty() && midiNotes.empty())
     {
         recordStatus.setText (
-            "Nothing to export · record, import, or arrange audio first",
+            "Nothing to export | record, import, or arrange audio first",
             juce::dontSendNotification);
         return;
     }
@@ -923,7 +923,7 @@ void MainPluginEditor::exportArrangementMixdown()
             if (destination == juce::File()) return;
             destination = destination.withFileExtension ("wav");
             safe->recordStatus.setText (
-                "Rendering final mix…",
+                "Rendering final mix...",
                 juce::dontSendNotification);
             safe->uiWorkPool.addJob (
                 new ArrangementMixdownJob (
@@ -941,7 +941,7 @@ void MainPluginEditor::exportArrangementMixdown()
                             ok
                                 ? "Exported final mix: "
                                       + file.getFileName()
-                                      + " · peak "
+                                      + " | peak "
                                       + juce::String (
                                           juce::Decibels::gainToDecibels (
                                               juce::jmax (
@@ -1092,7 +1092,7 @@ void MainPluginEditor::exportSessionPackage()
                 return;
             }
 
-            safe->recordStatus.setText ("Packaging session…",
+            safe->recordStatus.setText ("Packaging session...",
                                         juce::dontSendNotification);
             safe->uiWorkPool.addJob (
                 new SessionPackageJob (

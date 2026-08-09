@@ -23,33 +23,36 @@ namespace stemdeck::tokens
 {
 
 // ── Surfaces (darkest → lightest, by nesting depth) ──────────────────────────
-inline constexpr juce::uint32 bgApp          = 0xff0B0B0D;   // app background
-inline constexpr juce::uint32 bgPanel        = 0xff101014;   // a deck / channel panel
-inline constexpr juce::uint32 bgPanel2       = 0xff131316;   // sub-panel inside a panel
-inline constexpr juce::uint32 bgWell         = 0xff0E0E11;   // recessed well (waveform, FX rack)
-inline constexpr juce::uint32 bgWell2        = 0xff0C0C0E;   // deepest recess (segmented track)
-inline constexpr juce::uint32 bgControl      = 0xff1C1C20;   // button / slider track
-inline constexpr juce::uint32 bgControlHover = 0xff242429;
-inline constexpr juce::uint32 bgTile         = 0xff141418;   // FX insert tile, knob face
+inline constexpr juce::uint32 bgApp          = 0xff0D0D0F;   // deepest outer frame
+inline constexpr juce::uint32 bgPanel        = 0xff1A1A1E;   // primary console panel
+inline constexpr juce::uint32 bgPanel2       = 0xff202025;   // nested channel / inspector panel
+inline constexpr juce::uint32 bgWell         = 0xff0A0A0C;   // recessed waveform / LCD well
+inline constexpr juce::uint32 bgWell2        = 0xff08080A;   // deepest meter / timeline recess
+inline constexpr juce::uint32 bgControl      = 0xff232328;   // raised control face
+inline constexpr juce::uint32 bgControlHover = 0xff2C2C33;
+inline constexpr juce::uint32 bgTile         = 0xff1E1E23;   // insert tile / knob face
 // Not a named var in tokens.css: the reference's channel components use this inline
 // for an IDLE channel panel. Recorded here so it stays a token, not a call-site hex.
-inline constexpr juce::uint32 bgIdle         = 0xff0D0D10;   // idle channel panel
+inline constexpr juce::uint32 bgIdle         = 0xff141417;   // idle channel panel
 
 // ── Borders ──────────────────────────────────────────────────────────────────
 inline constexpr juce::uint32 borderSubtle = 0xff2A2A30;
 inline constexpr juce::uint32 borderFaint  = 0xff17171B;     // stem-lane dividers, grid
 
 // ── Foreground (opacity ladder off #F2F2F5) ──────────────────────────────────
-inline constexpr juce::uint32 fgPrimary   = 0xffF2F2F5;      // headline numerics, active
-inline constexpr juce::uint32 fgSecondary = 0xffB8B8BE;      // 75%
-inline constexpr juce::uint32 fgTertiary  = 0xff8A8A93;      // 55% — labels, inactive
-inline constexpr juce::uint32 fgMuted     = 0xff5A5A62;      // 35% — captions, hints
-inline constexpr juce::uint32 fgFaint     = 0xff3A3A42;      // disabled, dividers
+inline constexpr juce::uint32 fgPrimary   = 0xffE0E0E4;      // headline numerics, active
+inline constexpr juce::uint32 fgSecondary = 0xffA0A0A8;      // body copy
+inline constexpr juce::uint32 fgTertiary  = 0xff808088;      // labels, inactive
+inline constexpr juce::uint32 fgMuted     = 0xff505058;      // captions, hints
+inline constexpr juce::uint32 fgFaint     = 0xff34343B;      // disabled, dividers
 
 // ── Warn / meter ─────────────────────────────────────────────────────────────
-inline constexpr juce::uint32 warn     = 0xffFF9F43;         // boost past safe, low confidence
-inline constexpr juce::uint32 warn2    = 0xffFFB84A;         // take marker, deck D accent
-inline constexpr juce::uint32 meterHot = 0xffE8503F;         // meter clip zone
+inline constexpr juce::uint32 signal   = 0xff00FF87;         // active / signal present LED
+inline constexpr juce::uint32 selected = 0xff00D4FF;         // focused control / send
+inline constexpr juce::uint32 effects  = 0xffA855F7;         // automation / effects
+inline constexpr juce::uint32 warn     = 0xffFFB800;         // solo / caution
+inline constexpr juce::uint32 warn2    = 0xffFFB800;         // take marker / caution
+inline constexpr juce::uint32 meterHot = 0xffFF3B30;         // clip / overload / record
 
 // ── Deck accents (distinguishable under protanopia/deuteranopia) ─────────────
 inline constexpr juce::uint32 deckA = 0xff4AD9C4;   // teal
@@ -110,7 +113,22 @@ inline juce::Colour activeBorder (juce::Colour accent) noexcept { return accent.
 // Numerics MUST be tabular so digits don't jitter as values change.
 inline juce::Font numeric (float size, bool medium = false)
 {
-    return juce::Font (juce::FontOptions (size, medium ? juce::Font::bold : juce::Font::plain));
+    return juce::Font (juce::FontOptions ("SF Mono", size,
+                                          medium ? juce::Font::bold : juce::Font::plain));
+}
+
+// Native technical faces keep the desktop build self-contained. SF Mono is
+// bundled with macOS and falls back through JUCE on other hosts.
+inline juce::Font technical (float size, bool medium = false)
+{
+    return juce::Font (juce::FontOptions ("SF Mono", size,
+                                          medium ? juce::Font::bold : juce::Font::plain));
+}
+
+inline juce::Font section (float size, bool bold = true)
+{
+    return juce::Font (juce::FontOptions ("Avenir Next Condensed", size,
+                                          bold ? juce::Font::bold : juce::Font::plain));
 }
 
 inline juce::Colour deckAccent (int index) noexcept

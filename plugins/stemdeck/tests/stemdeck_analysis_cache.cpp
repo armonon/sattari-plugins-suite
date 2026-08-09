@@ -4,6 +4,7 @@
 // hash.
 #include "AnalysisCache.h"
 #include "TrackAnalysis.h"
+#include <sqlite3.h>
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -73,6 +74,35 @@ int main()
     check (AnalysisCache::hashFile (tmp) != h1, "content change changes the hash");
     tmp.deleteFile();
 
+    dbFile.deleteFile();
+    juce::File (dbFile.getFullPathName() + "-wal").deleteFile();
+    juce::File (dbFile.getFullPathName() + "-shm").deleteFile();
+
+    // Upgrade gate: early StemDeck builds created `analysis` without the avers
+    // column. Opening that file must rebuild the disposable cache instead of
+    // leaving every lookup to fail with "no such column: avers".
+    {
+        sqlite3* legacy = nullptr;
+        check (sqlite3_open (dbFile.getFullPathName().toRawUTF8(), &legacy) == SQLITE_OK,
+               "legacy cache fixture opens");
+        if (legacy != nullptr)
+        {
+            sqlite3_exec (legacy,
+                "CREATE TABLE analysis (hash TEXT PRIMARY KEY, version INTEGER, sr REAL);"
+                "INSERT INTO analysis VALUES ('old', 1, 44100.0);",
+                nullptr, nullptr, nullptr);
+            sqlite3_close (legacy);
+        }
+        AnalysisCache migrated (dbFile);
+        check (migrated.isOpen(), "legacy cache opens through migration");
+        check (migrated.count() == 0, "legacy single-version rows are safely rebuilt");
+        auto migratedAnalysis = makeAnalysis();
+        migratedAnalysis.analysisVersion = 3;
+        migrated.store ("new", migratedAnalysis);
+        TrackAnalysis migratedOut;
+        check (migrated.lookup ("new", migratedOut, 3),
+               "migrated cache supports version-pinned lookup");
+    }
     dbFile.deleteFile();
     juce::File (dbFile.getFullPathName() + "-wal").deleteFile();
     juce::File (dbFile.getFullPathName() + "-shm").deleteFile();

@@ -130,11 +130,22 @@ void SattariMaqamAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int numChannels = buffer.getNumChannels();
     if (numSamples <= 0) return;
 
+    // Rubber Band and all scratch storage are prepared for the negotiated host
+    // block size. If a host violates that contract, prefer a safe dry block to
+    // allocating or overrunning the stretcher on the real-time thread.
+    if (numSamples > preparedBlockSize)
+    {
+        inputMeter.store (buffer.getMagnitude (0, numSamples), std::memory_order_relaxed);
+        const float gain = juce::Decibels::decibelsToGain (param ("input") + param ("output"));
+        buffer.applyGain (gain);
+        outputMeter.store (buffer.getMagnitude (0, numSamples), std::memory_order_relaxed);
+        return;
+    }
+
     buffer.applyGain (juce::Decibels::decibelsToGain (param ("input")));
     inputMeter.store (buffer.getMagnitude (0, numSamples));
 
     // Mono sum for detection.
-    if ((int) monoScratch.size() < numSamples) monoScratch.resize ((size_t) numSamples);
     std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);
     for (int ch = 0; ch < numChannels; ++ch)
     {

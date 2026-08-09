@@ -69,7 +69,30 @@ public:
     std::function<void()>          onToggleSolo;
     std::function<void()>          onCycleSource;    // Input: next device channel / MIDI: next channel
 
-    void setState (State s) { state = std::move (s); repaint(); }
+    void setState (State s)
+    {
+        const auto differs = [] (float a, float b, float epsilon)
+        {
+            return std::abs (a - b) > epsilon;
+        };
+        const bool changed = s.type != state.type || s.name != state.name
+                          || s.accent != state.accent || s.focused != state.focused
+                          || differs (s.gain, state.gain, 0.0001f)
+                          || differs (s.level, state.level, 0.002f)
+                          || s.monitor != state.monitor || s.active != state.active
+                          || s.midiChannel != state.midiChannel
+                          || s.clipping != state.clipping
+                          || differs (s.lowDb, state.lowDb, 0.01f)
+                          || differs (s.midDb, state.midDb, 0.01f)
+                          || differs (s.highDb, state.highDb, 0.01f)
+                          || differs (s.filter, state.filter, 0.001f)
+                          || s.muted != state.muted || s.soloed != state.soloed
+                          || s.sourceChannel != state.sourceChannel
+                          || s.hasContent != state.hasContent;
+        if (! changed) return;
+        state = std::move (s);
+        repaint();
+    }
     const State& getState() const noexcept { return state; }
 
     void paint (juce::Graphics& g) override
@@ -120,7 +143,7 @@ public:
 
         header.removeFromLeft (6);
         g.setColour (textPri);
-        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.setFont (T::section (12.5f));
         g.drawText (state.name, header, juce::Justification::centredLeft, true);
 
         body.removeFromTop (10);
@@ -138,20 +161,12 @@ public:
             // matching the master-output panel's language.
             auto scaleCol = meterArea.removeFromRight (juce::jmin (26, meterArea.getWidth() / 3));
             auto m = meterArea.reduced (juce::jmin (18, meterArea.getWidth() / 5), 0);
-            g.setColour (raised);
-            g.fillRoundedRectangle (m.toFloat(), 5.0f);
-
-            // Segment guides — a meter with structure, not an empty box.
-            g.setColour (hair.withAlpha (0.55f));
-            for (int seg = 1; seg < 12; ++seg)
-            {
-                const float y = (float) m.getY() + (float) m.getHeight() * (float) seg / 12.0f;
-                g.drawHorizontalLine ((int) y, (float) m.getX() + 2.0f, (float) m.getRight() - 2.0f);
-            }
+            g.setColour (T::c (T::bgWell2));
+            g.fillRoundedRectangle (m.toFloat(), 3.0f);
 
             // dB ticks (0 / -6 / -12 / -18 / -24 over a -30..0 span).
             g.setColour (textSec.withAlpha (0.75f));
-            g.setFont (juce::FontOptions (8.0f));
+            g.setFont (T::technical (7.5f));
             for (const int tick : { 0, -6, -12, -18, -24 })
             {
                 const float t = 1.0f - (float) (-tick) / 30.0f;      // 0 at bottom
@@ -161,13 +176,25 @@ public:
             }
 
             const float lvl = juce::jlimit (0.0f, 1.0f, state.level);
-            if (lvl > 0.001f)
+            constexpr int segmentCount = 18;
+            constexpr float segmentGap = 1.0f;
+            const float segmentHeight = juce::jmax (
+                1.0f, ((float) m.getHeight() - segmentGap * (segmentCount - 1))
+                          / (float) segmentCount);
+            const int litSegments = (int) std::round (lvl * (float) segmentCount);
+            for (int segment = 0; segment < segmentCount; ++segment)
             {
-                auto lit = m.toFloat().withTrimmedTop (m.getHeight() * (1.0f - lvl));
-                g.setColour (state.clipping ? T::c (T::meterHot)
-                           : lvl > 0.85f    ? T::c (T::warn)
-                                            : T::c (T::stemBas));
-                g.fillRoundedRectangle (lit, 5.0f);
+                const float fraction = (float) (segment + 1) / (float) segmentCount;
+                const auto colour = fraction > 0.90f ? T::c (T::meterHot)
+                                  : fraction > 0.72f ? T::c (T::warn)
+                                                     : T::c (T::signal);
+                const float y = (float) m.getBottom()
+                              - (float) (segment + 1) * segmentHeight
+                              - (float) segment * segmentGap;
+                g.setColour (segment < litSegments ? colour : colour.withAlpha (0.10f));
+                g.fillRoundedRectangle ((float) m.getX() + 2.0f, y,
+                                        (float) m.getWidth() - 4.0f,
+                                        segmentHeight, 0.8f);
             }
             g.setColour (hair);
             g.drawRoundedRectangle (m.toFloat().reduced (0.5f), 5.0f, 1.0f);
@@ -175,7 +202,7 @@ public:
             if (state.clipping)
             {
                 g.setColour (T::c (T::meterHot));
-                g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+                g.setFont (T::technical (8.5f, true));
                 g.drawText ("CLIP", meterArea.removeFromTop (14), juce::Justification::centred);
             }
         }

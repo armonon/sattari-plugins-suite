@@ -6,30 +6,33 @@
 
 :root {
   /* ---- Surfaces (darkest → lightest, by nesting depth) ---- */
-  --bg-app:            #0B0B0D;   /* app background */
-  --bg-panel:          #101014;   /* a deck / channel panel */
-  --bg-panel-2:        #131316;   /* a sub-panel inside a panel (console groups) */
-  --bg-well:           #0E0E11;   /* a recessed well (waveform bg, FX rack bg) */
-  --bg-well-2:         #0C0C0E;   /* deepest recess (segmented-control track) */
-  --bg-control:        #1C1C20;   /* a control surface (button, slider track) */
-  --bg-control-hover:  #242429;
-  --bg-tile:           #141418;   /* an FX insert tile, a knob face */
+  --bg-app:            #0D0D0F;   /* deepest outer frame */
+  --bg-panel:          #1A1A1E;   /* primary console panel */
+  --bg-panel-2:        #202025;   /* nested channel / inspector panel */
+  --bg-well:           #0A0A0C;   /* recessed waveform / LCD well */
+  --bg-well-2:         #08080A;   /* deepest meter / timeline recess */
+  --bg-control:        #232328;   /* raised control face */
+  --bg-control-hover:  #2C2C33;
+  --bg-tile:           #1E1E23;   /* insert tile / knob face */
 
   /* ---- Borders ---- */
   --border-subtle:     #2A2A30;
   --border-faint:      #17171B;   /* stem-lane dividers, grid lines */
 
   /* ---- Foreground (opacity ladder off #F2F2F5) ---- */
-  --fg-primary:        #F2F2F5;   /* headline numerics, active labels */
-  --fg-secondary:      #B8B8BE;   /* secondary controls (75%) */
-  --fg-tertiary:       #8A8A93;   /* labels, inactive (55%) */
-  --fg-muted:          #5A5A62;   /* captions, hints (35%) */
-  --fg-faint:          #3A3A42;   /* disabled, dividers */
+  --fg-primary:        #E0E0E4;   /* headline numerics, active labels */
+  --fg-secondary:      #A0A0A8;   /* body copy */
+  --fg-tertiary:       #808088;   /* labels, inactive */
+  --fg-muted:          #505058;   /* captions, hints */
+  --fg-faint:          #34343B;   /* disabled, dividers */
 
   /* ---- Warn / meter ---- */
-  --warn:              #FF9F43;   /* boost past safe, low-confidence, hot */
-  --warn-2:            #FFB84A;   /* take marker, deck D accent */
-  --meter-hot:         #E8503F;   /* meter clip zone */
+  --signal:            #00FF87;   /* active / signal-present LED */
+  --selected:          #00D4FF;   /* focused control / send */
+  --effects:           #A855F7;   /* automation / effects */
+  --warn:              #FFB800;   /* solo / caution */
+  --warn-2:            #FFB800;   /* take marker / caution */
+  --meter-hot:         #FF3B30;   /* meter clip / overload / record */
 
   /* ---- Deck accents (distinguishable under protanopia/deuteranopia) ---- */
   --deck-a:            #4AD9C4;   /* teal */
@@ -99,7 +102,7 @@
 /* Base rules every component assumes */
 * { box-sizing: border-box; }
 body {
-  font-family: -apple-system, "Inter", "SF Pro Text", system-ui, sans-serif;
+  font-family: "SF Compact", -apple-system, "Inter", system-ui, sans-serif;
   font-feature-settings: "tnum" 1;   /* tabular figures globally */
   background: var(--bg-app);
   color: var(--fg-primary);

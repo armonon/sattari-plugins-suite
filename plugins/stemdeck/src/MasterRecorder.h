@@ -1,7 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <deque>
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -36,19 +36,27 @@ private:
     int poolBlockSize = 0;
     juce::File targetFile { juce::String{} };
 
-    juce::CriticalSection queueLock;
     // Pool of pre-sized buffers recycled between the audio thread (fills) and the
     // writer thread (drains + returns). Owned by blockPool for stable addresses.
     std::vector<std::unique_ptr<juce::AudioBuffer<float>>> blockPool;
-    std::deque<juce::AudioBuffer<float>*> freeBlocks;
-    std::deque<juce::AudioBuffer<float>*> pendingBlocks;
-    std::unique_ptr<juce::FileOutputStream> outputStream;
+    std::array<juce::AudioBuffer<float>*, maxQueuedBlocks> freeQueue {};
+    std::array<juce::AudioBuffer<float>*, maxQueuedBlocks> pendingQueue {};
+    // free: writer -> audio. pending: audio -> writer. Each FIFO has exactly one
+    // producer and one consumer, so AbstractFifo needs no external lock.
+    juce::AbstractFifo freeFifo { maxQueuedBlocks };
+    juce::AbstractFifo pendingFifo { maxQueuedBlocks };
     std::unique_ptr<juce::AudioFormatWriter> writer;
     std::atomic<int> droppedBlocks { 0 };
 
     void run() override;
     void closeWriter();
     void rebuildPool();
+    void resetQueues() noexcept;
+    static juce::AudioBuffer<float>* popQueue (
+        juce::AbstractFifo&, std::array<juce::AudioBuffer<float>*, maxQueuedBlocks>&) noexcept;
+    static bool pushQueue (
+        juce::AbstractFifo&, std::array<juce::AudioBuffer<float>*, maxQueuedBlocks>&,
+        juce::AudioBuffer<float>*) noexcept;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterRecorder)
 };

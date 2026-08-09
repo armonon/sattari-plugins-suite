@@ -25,7 +25,6 @@
 #include "WaveformRegion.h"
 #include "TempoPanel.h"
 #include "SessionModel.h"
-#include "EnergyArc.h"
 #include "SattariFxRack.h"
 #include "ChannelStrip.h"
 #include "XYPad.h"
@@ -43,8 +42,12 @@
 #endif
 
 class MainPluginEditor final : public juce::AudioProcessorEditor,
+                               public juce::DragAndDropContainer,
+                               public juce::DragAndDropTarget,
+                               public juce::FileDragAndDropTarget,
                                private juce::Timer,
                                private juce::FileBrowserListener,
+                               private juce::ListBoxModel,
                                private juce::AudioProcessorValueTreeState::Listener
 {
 public:
@@ -52,6 +55,7 @@ public:
     ~MainPluginEditor() override;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
 
@@ -84,6 +88,9 @@ private:
         juce::ComboBox stemLane;
         juce::TextButton loadStem { "Stem" };
         juce::TextButton aiStems { "AI Split" };
+        // Always-reachable controls for secondary/collapsed decks. Display order
+        // matches the performance waveform: VOX / DRM / BAS / OTH.
+        std::array<juce::TextButton, 4> compactStemButtons;
         juce::TextButton extractMidi;   // audio→MIDI melody extraction (SRC tab)
         juce::TextButton extractDrums;  // beatbox/percussion→drum pattern (SRC tab)
         juce::ToggleButton play;
@@ -163,6 +170,9 @@ private:
         static constexpr int numLanes = MainPluginProcessor::numDecks;
         static constexpr int masterLane = numLanes;          // 4 — master is the 5th lane
         static constexpr int numEditableLanes = numLanes + 1;
+        // Pulsebox-style track headers: icon/identity, M/S/automation and a real
+        // gain readout remain legible while the timeline scrolls independently.
+        static constexpr int trackHeaderWidth = 200;
 
         enum class Mode { Idle, Recording, Finished };
 
@@ -269,6 +279,21 @@ private:
         void zoomIn();
         void zoomOut();
         void zoomToFit();
+        void setFollowPlayback (bool shouldFollow) noexcept { followPlayback = shouldFollow; }
+        bool isFollowingPlayback() const noexcept { return followPlayback; }
+        void setAllAutomationVisible (bool shouldShow)
+        {
+            for (int i = 0; i < visibleLanes; ++i)
+                editAuto[(size_t) i].visible = shouldShow;
+            repaint();
+        }
+        bool hasVisibleAutomation() const noexcept
+        {
+            for (int i = 0; i < visibleLanes; ++i)
+                if (editAuto[(size_t) i].visible)
+                    return true;
+            return false;
+        }
 
         juce::ValueTree toState() const;                  // serialize clips + lane state + loop
         void fromState (const juce::ValueTree& state);
@@ -437,12 +462,13 @@ private:
         int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
         std::array<float, numEditableLanes> laneGainDb {};   // 0 dB default
-        std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {};
+        std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {}, gainSliderRects {};
         std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
         std::array<EditAutomation, numLanes> editAuto;
         std::array<CapturedDspAutomation, numLanes> capturedDsp;
         CapturedMasterAutomation capturedMaster;
         int dragAutoLane = -1, dragAutoPointIdx = -1;
+        int dragGainLane = -1;
         bool showDemoBlocks = false;   // showcase placeholder timeline clips (opt-in via Settings)
         std::array<std::vector<MidiClipData>, numEditableLanes> midiClips {};
         MidiRef activeMidiDrag;
@@ -477,6 +503,7 @@ private:
         double snapBpm = 120.0;
         double playbackPositionSeconds = -1.0;
         bool   playbackActive = false;
+        bool   followPlayback = true;
         double cursorSeconds = 0.0;                       // play-start cursor (shown when stopped)
         juce::Rectangle<int> rulerBounds, timelineMapRect;   // computed in paint(), for click-to-seek
         double loopStartSeconds = 0.0, loopEndSeconds = 0.0;
@@ -488,7 +515,16 @@ private:
         // ---- Timeline viewport: zoom + horizontal scroll ----
         double zoom = 1.0;                 // 1 = whole arrangement fits the width
         double viewStartSeconds = 0.0;     // left edge of the visible window
-        juce::Rectangle<int> scrollTrackBounds, scrollThumbBounds;   // computed in paint()
+        juce::Rectangle<int> scrollTrackBounds, scrollThumbBounds, detailPanelBounds;   // computed in paint()
+        // Pulsebox-inspired workspace chrome, implemented against real arranger
+        // state: edit tools at left and a selected-channel Mix/FX inspector at right.
+        juce::Rectangle<int> toolRailBounds, inspectorBounds;
+        std::array<juce::Rectangle<int>, 5> toolRailButtonRects {};
+        juce::Rectangle<int> inspectorMixTabRect, inspectorFxTabRect;
+        juce::Rectangle<int> inspectorMuteRect, inspectorSoloRect,
+                             inspectorAutomationRect, inspectorGainTrackRect;
+        bool inspectorShowsFx = false;
+        bool draggingInspectorGain = false;
         bool   draggingScrollBar = false;
         double scrollDragAnchorView = 0.0;
         int    scrollDragAnchorX = 0;
@@ -574,8 +610,10 @@ private:
     void setDeckDetailVisible (int deckIndex, bool visible);
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckCollapsedBounds {};
     std::array<int, MainPluginProcessor::numDecks> deckDimState { { -1, -1, -1, -1 } };
-    std::array<float, MainPluginProcessor::numDecks> deckWidthCurrent {};
-    std::array<float, MainPluginProcessor::numDecks> deckWidthTarget {};
+    // Width animation applies to every live channel, not only the four track
+    // decks. Sessions may contain additional mic/line and instrument channels.
+    std::array<float, kMaxChannels> deckWidthCurrent {};
+    std::array<float, kMaxChannels> deckWidthTarget {};
 
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
@@ -585,10 +623,11 @@ private:
     // in paint() so the tabs read as one control over a recess (reference §3).
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckTabStripBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckTabPanelBounds {};
-    // Master Control Band — five bounded panels.
+    // Master Control Band — stage controls remain visible without displacing FX.
     juce::Rectangle<int> scopePanelBounds {};   // SCOPE
     juce::Rectangle<int> syncPanelBounds {};     // SYNC (stacked BPM/KEY pills)
-    juce::Rectangle<int> xfPanelBounds {};       // CROSSFADER
+    juce::Rectangle<int> xfPanelBounds {};       // live crossfader + deck meters
+    juce::Rectangle<int> fxRackPanelBounds {};   // trusted insert rack
     juce::Rectangle<int> masterFxPanelBounds {}; // MASTER FX (FILTER pad)
     juce::Rectangle<int> masterOutBounds {};    // MASTER OUTPUT panel (meters/gain/tempo)
     juce::Rectangle<int> masterMeterBounds {};  // stereo meter zone inside it
@@ -611,6 +650,11 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aiMasterModeAttachment;
     juce::Rectangle<int> headerBarBounds {};
     juce::Rectangle<int> tempoChipBounds {};
+    juce::Rectangle<int> projectToolbarBounds {};
+    juce::Rectangle<int> projectToolbarLabelBounds {};
+    juce::Rectangle<int> projectTempoLabelBounds {};
+    juce::Rectangle<int> projectKeyLabelBounds {};
+    juce::Rectangle<int> projectToolbarStatusBounds {};
     MixerSection mixerPanel;
     XYPad masterFxPad;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
@@ -618,6 +662,7 @@ private:
     juce::TextButton crossfaderReverse { "REV" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "TAP" };
+    juce::TextButton masterDeckButton { "MASTER A" };
     stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "PLAY ALL", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
     stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "REC",      juce::Colour (0xffff3b47) };   // header: arm/stop capturing
     stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "AUTO",     juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
@@ -640,6 +685,9 @@ private:
     juce::TextButton bounceEditsButton { "Bounce Edits" };
     juce::TextButton snapToggleButton { "Snap" };
     juce::TextButton razorButton { "Razor" };
+    juce::TextButton arrAutomationButton { "Automation" };
+    juce::TextButton arrFollowButton { "Follow" };
+    juce::ComboBox arrGrid;
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton arrLoopButton { "Loop" };
     juce::TextButton launchAllButton { "LAUNCH" };   // trigger all clip slots at next beat (was cryptic ">>>")
@@ -680,6 +728,7 @@ private:
         const juce::File& projectFile = {});
     void scheduleRecoveryAutosave();
     void offerRecoveryAutosave();
+    bool onboardingPending = false;
     static juce::File recoveryAutosaveFile();
     static juce::File recoveryIntentFile();
     void openPianoRollForClip (int lane, int clip);
@@ -699,8 +748,6 @@ private:
     // Mix-timeline arrangement overlay (the ARRANGER surface) — draws a live
     // snapshot of the loaded decks: clips, stem-less waveforms, structure, xfader.
     ArrangementView mixArrangeView;
-    stemdeck::EnergyArcArranger energyArc;   // ScenePilot energy-arc (top of the ARRANGER)
-    int energyArcSig = 0;                     // rebuild the arc when the structure changes
     void refreshMixArrangement();   // rebuild the snapshot session from deck state
     juce::TextButton mixerButton { "Mixer" };
     juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
@@ -733,14 +780,21 @@ private:
     std::array<juce::String, MainPluginProcessor::numDecks> lastBeatGridKey {};
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };
-    juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3", "*", "Audio files" };
+    juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a;*.ogg", "*", "Audio files" };
     juce::DirectoryContentsList browserContents { &browserFilter, browserThread };
     std::unique_ptr<juce::FileTreeComponent> fileBrowser;
+    juce::Label browserFilesLabel, browserPluginsLabel;
+    juce::TextEditor explorePluginSearch;
+    juce::TextButton explorePluginScanButton { "Scan" };
+    juce::ListBox explorePluginList;
+    juce::Array<int> explorePluginIndices;
     std::unique_ptr<MusicLibraryView> libraryView;
     juce::TextButton toggleLibraryButton { "LIBRARY" };
     juce::TextButton navDecksButton { "DECKS" };
-    // Four-workspace nav plus global, context-sensitive actions.
-    std::array<juce::Rectangle<int>, 4> navRects {};
+    // Three destinations mirror the user's actual journey: prepare a Set,
+    // Perform it, then Replay/edit the take. Mixer remains a contextual action,
+    // not a fourth place the user has to navigate to.
+    std::array<juce::Rectangle<int>, 3> navRects {};
     void drawNavIcon (juce::Graphics&, int which, juce::Rectangle<float> box, juce::Colour) const;
     juce::TextButton commandButton { "Search" };
     juce::TextButton inspectorButton { "Inspect" };
@@ -772,7 +826,7 @@ private:
     juce::Rectangle<int> addChannelTileBounds;
 
     juce::TextButton addChannelButton    { "+ Channel" };
-    juce::TextButton removeChannelButton { "−" };
+    juce::TextButton removeChannelButton { "-" };
     // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline
     // blocks). Off by default — real state only; opt-in via the Settings gear.
     bool showcaseMode = false;
@@ -792,7 +846,8 @@ private:
     // paint had already run at the current size: between a resize and the next
     // paint, every chip hit-test used stale geometry.
     void layoutDeckHeaderChips (int deckIndex);
-    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckBpmChipBounds {}, deckKeyChipBounds {};
+    std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckBpmChipBounds {}, deckKeyChipBounds {},
+                                                                        deckSyncChipBounds {};
     // Row 1 of the deck header: the track name owns the full column width. Row 2
     // carries the numerics + the NEURAL/DSP provenance chip.
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckNameBounds {}, deckSrcChipBounds {};
@@ -804,6 +859,7 @@ private:
     void showKeyMenuForDeck (int deckIndex);
     void syncBpmAll();   // warp all decks to the master deck's tempo (hotkey B)
     void syncKeyAll();   // harmonically match all decks to the master deck (hotkey K)
+    void showMasterDeckMenu();
     juce::TextButton syncBpmButton { "BPM" };   // in the SYNC panel; header supplies "sync"
     juce::TextButton syncKeyButton { "KEY" };
     // Master deck = sync reference. Auto-follows the last deck to start playing;
@@ -816,7 +872,12 @@ private:
     juce::TextButton browserUpButton { "Up" };
     juce::TextButton browserHomeButton { "Home" };
     juce::Label browserPathLabel;
+    juce::Rectangle<int> browserPanelBounds, browserTitleBounds;
     bool browserVisible = false;
+
+    // Perform HUD: one calm, game-like objective plus three legible system
+    // signals. It replaces another row of knobs with an obvious next action.
+    juce::Rectangle<int> performanceCoachBounds {};
 
     static juce::String deckPrefix (int deckIndex);
     static juce::String deckLabel (int deckIndex);
@@ -848,6 +909,7 @@ private:
     void setupToolTabs (int deckIndex);
     void setDeckToolTab (int deckIndex, int tab);
     void refreshFxScopes();
+    void showFxTargetMenu (int targetKind = -1);
     void applyDeckToolTabVisibility (int deckIndex);
 
     // Hot cue helpers
@@ -875,7 +937,10 @@ private:
     // UI helpers
     void showCamelotWheel (int deckIndex);
     void showTempoPanel (int deckIndex);   // §5 unified tempo panel, opened from the BPM chip
-    void refreshEnergyArc();               // Auto Director: build the arc from structure
+    // Structure segmentation scans the loaded track and must never run at the UI
+    // timer rate. This signature lets the mix-arrangement snapshot rebuild only
+    // when its musical source changes.
+    juce::String mixArrangementStateKey;
     void applyPerStemKeyLock (int deckIndex, int semitones);   // §7 tier-2: tonal stems only, drums untouched
     // Retroactive MASTER tempo lane, normalised (beat 0..1, bpm). Edited in the tempo
     // panel; folded into the session (as beats) when the mix arrangement is built.
@@ -900,6 +965,9 @@ private:
     void browserNavigateUp();
     void bounceArrangementEdits();
     void refreshHostPluginChoices();
+    void rebuildExplorePluginList();
+    void loadHostPluginToChain (int pluginIndex, int chainIndex,
+                                const juce::String& destinationName);
     void runPluginHostScan();
     void showSattariFxMenu();   // curated Sattari-suite FX loader for the selected chain
     void loadSelectedHostPlugin();
@@ -912,6 +980,46 @@ private:
     void fileClicked (const juce::File&, const juce::MouseEvent&) override {}
     void fileDoubleClicked (const juce::File& file) override;
     void browserRootChanged (const juce::File&) override {}
+
+    // Explore plugin list model.
+    int getNumRows() override;
+    void paintListBoxItem (int row, juce::Graphics&, int width, int height,
+                           bool selected) override;
+    void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override;
+    bool mayDragToExternalWindows() const override { return false; }
+
+    // One drag router covers library rows, Explore files, Finder files, decks,
+    // performance pads and every live FX destination.
+    using DragDetails = juce::DragAndDropTarget::SourceDetails;
+    bool isInterestedInDragSource (const DragDetails&) override;
+    void itemDragEnter (const DragDetails&) override;
+    void itemDragMove (const DragDetails&) override;
+    void itemDragExit (const DragDetails&) override;
+    void itemDropped (const DragDetails&) override;
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray&, int x, int y) override;
+    void fileDragMove (const juce::StringArray&, int x, int y) override;
+    void fileDragExit (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int x, int y) override;
+    bool shouldDropFilesWhenDraggedExternally (const DragDetails&, juce::StringArray&,
+                                               bool& canMoveFiles) override;
+
+    struct DropTarget
+    {
+        enum class Kind { none, deck, pad, explorer, arrangement, pluginChain } kind = Kind::none;
+        int index = -1;
+        int chain = -1;
+        juce::Point<int> localPoint;
+        juce::Rectangle<int> bounds;
+        juce::String label;
+        juce::Colour colour { juce::Colours::transparentBlack };
+    };
+    DropTarget findDropTarget (juce::Point<int> point, bool pluginPayload) const;
+    void updateDropTarget (juce::Point<int> point, bool pluginPayload);
+    void clearDropTarget();
+    void handleAudioDrop (const juce::File&, const DropTarget&);
+    DropTarget activeDropTarget;
 
     void parameterChanged (const juce::String& parameterID, float newValue) override;
     static int parseDeckIndexFromParamID (const juce::String& id);

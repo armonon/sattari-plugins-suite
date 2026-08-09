@@ -57,6 +57,19 @@ public:
 
         amount = juce::jlimit (0.0f, 1.0f, amount);
 
+        // This processor is called on every master block even while the feature
+        // is disabled. Keep bypass genuinely free: the analysis below walks the
+        // complete buffer and performs several filters/logarithms.
+        if (amount <= 0.001f)
+        {
+            appliedLow = appliedMid = appliedHigh = 0.0f;
+            loudnessGainDb = 0.0f;
+            compEnvelope = 0.0f;
+            shortTermLufs.store (-70.0f, std::memory_order_relaxed);
+            gainReductionDb.store (0.0f, std::memory_order_relaxed);
+            return;
+        }
+
         // ── Mode targets ────────────────────────────────────────────────────
         float targetLufs, tLow, tMid, tHigh;
         switch (juce::jlimit (0, 2, mode))
@@ -101,9 +114,6 @@ public:
             shortTermLufs.store (10.0f * std::log10 (loudnessMs + 1.0e-12f) - 0.69f,   // BS.1770-ish offset
                                  std::memory_order_relaxed);
         }
-
-        if (amount <= 0.001f)
-            return;
 
         const float lufs = shortTermLufs.load (std::memory_order_relaxed);
         const bool signalPresent = lufs > -45.0f;

@@ -135,6 +135,11 @@ int main()
     juce::AudioBuffer<float> buf (2, blockSize);
     juce::MidiBuffer midi;
 
+    const auto recording = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                               .getChildFile ("stemdeck-rtsafety-recording.wav");
+    check (proc->beginMasterRecording (recording),
+           "master and per-channel recorders started");
+
     // ── Warm-up: lazy buffers are allowed to be built here ───────────────────
     for (int i = 0; i < 200; ++i) { buf.clear(); proc->processBlock (buf, midi); }
 
@@ -167,6 +172,7 @@ int main()
 
     stop.store (true);
     churn.join();
+    proc->stopMasterRecording();
 
     const int v = rtcheck::violations.load();
     const int b = rtcheck::violationBytes.load();

@@ -29,7 +29,19 @@ SattariRiserAudioProcessor::SattariRiserAudioProcessor()
       apvts (*this, nullptr, "PARAMS", createParameterLayout())
 {
 }
-SattariRiserAudioProcessor::~SattariRiserAudioProcessor() { tempoReader.stop(); }
+SattariRiserAudioProcessor::~SattariRiserAudioProcessor()
+{
+    cancelPendingUpdate();
+    tempoReader.stop();
+}
+
+void SattariRiserAudioProcessor::handleAsyncUpdate()
+{
+    if (! armClearRequested.exchange (false, std::memory_order_acq_rel))
+        return;
+    if (auto* armParameter = apvts.getParameter ("arm"))
+        armParameter->setValueNotifyingHost (0.0f);
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 SattariRiserAudioProcessor::createParameterLayout()
@@ -292,8 +304,11 @@ void SattariRiserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                 }
                 finishBuild();
                 // Auto-clear the arm latch so a held toggle doesn't retrigger.
-                if (auto* ap = apvts.getParameter ("arm"))
-                    if (arm) ap->setValueNotifyingHost (0.0f);
+                if (arm)
+                {
+                    armClearRequested.store (true, std::memory_order_release);
+                    triggerAsyncUpdate();
+                }
             }
         }
 

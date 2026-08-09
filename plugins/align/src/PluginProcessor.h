@@ -108,7 +108,6 @@ private:
     // Main envelopes. The audio loop interpolates this path each block.
     struct WarpAnchor { double timeSec; float lagSamples; };
     std::vector<WarpAnchor> warpPath;
-    juce::CriticalSection warpPathLock;
     double dtwClockSec = 0.0;       // monotonic audio-thread clock (s)
     int    computeDtwWarp();        // returns 0 if path updated, non-zero on skip
 

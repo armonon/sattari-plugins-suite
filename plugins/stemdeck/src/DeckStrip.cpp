@@ -74,10 +74,37 @@ juce::Colour DeckStrip::accentFor (int deck)
 // ── State + drawer ────────────────────────────────────────────────────────────
 void DeckStrip::setState (const State& s)
 {
+    const auto differs = [] (double a, double b, double epsilon)
+    {
+        return std::abs (a - b) > epsilon;
+    };
+    const bool changed = s.hasTrack != state.hasTrack
+                      || s.playing != state.playing
+                      || s.cueSet != state.cueSet
+                      || s.cueHeld != state.cueHeld
+                      || s.loopArmed != state.loopArmed
+                      || s.loopActive != state.loopActive
+                      || differs (s.loopBeats, state.loopBeats, 0.0001)
+                      || s.beatJumpBars != state.beatJumpBars
+                      || s.syncOn != state.syncOn
+                      || s.syncLocked != state.syncLocked
+                      || differs (s.phaseOffset, state.phaseOffset, 0.002)
+                      || s.keyCamelot != state.keyCamelot
+                      || s.keySemis != state.keySemis
+                      || s.keyLowConf != state.keyLowConf
+                      || s.slipOn != state.slipOn
+                      || s.quantIndex != state.quantIndex
+                      || s.stem != state.stem
+                      || differs (s.sepProgress, state.sepProgress, 0.001)
+                      || s.fx != state.fx
+                      || s.focused != state.focused;
+    if (! changed)
+        return;
+
     const bool needRing = s.syncOn;
     state = s;
     if (needRing && ! isTimerRunning())
-        startTimerHz (60);
+        startTimerHz (30);
     repaint();
 }
 
@@ -93,7 +120,7 @@ void DeckStrip::setExpanded (bool shouldExpand, bool animate)
         return;
     }
     if (! isTimerRunning())
-        startTimerHz (60);
+        startTimerHz (30);
 }
 
 int DeckStrip::currentHeight() const
@@ -223,6 +250,12 @@ void DeckStrip::layoutRow2 (juce::Rectangle<float> row)
     set (Hit::quant, centredCell (r.removeFromLeft (72.0f), 72.0f, 20.0f));
     r.removeFromLeft (10.0f);
     set (Hit::slip, centredCell (r.removeFromLeft (44.0f), 44.0f, 20.0f));
+
+    // Beat-grid editor stays visible in the compact drawer. It opens precise
+    // downbeat, nudge, and tempo interpretation actions without exposing more
+    // tiny sliders on the performance surface.
+    set (Hit::grid, centredCell (row.removeFromRight (48.0f).reduced (0.0f, 4.0f), 46.0f, 20.0f));
+    row.removeFromRight (6.0f);
 
     // FX sends — right cluster. Only two real sends exist (A = Echo, B = Reverb);
     // the former "C" pill routed no audio and was removed.
@@ -596,6 +629,15 @@ void DeckStrip::paintRow2 (juce::Graphics& g, float alpha)
         g.drawText ("SLIP", rr.toNearestInt(), juce::Justification::centred);
     }
 
+    // Editable beat grid.
+    {
+        auto rr = regionFor (Hit::grid);
+        paintPill (g, rr, false, hovered == Hit::grid, accent);
+        g.setColour (hovered == Hit::grid ? tok::primary (0.95f) : tok::tertiary());
+        g.setFont (grotesque (10.0f, true).withExtraKerningFactor (0.04f));
+        g.drawText ("GRID", rr.toNearestInt(), juce::Justification::centred);
+    }
+
     // FX sends A / B / C + caption.
     {
         auto capRegion = regionFor (Hit::fxA);   // leftmost (fxA laid rightmost-first)
@@ -662,6 +704,7 @@ void DeckStrip::mouseDown (const juce::MouseEvent& e)
         }
         case Hit::quant: if (callbacks.onCycleQuantize) callbacks.onCycleQuantize(); break;
         case Hit::slip:  if (callbacks.onToggleSlip)    callbacks.onToggleSlip(); break;
+        case Hit::grid:  if (callbacks.onOpenBeatGrid)  callbacks.onOpenBeatGrid(); break;
         case Hit::fxA:   if (callbacks.onToggleFx)      callbacks.onToggleFx (0); break;
         case Hit::fxB:   if (callbacks.onToggleFx)      callbacks.onToggleFx (1); break;
         case Hit::fxC:   break;   // removed: had no audio routing

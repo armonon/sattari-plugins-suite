@@ -22,17 +22,50 @@ void MasterRecorder::prepare (double sampleRate, int numChannels, int blockSize)
 void MasterRecorder::rebuildPool()
 {
     const int block = juce::jmax (1, poolBlockSize > 0 ? poolBlockSize : 2048);
-    const juce::ScopedLock lock (queueLock);
-    pendingBlocks.clear();
-    freeBlocks.clear();
+    poolBlockSize = block;
     blockPool.clear();
     blockPool.reserve ((size_t) maxQueuedBlocks);
     for (int i = 0; i < maxQueuedBlocks; ++i)
-    {
-        auto b = std::make_unique<juce::AudioBuffer<float>> (channels, block);
-        freeBlocks.push_back (b.get());
-        blockPool.push_back (std::move (b));
-    }
+        blockPool.push_back (std::make_unique<juce::AudioBuffer<float>> (channels, block));
+    resetQueues();
+}
+
+juce::AudioBuffer<float>* MasterRecorder::popQueue (
+    juce::AbstractFifo& fifo,
+    std::array<juce::AudioBuffer<float>*, maxQueuedBlocks>& queue) noexcept
+{
+    int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+    fifo.prepareToRead (1, start1, size1, start2, size2);
+    if (size1 + size2 == 0)
+        return nullptr;
+    const int index = size1 > 0 ? start1 : start2;
+    auto* result = queue[(size_t) index];
+    fifo.finishedRead (1);
+    return result;
+}
+
+bool MasterRecorder::pushQueue (
+    juce::AbstractFifo& fifo,
+    std::array<juce::AudioBuffer<float>*, maxQueuedBlocks>& queue,
+    juce::AudioBuffer<float>* block) noexcept
+{
+    int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
+    fifo.prepareToWrite (1, start1, size1, start2, size2);
+    if (size1 + size2 == 0)
+        return false;
+    queue[(size_t) (size1 > 0 ? start1 : start2)] = block;
+    fifo.finishedWrite (1);
+    return true;
+}
+
+void MasterRecorder::resetQueues() noexcept
+{
+    freeFifo.reset();
+    pendingFifo.reset();
+    freeQueue.fill (nullptr);
+    pendingQueue.fill (nullptr);
+    for (const auto& block : blockPool)
+        pushQueue (freeFifo, freeQueue, block.get());
 }
 
 void MasterRecorder::reset()
@@ -41,13 +74,7 @@ void MasterRecorder::reset()
     notify();
     stopThread (3000);
 
-    {
-        const juce::ScopedLock lock (queueLock);
-        // Return every in-flight buffer to the free list (pool memory is retained).
-        for (auto* b : pendingBlocks)
-            freeBlocks.push_back (b);
-        pendingBlocks.clear();
-    }
+    resetQueues();
 
     closeWriter();
     targetFile = juce::File (juce::String{});
@@ -114,29 +141,36 @@ void MasterRecorder::captureBlock (const juce::AudioBuffer<float>& masterBuffer)
     if (numSamples <= 0 || srcCh <= 0)
         return;
 
-    const juce::ScopedTryLock lock (queueLock);
-    if (! lock.isLocked())
+    // Never resize beyond the capacity negotiated in prepare(): that would allocate
+    // on the real-time thread. A misbehaving host costs one reported dropped block,
+    // not an audio callback stall.
+    if (numSamples > poolBlockSize)
     {
         droppedBlocks.fetch_add (1);
         return;
     }
 
-    if (freeBlocks.empty())
+    auto* dst = popQueue (freeFifo, freeQueue);
+    if (dst == nullptr)
     {
         droppedBlocks.fetch_add (1);
         return;
     }
-
-    auto* dst = freeBlocks.front();
-    freeBlocks.pop_front();
 
     // setSize with avoidReallocating keeps the pool buffer's capacity (no RT alloc).
     dst->setSize (channels, numSamples, false, false, true);
     for (int ch = 0; ch < channels; ++ch)
         dst->copyFrom (ch, 0, masterBuffer, juce::jmin (ch, srcCh - 1), 0, numSamples);
 
-    pendingBlocks.push_back (dst);
-    notify();
+    const bool writerWasIdle = pendingFifo.getNumReady() == 0;
+    if (! pushQueue (pendingFifo, pendingQueue, dst))
+    {
+        pushQueue (freeFifo, freeQueue, dst);
+        droppedBlocks.fetch_add (1);
+        return;
+    }
+    if (writerWasIdle)
+        notify();
 }
 
 juce::File MasterRecorder::getTargetFile() const
@@ -148,15 +182,7 @@ void MasterRecorder::run()
 {
     auto drainOne = [this] () -> bool
     {
-        juce::AudioBuffer<float>* block = nullptr;
-        {
-            const juce::ScopedLock lock (queueLock);
-            if (! pendingBlocks.empty())
-            {
-                block = pendingBlocks.front();
-                pendingBlocks.pop_front();
-            }
-        }
+        auto* block = popQueue (pendingFifo, pendingQueue);
 
         if (block == nullptr)
             return false;
@@ -164,8 +190,7 @@ void MasterRecorder::run()
         if (block->getNumSamples() > 0 && writer)
             writer->writeFromAudioSampleBuffer (*block, 0, block->getNumSamples());
 
-        const juce::ScopedLock lock (queueLock);
-        freeBlocks.push_back (block);
+        pushQueue (freeFifo, freeQueue, block);
         return true;
     };
 
@@ -180,5 +205,4 @@ void MasterRecorder::run()
 void MasterRecorder::closeWriter()
 {
     writer.reset();
-    outputStream.reset();
 }

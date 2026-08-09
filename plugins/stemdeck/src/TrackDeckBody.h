@@ -46,7 +46,7 @@ struct TrackDeckParams
     float revMix = 0.0f, echoMix = 0.0f;
 
     // Globals the deck render reads.
-    bool  hostSync = false, beatSync = false;
+    bool  hostSync = false, beatSync = false, deckSync = true;
     int   masterKey = 0;
 
     // Live-key harmonic-match inputs (published from the deck's live analysis).
@@ -66,6 +66,14 @@ public:
     // Real-time separator tuning (atomic inside RealTimeStemSeparator).
     void setDrumsSensitivity (float s) noexcept { rtss.setDrumsSensitivity (s); }
     void setVocalsMidWeight  (float w) noexcept { rtss.setVocalsMidWeight (w); }
+    void setStemPluginProcessingRequired (bool required) noexcept
+    {
+        stemPluginProcessingRequired.store (required, std::memory_order_release);
+    }
+    std::uint64_t getRealtimeSeparationBlocksForTest() const noexcept
+    {
+        return realtimeSeparationBlocks;
+    }
 
     DeckPlayer&       deckPlayer()       noexcept { return deck; }
     const DeckPlayer& deckPlayer() const noexcept { return deck; }
@@ -168,10 +176,10 @@ public:
         const auto& gridInUse = heldGrid != nullptr ? heldGrid->grid : cachedGrid;
         const auto warpPlan = warp.makePlan (ctx.transport, gridInUse,
                                              deckAudio ? deckAudio->sourceSampleRate : preparedRate,
-                                             deckAudio ? (double) deckAudio->audio.getNumSamples() : 0.0,
+                                             deckAudio ? (double) deckAudio->numSourceSamples() : 0.0,
                                              params.pitch + matchShift,
                                              params.keyLock,
-                                             hostTempoSync && params.beatSync,
+                                             hostTempoSync && params.beatSync && params.deckSync,
                                              /*wantStatus*/ false);
 
         // ── Per-stem gains (percent → linear) and pitch ──
@@ -228,21 +236,39 @@ private:
         if (hasOfflineStems || deckBuffer.getNumChannels() < 2)
             return;
 
+        using stemdeck::stemgain::percentToLinear;
+        const float gDrums  = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::drumsStem]);
+        const float gBass   = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::bassStem]);
+        const float gMusic  = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::musicStem]);
+        const float gVocals = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::vocalsStem]);
+        const bool anyStemMoved = (gDrums  < 0.999f || gDrums  > 1.001f)
+                               || (gBass   < 0.999f || gBass   > 1.001f)
+                               || (gMusic  < 0.999f || gMusic  > 1.001f)
+                               || (gVocals < 0.999f || gVocals > 1.001f);
+        bool anyBuiltInStemFx = false;
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            anyBuiltInStemFx = anyBuiltInStemFx
+                || std::abs (params.stemFilt[(size_t) lane] - 0.5f) > 0.005f
+                || params.stemSend[(size_t) lane] > 0.0005f;
+        const bool hasStemPlugins = stemPluginProcessingRequired.load (std::memory_order_acquire);
+
+        // Separating and immediately re-summing a unity, effect-free full mix cannot
+        // change the sound. Avoid the separator entirely in the overwhelmingly common
+        // case; it is one of the most expensive jobs in the live render path.
+        if (! anyStemMoved && ! anyBuiltInStemFx && ! hasStemPlugins)
+            return;
+
         const int ch = deckBuffer.getNumChannels();
         for (auto* b : { &drums, &bass, &music, &vocals })
-            if (b->getNumSamples() < n) b->setSize (ch, n, false, true, true);
+            if (b->getNumSamples() < n)
+                return; // host exceeded prepare() contract; never allocate in render
 
         rtss.process (deckBuffer.getReadPointer (0), deckBuffer.getReadPointer (1), n,
                       drums .getWritePointer (0), drums .getWritePointer (ch > 1 ? 1 : 0),
                       bass  .getWritePointer (0), bass  .getWritePointer (ch > 1 ? 1 : 0),
                       music .getWritePointer (0), music .getWritePointer (ch > 1 ? 1 : 0),
                       vocals.getWritePointer (0), vocals.getWritePointer (ch > 1 ? 1 : 0));
-
-        using stemdeck::stemgain::percentToLinear;
-        const float gDrums  = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::drumsStem]);
-        const float gBass   = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::bassStem]);
-        const float gMusic  = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::musicStem]);
-        const float gVocals = percentToLinear (params.stemGainPercent[(size_t) DeckPlayer::vocalsStem]);
+        ++realtimeSeparationBlocks;
 
         juce::AudioBuffer<float>* stemBufs[4] = { &drums, &bass, &music, &vocals };
         bool anyStemFx = false;
@@ -260,7 +286,7 @@ private:
         }
 
         // Per-stem plugin chains, then align them all to the slowest one.
-        if (onStemFx)
+        if (hasStemPlugins && onStemFx)
         {
             for (int s = 0; s < 4; ++s)
             {
@@ -270,11 +296,6 @@ private:
             anyStemFx = true;   // buffers may have changed even at unity gain
         }
         applyStemCompensation (stemBufs, ch, n);
-
-        const bool anyStemMoved = (gDrums  < 0.999f || gDrums  > 1.001f)
-                               || (gBass   < 0.999f || gBass   > 1.001f)
-                               || (gMusic  < 0.999f || gMusic  > 1.001f)
-                               || (gVocals < 0.999f || gVocals > 1.001f);
 
         if (anyStemMoved || anyStemFx)
         {
@@ -374,6 +395,7 @@ private:
     std::array<juce::AudioBuffer<float>, 4> stemDelayLine;   // pre-allocated in prepare()
     std::array<int, 4> stemDelayWrite { 0, 0, 0, 0 };
     std::array<std::atomic<int>, 4> stemChainLatency {};     // message thread -> audio
+    std::atomic<bool> stemPluginProcessingRequired { false }; // message thread -> audio
     std::array<int, 4> stemDelayApplied { -1, -1, -1, -1 };  // last-applied, to detect change
     int stemDelayCapacity = 0;
     WarpEngine               warp;
@@ -408,6 +430,7 @@ private:
     bool    gridDirty = true;
     double  preparedRate = 44100.0;
     int     preparedChannels = 2;
+    std::uint64_t realtimeSeparationBlocks = 0; // audio-thread-owned test/telemetry seam
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackDeckBody)
 };

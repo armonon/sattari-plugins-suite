@@ -3,7 +3,7 @@
 // actually show up on screen -- inconsistent radii, mismatched button weights,
 // crowded panels -- only appear in context. This is that gate.
 //
-//   StemDeckEditorRender [out.png] [W] [H] [channels] [typed] [tab] [loaded] [surface] [recording]
+//   StemDeckEditorRender [out.png] [W] [H] [channels] [typed] [tab] [loaded] [surface] [recording] [scenario]
 //     default ~/Desktop/StemDeck-demo/editor.png at 1680x1050
 #include "MainPluginProcessor.h"
 #include "MainPluginEditor.h"
@@ -20,6 +20,8 @@ int main (int argc, char** argv)
 
     MainPluginProcessor proc;
     proc.prepareToPlay (48000.0, 512);
+    const auto scenario = argc >= 11 ? juce::String (argv[10]).toLowerCase()
+                                     : juce::String();
 
     // Optional 4th arg: channel count to render (exercises add/remove live).
     if (argc >= 5)
@@ -29,11 +31,21 @@ int main (int argc, char** argv)
         while (proc.getNumChannels() < want && proc.addChannel() >= 0) {}
     }
 
-    // Optional 5th arg: also add one Input and one MIDI Instrument channel, to
-    // exercise the per-type ChannelStrip rendering.
-    if (argc >= 6 && juce::String (argv[5]).getIntValue() != 0)
+    // Optional 5th arg: 1 adds typed channels after the decks. 2 deliberately
+    // interleaves a removed/re-added TrackDeck with typed channels, reproducing
+    // restored sessions where list index no longer equals permanent deck slot.
+    const int typedMode = argc >= 6 ? juce::String (argv[5]).getIntValue() : 0;
+    if (typedMode == 1)
     {
         proc.addChannel (ChannelType::input);
+        proc.addChannel (ChannelType::midiInstrument);
+    }
+    else if (typedMode == 2)
+    {
+        if (proc.getNumChannels() > 2)
+            proc.removeChannel (2);
+        proc.addChannel (ChannelType::input);
+        proc.addChannel (ChannelType::trackDeck);
         proc.addChannel (ChannelType::midiInstrument);
     }
 
@@ -64,6 +76,14 @@ int main (int argc, char** argv)
                     wav.createWriterFor (os.get(), sr, 2, 16, {}, 0)))
             { os.release(); w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()); }
         proc.loadDeckFileAsync (0, tempWav);
+        if (scenario == "focus-c")
+        {
+            // Regression for the live bug where widening C left parent-painted
+            // deck frames at every intermediate position. Three loaded channels
+            // plus five idle targets reproduces the exact width allocation.
+            proc.loadDeckFileAsync (1, tempWav);
+            proc.loadDeckFileAsync (2, tempWav);
+        }
     }
 
     // Optional 9th arg: put the real recorder/dispatcher into the rolling state so
@@ -93,7 +113,7 @@ int main (int argc, char** argv)
         }
 
     // Optional 8th arg: primary surface name. The prior gate photographed only
-    // DECKS, leaving four top-level navigation destinations visually untested.
+    // PERFORM, leaving the other top-level destinations visually untested.
     if (argc >= 9)
         if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
         {
@@ -110,6 +130,23 @@ int main (int argc, char** argv)
 
     // One message pass so async layout / initial timers settle before we paint.
     juce::MessageManager::getInstance()->runDispatchLoopUntil (tempWav.existsAsFile() ? 2500 : 200);
+
+    if (scenario == "focus-c")
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+        {
+            int stripIndex = 0;
+            for (int child = 0; child < mpe->getNumChildComponents(); ++child)
+                if (auto* strip = dynamic_cast<stemdeck::DeckStrip*> (mpe->getChildComponent (child)))
+                {
+                    if (stripIndex++ == 2 && strip->callbacks.onRequestFocus)
+                    {
+                        strip->callbacks.onRequestFocus();
+                        break;
+                    }
+                }
+            // Exercise every eased geometry frame, including the final snap.
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (500);
+        }
 
     // Callouts dismiss themselves when this headless renderer has no foreground
     // window, so open them only after slower audio analysis has settled and paint

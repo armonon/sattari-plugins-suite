@@ -88,9 +88,9 @@ public:
     ToolButton (ToolIcon icon, juce::String label, juce::Colour accent)
         : juce::Button (label), ic (icon), text (std::move (label)), col (accent) {}
 
-    void setIcon (ToolIcon icon)          { ic = icon; repaint(); }
-    void setLabel (const juce::String& l) { text = l; repaint(); }
-    void setAccent (juce::Colour c)       { col = c; repaint(); }
+    void setIcon (ToolIcon icon)          { if (ic != icon) { ic = icon; repaint(); } }
+    void setLabel (const juce::String& l) { if (text != l) { text = l; repaint(); } }
+    void setAccent (juce::Colour c)       { if (col != c) { col = c; repaint(); } }
 
     std::function<bool()> isActive;   // optional: true => brightened/active pill
 

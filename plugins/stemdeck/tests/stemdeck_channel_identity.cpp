@@ -131,6 +131,11 @@ int main()
     ArrangementPlayer arrangement;
     arrangement.prepare (128.0, 128);
     arrangement.setSchedule (schedule);
+    auto masterAutomation =
+        std::make_shared<ArrangementPlayer::MasterAutomation>();
+    masterAutomation->gainDb = { { 0, -12.0f }, { 126, 0.0f } };
+    masterAutomation->smartOn = { { 0, 0.0f }, { 64, 1.0f } };
+    arrangement.setMasterAutomation (masterAutomation);
     arrangement.start();
     juce::AudioBuffer<float> rampOut (2, 127);
     rampOut.clear();
@@ -138,6 +143,24 @@ int main()
     check (rampOut.getSample (0, 10) < 0.15f
                && rampOut.getSample (0, 110) > 0.80f,
            "arrangement volume automation changes audio sample-accurately");
+    const auto masterAtStart = arrangement.getCurrentMasterState();
+    check (masterAtStart.has (ArrangementPlayer::MasterState::gainPresent)
+               && std::abs (masterAtStart.gainDb + 12.0f) < 0.001f,
+           "arrangement publishes captured master gain automation");
+    check (masterAtStart.has (ArrangementPlayer::MasterState::smartOnPresent)
+               && masterAtStart.smartOn < 0.5f,
+           "arrangement uses stepped state for captured master toggles");
+
+    arrangement.setPositionSeconds (0.5);   // sample 64 at 128 Hz
+    arrangement.start();
+    juce::AudioBuffer<float> laterOut (2, 1);
+    laterOut.clear();
+    arrangement.process (laterOut);
+    const auto masterLater = arrangement.getCurrentMasterState();
+    check (masterLater.gainDb > -6.1f && masterLater.gainDb < -5.8f,
+           "captured master gain interpolates at arrangement sample time");
+    check (masterLater.smartOn > 0.5f,
+           "captured master toggle changes exactly at its event sample");
 
     auto filterSource =
         std::make_shared<juce::AudioBuffer<float>> (2, 512);

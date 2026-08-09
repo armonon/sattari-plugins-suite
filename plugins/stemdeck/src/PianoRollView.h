@@ -24,7 +24,13 @@ public:
 
     PianoRollView() { setOpaque (true); }
 
-    void setBpm   (double b)            { bpm  = b > 0.0 ? b : 120.0; repaint(); }
+    void setBpm   (double b)
+    {
+        const double next = b > 0.0 ? b : 120.0;
+        if (std::abs (next - bpm) <= 0.0001) return;
+        bpm = next;
+        repaint();
+    }
     void setBars  (int b)               { bars = juce::jmax (1, b);   repaint(); }
     void setNotes (std::vector<Note> n) { notes = std::move (n);      repaint(); }
     const std::vector<Note>& getNotes() const noexcept { return notes; }

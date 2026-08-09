@@ -644,7 +644,7 @@ int HostGraph::getChainLatencySamples (Chain chain) const
 
 int HostGraph::getChainPluginCount (Chain chain) const
 {
-    return stateFor (chain).pluginNodes.size();
+    return stateFor (chain).pluginCountAtomic.load (std::memory_order_acquire);
 }
 
 juce::String HostGraph::getChainPluginName (Chain chain, int index) const

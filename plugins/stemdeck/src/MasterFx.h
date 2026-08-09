@@ -63,8 +63,15 @@ public:
 
         const float filterControl = juce::jlimit (-1.0f, 1.0f, (x - 0.5f) * 2.0f);
         const float send          = juce::jlimit (0.0f, 1.0f, y);
+        const bool filterActive   = std::abs (filterControl) >= 0.015f;
+
+        // The neutral pad position is the default. Avoid touching every master
+        // sample when neither half of the effect can change the signal.
+        if (! filterActive && send <= 0.0005f)
+            return;
 
         // ── DJ filter on the dry master path ────────────────────────────────
+        if (filterActive)
         {
             float* L = buffer.getWritePointer (0);
             float* R = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
@@ -79,6 +86,12 @@ public:
         }
 
         if (send <= 0.0005f)
+            return;
+
+        // Do not resize the wet scratch on the audio thread if a host delivers
+        // a block larger than the size negotiated in prepare(). The dry filter
+        // above remains valid; only the space send is skipped for this block.
+        if (numSamples > maxBlock)
             return;
 
         // ── Space/Echo send: feedback echo → reverb, mixed back by `send` ───

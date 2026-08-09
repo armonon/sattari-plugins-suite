@@ -49,7 +49,7 @@ public:
 
         note.setMultiLine (true);
         note.setReturnKeyStartsNewLine (true);
-        note.setTextToShowWhenEmpty ("Add a note for this restore point…",
+        note.setTextToShowWhenEmpty ("Add a note for this restore point...",
                                      tokens::c (tokens::fgMuted));
         note.setColour (juce::TextEditor::backgroundColourId, tokens::c (tokens::bgWell));
         note.setColour (juce::TextEditor::textColourId, tokens::c (tokens::fgPrimary));
@@ -118,7 +118,7 @@ public:
         workflow_detail::drawPanelBackground (
             g, getLocalBounds(), "Session History",
             files.isEmpty() ? "No restore points yet"
-                            : juce::String (files.size()) + " restore points · newest first");
+                            : juce::String (files.size()) + " restore points | newest first");
         g.setColour (tokens::c (tokens::fgTertiary));
         g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         g.drawText ("RESTORE POINTS", list.getBounds().translated (0, -20),
@@ -177,7 +177,7 @@ private:
                     juce::Justification::centredLeft, true);
         g.setColour (tokens::c (tokens::fgMuted));
         g.setFont (juce::FontOptions (9.5f));
-        g.drawText (file.getLastModificationTime().formatted ("%b %d, %Y · %I:%M %p"),
+        g.drawText (file.getLastModificationTime().formatted ("%b %d, %Y | %I:%M %p"),
                     text, juce::Justification::centredLeft);
     }
 
@@ -250,7 +250,7 @@ public:
         workflow_detail::styleButton (copy);
         workflow_detail::styleButton (save);
         copy.setButtonText ("Copy Report");
-        save.setButtonText ("Save…");
+        save.setButtonText ("Save...");
         copy.onClick = [this]
         {
             juce::SystemClipboard::copyTextToClipboard (report);
@@ -295,7 +295,7 @@ public:
     {
         setSize (640, 470);
         setTitle ("Welcome to StemDeck");
-        setDescription ("A four-step introduction to the StemDeck workflow.");
+        setDescription ("From an empty set to a finished live recording in four steps.");
         workflow_detail::styleButton (back);
         workflow_detail::styleButton (next);
         workflow_detail::styleButton (skip);
@@ -320,14 +320,14 @@ public:
     void paint (juce::Graphics& g) override
     {
         static const char* titles[] = {
-            "Set up your audio", "Build your library",
-            "Perform with confidence", "Capture everything"
+            "Connect your sound", "Prepare a set",
+            "Perform and capture", "Perfect the replay"
         };
         static const char* bodies[] = {
-            "Choose your audio device and buffer in the standalone host. Start at 256 samples, then lower it only when the CPU meter stays comfortable.",
-            "Open Library, add your music folders, and let StemDeck analyze BPM and key in the background. Double-click a track to load it into the focused deck.",
-            "Use Command–1 through Command–4 to move between Library, Perform, Mix, and Arrange. Command–K finds every important action without hunting through menus.",
-            "Record creates a master, deck captures, MIDI, and an intent log. Session History adds restore points; Export Center gathers a portable handoff package."
+            "Choose your audio device and start at a 256-sample buffer. Add an Input channel for a mic or guitar, or a MIDI Instrument channel for a controller.",
+            "Open Sets, add a music folder, then double-click or drag a track into the focused deck. StemDeck analyzes tempo, key, phrases, and stems in the background.",
+            "Open Perform and follow the objective bar. Cues, Loop, Stems, and FX always control the focused deck. Press R or Record before the set; every musical move is captured.",
+            "Open Replay to edit the recorded lanes, tighten timing, automate the mix, and export. Use Tools only when you need the deeper DAW controls. Command-K finds any action."
         };
         workflow_detail::drawPanelBackground (
             g, getLocalBounds(), "Welcome to StemDeck",
@@ -390,9 +390,9 @@ public:
         setSize (650, 470);
         setTitle ("Export Center");
         setDescription ("Render the finished set or package the complete StemDeck session.");
-        configure (mixdown, "Export Final Mix…");
-        configure (package, "Export Session Package…");
-        configure (project, "Save Project…");
+        configure (mixdown, "Export Final Mix...");
+        configure (package, "Export Session Package...");
+        configure (project, "Save Project...");
         configure (bounce, "Bounce Arrangement Edits");
         configure (reveal, "Reveal Last Recording");
         mixdown.onClick = [this] { if (onMixdown) onMixdown(); };

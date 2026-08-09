@@ -81,9 +81,26 @@ public:
     }
     void clearLoopRegion() { loopStart = loopEnd = -1.0f; loopActive = false; repaint(); }
 
-    void setPlayheadNorm (float p)   { playhead = juce::jlimit (0.0f, 1.0f, p); repaint(); }
-    void setTotalSeconds (double s)  { totalSec = s; repaint(); }
-    void setBpm (double b)           { bpm = b > 0 ? b : bpm; repaint(); }
+    void setPlayheadNorm (float p)
+    {
+        const float next = juce::jlimit (0.0f, 1.0f, p);
+        if (std::abs (next - playhead) <= 0.00001f) return;
+        playhead = next;
+        repaint();
+    }
+    void setTotalSeconds (double s)
+    {
+        if (std::abs (s - totalSec) <= 0.0001) return;
+        totalSec = s;
+        repaint();
+    }
+    void setBpm (double b)
+    {
+        const double next = b > 0.0 ? b : bpm;
+        if (std::abs (next - bpm) <= 0.0001) return;
+        bpm = next;
+        repaint();
+    }
     void setZoomBars (int bars)      { zoomBars = juce::jlimit (4, 16, bars); repaint(); }
     void setColourMode (ColourMode m){ colourMode = m; repaint(); }
 

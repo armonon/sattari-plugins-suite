@@ -25,7 +25,12 @@ public:
     ArrangementView() = default;
 
     void setSession (stemdeck::session::SessionModel s) { session = std::move (s); repaint(); }
-    void setPlayheadBeat (double b) { playheadBeat = b; repaint(); }
+    void setPlayheadBeat (double b)
+    {
+        if (std::abs (b - playheadBeat) <= 0.00001) return;
+        playheadBeat = b;
+        repaint();
+    }
 
     // Optional: supply source audio per trackId so clips draw their waveform.
     using AudioProvider = std::function<const juce::AudioBuffer<float>* (const juce::String& trackId, double& srcRateOut)>;

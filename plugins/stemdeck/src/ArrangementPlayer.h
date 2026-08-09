@@ -58,6 +58,48 @@ public:
 
     using Schedule = std::vector<Clip>;
 
+    struct MasterAutomation
+    {
+        std::vector<std::pair<juce::int64, float>> gainDb;
+        std::vector<std::pair<juce::int64, float>> fxX;
+        std::vector<std::pair<juce::int64, float>> fxY;
+        std::vector<std::pair<juce::int64, float>> smartAmount;
+        std::vector<std::pair<juce::int64, float>> smartMode;
+        std::vector<std::pair<juce::int64, float>> smartOn;
+        std::vector<std::pair<juce::int64, float>> limiterCeilingDb;
+
+        bool empty() const noexcept
+        {
+            return gainDb.empty() && fxX.empty() && fxY.empty()
+                && smartAmount.empty() && smartMode.empty() && smartOn.empty()
+                && limiterCeilingDb.empty();
+        }
+    };
+
+    struct MasterState
+    {
+        enum Presence : uint32_t
+        {
+            gainPresent        = 1u << 0,
+            fxXPresent         = 1u << 1,
+            fxYPresent         = 1u << 2,
+            smartAmountPresent = 1u << 3,
+            smartModePresent   = 1u << 4,
+            smartOnPresent     = 1u << 5,
+            limiterPresent     = 1u << 6
+        };
+
+        uint32_t presence = 0;
+        float gainDb = 0.0f, fxX = 0.0f, fxY = 0.0f;
+        float smartAmount = 0.0f, smartMode = 0.0f, smartOn = 0.0f;
+        float limiterCeilingDb = -1.0f;
+
+        bool has (Presence flag) const noexcept
+        {
+            return (presence & (uint32_t) flag) != 0;
+        }
+    };
+
     void prepare (double sampleRate, int /*blockSize*/)
     {
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
@@ -76,9 +118,18 @@ public:
         lengthSamples.store (len, std::memory_order_relaxed);
     }
 
+    void setMasterAutomation (
+        std::shared_ptr<const MasterAutomation> automation)
+    {
+        const juce::SpinLock::ScopedLockType l (lock);
+        masterAutomation = std::move (automation);
+        currentMasterState = {};
+    }
+
     void start()
     {
         resetClipDsp();
+        currentMasterState = {};
         playing.store (true, std::memory_order_relaxed);
     }
     void stop()                        { playing.store (false, std::memory_order_relaxed); }
@@ -99,6 +150,11 @@ public:
     double getPositionSeconds() const noexcept { return (double) playhead.load (std::memory_order_relaxed) / sr; }
     double getLengthSeconds()   const noexcept { return (double) lengthSamples.load (std::memory_order_relaxed) / sr; }
     juce::int64 getPositionSamples() const noexcept { return playhead.load (std::memory_order_relaxed); }
+    MasterState getCurrentMasterState() const noexcept
+    {
+        // Called immediately after process() from the same audio thread.
+        return currentMasterState;
+    }
     void setLengthSeconds (double s)   // raise the length to at least @p s (e.g. MIDI past the audio)
     {
         const juce::int64 want = (juce::int64) (juce::jmax (0.0, s) * sr);
@@ -113,14 +169,18 @@ public:
             return;
 
         std::shared_ptr<const Schedule> sched;
+        std::shared_ptr<const MasterAutomation> master;
         {
             const juce::SpinLock::ScopedLockType l (lock);
             sched = active;   // member keeps a ref alive; this local is never the last owner
+            master = masterAutomation;
         }
         const int n = out.getNumSamples();
         const int outCh = out.getNumChannels();
         juce::int64 pos = playhead.load (std::memory_order_relaxed);
         const juce::int64 len = lengthSamples.load (std::memory_order_relaxed);
+        currentMasterState = master != nullptr
+                           ? masterStateAt (*master, pos) : MasterState {};
 
         // Mix audio clips (skipped for a MIDI-only arrangement, but the transport
         // below still advances so the synth and playhead progress).
@@ -275,6 +335,54 @@ private:
         return a.second + alpha * (b.second - a.second);
     }
 
+    static float automationStepAt (
+        const std::vector<std::pair<juce::int64, float>>& points,
+        juce::int64 timelineSample, float fallback) noexcept
+    {
+        if (points.empty()) return fallback;
+        const auto next = std::upper_bound (
+            points.begin(), points.end(), timelineSample,
+            [] (juce::int64 sample, const auto& point)
+            {
+                return sample < point.first;
+            });
+        return next == points.begin() ? points.front().second
+                                      : (next - 1)->second;
+    }
+
+    static MasterState masterStateAt (const MasterAutomation& automation,
+                                      juce::int64 timelineSample) noexcept
+    {
+        MasterState state;
+        const auto continuous = [&] (const auto& points, float& destination,
+                                     MasterState::Presence presence)
+        {
+            if (points.empty()) return;
+            destination = automationValueAt (points, timelineSample, destination);
+            state.presence |= (uint32_t) presence;
+        };
+        const auto stepped = [&] (const auto& points, float& destination,
+                                  MasterState::Presence presence)
+        {
+            if (points.empty()) return;
+            destination = automationStepAt (points, timelineSample, destination);
+            state.presence |= (uint32_t) presence;
+        };
+
+        continuous (automation.gainDb, state.gainDb, MasterState::gainPresent);
+        continuous (automation.fxX, state.fxX, MasterState::fxXPresent);
+        continuous (automation.fxY, state.fxY, MasterState::fxYPresent);
+        continuous (automation.smartAmount, state.smartAmount,
+                    MasterState::smartAmountPresent);
+        stepped (automation.smartMode, state.smartMode,
+                 MasterState::smartModePresent);
+        stepped (automation.smartOn, state.smartOn,
+                 MasterState::smartOnPresent);
+        continuous (automation.limiterCeilingDb, state.limiterCeilingDb,
+                    MasterState::limiterPresent);
+        return state;
+    }
+
     void resetClipDsp()
     {
         const juce::SpinLock::ScopedLockType l (lock);
@@ -305,6 +413,8 @@ private:
     double sr = 44100.0;
     juce::SpinLock lock;
     std::shared_ptr<const Schedule> active;
+    std::shared_ptr<const MasterAutomation> masterAutomation;
+    MasterState currentMasterState;
     std::atomic<bool>        playing { false };
     std::atomic<juce::int64> playhead { 0 };
     std::atomic<juce::int64> lengthSamples { 0 };

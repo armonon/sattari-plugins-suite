@@ -12,7 +12,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
-#include <vector>
+#include <array>
 #include <cmath>
 
 namespace stemdeck
@@ -70,8 +70,10 @@ public:
     void resetIntegration()
     {
         const juce::ScopedLock sl (dataLock);
-        blockZ.clear();
-        recent.clear();
+        histogramCount.fill (0);
+        histogramEnergy.fill (0.0);
+        recent.fill (0.0);
+        recentCount = recentWrite = 0;
         accL = accR = 0.0; filled = 0; curPeak = 0.0; sinceRecompute = 0;
         integrated.store (-300.0);
         momentary.store  (-300.0);
@@ -163,32 +165,54 @@ private:
         const double z100 = (accL + accR) / (double) blockLen;
 
         // Momentary = mean over the last 400ms (4 × 100ms hops).
-        recent.push_back (z100);
-        if (recent.size() > 4) recent.erase (recent.begin());
-        double m = 0.0; for (double v : recent) m += v; m /= (double) recent.size();
+        recent[(size_t) recentWrite] = z100;
+        recentWrite = (recentWrite + 1) % (int) recent.size();
+        recentCount = juce::jmin ((int) recent.size(), recentCount + 1);
+        double m = 0.0;
+        for (int i = 0; i < recentCount; ++i) m += recent[(size_t) i];
+        m /= (double) recentCount;
         momentary.store (loudness (m), std::memory_order_relaxed);
 
-        // Integrated gating operates on 400ms windows at a 100ms hop → push m.
+        // Integrated gating operates on 400ms windows at a 100ms hop. A fixed
+        // 0.1-LU histogram keeps sessions bounded: the old vector grew forever and
+        // copied/scanned the entire show every 400 ms (quadratic work over time).
         {
             const juce::ScopedLock sl (dataLock);
-            blockZ.push_back (m);
+            const double lu = loudness (m);
+            if (lu >= kMinLufs)
+            {
+                const int bin = juce::jlimit (0, kHistogramBins - 1,
+                    (int) std::floor ((juce::jmin (lu, kMaxLufs) - kMinLufs) / kBinWidth));
+                ++histogramCount[(size_t) bin];
+                histogramEnergy[(size_t) bin] += m;
+            }
         }
-        if (++sinceRecompute >= 4) { sinceRecompute = 0; recomputeIntegrated(); }
+        if (++sinceRecompute >= 10) { sinceRecompute = 0; recomputeIntegrated(); }
     }
 
     void recomputeIntegrated()
     {
-        std::vector<double> zs;
-        { const juce::ScopedLock sl (dataLock); zs = blockZ; }
-
-        // Absolute gate at -70 LUFS, then a -10 LU relative gate about the mean.
-        double meanAbs = 0.0; int nAbs = 0;
-        for (double z : zs) if (loudness (z) >= -70.0) { meanAbs += z; ++nAbs; }
-        if (nAbs == 0) { integrated.store (-300.0, std::memory_order_relaxed); return; }
-        meanAbs /= (double) nAbs;
-        const double rel = loudness (meanAbs) - 10.0;
-        double sum = 0.0; int cnt = 0;
-        for (double z : zs) if (loudness (z) >= -70.0 && loudness (z) >= rel) { sum += z; ++cnt; }
+        const juce::ScopedLock sl (dataLock);
+        double absSum = 0.0;
+        std::uint64_t absCount = 0;
+        for (int bin = 0; bin < kHistogramBins; ++bin)
+        {
+            absSum += histogramEnergy[(size_t) bin];
+            absCount += histogramCount[(size_t) bin];
+        }
+        if (absCount == 0) { integrated.store (-300.0, std::memory_order_relaxed); return; }
+        const double rel = loudness (absSum / (double) absCount) - 10.0;
+        double sum = 0.0;
+        std::uint64_t cnt = 0;
+        for (int bin = 0; bin < kHistogramBins; ++bin)
+        {
+            const double binLufs = kMinLufs + ((double) bin + 0.5) * kBinWidth;
+            if (binLufs >= rel)
+            {
+                sum += histogramEnergy[(size_t) bin];
+                cnt += histogramCount[(size_t) bin];
+            }
+        }
         integrated.store (cnt ? loudness (sum / (double) cnt) : -300.0, std::memory_order_relaxed);
     }
 
@@ -199,9 +223,13 @@ private:
     juce::AbstractFifo fifo { kFifoCap };
     juce::AudioBuffer<float> ring;
 
-    juce::CriticalSection dataLock;   // guards blockZ (worker vs. reset)
-    std::vector<double> blockZ;       // 400ms-window z values (for integrated gating)
-    std::vector<double> recent;       // last four 100ms z's (for momentary)
+    static constexpr double kMinLufs = -70.0, kMaxLufs = 20.0, kBinWidth = 0.1;
+    static constexpr int kHistogramBins = (int) ((kMaxLufs - kMinLufs) / kBinWidth) + 1;
+    juce::CriticalSection dataLock;   // guards integration histogram (worker vs. reset)
+    std::array<std::uint64_t, kHistogramBins> histogramCount {};
+    std::array<double, kHistogramBins> histogramEnergy {};
+    std::array<double, 4> recent {};  // last four 100ms z's (for momentary)
+    int recentCount = 0, recentWrite = 0;
     double accL = 0.0, accR = 0.0, curPeak = 0.0;
     int    filled = 0, sinceRecompute = 0;
 

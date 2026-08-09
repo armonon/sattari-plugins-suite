@@ -1,5 +1,6 @@
 #include "AnalysisCache.h"
 #include <sqlite3.h>
+#include <cstring>
 #include <vector>
 
 namespace
@@ -69,6 +70,29 @@ struct AnalysisCache::Impl
         // publishes a higher analysis version; overwriting would destroy the exact
         // analysis a captured session replays against. The old single-key table is
         // dropped rather than migrated — this is a cache, it rebuilds.
+        // CREATE TABLE IF NOT EXISTS cannot upgrade the original `analysis`
+        // table, whose primary key was only `hash` and which had no `avers`
+        // column. Detect that real on-disk schema before preparing any queries;
+        // this is disposable analysis data, so rebuilding is safer than a partial
+        // migration that could associate a performance with the wrong grid.
+        bool analysisTableExists = false;
+        bool hasAnalysisVersionColumn = false;
+        sqlite3_stmt* columns = nullptr;
+        if (sqlite3_prepare_v2 (db, "PRAGMA table_info(analysis);", -1,
+                                &columns, nullptr) == SQLITE_OK)
+        {
+            while (sqlite3_step (columns) == SQLITE_ROW)
+            {
+                analysisTableExists = true;
+                const auto* name = reinterpret_cast<const char*> (
+                    sqlite3_column_text (columns, 1));
+                hasAnalysisVersionColumn = hasAnalysisVersionColumn
+                    || (name != nullptr && std::strcmp (name, "avers") == 0);
+            }
+        }
+        sqlite3_finalize (columns);
+        if (analysisTableExists && ! hasAnalysisVersionColumn)
+            exec ("DROP TABLE analysis;");
         exec ("DROP TABLE IF EXISTS analysis_v1_singlekey;");
         exec ("CREATE TABLE IF NOT EXISTS analysis ("
               "hash TEXT, avers INTEGER, version INTEGER, sr REAL, dur REAL, rms REAL, bpm REAL, "

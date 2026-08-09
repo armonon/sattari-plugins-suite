@@ -33,7 +33,10 @@ bool ChunkedAudioFile::initialise()
     sourceRate = reader->sampleRate;
     sourceLength = reader->lengthInSamples;
     channels = juce::jlimit (1, 2, (int) reader->numChannels);
-    windowSamples = juce::jmax<juce::int64> (4096, (juce::int64) std::llround (sourceRate * 30.0));
+    // Twelve seconds gives several seconds of read-ahead on either side while
+    // keeping a four-deck, four-stem set comfortably bounded. The former 30-second
+    // window multiplied into hundreds of MB once cached stems were restored.
+    windowSamples = juce::jmax<juce::int64> (4096, (juce::int64) std::llround (sourceRate * 12.0));
     return loadAround (0); // prime before the deck is published
 }
 

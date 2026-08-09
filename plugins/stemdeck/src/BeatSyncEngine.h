@@ -41,6 +41,11 @@ public:
         std::vector<double> beatGridSamples;
         std::vector<double> transientAnchorSamples;
         std::vector<WarpMarker> warpMarkers;
+        // Length of the source in the project's beat coordinate.  This differs
+        // from sourceLength / nominalBeatLength when a track genuinely speeds up
+        // or slows down, and is therefore the correct modulus for anchor/groove
+        // sync.  A zero value means "fall back to the nominal length".
+        double projectLengthBeats = 0.0;
 
         float effectiveSourceBpm() const noexcept;
         juce::String interpretationLabel() const;

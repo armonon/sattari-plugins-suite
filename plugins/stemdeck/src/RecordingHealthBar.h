@@ -52,7 +52,6 @@ public:
     RecordingHealthBar()
     {
         setWantsKeyboardFocus (false);
-        startTimerHz (30);
     }
 
     void setState (State next)
@@ -73,8 +72,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (getHeight() < 70)
+        {
+            paintCompact (g);
+            return;
+        }
+
         const auto red = tokens::c (tokens::meterHot);
-        const auto green = tokens::c (tokens::stemBas);
+        const auto green = tokens::c (tokens::signal);
         const auto amber = tokens::c (tokens::warn);
         const auto muted = tokens::c (tokens::fgMuted);
         const auto primary = tokens::c (tokens::fgPrimary);
@@ -120,6 +125,7 @@ public:
         {
             holdingStop = true;
             stopHoldStartMs = juce::Time::getMillisecondCounterHiRes();
+            startTimerHz (30);
             repaint (stopBounds);
             return;
         }
@@ -158,7 +164,18 @@ public:
     {
         holdingStop = false;
         stopHoldStartMs = 0.0;
+        stopTimer();
         repaint (stopBounds);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override
+    {
+        repaint (recordBounds.getUnion (stopBounds).getUnion (undoBounds));
+    }
+
+    void mouseMove (const juce::MouseEvent&) override
+    {
+        repaint (recordBounds.getUnion (stopBounds).getUnion (undoBounds));
     }
 
     void mouseExit (const juce::MouseEvent&) override
@@ -169,8 +186,10 @@ public:
         {
             holdingStop = false;
             stopHoldStartMs = 0.0;
+            stopTimer();
             repaint (stopBounds);
         }
+        repaint (recordBounds.getUnion (stopBounds).getUnion (undoBounds));
     }
 
 private:
@@ -182,6 +201,86 @@ private:
     bool stopSent = false;
     double stopHoldStartMs = 0.0;
     juce::Rectangle<int> stopBounds, recordBounds, countInBounds, undoBounds, clipBounds;
+
+    void paintCompact (juce::Graphics& g)
+    {
+        const auto red = tokens::c (tokens::meterHot);
+        const auto teal = tokens::c (tokens::signal);
+        const auto amber = tokens::c (tokens::warn);
+        const auto primary = tokens::c (tokens::fgPrimary);
+        const auto secondary = tokens::c (tokens::fgSecondary);
+        const auto muted = tokens::c (tokens::fgMuted);
+
+        auto outer = getLocalBounds();
+        g.setColour (tokens::c (tokens::bgPanel));
+        g.fillRoundedRectangle (outer.toFloat(), tokens::radiusPanel);
+        g.setColour ((state.recording ? red : tokens::c (tokens::borderSubtle)).withAlpha (0.8f));
+        g.drawRoundedRectangle (outer.toFloat().reduced (0.5f), tokens::radiusPanel,
+                                state.recording ? 1.5f : 1.0f);
+
+        auto row = outer.reduced (10, 6);
+        auto transport = row.removeFromLeft (juce::jmin (190, row.getWidth() / 4));
+        row.removeFromLeft (10);
+        auto controls = row.removeFromRight (juce::jmin (128, row.getWidth() / 4));
+        row.removeFromRight (10);
+
+        g.setColour (state.recording ? red : red.withAlpha (0.42f));
+        g.fillEllipse ((float) transport.getX(), (float) transport.getCentreY() - 4.0f, 8.0f, 8.0f);
+        transport.removeFromLeft (14);
+        auto stateText = transport.removeFromTop (12);
+        label (g, state.recording ? "RECORDING" : "CAPTURE READY", stateText,
+               state.recording ? red : muted, tokens::tLabel);
+        label (g, state.recording ? timeText (state.elapsedSeconds) : "00:00.0",
+               transport, primary, 18.0f);
+
+        const int cellW = juce::jmax (54, row.getWidth() / 5);
+        auto metric = [&] (juce::String name, juce::String value, juce::Colour colour)
+        {
+            auto cell = row.removeFromLeft (juce::jmin (cellW, row.getWidth()));
+            label (g, name, cell.removeFromTop (13), muted, tokens::tCaption);
+            label (g, value, cell, colour, tokens::tControl);
+        };
+        metric ("ARMED", juce::String (state.channelCount) + " CH", secondary);
+        metric ("LUFS-I", state.integratedLufs > -70.0 ? juce::String (state.integratedLufs, 1) : "--", primary);
+        metric ("LIMIT", state.limiterGrDb > 0.05f ? "-" + juce::String (state.limiterGrDb, 1) : "0.0",
+                state.limiterGrDb > 0.05f ? amber : primary);
+        metric ("CPU", juce::String ((int) std::round (state.cpuLoad * 100.0f)) + "%",
+                state.cpuLoad < 0.8f ? teal : amber);
+        metric ("BUFFER", juce::String (state.bufferMs, 1) + "ms",
+                state.droppedBuffers == 0 ? teal : amber);
+
+        auto top = controls.removeFromTop (juce::jmax (26, controls.getHeight() * 2 / 3));
+        auto bottom = controls;
+        if (state.recording)
+        {
+            stopBounds = top;
+            recordBounds = countInBounds = {};
+            drawActionFace (g, top, red, true, top.contains (getMouseXYRelative()), holdingStop);
+            auto content = top.reduced (8, 0);
+            auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
+            drawRecordGlyph (g, icon, true, juce::Colours::white);
+            label (g, "HOLD TO STOP", content, juce::Colours::white, tokens::tSmall,
+                   juce::Justification::centred);
+        }
+        else
+        {
+            recordBounds = top;
+            stopBounds = {};
+            countInBounds = top.removeFromBottom (10);
+            drawActionFace (g, recordBounds, red, false,
+                            recordBounds.contains (getMouseXYRelative()), false);
+            auto content = recordBounds.withTrimmedBottom (9).reduced (8, 0);
+            auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
+            drawRecordGlyph (g, icon, false, red);
+            label (g, "RECORD", content, red.brighter (0.18f), tokens::tSmall,
+                   juce::Justification::centred);
+            label (g, state.countInBars > 0 ? juce::String (state.countInBars) + " bar count-in" : "count-in off",
+                   countInBounds, muted, tokens::tCaption, juce::Justification::centred);
+        }
+        undoBounds = bottom;
+        clipBounds = {};
+        label (g, "undo", bottom, muted, tokens::tCaption, juce::Justification::centred);
+    }
 
     static juce::String timeText (double seconds)
     {
@@ -206,6 +305,51 @@ private:
         f.setExtraKerningFactor (size <= tokens::tLabel ? tokens::trackLabel : 0.0f);
         g.setFont (f);
         g.drawText (text, r, justification, true);
+    }
+
+    static void drawActionFace (juce::Graphics& g, juce::Rectangle<int> bounds,
+                                juce::Colour accent, bool active, bool hover, bool down)
+    {
+        auto r = bounds.toFloat().reduced (0.5f);
+        if (! down)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.40f));
+            g.fillRoundedRectangle (r.translated (0.0f, 2.0f), tokens::radiusControl);
+        }
+        if (down)
+            r = r.translated (0.0f, 1.0f).withTrimmedBottom (1.0f);
+
+        const auto top = active ? accent.withAlpha (0.96f)
+                                : accent.withAlpha (hover ? 0.31f : 0.20f);
+        const auto bottom = active ? accent.withAlpha (0.70f)
+                                   : accent.withAlpha (hover ? 0.16f : 0.09f);
+        g.setGradientFill (juce::ColourGradient (top, r.getX(), r.getY(),
+                                                 bottom, r.getX(), r.getBottom(), false));
+        g.fillRoundedRectangle (r, tokens::radiusControl);
+        g.setColour (accent.withAlpha (active ? 0.98f : hover ? 0.82f : 0.58f));
+        g.drawRoundedRectangle (r.reduced (0.5f), tokens::radiusControl,
+                                active || hover ? 1.35f : 1.0f);
+        if (! down)
+        {
+            g.setColour (juce::Colours::white.withAlpha (active ? 0.18f : 0.08f));
+            g.drawLine (r.getX() + tokens::radiusControl, r.getY() + 0.8f,
+                        r.getRight() - tokens::radiusControl, r.getY() + 0.8f, 1.0f);
+        }
+    }
+
+    static void drawRecordGlyph (juce::Graphics& g, juce::Rectangle<int> bounds,
+                                 bool stop, juce::Colour colour)
+    {
+        const auto r = bounds.toFloat();
+        g.setColour (colour);
+        if (stop)
+            g.fillRoundedRectangle (r.reduced (2.5f), 2.0f);
+        else
+        {
+            g.fillEllipse (r.reduced (2.0f));
+            g.setColour (juce::Colours::white.withAlpha (0.28f));
+            g.drawEllipse (r.reduced (2.5f), 1.0f);
+        }
     }
 
     void drawTake (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour red,
@@ -330,17 +474,19 @@ private:
             const double held = holdingStop
                               ? juce::Time::getMillisecondCounterHiRes() - stopHoldStartMs : 0.0;
             const float progress = (float) juce::jlimit (0.0, 1.0, held / kStopHoldMs);
-            g.setColour (red.withAlpha (0.14f));
-            g.fillRoundedRectangle (top.toFloat(), tokens::radiusControl);
-            g.setColour (red.withAlpha (0.45f));
-            g.drawRoundedRectangle (top.toFloat().reduced (0.5f), tokens::radiusControl, 1.0f);
+            drawActionFace (g, top, red, true, top.contains (getMouseXYRelative()), holdingStop);
             if (progress > 0.0f)
             {
-                g.setColour (red.withAlpha (0.35f));
-                g.fillRoundedRectangle (top.toFloat().withWidth (top.getWidth() * progress),
-                                        tokens::radiusControl);
+                auto progressTrack = top.toFloat().reduced (3.0f).removeFromBottom (3.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.24f));
+                g.fillRoundedRectangle (progressTrack, 1.5f);
+                g.setColour (juce::Colours::white.withAlpha (0.92f));
+                g.fillRoundedRectangle (progressTrack.withWidth (progressTrack.getWidth() * progress), 1.5f);
             }
-            label (g, "STOP", top.removeFromTop (25), red, tokens::tControl,
+            auto titleRow = top.removeFromTop (25).reduced (10, 0);
+            auto icon = titleRow.removeFromLeft (20).withSizeKeepingCentre (14, 14);
+            drawRecordGlyph (g, icon, true, juce::Colours::white);
+            label (g, "STOP", titleRow, juce::Colours::white, tokens::tControl,
                    juce::Justification::centred);
             label (g, "hold - keeps take", top, muted, tokens::tCaption,
                    juce::Justification::centred);
@@ -350,11 +496,11 @@ private:
         {
             recordBounds = top;
             stopBounds = {};
-            g.setColour (red.withAlpha (0.13f));
-            g.fillRoundedRectangle (top.toFloat(), tokens::radiusControl);
-            g.setColour (red.withAlpha (0.48f));
-            g.drawRoundedRectangle (top.toFloat().reduced (0.5f), tokens::radiusControl, 1.0f);
-            label (g, "RECORD", top.removeFromTop (25), red, tokens::tControl,
+            drawActionFace (g, top, red, false, top.contains (getMouseXYRelative()), false);
+            auto titleRow = top.removeFromTop (25).reduced (10, 0);
+            auto icon = titleRow.removeFromLeft (20).withSizeKeepingCentre (14, 14);
+            drawRecordGlyph (g, icon, false, red);
+            label (g, "RECORD", titleRow, red.brighter (0.18f), tokens::tControl,
                    juce::Justification::centred);
             countInBounds = top;
             label (g, state.countInBars > 0 ? juce::String (state.countInBars) + "-bar count-in"
@@ -372,13 +518,17 @@ private:
     void timerCallback() override
     {
         if (! holdingStop || stopSent)
+        {
+            stopTimer();
             return;
+        }
         const double held = juce::Time::getMillisecondCounterHiRes() - stopHoldStartMs;
         repaint (stopBounds);
         if (held >= kStopHoldMs)
         {
             stopSent = true;
             holdingStop = false;
+            stopTimer();
             if (onStopConfirmed) onStopConfirmed();
             stopSent = false;
         }

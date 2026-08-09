@@ -105,6 +105,9 @@ void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     paraRing.assign ((size_t) paraFftSize, 0.0f);
     paraFftBuf.assign ((size_t) (paraFftSize * 2), 0.0f);
     paraHann.assign ((size_t) paraFftSize, 0.0f);
+    paraHps.assign ((size_t) (paraFftSize / 10 + 1), 0.0f);
+    paraPeaks.clear();
+    paraPeaks.reserve ((size_t) paraFftSize / 10);
     for (int i = 0; i < paraFftSize; ++i)
         paraHann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi
                                                        * (float) i / (float) (paraFftSize - 1));
@@ -116,6 +119,10 @@ void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesP
 
 std::array<int, 3> SattariVoxKeyAudioProcessor::paraDetectFrame (double sr)
 {
+    std::array<int, 3> result { -1, -1, -1 };
+    if (paraFft == nullptr)
+        return result;
+
     // Hann-window + FFT the ring.
     for (int i = 0; i < paraFftSize; ++i)
         paraFftBuf[(size_t) i] = paraRing[(size_t) ((paraWritePos + i) % paraFftSize)]
@@ -128,36 +135,34 @@ std::array<int, 3> SattariVoxKeyAudioProcessor::paraDetectFrame (double sr)
     const double binHz = sr / (double) paraFftSize;
     const int firstBin = juce::jmax (2, (int) std::ceil (60.0  / binHz));
     const int lastBin  = juce::jmin (paraFftSize / 10, (int) std::floor (1500.0 / binHz));
-    std::vector<float> hps ((size_t) (lastBin + 1), 0.0f);
+    std::fill (paraHps.begin(), paraHps.end(), 0.0f);
     for (int k = firstBin; k <= lastBin; ++k)
     {
         float prod = paraFftBuf[(size_t) k];
         for (int h = 2; h <= 5; ++h)
             prod *= paraFftBuf[(size_t) (k * h)];
-        hps[(size_t) k] = prod;
+        paraHps[(size_t) k] = prod;
     }
 
     // Pick the 3 highest local peaks (max within a 3-bin neighbourhood) above
     // 30% of the global max. Returns -1 for empty slots.
-    std::array<int, 3> result { -1, -1, -1 };
     float globalMax = 0.0f;
-    for (int k = firstBin; k <= lastBin; ++k) globalMax = juce::jmax (globalMax, hps[(size_t) k]);
+    for (int k = firstBin; k <= lastBin; ++k) globalMax = juce::jmax (globalMax, paraHps[(size_t) k]);
     if (globalMax < 1.0e-6f) return result;
     const float threshold = globalMax * 0.30f;
 
-    struct Peak { float val; int bin; };
-    std::vector<Peak> peaks;
+    paraPeaks.clear();
     for (int k = firstBin + 1; k < lastBin; ++k)
     {
-        if (hps[(size_t) k] >= threshold
-            && hps[(size_t) k] >= hps[(size_t) (k - 1)]
-            && hps[(size_t) k] >= hps[(size_t) (k + 1)])
-            peaks.push_back ({ hps[(size_t) k], k });
+        if (paraHps[(size_t) k] >= threshold
+            && paraHps[(size_t) k] >= paraHps[(size_t) (k - 1)]
+            && paraHps[(size_t) k] >= paraHps[(size_t) (k + 1)])
+            paraPeaks.push_back ({ paraHps[(size_t) k], k });
     }
-    std::sort (peaks.begin(), peaks.end(), [] (const Peak& a, const Peak& b) { return a.val > b.val; });
+    std::sort (paraPeaks.begin(), paraPeaks.end(), [] (const ParaPeak& a, const ParaPeak& b) { return a.val > b.val; });
 
     int outIdx = 0;
-    for (const auto& p : peaks)
+    for (const auto& p : paraPeaks)
     {
         const double f    = (double) p.bin * binHz;
         const int    midi = juce::jlimit (0, 127, (int) std::round (69.0 + 12.0 * std::log2 (f / 440.0)));
@@ -276,7 +281,17 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     }
 
     if (monoScratch.getNumSamples() < numSamples)
-        monoScratch.setSize (1, numSamples, false, false, true);
+    {
+        // A host changed block size without preparing again. Avoid allocating on
+        // the audio thread and release generated notes so none can stick.
+        midiMapper.reset (midi, 0);
+        for (const int note : paraActiveNotes)
+            if (note >= 0) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+        paraActiveNotes.fill (-1);
+        displayVoiced.store (false, std::memory_order_relaxed);
+        displayMidiActive.store (false, std::memory_order_relaxed);
+        return;
+    }
 
     auto* mono = monoScratch.getWritePointer (0);
     std::fill (mono, mono + numSamples, 0.0f);

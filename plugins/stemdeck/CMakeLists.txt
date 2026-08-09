@@ -115,6 +115,7 @@ sattari_add_plugin(
         src/HostGraph.cpp
         src/MainPluginEditor.cpp
         src/MainPluginEditor_Arrangement.cpp
+        src/MainPluginEditor_DragDrop.cpp
         src/MainPluginEditor_Surfaces.cpp
         src/MainPluginEditor_Workflows.cpp
         src/MainPluginProcessor.cpp
@@ -762,7 +763,7 @@ add_executable(StemDeckEditorRender EXCLUDE_FROM_ALL tests/stemdeck_editor_rende
 target_include_directories(StemDeckEditorRender PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckEditorRender PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)   # runDispatchLoopUntil, to settle async layout
 target_link_libraries(StemDeckEditorRender
     PRIVATE SattariStemDeck
@@ -777,7 +778,7 @@ add_executable(StemDeckReplayHash EXCLUDE_FROM_ALL tests/stemdeck_replayhash.cpp
 target_include_directories(StemDeckReplayHash PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckReplayHash PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckReplayHash
     PRIVATE SattariStemDeck
@@ -791,7 +792,7 @@ add_executable(StemDeckRecordingHealth EXCLUDE_FROM_ALL tests/stemdeck_recording
 target_include_directories(StemDeckRecordingHealth PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckRecordingHealth PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckRecordingHealth
     PRIVATE SattariStemDeck
@@ -805,7 +806,7 @@ add_executable(StemDeckChannelIdentity EXCLUDE_FROM_ALL tests/stemdeck_channel_i
 target_include_directories(StemDeckChannelIdentity PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckChannelIdentity PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckChannelIdentity
     PRIVATE SattariStemDeck
@@ -829,7 +830,7 @@ add_executable(StemDeckLiveIO EXCLUDE_FROM_ALL tests/stemdeck_liveio.cpp)
 target_include_directories(StemDeckLiveIO PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckLiveIO PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckLiveIO
     PRIVATE SattariStemDeck
@@ -853,7 +854,7 @@ add_executable(StemDeckRtSafety EXCLUDE_FROM_ALL tests/stemdeck_rtsafety.cpp)
 target_include_directories(StemDeckRtSafety PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckRtSafety PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckRtSafety
     PRIVATE SattariStemDeck
@@ -867,7 +868,7 @@ add_executable(StemDeckMultiInstance EXCLUDE_FROM_ALL tests/stemdeck_multiinstan
 target_include_directories(StemDeckMultiInstance PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckMultiInstance PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckMultiInstance
     PRIVATE SattariStemDeck
@@ -882,7 +883,7 @@ add_executable(StemDeckLoadLatency EXCLUDE_FROM_ALL tests/stemdeck_loadlatency.c
 target_include_directories(StemDeckLoadLatency PRIVATE
     src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
 target_compile_definitions(StemDeckLoadLatency PUBLIC
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckLoadLatency
     PRIVATE SattariStemDeck
@@ -1056,8 +1057,9 @@ if(STEMDECK_ONNX_ENABLED)
     target_include_directories(StemDeckNeuralSmoke
         PRIVATE
             src
-            ${ONNXRUNTIME_INCLUDE_DIR}
             ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+    target_include_directories(StemDeckNeuralSmoke SYSTEM PRIVATE
+        ${ONNXRUNTIME_INCLUDE_DIR})
 
     target_compile_definitions(StemDeckNeuralSmoke
         PUBLIC
@@ -1101,8 +1103,9 @@ if(STEMDECK_ONNX_ENABLED)
     target_include_directories(StemDeckStemCancelSmoke
         PRIVATE
             src
-            ${ONNXRUNTIME_INCLUDE_DIR}
             ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+    target_include_directories(StemDeckStemCancelSmoke SYSTEM PRIVATE
+        ${ONNXRUNTIME_INCLUDE_DIR})
 
     target_compile_definitions(StemDeckStemCancelSmoke
         PUBLIC
@@ -1207,7 +1210,16 @@ if(BUILD_TESTING)
     # StemDeckCorpusGate is EXCLUDE_FROM_ALL and not a contract itself, but its
     # --selftest IS registered above, so the suite has to build the binary or that
     # test cannot run.
-    set(STEMDECK_CONTRACT_SUITE_DEPS ${STEMDECK_CONTRACT_TESTS})
+    # Some contracts are feature-gated (for example the ONNX cancellation smoke
+    # test). Depending on the raw name list makes the aggregate target impossible
+    # to build whenever that feature is disabled. Mirror the TARGET guard used by
+    # add_test above so the ordinary DSP fallback build remains fully testable.
+    set(STEMDECK_CONTRACT_SUITE_DEPS)
+    foreach(_sd_test IN LISTS STEMDECK_CONTRACT_TESTS)
+        if(TARGET ${_sd_test})
+            list(APPEND STEMDECK_CONTRACT_SUITE_DEPS ${_sd_test})
+        endif()
+    endforeach()
     if(TARGET StemDeckCorpusGate)
         list(APPEND STEMDECK_CONTRACT_SUITE_DEPS StemDeckCorpusGate)
     endif()

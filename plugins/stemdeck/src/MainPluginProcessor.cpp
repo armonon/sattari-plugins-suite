@@ -14,7 +14,7 @@ public:
     using Decoded  = std::shared_ptr<DeckPlayer::LoadedAudio>;
     TwoPhaseAudioLoadJob (juce::File f,
                           std::function<Decoded (const juce::File&)> decodeFn,
-                          std::function<void (TrackAnalysis&, const juce::AudioBuffer<float>&, double, const juce::File&)> analyseFn,
+                          std::function<void (TrackAnalysis&, const DeckPlayer::LoadedAudio&, const juce::File&)> analyseFn,
                           std::function<void (std::shared_ptr<const DeckPlayer::LoadedAudio>)> onAudioReady,
                           std::function<void (std::shared_ptr<const TrackAnalysis>)> onAnalysisReady)
         : ThreadPoolJob ("StemDeck audio load (2-phase)"), file (std::move (f)),
@@ -38,7 +38,7 @@ public:
         // PHASE 2 — analysis into a SEPARATE object. `loaded` is now visible to the
         // audio thread, so filling its analysis field in place would be a race.
         auto analysis = std::make_shared<TrackAnalysis>();
-        analyse (*analysis, loaded->audio, loaded->sourceSampleRate, file);
+        analyse (*analysis, *loaded, file);
 
         if (shouldExit())
             return jobHasFinished;
@@ -52,7 +52,7 @@ public:
 private:
     juce::File file;
     std::function<Decoded (const juce::File&)> decode;
-    std::function<void (TrackAnalysis&, const juce::AudioBuffer<float>&, double, const juce::File&)> analyse;
+    std::function<void (TrackAnalysis&, const DeckPlayer::LoadedAudio&, const juce::File&)> analyse;
     std::function<void (std::shared_ptr<const DeckPlayer::LoadedAudio>)> onAudio;
     std::function<void (std::shared_ptr<const TrackAnalysis>)> onAnalysis;
 };
@@ -150,13 +150,34 @@ inline std::pair<float, float> crossfaderBusGains (float x, int curve, bool reve
             return { std::cos (x * halfPi), std::sin (x * halfPi) };
     }
 }
+
+float readPreviewSample (const DeckPlayer::LoadedAudio& audio,
+                         const ChunkedAudioFile::ReadView& streamView,
+                         int channel, double position) noexcept
+{
+    if (audio.streamed != nullptr)
+        return ChunkedAudioFile::readInterpolated (streamView, channel, position);
+
+    const auto& source = audio.audio;
+    if (source.getNumChannels() <= 0 || source.getNumSamples() <= 0)
+        return 0.0f;
+
+    const int ch = juce::jlimit (0, source.getNumChannels() - 1, channel);
+    const int i0 = juce::jlimit (0, source.getNumSamples() - 1,
+                                 (int) std::floor (position));
+    const int i1 = juce::jmin (source.getNumSamples() - 1, i0 + 1);
+    const float fraction = (float) juce::jlimit (0.0, 1.0, position - std::floor (position));
+    return source.getSample (ch, i0)
+         + fraction * (source.getSample (ch, i1) - source.getSample (ch, i0));
+}
 }
 
 // Constructed before anything can dispatch. applyEvent is a member, so the
 // dispatcher can be handed a stable callable for the processor's whole lifetime.
 MainPluginProcessor::MainPluginProcessor()
     : AudioProcessor (BusesProperties().withInput ("Mic / Input", juce::AudioChannelSet::stereo(), true)
-                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                                       .withOutput ("Headphones / Cue", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     // The dispatcher's applier is a member function, so it stays valid for the
@@ -417,9 +438,16 @@ void MainPluginProcessor::refreshLatencyCompensation()
         if (chainIndex < HostGraph::kNumDecks)
             if (auto* tdb = dynamic_cast<TrackDeckBody*> (channels[i]->getBody()))
             {
+                bool hasStemPlugins = false;
                 for (int st = 0; st < HostGraph::kNumStemsPerDeck; ++st)
+                {
+                    const auto stemChain = HostGraph::stemChain (chainIndex, st);
                     tdb->setStemChainLatency (st, hostGraph.getChainLatencySamples (
-                        HostGraph::stemChain (chainIndex, st)));
+                        stemChain));
+                    hasStemPlugins = hasStemPlugins
+                        || hostGraph.getChainPluginCount (stemChain) > 0;
+                }
+                tdb->setStemPluginProcessingRequired (hasStemPlugins);
                 lat += tdb->getMaxStemChainLatency();
             }
 
@@ -845,6 +873,7 @@ void MainPluginProcessor::cacheDeckParamIds()
         auto& p = deckIds[(size_t) i];
         p.bpm = d + "Bpm";  p.beatOffset = d + "BeatOffset";  p.downbeat = d + "Downbeat";
         p.tempoInterp = d + "TempoInterpretation";  p.syncMode = d + "SyncMode";
+        p.deckSync = d + "Sync";
         p.keyTarget = d + "KeyTarget";  p.pitch = d + "Pitch";
         p.play = d + "Play";  p.liveKey = d + "LiveKey";  p.keyLock = d + "KeyLock";
         p.volume = d + "Volume";  p.fader = d + "Fader";
@@ -1351,6 +1380,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
         params.push_back (floatParam (deck + "Bpm", label + " Source BPM", 40.0f, 240.0f, 120.0f, " BPM"));
         params.push_back (choiceParam (deck + "TempoInterpretation", label + " Tempo Interpretation", BeatSyncEngine::tempoInterpretationChoices(), 0));
         params.push_back (choiceParam (deck + "SyncMode", label + " Sync Mode", BeatSyncEngine::syncModeChoices(), 0));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID (deck + "Sync", 1), label + " Project Sync", true));
         params.push_back (floatParam (deck + "Volume", label + " Gain", -60.0f, 6.0f, 0.0f, "dB"));
         params.push_back (floatParam (deck + "Fader", label + " Channel Fader", 0.0f, 1.0f, 1.0f));
         params.push_back (floatParam (deck + "Pitch", label + " Pitch Shift", -12.0f, 12.0f, 0.0f, " st"));
@@ -1432,7 +1463,10 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     limiterEnvelope = 1.0f;
-    const int outputChannels = juce::jmax (1, getTotalNumOutputChannels());
+    // Internal live processing and all recorders target the main bus only. The
+    // optional cue bus is monitoring-only and must never inflate deck buffers or
+    // become part of the printed master.
+    const int outputChannels = juce::jmax (1, getChannelCountOfBus (false, 0));
     // Prepare every channel (frame scratch + body: DeckPlayer, RTSS, stem FX, DeckFX,
     // warp), then republish so the audio thread picks up the prepared snapshot.
     for (auto& ch : channels)
@@ -1480,9 +1514,21 @@ bool MainPluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
 
-    return in == juce::AudioChannelSet::disabled()
-        || in == juce::AudioChannelSet::mono()
-        || in == juce::AudioChannelSet::stereo();
+    if (in != juce::AudioChannelSet::disabled()
+        && in != juce::AudioChannelSet::mono()
+        && in != juce::AudioChannelSet::stereo())
+        return false;
+
+    // Headphone audition is an optional, discrete stereo output. Hosts and the
+    // standalone audio settings can leave it disabled on two-output devices.
+    if (layouts.outputBuses.size() > 1)
+    {
+        const auto& cue = layouts.getChannelSet (false, 1);
+        if (cue != juce::AudioChannelSet::disabled()
+            && cue != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 juce::AudioProcessorEditor* MainPluginProcessor::createEditor()
@@ -1504,10 +1550,24 @@ bool MainPluginProcessor::getBoolParam (juce::StringRef id) const
     return false;
 }
 
-void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, juce::MidiBuffer& midi)
 {
     const auto cpuStartTicks = juce::Time::getHighResolutionTicks();
     juce::ScopedNoDenormals noDenormals;
+
+    // Work only on the main bus. `deviceBuffer` also contains the optional cue
+    // channels when enabled, and treating all of it as one master would leak the
+    // headphone audition into processing, meters, and recordings.
+    auto buffer = getBusBuffer (deviceBuffer, false, 0);
+    const bool hasCueOutput = getBusCount (false) > 1
+                           && getChannelCountOfBus (false, 1) > 0;
+    auto cueBuffer = hasCueOutput ? getBusBuffer (deviceBuffer, false, 1)
+                                  : juce::AudioBuffer<float> {};
+    juce::AudioBuffer<float>* cueOutput = hasCueOutput ? &cueBuffer : nullptr;
+    if (cueOutput != nullptr)
+    {
+        cueOutput->clear();
+    }
 
     // ── Hardware MIDI controller mapping ──────────────────────────────────────
     // CC messages are applied to mapped parameters inside processBlock();
@@ -1658,6 +1718,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             p->downbeat    = getFloatParam (ids.downbeat);
             p->tempoInterp = (int) std::round (getFloatParam (ids.tempoInterp));
             p->syncMode    = (int) std::round (getFloatParam (ids.syncMode));
+            p->deckSync    = getBoolParam (ids.deckSync);
             p->keyTarget   = (int) std::round (getFloatParam (ids.keyTarget));
             p->keyLock     = getBoolParam (ids.keyLock);
             p->liveKey     = getBoolParam (ids.liveKey);
@@ -1794,14 +1855,46 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     else
         midiClipPlayer.liveAllNotesOff();
 
+    // Arrangement playback must reproduce the captured master processing, not
+    // silently substitute whatever happens to be on the live controls now. Each
+    // automation family falls back independently, so an older capture that lacks
+    // (for example) Smart Master data still follows the current project setting.
+    const auto capturedMaster = arrangementPlayer.getCurrentMasterState();
+    const auto automated = [arrPlaying, &capturedMaster] (
+        ArrangementPlayer::MasterState::Presence presence,
+        float captured, float live)
+    {
+        return arrPlaying && capturedMaster.has (presence) ? captured : live;
+    };
+    const float masterFxX = automated (
+        ArrangementPlayer::MasterState::fxXPresent, capturedMaster.fxX,
+        getFloatParam ("masterFxX"));
+    const float masterFxY = automated (
+        ArrangementPlayer::MasterState::fxYPresent, capturedMaster.fxY,
+        getFloatParam ("masterFxY"));
+    const float masterGainDb = automated (
+        ArrangementPlayer::MasterState::gainPresent, capturedMaster.gainDb,
+        getFloatParam ("master"));
+    const float smartAmount = automated (
+        ArrangementPlayer::MasterState::smartAmountPresent,
+        capturedMaster.smartAmount, getFloatParam ("smartMasterAmount"));
+    const float smartMode = automated (
+        ArrangementPlayer::MasterState::smartModePresent,
+        capturedMaster.smartMode, getFloatParam ("smartMasterMode"));
+    const float smartOn = automated (
+        ArrangementPlayer::MasterState::smartOnPresent,
+        capturedMaster.smartOn, getBoolParam ("smartMasterOn") ? 1.0f : 0.0f);
+    const float limiterCeilingDb = automated (
+        ArrangementPlayer::MasterState::limiterPresent,
+        capturedMaster.limiterCeilingDb, getFloatParam ("limiterCeiling"));
+
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
-    masterFx.process (buffer, getFloatParam ("masterFxX"), getFloatParam ("masterFxY"));
-    buffer.applyGain (juce::Decibels::decibelsToGain (getFloatParam ("master")));
+    masterFx.process (buffer, masterFxX, masterFxY);
+    buffer.applyGain (juce::Decibels::decibelsToGain (masterGainDb));
     // AI mastering assistant sits after user trim, before the safety limiter.
-    smartMaster.process (buffer,
-                         (int) std::round (getFloatParam ("smartMasterMode")),
-                         getBoolParam ("smartMasterOn") ? getFloatParam ("smartMasterAmount") : 0.0f);
-    applyLimiter (buffer, getFloatParam ("limiterCeiling"));
+    smartMaster.process (buffer, (int) std::round (smartMode),
+                         smartOn > 0.5f ? smartAmount : 0.0f);
+    applyLimiter (buffer, limiterCeilingDb);
 
     // Master peak meters (block peak with fall-back decay).
     for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
@@ -1821,6 +1914,10 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (isCapturingPerformance)
         recordingSampleCounter.fetch_add (buffer.getNumSamples(), std::memory_order_relaxed);
     transportSampleCounter += buffer.getNumSamples();
+
+    // Browser audition is monitoring-only: add it after every capture tap so
+    // previewing a candidate never contaminates the performance or master file.
+    renderLibraryPreview (cueOutput != nullptr ? *cueOutput : buffer);
 
     // Motorized-fader feedback: emit CC out for mapped faders whose value changed
     // (so hardware/LED controllers track the UI). Change-detection avoids loops.
@@ -1918,28 +2015,198 @@ std::shared_ptr<DeckPlayer::LoadedAudio> MainPluginProcessor::decodeAudioFile (c
 
     auto loaded = std::make_shared<DeckPlayer::LoadedAudio>();
     loaded->logicalLengthSamples = reader->lengthInSamples;
-    constexpr double longFileSeconds = 10.0 * 60.0;
-    constexpr double previewSeconds  = 2.0 * 60.0;
+    // Keeping entire DJ-length songs resident made load time and RAM scale with the
+    // set. Stream anything over a minute from a bounded read-ahead window instead.
+    constexpr double longFileSeconds = 60.0;
     const bool useStreaming = reader->lengthInSamples > (juce::int64) (reader->sampleRate * longFileSeconds)
                            || reader->lengthInSamples > std::numeric_limits<int>::max();
-    const auto retainedSamples = useStreaming
-        ? juce::jmin<juce::int64> (reader->lengthInSamples,
-                                   (juce::int64) std::llround (reader->sampleRate * previewSeconds))
-        : reader->lengthInSamples;
-
-    loaded->audio.setSize ((int) juce::jmin<int64> (reader->numChannels, 2),
-                           (int) retainedSamples);
-    reader->read (&loaded->audio, 0, (int) retainedSamples, 0, true, true);
+    const int sourceChannels = (int) juce::jmin<int64> (reader->numChannels, 2);
     if (useStreaming)
     {
         loaded->streamed = ChunkedAudioFile::create (file);
         if (loaded->streamed == nullptr)
-            return {}; // never publish a truncated preview as if it were the full file
+            return {};
+        // A one-sample sentinel keeps the LoadedAudio validity contract while all
+        // playback reads come from the bounded streaming cache.
+        loaded->audio.setSize (sourceChannels, 1);
+        loaded->audio.clear();
+    }
+    else
+    {
+        loaded->audio.setSize (sourceChannels, (int) reader->lengthInSamples);
+        reader->read (&loaded->audio, 0, (int) reader->lengthInSamples, 0, true, true);
     }
     loaded->sourceSampleRate = reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
     loaded->path = file.getFullPathName();
     loaded->displayName = file.getFileName();
     return loaded;
+}
+
+void MainPluginProcessor::toggleLibraryPreview (const juce::File& file)
+{
+    if (! file.existsAsFile())
+        return;
+
+    const auto current = std::atomic_load (&libraryPreviewAudio);
+    if (! libraryPreviewLoading.load (std::memory_order_acquire)
+        && current != nullptr && current->path == file.getFullPathName())
+    {
+        libraryPreviewPlaying.store (
+            ! libraryPreviewPlaying.load (std::memory_order_relaxed),
+            std::memory_order_release);
+        return;
+    }
+
+    const auto generation = libraryPreviewGeneration.fetch_add (1, std::memory_order_relaxed) + 1;
+    std::atomic_store (&libraryPreviewRequestedPath,
+                       std::make_shared<const juce::String> (file.getFullPathName()));
+    libraryPreviewLoading.store (true, std::memory_order_release);
+    libraryPreviewPlaying.store (false, std::memory_order_release);
+    libraryPreviewFailed.store (false, std::memory_order_release);
+    libraryPreviewPosition.store (0, std::memory_order_relaxed);
+    libraryPreviewSeek.store (-1, std::memory_order_relaxed);
+
+    if (loadPool == nullptr)
+    {
+        libraryPreviewLoading.store (false, std::memory_order_release);
+        libraryPreviewFailed.store (true, std::memory_order_release);
+        return;
+    }
+
+    loadPool->addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
+        [this, file, generation, alive = aliveFlag]() -> juce::ThreadPoolJob::JobStatus
+        {
+            auto loadedPreview = decodeAudioFile (file);
+            juce::MessageManager::callAsync (
+                [this, generation, previewData = std::move (loadedPreview), alive]() mutable
+                {
+                    if (! alive->load (std::memory_order_acquire)
+                        || libraryPreviewGeneration.load (std::memory_order_relaxed) != generation)
+                        return;
+
+                    libraryPreviewLoading.store (false, std::memory_order_release);
+                    if (previewData == nullptr)
+                    {
+                        libraryPreviewFailed.store (true, std::memory_order_release);
+                        return;
+                    }
+
+                    if (auto old = std::atomic_load (&libraryPreviewAudio))
+                        retiredLibraryPreviews.push_back (
+                            { std::move (old), juce::Time::currentTimeMillis() + 2000 });
+
+                    std::shared_ptr<const DeckPlayer::LoadedAudio> published = std::move (previewData);
+                    std::atomic_store (&libraryPreviewAudio, std::move (published));
+                    libraryPreviewPosition.store (0, std::memory_order_relaxed);
+                    libraryPreviewSeek.store (-1, std::memory_order_relaxed);
+                    libraryPreviewFailed.store (false, std::memory_order_release);
+                    libraryPreviewPlaying.store (true, std::memory_order_release);
+                });
+            return juce::ThreadPoolJob::jobHasFinished;
+        }));
+}
+
+void MainPluginProcessor::stopLibraryPreview() noexcept
+{
+    // Invalidate an in-flight decode as well as stopping an already loaded preview.
+    libraryPreviewGeneration.fetch_add (1, std::memory_order_relaxed);
+    libraryPreviewLoading.store (false, std::memory_order_release);
+    libraryPreviewPlaying.store (false, std::memory_order_release);
+    libraryPreviewFailed.store (false, std::memory_order_release);
+    libraryPreviewSeek.store (0, std::memory_order_release);
+    libraryPreviewPosition.store (0, std::memory_order_relaxed);
+}
+
+void MainPluginProcessor::seekLibraryPreviewSeconds (double seconds) noexcept
+{
+    const auto audio = std::atomic_load (&libraryPreviewAudio);
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0)
+        return;
+
+    const auto length = juce::jmax<juce::int64> (1, audio->numSourceSamples());
+    const auto wanted = (juce::int64) std::llround (
+        juce::jlimit (0.0, (double) length / audio->sourceSampleRate, seconds)
+        * audio->sourceSampleRate);
+    libraryPreviewSeek.store (juce::jlimit<juce::int64> (0, length - 1, wanted),
+                              std::memory_order_release);
+}
+
+MainPluginProcessor::LibraryPreviewState MainPluginProcessor::getLibraryPreviewState() const
+{
+    LibraryPreviewState state;
+    state.loading = libraryPreviewLoading.load (std::memory_order_acquire);
+    state.playing = libraryPreviewPlaying.load (std::memory_order_acquire);
+    state.failed = libraryPreviewFailed.load (std::memory_order_acquire);
+    state.routedToDedicatedCue = getBusCount (false) > 1
+                              && getChannelCountOfBus (false, 1) > 0;
+
+    const auto audio = std::atomic_load (&libraryPreviewAudio);
+    const auto requested = std::atomic_load (&libraryPreviewRequestedPath);
+    if ((state.loading || state.failed) && requested != nullptr)
+        state.file = juce::File (*requested);
+    else if (audio != nullptr)
+    {
+        state.file = juce::File (audio->path);
+        if (audio->sourceSampleRate > 0.0)
+        {
+            state.positionSeconds = (double) libraryPreviewPosition.load (std::memory_order_relaxed)
+                                  / audio->sourceSampleRate;
+            state.durationSeconds = (double) audio->numSourceSamples()
+                                  / audio->sourceSampleRate;
+        }
+    }
+    else if (requested != nullptr)
+        state.file = juce::File (*requested);
+    return state;
+}
+
+void MainPluginProcessor::renderLibraryPreview (juce::AudioBuffer<float>& buffer) noexcept
+{
+    if (! libraryPreviewPlaying.load (std::memory_order_acquire))
+        return;
+
+    const auto audio = std::atomic_load (&libraryPreviewAudio);
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0 || currentSampleRate <= 0.0)
+        return;
+
+    const auto length = audio->numSourceSamples();
+    if (length <= 0)
+        return;
+
+    auto position = (double) libraryPreviewPosition.load (std::memory_order_relaxed);
+    if (const auto seek = libraryPreviewSeek.exchange (-1, std::memory_order_acq_rel); seek >= 0)
+        position = (double) juce::jlimit<juce::int64> (0, length - 1, seek);
+
+    const auto streamView = audio->streamed != nullptr
+        ? audio->streamed->acquireReadView (position)
+        : ChunkedAudioFile::ReadView {};
+    const double step = audio->sourceSampleRate / currentSampleRate;
+    constexpr float auditionGain = 0.28f; // useful but safely below a live master
+    bool reachedEnd = false;
+
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        if (position >= (double) length - 1.0)
+        {
+            reachedEnd = true;
+            break;
+        }
+
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        {
+            const float preview = readPreviewSample (*audio, streamView, channel, position)
+                                * auditionGain;
+            const float mixed = buffer.getSample (channel, sample) + preview;
+            buffer.setSample (channel, sample, juce::jlimit (-0.98f, 0.98f, mixed));
+        }
+        position += step;
+    }
+
+    libraryPreviewPosition.store (
+        reachedEnd ? length : (juce::int64) std::llround (position),
+        std::memory_order_relaxed);
+    if (reachedEnd)
+        libraryPreviewPlaying.store (false, std::memory_order_release);
 }
 
 std::shared_ptr<const DeckPlayer::LoadedAudio> MainPluginProcessor::loadAudioFile (const juce::File& file,
@@ -1975,7 +2242,11 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
     // a playable deck immediately pass runNeuralInline=false and call
     // refineAnalysisAsync() to hot-swap the refined grid/key in later.
     if (! runNeuralInline)
+    {
+        out.analysisVersion = 1;
+        analysisCache.store (contentHash, out);
         return;
+    }
 
     // Trained beat/downbeat model (beat_this) on top of the DSP grid. When the
     // model is installed its grid wins; without it the Ellis DP tracker stands.
@@ -2169,9 +2440,36 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
         auto refined = std::make_shared<TrackAnalysis> (audio->analysis);
 
+        // Long tracks keep only a one-sample sentinel in LoadedAudio because the
+        // player reads them from ChunkedAudioFile. Neural models still need the
+        // complete signal, so decode a temporary worker-owned buffer here. This
+        // preserves accurate optional AI analysis without putting a DJ-length song
+        // back into the deck's permanent resident set.
+        juce::AudioBuffer<float> streamedNeuralAudio;
+        const juce::AudioBuffer<float>* neuralAudio = &audio->audio;
+        if (audio->streamed != nullptr)
+        {
+            juce::AudioFormatManager formats;
+            formats.registerBasicFormats();
+           #if JUCE_USE_MP3AUDIOFORMAT
+            formats.registerFormat (new juce::MP3AudioFormat(), true);
+           #endif
+            auto reader = std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (file));
+            if (reader == nullptr || reader->lengthInSamples <= 0
+                || reader->lengthInSamples > std::numeric_limits<int>::max())
+                return juce::ThreadPoolJob::jobHasFinished;
+
+            const int channelsToRead = (int) juce::jmin<int64> (reader->numChannels, 2);
+            streamedNeuralAudio.setSize (channelsToRead, (int) reader->lengthInSamples);
+            if (! reader->read (&streamedNeuralAudio, 0, streamedNeuralAudio.getNumSamples(),
+                                0, true, true))
+                return juce::ThreadPoolJob::jobHasFinished;
+            neuralAudio = &streamedNeuralAudio;
+        }
+
         if (neuralBeat.isAvailable())
         {
-            const auto b = neuralBeat.detect (audio->audio, audio->sourceSampleRate,
+            const auto b = neuralBeat.detect (*neuralAudio, audio->sourceSampleRate,
                                               [alive]
                                               { return ! alive->load (std::memory_order_acquire); });
             if (b.valid && b.confidence >= kNeuralBeatConfidenceFloor
@@ -2187,7 +2485,7 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
         if (neuralKey.isAvailable())
         {
-            const auto k = neuralKey.detect (audio->audio, audio->sourceSampleRate,
+            const auto k = neuralKey.detect (*neuralAudio, audio->sourceSampleRate,
                                              [alive]
                                              { return ! alive->load (std::memory_order_acquire); });
             if (k.valid && k.confidence >= kNeuralKeyConfidenceFloor)
@@ -2277,6 +2575,25 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
                              path, "Audio loaded into " + DeckPlayer::stemLaneLabel (stemLaneIndex));
     };
 
+    // Separated stem lanes are playback sources, not analysis authorities. Running
+    // a full BPM/key pass for every cached stem multiplied startup decoding, RAM and
+    // CPU by four per deck, then discarded every result below. Publish these lanes
+    // after decode and stop; only the full mix owns track analysis.
+    if (stemLaneIndex != DeckPlayer::fullMixStem)
+    {
+        loadPool->addJob (new AudioLoadJob (
+            file,
+            [this] (const juce::File& f) -> std::shared_ptr<const DeckPlayer::LoadedAudio>
+            { return decodeAudioFile (f); },
+            [alive = aliveFlag, cb = std::move (onAudioReady)]
+            (std::shared_ptr<const DeckPlayer::LoadedAudio> audio) mutable
+            {
+                if (alive->load (std::memory_order_acquire))
+                    cb (std::move (audio));
+            }), true);
+        return;
+    }
+
     auto onAnalysisReady = [this, deckIndex, stemLaneIndex, generation,
                             path = file.getFullPathName(), alive = aliveFlag]
                            (std::shared_ptr<const TrackAnalysis> analysis)
@@ -2297,37 +2614,52 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
         // Neural refinement on top of the DSP grid/key, as before.
         refineAnalysisAsync (deckIndex, juce::File (path));
 
-        {
-            stemProvider.requestStemsAsync (
-                juce::File (path),
-                [this, deckIndex, path, generation, alive = aliveFlag]
-                (StemProvider::Result result)
-            {
-                if (! alive->load (std::memory_order_acquire)) return;   // late completion after teardown
-                if (deckLoadGeneration[(size_t) deckIndex][(size_t) DeckPlayer::fullMixStem]
-                        .load (std::memory_order_relaxed) != generation)
-                    return;
-                logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
-                                     "stem_cache", deckNameFor (deckIndex), "offline_cache",
-                                     result.allCoreStemsReady ? "ready" : "pending",
-                                     result.cacheDirectory.getFullPathName(), result.message);
-
-                for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
-                    if (result.stems[(size_t) lane].ready)
-                        loadDeckStemFileAsync (deckIndex, lane, result.stems[(size_t) lane].file);
-
-                if (result.allCoreStemsReady)
-                    applyPremiumStemMix (deckIndex);
-            });
-        }
+        // Loading a song must stay cheap and predictable. Reuse stems that already
+        // exist in the cache, but never start an expensive AI/CLI separation behind
+        // the performer's back. The explicit AI Split action owns that work.
+        const auto result = stemProvider.inspectCache (juce::File (path));
+        logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                             "stem_cache", deckNameFor (deckIndex), "offline_cache",
+                             result.allCoreStemsReady ? "ready" : "not_cached",
+                             result.cacheDirectory.getFullPathName(), result.message);
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+            if (result.stems[(size_t) lane].ready)
+                loadDeckStemFileAsync (deckIndex, lane, result.stems[(size_t) lane].file);
+        if (result.allCoreStemsReady)
+            applyPremiumStemMix (deckIndex);
     };
 
     // Guard both callbacks: a job finishing during teardown must not run a
     // this-capturing closure against a freed processor (same contract as loadAudioAsync).
     loadPool->addJob (new TwoPhaseAudioLoadJob (file,
         [this] (const juce::File& f) { return decodeAudioFile (f); },
-        [this] (TrackAnalysis& out, const juce::AudioBuffer<float>& audio, double sr, const juce::File& f)
-        { analyseInto (out, audio, sr, f, /*runNeuralInline*/ false); },
+        [this] (TrackAnalysis& out, const DeckPlayer::LoadedAudio& loaded, const juce::File& f)
+        {
+            if (loaded.streamed == nullptr)
+            {
+                analyseInto (out, loaded.audio, loaded.sourceSampleRate, f,
+                             /*runNeuralInline*/ false);
+                return;
+            }
+
+            // The playable object intentionally holds no full-file PCM. Do the
+            // accurate analysis decode only after publication, then release it.
+            const auto hash = AnalysisCache::hashFile (f);
+            if (analysisCache.lookup (hash, out))
+                return;
+            std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (f));
+            if (reader == nullptr || reader->lengthInSamples <= 0
+                || reader->lengthInSamples > std::numeric_limits<int>::max())
+                return;
+            juce::AudioBuffer<float> analysisAudio (
+                (int) juce::jmin<int64> (reader->numChannels, 2),
+                (int) reader->lengthInSamples);
+            if (! reader->read (&analysisAudio, 0, analysisAudio.getNumSamples(), 0, true, true))
+                return;
+            out = TrackAnalyzer::analyze (analysisAudio, reader->sampleRate);
+            out.analysisVersion = 1;
+            analysisCache.store (hash, out);
+        },
         [alive = aliveFlag, cb = std::move (onAudioReady)] (std::shared_ptr<const DeckPlayer::LoadedAudio> a) mutable
         { if (alive->load (std::memory_order_acquire)) cb (std::move (a)); },
         std::move (onAnalysisReady)), true);
@@ -2399,7 +2731,9 @@ void MainPluginProcessor::setDeckRtssSensitivity (int deckIndex, float sensitivi
 }
 
 // ── Arrangement playback ──────────────────────────────────────────────────────
-void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds, double startSeconds)
+void MainPluginProcessor::buildAndStartArrangement (
+    std::vector<ArrangementClipSpec> clips, double minLengthSeconds,
+    double startSeconds, ArrangementMasterAutomationSpec masterAutomation)
 {
     const auto buildGeneration =
         arrangementBuildGeneration.fetch_add (1, std::memory_order_relaxed) + 1;
@@ -2427,9 +2761,15 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
     // while producing SILENCE. Loading the clip audio + building the schedule happens
     // on a worker thread (no file I/O on the audio or message thread); MIDI plays via
     // the non-TE MidiClipPlayer (usingTeMidi = false).
-    struct ArrPayload { std::vector<ArrangementClipSpec> clips; double totalLen = 0, startSecs = 0, engineSr = 44100; };
+    struct ArrPayload
+    {
+        std::vector<ArrangementClipSpec> clips;
+        ArrangementMasterAutomationSpec master;
+        double totalLen = 0, startSecs = 0, engineSr = 44100;
+    };
     auto payload = std::make_shared<ArrPayload>();
     payload->clips    = std::move (clips);
+    payload->master   = std::move (masterAutomation);
     payload->totalLen = totalLen;
     payload->startSecs = startSeconds;
     payload->engineSr = engineSr;
@@ -2450,6 +2790,7 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             return juce::ThreadPoolJob::jobHasFinished;
 
         auto sched = std::make_shared<ArrangementPlayer::Schedule>();
+        auto master = std::make_shared<ArrangementPlayer::MasterAutomation>();
         std::map<juce::String, std::shared_ptr<ChunkedAudioFile>> streamedFiles;
         for (const auto& spec : payload->clips)
         {
@@ -2506,13 +2847,33 @@ void MainPluginProcessor::buildAndStartArrangement (std::vector<ArrangementClipS
             sched->push_back (std::move (c));
         }
 
-        juce::MessageManager::callAsync ([this, sched, payload, buildGeneration, alive]
+        const auto copyMasterAutomation = [engineSr = payload->engineSr] (
+            const std::vector<std::pair<double, float>>& source,
+            std::vector<std::pair<juce::int64, float>>& destination)
+        {
+            destination.reserve (source.size());
+            for (const auto& [seconds, value] : source)
+                destination.emplace_back (
+                    (juce::int64) std::llround (seconds * engineSr), value);
+        };
+        copyMasterAutomation (payload->master.gainDb, master->gainDb);
+        copyMasterAutomation (payload->master.fxX, master->fxX);
+        copyMasterAutomation (payload->master.fxY, master->fxY);
+        copyMasterAutomation (payload->master.smartAmount, master->smartAmount);
+        copyMasterAutomation (payload->master.smartMode, master->smartMode);
+        copyMasterAutomation (payload->master.smartOn, master->smartOn);
+        copyMasterAutomation (payload->master.limiterCeilingDb,
+                              master->limiterCeilingDb);
+
+        juce::MessageManager::callAsync ([this, sched, master, payload,
+                                          buildGeneration, alive]
         {
             if (! alive->load (std::memory_order_acquire)
                 || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
                 return;
             usingTeMidi.store (false, std::memory_order_relaxed);   // MIDI via MidiClipPlayer
             arrangementPlayer.setSchedule (sched);
+            arrangementPlayer.setMasterAutomation (master);
             arrangementPlayer.setLengthSeconds (payload->totalLen);
             arrangementPlayer.setPositionSeconds (payload->startSecs);
             arrangementPlayer.start();
@@ -2552,6 +2913,11 @@ void MainPluginProcessor::stopArrangement()
 
 void MainPluginProcessor::serviceDeferredActions()
 {
+    const auto now = juce::Time::currentTimeMillis();
+    std::erase_if (retiredLibraryPreviews,
+                   [now] (const RetiredPreview& retired)
+                   { return retired.releaseAfterMs <= now; });
+
     // Message thread only. The audio thread requests a TE transport stop via an
     // atomic (instead of allocating a callAsync closure in processBlock).
     if (teStopRequested.exchange (false, std::memory_order_relaxed))
@@ -2657,6 +3023,7 @@ stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inD
 
     // Beat-sync so the incoming deck locks to the master grid.
     if (auto* p = apvts.getParameter ("beatSync")) p->setValueNotifyingHost (1.0f);
+    if (auto* p = apvts.getParameter (deckPrefix (inDeck) + "Sync")) p->setValueNotifyingHost (1.0f);
 
     // Start the incoming deck; the outgoing one keeps playing until the blend ends.
     if (auto* p = apvts.getParameter (deckPrefix (inDeck) + "Play")) p->setValueNotifyingHost (1.0f);
@@ -3198,7 +3565,8 @@ juce::String MainPluginProcessor::getDeckTimePitchStatus (int deckIndex) const
                                            audio ? (double) audio->numSourceSamples() : 0.0,
                                            getFloatParam (deck + "Pitch") + matchShift,
                                            getBoolParam (deck + "KeyLock"),
-                                           getBoolParam ("hostSync") && getBoolParam ("beatSync"));
+                                           getBoolParam ("hostSync") && getBoolParam ("beatSync")
+                                               && getBoolParam (deck + "Sync"));
     return plan.statusLabel;
 }
 
@@ -3220,7 +3588,8 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio ? audio->sourceSampleRate : currentSampleRate,
                                                         audio ? (double) audio->numSourceSamples() : 0.0,
-                                                        getBoolParam ("hostSync") && getBoolParam ("beatSync"));
+                                                        getBoolParam ("hostSync") && getBoolParam ("beatSync")
+                                                            && getBoolParam (deck + "Sync"));
 
     juce::String text = plan.statusLabel;
     if (analysis.detectedBpm > 1.0f)
@@ -3254,7 +3623,8 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio->sourceSampleRate,
                                                         (double) audio->numSourceSamples(),
-                                                        getBoolParam ("hostSync") && getBoolParam ("beatSync"));
+                                                        getBoolParam ("hostSync") && getBoolParam ("beatSync")
+                                                            && getBoolParam (deck + "Sync"));
 
     r.active = plan.syncEnabled;
     if (! plan.syncEnabled)
@@ -3635,6 +4005,7 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
         state.play = getBoolParam (deck + "Play");
         state.keyLock = getBoolParam (deck + "KeyLock");
         state.liveKey = getBoolParam (deck + "LiveKey");
+        state.deckSync = getBoolParam (deck + "Sync");
         state.bpm = getFloatParam (deck + "Bpm");
         state.volume = getFloatParam (deck + "Volume");
         state.fader = getFloatParam (deck + "Fader");
@@ -3666,6 +4037,7 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
         logPerformanceEvent (sample, "parameter_change", deckName, "reverb_mix", juce::String (state.revMix, 4));
         logPerformanceEvent (sample, "parameter_change", deckName, "echo_mix", juce::String (state.echoMix, 4));
         logPerformanceEvent (sample, "sync_change", deckName, "sync_mode", juce::String (state.syncMode));
+        logPerformanceEvent (sample, "sync_change", deckName, "project_sync", state.deckSync ? "on" : "off");
     }
 }
 
@@ -3809,6 +4181,14 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
         {
             state.liveKey = liveKey;
             logPerformanceEvent (blockStartSample, "effect_toggle", deckName, "live_key", liveKey ? "on" : "off");
+        }
+
+        const bool deckSync = getBoolParam (ids.deckSync);
+        if (deckSync != state.deckSync)
+        {
+            state.deckSync = deckSync;
+            logPerformanceEvent (blockStartSample, "sync_change", deckName,
+                                 "project_sync", deckSync ? "on" : "off");
         }
 
         const int tempoInterpretation = (int) std::round (getFloatParam (ids.tempoInterp));

@@ -177,7 +177,13 @@ public:
     EnergyArcArranger() = default;
     void setArc (std::vector<ArcSection> a) { arc = std::move (a); repaint(); }
     const std::vector<ArcSection>& getArc() const { return arc; }
-    void setPlayhead (float n) { playhead = juce::jlimit (0.0f, 1.0f, n); repaint(); }
+    void setPlayhead (float n)
+    {
+        const float next = juce::jlimit (0.0f, 1.0f, n);
+        if (std::abs (next - playhead) <= 0.00001f) return;
+        playhead = next;
+        repaint();
+    }
     std::function<void()> onArcEdited;
 
     juce::Rectangle<float> plotArea() const

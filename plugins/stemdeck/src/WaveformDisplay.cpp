@@ -7,7 +7,7 @@ namespace
 juce::Colour accentForTitle (const juce::String& title)
 {
     const auto deck = title.trim().getLastCharacter();
-    if (deck >= 'A' && deck <= 'D')
+    if (deck >= 'A' && deck <= 'H')
         return stemdeck::tokens::deckAccent ((int) (deck - 'A'));
     return stemdeck::tokens::deckAccent (0);
 }
@@ -212,7 +212,9 @@ void WaveformDisplay::mouseDown (const juce::MouseEvent& e)
     if (! onSeekRequest || playbackTotalSeconds <= 0.0)
         return;
     const auto wave  = getLocalBounds().toFloat().reduced (4.0f, 4.0f);
-    const float relX = juce::jlimit (0.0f, 1.0f, (e.position.x - wave.getX()) / wave.getWidth());
+    const float relX = verticalTimeMode
+                     ? juce::jlimit (0.0f, 1.0f, (e.position.y - wave.getY()) / wave.getHeight())
+                     : juce::jlimit (0.0f, 1.0f, (e.position.x - wave.getX()) / wave.getWidth());
     const auto [t0, t1] = visibleTimeRange (playbackTotalSeconds);
     onSeekRequest (t0 + (double) relX * (t1 - t0));
 }
@@ -239,7 +241,18 @@ void WaveformDisplay::mouseWheelMove (const juce::MouseEvent&, const juce::Mouse
 void WaveformDisplay::paint (juce::Graphics& g)
 {
     using namespace sattari::brand;
-    const auto area   = getLocalBounds().toFloat();
+    // Paint into a logical left-to-right timeline, then rotate that timeline
+    // clockwise for compact monitors. This keeps the waveform, loop, beat grid,
+    // cues and playhead on one shared time transform instead of maintaining a
+    // second, subtly divergent renderer.
+    juce::Graphics::ScopedSaveState logicalTimeline (g);
+    if (verticalTimeMode)
+        g.addTransform (juce::AffineTransform (0.0f, -1.0f, (float) getWidth(),
+                                                1.0f,  0.0f, 0.0f));
+
+    const auto area = verticalTimeMode
+                    ? juce::Rectangle<float> (0.0f, 0.0f, (float) getHeight(), (float) getWidth())
+                    : getLocalBounds().toFloat();
     const auto accent = accentForTitle (title);
 
     g.setColour (juce::Colour (kPanelDeep));
@@ -257,7 +270,8 @@ void WaveformDisplay::paint (juce::Graphics& g)
 
     // Keep the full-mix waveform visible even after stem separation. The stacked
     // per-stem view is opt-in (setStemViewEnabled), or used when only stems exist.
-    const bool useStemView = stemViewEnabled ? hasStems : (hasStems && ! haveMix);
+    const bool useStemView = ! verticalTimeMode
+                          && (stemViewEnabled ? hasStems : (hasStems && ! haveMix));
 
     // Determine zoom-adjusted time window
     const double totalLen = useStemView ? juce::jmax (juce::jmax (drumsThumbnail.getTotalLength(), bassThumbnail.getTotalLength()),
@@ -510,7 +524,9 @@ void WaveformDisplay::paint (juce::Graphics& g)
         juce::ignoreUnused (tLen);
     }
     // ── Play / pause glyph ───────────────────────────────────────────────────
-    if (totalLen > 0.0)
+    // Compact decks already expose a dedicated transport button; rotating this
+    // central glyph would add noise and imply the waveform itself is transport.
+    if (totalLen > 0.0 && ! verticalTimeMode)
     {
         const float glyphSize = juce::jmin (wave.getHeight() * 0.5f, 56.0f);
         const auto  glyphArea = juce::Rectangle<float> (glyphSize, glyphSize).withCentre (wave.getCentre());
@@ -537,7 +553,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
     }
 
     // ── RTSS badge ────────────────────────────────────────────────────────────
-    if (rtssActive)
+    if (rtssActive && ! verticalTimeMode)
     {
         const auto badge = juce::Rectangle<int> (wave.toNearestInt().getX() + 3,
                                                   wave.toNearestInt().getY() + 3,
@@ -550,7 +566,7 @@ void WaveformDisplay::paint (juce::Graphics& g)
     }
 
     // ── Zoom indicator (only when zoomed) ────────────────────────────────────
-    if (zoomLevel > 1.05f)
+    if (zoomLevel > 1.05f && ! verticalTimeMode)
     {
         g.setColour (accent.withAlpha (0.55f));
         g.setFont (juce::FontOptions (10.0f));

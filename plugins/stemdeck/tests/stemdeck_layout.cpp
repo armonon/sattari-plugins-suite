@@ -10,6 +10,8 @@
 // no audio device — it runs in milliseconds and is safe for CI.
 
 #include "LayoutStack.h"
+#include "FxTargetModel.h"
+#include "StemDeckDragPayload.h"
 #include <iostream>
 
 namespace
@@ -206,6 +208,79 @@ void testDegenerateInputs()
     const auto r = rows (juce::Rectangle<int> (0, 0, 0, 0), one);
     check (r[0].isEmpty(), "zero bounds yields an empty rectangle");
 }
+
+// The stage FX router must never change destination merely because the surrounding
+// channel UI was rebuilt or a different deck received focus.
+void testFxTargetSelectionIsExplicitAndStable()
+{
+    stemdeck::FxTargetModel rack;
+    juce::StringArray names { "Master Bus", "Channel A", "Channel A > Vocals" };
+    juce::Array<int> chains { 5, 0, 21 };
+    juce::Array<int> kinds {
+        (int) stemdeck::FxTargetModel::Kind::master,
+        (int) stemdeck::FxTargetModel::Kind::channel,
+        (int) stemdeck::FxTargetModel::Kind::stem };
+
+    rack.setTargets (names, chains, kinds);
+    checkEq (rack.currentChain(), 5, "FX router defaults to Master Bus");
+    check (rack.currentKind() == stemdeck::FxTargetModel::Kind::master,
+           "default FX target is identified as master");
+
+    check (rack.selectChain (21), "a specific stem chain can be selected");
+    checkEq (rack.currentChain(), 21, "stem selection addresses its real HostGraph chain");
+    check (rack.currentName() == "Channel A > Vocals",
+           "the full channel/stem breadcrumb remains visible");
+
+    // Simulate channel/focus refresh with a changed display name and order.
+    rack.setTargets ({ "Master Bus", "Channel A > Lead Vox", "Channel A" },
+                     { 5, 21, 0 },
+                     { (int) stemdeck::FxTargetModel::Kind::master,
+                       (int) stemdeck::FxTargetModel::Kind::stem,
+                       (int) stemdeck::FxTargetModel::Kind::channel });
+    checkEq (rack.currentChain(), 21, "target survives a channel-list rebuild by chain identity");
+    check (rack.currentName() == "Channel A > Lead Vox",
+           "target breadcrumb refreshes without changing the destination");
+
+    // Removing the destination is the one legitimate automatic fallback.
+    rack.setTargets ({ "Master Bus", "Channel A" }, { 5, 0 },
+                     { (int) stemdeck::FxTargetModel::Kind::master,
+                       (int) stemdeck::FxTargetModel::Kind::channel });
+    checkEq (rack.currentChain(), 5, "removed target safely falls back to Master Bus");
+}
+
+// Explore, Music Library, decks and performance pads all share this payload
+// contract. Keep it typed so a plugin can never be mistaken for audio (or vice
+// versa) as the UI is rearranged.
+void testDragPayloadRoundTrips()
+{
+    auto audio = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                     .getChildFile ("stemdeck_drag_payload_test.WAV");
+    audio.replaceWithData ("RIFF", 4);
+
+    const auto audioPayload = stemdeck::drag::makeAudio (audio);
+    check (stemdeck::drag::kind (audioPayload) == stemdeck::drag::audioKind,
+           "audio drag payload keeps its type");
+    check (stemdeck::drag::audioFile (audioPayload) == audio,
+           "audio drag payload preserves the absolute path");
+    check (stemdeck::drag::isSupportedAudioFile (audio),
+           "audio extension matching is case-insensitive");
+
+    const auto pluginPayload = stemdeck::drag::makePlugin (7, "Sattari Warp");
+    check (stemdeck::drag::kind (pluginPayload) == stemdeck::drag::pluginKind,
+           "plugin drag payload keeps its type");
+    checkEq (stemdeck::drag::pluginIndex (pluginPayload), 7,
+             "plugin drag payload preserves the scanned index");
+    check (stemdeck::drag::pluginName (pluginPayload) == "Sattari Warp",
+           "plugin drag payload preserves its display name");
+    check (stemdeck::drag::audioFile (pluginPayload) == juce::File(),
+           "plugin payload cannot resolve as audio");
+
+    check (stemdeck::drag::kind (juce::var (stemdeck::drag::fileBrowserKind))
+               == stemdeck::drag::fileBrowserKind,
+           "file-browser drag marker remains compatible with FileTreeComponent");
+
+    audio.deleteFile();
+}
 } // namespace
 
 int main()
@@ -219,6 +294,8 @@ int main()
     testGapsOnlyCountBetweenPresentItems();
     testTrailingGapIsNeverRendered();
     testDegenerateInputs();
+    testFxTargetSelectionIsExplicitAndStable();
+    testDragPayloadRoundTrips();
 
     if (failures == 0) std::cout << "StemDeckLayout: all checks passed\n";
     else               std::cerr << "StemDeckLayout: " << failures << " check(s) failed\n";

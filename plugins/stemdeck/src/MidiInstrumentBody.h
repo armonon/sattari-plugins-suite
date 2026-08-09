@@ -108,6 +108,7 @@ public:
         const float fc = filterControl.load (std::memory_order_relaxed);
         const bool needEq     = std::abs (lo) > 0.01f || std::abs (mi) > 0.01f || std::abs (hi) > 0.01f;
         const bool needFilter = std::abs (fc - 0.5f) > 0.005f;
+        const float bipolarFilter = (0.5f - fc) * 2.0f;
         if ((needEq || needFilter) && scratch.getNumChannels() > 0)
         {
             auto* L = scratch.getWritePointer (0);
@@ -116,7 +117,7 @@ public:
             {
                 float l = L[i], r = R[i];
                 if (needEq)     eq.processSample (l, r, lo, mi, hi);
-                if (needFilter) filter.processSample (l, r, fc);
+                if (needFilter) filter.processSample (l, r, bipolarFilter);
                 L[i] = l;
                 if (scratch.getNumChannels() > 1) R[i] = r;
             }

@@ -90,6 +90,11 @@ int main()
         std::cerr << "FAIL: pre-fader source tap did not capture aligned audio\n";
         return 1;
     }
+    if (body.getRealtimeSeparationBlocksForTest() != 0)
+    {
+        std::cerr << "FAIL: unity stems ran the real-time separator unnecessarily\n";
+        return 1;
+    }
 
     // A closed fader must silence only the printed/live render. Transport and clean
     // source capture continue so reopening the fader resumes at the correct position.
@@ -117,6 +122,11 @@ int main()
     double mutedRms = 0.0;
     for (int blk = 0; blk < 4; ++blk) { scratch.clear(); body.processInto (scratch, ctx); mutedRms = rms (scratch, block); }
     if (mutedRms > lastRms * 0.5) { std::cerr << "FAIL: muting stems did not reduce level (rms " << mutedRms << " vs " << lastRms << ")\n"; return 1; }
+    if (body.getRealtimeSeparationBlocksForTest() == 0)
+    {
+        std::cerr << "FAIL: adjusted stems did not engage real-time separation\n";
+        return 1;
+    }
 
     std::cout << "TRACKDECKBODY_OK  playing_rms=" << lastRms << "  muted_rms=" << mutedRms << "\n";
     return 0;

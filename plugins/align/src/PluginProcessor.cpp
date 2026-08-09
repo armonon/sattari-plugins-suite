@@ -247,14 +247,10 @@ int SattariAlignAudioProcessor::computeDtwWarp()
     // Reverse to forward-time order.
     std::reverse (rev.begin(), rev.end());
 
-    // Publish atomically with a brief critical section. The audio thread reads
-    // under try-lock; we update `dtwClockSec` so the audio thread can interpolate
-    // relative to the path's t=0.
-    {
-        const juce::ScopedLock l (warpPathLock);
-        warpPath = std::move (rev);
-        dtwClockSec = 0.0;
-    }
+    // computeDtwWarp and playback both run serially on the audio thread, so a
+    // lock here only adds real-time overhead without protecting shared state.
+    warpPath = std::move (rev);
+    dtwClockSec = 0.0;
     return 0;
 }
 
@@ -407,21 +403,19 @@ void SattariAlignAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (useDtw)
     {
         float lagNow = smoothedLagSamples;
+        if (warpPath.size() >= 2)
         {
-            const juce::ScopedTryLock l (warpPathLock);
-            if (l.isLocked() && warpPath.size() >= 2)
-            {
-                // Find segment around dtwClockSec.
-                const double t = dtwClockSec;
-                int hi = 1;
-                while (hi < (int) warpPath.size() && warpPath[(size_t) hi].timeSec < t) ++hi;
-                const int lo = juce::jmax (0, hi - 1);
-                const double t0 = warpPath[(size_t) lo].timeSec;
-                const double t1 = warpPath[(size_t) hi].timeSec;
-                const double f  = (t1 > t0) ? juce::jlimit (0.0, 1.0, (t - t0) / (t1 - t0)) : 0.0;
-                lagNow = (float) ((1.0 - f) * warpPath[(size_t) lo].lagSamples
-                                   + f         * warpPath[(size_t) hi].lagSamples);
-            }
+            // Find segment around dtwClockSec.
+            const double t = dtwClockSec;
+            int hi = 1;
+            while (hi < (int) warpPath.size() && warpPath[(size_t) hi].timeSec < t) ++hi;
+            hi = juce::jmin (hi, (int) warpPath.size() - 1);
+            const int lo = juce::jmax (0, hi - 1);
+            const double t0 = warpPath[(size_t) lo].timeSec;
+            const double t1 = warpPath[(size_t) hi].timeSec;
+            const double f  = (t1 > t0) ? juce::jlimit (0.0, 1.0, (t - t0) / (t1 - t0)) : 0.0;
+            lagNow = (float) ((1.0 - f) * warpPath[(size_t) lo].lagSamples
+                               + f         * warpPath[(size_t) hi].lagSamples);
         }
         // Smooth into the applied lag so the warp path's piecewise jumps don't
         // click. The user's smoothing knob still controls how slewy this is.

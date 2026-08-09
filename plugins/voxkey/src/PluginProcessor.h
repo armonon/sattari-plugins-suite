@@ -101,6 +101,9 @@ private:
     static constexpr int paraFftSize  = 1 << paraFftOrder;
     std::unique_ptr<juce::dsp::FFT> paraFft;
     std::vector<float> paraRing, paraFftBuf, paraHann;
+    struct ParaPeak { float val = 0.0f; int bin = 0; };
+    std::vector<float> paraHps;
+    std::vector<ParaPeak> paraPeaks;
     int paraWritePos = 0, paraSamplesSinceFft = 0;
     std::array<int, 3>  paraCurrentNotes { -1, -1, -1 };
     std::array<int, 3>  paraDetectFrame (double sr);  // returns up to 3 MIDI notes (-1 = none)

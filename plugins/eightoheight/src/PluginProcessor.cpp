@@ -123,7 +123,7 @@ void Sattari808AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
     if ((int) monoScratch.size() < numSamples)
-        monoScratch.resize ((size_t) numSamples);
+        return; // host exceeded the prepared block size; keep the dry signal
 
     // Mono sum of the input for pitch tracking + gating.
     std::fill (monoScratch.begin(), monoScratch.begin() + numSamples, 0.0f);

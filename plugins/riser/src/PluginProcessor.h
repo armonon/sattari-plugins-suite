@@ -29,7 +29,8 @@
 //  allocation and no locking; the output is soft-ceilinged so it can never blow
 //  up. UI reads a lock-free atomic for the build progress + armed state.
 // =============================================================================
-class SattariRiserAudioProcessor final : public juce::AudioProcessor
+class SattariRiserAudioProcessor final : public juce::AudioProcessor,
+                                          private juce::AsyncUpdater
 {
 public:
     SattariRiserAudioProcessor();
@@ -112,9 +113,11 @@ private:
 
     std::atomic<float> progressUi { 0.0f };
     std::atomic<bool>  buildingUi { false };
+    std::atomic<bool>  armClearRequested { false };
 
     void startBuild (double bpm, int lengthBars);
     void finishBuild();
+    void handleAsyncUpdate() override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariRiserAudioProcessor)
 };

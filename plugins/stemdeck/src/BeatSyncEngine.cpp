@@ -1,5 +1,7 @@
 #include "BeatSyncEngine.h"
 
+#include <limits>
+
 namespace
 {
 inline juce::String u8 (const char* s) { return juce::String (juce::CharPointer_UTF8 (s)); }
@@ -108,16 +110,81 @@ BeatSyncEngine::TrackBeatGrid BeatSyncEngine::makeGrid (const TrackAnalysis& ana
         : 0.0;
 
     grid.warpMarkers.reserve (grid.beatGridSamples.size() + grid.transientAnchorSamples.size());
+    int detectedDownbeatIndex = 0;
+    if (! grid.beatGridSamples.empty() && analysis.downbeatSample > 0.0)
+    {
+        double nearestDistance = std::numeric_limits<double>::infinity();
+        for (int i = 0; i < (int) grid.beatGridSamples.size(); ++i)
+        {
+            const double distance = std::abs (grid.beatGridSamples[(size_t) i]
+                                              - analysis.downbeatSample);
+            if (distance < nearestDistance)
+            {
+                nearestDistance = distance;
+                detectedDownbeatIndex = i;
+            }
+        }
+    }
+
+    // Preserve the existing Downbeat parameter convention: the detected
+    // downbeat's nominal sample/BPM coordinate is the project coordinate that
+    // maps to its real source sample.  Adjacent analysed beats advance by exactly
+    // one PROJECT beat even when their SOURCE spacing varies.  The old code used
+    // sourceSample / nominalBeatLength on both sides of every marker, making the
+    // mapping an identity transform and silently discarding tempo drift.
+    const double downbeatProjectBeat = beatLength > 1.0
+        ? analysis.downbeatSample / beatLength
+        : (double) detectedDownbeatIndex;
     for (size_t i = 0; i < grid.beatGridSamples.size(); ++i)
     {
         const double sourceBeat = beatLength > 1.0 ? grid.beatGridSamples[i] / beatLength : (double) i;
-        grid.warpMarkers.push_back ({ sourceBeat, sourceBeat, grid.beatGridSamples[i], false });
+        const double projectBeat = downbeatProjectBeat
+                                 + (double) ((int) i - detectedDownbeatIndex);
+        grid.warpMarkers.push_back ({ projectBeat, sourceBeat,
+                                      grid.beatGridSamples[i], false });
     }
 
     for (double anchorSample : grid.transientAnchorSamples)
     {
         const double sourceBeat = beatLength > 1.0 ? anchorSample / beatLength : 0.0;
-        grid.warpMarkers.push_back ({ sourceBeat, sourceBeat, anchorSample, true });
+        double projectBeat = sourceBeat;
+
+        // Locate a transient inside the analysed beat grid and give it the same
+        // fractional project-beat coordinate as its position between the two
+        // surrounding beats.  This retains intentional microtiming without
+        // letting a transient create a discontinuity in the warp curve.
+        if (grid.beatGridSamples.size() >= 2)
+        {
+            const auto upper = std::upper_bound (grid.beatGridSamples.begin(),
+                                                 grid.beatGridSamples.end(),
+                                                 anchorSample);
+            if (upper == grid.beatGridSamples.begin())
+            {
+                const double span = juce::jmax (1.0,
+                    grid.beatGridSamples[1] - grid.beatGridSamples[0]);
+                projectBeat = grid.warpMarkers[0].projectBeat
+                            + (anchorSample - grid.beatGridSamples[0]) / span;
+            }
+            else if (upper == grid.beatGridSamples.end())
+            {
+                const size_t last = grid.beatGridSamples.size() - 1;
+                const double span = juce::jmax (1.0,
+                    grid.beatGridSamples[last] - grid.beatGridSamples[last - 1]);
+                projectBeat = grid.warpMarkers[last].projectBeat
+                            + (anchorSample - grid.beatGridSamples[last]) / span;
+            }
+            else
+            {
+                const size_t right = (size_t) std::distance (grid.beatGridSamples.begin(), upper);
+                const size_t left = right - 1;
+                const double span = juce::jmax (1.0,
+                    grid.beatGridSamples[right] - grid.beatGridSamples[left]);
+                const double phase = (anchorSample - grid.beatGridSamples[left]) / span;
+                projectBeat = grid.warpMarkers[left].projectBeat + phase;
+            }
+        }
+
+        grid.warpMarkers.push_back ({ projectBeat, sourceBeat, anchorSample, true });
     }
 
     std::sort (grid.warpMarkers.begin(), grid.warpMarkers.end(), [] (const WarpMarker& a, const WarpMarker& b)
@@ -126,6 +193,19 @@ BeatSyncEngine::TrackBeatGrid BeatSyncEngine::makeGrid (const TrackAnalysis& ana
             return a.transientAnchor && ! b.transientAnchor;
         return a.projectBeat < b.projectBeat;
     });
+
+    if (grid.warpMarkers.size() >= 2 && analysis.durationSeconds > 0.0
+        && analysis.sampleRate > 1.0)
+    {
+        const double sourceLength = analysis.durationSeconds * analysis.sampleRate;
+        const auto& first = grid.warpMarkers.front();
+        const auto& last  = grid.warpMarkers.back();
+        const double coveredSource = juce::jmax (1.0, last.sourceSample - first.sourceSample);
+        const double beatsPerSample = (last.projectBeat - first.projectBeat) / coveredSource;
+        grid.projectLengthBeats = juce::jmax (
+            1.0,
+            last.projectBeat + (sourceLength - last.sourceSample) * beatsPerSample);
+    }
 
     return grid;
 }
@@ -153,8 +233,11 @@ double BeatSyncEngine::mapBeatThroughWarpMarkers (const TrackBeatGrid& grid,
     if (grid.warpMarkers.size() < 2)
         return wrapPositive (projectBeat * sourceBeatLengthSamples, sourceLengthSamples);
 
-    const auto wrappedBeat = wrapPositive (projectBeat, sourceLengthSamples / sourceBeatLengthSamples);
-    const WarpMarker* previous = &grid.warpMarkers.front();
+    const double nominalLengthBeats = sourceLengthSamples / sourceBeatLengthSamples;
+    const double projectLength = grid.projectLengthBeats > 1.0
+                               ? grid.projectLengthBeats : nominalLengthBeats;
+    const auto wrappedBeat = wrapPositive (projectBeat, projectLength);
+    const WarpMarker* previous = nullptr;
     const WarpMarker* next = nullptr;
 
     for (const auto& marker : grid.warpMarkers)
@@ -168,14 +251,24 @@ double BeatSyncEngine::mapBeatThroughWarpMarkers (const TrackBeatGrid& grid,
         }
     }
 
+    // The analysed grid normally begins near the first audible beat and ends
+    // before a trailing tail.  Treat the track edges as virtual markers so intro
+    // and outro playback remain continuous instead of pinning to the nearest beat.
+    WarpMarker startEdge { 0.0, 0.0, 0.0, false };
+    WarpMarker endEdge { projectLength, nominalLengthBeats,
+                         sourceLengthSamples, false };
+    if (previous == nullptr)
+        previous = &startEdge;
     if (next == nullptr)
-        next = &grid.warpMarkers.back();
+        next = &endEdge;
 
-    const double span = juce::jmax (0.0001, next->projectBeat - previous->projectBeat);
-    const double phase = juce::jlimit (0.0, 1.0, (wrappedBeat - previous->projectBeat) / span);
-    const double interpolatedBeat = previous->sourceBeat + phase * (next->sourceBeat - previous->sourceBeat);
+    const double span = juce::jmax (0.0001,
+                                    next->projectBeat - previous->projectBeat);
+    const double phase = juce::jlimit (0.0, 1.0,
+        (wrappedBeat - previous->projectBeat) / span);
     const double strictSample = wrappedBeat * sourceBeatLengthSamples;
-    const double warpedSample = interpolatedBeat * sourceBeatLengthSamples;
+    const double warpedSample = previous->sourceSample
+                              + phase * (next->sourceSample - previous->sourceSample);
 
     if (localGroove)
     {

@@ -31,8 +31,8 @@ every output sample, then replays the captured stream into a FRESH processor and
 hashes again:
 
 ```
-live hash   dceaa0aa2a8ebab8
-replay hash dceaa0aa2a8ebab8   -> sample-identical
+live hash   57834260393596d0
+replay hash 57834260393596d0   -> sample-identical
 ```
 
 **What that does and does not mean.** It exercises 11 events across 600 blocks at a
@@ -52,8 +52,12 @@ The harness now destroys both replay processors normally and includes a dedicate
 in-flight-refinement teardown probe; it no longer leaks them or exits via `_Exit`.
 
 Phase 4 (rendering reads session state rather than APVTS) is not done. Phase 3 is
-28/29 ParamIds — only stable hosted-plugin parameter addressing remains; see
-`Dispatcher::ownsParam`.
+29/29 ParamIds: hosted-plugin parameters now use a persistent parameter-ID hash,
+with their positional parameter index retained only as a compatibility fallback.
+`StemDeckDispatch` enforces that every `ParamId`, including `insertParam`, is owned
+by the deterministic dispatcher. This closes the addressing gap, but it does not
+replace the still-missing end-to-end replay/hash coverage with real third-party
+plugins loaded.
 
 [`event-stream-schema.md`](event-stream-schema.md) is accepted — see its §0 for the
 decision record. Both open questions are closed: analysis IS pinned via

@@ -109,7 +109,10 @@ public:
     {
         setSliderStyle (juce::Slider::RotaryVerticalDrag);
         setRange (stemdeck::stemgain::kMin, stemdeck::stemgain::kMax, 0.0);
-        setRotaryParameters (juce::degreesToRadians (-135.0f), juce::degreesToRadians (135.0f), true);
+        // JUCE requires non-negative rotary angles. 225°..495° is visually the
+        // same arc as -135°..135° but does not trip Slider's debug contract.
+        setRotaryParameters (juce::degreesToRadians (225.0f),
+                             juce::degreesToRadians (495.0f), true);
         setDoubleClickReturnValue (true, stemdeck::stemgain::kUnity);
         setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         setValue (stemdeck::stemgain::kUnity, juce::dontSendNotification);

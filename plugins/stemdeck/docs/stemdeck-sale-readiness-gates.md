@@ -20,11 +20,26 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
 - On-device model bundling is now SUPPORTED (opt-in): `NeuralStemEngine`/`NeuralBeatEngine::defaultModelFile()` search env-var -> app/plugin bundle `Contents/Resources` -> `~/Library` install, and `package_stemdeck_app_alpha.sh` copies `models/*.onnx` into the app when `STEMDECK_BUNDLE_MODELS=1`. Still a product decision to actually ship it: the fp32 stem model is ~353MB (+84MB beat), so the default package stays lean and premium AI stems otherwise need a `~/Library` install or the offline demucs helper. Verified: bundled model is found and loaded (CPU fp32) ahead of the `~/Library` copy.
 - No sale-grade pitch/time engine claim yet: Preserve routes through Rubber Band when linked and otherwise through the internal granular key-lock fallback, while Preserve-off still uses resample fallback and can change pitch/artifact. The synthetic time/pitch benchmark protects routing/regression basics, but real-song listening validation is still required.
 - Live key analysis is lightweight chroma/Krumhansl analysis on the loaded full-mix window, not a commercial-grade polyphonic key detector yet. Validate false positives, CPU/UI stalls, and behavior during breakdowns/modulations.
-- No automatic downbeat/transient detection or editable DJ beatgrid yet; Beat Sync currently follows host PPQ plus each deck's Source BPM and manual Beat Grid Offset.
+- Automatic onset, beat, tempo-curve, meter, and downbeat analysis is implemented,
+  with a DBN/Viterbi-style decoder when neural activations are available. Anchor and
+  Groove Sync now warp against the detected variable-tempo grid instead of reducing
+  it to a fixed-BPM identity map. This still needs a licensed real-music corpus gate
+  (especially ambient intros, breakdowns, live drummers, and tempo changes) and a
+  full visual beat-marker editor before commercial DJ-grade claims.
 - Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: Sattari-only scan, per-chain `AudioProcessorGraph`, series FX rack, RT-safe processChain) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
+- Hosted-plugin parameters now have stable event-stream addressing and deterministic
+  dispatch, but third-party plugins still execute in-process. A crashing or blocking
+  plugin can therefore take down a live set; process isolation plus crash/recovery
+  tests remain release blockers for unrestricted third-party hosting.
+- Editable arrangement replay now follows captured lane EQ/filter/reverb/echo and
+  master gain/performance-FX/Smart-Master/limiter automation. A real third-party
+  plugin replay/hash matrix and complete live-set stress replay are still required.
 - No manual DAW pass completed by this repo-only script.
 - No real listening pass completed by this repo-only script.
 - No installer/notarization/EULA/payment/product-page work.
+- The contract suite is comprehensive but expensive to build because excluded test
+  executables compile duplicate JUCE/Tracktion objects. Consolidate the contracts or
+  share test-support libraries so the full release gate is practical on every change.
 
 ## Minimum DAW smoke matrix before sale-candidate language
 

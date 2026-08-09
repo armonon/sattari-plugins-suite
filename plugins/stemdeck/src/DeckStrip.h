@@ -82,6 +82,7 @@ public:
         std::function<void(int)>     onSoloStem;    // 0..3 alt-click solo
         std::function<void()>        onCycleQuantize;
         std::function<void()>        onToggleSlip;
+        std::function<void()>        onOpenBeatGrid;
         std::function<void(int)>     onToggleFx;    // 0..2
         std::function<void()>        onRequestFocus;
     };
@@ -112,7 +113,7 @@ private:
     {
         none, play, cue, loopHalve, loopNum, loopDouble,
         jumpBack, jumpNum, jumpFwd, sync, key, take, chevron,
-        stem0, stem1, stem2, stem3, quant, slip, fxA, fxB, fxC
+        stem0, stem1, stem2, stem3, quant, slip, grid, fxA, fxB, fxC
     };
     Hit hitTest (juce::Point<float>) const;
     juce::Rectangle<float> regionFor (Hit) const;
@@ -144,7 +145,7 @@ private:
     Hit hovered = Hit::none;
     Hit pressed = Hit::none;
 
-    std::array<juce::Rectangle<float>, 22> regions {};   // indexed by (int) Hit
+    std::array<juce::Rectangle<float>, 23> regions {};   // indexed by (int) Hit
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeckStrip)
 };

@@ -74,7 +74,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariWarpAudioProcessor::c
     return { p.begin(), p.end() };
 }
 
-void SattariWarpAudioProcessor::prepareToPlay (double sampleRate, int)
+void SattariWarpAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
     for (auto& b : vowelF1) b.reset();
@@ -88,6 +88,7 @@ void SattariWarpAudioProcessor::prepareToPlay (double sampleRate, int)
     for (auto& v : stutterBuf) v.assign ((size_t) stutterCap, 0.0f);
     stutterWrite = stutterPlay = stutterPos = 0;
     stutterLen = juce::jlimit (1, stutterCap, (int) (sr * 0.125));
+    dryScratch.setSize (2, juce::jmax (1, samplesPerBlock), false, false, true);
 }
 
 bool SattariWarpAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -119,7 +120,15 @@ void SattariWarpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     // Apply input gain, then stash the dry signal for the dry/wet blend.
     buffer.applyGain (inGain);
-    dryScratch.setSize (numCh, n, false, false, true);
+    if (numCh > dryScratch.getNumChannels() || n > dryScratch.getNumSamples())
+    {
+        // Never grow scratch storage on the audio thread if a host unexpectedly
+        // exceeds the layout/block size negotiated in prepareToPlay.
+        buffer.applyGain (outGain);
+        outLevel.store (juce::jlimit (0.0f, 1.5f, buffer.getMagnitude (0, n)),
+                        std::memory_order_relaxed);
+        return;
+    }
     for (int ch = 0; ch < numCh; ++ch)
         dryScratch.copyFrom (ch, 0, buffer, ch, 0, n);
 

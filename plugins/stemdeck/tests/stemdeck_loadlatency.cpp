@@ -104,11 +104,46 @@ int main (int argc, char** argv)
         const bool ok = tPlayable >= 0.0 && tPlayable < kBoundMs;
         if (! ok) ++over;
 
+        bool streamBounded = true;
+        bool streamAudible = true;
+        if (secs > 60.0)
+        {
+            const auto loaded = proc.deckAt (0).getLoadedAudio();
+            const auto fullPcmBytes = (std::size_t) 2 * (std::size_t) (secs * sr) * sizeof (float);
+            streamBounded = loaded != nullptr && loaded->streamed != nullptr
+                         && loaded->audio.getNumSamples() <= 1
+                         && loaded->streamed->residentBytes() < fullPcmBytes;
+
+            juce::AudioBuffer<float> output (2, 512);
+            std::array<float, DeckPlayer::numStemLanes> gains;
+            std::array<float, DeckPlayer::numStemLanes> pitches;
+            gains.fill (1.0f);
+            pitches.fill (0.0f);
+            float peak = 0.0f;
+            proc.deckAt (0).seekStart();
+            for (int block = 0; block < 8; ++block)
+            {
+                output.clear();
+                proc.deckAt (0).process (output, 0, output.getNumSamples(), true,
+                                         0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                         1.0f, TimePitchDecision {}, gains, pitches,
+                                         BeatSyncEngine::PlaybackPlan {});
+                peak = juce::jmax (peak, output.getMagnitude (0, output.getNumSamples()));
+            }
+            streamAudible = peak > 1.0e-4f;
+            if (! streamBounded || ! streamAudible) ++over;
+        }
+
         std::cout << "  " << std::setw (5) << secs << "s track   "
                   << "playable " << (tPlayable < 0.0 ? juce::String ("NEVER") : juce::String (tPlayable, 1) + " ms")
                   << (ok ? "  [ok]" : "  [OVER BOUND]")
                   << "   refined "
                   << (tRefined < 0.0 ? juce::String ("not within 30s") : juce::String (tRefined, 1) + " ms")
+                  << (secs > 60.0
+                          ? juce::String ("   stream ")
+                                + (streamBounded ? "[bounded]" : "[UNBOUNDED]")
+                                + (streamAudible ? "[audible]" : "[SILENT]")
+                          : juce::String())
                   << std::endl;
     }
 

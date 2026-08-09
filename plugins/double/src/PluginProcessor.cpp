@@ -83,8 +83,8 @@ void SattariDoubleAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
     if (n <= 0) return;
     if ((int) monoScratch.size() < n)
     {
-        monoScratch.assign ((size_t) n, 0.0f); outLScratch.assign ((size_t) n, 0.0f);
-        outRScratch.assign ((size_t) n, 0.0f); shiftScratch.assign ((size_t) n, 0.0f);
+        buffer.applyGain (juce::Decibels::decibelsToGain (param ("output")));
+        return; // never resize pitch/signal scratch on the audio thread
     }
 
     // Mono sum for pitch detection (drives PSOLA's grain spacing).

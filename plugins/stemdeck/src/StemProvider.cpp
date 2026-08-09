@@ -154,22 +154,34 @@ StemProvider::StemProvider()
         }
     }
 
-    // On-device neural model (ONNX/CoreML), if the build has ONNX support and a
-    // model file is present. When loaded, it is preferred over the demucs CLI.
+    // Resolve the model now, but load it only when the user explicitly requests a
+    // split. Model construction is both slow and memory-heavy.
     if (NeuralStemEngine::isCompiledIn())
-    {
-        const auto modelFile = NeuralStemEngine::defaultModelFile();
-        if (modelFile.existsAsFile())
-        {
-            juce::String msg;
-            neuralEngine.loadModel (modelFile, msg);
-        }
-    }
+        neuralModelFile = NeuralStemEngine::defaultModelFile();
 }
 
 StemProvider::~StemProvider()
 {
     shutdown();
+}
+
+bool StemProvider::neuralAvailable()
+{
+    if (neuralEngine.isAvailable())
+        return true;
+
+    const juce::ScopedLock lock (neuralLoadLock);
+    if (neuralEngine.isAvailable())
+        return true;
+    if (neuralLoadAttempted)
+        return false;
+
+    neuralLoadAttempted = true;
+    if (! NeuralStemEngine::isCompiledIn() || ! neuralModelFile.existsAsFile())
+        return false;
+
+    juce::String message;
+    return neuralEngine.loadModel (neuralModelFile, message);
 }
 
 void StemProvider::shutdown()

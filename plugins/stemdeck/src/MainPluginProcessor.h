@@ -103,6 +103,24 @@ public:
     void seekDeckSeconds (int deckIndex, double seconds);
     void beatJumpDeck (int deckIndex, double bars);      // negative = back
 
+    // Library audition is intentionally separate from every deck and from the
+    // recorded master. A browser preview can therefore never replace a loaded
+    // performance track or leak into a captured set.
+    struct LibraryPreviewState
+    {
+        juce::File file;
+        bool loading = false;
+        bool playing = false;
+        bool failed = false;
+        bool routedToDedicatedCue = false;
+        double positionSeconds = 0.0;
+        double durationSeconds = 0.0;
+    };
+    void toggleLibraryPreview (const juce::File& file);
+    void stopLibraryPreview() noexcept;
+    void seekLibraryPreviewSeconds (double seconds) noexcept;
+    LibraryPreviewState getLibraryPreviewState() const;
+
     // ── Automix ──────────────────────────────────────────────────────────────
     // Plan a phrase-aligned harmonic transition from outDeck to inDeck (pure).
     stemdeck::TransitionPlan planAutomixTransition (int outDeck, int inDeck) const;
@@ -406,7 +424,17 @@ public:
         std::vector<std::pair<double, float>> reverbAutomation;
         std::vector<std::pair<double, float>> echoAutomation;
     };
-    void buildAndStartArrangement (std::vector<ArrangementClipSpec> clips, double minLengthSeconds = 0.0, double startSeconds = 0.0);
+    struct ArrangementMasterAutomationSpec
+    {
+        std::vector<std::pair<double, float>> gainDb, fxX, fxY;
+        std::vector<std::pair<double, float>> smartAmount, smartMode, smartOn;
+        std::vector<std::pair<double, float>> limiterCeilingDb;
+    };
+    void buildAndStartArrangement (
+        std::vector<ArrangementClipSpec> clips,
+        double minLengthSeconds = 0.0,
+        double startSeconds = 0.0,
+        ArrangementMasterAutomationSpec masterAutomation = {});
     void stopArrangement();
     void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm);
     // Real-time per-lane volume for TE arrangement tracks (0..numDecks-1).
@@ -527,6 +555,26 @@ private:
     // Owned explicitly so the destructor can destroy the worker threads while the
     // neural engines they invoke are still alive.
     std::unique_ptr<juce::ThreadPool> loadPool { std::make_unique<juce::ThreadPool> (4) };
+
+    // Lock-free browser audition. Decoding happens on loadPool; the audio thread
+    // only reads an immutable LoadedAudio and advances an atomic source position.
+    // Retired buffers are held on the message thread for a grace period so their
+    // large allocations are never destroyed by the real-time thread.
+    std::shared_ptr<const DeckPlayer::LoadedAudio> libraryPreviewAudio;
+    std::shared_ptr<const juce::String> libraryPreviewRequestedPath;
+    std::atomic<juce::uint32> libraryPreviewGeneration { 0 };
+    std::atomic<juce::int64> libraryPreviewPosition { 0 };
+    std::atomic<juce::int64> libraryPreviewSeek { -1 };
+    std::atomic<bool> libraryPreviewLoading { false };
+    std::atomic<bool> libraryPreviewPlaying { false };
+    std::atomic<bool> libraryPreviewFailed { false };
+    struct RetiredPreview
+    {
+        std::shared_ptr<const DeckPlayer::LoadedAudio> audio;
+        juce::int64 releaseAfterMs = 0;
+    };
+    std::vector<RetiredPreview> retiredLibraryPreviews; // message thread only
+    void renderLibraryPreview (juce::AudioBuffer<float>&) noexcept;
 
     // Async load/stem completion callbacks capture `this` and fire via callAsync on the
     // message thread. A job can finish and post its closure just as the processor is torn
@@ -666,7 +714,7 @@ private:
     // a juce::String; caching keeps processBlock's per-deck reads allocation-free.
     struct DeckParamIds
     {
-        juce::String bpm, beatOffset, downbeat, tempoInterp, syncMode, keyTarget, pitch,
+        juce::String bpm, beatOffset, downbeat, tempoInterp, syncMode, deckSync, keyTarget, pitch,
                      play, liveKey, keyLock, volume, fader, low, mid, high, filter, revMix, echoMix;
         juce::String displayName;   // "Deck A" — cached constant, so the audio-thread
                                     // capture path doesn't rebuild it every block.
@@ -699,6 +747,7 @@ private:
         bool play = false;
         bool keyLock = false;
         bool liveKey = false;
+        bool deckSync = true;
         float bpm = 120.0f;
         float volume = 0.0f;
         float fader = 1.0f;

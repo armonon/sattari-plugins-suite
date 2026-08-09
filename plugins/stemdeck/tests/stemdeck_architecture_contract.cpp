@@ -40,8 +40,14 @@ void expectWarpEngineContract()
     TrackAnalysis analysis;
     analysis.sampleRate = 48000.0;
     analysis.detectedBpm = 90.0f;
-    analysis.beatGridSamples = { 0.0, 32000.0, 64000.0, 96000.0 };
-    analysis.transientAnchorSamples = { 100.0, 32200.0, 64100.0 };
+    analysis.durationSeconds = 16.0;
+    analysis.downbeatSample = 68000.0;
+    // A deliberately accelerating grid. At project beat 2.125 (the nominal
+    // coordinate of the detected downbeat), Anchor Sync must land on the real
+    // analysed sample 68000 rather than the fixed-90-BPM sample 68000 only by
+    // coincidence elsewhere in the grid.
+    analysis.beatGridSamples = { 0.0, 34000.0, 68000.0, 100000.0 };
+    analysis.transientAnchorSamples = { 100.0, 34200.0, 68100.0 };
 
     const auto grid = BeatSyncEngine::makeGrid (analysis,
                                                 90.0f,
@@ -61,6 +67,43 @@ void expectWarpEngineContract()
         fail ("WarpEngine selected backend is not available");
     expectContains (plan.statusLabel, "Warp:", "WarpEngine status label");
     expectContains (plan.statusLabel, "backend:", "WarpEngine status label");
+
+    const auto anchorGrid = BeatSyncEngine::makeGrid (
+        analysis, 90.0f, 0.0f,
+        (float) (-analysis.downbeatSample / 32000.0),
+        BeatSyncEngine::TempoInterpretation::normal,
+        BeatSyncEngine::SyncMode::anchor);
+    const auto anchorPlan = BeatSyncEngine::makePlaybackPlan (
+        { 90.0, true, 0.0 }, anchorGrid, 48000.0, 48000.0 * 16.0, true);
+    if (! anchorPlan.hasLockedSourcePosition
+        || std::abs (anchorPlan.lockedSourcePositionSamples
+                     - analysis.downbeatSample) > 1.0)
+        fail ("Anchor Sync did not map the detected variable-tempo downbeat to the master downbeat");
+
+    const auto strictGrid = BeatSyncEngine::makeGrid (
+        analysis, 90.0f, 0.0f, 0.0f,
+        BeatSyncEngine::TempoInterpretation::normal,
+        BeatSyncEngine::SyncMode::strict);
+    const auto variableAnchorGrid = BeatSyncEngine::makeGrid (
+        analysis, 90.0f, 0.0f, 0.0f,
+        BeatSyncEngine::TempoInterpretation::normal,
+        BeatSyncEngine::SyncMode::anchor);
+    double secondBeatProjectCoordinate = 0.0;
+    for (const auto& marker : variableAnchorGrid.warpMarkers)
+        if (! marker.transientAnchor
+            && std::abs (marker.sourceSample - 34000.0) <= 1.0)
+            secondBeatProjectCoordinate = marker.projectBeat;
+    const auto strictAtAnalysedBeat = BeatSyncEngine::makePlaybackPlan (
+        { 90.0, true, secondBeatProjectCoordinate }, strictGrid,
+        48000.0, 48000.0 * 16.0, true);
+    const auto anchorAtAnalysedBeat = BeatSyncEngine::makePlaybackPlan (
+        { 90.0, true, secondBeatProjectCoordinate }, variableAnchorGrid,
+        48000.0, 48000.0 * 16.0, true);
+    if (std::abs (strictAtAnalysedBeat.lockedSourcePositionSamples
+                  - secondBeatProjectCoordinate * 32000.0) > 1.0)
+        fail ("Strict Sync no longer follows the nominal fixed-BPM grid");
+    if (std::abs (anchorAtAnalysedBeat.lockedSourcePositionSamples - 34000.0) > 1.0)
+        fail ("Anchor Sync discarded the analysed variable-tempo beat position");
 }
 
 void expectPerformanceRecorderWritesEditableSourceArrangement()

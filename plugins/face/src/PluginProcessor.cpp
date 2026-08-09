@@ -54,7 +54,11 @@ void SattariFaceAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     const int numCh = juce::jmin (2, buffer.getNumChannels());
     const int n     = buffer.getNumSamples();
     if (n <= 0) return;
-    if ((int) wetScratch.size() < n) wetScratch.assign ((size_t) n, 0.0f);
+    if ((int) wetScratch.size() < n)
+    {
+        buffer.applyGain (juce::Decibels::decibelsToGain (param ("output")));
+        return; // safe dry fallback for a host block larger than prepareToPlay
+    }
 
     const double pitchScale   = std::pow (2.0, (double) param ("pitch")   / 12.0);
     const double formantScale = std::pow (2.0, (double) param ("formant") / 12.0);

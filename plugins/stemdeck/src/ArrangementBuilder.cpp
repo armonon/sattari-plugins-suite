@@ -190,7 +190,7 @@ juce::var ArrangementBuilder::buildArrangementJson (const std::vector<Performanc
         addAutomationLane (automation, "filter", "Filter", automationPointsFor (sourceEvents, { "filter" }, deck));
         addAutomationLane (automation, "loops_cues", "Cues + Loops", automationPointsFor (sourceEvents, { "cue_jump", "cue", "loop", "loop_start", "loop_end" }, deck));
         addAutomationLane (automation, "effects", "FX", automationPointsFor (sourceEvents, { "fx", "reverb_mix", "echo_mix", "key_lock", "live_key", "effect_toggle" }, deck));
-        addAutomationLane (automation, "sync", "Sync Changes", automationPointsFor (sourceEvents, { "sync_mode", "beat_offset", "downbeat", "host_sync", "beat_sync", "sync_change" }, deck));
+        addAutomationLane (automation, "sync", "Sync Changes", automationPointsFor (sourceEvents, { "project_sync", "sync_mode", "beat_offset", "downbeat", "host_sync", "beat_sync", "sync_change" }, deck));
 
         lanes.add (objectWith ({
             { "id", deck.replaceCharacter (' ', '_').toLowerCase() },
