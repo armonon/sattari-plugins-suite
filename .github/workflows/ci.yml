@@ -17,7 +17,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: matrix
         name: Export generated focused matrix
         # GITHUB_OUTPUT is one key=value per LINE, so the matrix must collapse to a
@@ -38,7 +38,7 @@ jobs:
     name: Checks (structure + brand sync + core contract)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Suite structure inventory
         run: python3 scripts/suite_gate_check.py
@@ -139,7 +139,7 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive   # JUCE lives in third_party/JUCE
 
@@ -247,7 +247,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -267,6 +267,25 @@ jobs:
           bin="$(find build/all -type f -name SattariCrossPluginBusContract -perm +111 | head -n1)"
           if [ -z "$bin" ]; then echo "::error::SattariCrossPluginBusContract not found"; exit 1; fi
           "$bin"
+
+  # Contract and editor-render targets are excluded from the default product
+  # graph. Building them after the 3,151-node product graph made this job exceed
+  # its 150-minute ceiling even though the product compile and bus contract had
+  # already passed. Keep the same coverage in a parallel clean build tree.
+  suite-contracts:
+    name: Complete contracts and Studio UI renders
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: command -v ninja >/dev/null 2>&1 || brew install ninja
+
+      - name: Configure contract tree
+        run: cmake -S . -B build/all -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Complete contract and render-smoke profile
         run: ./scripts/verify_all.sh --smoke
