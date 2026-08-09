@@ -72,6 +72,7 @@ def synth_vowel(
     sample_rate: int = 48000,
     tilt_db_per_octave: float = -6.0,
     breath_db: float = -120.0,
+    amp_jitter_db: float = 0.0,
     vibrato_hz: float = 0.0,
     vibrato_cents: float = 0.0,
     tremolo_hz: float = 0.0,
@@ -109,6 +110,13 @@ def synth_vowel(
         harmonic_hz = f0_hz * k
         amp_db = formant_envelope_db(np.array([harmonic_hz]), formants,
                                      tilt_db_per_octave)[0]
+        # REAL VOICES DO NOT SIT ON A SMOOTH CURVE. Source irregularity, glottal
+        # pulse shape and phase interaction scatter harmonic amplitudes several dB
+        # around the tract envelope. Without this the synthetic harmonics ARE
+        # noise-free samples of the true envelope, which hands any method that
+        # interpolates through them a advantage no real recording would give.
+        if amp_jitter_db > 0.0:
+            amp_db += rng.normal(0.0, amp_jitter_db)
         amp = 10.0 ** (amp_db / 20.0)
 
         # Phase from the integral of instantaneous frequency.
@@ -163,6 +171,7 @@ def synth_vowel(
         "tremolo_hz": float(tremolo_hz),
         "tremolo_db": float(tremolo_db),
         "breath_db": float(breath_db),
+        "amp_jitter_db": float(amp_jitter_db),
         "sample_rate": int(sample_rate),
         "attack_s": float(attack_s),
         "release_s": float(release_s),
