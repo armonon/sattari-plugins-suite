@@ -74,6 +74,12 @@ if [[ -f "$build_dir/validation/objective-benchmark.txt" ]]; then
   cp "$build_dir/validation/objective-benchmark.txt" \
     "$package_dir/Validation/OBJECTIVE-BENCHMARK.txt"
 fi
+cp "$repo_root/validation/auto-pitch/2026-08-09-objective-benchmark.md" \
+  "$package_dir/Validation/OBJECTIVE-BENCHMARK-CURRENT-RUN.md"
+cp "$repo_root/validation/auto-pitch/corpus-manifest.example.json" \
+  "$package_dir/Validation/REAL-VOCAL-CORPUS-MANIFEST.example.json"
+cp "$repo_root/scripts/qualify_auto_pitch_corpus.py" \
+  "$package_dir/scripts/qualify_auto_pitch_corpus.py"
 cp "$repo_root/LICENSE" "$package_dir/Legal/GPL-3.0.txt"
 cp "$repo_root/LICENSING.md" "$package_dir/Legal/LICENSING.md"
 cp "$repo_root/third_party/JUCE/LICENSE.md" "$package_dir/Legal/JUCE-LICENSE.md"
@@ -87,7 +93,9 @@ cp "$repo_root/scripts/fetch_onnxruntime_macos.sh" "$package_dir/Legal/Source-To
 cp "$repo_root/scripts/fetch_crepe_onnx.py" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$package_dir/Legal/Source-Tools/"
 cp "$repo_root/scripts/verify_auto_pitch_models.py" "$package_dir/Legal/Source-Tools/"
-chmod +x "$package_dir/scripts/verify_auto_pitch_bundle.sh" "$package_dir/scripts/verify_auto_pitch_models.py"
+chmod +x "$package_dir/scripts/verify_auto_pitch_bundle.sh" \
+  "$package_dir/scripts/verify_auto_pitch_models.py" \
+  "$package_dir/scripts/qualify_auto_pitch_corpus.py"
 
 source_commit="$(git -C "$repo_root" rev-parse HEAD)"
 source_remote="$(git -C "$repo_root" remote get-url origin)"
