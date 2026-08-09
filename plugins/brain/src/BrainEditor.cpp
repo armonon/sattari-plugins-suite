@@ -148,7 +148,11 @@ void SattariBrainAudioProcessorEditor::timerCallback()
     const bool manual = audioProcessor.parameters()
                             .getRawParameterValue ("brainManual")->load() > 0.5f;
     const bool publishing = snapshot.publishing;
-    header.setStatus (publishing ? "SUITE AUTHORITY" : "LOCAL ONLY", publishing);
+    const auto sessionId = sattari::xplugin::configuredSessionId();
+    const auto scope = sessionId.isNotEmpty()
+        ? sessionId.substring (0, 18).toUpperCase() : juce::String ("GLOBAL");
+    header.setStatus (publishing ? "AUTHORITY / " + scope : "LOCAL ONLY / " + scope,
+                      publishing);
 
     tempoMetric.setValue (
         snapshot.bpm > 0.0 ? juce::String (snapshot.bpm, 1) : "--",

@@ -5,6 +5,10 @@
 #include <sattari_audio_core/SattariStackEditor.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/modules/DoubleModule.h>
+#include <sattari_audio_core/modules/DeEssModule.h>
+#include <sattari_audio_core/modules/CleanModule.h>
+#include <sattari_audio_core/modules/GateModule.h>
+#include <sattari_audio_core/modules/CompModule.h>
 #include <sattari_audio_core/modules/EqModule.h>
 #include <sattari_audio_core/modules/HeatModule.h>
 #include <sattari_audio_core/modules/ShimmerModule.h>
@@ -90,7 +94,23 @@ public:
             [renderModuleName = std::move (requestedModuleName)]
             {
                 std::vector<std::unique_ptr<sattari::dsp::SattariModule>> modules;
-                if (renderModuleName == "EQ")
+                if (renderModuleName == "Vocal Studio")
+                {
+                    // Keep this roster in the same frozen order as Vocal's real
+                    // processor. The marketing render can then show the current
+                    // eight-stage factory chain instead of an empty mock-up.
+                    modules.push_back (std::make_unique<sattari::dsp::DeEssModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::DoubleModule>());
+                    modules.push_back (std::make_unique<CountingModule> ("Face"));
+                    modules.push_back (std::make_unique<CountingModule> ("Glass Choir"));
+                    modules.push_back (std::make_unique<sattari::dsp::CleanModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::GateModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::EqModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::CompModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::HeatModule>());
+                    modules.push_back (std::make_unique<sattari::dsp::SpaceModule>());
+                }
+                else if (renderModuleName == "EQ")
                     modules.push_back (
                         std::make_unique<sattari::dsp::EqModule>());
                 else if (renderModuleName == "Shimmer")
@@ -121,8 +141,15 @@ public:
 
     void select (int slot, bool bypass)
     {
+        selectModule (slot, 1, bypass);
+    }
+
+    void selectModule (int slot, int oneBasedModuleIndex, bool bypass = false)
+    {
         auto& state = parameters();
-        state.getParameter (slotParamId (slot))->setValueNotifyingHost (1.0f);
+        state.getParameter (slotParamId (slot))->setValueNotifyingHost (
+            state.getParameter (slotParamId (slot))->convertTo0to1 (
+                (float) oneBasedModuleIndex));
         state.getParameter (slotBypassParamId (slot))->setValueNotifyingHost (
             bypass ? 1.0f : 0.0f);
     }
@@ -188,7 +215,7 @@ bool renderRackWorkspace (const char* product,
     {
         name = "Sattari Vocal";
         category = "VOCAL FINISHING WORKFLOW";
-        moduleName = "Double";
+        moduleName = "Vocal Studio";
     }
     else
     {
@@ -196,7 +223,15 @@ bool renderRackWorkspace (const char* product,
     }
 
     TestRack rack (std::move (moduleName));
-    rack.select (0, false);
+    if (slug == "vocal")
+    {
+        // Vocal Studio: Clean, Gate, De-Ess, EQ, Comp, Heat, Double, Space.
+        const int chain[] { 5, 6, 1, 7, 8, 9, 2, 10 };
+        for (int slot = 0; slot < 8; ++slot)
+            rack.selectModule (slot, chain[slot]);
+    }
+    else
+        rack.select (0, false);
     sattari::ui::SattariRackEditor editor (
         rack, name, category, product);
     if (minimumSize) editor.setSize (760, 560);

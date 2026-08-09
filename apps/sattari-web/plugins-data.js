@@ -702,12 +702,12 @@ window.SATTARI_PLUGINS = [
     id: "vocal", name: "Sattari Vocal",
     category: "Vocal rack", cats: "Vocal Mixing",
     formats: ["AU", "VST3", "Standalone"],
-    tagline: "Assemble a vocal chain without duplicating the processors.",
-    what: "Vocal hosts the suite's vocal-focused modules in a serial rack, with classic chains as starting presets and direct access to every selected module control.",
+    tagline: "Clean, shape, control and widen a vocal in one eight-slot rack.",
+    what: "Vocal hosts a ten-module roster for cleanup, gating, de-essing, EQ, compression, saturation, doubling, space, formant shaping and ensemble work. Vocal Studio fills all eight slots with the current production path; focused presets provide smaller starting points.",
     how: "The same module implementations power their standalone shells and the rack. The host resolves transport, sidechain and parameters once, then runs only the first active occurrence of each stateful module.",
     features: [
-      "Eight vocal-processing slots",
-      "Classic-chain starting presets",
+      "Eight serial slots from a ten-module vocal roster",
+      "Vocal Studio, Lead Polish and Dialogue Focus presets",
       "Real module controls in the rack inspector",
       "Coherent latency and bypass behavior"
     ]

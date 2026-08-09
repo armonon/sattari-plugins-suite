@@ -44,6 +44,58 @@ struct InstallReceipt: Codable {
     let updateChannel: String
 }
 
+enum SessionIdentity {
+    static let defaultsKey = "SattariSessionIdentity"
+
+    static func sanitise(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let filtered = String(value.unicodeScalars.filter { allowed.contains($0) })
+        return String(filtered.prefix(48))
+    }
+
+    static func current() -> String {
+        if let saved = UserDefaults.standard.string(forKey: defaultsKey) {
+            let clean = sanitise(saved)
+            if !clean.isEmpty { return clean }
+        }
+        let generated = "project-" + String(UUID().uuidString.lowercased().prefix(8))
+        UserDefaults.standard.set(generated, forKey: defaultsKey)
+        return generated
+    }
+
+    static func save(_ value: String) -> String {
+        let clean = sanitise(value)
+        let result = clean.isEmpty ? current() : clean
+        UserDefaults.standard.set(result, forKey: defaultsKey)
+        return result
+    }
+
+    static func installedDAWs() -> [URL] {
+        let applications = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        let names = [
+            "Logic Pro.app", "Logic Pro Creator Studio.app", "Ableton Live 12 Suite.app",
+            "Ableton Live 12 Standard.app", "REAPER.app", "Studio One 7.app",
+            "Pro Tools.app", "FL Studio 2026.app", "FL Studio.app"
+        ]
+        return names.map { applications.appendingPathComponent($0, isDirectory: true) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    static func launch(_ application: URL, sessionId: String) throws {
+        let clean = save(sessionId)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", "--env", "SATTARI_SESSION_ID=\(clean)", application.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(domain: "SattariHub", code: 30, userInfo: [
+                NSLocalizedDescriptionKey: "macOS could not launch \(application.deletingPathExtension().lastPathComponent)."
+            ])
+        }
+    }
+}
+
 final class HubModel {
     let manifest: HubManifest
     let repoRoot: URL?
@@ -561,11 +613,14 @@ final class HubWindowController: NSWindowController {
     private let model: HubModel
     private let stack = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
+    private let sessionField = NSTextField(string: SessionIdentity.current())
+    private let dawMenu = NSPopUpButton()
+    private var dawURLs: [URL] = []
 
     init(model: HubModel) {
         self.model = model
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -626,6 +681,47 @@ final class HubWindowController: NSWindowController {
             ? "Bundled package mode: \(bundledCount) product(s) available inside this Hub."
             : "Package root: \(model.repoRoot!.path) • bundled/local available products: \(bundledCount)"
         root.addArrangedSubview(statusLabel)
+
+        let sessionBox = NSBox()
+        sessionBox.boxType = .custom
+        sessionBox.cornerRadius = 12
+        sessionBox.borderWidth = 1
+        sessionBox.borderColor = NSColor(calibratedRed: 0.2, green: 0.95, blue: 0.82, alpha: 0.28)
+        sessionBox.fillColor = NSColor(calibratedRed: 0.055, green: 0.07, blue: 0.105, alpha: 1)
+        let sessionRow = NSStackView()
+        sessionRow.orientation = .horizontal
+        sessionRow.alignment = .centerY
+        sessionRow.spacing = 10
+        sessionRow.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        sessionRow.translatesAutoresizingMaskIntoConstraints = false
+        sessionBox.contentView?.addSubview(sessionRow)
+        NSLayoutConstraint.activate([
+            sessionRow.leadingAnchor.constraint(equalTo: sessionBox.contentView!.leadingAnchor),
+            sessionRow.trailingAnchor.constraint(equalTo: sessionBox.contentView!.trailingAnchor),
+            sessionRow.topAnchor.constraint(equalTo: sessionBox.contentView!.topAnchor),
+            sessionRow.bottomAnchor.constraint(equalTo: sessionBox.contentView!.bottomAnchor)
+        ])
+
+        let sessionLabel = NSTextField(labelWithString: "Project session")
+        sessionLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        sessionLabel.textColor = .white
+        sessionField.placeholderString = "album-or-project-name"
+        sessionField.toolTip = "Shared Session Bus identity for this DAW launch"
+        sessionField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        let regenerate = NSButton(title: "New ID", target: self, action: #selector(regenerateSessionClicked(_:)))
+        regenerate.bezelStyle = .rounded
+        dawURLs = SessionIdentity.installedDAWs()
+        dawMenu.addItems(withTitles: dawURLs.map { $0.deletingPathExtension().lastPathComponent })
+        dawMenu.toolTip = "DAW to launch with this isolated project session"
+        let launch = NSButton(title: "Launch isolated DAW", target: self, action: #selector(launchDAWClicked(_:)))
+        launch.bezelStyle = .rounded
+        launch.isEnabled = !dawURLs.isEmpty
+        sessionRow.addArrangedSubview(sessionLabel)
+        sessionRow.addArrangedSubview(sessionField)
+        sessionRow.addArrangedSubview(regenerate)
+        sessionRow.addArrangedSubview(dawMenu)
+        sessionRow.addArrangedSubview(launch)
+        root.addArrangedSubview(sessionBox)
 
         // Batch actions are limited to the explicitly curated alpha profile. A
         // 49-product "Install All" makes unvalidated experiments look shippable.
@@ -782,6 +878,29 @@ final class HubWindowController: NSWindowController {
         installMany(products: needsUpdate, label: "Update All")
     }
 
+    @objc private func regenerateSessionClicked(_ sender: NSButton) {
+        let generated = "project-" + String(UUID().uuidString.lowercased().prefix(8))
+        sessionField.stringValue = SessionIdentity.save(generated)
+        statusLabel.stringValue = "New isolated project identity created. Launch the DAW from Hub to use it."
+    }
+
+    @objc private func launchDAWClicked(_ sender: NSButton) {
+        let index = dawMenu.indexOfSelectedItem
+        guard dawURLs.indices.contains(index) else {
+            statusLabel.stringValue = "No supported DAW was found in Applications."
+            return
+        }
+        do {
+            let sessionId = SessionIdentity.save(sessionField.stringValue)
+            sessionField.stringValue = sessionId
+            try SessionIdentity.launch(dawURLs[index], sessionId: sessionId)
+            statusLabel.stringValue = "Launched \(dawMenu.titleOfSelectedItem ?? "DAW") with isolated session \(sessionId)."
+        } catch {
+            statusLabel.stringValue = "DAW launch failed: \(error.localizedDescription)"
+            NSSound.beep()
+        }
+    }
+
     private func installMany(products: [HubProduct], label: String) {
         var installed = 0
         var failed: [String] = []
@@ -825,6 +944,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 if CommandLine.arguments.contains("--contract-check") {
     do {
+        guard SessionIdentity.sanitise(" Album A! / 2026 ") == "AlbumA2026",
+              SessionIdentity.sanitise(String(repeating: "a", count: 80)).count == 48 else {
+            throw NSError(domain: "SattariHub", code: 9, userInfo: [NSLocalizedDescriptionKey: "Session identity contract failed"])
+        }
         let model = try HubModel()
         let productCount = model.manifest.products.count
         let bundleCount = model.manifest.products.reduce(0) { $0 + $1.bundles.count }

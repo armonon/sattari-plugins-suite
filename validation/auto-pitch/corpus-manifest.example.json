@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "truth_label": "internal validation only; source audio is not shipped or published",
+  "audio_policy": "Only owned, cleared, or public-domain real vocals. Store audio outside git and use absolute paths.",
+  "defaults": {
+    "styles": ["natural", "hard"],
+    "render_engines": ["psola-lite", "granular"]
+  },
+  "coverage_requirements": [
+    "rap",
+    "rnb",
+    "soft_singing",
+    "belting",
+    "vibrato",
+    "male_vocal",
+    "female_vocal",
+    "noisy_vocal",
+    "fast_note_transitions"
+  ],
+  "minimum_real_clip_count": 5,
+  "clips": [
+    {
+      "clip_id": "replace-with-cleared-vocal-001",
+      "source_path": "/absolute/path/outside-the-repository/vocal-001.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "replace with a non-identifying description",
+      "voice_range": "replace with observed range",
+      "vocal_tags": ["rnb", "soft_singing", "vibrato", "male_vocal"],
+      "expected_key": { "root": "C", "scale": "minor" },
+      "style_target": ["natural", "hard"],
+      "render_engines": ["psola-lite", "granular"],
+      "known_challenges": ["breaths", "sibilance", "fast transition"],
+      "notes": "Replace this placeholder before running the qualification tool."
+    }
+  ]
+}
