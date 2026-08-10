@@ -50,6 +50,7 @@ private:
 
     juce::ComboBox chordRootBox, chordQualityBox, sectionBox, timeSigDenBox;
     juce::Slider timeSigNumSlider, swingSlider, energySlider, maqamSlider;
+    juce::ToggleButton autoEnergyToggle { "Auto" };
     juce::Label capChordRoot, capChordQ, capSection, capTsNum, capTsDen,
                 capSwing, capEnergy, capMaqam;
 
@@ -57,7 +58,7 @@ private:
     sattari::studio::MetricCard tuningMetric { "Reference" };
     sattari::studio::MetricCard meterMetric { "Meter" };
 
-    std::unique_ptr<ButtonAttachment> publishAtt, manualAtt, refOverrideAtt;
+    std::unique_ptr<ButtonAttachment> publishAtt, manualAtt, refOverrideAtt, autoEnergyAtt;
     std::unique_ptr<ComboAttachment> manualRootAtt, manualScaleAtt,
                                      chordRootAtt, chordQualityAtt,
                                      sectionAtt, timeSigDenAtt;

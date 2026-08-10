@@ -20,9 +20,10 @@ component is not a claim that the component is finished or downloadable.
 
 ## 1. Sattari Compass — knows the session
 
-Compass is the session authority: it detects major/minor key and reference
-tuning, reads host tempo, and publishes that evidence together with the chord,
-groove, maqam, section, and energy context the user explicitly approves.
+Compass is the session authority: it detects major/minor key, conservative
+major/minor chord evidence, reference tuning, energy and musical onsets; reads
+host tempo; and publishes that evidence together with the groove, maqam,
+section, time-signature and explicit overrides the user approves.
 
 - Insert Compass early in the session and feed it representative program audio.
 - Confirm the detected musical context rather than treating detection as
@@ -43,8 +44,11 @@ Sattari Maqam extends the direction into microtonal tuning.
 - Insert on an isolated vocal or monophonic instrument.
 - Set the voice/instrument range before tuning.
 - Select or follow the correct key and scale.
-- Start with slower correction and preserved formants; increase retune strength
-  only after confirming tracking stability.
+- Start with **Natural** for expressive correction or **Pitch Center** for a
+  clean, stronger pull. Use **Hard Tune** only when the snap is intentional.
+- Factory workflows are deterministic: changing workflow clears incompatible
+  MIDI, graph, transpose, polyphonic and generated-vibrato modes instead of
+  silently inheriting them from the previous choice.
 - Use Edit mode for deliberate note-level repair instead of forcing difficult
   phrases through aggressive realtime correction.
 
@@ -77,6 +81,8 @@ behind that rack.
 Current state: **preview**. Do not treat the rack or its experimental components
 as qualified deliverables. The next proof is an owned vocal corpus spanning
 clean, breathy, raspy, low, high, vibrato, consonant-heavy, and noisy material.
+The whole rack and all ten factory workflows now pass the executable product
+contract; **Dry Lead** is the focused no-space/no-width signature starting point.
 
 ## 5. Sattari Mix — controls dynamics and tone
 
@@ -94,6 +100,8 @@ Current installable component: **Sub Conjurer (alpha)**.
 
 The Mix rack is still a **preview**; most component technologies are
 experimental and must earn their place through listening tests.
+The whole rack and all eight workflows now pass the executable product contract;
+**Low-End Control** is the focused translation workflow to evaluate first.
 
 ## 6. Sattari Create — transforms in key and time
 
@@ -104,6 +112,8 @@ follow approved key, tempo, section, and groove context from Compass.
 Current state: **preview**. The direction is differentiated, but it needs a
 small set of unmistakable signature workflows, stronger macro interaction, and
 musical A/B evidence before it becomes a product rather than a collection.
+The whole rack and all nine workflows now pass the executable product contract;
+**Compass Motion** is the first explicit suite-native tempo-following signature.
 
 ## Required tester record
 

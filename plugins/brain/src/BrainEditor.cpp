@@ -65,7 +65,7 @@ SattariBrainAudioProcessorEditor::SattariBrainAudioProcessorEditor (
     referenceAtt = std::make_unique<SliderAttachment> (
         audioProcessor.parameters(), "brainReferenceHz", referenceSlider);
 
-    setupCaption (capChordRoot, "Chord root");
+    setupCaption (capChordRoot, "Chord root · AUTO WHEN NONE");
     setupCaption (capChordQ, "Quality");
     setupCaption (capSection, "Section");
     setupCaption (capTsNum, "Meter");
@@ -98,6 +98,11 @@ SattariBrainAudioProcessorEditor::SattariBrainAudioProcessorEditor (
         params, "brainSwing", swingSlider);
     energyAtt = std::make_unique<SliderAttachment> (
         params, "brainEnergy", energySlider);
+    autoEnergyToggle.setTitle ("Automatic energy");
+    autoEnergyToggle.setDescription ("Measure session energy from the incoming audio");
+    addAndMakeVisible (autoEnergyToggle);
+    autoEnergyAtt = std::make_unique<ButtonAttachment> (
+        params, "brainEnergyAuto", autoEnergyToggle);
     maqamAtt = std::make_unique<SliderAttachment> (
         params, "brainMaqam", maqamSlider);
 
@@ -175,6 +180,9 @@ void SattariBrainAudioProcessorEditor::timerCallback()
     manualRootBox.setEnabled (manual);
     manualScaleBox.setEnabled (manual);
     referenceSlider.setEnabled (refOverride);
+    const bool autoEnergy = audioProcessor.parameters()
+                                .getRawParameterValue ("brainEnergyAuto")->load() > 0.5f;
+    energySlider.setEnabled (! autoEnergy);
     repaint();
 }
 
@@ -270,6 +278,17 @@ void SattariBrainAudioProcessorEditor::paintSessionHero (juce::Graphics& g)
                 juce::Rectangle<int> (hero.getX(), (int) dial.getBottom() + 6,
                                       hero.getWidth(), 18),
                 juce::Justification::centred, false);
+
+    const juce::String chordText = snapshot.chordValid
+        ? rootName (snapshot.chordRoot) + (snapshot.chordQuality == 2 ? " MIN" : " MAJ")
+        : "NO STABLE CHORD";
+    g.setColour (sattari::studio::colour::tertiary);
+    g.setFont (sattari::brand::fontOptions (9.5f, juce::Font::bold));
+    g.drawText (chordText + "  •  ENERGY "
+                    + juce::String ((int) std::round (snapshot.energy * 100.0f)) + "%",
+                juce::Rectangle<int> (hero.getX(), (int) dial.getBottom() + 24,
+                                      hero.getWidth(), 18),
+                juce::Justification::centred, false);
 }
 
 void SattariBrainAudioProcessorEditor::resized()
@@ -347,4 +366,7 @@ void SattariBrainAudioProcessorEditor::resized()
     placePair (capSection, sectionBox, capMaqam, maqamSlider);
     placePair (capTsNum, timeSigNumSlider, capTsDen, timeSigDenBox);
     placePair (capSwing, swingSlider, capEnergy, energySlider);
+    // The studio toggle reserves space for its switch before laying out the text;
+    // 64 px forced the short "Auto" label into an ellipsis at the shipping size.
+    autoEnergyToggle.setBounds (capEnergy.getBounds().removeFromRight (88).expanded (0, 2));
 }

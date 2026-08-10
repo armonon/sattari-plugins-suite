@@ -102,8 +102,8 @@ SattariHarmonyAudioProcessor::SattariHarmonyAudioProcessor()
 {
     for (int v = 0; v < kNumVoices; ++v)
     {
-        snapVoiceMidi[v].store (-1);
-        snapVoiceOn[v].store (false);
+        snapVoiceMidi[(size_t) v].store (-1);
+        snapVoiceOn[(size_t) v].store (false);
     }
     registerFactoryPresets();
 }
@@ -186,10 +186,10 @@ void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samples
                               : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
     for (int v = 0; v < kNumVoices; ++v)
     {
-        stretchers[v] = std::make_unique<RubberBand::RubberBandStretcher> (
+        stretchers[(size_t) v] = std::make_unique<RubberBand::RubberBandStretcher> (
             currentSampleRate, 1, opts, 1.0, 1.0);
-        stretchers[v]->setMaxProcessSize ((size_t) preparedBlockSize);
-        stretchers[v]->setPitchScale (1.0);
+        stretchers[(size_t) v]->setMaxProcessSize ((size_t) preparedBlockSize);
+        stretchers[(size_t) v]->setPitchScale (1.0);
     }
     startDelay = (int) stretchers[0]->getStartDelay();
 #endif
@@ -369,7 +369,7 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     for (int v = 0; v < kNumVoices; ++v)
     {
         const bool on = param (kVoiceOnIds[(size_t) v]) > 0.5f;
-        snapVoiceOn[v].store (on);
+        snapVoiceOn[(size_t) v].store (on);
 
         // Target pitch ratio for this voice (only re-aimed when we have a lead).
         if (haveLead)
@@ -380,7 +380,7 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             harmonyMidi = juce::jlimit (0, 127, harmonyMidi);
             if (chordMode)
                 harmonyMidi = sattari::harmony::nearestChordTone (harmonyMidi, chordPcs.data(), chordPcCount);
-            snapVoiceMidi[v].store (harmonyMidi);
+            snapVoiceMidi[(size_t) v].store (harmonyMidi);
 
             // Two ways to place the voice, blended by Auto-Tune amount:
             //  * transpose : keep the singer's real pitch (incl. detune/vibrato),
@@ -523,8 +523,8 @@ SattariHarmonyAudioProcessor::Snapshot SattariHarmonyAudioProcessor::getSnapshot
     s.followingBus = snapBus.load();
     for (int v = 0; v < kNumVoices; ++v)
     {
-        s.voiceMidi[(size_t) v] = snapVoiceMidi[v].load();
-        s.voiceOn[(size_t) v]   = snapVoiceOn[v].load();
+        s.voiceMidi[(size_t) v] = snapVoiceMidi[(size_t) v].load();
+        s.voiceOn[(size_t) v]   = snapVoiceOn[(size_t) v].load();
     }
     return s;
 }

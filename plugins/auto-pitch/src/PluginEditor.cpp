@@ -1093,42 +1093,67 @@ void SattariAutoPitchAudioProcessorEditor::styleCaption (juce::Label& l, const j
 void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
 {
     using PV = sattari::presets::SattariPresetManager::PresetValues;
-    presetManager.addFactoryPreset ("Natural", PV {
-        {"style",0},{"enableCorrection",1},{"amount",0.6f},{"speed",0.4f},{"doNoHarm",1},
-        {"formantPreserve",1},{"formantShift",0},{"classicMode",0},{"flexTune",0.55f},
-        {"humanize",0.55f},{"lowLatency",0},{"liveEngine",0} });
-    presetManager.addFactoryPreset ("Hard Tune", PV {
+    // Factory workflows must be deterministic. The shared preset manager is
+    // intentionally sparse, so loading MIDI Directed/Graph Editor and then a
+    // normal preset used to leave MIDI targeting, graph correction, generated
+    // vibrato, or other advanced modes silently active. Start every workflow
+    // from a neutral tuning engine, then layer its intentional differences.
+    const PV neutral {
+        {"style",0},{"enableCorrection",1},{"amount",1.0f},{"speed",0.85f},
+        {"doNoHarm",1},{"formantPreserve",1},{"formantShift",0},{"classicMode",0},
+        {"flexTune",0},{"transition",0.5f},{"throat",1.0f},{"humanize",0},
+        {"vibrato",0},{"addVibrato",0},{"midiTarget",0},{"capturePitchEdits",0},
+        {"usePitchEdits",0},{"graphTimeCorrection",0},{"xposeMode",0},{"xposeSemis",0},
+        {"polyphonic",0},{"polyHarmony",0},{"tonalFocus",0},{"hiTrack",0},
+        {"enabledNotes",4095},{"neuralPitch",0},{"lowLatency",0},{"liveEngine",0},
+        {"inputGain",0},{"outputGain",0}
+    };
+    auto addWorkflow = [this, &neutral] (const juce::String& name, PV values)
+    {
+        PV complete = neutral;
+        complete.insert (complete.end(), values.begin(), values.end());
+        presetManager.addFactoryPreset (name, std::move (complete));
+    };
+
+    addWorkflow ("Natural", PV {
+        {"style",0},{"amount",0.86f},{"speed",0.58f},{"doNoHarm",1},
+        {"formantPreserve",1},{"flexTune",0.22f},{"transition",0.65f},
+        {"humanize",0.16f},{"vibrato",0.4f} });
+    addWorkflow ("Pitch Center", PV {
+        {"style",0},{"amount",1.0f},{"speed",0.72f},{"doNoHarm",1},
+        {"formantPreserve",1},{"flexTune",0.0f},{"transition",0.55f} });
+    addWorkflow ("Hard Tune", PV {
         {"style",1},{"enableCorrection",1},{"amount",1.0f},{"speed",1.0f},{"doNoHarm",0},
         {"formantPreserve",1},{"formantShift",0},{"classicMode",1},{"flexTune",0.0f},
         {"humanize",0.0f},{"transition",0.0f},{"lowLatency",0} });
-    presetManager.addFactoryPreset ("Modern Rap", PV {
+    addWorkflow ("Modern Rap", PV {
         {"style",2},{"enableCorrection",1},{"amount",0.95f},{"speed",0.9f},{"doNoHarm",0},
         {"formantPreserve",1},{"formantShift",0},{"classicMode",0},{"flexTune",0.08f},
         {"humanize",0.08f},{"transition",0.08f},{"lowLatency",0},{"liveEngine",0} });
-    presetManager.addFactoryPreset ("Robot", PV {
+    addWorkflow ("Robot", PV {
         {"style",3},{"enableCorrection",1},{"amount",1.0f},{"speed",1.0f},{"doNoHarm",0},
         {"formantPreserve",0},{"formantShift",0},{"classicMode",1},{"flexTune",0.0f},
         {"humanize",0.0f},{"vibrato",0.0f},{"lowLatency",0},{"liveEngine",0} });
-    presetManager.addFactoryPreset ("Live Tracking", PV {
-        {"style",0},{"enableCorrection",1},{"amount",0.72f},{"speed",0.62f},{"doNoHarm",1},
-        {"formantPreserve",1},{"classicMode",0},{"flexTune",0.32f},{"humanize",0.35f},
-        {"liveEngine",0},{"lowLatency",0} });
-    presetManager.addFactoryPreset ("MIDI Directed", PV {
+    addWorkflow ("Fast Natural", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.9f},{"speed",0.78f},{"doNoHarm",1},
+        {"formantPreserve",1},{"classicMode",0},{"flexTune",0.14f},{"humanize",0.1f},
+        {"transition",0.72f} });
+    addWorkflow ("MIDI Directed", PV {
         {"style",0},{"enableCorrection",1},{"amount",1.0f},{"speed",0.82f},{"doNoHarm",1},
         {"formantPreserve",1},{"midiTarget",1},{"classicMode",0},{"liveEngine",0},{"lowLatency",0} });
-    presetManager.addFactoryPreset ("Graph Editor", PV {
+    addWorkflow ("Graph Editor", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.9f},{"speed",0.72f},{"doNoHarm",1},
         {"formantPreserve",1},{"capturePitchEdits",1},{"usePitchEdits",1},{"classicMode",0} });
-    presetManager.addFactoryPreset ("Natural Vibrato", PV {
-        {"style",0},{"enableCorrection",1},{"amount",0.68f},{"speed",0.48f},{"doNoHarm",1},
-        {"formantPreserve",1},{"vibrato",0.65f},{"addVibrato",18.0f},{"vibratoRate",5.4f},
-        {"vibratoOnset",380.0f},{"classicMode",0} });
-    presetManager.addFactoryPreset ("Deeper Throat", PV {
-        {"style",0},{"enableCorrection",1},{"amount",0.7f},{"speed",0.5f},{"doNoHarm",1},
-        {"formantPreserve",1},{"formantShift",-3},{"lowLatency",0} });
-    presetManager.addFactoryPreset ("Bright Lift", PV {
-        {"style",0},{"enableCorrection",1},{"amount",0.7f},{"speed",0.5f},{"doNoHarm",1},
-        {"formantPreserve",1},{"formantShift",4},{"lowLatency",0} });
+    addWorkflow ("Natural Vibrato", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.84f},{"speed",0.62f},{"doNoHarm",1},
+        {"formantPreserve",1},{"flexTune",0.18f},{"humanize",0.1f},{"vibrato",0.8f},
+        {"addVibrato",0.0f},{"classicMode",0} });
+    addWorkflow ("Deeper Throat", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.84f},{"speed",0.58f},{"doNoHarm",1},
+        {"formantPreserve",1},{"flexTune",0.2f},{"humanize",0.1f},{"formantShift",-3} });
+    addWorkflow ("Bright Lift", PV {
+        {"style",0},{"enableCorrection",1},{"amount",0.84f},{"speed",0.58f},{"doNoHarm",1},
+        {"formantPreserve",1},{"flexTune",0.2f},{"humanize",0.1f},{"formantShift",4} });
 }
 
 void SattariAutoPitchAudioProcessorEditor::refreshUserPresets()
@@ -1358,7 +1383,7 @@ void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c,
 {
     if (c.isEnabled() != on)       c.setEnabled (on);
     const float a = on ? 1.0f : 0.4f;
-    if (c.getAlpha() != a)         c.setAlpha (a);
+    if (std::abs (c.getAlpha() - a) > 1.0e-6f) c.setAlpha (a);
 }
 
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)

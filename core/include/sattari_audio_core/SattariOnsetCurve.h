@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 // =============================================================================
@@ -210,7 +211,10 @@ private:
         {
             if (j == i) continue;
             if (curve_[j] > v) return false;
-            if (curve_[j] == v && j < i) return false;   // tie -> keep the earliest hop only
+            // Exact stored-value tie: keep the earliest hop only. memcmp expresses
+            // the intentional bit identity without triggering unsafe float-equality
+            // diagnostics under the suite's strict warning profile.
+            if (std::memcmp (&curve_[j], &v, sizeof (float)) == 0 && j < i) return false;
         }
         return true;
     }

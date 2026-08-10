@@ -73,6 +73,17 @@ void SattariVocalAudioProcessor::registerFactoryPresets()
             {"heat.drive", 4.0f}, {"heat.mix", 0.42f},
             {"double.level", 0.22f}, {"space.revmix", 0.2f} });
 
+    // A finished, intimate lead with no widening or ambience baked in. This is
+    // the dependable hand-off to an existing mix rather than a showcase effect.
+    addChainPreset ("Dry Lead",
+        { "clean", "deess", "eq", "comp", "heat" },
+        PV{ {"clean.amount", 0.2f},
+            {"deess.threshold", -30.0f}, {"deess.range", 6.0f},
+            {"eq.hpf", 75.0f},
+            {"comp.threshold", -19.0f}, {"comp.ratio", 2.8f},
+            {"comp.attack", 16.0f}, {"comp.release", 140.0f},
+            {"heat.drive", 2.0f}, {"heat.mix", 0.2f} });
+
     addChainPreset ("Dialogue Focus",
         { "clean", "gate", "deess", "eq", "comp" },
         PV{ {"clean.amount", 0.4f}, {"gate.threshold", -46.0f}, {"gate.range", 24.0f},

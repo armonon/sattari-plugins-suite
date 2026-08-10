@@ -32,7 +32,10 @@ function(sattari_enable_onnx target define_name)
               /opt/homebrew/lib /usr/local/lib)
 
     if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-        target_include_directories(${target} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+        # ONNX Runtime is a prebuilt third-party SDK. Mark its headers as SYSTEM
+        # so our strict warning policy still catches Sattari code without flooding
+        # every neural-enabled target with diagnostics owned upstream.
+        target_include_directories(${target} SYSTEM PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
         target_link_libraries(${target} PRIVATE ${ONNXRUNTIME_LIB})
         target_compile_definitions(${target} PRIVATE ${define_name}=1)
         message(STATUS "Sattari ONNX: enabled for ${target} (${ONNXRUNTIME_LIB})")

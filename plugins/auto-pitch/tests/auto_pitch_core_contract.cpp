@@ -127,6 +127,56 @@ int main (int argc, char** argv)
             return 1;
         }
 
+    // Factory workflows are complete states, not sticky deltas. Reproduce the
+    // real UI sequence that previously failed: load MIDI Directed, then Natural.
+    // The second choice must clear MIDI/graph/transpose/poly/vibrato modes and
+    // restore its own stronger natural-correction calibration.
+    {
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+        juce::ComboBox* factory = nullptr;
+        for (auto* child : editor->getChildren())
+            if (auto* combo = dynamic_cast<juce::ComboBox*> (child);
+                combo != nullptr && combo->getNumItems() >= 2
+                    && combo->getItemText (0) == "Natural"
+                    && combo->getItemText (1) == "Pitch Center")
+            {
+                factory = combo;
+                break;
+            }
+        if (factory == nullptr)
+        {
+            std::cerr << "factory workflow menu was not discoverable\n";
+            return 1;
+        }
+        const int midiIndex = factory->indexOfItemId (factory->getItemId (6));
+        factory->setSelectedItemIndex (midiIndex, juce::sendNotificationSync);
+        if (apvts.getRawParameterValue ("midiTarget")->load() < 0.5f)
+        {
+            std::cerr << "MIDI Directed workflow did not engage MIDI targeting\n";
+            return 1;
+        }
+        setParameter (apvts, "capturePitchEdits", 1.0f);
+        setParameter (apvts, "usePitchEdits", 1.0f);
+        setParameter (apvts, "graphTimeCorrection", 1.0f);
+        setParameter (apvts, "xposeMode", 1.0f);
+        setParameter (apvts, "polyphonic", 1.0f);
+        setParameter (apvts, "addVibrato", 75.0f);
+        factory->setSelectedItemIndex (0, juce::sendNotificationSync);
+        if (apvts.getRawParameterValue ("midiTarget")->load() > 0.5f
+            || apvts.getRawParameterValue ("capturePitchEdits")->load() > 0.5f
+            || apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f
+            || apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f
+            || apvts.getRawParameterValue ("xposeMode")->load() > 0.5f
+            || apvts.getRawParameterValue ("polyphonic")->load() > 0.5f
+            || apvts.getRawParameterValue ("addVibrato")->load() > 0.01f
+            || std::abs (apvts.getRawParameterValue ("amount")->load() - 0.86f) > 0.001f)
+        {
+            std::cerr << "Natural workflow inherited an incompatible advanced mode\n";
+            return 1;
+        }
+        std::cout << "  factoryWorkflows=PASS (deterministic mode reset + calibrated Natural)\n";
+    }
+
     setParameter (apvts, "followReference", 0.0f);
     setParameter (apvts, "referenceDetune", 100.0f);
     if (std::abs (processor.currentReferenceHz() - 466.1637615) > 0.01)

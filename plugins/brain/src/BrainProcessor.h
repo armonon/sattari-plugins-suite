@@ -16,11 +16,11 @@
 //  Sattari Compass — the session conductor (detect + edit + publish FULL state)
 // -----------------------------------------------------------------------------
 //  Sattari Key is the focused detector and lower-priority fallback publisher.
-//  Compass is the conductor: it detects key/mode/confidence + the reference
-//  tuning from the spectrum (same shared chromagram + Krumhansl worker as Key),
-//  reads host BPM + time signature, and lets the user EDIT the rest of the
-//  session context — chord, time signature, swing, section, energy, maqam and
-//  reference — then broadcasts one authoritative SessionState (schema v2) to the
+//  Compass is the conductor: it detects key/mode/confidence, major/minor chord
+//  evidence, reference tuning, energy and musical onsets; reads host BPM + time
+//  signature; and lets the user EDIT or override the rest of the session context
+//  — chord, time signature, swing, section, energy, maqam and reference — then
+//  broadcasts one authoritative SessionState (schema v2) to the
 //  cross-plugin bus that every follower plugin reads. Audio passes through
 //  bit-exact; Compass never touches the signal, it only listens and publishes.
 //
@@ -85,6 +85,12 @@ public:
         int    root = 0;
         bool   minor = false;
         double confidence = 0.0;
+        bool   chordValid = false;
+        int    chordRoot = -1;
+        int    chordQuality = 0;
+        double chordConfidence = 0.0;
+        float  energy = 0.0f;
+        juce::int64 transientId = 0;
         bool   publishing = false;
         double detuneCents = 0.0;
         double bpm = 0.0;
@@ -119,9 +125,19 @@ private:
     std::atomic<bool>   detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
     std::atomic<double> detConf { 0.0 };
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
+    std::atomic<int>    detChordRoot { -1 }, detChordQuality { 0 };
+    std::atomic<bool>   detChordValid { false };
+    std::atomic<double> detChordConfidence { 0.0 };
+    std::atomic<float>  detEnergy { 0.0f };
+    std::atomic<juce::int64> transientId { 0 };
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<int>    hostTsNum { 0 }, hostTsDen { 0 };
     sattari::rt::AtomicSnapshot<Detected> detectedFrame;
+
+    // Audio-thread-only onset state. The counter is published atomically; the
+    // envelope and refractory timer never cross threads.
+    float onsetEnvelope = 0.0f;
+    int onsetRefractorySamples = 0;
 
     // Confidence-gated + hysteresis publish state (worker thread only) — the same
     // logic Sattari Key uses so the detected key never flickers the whole suite.

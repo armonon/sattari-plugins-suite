@@ -82,7 +82,7 @@ public:
                 for (int b = k; b < kBins; ++b)
                     std::copy (spec + (size_t) (b - k) * kFrames,
                                spec + (size_t) (b - k + 1) * kFrames,
-                               rot.begin() + (size_t) b * kFrames);
+                               rot.data() + (size_t) b * (size_t) kFrames);
 
                 std::array<float, 24> logits {};
                 if (! runLogits (rot.data(), logits.data())) continue;

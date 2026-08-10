@@ -61,8 +61,10 @@ its synthetic and machine-format gates pass.
 
 ### Rack preview
 
-- Mix, Create and Vocal: complete module-inspector usability and preset migration
-  sessions in at least two DAWs.
+- Mix, Create and Vocal: executable whole-product contracts now cover every
+  factory workflow across 44.1/48/96 kHz and 64/512-sample blocks. Complete
+  module-inspector usability, preset migration and listening sessions in at
+  least two DAWs before promotion.
 - Stack: validate per-layer Chop/Granulator source recall, keyboard splits,
   latency alignment and source-missing recovery.
 

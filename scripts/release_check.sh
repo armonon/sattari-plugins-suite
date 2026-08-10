@@ -147,7 +147,8 @@ restore_bus() {
         mv "$BUS_STASH" "$BUS_DIR"
     fi
 }
-trap restore_bus EXIT INT TERM
+trap restore_bus EXIT
+trap 'restore_bus; exit 130' INT TERM
 if [ -d "$BUS_DIR" ]; then
     mv "$BUS_DIR" "$BUS_STASH"
     echo "cross-plugin bus stashed for the contract run (restored on exit)"

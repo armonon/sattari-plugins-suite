@@ -67,13 +67,14 @@ public:
 
         // dB (ref = max), then standardise over the whole track.
         const int T = (int) frames.size();
-        std::vector<float> M ((size_t) kBins * T);
+        const size_t Tsz = (size_t) T;
+        std::vector<float> M ((size_t) kBins * Tsz);
         float mx = -1.0e30f;
         for (int t = 0; t < T; ++t)
             for (int b = 0; b < kBins; ++b)
             {
                 const float v = 20.0f * std::log10 (std::max (frames[(size_t) t][(size_t) b], 1.0e-10f));
-                M[(size_t) b * T + t] = v; mx = std::max (mx, v);
+                M[(size_t) b * Tsz + (size_t) t] = v; mx = std::max (mx, v);
             }
         double sum = 0.0;
         for (auto& v : M) { v -= mx; sum += v; }
@@ -93,8 +94,8 @@ public:
             for (int b = 0; b < kBins; ++b)
             {
                 double acc = 0.0; int cnt = 0;
-                for (int t = e0; t < hi; ++t) { acc += M[(size_t) b * T + t]; ++cnt; }
-                out[(size_t) b * kFrames + f] = (float) (cnt ? acc / cnt : 0.0);
+                for (int t = e0; t < hi; ++t) { acc += M[(size_t) b * Tsz + (size_t) t]; ++cnt; }
+                out[(size_t) b * (size_t) kFrames + (size_t) f] = (float) (cnt ? acc / cnt : 0.0);
             }
         }
         return true;

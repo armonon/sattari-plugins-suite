@@ -130,6 +130,9 @@ if(BUILD_TESTING)
         SattariAudioCoreRealtimeSnapshotContract
         SattariCrossPluginBusContract
         SattariRackHostContract
+        SattariVocalProductContract
+        SattariMixProductContract
+        SattariCreateProductContract
         AutoPitchCoreContract
         VoxKeyCoreContract
         SattariArpTimingContract

@@ -35,6 +35,7 @@ inline const char* stemName (Stem s) noexcept
 {
     switch (s) { case Stem::Drums: return "Drums"; case Stem::Bass: return "Bass";
                  case Stem::Other: return "Other"; case Stem::Vocals: return "Vocals";
+                 case Stem::kNumStems: return "?";
                  default: return "?"; }
 }
 

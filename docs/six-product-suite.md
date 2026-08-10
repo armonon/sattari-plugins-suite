@@ -27,8 +27,9 @@ internal alphas. A component's presence in the catalog is not release evidence.
 ## Intended session flow
 
 1. **Compass listens and the user approves the session truth.** It detects
-   major/minor key and reference tuning, reads host tempo, and combines that
-   evidence with user-approved groove, maqam, sections, energy, and chords.
+   major/minor key, conservative major/minor chord evidence, reference tuning,
+   energy and musical onsets; reads host tempo; and combines that evidence with
+   user-approved groove, maqam, sections, energy, and chord overrides.
 2. **Instruments generates or performs into that context.** Arp and future Stack
    layers create material without repeated key and tempo setup.
 3. **Auto Pitch corrects performances.** Realtime correction handles speed;
@@ -72,7 +73,9 @@ approved session value. A session must never leak into a different DAW project.
 
 ### Gate B — one complete six-product flow
 
-- Stack, Vocal, Mix, and Create primary racks reach alpha independently.
+- Stack, Vocal, Mix, and Create primary racks now have executable whole-product
+  contracts; they reach alpha only after the remaining host, material, recall,
+  automation, and performance evidence is recorded.
 - One reference session proves the entire Compass-to-Create flow with saved
   state, automation, offline bounce, four-instance load, and project isolation.
 - Component controls exposed in racks remain controllable without producing a
@@ -95,15 +98,15 @@ approved session value. A session must never leak into a different DAW project.
 
 ## Immediate order of work
 
-1. Close the four-plugin alpha machine gates, then the manual DAW and listening
-   gates; do not add flagship features while correction quality is unresolved.
-2. Make Vocal the first complete rack. It is the clearest bridge from Auto Pitch
-   to a finished result and the strongest way to demonstrate suite flow.
-3. Make Stack the second complete rack around Arp and voice-to-MIDI; prove one
-   compelling performance workflow before expanding its instrument count.
-4. Reduce Mix to the smallest set of modules that audibly wins on a reference
-   session; specialist components can stay optional.
-5. Give Create three signature, Compass-aware transformations with immediate
-   before/after value. Breadth comes after identity.
-6. Run the commercial-license, notarization, clean-machine, and support work in
-   parallel with Gate B so finished DSP is not stranded behind distribution.
+1. Run the owned real-vocal Auto Pitch corpus and blind Natural/Pitch Center/Hard
+   listening comparison; synthetic engine accuracy is no longer the open question.
+2. Complete Logic, Ableton, and FL Studio insert/automation/recall/bounce passes
+   for all six primary products, including four-instance and project-isolation runs.
+3. Prove one reference session end to end: Compass -> Instruments/Auto Pitch ->
+   Vocal -> Mix -> Create, with saved state and offline bounce evidence.
+4. Expand Stack only after its current three-source layer workflow wins in that
+   reference session; Arp and voice-to-MIDI integration remain its largest gap.
+5. Blind-test Vocal's Dry Lead/Vocal Studio, Mix's Low-End Control, and Create's
+   Compass Motion workflows against a manual chain before lifecycle promotion.
+6. Close commercial licensing, Developer ID/notarization, clean-machine update,
+   rollback, support, and diagnostics gates in parallel with the human tests.

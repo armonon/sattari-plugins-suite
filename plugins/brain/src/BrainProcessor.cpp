@@ -60,6 +60,10 @@ APVTS::ParameterLayout SattariBrainAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "brainEnergy", 1 }, "Energy", juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
     p.push_back (std::make_unique<juce::AudioParameterInt>    (juce::ParameterID { "brainMaqam",  1 }, "Maqam Id", 0, 12, 0));
 
+    // Appended to preserve every existing host parameter index. Automatic
+    // energy can be locally overridden without weakening the detected context.
+    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "brainEnergyAuto", 1 }, "Automatic Energy", true));
+
     return { p.begin(), p.end() };
 }
 
@@ -96,6 +100,14 @@ void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int)
     runningDetune = 0.0;
     pubRoot = -1; pubScale = 0; candRoot = -1; candScale = 0; candCount = 0;
     detValid.store (false);
+    detChordValid.store (false);
+    detChordRoot.store (-1);
+    detChordQuality.store (0);
+    detChordConfidence.store (0.0);
+    detEnergy.store (0.0f);
+    transientId.store (0);
+    onsetEnvelope = 0.0f;
+    onsetRefractorySamples = 0;
     publishingNow.store (false);
     refreshDetectedFrame();
 
@@ -139,14 +151,38 @@ void SattariBrainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // Feed the analysis ring with a mono sum. Audio is NOT modified — Compass is a
     // transparent analyser that only listens (bit-exact pass-through).
     int wp = writePos.load (std::memory_order_relaxed);
+    double sumSquares = 0.0;
+    const float onsetRelease = std::exp (-1.0f / (float) (currentSampleRate * 0.080));
+    const int refractory = juce::jmax (1, (int) std::round (currentSampleRate * 0.055));
     for (int i = 0; i < n; ++i)
     {
         float m = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch) m += buffer.getSample (ch, i);
-        ring[(size_t) wp].store (m / (float) nc, std::memory_order_relaxed);
+        m /= (float) nc;
+        ring[(size_t) wp].store (m, std::memory_order_relaxed);
+        sumSquares += (double) m * (double) m;
+
+        const float level = std::abs (m);
+        if (onsetRefractorySamples > 0) --onsetRefractorySamples;
+        if (onsetRefractorySamples == 0
+            && level > 0.035f
+            && level > onsetEnvelope * 1.85f)
+        {
+            transientId.fetch_add (1, std::memory_order_relaxed);
+            onsetRefractorySamples = refractory;
+        }
+        onsetEnvelope = level > onsetEnvelope ? level : onsetEnvelope * onsetRelease;
         wp = (wp + 1) % fftSize;
     }
     writePos.store (wp, std::memory_order_release);
+
+    const double rms = n > 0 ? std::sqrt (sumSquares / (double) n) : 0.0;
+    const double db = juce::Decibels::gainToDecibels (rms, -60.0);
+    const float measuredEnergy = (float) juce::jlimit (0.0, 1.0, (db + 60.0) / 60.0);
+    const float previousEnergy = detEnergy.load (std::memory_order_relaxed);
+    const float energyAlpha = 1.0f - std::exp (-(float) n / (float) (currentSampleRate * 0.20));
+    detEnergy.store (previousEnergy + energyAlpha * (measuredEnergy - previousEnergy),
+                     std::memory_order_relaxed);
 }
 
 void SattariBrainAudioProcessor::analyseNow()
@@ -180,6 +216,40 @@ void SattariBrainAudioProcessor::analyseNow()
         detConf.store (k.confidence);
         detValid.store (true);
     }
+
+    // Lightweight triad evidence. This is deliberately limited to major/minor
+    // rather than pretending to identify extended harmony from one short frame.
+    // An explicit chord in the UI always wins at publish time.
+    double best = -1.0, second = -1.0;
+    int bestRoot = -1, bestQuality = 0;
+    for (int root = 0; root < 12; ++root)
+    {
+        const double major = frame[root] + 0.82 * frame[(root + 4) % 12]
+                           + 0.90 * frame[(root + 7) % 12];
+        const double minor = frame[root] + 0.82 * frame[(root + 3) % 12]
+                           + 0.90 * frame[(root + 7) % 12];
+        for (const auto candidate : { std::pair<double, int> { major, 1 },
+                                      std::pair<double, int> { minor, 2 } })
+        {
+            if (candidate.first > best)
+            {
+                second = best;
+                best = candidate.first;
+                bestRoot = root;
+                bestQuality = candidate.second;
+            }
+            else if (candidate.first > second)
+            {
+                second = candidate.first;
+            }
+        }
+    }
+    const double chordConfidence = best > 1.0e-9 ? (best - second) / best : 0.0;
+    const bool chordValid = bestRoot >= 0 && best > 0.16 && chordConfidence > 0.025;
+    detChordValid.store (chordValid);
+    detChordRoot.store (chordValid ? bestRoot : -1);
+    detChordQuality.store (chordValid ? bestQuality : 0);
+    detChordConfidence.store (chordConfidence);
 }
 
 void SattariBrainAudioProcessor::publishCurrent()
@@ -242,16 +312,20 @@ void SattariBrainAudioProcessor::publishCurrent()
     msg.root         = root;
     msg.scale        = scale;
     msg.bpm          = hostBpm.load();
-    // Compass currently has no onset detector. Zero is truthful and, unlike the
-    // former timer-driven increment, cannot masquerade as a musical transient.
-    msg.transientId  = 0;
-    msg.chordRoot    = chordRootChoice <= 0 ? -1 : chordRootChoice - 1;
-    msg.chordQuality = (int) std::round (param ("brainChordQuality"));         // 0..8
+    msg.transientId  = transientId.load (std::memory_order_relaxed);
+    msg.chordRoot    = chordRootChoice <= 0
+        ? (detChordValid.load() ? detChordRoot.load() : -1)
+        : chordRootChoice - 1;
+    msg.chordQuality = chordRootChoice <= 0
+        ? (detChordValid.load() ? detChordQuality.load() : 0)
+        : (int) std::round (param ("brainChordQuality"));                     // 0..8
     msg.timeSigNum   = (int) std::round (param ("brainTimeSigNum"));
     msg.timeSigDen   = timeSigDenValue ((int) std::round (param ("brainTimeSigDen")));
     msg.swing        = param ("brainSwing");
     msg.sectionId    = (int) std::round (param ("brainSection"));              // 0..6
-    msg.energy       = param ("brainEnergy");
+    msg.energy       = param ("brainEnergyAuto") > 0.5f
+        ? detEnergy.load (std::memory_order_relaxed)
+        : param ("brainEnergy");
     msg.maqamId      = (int) std::round (param ("brainMaqam"));
     msg.referenceHz  = refOverride ? (double) param ("brainReferenceHz")
                                    : 440.0 * std::pow (2.0, detDetuneCents.load() / 1200.0);
@@ -290,6 +364,12 @@ void SattariBrainAudioProcessor::refreshDetectedFrame() noexcept
     d.root        = detRoot.load();
     d.minor       = detMinor.load();
     d.confidence  = detConf.load();
+    d.chordValid  = detChordValid.load();
+    d.chordRoot   = detChordRoot.load();
+    d.chordQuality = detChordQuality.load();
+    d.chordConfidence = detChordConfidence.load();
+    d.energy      = detEnergy.load (std::memory_order_relaxed);
+    d.transientId = transientId.load (std::memory_order_relaxed);
     d.publishing  = publishingNow.load();
     d.detuneCents = detDetuneCents.load();
     d.bpm         = hostBpm.load();

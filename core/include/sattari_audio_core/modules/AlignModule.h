@@ -434,7 +434,7 @@ private:
         // Reuse the preallocated scratch (sized for the worst-case W in prepare());
         // only the first N*W entries are used this call. No audio-thread allocation.
         auto& cost = dtwCost;
-        std::fill (cost.begin(), cost.begin() + (size_t) N * (size_t) W, std::numeric_limits<double>::infinity());
+        std::fill_n (cost.begin(), N * W, std::numeric_limits<double>::infinity());
         auto idx = [W, radius] (int i, int j) -> int { return i * W + (j - i + radius); };
 
         cost[(size_t) idx (0, 0)] = 0.0;

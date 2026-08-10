@@ -93,6 +93,18 @@ void SattariMixAudioProcessor::registerFactoryPresets()
         PV{ {"eq.hpf", 25},
             {"peak.ceiling", -1.0f} });
 
+    // Stabilise bass-heavy buses without turning the whole mix into a loudness
+    // preset: low-band control first, then transparent peak safety and metering.
+    addChainPreset ("Low-End Control",
+        { "eq", "multiband", "comp", "peak", "meter" },
+        PV{ {"eq.hpf", 24.0f},
+            {"multiband.xLow", 180.0f}, {"multiband.thr1", -22.0f},
+            {"multiband.ratio1", 3.2f}, {"multiband.atk1", 22.0f},
+            {"multiband.rel1", 180.0f},
+            {"comp.threshold", -15.0f}, {"comp.ratio", 1.8f},
+            {"comp.attack", 28.0f}, {"comp.release", 170.0f},
+            {"peak.ceiling", -1.0f}, {"peak.truePeak", 1.0f} });
+
     addChainPreset ("Clean Up",
         { "clean", "gate", "eq", "deess" },
         PV{ {"gate.threshold", -50}, {"eq.hpf", 80} });

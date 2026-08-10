@@ -72,6 +72,17 @@ void SattariCreateAudioProcessor::registerFactoryPresets()
         PV{ {"pulse.depth", 0.85f}, {"pulse.rate", 2},
             {"space.revmix", 0.25f} });
 
+    // The suite-native creative workflow: Pulse and Echo follow the approved
+    // Compass tempo, while Shimmer/Space provide a restrained musical lift.
+    addChainPreset ("Compass Motion",
+        { "pulse", "echo", "shimmer", "space" },
+        PV{ {"pulse.shape", 0.0f}, {"pulse.rate", 4.0f},
+            {"pulse.depth", 0.55f}, {"pulse.smooth", 0.4f}, {"pulse.mix", 0.8f},
+            {"echo.sync", 1.0f}, {"echo.div", 4.0f}, {"echo.feedback", 0.32f},
+            {"echo.duck", 0.45f}, {"echo.mix", 0.22f},
+            {"shimmer.shimmer", 0.3f}, {"shimmer.mix", 0.2f},
+            {"space.size", 0.72f}, {"space.revmix", 0.24f} });
+
     addChainPreset ("Robot Vocal",
         { "warp", "echo" },
         PV{ {"warp.dose", 0.7f}, {"warp.robotAmt", 0.8f},

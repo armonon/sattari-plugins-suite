@@ -38,8 +38,19 @@ def module_parameters():
         params = set()
         # ParameterID (prefix + "x")  /  ParameterID { prefix + "x" }
         params |= set(re.findall(r'ParameterID\s*[\({]\s*prefix\s*\+\s*"([A-Za-z0-9]+)"', src))
-        # local lambda form: f ("x", ...) and f ("x" + n, ...)
-        params |= set(re.findall(r'\bf\s*\(\s*"([A-Za-z0-9]+)"', src))
+        # Local float/bool lambda forms: f ("x", ...), b ("x", ...).
+        # Require the comma so a generated id such as f ("thr" + n, ...) is
+        # not misreported as a literal parameter named merely "thr".
+        params |= set(re.findall(r'\b[fb]\s*\(\s*"([A-Za-z0-9]+)"\s*,', src))
+
+        # Expand loop-generated band ids such as "thr" + n. The declaration's
+        # kBands value is the authoritative range used by addParameters().
+        band_count = re.search(r'static\s+constexpr\s+int\s+kBands\s*=\s*(\d+)', src)
+        if band_count:
+            generated = set(re.findall(
+                r'\b[fb]\s*\(\s*"([A-Za-z0-9]+)"\s*\+\s*n\s*,', src))
+            for base in generated:
+                params.update(f"{base}{index}" for index in range(1, int(band_count.group(1)) + 1))
         params |= set(re.findall(r'prefix\s*\+\s*"([A-Za-z0-9]+)"\s*,\s*1\s*\)', src))
         mods[m.group(1)] = params
     return mods

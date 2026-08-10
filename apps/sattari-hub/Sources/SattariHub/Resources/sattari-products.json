@@ -13,7 +13,7 @@
       "verb": "knows",
       "accent": "blue",
       "tier": "free",
-      "tagline": "The session authority. Detects key and reference, reads host tempo, and publishes the musical context you approve.",
+      "tagline": "The session authority. Detects key, chord, reference, energy and musical onsets, reads host tempo, and publishes the context you approve.",
       "primary": "brain"
     },
     {

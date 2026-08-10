@@ -15,13 +15,19 @@
       "test": "VoxSynthMpeContract"
     },
     {
-      "plugin": "mix"
+      "plugin": "mix",
+      "test": "SattariMixProductContract",
+      "uiRender": true
     },
     {
-      "plugin": "create"
+      "plugin": "create",
+      "test": "SattariCreateProductContract",
+      "uiRender": true
     },
     {
-      "plugin": "vocal"
+      "plugin": "vocal",
+      "test": "SattariVocalProductContract",
+      "uiRender": true
     },
     {
       "plugin": "stack",

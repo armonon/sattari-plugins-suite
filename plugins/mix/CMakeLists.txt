@@ -25,3 +25,14 @@ sattari_add_plugin(
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
 
+add_executable(SattariMixProductContract EXCLUDE_FROM_ALL
+    tests/mix_product_contract.cpp)
+target_include_directories(SattariMixProductContract PRIVATE
+    src
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/include
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/tests
+    ${CMAKE_CURRENT_BINARY_DIR}/SattariMix_artefacts/JuceLibraryCode)
+target_link_libraries(SattariMixProductContract PRIVATE
+    SattariMix
+    juce::juce_audio_utils
+    juce::juce_dsp)

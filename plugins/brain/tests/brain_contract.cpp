@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <chrono>
+#include <cstring>
 #include <thread>
 #include <functional>
 
@@ -98,7 +99,8 @@ int main (int argc, char** argv)
                 {
                     const float v = buf.getSample (ch, i);
                     if (! std::isfinite (v)) allFinite = false;
-                    if (v != copy.getSample (ch, i)) bitExact = false;
+                    const float expected = copy.getSample (ch, i);
+                    if (std::memcmp (&v, &expected, sizeof (float)) != 0) bitExact = false;
                 }
         }
     }
@@ -121,6 +123,7 @@ int main (int argc, char** argv)
     setParam (a, "brainSwing",        0.6f);
     setParam (a, "brainSection",      4.0f);
     setParam (a, "brainEnergy",       0.8f);
+    setParam (a, "brainEnergyAuto",   0.0f);
     setParam (a, "brainMaqam",        5.0f);
     {
         sattari::xplugin::SessionMessage m;
@@ -140,13 +143,74 @@ int main (int argc, char** argv)
         check (m.sectionId == 4, "section round-trip wrong");
         check (std::abs (m.energy - 0.8f) < 1.0e-3f, "energy round-trip wrong");
         check (m.maqamId == 5, "maqam round-trip wrong");
-        check (m.transientId == 0,
-               "Compass published a timer tick as a musical transient");
         check (std::isfinite (m.referenceHz) && std::isfinite (m.swing) && std::isfinite (m.energy),
                "published SessionState has non-finite fields");
     }
 
-    // 3) Manual key override wins over detection: publishes exactly that key.
+    // 3) Automatic energy and real onset evidence. Silence does not manufacture
+    // events; a clear impulse increments the monotonic transient id, and a
+    // sustained signal produces non-zero measured energy.
+    setParam (a, "brainEnergyAuto", 1.0f);
+    juce::int64 priorTransient = 0;
+    if (auto s = sattari::xplugin::readSession()) priorTransient = s->transientId;
+    {
+        juce::MidiBuffer midi;
+        for (int pass = 0; pass < 32; ++pass)
+        {
+            juce::AudioBuffer<float> buf (2, block);
+            for (int i = 0; i < block; ++i)
+            {
+                const float value = pass == 0 && i == 0
+                    ? 0.9f
+                    : 0.35f * (float) std::sin (2.0 * M_PI * 110.0 * (double) i / sr);
+                buf.setSample (0, i, value);
+                buf.setSample (1, i, value);
+            }
+            proc.processBlock (buf, midi);
+        }
+        sattari::xplugin::SessionMessage m;
+        const bool ok = waitForSession ([priorTransient] (const sattari::xplugin::SessionMessage& s)
+        {
+            return s.transientId > priorTransient && s.energy > 0.1f;
+        }, m);
+        check (ok, "automatic energy/onset context was not published");
+    }
+
+    // 4) Automatic chord suggestion. With the chord root left at None, a stable
+    //    C-major triad is published as C major; the UI remains an override when
+    //    the user chooses an explicit root.
+    setParam (a, "brainChordRoot",    0.0f);
+    setParam (a, "brainChordQuality", 0.0f);
+    {
+        juce::MidiBuffer midi;
+        double phaseC = 0.0, phaseE = 0.0, phaseG = 0.0;
+        for (int pass = 0; pass < 16; ++pass)
+        {
+            juce::AudioBuffer<float> buf (2, block);
+            for (int i = 0; i < block; ++i)
+            {
+                const float value = 0.18f * (float) (std::sin (phaseC)
+                                                   + std::sin (phaseE)
+                                                   + std::sin (phaseG));
+                phaseC += 2.0 * M_PI * 261.625565 / sr;
+                phaseE += 2.0 * M_PI * 329.627557 / sr;
+                phaseG += 2.0 * M_PI * 391.995436 / sr;
+                buf.setSample (0, i, value);
+                buf.setSample (1, i, value);
+            }
+            proc.processBlock (buf, midi);
+        }
+        proc.requestRescan();
+        proc.analyseNow();
+        sattari::xplugin::SessionMessage m;
+        const bool ok = waitForSession ([] (const sattari::xplugin::SessionMessage& s)
+        {
+            return s.chordRoot == 0 && s.chordQuality == 1;
+        }, m);
+        check (ok, "automatic C-major chord suggestion was not published");
+    }
+
+    // 5) Manual key override wins over detection: publishes exactly that key.
     setParam (a, "brainManual",      1.0f);
     setParam (a, "brainManualRoot",  7.0f);   // G
     setParam (a, "brainManualScale", 1.0f);   // minor
@@ -159,7 +223,7 @@ int main (int argc, char** argv)
         check (ok, "manual key override was not published");
     }
 
-    // 4) Reference override: publishes exactly that referenceHz.
+    // 6) Reference override: publishes exactly that referenceHz.
     setParam (a, "brainRefOverride", 1.0f);
     setParam (a, "brainReferenceHz", 432.0f);
     {
