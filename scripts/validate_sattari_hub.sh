@@ -36,7 +36,8 @@ for product in products:
         assert len(product.get("updateArchiveSHA256", "")) == 64
         assert product.get("updateArchiveBytes", 0) > 0
 assert {p["id"] for p in products if p.get("shippingProfile") == "alpha"} == {
-    "auto-pitch", "brain", "sattari-arp", "sub-conjurer"
+    "auto-pitch", "brain", "vocal", "mix", "create", "stack",
+    "sattari-arp", "sub-conjurer"
 }
 for suite in suites:
     members = [p for p in products if p.get("suite") == suite["id"]]

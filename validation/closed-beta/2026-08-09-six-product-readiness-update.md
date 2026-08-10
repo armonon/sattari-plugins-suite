@@ -31,7 +31,9 @@ human, host-matrix, signing and business gates remain open**.
   inference, live neural-key, runtime-dependency, signature and bundle-integrity
   checks for AU, VST3 and standalone formats.
 - Hub production build, manifest contract, 6-product/48-component catalog sync,
-  11-bundle alpha payload proof and 49-component freshness check passed.
+  23-bundle alpha payload proof and 49-component freshness check passed. The
+  internal installer now includes all six primary products plus qualified Arp
+  and Sub Conjurer component plug-ins.
 - The ONNX SDK include is treated as a third-party system dependency, restoring
   useful warning output for Sattari-owned code.
 - The rack-preset validator now understands boolean and generated multiband

@@ -62,20 +62,21 @@ approved session value. A session must never leak into a different DAW project.
 
 ## Qualification sequence
 
-### Gate A — four-plugin alpha
+### Gate A — six-product internal alpha
 
-- Fresh Release builds and product contracts for Compass, Auto Pitch, Arp, and
-  Sub Conjurer.
+- Fresh Release builds and product contracts for Compass, Auto Pitch, Vocal,
+  Mix, Create and Stack; qualified Arp and Sub Conjurer components remain in the
+  tester payload.
 - `codesign --verify`, AU validation where applicable, and pluginval strictness 5.
 - Logic, Ableton, and FL scan/insert/process/automation/recall/bounce passes.
 - Auto Pitch scored on an owned/cleared real-vocal corpus.
 - At least two non-developer testers complete a real project and return notes.
 
-### Gate B — one complete six-product flow
+### Gate B — one complete six-product musical flow
 
-- Stack, Vocal, Mix, and Create primary racks now have executable whole-product
-  contracts; they reach alpha only after the remaining host, material, recall,
-  automation, and performance evidence is recorded.
+- Stack, Vocal, Mix, and Create primary racks have executable whole-product
+  contracts and AU/VST3 machine gates; they remain internal alpha until host,
+  material, recall, automation, and performance evidence is recorded.
 - One reference session proves the entire Compass-to-Create flow with saved
   state, automation, offline bounce, four-instance load, and project isolation.
 - Component controls exposed in racks remain controllable without producing a

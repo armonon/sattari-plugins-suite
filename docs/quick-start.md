@@ -2,13 +2,14 @@
 
 Truth label: **controlled internal alpha; not public, notarized, or sale-ready**.
 The suite is six customer-facing products backed by 48 implementation plugins.
-Only Compass, Auto Pitch, Arp, and Sub Conjurer are in the current installable
-alpha. The suite is GPLv3 under the current JUCE/Rubber Band dependency terms;
+All six primary products are in the current installable alpha; Arp and Sub
+Conjurer remain included as qualified component plug-ins. The suite is GPLv3
+under the current JUCE/Rubber Band dependency terms;
 see `LICENSING.md` before making a commercial distribution decision.
 
 ## Install the current alpha
 
-1. Build the four shipping plugins and run their machine validation gates.
+1. Build the six primary products and run their machine validation gates.
 2. Build the internal package with `scripts/package_suite_installer.sh`.
 3. Install the package, then open **Sattari Hub**.
 4. The Hub shows six products. Expand **Components** to see lifecycle and format
@@ -68,8 +69,9 @@ Current installable component: **Sattari Arp (alpha)**.
 - Validate MIDI routing and loop-reset behavior in the target DAW before using
   it in a live or critical session.
 
-Stack is the intended primary product shell, but remains a **preview**. The
-other Instruments components are experimental.
+Stack is the primary product shell and is now an **internal alpha**. Its layer
+contract and AU/VST3 host gates pass; musical source-loading and full-project
+listening remain required. The other Instruments components are experimental.
 
 ## 4. Sattari Vocal — finishes the voice
 
@@ -78,8 +80,8 @@ dynamics, tone, doubling, harmony, character, and space. Royal Chain, Harmony,
 Vocal Master, Double, De-Ess, Face, and Glass Choir are component technologies
 behind that rack.
 
-Current state: **preview**. Do not treat the rack or its experimental components
-as qualified deliverables. The next proof is an owned vocal corpus spanning
+Current state: **internal alpha**. Its machine gates pass, but the next proof is
+an owned vocal corpus spanning
 clean, breathy, raspy, low, high, vibrato, consonant-heavy, and noisy material.
 The whole rack and all ten factory workflows now pass the executable product
 contract; **Dry Lead** is the focused no-space/no-width signature starting point.
@@ -98,8 +100,8 @@ Current installable component: **Sub Conjurer (alpha)**.
 - Check phase, translation, silence gating, and pitch tracking on the actual
   source before committing the result.
 
-The Mix rack is still a **preview**; most component technologies are
-experimental and must earn their place through listening tests.
+The Mix rack is an **internal alpha**; most component technologies remain
+experimental outside the rack and must earn broader exposure through listening tests.
 The whole rack and all eight workflows now pass the executable product contract;
 **Low-End Control** is the focused translation workflow to evaluate first.
 
@@ -109,9 +111,8 @@ Create is the musical-effects rack: Morph, Warp, Space, Vocoder, Shimmer, Echo,
 Heat, Riser, Pulse, 808, and Warble. Its product thesis is that creative effects
 follow approved key, tempo, section, and groove context from Compass.
 
-Current state: **preview**. The direction is differentiated, but it needs a
-small set of unmistakable signature workflows, stronger macro interaction, and
-musical A/B evidence before it becomes a product rather than a collection.
+Current state: **internal alpha**. The direction is differentiated, but it still
+needs musical A/B evidence and finished-project testing before public release.
 The whole rack and all nine workflows now pass the executable product contract;
 **Compass Motion** is the first explicit suite-native tempo-following signature.
 

@@ -4,10 +4,10 @@ Truth label: **engineering candidate, not a public or sale-ready release**.
 
 ## Shipping scope
 
-The internal Hub package contains the four products currently assigned to the
-alpha profile: Sattari Auto Pitch, Sattari Compass, Sattari Arp, and Sub Conjurer.
-Mix, Create, Vocal, Stack, and the remaining components stay preview or
-experimental until their product-level evidence is complete.
+The internal Hub package contains all six primary products: Sattari Compass,
+Auto Pitch, Vocal, Mix, Create, and Stack. Sattari Arp and Sub Conjurer are also
+included as qualified component plug-ins. The remaining components stay
+validation or experimental until their product-level evidence is complete.
 
 ## Tester sequence
 
@@ -15,7 +15,8 @@ experimental until their product-level evidence is complete.
 2. Install through Sattari Hub, restart the DAW, and force a plugin rescan.
 3. Launch the DAW from Hub with a fresh Project Session ID.
 4. Run the machine gates in the included validation guide.
-5. Complete one full musical flow: Compass -> Auto Pitch -> Arp or Sub Conjurer.
+5. Complete one full musical flow: Compass -> Auto Pitch -> Vocal -> Mix, plus
+   Stack and Create in the same reference session.
 6. Open a second DAW under a different Project Session ID and verify no session bleed.
 7. For Auto Pitch, render owned/cleared real vocals in Natural and Hard modes and
    complete the generated listening report.

@@ -97,7 +97,10 @@ def validate(catalog: dict) -> list[dict]:
             raise ValueError(f"{product['id']}: unknown accent {product['accent']}")
         deployment(product)
     alpha = {p["id"] for p in products if p["shippingProfile"] == "alpha"}
-    if alpha != {"auto-pitch", "brain", "sattari-arp", "sub-conjurer"}:
+    if alpha != {
+        "auto-pitch", "brain", "vocal", "mix", "create", "stack",
+        "sattari-arp", "sub-conjurer",
+    }:
         raise ValueError(f"alpha profile drifted: {sorted(alpha)}")
     stem = next(p for p in products if p["id"] == "stemdeck")
     if stem["lifecycle"] != "excluded" or stem["webVisible"]:
