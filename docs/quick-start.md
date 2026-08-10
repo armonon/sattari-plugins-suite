@@ -109,7 +109,8 @@ MIDI chain. AU MIDI FX in Logic; "MIDI Effect Rack → MIDI Effects" in Ableton.
 - Sample-accurate timing — contract test asserts 0-sample spacing error.
 
 ## 9. Sattari StemDeck — 4-deck DJ remix
-**Where:** Standalone macOS app (no AU). VST3 also available.
+**Where:** Standalone macOS app, VST3, or Audio Unit. Standalone remains the
+recommended live-performance host; AU is intended for Logic/GarageBand workflows.
 **First 30 seconds:**
 - Open the Standalone.
 - Drag a full mix onto Deck A, B, C, or D.

@@ -144,6 +144,29 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     focusModeButton.onClick = [this] { setFocusMode (focusModeButton.getToggleState()); };
     addAndMakeVisible (focusModeButton);
 
+    for (int scene = 0; scene < MainPluginProcessor::numPerformanceScenes; ++scene)
+    {
+        auto& button = sceneButtons[(size_t) scene];
+        setupButton (button);
+        button.setButtonText ("S" + juce::String (scene + 1));
+        button.setTooltip ("Recall performance scene " + juce::String (scene + 1)
+                           + "; Shift-click to capture/overwrite it");
+        button.onClick = [this, scene]
+        {
+            const bool capture = juce::ModifierKeys::getCurrentModifiers().isShiftDown()
+                              || ! processorRef.hasPerformanceScene (scene);
+            const bool ok = capture ? processorRef.capturePerformanceScene (scene)
+                                    : processorRef.recallPerformanceScene (scene);
+            sceneButtons[(size_t) scene].setToggleState (
+                processorRef.hasPerformanceScene (scene), juce::dontSendNotification);
+            recordStatus.setText (
+                ok ? (capture ? "Captured scene " : "Recalled scene ") + juce::String (scene + 1)
+                   : "Scene action failed",
+                juce::dontSendNotification);
+        };
+        addAndMakeVisible (button);
+    }
+
     setupFileBrowser();
     setupLibrary();
 
@@ -324,6 +347,42 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             const double total = processorRef.getDeckTotalSeconds (i);
             if (total > 0) processorRef.seekDeckSeconds (i, norm * total);
         };
+        deckWaveRegions[(size_t) i]->onSetDownbeatNorm = [this, i] (float norm)
+        {
+            const double total = processorRef.getDeckTotalSeconds (i);
+            const auto prefix = deckPrefix (i);
+            const float bpm = processorRef.parameters().getRawParameterValue (
+                                  prefix + "Bpm")->load();
+            const double sourceBeat = norm * total * juce::jmax (1.0f, bpm) / 60.0;
+            if (auto* downbeat = processorRef.parameters().getParameter (prefix + "Downbeat"))
+                downbeat->setValueNotifyingHost (downbeat->convertTo0to1 (
+                    (float) juce::jlimit (-64.0, 64.0, -sourceBeat)));
+            if (auto* offset = processorRef.parameters().getParameter (prefix + "BeatOffset"))
+                offset->setValueNotifyingHost (offset->convertTo0to1 (0.0f));
+            recordStatus.setText ("Deck " + deckLabel (i)
+                                  + " downbeat anchored from the waveform",
+                                  juce::dontSendNotification);
+        };
+        deckWaveRegions[(size_t) i]->onAddWarpMarkerNorm = [this, i] (float norm)
+        {
+            const int id = processorRef.addDeckUserWarpMarker (
+                i, norm * processorRef.getDeckTotalSeconds (i));
+            if (id >= 0)
+                recordStatus.setText ("Added draggable warp anchor on Deck "
+                                      + deckLabel (i), juce::dontSendNotification);
+            return id;
+        };
+        deckWaveRegions[(size_t) i]->onMoveWarpMarkerNorm = [this, i] (int id, float norm)
+        {
+            processorRef.moveDeckUserWarpMarker (
+                i, id, norm * processorRef.getDeckTotalSeconds (i));
+        };
+        deckWaveRegions[(size_t) i]->onRemoveWarpMarker = [this, i] (int id)
+        {
+            processorRef.removeDeckUserWarpMarker (i, id);
+        };
+        deckWaveRegions[(size_t) i]->setTooltip (
+            "Click to seek; Option-click sets downbeat; Shift-click adds a warp anchor; drag to align; right-click removes");
         addChildComponent (*deckWaveRegions[(size_t) i]);   // shown only for loaded decks (resized())
 
         deckStrips[(size_t) i] = std::make_unique<stemdeck::DeckStrip> (i);
@@ -367,7 +426,13 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             const int selectedLane = deckControls[(size_t) i].stemLane.getSelectedId() - 1;
             openDeckStemChooser (i, selectedLane < 0 ? DeckPlayer::fullMixStem : selectedLane);
         };
-        deckControls[(size_t) i].aiStems.onClick = [this, i] { processorRef.requestDeckAiStemsAsync (i); };
+        deckControls[(size_t) i].aiStems.onClick = [this, i]
+        {
+            if (processorRef.getDeckStemSeparationProgress (i) < 0.999f)
+                processorRef.cancelDeckAiStems (i);
+            else
+                processorRef.requestDeckAiStemsAsync (i);
+        };
         // Compact display order mirrors the vertical performance waveform rather
         // than the processor's storage order (drums, bass, other, vocals).
         constexpr std::array<int, 4> compactToProcessorStem {{ 3, 0, 1, 2 }};
@@ -814,6 +879,19 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             requestRecording (2);
     };
     addAndMakeVisible (arrRecordButton);
+    setupButton (keepLastButton);
+    keepLastButton.setButtonText ("KEEP 60s");
+    keepLastButton.setTooltip ("Save the last 60 seconds of master audio, even when Record was not armed");
+    keepLastButton.onClick = [this] { keepRetrospectiveAudio(); };
+    addAndMakeVisible (keepLastButton);
+    setupButton (previousTakeButton);
+    previousTakeButton.setTooltip ("Open the previous recorded performance take");
+    previousTakeButton.onClick = [this] { selectPerformanceTake (-1); };
+    addAndMakeVisible (previousTakeButton);
+    setupButton (nextTakeButton);
+    nextTakeButton.setTooltip ("Open the next recorded performance take");
+    nextTakeButton.onClick = [this] { selectPerformanceTake (1); };
+    addAndMakeVisible (nextTakeButton);
     setupButton (undoButton);
     undoButton.onClick = [this] { arrangementView.undo(); };
     addAndMakeVisible (undoButton);
@@ -1273,6 +1351,29 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
     // Wire follow-action popup request from ArrangementRecorderView
     arrangementView.onFollowActionRequest = [this] (int lane, int clip) { showFollowActionMenu (lane, clip); };
+    arrangementView.onGetCompTakeNames = [this]
+    {
+        syncCurrentTakeToHistory();
+        juce::StringArray names;
+        for (int take = 0; take < (int) performanceTakeHistory.size(); ++take)
+            names.add ("Take " + juce::String (take + 1)
+                       + (take == selectedPerformanceTake ? " (current)" : ""));
+        return names;
+    };
+    arrangementView.onCompFromTakeRequest = [this] (int lane, int clip, int take)
+    {
+        syncCurrentTakeToHistory();
+        if (! juce::isPositiveAndBelow (take,
+                                        (int) performanceTakeHistory.size()))
+            return false;
+        const bool ok = arrangementView.compClipFromTakeState (
+            lane, clip, take, performanceTakeHistory[(size_t) take]);
+        recordStatus.setText (ok
+            ? "Comped selected region from Take " + juce::String (take + 1)
+            : "That take does not contain audio across the whole selected region",
+            juce::dontSendNotification);
+        return ok;
+    };
 
     arrangementView.onSeek = [this] (double s)
     {
@@ -2264,6 +2365,103 @@ void MainPluginEditor::requestRecording (int countInBars)
         });
 }
 
+void MainPluginEditor::keepRetrospectiveAudio()
+{
+    const auto available = processorRef.getRetrospectiveSecondsAvailable();
+    if (available < 0.25)
+    {
+        recordStatus.setText ("Keep Last is warming up - play audio, then try again",
+                              juce::dontSendNotification);
+        return;
+    }
+
+    const int seconds = juce::jlimit (1, 60, (int) std::floor (available));
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Keep the last " + juce::String (seconds) + " seconds",
+        juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+            .getChildFile ("StemDeck-last-" + juce::String (seconds) + "s.wav"),
+        "*.wav");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                          | juce::FileBrowserComponent::canSelectFiles,
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
+         chooser, seconds] (const juce::FileChooser& fc)
+        {
+            if (safe == nullptr) return;
+            auto file = fc.getResult();
+            if (file.getFullPathName().isEmpty()) return;
+            if (! file.hasFileExtension ("wav"))
+                file = file.withFileExtension ("wav");
+
+            safe->recordStatus.setText ("Saving the last " + juce::String (seconds)
+                                            + " seconds...",
+                                        juce::dontSendNotification);
+            safe->uiWorkPool.addJob (
+                std::function<juce::ThreadPoolJob::JobStatus()> (
+                    [safe, file, seconds]() -> juce::ThreadPoolJob::JobStatus
+                    {
+                        if (safe == nullptr)
+                            return juce::ThreadPoolJob::jobHasFinished;
+                        juce::String error;
+                        const bool ok = safe->processorRef.saveRetrospectiveAudio (
+                            file, (double) seconds, error);
+                        juce::MessageManager::callAsync ([safe, file, seconds, ok, error]
+                        {
+                            if (safe == nullptr) return;
+                            safe->recordStatus.setText (
+                                ok ? "Kept the last " + juce::String (seconds)
+                                         + " seconds - " + file.getFileName()
+                                   : "Keep Last failed - " + error,
+                                juce::dontSendNotification);
+                            if (! ok)
+                                juce::AlertWindow::showMessageBoxAsync (
+                                    juce::AlertWindow::WarningIcon,
+                                    "Could Not Keep Audio", error);
+                        });
+                        return juce::ThreadPoolJob::jobHasFinished;
+                    }));
+        });
+}
+
+void MainPluginEditor::syncCurrentTakeToHistory()
+{
+    if (! arrangementView.hasArrangement()) return;
+    const auto state = arrangementView.toState();
+    if (juce::isPositiveAndBelow (selectedPerformanceTake,
+                                  (int) performanceTakeHistory.size()))
+        performanceTakeHistory[(size_t) selectedPerformanceTake] = state;
+    else
+    {
+        performanceTakeHistory.push_back (state);
+        selectedPerformanceTake = (int) performanceTakeHistory.size() - 1;
+    }
+}
+
+void MainPluginEditor::appendCurrentTakeToHistory()
+{
+    if (! arrangementView.hasArrangement()) return;
+    performanceTakeHistory.push_back (arrangementView.toState());
+    selectedPerformanceTake = (int) performanceTakeHistory.size() - 1;
+}
+
+void MainPluginEditor::selectPerformanceTake (int delta)
+{
+    if (performanceTakeHistory.empty())
+    {
+        recordStatus.setText ("No alternate takes yet", juce::dontSendNotification);
+        return;
+    }
+    syncCurrentTakeToHistory();
+    selectedPerformanceTake = juce::jlimit (
+        0, (int) performanceTakeHistory.size() - 1,
+        juce::jmax (0, selectedPerformanceTake) + delta);
+    arrangementView.fromState (
+        performanceTakeHistory[(size_t) selectedPerformanceTake]);
+    recordStatus.setText ("Take " + juce::String (selectedPerformanceTake + 1)
+                          + " of " + juce::String ((int) performanceTakeHistory.size()),
+                          juce::dontSendNotification);
+    refreshMixArrangement();
+}
+
 bool MainPluginEditor::recordingPreflight (const juce::File& destination)
 {
     const auto sampleRate = processorRef.getRecordingSampleRate();
@@ -2313,6 +2511,7 @@ void MainPluginEditor::startRecordingNow (const juce::File& file)
     // Recording replaces the editable arrangement view. Capture a recoverable
     // restore point before the destructive transition.
     createSessionSnapshot();
+    syncCurrentTakeToHistory();
     const bool started = processorRef.beginMasterRecording (file);
     recordStatus.setText (started ? "Recording: " + file.getFileName()
                                   : "Could not start recording", juce::dontSendNotification);
@@ -2527,6 +2726,15 @@ juce::ValueTree MainPluginEditor::makeProjectState() const
     processorRef.getStateInformation (processorState);
     root.setProperty ("processorState", processorState.toBase64Encoding(), nullptr);
     root.appendChild (arrangementView.toState(), nullptr);
+    juce::ValueTree takes ("TAKE_HISTORY");
+    takes.setProperty ("selected", selectedPerformanceTake, nullptr);
+    for (int i = 0; i < (int) performanceTakeHistory.size(); ++i)
+    {
+        auto take = performanceTakeHistory[(size_t) i].createCopy();
+        take.setProperty ("takeIndex", i, nullptr);
+        takes.appendChild (take, nullptr);
+    }
+    root.appendChild (takes, nullptr);
     root.appendChild (pianoRoll.toState(), nullptr);
     return root;
 }
@@ -2605,6 +2813,19 @@ void MainPluginEditor::restoreProjectState (const juce::ValueTree& root,
 
     arrangementView.fromState (
         resolvedRoot.getChildWithName ("ARRANGEMENT"));
+    performanceTakeHistory.clear();
+    selectedPerformanceTake = -1;
+    if (const auto takes = resolvedRoot.getChildWithName ("TAKE_HISTORY");
+        takes.isValid())
+    {
+        for (int i = 0; i < takes.getNumChildren(); ++i)
+            if (takes.getChild (i).hasType ("ARRANGEMENT"))
+                performanceTakeHistory.push_back (takes.getChild (i).createCopy());
+        if (! performanceTakeHistory.empty())
+            selectedPerformanceTake = juce::jlimit (
+                0, (int) performanceTakeHistory.size() - 1,
+                (int) takes.getProperty ("selected", 0));
+    }
     pianoRoll.fromState (
         resolvedRoot.getChildWithName ("PIANOROLL"));
     refreshChannelStrips();
@@ -3304,6 +3525,7 @@ void MainPluginEditor::loadLastArrangementIntoView (juce::String statusLine)
         if (! loadedCanonical)
             arrangementView.setArrangement (
                 masterRec, decks, std::move (statusLine));
+        appendCurrentTakeToHistory();
         revealRecordingButton.setEnabled (true);
         reloadIntoDecksButton.setEnabled (anyDeck);
         bounceEditsButton.setEnabled (anyDeck);
@@ -3506,9 +3728,9 @@ void MainPluginEditor::runPluginHostScan()
         if (safeThis == nullptr)
             return juce::ThreadPoolJob::jobHasFinished;
 
-        // Sattari-only. A full third-party scan crashes the host (Serato Sample calls
-        // main-thread-only Text Input Services from the scan thread → SIGTRAP).
-        auto result = safeThis->processorRef.scanSattariPlugins();
+        // Discovery runs in the isolated helper, so a broken scanner cannot take
+        // down the live audio process.
+        auto result = safeThis->processorRef.scanPluginHostDefaultLocations();
         juce::MessageManager::callAsync ([safeThis, result]() mutable
         {
             if (safeThis == nullptr)
@@ -4296,6 +4518,9 @@ void MainPluginEditor::showCommandPalette()
         ,{ 27, "Welcome Guide",       "Review the four-step getting-started guide",      "" }
         ,{ 28, "Undo Session Change", "Undo a channel add, remove, or destructive clear", "" }
         ,{ 29, "Redo Session Change", "Redo the last session-level change",               "" }
+        ,{ 30, "Keep Last 60 Seconds", "Recover master audio captured before Record was armed", "" }
+        ,{ 31, "Previous Performance Take", "Open the previous captured take in Replay", "" }
+        ,{ 32, "Next Performance Take", "Open the next captured take in Replay", "" }
     };
 
     auto panel = std::make_unique<stemdeck::CommandPalette> (std::move (commands));
@@ -4446,6 +4671,9 @@ void MainPluginEditor::performCommand (int commandId)
         case 27: showOnboarding (true); break;
         case 28: undoSessionAction(); break;
         case 29: redoSessionAction(); break;
+        case 30: keepRetrospectiveAudio(); break;
+        case 31: selectPerformanceTake (-1); break;
+        case 32: selectPerformanceTake (1); break;
         default: break;
     }
 }
@@ -4792,6 +5020,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         else                  objective = juce::String::fromUTF8 ("MIX LIVE  \xe2\x80\xa2  cue, loop, stems, and FX follow the active deck");
 
         auto row = performanceCoachBounds.reduced (14, 0);
+        row.removeFromRight (190);   // live scene buttons occupy this fixed cluster
         auto signals = row.removeFromRight (juce::jmin (430, row.getWidth() * 43 / 100));
         row.removeFromRight (10);
         g.setColour (recording ? stemdeck::tokens::c (stemdeck::tokens::meterHot) : accent);
@@ -6009,6 +6238,10 @@ void MainPluginEditor::configureDeckStrip (int i)
         grid.addItem (5, "Interpret BPM as normal");
         grid.addItem (6, "Interpret BPM as double-time");
         grid.addItem (7, "Reset to detected analysis");
+        grid.addSeparator();
+        grid.addItem (8, "Add warp anchor at playhead");
+        grid.addItem (9, "Clear user warp anchors",
+                      ! processorRef.getDeckUserWarpMarkers (i).empty());
         grid.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (deckStrips[(size_t) i].get()),
             [safe = juce::Component::SafePointer<MainPluginEditor> (this), i, prefix, getFloat, setFloat]
             (int result)
@@ -6054,6 +6287,11 @@ void MainPluginEditor::configureDeckStrip (int i)
                             prefix + "TempoInterpretation"))
                         choice->setValueNotifyingHost (0.0f);
                 }
+                else if (result == 8)
+                    safe->processorRef.addDeckUserWarpMarker (
+                        i, safe->processorRef.getDeckPlayheadSeconds (i));
+                else if (result == 9)
+                    safe->processorRef.clearDeckUserWarpMarkers (i);
             });
     };
 
@@ -6501,8 +6739,18 @@ void MainPluginEditor::resized()
     if (performWorkspace)
     {
         performanceCoachBounds = area.removeFromTop (34);
+        auto sceneArea = performanceCoachBounds.withTrimmedLeft (
+            juce::jmax (0, performanceCoachBounds.getWidth() - 184)).reduced (0, 3);
+        for (auto& button : sceneButtons)
+        {
+            button.setVisible (true);
+            button.setBounds (sceneArea.removeFromLeft (43));
+            sceneArea.removeFromLeft (3);
+        }
         area.removeFromTop (stemdeck::tokens::gap4);
     }
+    else
+        for (auto& button : sceneButtons) { button.setVisible (false); button.setBounds ({}); }
     if (browserVisible)
     {
         const int browserWidth = juce::jlimit (340, 520, area.getWidth() * 31 / 100);
@@ -7572,7 +7820,8 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     namespace T = stemdeck::tokens;
 
     juce::Component* arrangerControls[] = {
-        &arrangementLabel, &launchAllButton, &playArrButton, &arrRecordButton, &arrLoopButton,
+        &arrangementLabel, &previousTakeButton, &nextTakeButton,
+        &launchAllButton, &playArrButton, &arrRecordButton, &keepLastButton, &arrLoopButton,
         &arrZoomOutButton, &arrZoomInButton, &arrZoomFitButton,
         &snapToggleButton, &arrGrid, &razorButton, &arrAutomationButton, &arrFollowButton, &overlapModeButton,
         &undoButton, &redoButton, &bounceEditsButton };
@@ -7595,9 +7844,15 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     razorButton.setToggleState (arrangementView.isRazorMode(), juce::dontSendNotification);
     arrAutomationButton.setToggleState (arrangementView.hasVisibleAutomation(),
                                         juce::dontSendNotification);
-    arrangementLabel.setText ("REPLAY  /  TAKE "
-                              + juce::String (juce::jmax (1, processorRef.getCurrentTakeNumber())),
+    const int shownTake = selectedPerformanceTake >= 0
+                            ? selectedPerformanceTake + 1
+                            : juce::jmax (1, processorRef.getCurrentTakeNumber());
+    arrangementLabel.setText ("REPLAY  /  TAKE " + juce::String (shownTake),
                               juce::dontSendNotification);
+    previousTakeButton.setEnabled (selectedPerformanceTake > 0);
+    nextTakeButton.setEnabled (selectedPerformanceTake >= 0
+                               && selectedPerformanceTake + 1
+                                      < (int) performanceTakeHistory.size());
 
     // The first Replay view is intentionally an editor, not a DAW cockpit.
     // Grid resolution, overlap policy, automation and launch mode return with
@@ -7620,6 +7875,9 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     auto transportRow = bounds.removeFromTop (34);
     arrangementLabel.setBounds (transportRow.removeFromLeft (juce::jmin (238, transportRow.getWidth() / 4))
                                              .reduced (2, 1));
+    previousTakeButton.setBounds (transportRow.removeFromLeft (54).reduced (1, 4));
+    nextTakeButton.setBounds (transportRow.removeFromLeft (54).reduced (1, 4));
+    transportRow.removeFromLeft (T::gap4);
 
     auto viewTools = transportRow.removeFromRight (advancedVisible ? 220 : 54);
     if (advancedVisible)
@@ -7632,8 +7890,8 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     arrZoomFitButton.setBounds (viewTools.removeFromLeft (44).reduced (1, 4));
 
     auto cluster = transportRow.withSizeKeepingCentre (
-        juce::jmin (transportRow.getWidth(), 68 * (advancedVisible ? 4 : 3)
-                                             + T::gap4 * (advancedVisible ? 3 : 2)), 28);
+        juce::jmin (transportRow.getWidth(), 68 * (advancedVisible ? 5 : 4)
+                                             + T::gap4 * (advancedVisible ? 4 : 3)), 28);
     auto transport = [&cluster] (juce::Component& c, int w)
     {
         c.setBounds (cluster.removeFromLeft (w));
@@ -7642,6 +7900,7 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     if (advancedVisible) transport (launchAllButton, 68);
     transport (playArrButton, 68);
     transport (arrRecordButton, 68);
+    transport (keepLastButton, 68);
     transport (arrLoopButton, 68);
 
     auto editRow = bounds.removeFromTop (32).reduced (0, 2);
@@ -7980,6 +8239,15 @@ void MainPluginEditor::timerCallback()
         const bool bs = processorRef.parameters().getRawParameterValue ("beatSync")->load() > 0.5f;
         if (syncBpmButton.getToggleState() != bs) syncBpmButton.setToggleState (bs, juce::dontSendNotification);
     }
+    {   // Scene occupancy may change through project restore or another editor.
+        for (int scene = 0; scene < MainPluginProcessor::numPerformanceScenes; ++scene)
+        {
+            const bool stored = processorRef.hasPerformanceScene (scene);
+            auto& button = sceneButtons[(size_t) scene];
+            if (button.getToggleState() != stored)
+                button.setToggleState (stored, juce::dontSendNotification);
+        }
+    }
 
     // ── Motion: nav underline slides toward the active view's cell ──────────
     {
@@ -8167,6 +8435,18 @@ void MainPluginEditor::timerCallback()
             wave->setPlaybackState (processorRef.getDeckPlayheadSeconds (i),
                                     processorRef.getDeckTotalSeconds (i),
                                     playing);
+        if (auto* region = deckWaveRegions[(size_t) i].get())
+        {
+            std::vector<stemdeck::WaveformRegion::WarpMarkerView> markers;
+            const double total = processorRef.getDeckTotalSeconds (i);
+            if (total > 0.0)
+                for (const auto& marker : processorRef.getDeckUserWarpMarkers (i))
+                    markers.push_back ({ marker.id,
+                        (float) juce::jlimit (0.0, 1.0,
+                                             marker.sourceSeconds / total),
+                        marker.projectBeat });
+            region->setWarpMarkers (std::move (markers));
+        }
         if (playing != lastDeckPlayingUI[(size_t) i])
         {
             // Play/stop icon follows the toggle state (PlayIconLookAndFeel), no text.
@@ -8228,6 +8508,14 @@ void MainPluginEditor::timerCallback()
         deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckTimePitchStatus (i) + u8 (" \xe2\x80\xa2 ") + processorRef.getDeckBeatSyncStatus (i),
                                                    juce::dontSendNotification);
         deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
+        const float splitProgress = processorRef.getDeckStemSeparationProgress (i);
+        const bool splitting = splitProgress < 0.999f;
+        deckControls[(size_t) i].aiStems.setButtonText (
+            splitting ? "CANCEL " + juce::String ((int) std::round (splitProgress * 100.0f)) + "%"
+                      : "AI SPLIT");
+        deckControls[(size_t) i].aiStems.setTooltip (
+            splitting ? "Cancel stem separation; completed cached stems are kept"
+                      : "Create vocals, drums, bass, and other stems in the background");
 
         const auto path = processorRef.getDeckPath (i);
         if (path != deckPaths[(size_t) i])
@@ -9116,6 +9404,8 @@ void MainPluginEditor::updateMidiLearnUI()
 
     constexpr int kCcBase   = 1;
     constexpr int kNoteBase = 1000;
+    constexpr int kExport   = 9997;
+    constexpr int kImport   = 9998;
     constexpr int kClearAll = 9999;
 
     juce::PopupMenu cont;
@@ -9137,14 +9427,68 @@ void MainPluginEditor::updateMidiLearnUI()
     menu.addSubMenu ("Triggers  (press a pad / button)", trig);
 
     menu.addSeparator();
+    menu.addItem (kExport, "Export named controller preset...", midi.hasBindings());
+    menu.addItem (kImport, "Import controller preset...");
     menu.addItem (kClearAll, "Clear all MIDI mappings");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (midiLearnButton),
         [safe = juce::Component::SafePointer<MainPluginEditor> (this),
-         kCcBase, kNoteBase, kClearAll] (int result)
+         kCcBase, kNoteBase, kExport, kImport, kClearAll] (int result)
         {
             if (safe == nullptr || result <= 0) return;
             auto& m = safe->processorRef.getMidiMapping();
+
+            if (result == kExport)
+            {
+                auto chooser = std::make_shared<juce::FileChooser> (
+                    "Export StemDeck controller preset",
+                    juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                        .getChildFile ("StemDeck Controller.sdmidimap"),
+                    "*.sdmidimap");
+                chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                      | juce::FileBrowserComponent::canSelectFiles,
+                    [safe, chooser] (const juce::FileChooser& fc)
+                    {
+                        if (safe == nullptr) return;
+                        auto file = fc.getResult();
+                        if (file.getFullPathName().isEmpty()) return;
+                        if (! file.hasFileExtension ("sdmidimap"))
+                            file = file.withFileExtension ("sdmidimap");
+                        const bool ok = file.replaceWithText (
+                            safe->processorRef.getMidiMapping().serializeNamedPreset (
+                                file.getFileNameWithoutExtension()));
+                        safe->libraryMetaLabel.setText (
+                            ok ? "Exported controller preset " + file.getFileName()
+                               : "Could not export controller preset",
+                            juce::dontSendNotification);
+                    });
+                return;
+            }
+
+            if (result == kImport)
+            {
+                auto chooser = std::make_shared<juce::FileChooser> (
+                    "Import StemDeck controller preset",
+                    juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+                    "*.sdmidimap");
+                chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                      | juce::FileBrowserComponent::canSelectFiles,
+                    [safe, chooser] (const juce::FileChooser& fc)
+                    {
+                        if (safe == nullptr) return;
+                        const auto file = fc.getResult();
+                        if (! file.existsAsFile()) return;
+                        juce::String error;
+                        const bool ok = safe->processorRef.getMidiMapping()
+                                            .deserializeNamedPreset (
+                                                file.loadFileAsString(), error);
+                        safe->libraryMetaLabel.setText (
+                            ok ? "Loaded controller preset " + file.getFileName()
+                               : "Controller preset failed: " + error,
+                            juce::dontSendNotification);
+                    });
+                return;
+            }
 
             if (result == kClearAll)
             {

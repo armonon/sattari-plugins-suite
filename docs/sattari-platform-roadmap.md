@@ -4,7 +4,7 @@ category: sattari
 area: audio-platform
 status: active
 created: 2026-06-17
-updated: 2026-06-17
+updated: 2026-08-09
 source: Platform strategy — Core once, StemDeck as the forcing flagship
 ---
 
@@ -28,11 +28,14 @@ proven asset." Verified against the repo:
 - **But pluginval@5 proves hygiene, not sound.** It checks no-crash, state save/restore,
   parameter automation, editor-while-processing, and allocation/thread behaviour — not
   whether the time-stretch or key detection sound good.
-- **StemDeck is the *least* DSP-validated of the seven.** Its own
-  `docs/stemdeck-sale-readiness-gates.md` lists as current blockers: no sale-grade
-  time/pitch engine, key detection is "lightweight Krumhansl chroma, not commercial-grade,"
-  no automatic downbeat/beatgrid, separation requires an external Demucs setup, **no AU
-  built** (VST3 + Standalone only), no DAW pass, no listening pass.
+- **StemDeck remains the least externally validated of the suite, but it is no longer
+  mostly scaffold.** It now has spectral-flux + DBN/Viterbi-style beat/downbeat
+  analysis, variable-tempo Anchor/Groove Sync, optional neural beat/key refinement,
+  native ONNX and Demucs separation paths, deterministic intent capture/replay, and
+  an editable arrangement workspace. AU is now part of the declared build formats.
+  The open gap is evidence and productization: licensed real-song accuracy, physical
+  hardware, broad third-party hosting, DAW certification, model redistribution,
+  commercial time-stretch licensing, and notarized clean-machine installation.
 
 So the conclusion holds with a sharpened framing: **the packaging path is proven; the DSP
 is not.** StemDeck's job as flagship is to make the hard DSP real — which is precisely why
@@ -78,9 +81,9 @@ only once a real product needs it and it works on real material.
 | Primitive | State today | Lives in | Feeds |
 |---|---|---|---|
 | Pitch detection (YIN) | Real, good | VoxKey `PitchDetector` | Auto Pitch, Sample Library Brain |
-| Key / chroma + energy | Real but *lightweight* (Krumhansl) | StemDeck `TrackAnalysis` | StemDeck live-key, Sample Library Brain similarity |
+| Key / chroma + energy | Real DSP baseline + optional neural refinement | StemDeck `TrackAnalysis` / `NeuralKeyEngine` | StemDeck live-key, Sample Library Brain similarity |
 | Time/pitch (key-lock) | Real via **RubberBand**; granular fallback smears | StemDeck `DeckPlayer` | StemDeck, Auto Pitch |
-| Stem separation | **Not owned DSP** — shells out to Demucs | StemDeck `StemProvider` | StemDeck (and only StemDeck) |
+| Stem separation | Native ONNX engine + Demucs command fallback; distributable weights unresolved | StemDeck `NeuralStemEngine` / `StemProvider` | StemDeck |
 
 Two of the three "StemDeck primitives" the strategy counts on (time-stretch, key) are real
 enough to promote; **separation is a wrapper around an external tool**, not a Sattari asset,
@@ -92,9 +95,10 @@ and shouldn't be counted as one.
    paid commercial license). Closed-source paid StemDeck ⇒ buy the commercial license or
    replace the engine. Decide before Build mode — it is load-bearing for the whole line
    (Auto Pitch wants it too).
-2. **AU on by default.** `sattari_add_plugin()` now defaults to AU+VST3+Standalone; StemDeck
-   must actually adopt it so Logic/GarageBand users exist. (Also clear the Standalone
-   codesign warning seen in its log.)
+2. **AU host certification.** StemDeck now declares AU+VST3+Standalone; the Debug AU
+   builds, receives an ad-hoc signature, and passes `auval -v aumu Sd01 Satr` on
+   2026-08-09. Complete Logic/GarageBand save/restore and automation tests, then clear
+   the release-signing warning with real Developer ID credentials.
 3. **Separation packaging.** "Optional local Demucs" is a dealbreaker for normal users.
    Choose: bundle a one-click on-device separator, or ship pre-separated stem packs first.
 4. **Licensing technology.** Pick the activation/license approach (e.g. signed offline
@@ -115,20 +119,28 @@ stem remix, then refine it into a release. Two modes plus the bridge:
 
 Phases — order matters because a DJ tool lives or dies on these:
 
-1. **Make the DJ half real.** Rock-solid tempo sync that doesn't drift over minutes,
+1. **Make the DJ half real — IMPLEMENTED / NEEDS EXTERNAL CERTIFICATION.** Rock-solid tempo sync that doesn't drift over minutes,
    accurate live key, listenable time-stretch — validated on known-BPM/known-key material
    with the listening matrix already scoped in the gates doc. **True scope flag:** real DJ
-   sync needs beat/downbeat detection + an editable beatgrid; today `BeatSyncEngine` follows
-   host PPQ + per-deck source BPM + a manual offset, with no downbeat/transient detection.
-   That is a DSP build, not a tweak. No new features until Perform feels tight.
-2. **Bundle separation properly.** Zero-setup: one-click bundled separator or shipped stem
-   packs. Real-time not required yet.
-3. **Build the capture bridge.** Start minimal: capture deck audio + key/loop moves into one
-   replayable, trimmable timeline. This is greenfield — `ArrangementBuilder` /
-   `PerformanceRecorder` are scaffolds, not an editor.
-4. **Build mode.** Arrange/warp/trim/layer + a couple of effects + export. Be honest that
-   this is most of a DAW; keep it to "enough to turn a performance into something shareable."
-5. **Identity, packaging, launch.** Lock the "perform → keep → build → release" story;
+   sync now has automatic onset/beat/downbeat analysis, variable-tempo warp markers,
+   per-deck sync enable, manual correction, and deterministic contracts. Remaining:
+   waveform-direct downbeat anchoring plus the licensed real-music/long-drift/controller
+   matrix. A full draggable multi-marker warp editor remains; no accuracy claim until
+   that corpus passes.
+2. **Bundle separation properly — ENGINE + USER LIFECYCLE COMPLETE / DISTRIBUTION DECISION OPEN.** Native
+   ONNX separation, visible progress/cancel, cache handoff, streaming preview, and
+   Demucs fallback exist. Zero-setup shipping still requires a commercially cleared
+   model/runtime package or a first-run licensed download.
+3. **Build the capture bridge — IMPLEMENTED.** Typed, versioned intent events, pinned
+   analysis, stable channel/insert identity, printed safety lanes, editable source
+   lanes, 60-second retrospective master recovery, performance scenes, persisted
+   alternate takes, and sample-identical fixed-block replay are enforced by contracts.
+4. **Build mode — FUNCTIONAL ALPHA.** Arrange/trim/fade/layer, automation, MIDI/piano
+   roll, lane DSP, master automation replay, portable sessions, and export exist.
+   Remaining product work is region-level comp splicing, long-session editing
+   performance, hosted-plugin replay certification, and real artist workflow
+   testing—not a greenfield DAW build.
+5. **Identity, packaging, launch — PARTIAL.** Lock the "perform → keep → build → release" story;
    one-click install + license (from Core); make the demo the marketing — live four-stem
    remix, stop, export a finished track in 30 seconds.
 
@@ -152,11 +164,12 @@ install (already true; the Hub exists).
 
 ## Where this already stands
 
-Done and paying forward: the shared C++ core, all seven editors unified on it, the Hub wired
-to the same brand registry with a drift guard, CI, and now the packaging path lifted into
-`sattari_add_plugin()` + `validate_plugin.sh`. The next concrete moves are the **RubberBand
-license decision** and **StemDeck phase 1** (sync/beatgrid/key/time-stretch) on a Mac with
-ears, since that DSP can't be validated in a headless sandbox.
+Done and paying forward: shared Core, unified editors, Hub/brand drift guard, CI,
+shared packaging, StemDeck's perform/capture/build architecture, deterministic replay,
+and local alpha installers. The next concrete moves are no longer broad feature work:
+they are the **RubberBand + model-weight license decisions**, the licensed real-music
+accuracy/listening corpus, physical controller/interface testing, third-party plugin
+isolation, AU/VST3 DAW certification, and a credentialed notarized clean-machine release.
 
 ## Truth label
 

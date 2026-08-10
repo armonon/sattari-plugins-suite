@@ -26,17 +26,20 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
   it to a fixed-BPM identity map. This still needs a licensed real-music corpus gate
   (especially ambient intros, breakdowns, live drummers, and tempo changes) and a
   full visual beat-marker editor before commercial DJ-grade claims.
-- Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: Sattari-only scan, per-chain `AudioProcessorGraph`, series FX rack, RT-safe processChain) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
+- Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: trusted Sattari in-process graphs plus a dedicated helper process and shared-memory audio ring for untrusted effects) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
 - Hosted-plugin parameters now have stable event-stream addressing and deterministic
-  dispatch, but third-party plugins still execute in-process. A crashing or blocking
-  plugin can therefore take down a live set; process isolation plus crash/recovery
-  tests remain release blockers for unrestricted third-party hosting.
+  dispatch for the trusted graph. Third-party audio effects are process-isolated and
+  dry-bypassed if the helper exits; native editors, MIDI, complete state/automation,
+  more than one isolated effect per chain, automatic restart, and crash/hang/latency
+  soak matrices remain release blockers for unrestricted third-party hosting.
 - Editable arrangement replay now follows captured lane EQ/filter/reverb/echo and
   master gain/performance-FX/Smart-Master/limiter automation. A real third-party
   plugin replay/hash matrix and complete live-set stress replay are still required.
 - No manual DAW pass completed by this repo-only script.
 - No real listening pass completed by this repo-only script.
-- No installer/notarization/EULA/payment/product-page work.
+- A responsive static product page now exists at `apps/stemdeck-web/index.html`.
+  Deployment, analytics, privacy/EULA, payments, support operations, credentialed
+  notarization, and a tested installer/update channel remain commercial gates.
 - The contract suite is comprehensive but expensive to build because excluded test
   executables compile duplicate JUCE/Tracktion objects. Consolidate the contracts or
   share test-support libraries so the full release gate is practical on every change.
@@ -46,7 +49,8 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
 For each host below, test both fresh insert and restored session:
 
 - Ableton Live: VST3 insert, load four decks, load at least two stem lanes, automate stem gains, save/reopen.
-- Logic Pro: Standalone can be checked now; AU is not currently built for StemDeck, so AU support remains blocked until CMake/product config adds it.
+- Logic Pro: the AU target builds and passed `auval -v aumu Sd01 Satr` on 2026-08-09;
+  test fresh insert, automation, save/reopen, and hosted-plugin state restoration.
 - FL Studio: VST3 insert, transport sync on/off, play/stop host while decks are playing.
 - Reaper: VST3 insert, plugin state save/reopen, sample pads, record WAV start/stop.
 

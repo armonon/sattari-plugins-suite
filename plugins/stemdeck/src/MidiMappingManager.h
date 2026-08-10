@@ -236,6 +236,96 @@ public:
         }
     }
 
+    // Portable controller presets bind by stable target name rather than vector
+    // index. A preset therefore survives target reordering between app versions.
+    juce::String serializeNamedPreset (const juce::String& name) const
+    {
+        auto root = std::make_unique<juce::DynamicObject>();
+        root->setProperty ("format", "StemDeck MIDI Map");
+        root->setProperty ("version", 1);
+        root->setProperty ("name", name);
+        juce::Array<juce::var> bindings;
+        for (int cc = 0; cc < 128; ++cc)
+        {
+            const int target = ccMap[(size_t) cc].load (std::memory_order_relaxed);
+            if (! juce::isPositiveAndBelow (target, (int) ccTargets.size())) continue;
+            auto binding = std::make_unique<juce::DynamicObject>();
+            binding->setProperty ("type", "cc");
+            binding->setProperty ("controller", cc);
+            binding->setProperty ("target", ccTargets[(size_t) target].name);
+            bindings.add (juce::var (binding.release()));
+        }
+        for (int note = 0; note < 128; ++note)
+        {
+            const int target = noteMap[(size_t) note].load (std::memory_order_relaxed);
+            if (! juce::isPositiveAndBelow (target, (int) noteTargets.size())) continue;
+            auto binding = std::make_unique<juce::DynamicObject>();
+            binding->setProperty ("type", "note");
+            binding->setProperty ("controller", note);
+            binding->setProperty ("target", noteTargets[(size_t) target].name);
+            bindings.add (juce::var (binding.release()));
+        }
+        root->setProperty ("bindings", bindings);
+        return juce::JSON::toString (juce::var (root.release()), true);
+    }
+
+    bool deserializeNamedPreset (const juce::String& json, juce::String& error)
+    {
+        const auto parsed = juce::JSON::parse (json);
+        const auto* object = parsed.getDynamicObject();
+        if (object == nullptr || object->getProperty ("format").toString()
+                                    != "StemDeck MIDI Map")
+        {
+            error = "Not a StemDeck MIDI map";
+            return false;
+        }
+        const auto* bindings = object->getProperty ("bindings").getArray();
+        if (bindings == nullptr)
+        {
+            error = "The MIDI map has no bindings";
+            return false;
+        }
+
+        clearAll();
+        int restored = 0;
+        for (const auto& value : *bindings)
+        {
+            const auto* binding = value.getDynamicObject();
+            if (binding == nullptr) continue;
+            const int controller = (int) binding->getProperty ("controller");
+            const auto targetName = binding->getProperty ("target").toString();
+            if (! juce::isPositiveAndBelow (controller, 128) && controller != 0)
+                continue;
+            if (binding->getProperty ("type").toString() == "cc")
+            {
+                for (int target = 0; target < (int) ccTargets.size(); ++target)
+                    if (ccTargets[(size_t) target].name == targetName)
+                    {
+                        ccMap[(size_t) controller].store (target, std::memory_order_relaxed);
+                        ++restored;
+                        break;
+                    }
+            }
+            else if (binding->getProperty ("type").toString() == "note")
+            {
+                for (int target = 0; target < (int) noteTargets.size(); ++target)
+                    if (noteTargets[(size_t) target].name == targetName)
+                    {
+                        noteMap[(size_t) controller].store (target, std::memory_order_relaxed);
+                        ++restored;
+                        break;
+                    }
+            }
+        }
+        forceFeedback.store (true, std::memory_order_relaxed);
+        if (restored == 0 && ! bindings->isEmpty())
+        {
+            error = "No matching StemDeck targets were found";
+            return false;
+        }
+        return true;
+    }
+
 private:
     void clearLearnState()
     {

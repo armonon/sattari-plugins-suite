@@ -67,6 +67,8 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     smartFilter.addItem ("130+ BPM", 10);
     smartFilter.addItem ("Favourites", 11);
     smartFilter.addItem ("4-5 Stars", 12);
+    smartFilter.addItem ("Possible Duplicates", 13);
+    smartFilter.addItem ("Needs Prep", 14);
     smartFilter.setSelectedId (1, juce::dontSendNotification);
     smartFilter.onChange = [this]
     {
@@ -468,6 +470,18 @@ void MusicLibraryView::rebuildView()
     view.clear();
     view.reserve (entries.size());
 
+    // Fast duplicate triage without hashing entire music libraries on the UI
+    // thread. Equal byte size plus duration-to-100 ms is a strong review signal;
+    // the label deliberately says "possible" so no file is removed automatically.
+    std::map<juce::String, int> duplicateCounts;
+    for (const auto& entry : entries)
+        if (entry.file.existsAsFile())
+        {
+            const auto signature = juce::String (entry.file.getSize()) + ":"
+                                 + juce::String ((int) std::round (entry.lengthSeconds * 10.0));
+            ++duplicateCounts[signature];
+        }
+
     juce::File selectedCrate;
     const int crateIndex = crateSelector.getSelectedId() - 2;
     if (juce::isPositiveAndBelow (crateIndex, crateFolders.size()))
@@ -496,6 +510,16 @@ void MusicLibraryView::rebuildView()
             case 10: smartMatch = entry.bpm >= 130.0f; break;
             case 11: smartMatch = entry.favourite; break;
             case 12: smartMatch = entry.rating >= 4; break;
+            case 13:
+            {
+                const auto signature = juce::String (entry.file.getSize()) + ":"
+                                     + juce::String ((int) std::round (entry.lengthSeconds * 10.0));
+                smartMatch = entry.file.existsAsFile()
+                          && duplicateCounts[signature] > 1;
+                break;
+            }
+            case 14: smartMatch = entry.analyzed && entry.rating == 0
+                                   && entry.tags.trim().isEmpty(); break;
             default: break;
         }
         if (! smartMatch)

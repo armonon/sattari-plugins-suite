@@ -200,6 +200,27 @@ void StemProvider::shutdown()
     pool.removeAllJobs (true, -1);
 }
 
+void StemProvider::cancelPending()
+{
+    neuralEngine.cancelPending();
+    // Signal queued/running jobs without making the message thread wait for the
+    // separator process to unwind. Jobs observe shouldExit()/the neural cancel
+    // token and finish in the background; shutdown() still performs the full join.
+    pool.removeAllJobs (true, 0);
+    const juce::ScopedLock lock (statusLock);
+    for (auto& [hash, status] : statusByHash)
+    {
+        juce::ignoreUnused (hash);
+        if (status.jobQueued || status.jobRunning)
+        {
+            status.jobQueued = false;
+            status.jobRunning = false;
+            status.headline = "Stem separation cancelled";
+            status.detail = "Existing completed stem cache remains available";
+        }
+    }
+}
+
 bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory,
                                         juce::String& message, const std::function<bool()>& shouldCancel)
 {

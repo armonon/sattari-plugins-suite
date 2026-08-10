@@ -62,6 +62,7 @@ public:
     // before draining its audio-analysis pool because a stem completion can enqueue
     // decoded-stem work there.
     void shutdown();
+    void cancelPending();
 
     juce::String getName() const override { return "StemDeck offline cached StemProvider"; }
     bool isAvailable() const override { return true; }

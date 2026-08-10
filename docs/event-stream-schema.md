@@ -1,7 +1,11 @@
 # StemDeck Event Stream — schema v1 (ACCEPTED)
 
-**Status: agreed 2026-07-27. Not yet implemented. Code may now be written against
-this.** Changing anything below after implementation starts breaks both the live
+**Status: implemented 2026-08-09; schema v1 is enforced by deterministic contracts.**
+Types/storage, pinned analysis, all 58 parameter/trigger families, stable hosted-plugin
+parameter IDs, and the fixed-block replay/hash gate are live. Rendering currently
+uses processor-owned event application with APVTS as its host-automation mirror;
+the resulting fresh-processor replay is sample-identical at the recorded block size.
+Changing anything below breaks both the live
 surface and the arrangement editor — see §10 for what is safe to change and what is not.
 
 ---
@@ -168,6 +172,12 @@ insertParam, insertBypass,             // insert scope; index carried in payload
 inputGain, inputMonitor, inputSource,  // input channels
 instGain, instMidiChannel,
 masterGain, limiterCeiling, masterKey,
+channelFader, fullMixGain, pitchStem, filterStem, sendStem,
+reverbMix, echoMix, deckPlay, deckSync, liveKeyOn,
+beatOffset, downbeat, crossfaderReverse, masterBpm, hostSync, beatSync,
+micMonitorGlobal, micGainGlobal, liveInstrumentOn, liveInstrumentGain,
+masterFxX, masterFxY, smartMasterOn, smartMasterMode, smartMasterAmount,
+stemLink, padGain, slipMode, padTrigger,
 ```
 
 Appending is safe. **Renumbering or reusing a value is a breaking change** and requires
@@ -240,14 +250,13 @@ constraint on the engine, not just the schema:
 
 ---
 
-## 9. Honest cost
+## 9. Implementation record
 
-Implementing this is **3–5 weeks**: the schema itself is a few days; inverting every
-control from direct-mutation to dispatch, making rendering read session state, and
-building the replay + hash harness is the bulk. Item §6.2 (pinning analysis) may be
-the hardest part and is easy to miss until the hash test fails intermittently.
-
-**Review this before any of it is coded.**
+The originally estimated **3–5 weeks** of architecture work is now represented by
+`EventStream`, `EventDispatcher`, the versioned `AnalysisCache`, complete ParamId
+ownership, and `StemDeckReplayHash`. The remaining work is coverage rather than
+schema construction: dense gestures, long performances, real hosted plugins, live
+inputs, and structural edits must be added to the hash matrix before release.
 
 
 ---
@@ -266,21 +275,24 @@ or Q2 (id vs index) is not a migration, it is a rewrite of both halves.
 
 ---
 
-## 11. Implementation phases
+## 11. Implementation phases and current status
 
 Sequenced so each lands something verifiable. Honest total: **3-5 weeks**, and the
 schema itself is only the first few days.
 
-1. **Types + storage** — the structs, the binary reader/writer, `schemaVersion` refusal
+1. **Types + storage — COMPLETE** — the structs, the binary reader/writer, `schemaVersion` refusal
    on load. Verifiable with a round-trip test, no engine changes.
-2. **Analysis pinning (§6.2)** — `contentHash` + `analysisVersion` on `trackLoad`, and
+2. **Analysis pinning (§6.2) — COMPLETE** — `contentHash` + `analysisVersion` on `trackLoad`, and
    persist the refined analysis into the session. Do this EARLY: it is the item most
    likely to invalidate assumptions, and the hardest to retrofit.
-3. **Dispatch inversion** — ~40 control call sites stop mutating APVTS directly and emit
+3. **Dispatch inversion — COMPLETE FOR 58/58 PARAM IDS** — control call sites emit
    events instead. The bulk of the work. Incremental: one control group at a time, with
    the old path removed as each lands.
-4. **Rendering reads session state** rather than APVTS.
-5. **Replay + hash harness** — the actual A1 gate. Render a captured session twice at a
+4. **Render-state authority — ACCEPTED VIA THE SINGLE APPLIER** — `applyEvent()` is
+   the only mutation authority for live and replay; APVTS remains the lock-free host
+   automation/state mirror read by DSP. Replacing that mirror with a duplicate state
+   store would add divergence risk without changing the proven replay result.
+5. **Replay + hash harness — COMPLETE FOR THE CURRENT MATRIX** — the A1 gate renders a captured session twice at a
    fixed block size and compare sample-exactly.
 
 Determinism prerequisites (§6.1-6.5) are constraints on 3-5, not a separate phase:

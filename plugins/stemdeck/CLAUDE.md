@@ -1,7 +1,7 @@
 # Sattari StemDeck — working notes for a focused session
 
 You're working on **StemDeck in isolation**. It's a DJ-style multi-deck remix
-plugin/app (VST3 + Standalone, **no AU**), plugin code `Sd01`, **~32k LOC** under
+plugin/app (AU + VST3 + Standalone), plugin code `Sd01`, under
 `plugins/stemdeck/src`, **app-first** direction. The rest of the Sattari suite is
 not your concern here unless you touch `core/`.
 
@@ -32,10 +32,10 @@ CMakeLists already forces host-arch when the installed ONNX Runtime is not
 universal — Homebrew ships it arm64-only, and a universal build cannot link
 against it.
 
-Machine gate (no AU, so VST3 pluginval@5 + codesign only):
+Machine gate (AU `aumu/Sd01/Satr`, VST3 pluginval@5, and codesign):
 
 ```bash
-scripts/validate_plugin.sh build/stemdeck/SattariStemDeck_artefacts/Release
+scripts/validate_plugin.sh build/stemdeck/SattariStemDeck_artefacts/Release aumu Sd01 Satr
 ```
 
 **Standalone codesign quirk:** before validating, re-sign the `.app` with

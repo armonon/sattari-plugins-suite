@@ -3,7 +3,7 @@ type: assessment
 category: sattari
 area: audio-plugins
 status: active
-updated: 2026-06-17
+updated: 2026-08-09
 ---
 
 # Plugin readiness ranking
@@ -46,12 +46,13 @@ for all).
 
 ## Tier 3 — long road (most ambitious, least validated)
 
-8. **StemDeck** — 4-deck DJ/stem performance app, the flagship vision. Real engine
-   (lock-free stem swap, RubberBand key-lock + granular fallback), but its own gates doc lists
-   the hard parts as open: no automatic beatgrid/downbeat detection, lightweight key detection,
-   no zero-setup stem separation, and the **capture bridge + Build mode are greenfield (most of
-   a DAW)**. It's the highest-ceiling product and the furthest from done. See the phase-1 plan
-   in `docs/agent-handoff-brief.md`.
+8. **StemDeck** — 4-deck DJ/stem performance and arrangement app. It now has
+   automatic beat/downbeat analysis, variable-tempo warp sync, optional neural
+   beat/key/stem engines, stable plugin automation capture, sample-identical replay,
+   and a functional Build workspace. It remains Tier 3 because its risk moved from
+   missing architecture to certification breadth: real-music accuracy, separation
+   model distribution, plugin isolation, physical hardware, DAW matrices, long-session
+   soak, licensing, signing, and installer validation.
 
 ## If the goal is first revenue
 

@@ -185,12 +185,13 @@ MainPluginProcessor::MainPluginProcessor()
     eventDispatcher = std::make_unique<stemdeck::events::Dispatcher> (
         [this] (const stemdeck::events::Event& e) { applyEvent (e); });
 
-    // Listen to every parameter that maps to a ParamId, so moving a control emits an
-    // event without unpicking its SliderAttachment.
+    // Listen to the full stable parameter surface. mapApvtsId() decides at change
+    // time whether the bank currently belongs to a channel. Registering only the
+    // banks active during construction would make future live-added channels
+    // invisible to capture.
     for (auto* p : getParameters())
         if (auto* wid = dynamic_cast<juce::AudioProcessorParameterWithID*> (p))
-            if (mapApvtsId (wid->paramID).valid)
-                apvts.addParameterListener (wid->paramID, this);
+            apvts.addParameterListener (wid->paramID, this);
 
     formatManager.registerBasicFormats();
 #if JUCE_USE_MP3AUDIOFORMAT
@@ -667,6 +668,84 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
         publishChannels();
         return;
     }
+    if (e.type == EventType::transport)
+    {
+        const int transportSlot = channelSlotForId ((ChannelID) e.scope.channel);
+        if (! juce::isPositiveAndBelow (transportSlot, numDecks))
+            return;
+
+        const auto loaded = deckAt (transportSlot).getLoadedAudio();
+        const double sourceRate = loaded != nullptr ? loaded->sourceSampleRate : 0.0;
+        const double bpm = juce::jmax (1.0, (double) getFloatParam (
+            deckIds[(size_t) transportSlot].bpm));
+        const auto secondsForBeat = [bpm] (double beat) { return beat * 60.0 / bpm; };
+        const auto seekSecondsDirect = [this, transportSlot, sourceRate] (double seconds)
+        {
+            if (sourceRate > 0.0)
+                deckAt (transportSlot).seekToSamples (
+                    juce::jmax (0.0, seconds) * sourceRate);
+        };
+
+        switch (e.transport.action)
+        {
+            case TransportAction::play:
+            case TransportAction::stop:
+                if (auto* p = apvts.getParameter (deckIds[(size_t) transportSlot].play))
+                {
+                    applyingEvent.store (true, std::memory_order_release);
+                    p->setValueNotifyingHost (
+                        e.transport.action == TransportAction::play ? 1.0f : 0.0f);
+                    applyingEvent.store (false, std::memory_order_release);
+                }
+                break;
+            case TransportAction::cue:         seekSecondsDirect (0.0); break;
+            case TransportAction::cueRelease:  break;
+            case TransportAction::seek:
+                seekSecondsDirect (secondsForBeat (e.transport.positionBeats));
+                break;
+            case TransportAction::beatJump:
+                seekSecondsDirect (getDeckPlayheadSeconds (transportSlot)
+                    + secondsForBeat (e.transport.lengthBeats));
+                break;
+            case TransportAction::loopSet:
+                if (sourceRate > 0.0)
+                {
+                    const double start = secondsForBeat (e.transport.positionBeats)
+                                       * sourceRate;
+                    const double end = secondsForBeat (
+                        e.transport.positionBeats + e.transport.lengthBeats)
+                                     * sourceRate;
+                    deckAt (transportSlot).setLoopRegion (start, end);
+                }
+                break;
+            case TransportAction::loopOn:      deckAt (transportSlot).setLoopActive (true); break;
+            case TransportAction::loopOff:     deckAt (transportSlot).setLoopActive (false); break;
+            case TransportAction::loopClear:   deckAt (transportSlot).clearLoopRegion(); break;
+            case TransportAction::loopRollOn:
+                deckAt (transportSlot).beginLoopRoll (
+                    secondsForBeat (e.transport.lengthBeats));
+                break;
+            case TransportAction::loopRollOff: deckAt (transportSlot).endLoopRoll(); break;
+            case TransportAction::count:       break;
+        }
+        return;
+    }
+    if (e.type == EventType::marker)
+    {
+        const int markerSlot = channelSlotForId ((ChannelID) e.scope.channel);
+        if (! juce::isPositiveAndBelow (markerSlot, numDecks))
+            return;
+        const int marker = (int) e.marker.index;
+        if (juce::isPositiveAndBelow (marker, numHotCues))
+        {
+            const double bpm = juce::jmax (1.0, (double) getFloatParam (
+                deckIds[(size_t) markerSlot].bpm));
+            apvts.state.setProperty (hotCueProperty (markerSlot, marker),
+                e.marker.atBeat < 0.0 ? -1.0 : e.marker.atBeat * 60.0 / bpm,
+                nullptr);
+        }
+        return;
+    }
     if (e.type != EventType::param) return;
 
     const bool positionalInsertScope = e.scope.kind == ScopeKind::insert;
@@ -760,6 +839,16 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
 
         case ParamId::cfSide:
             if (slot >= 0) applyDeckCfSide (slot, (int) e.param.value);
+            break;
+
+        case ParamId::slipMode:
+            if (slot >= 0)
+                deckAt (slot).setSlipEnabled (e.param.value > 0.5);
+            break;
+
+        case ParamId::padTrigger:
+            if (juce::isPositiveAndBelow ((int) e.param.index, PadBank::numPads))
+                padBank.triggerPad ((int) e.param.index);
             break;
 
         // ── Input / instrument channels ──────────────────────────────────────
@@ -1048,7 +1137,9 @@ namespace
 {
 struct DeckSuffixMap { const char* suffix; stemdeck::events::ParamId id; };
 const DeckSuffixMap kDeckSuffixes[] = {
+    { "Play",                stemdeck::events::ParamId::deckPlay },
     { "Volume",              stemdeck::events::ParamId::channelGain },
+    { "Fader",               stemdeck::events::ParamId::channelFader },
     { "Low",                 stemdeck::events::ParamId::eqLow },
     { "Mid",                 stemdeck::events::ParamId::eqMid },
     { "High",                stemdeck::events::ParamId::eqHigh },
@@ -1057,8 +1148,14 @@ const DeckSuffixMap kDeckSuffixes[] = {
     { "KeyLock",             stemdeck::events::ParamId::keyLockOn },
     { "KeyTarget",           stemdeck::events::ParamId::keyTarget },
     { "Bpm",                 stemdeck::events::ParamId::bpmSource },
+    { "BeatOffset",          stemdeck::events::ParamId::beatOffset },
+    { "Downbeat",            stemdeck::events::ParamId::downbeat },
     { "TempoInterpretation", stemdeck::events::ParamId::tempoInterp },
     { "SyncMode",            stemdeck::events::ParamId::syncMode },
+    { "Sync",                stemdeck::events::ParamId::deckSync },
+    { "LiveKey",             stemdeck::events::ParamId::liveKeyOn },
+    { "RevMix",              stemdeck::events::ParamId::reverbMix },
+    { "EchoMix",             stemdeck::events::ParamId::echoMix },
 };
 
 struct GlobalMap { const char* id; stemdeck::events::ParamId pid; };
@@ -1068,6 +1165,20 @@ const GlobalMap kGlobals[] = {
     { "masterKey",      stemdeck::events::ParamId::masterKey },
     { "crossfader",      stemdeck::events::ParamId::crossfader },
     { "crossfaderCurve", stemdeck::events::ParamId::crossfaderCurve },
+    { "crossfaderReverse", stemdeck::events::ParamId::crossfaderReverse },
+    { "masterBpm",       stemdeck::events::ParamId::masterBpm },
+    { "hostSync",        stemdeck::events::ParamId::hostSync },
+    { "beatSync",        stemdeck::events::ParamId::beatSync },
+    { "micMonitor",      stemdeck::events::ParamId::micMonitorGlobal },
+    { "micGain",         stemdeck::events::ParamId::micGainGlobal },
+    { "liveInstrument",  stemdeck::events::ParamId::liveInstrumentOn },
+    { "liveInstrumentGain", stemdeck::events::ParamId::liveInstrumentGain },
+    { "masterFxX",       stemdeck::events::ParamId::masterFxX },
+    { "masterFxY",       stemdeck::events::ParamId::masterFxY },
+    { "smartMasterOn",   stemdeck::events::ParamId::smartMasterOn },
+    { "smartMasterMode", stemdeck::events::ParamId::smartMasterMode },
+    { "smartMasterAmount", stemdeck::events::ParamId::smartMasterAmount },
+    { "stemLink",        stemdeck::events::ParamId::stemLink },
 };
 } // namespace
 
@@ -1083,6 +1194,19 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
             return m;
         }
 
+    if (id.startsWith ("pad") && id.endsWith ("Gain"))
+    {
+        const int pad = id.substring (3, id.length() - 4).getIntValue() - 1;
+        if (juce::isPositiveAndBelow (pad, PadBank::numPads))
+        {
+            m.valid = true;
+            m.id = ParamId::padGain;
+            m.scope.kind = ScopeKind::master;
+            m.index = (std::uint32_t) pad;
+        }
+        return m;
+    }
+
     if (! id.startsWith ("deck") || id.length() < 5)
         return m;
 
@@ -1090,24 +1214,53 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
     if (! juce::isPositiveAndBelow (deck, numDecks))
         return m;
 
+    // Parameter banks exist ahead of their channels so a live session can grow
+    // without changing the host-visible parameter list.  An unused bank has the
+    // sentinel channel id -1.  Never dispatch that id: channelSlotForId (-1)
+    // resolves to the first unused bank, so automation aimed at any later unused
+    // bank would be echoed into that first bank.  Besides corrupting host state,
+    // this made AU validation report apparently random Deck E parameter changes.
+    const auto channelId = channelIdBySlot[(size_t) deck].load (
+        std::memory_order_acquire);
+    if (channelId < 0)
+        return m;
+
     const auto rest = id.substring (5);
 
-    // Per-stem gain: "Stem<lane>Gain" -> stem scope.
-    if (rest.startsWith ("Stem") && rest.endsWith ("Gain"))
+    // Per-stem gain/pitch/filter/send -> stable stem scope. Full Mix has no
+    // StemLane enum value, so its trim is a channel-scoped parameter family.
+    if (rest == "StemFullGain")
     {
-        const auto laneId = rest.substring (4, rest.length() - 4);
+        m.valid = true;
+        m.id = ParamId::fullMixGain;
+        m.scope.kind = ScopeKind::channel;
+        m.scope.channel = channelId;
+        return m;
+    }
+
+    if (rest.startsWith ("Stem"))
+    {
         for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
-            if (laneId.equalsIgnoreCase (DeckPlayer::stemLaneId (lane)))
+        {
+            const auto lanePrefix = "Stem" + DeckPlayer::stemLaneId (lane);
+            if (! rest.startsWith (lanePrefix))
+                continue;
+            const auto property = rest.substring (lanePrefix.length());
+            ParamId pid {};
+            if      (property == "Gain")  pid = ParamId::gainStem;
+            else if (property == "Pitch") pid = ParamId::pitchStem;
+            else if (property == "Filt")  pid = ParamId::filterStem;
+            else if (property == "Send")  pid = ParamId::sendStem;
+            else continue;
             {
                 m.valid = true;
-                m.id = ParamId::gainStem;
+                m.id = pid;
                 m.scope.kind     = ScopeKind::stem;
-                m.scope.channel =
-                    channelIdBySlot[(size_t) deck].load (
-                        std::memory_order_acquire);
+                m.scope.channel = channelId;
                 m.scope.stemLane = (StemLane) lane;
                 return m;
             }
+        }
         return m;   // full-mix trim is not a stem lane
     }
 
@@ -1116,9 +1269,7 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
         {
             m.valid = true; m.id = d.id;
             m.scope.kind = ScopeKind::channel;
-            m.scope.channel =
-                channelIdBySlot[(size_t) deck].load (
-                    std::memory_order_acquire);
+            m.scope.channel = channelId;
             return m;
         }
     return m;
@@ -1132,15 +1283,32 @@ juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e) 
     for (const auto& g : kGlobals)
         if (e.param.id == g.pid) return g.id;
 
+    if (e.param.id == ParamId::padGain)
+        return juce::isPositiveAndBelow ((int) e.param.index, PadBank::numPads)
+                   ? "pad" + juce::String ((int) e.param.index + 1) + "Gain"
+                   : juce::String {};
+
     const int deck = channelSlotForId ((ChannelID) e.scope.channel);
     if (! juce::isPositiveAndBelow (deck, numDecks)) return {};
     const auto pfx = deckPrefix (deck);
 
-    if (e.param.id == ParamId::gainStem)
+    if (e.param.id == ParamId::fullMixGain)
+        return pfx + "StemFullGain";
+
+    if (e.param.id == ParamId::gainStem
+        || e.param.id == ParamId::pitchStem
+        || e.param.id == ParamId::filterStem
+        || e.param.id == ParamId::sendStem)
     {
         const int lane = (int) e.scope.stemLane;
         if (lane >= 1 && lane < DeckPlayer::numStemLanes)
-            return pfx + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain";
+        {
+            const auto suffix = e.param.id == ParamId::gainStem   ? "Gain"
+                              : e.param.id == ParamId::pitchStem  ? "Pitch"
+                              : e.param.id == ParamId::filterStem ? "Filt"
+                                                                  : "Send";
+            return pfx + "Stem" + DeckPlayer::stemLaneId (lane) + suffix;
+        }
         return {};
     }
 
@@ -1178,7 +1346,8 @@ void MainPluginProcessor::parameterChanged (const juce::String& parameterID, flo
         }
     }
 
-    eventDispatcher->dispatchParam (m.scope, m.id, (double) newValue);
+    eventDispatcher->dispatchParam (m.scope, m.id, (double) newValue,
+                                    stemdeck::events::GestureFlag::none, m.index);
 }
 
 void MainPluginProcessor::handleAsyncUpdate()
@@ -1215,7 +1384,9 @@ void MainPluginProcessor::handleAsyncUpdate()
             getFloatParam (ids.bpm), getFloatParam (ids.beatOffset),
             getFloatParam (ids.downbeat),
             (int) std::round (getFloatParam (ids.tempoInterp)),
-            (int) std::round (getFloatParam (ids.syncMode)));
+            (int) std::round (getFloatParam (ids.syncMode)),
+            warpMarkersForGrid (deck),
+            warpMarkerRevision[(size_t) deck].load (std::memory_order_relaxed));
     }
 }
 
@@ -1476,6 +1647,8 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     refreshLatencyCompensation();
     padBank.prepare (sampleRate);
     masterRecorder.prepare (sampleRate, outputChannels, samplesPerBlock);
+    retrospectiveRecorder.prepare (sampleRate, outputChannels,
+                                   samplesPerBlock, 60.0);
     micRecorder.prepare (sampleRate, getTotalNumInputChannels() > 0 ? getTotalNumInputChannels() : outputChannels, samplesPerBlock);
     for (auto& recorder : deckSourceRecorders)
         recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
@@ -1581,7 +1754,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             if (tr.action == MidiMappingManager::ActionPad)   // tr.deck holds the pad index
             {
                 if (juce::isPositiveAndBelow (tr.deck, PadBank::numPads))
-                    padBank.triggerPad (tr.deck);             // RT-safe primitive (no logging)
+                    padTriggerRequested[(size_t) tr.deck].store (
+                        true, std::memory_order_relaxed);
                 continue;
             }
 
@@ -1598,7 +1772,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             }
             else if (tr.action == MidiMappingManager::ActionCue)
             {
-                deckAt (tr.deck).seekToSamples (0.0);   // RT-safe queued seek
+                deckCueRequested[(size_t) tr.deck].store (
+                    true, std::memory_order_relaxed);
             }
         }
     }
@@ -1718,6 +1893,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             p->downbeat    = getFloatParam (ids.downbeat);
             p->tempoInterp = (int) std::round (getFloatParam (ids.tempoInterp));
             p->syncMode    = (int) std::round (getFloatParam (ids.syncMode));
+            p->warpRevision = warpMarkerRevision[(size_t) slot].load (
+                std::memory_order_relaxed);
             p->deckSync    = getBoolParam (ids.deckSync);
             p->keyTarget   = (int) std::round (getFloatParam (ids.keyTarget));
             p->keyLock     = getBoolParam (ids.keyLock);
@@ -1909,6 +2086,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     liveLoudness.push (buffer);
 
     masterRecorder.captureBlock (buffer);
+    retrospectiveRecorder.captureBlock (buffer);
     // Live MIDI played during the take (RT-safe ring; converted to beats on read).
     midiCapture.captureBlock (midi, blockRecordingStart);
     if (isCapturingPerformance)
@@ -2419,6 +2597,15 @@ void MainPluginProcessor::requestDeckAiStemsAsync (int deckIndex)
         });
 }
 
+void MainPluginProcessor::cancelDeckAiStems (int deckIndex)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemProvider.cancelPending();
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "ai_stem_split_cancelled", deckNameFor (deckIndex),
+                         "premium_streaming_cache", "cancelled");
+}
+
 // §A3: the neural refinement pass. Runs on the load pool AFTER the deck is already
 // playable, then publishes the refined analysis atomically. Confidence gating is the
 // same as the inline path — a low-confidence model result must not overwrite the
@@ -2537,7 +2724,10 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
                                          getFloatParam (pfx + "BeatOffset"),
                                          getFloatParam (pfx + "Downbeat"),
                                          (int) std::round (getFloatParam (pfx + "TempoInterpretation")),
-                                         (int) std::round (getFloatParam (pfx + "SyncMode")));
+                                         (int) std::round (getFloatParam (pfx + "SyncMode")),
+                                         warpMarkersForGrid (deckIndex),
+                                         warpMarkerRevision[(size_t) deckIndex].load (
+                                             std::memory_order_relaxed));
         }
 
         // Hot-swap: atomic publish, picked up on the next block. No audio interruption.
@@ -2684,7 +2874,11 @@ void MainPluginProcessor::loadPadFileAsync (int padIndex, const juce::File& file
 
 void MainPluginProcessor::triggerPad (int padIndex)
 {
-    padBank.triggerPad (padIndex);
+    stemdeck::events::Scope scope;
+    scope.kind = stemdeck::events::ScopeKind::master;
+    eventDispatcher->dispatchParam (
+        scope, stemdeck::events::ParamId::padTrigger, 1.0,
+        stemdeck::events::GestureFlag::none, (std::uint32_t) padIndex);
     logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed), "pad_trigger", {}, "pad", juce::String (padIndex + 1), getPadPath (padIndex));
 }
 
@@ -2692,7 +2886,12 @@ void MainPluginProcessor::rewindDeck (int deckIndex)
 {
     if (juce::isPositiveAndBelow (deckIndex, numDecks))
     {
-        deckAt (deckIndex).seekStart();
+        stemdeck::events::Event event;
+        event.type = stemdeck::events::EventType::transport;
+        event.scope.kind = stemdeck::events::ScopeKind::channel;
+        event.scope.channel = channelIdForSlot (deckIndex);
+        event.transport.action = stemdeck::events::TransportAction::cue;
+        eventDispatcher->dispatch (event);
         logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed), "cue_jump",
                              deckNameFor (deckIndex), "cue", "start", getDeckPath (deckIndex));
     }
@@ -2931,6 +3130,12 @@ void MainPluginProcessor::serviceDeferredActions()
         if (deckPlayToggleRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
             if (auto* p = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (deckPrefix (i) + "Play")))
                 p->setValueNotifyingHost (p->get() ? 0.0f : 1.0f);
+    for (int i = 0; i < numDecks; ++i)
+        if (deckCueRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
+            rewindDeck (i);
+    for (int i = 0; i < PadBank::numPads; ++i)
+        if (padTriggerRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
+            triggerPad (i);
 }
 
 void MainPluginProcessor::setArrangementPositionSeconds (double s)
@@ -2955,8 +3160,12 @@ void MainPluginProcessor::setArrangementLoop (double startSec, double endSec, bo
 // ── Slip mode + loop roll ────────────────────────────────────────────────────
 void MainPluginProcessor::setDeckSlipEnabled (int deckIndex, bool on) noexcept
 {
-    if (juce::isPositiveAndBelow (deckIndex, numDecks))
-        deckAt (deckIndex).setSlipEnabled (on);
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemdeck::events::Scope scope;
+    scope.kind = stemdeck::events::ScopeKind::channel;
+    scope.channel = channelIdForSlot (deckIndex);
+    eventDispatcher->dispatchParam (
+        scope, stemdeck::events::ParamId::slipMode, on ? 1.0 : 0.0);
 }
 
 bool MainPluginProcessor::isDeckSlipEnabled (int deckIndex) const noexcept
@@ -2966,23 +3175,41 @@ bool MainPluginProcessor::isDeckSlipEnabled (int deckIndex) const noexcept
 
 void MainPluginProcessor::beginDeckLoopRoll (int deckIndex, double lengthSeconds) noexcept
 {
-    if (juce::isPositiveAndBelow (deckIndex, numDecks))
-        deckAt (deckIndex).beginLoopRoll (lengthSeconds);
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::loopRollOn;
+    event.transport.lengthBeats = lengthSeconds
+        * juce::jmax (1.0f, getFloatParam (deckIds[(size_t) deckIndex].bpm)) / 60.0;
+    eventDispatcher->dispatch (event);
 }
 
 void MainPluginProcessor::endDeckLoopRoll (int deckIndex) noexcept
 {
-    if (juce::isPositiveAndBelow (deckIndex, numDecks))
-        deckAt (deckIndex).endLoopRoll();
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::loopRollOff;
+    eventDispatcher->dispatch (event);
 }
 
 // ── Seek / beat jump ────────────────────────────────────────────────────────
 void MainPluginProcessor::seekDeckSeconds (int deckIndex, double seconds)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
-    const auto audio = deckAt (deckIndex).getLoadedAudio();
-    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
-    deckAt (deckIndex).seekToSamples (seconds * audio->sourceSampleRate);
+    if (deckAt (deckIndex).getLoadedAudio() == nullptr) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::seek;
+    event.transport.positionBeats = juce::jmax (0.0, seconds)
+        * juce::jmax (1.0f, getFloatParam (deckIds[(size_t) deckIndex].bpm)) / 60.0;
+    eventDispatcher->dispatch (event);
 }
 
 stemdeck::TransitionPlan MainPluginProcessor::planAutomixTransition (int outDeck, int inDeck) const
@@ -3034,14 +3261,14 @@ stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inD
 void MainPluginProcessor::beatJumpDeck (int deckIndex, double bars)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
-    const auto audio = deckAt (deckIndex).getLoadedAudio();
-    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
-
-    const float bpm = getFloatParam (deckPrefix (deckIndex) + "Bpm");
-    const double barSeconds = (60.0 / juce::jmax (1.0f, bpm)) * 4.0;
-    const double currentPos = getDeckPlayheadSeconds (deckIndex);
-    const double newPos = juce::jmax (0.0, currentPos + bars * barSeconds);
-    deckAt (deckIndex).seekToSamples (newPos * audio->sourceSampleRate);
+    if (deckAt (deckIndex).getLoadedAudio() == nullptr) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::beatJump;
+    event.transport.lengthBeats = bars * 4.0;
+    eventDispatcher->dispatch (event);
 }
 
 // ── Hot cues ────────────────────────────────────────────────────────────────
@@ -3054,14 +3281,27 @@ void MainPluginProcessor::setHotCue (int deckIndex, int cueIndex, double seconds
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
     if (! juce::isPositiveAndBelow (cueIndex, numHotCues)) return;
-    apvts.state.setProperty (hotCueProperty (deckIndex, cueIndex), seconds, nullptr);
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::marker;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.marker.index = (std::uint8_t) cueIndex;
+    event.marker.atBeat = seconds
+        * juce::jmax (1.0f, getFloatParam (deckIds[(size_t) deckIndex].bpm)) / 60.0;
+    eventDispatcher->dispatch (event);
 }
 
 void MainPluginProcessor::clearHotCue (int deckIndex, int cueIndex)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
     if (! juce::isPositiveAndBelow (cueIndex, numHotCues)) return;
-    apvts.state.setProperty (hotCueProperty (deckIndex, cueIndex), -1.0, nullptr);
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::marker;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.marker.index = (std::uint8_t) cueIndex;
+    event.marker.atBeat = -1.0;
+    eventDispatcher->dispatch (event);
 }
 
 double MainPluginProcessor::getHotCue (int deckIndex, int cueIndex) const
@@ -3155,20 +3395,40 @@ void MainPluginProcessor::setDeckLoopSeconds (int deckIndex, double inSeconds, d
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
     const auto audio = deckAt (deckIndex).getLoadedAudio();
     if (audio == nullptr || audio->sourceSampleRate <= 0.0) return;
-    const double sr = audio->sourceSampleRate;
-    deckAt (deckIndex).setLoopRegion (inSeconds * sr, outSeconds * sr);
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::loopSet;
+    const double beatsPerSecond = juce::jmax (
+        1.0f, getFloatParam (deckIds[(size_t) deckIndex].bpm)) / 60.0;
+    event.transport.positionBeats = juce::jmax (0.0, inSeconds) * beatsPerSecond;
+    event.transport.lengthBeats = juce::jmax (0.0, outSeconds - inSeconds)
+        * beatsPerSecond;
+    eventDispatcher->dispatch (event);
 }
 
 void MainPluginProcessor::setDeckLoopActive (int deckIndex, bool active)
 {
-    if (juce::isPositiveAndBelow (deckIndex, numDecks))
-        deckAt (deckIndex).setLoopActive (active);
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = active ? stemdeck::events::TransportAction::loopOn
+                                    : stemdeck::events::TransportAction::loopOff;
+    eventDispatcher->dispatch (event);
 }
 
 void MainPluginProcessor::clearDeckLoop (int deckIndex)
 {
-    if (juce::isPositiveAndBelow (deckIndex, numDecks))
-        deckAt (deckIndex).clearLoopRegion();
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    stemdeck::events::Event event;
+    event.type = stemdeck::events::EventType::transport;
+    event.scope.kind = stemdeck::events::ScopeKind::channel;
+    event.scope.channel = channelIdForSlot (deckIndex);
+    event.transport.action = stemdeck::events::TransportAction::loopClear;
+    eventDispatcher->dispatch (event);
 }
 
 bool MainPluginProcessor::isDeckLoopActive (int deckIndex) const
@@ -3678,6 +3938,147 @@ std::vector<double> MainPluginProcessor::getDeckBeatGridSeconds (int deckIndex) 
     return seconds;
 }
 
+std::vector<MainPluginProcessor::UserWarpMarker>
+MainPluginProcessor::getDeckUserWarpMarkers (int deckIndex) const
+{
+    std::vector<UserWarpMarker> result;
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return result;
+    const auto root = apvts.state.getChildWithName ("USER_WARP_MARKERS");
+    for (int i = 0; i < root.getNumChildren(); ++i)
+    {
+        const auto marker = root.getChild (i);
+        if (! marker.hasType ("WARP")
+            || (int) marker.getProperty ("deck", -1) != deckIndex)
+            continue;
+        result.push_back ({ (int) marker.getProperty ("id", 0),
+                            (double) marker.getProperty ("projectBeat", 0.0),
+                            (double) marker.getProperty ("sourceSeconds", 0.0) });
+    }
+    std::sort (result.begin(), result.end(), [] (const auto& a, const auto& b)
+    { return a.projectBeat < b.projectBeat; });
+    return result;
+}
+
+std::vector<BeatSyncEngine::WarpMarker>
+MainPluginProcessor::warpMarkersForGrid (int deckIndex) const
+{
+    std::vector<BeatSyncEngine::WarpMarker> result;
+    const auto audio = juce::isPositiveAndBelow (deckIndex, numDecks)
+                         ? deckAt (deckIndex).getLoadedAudio() : nullptr;
+    const double sampleRate = audio != nullptr && audio->sourceSampleRate > 0.0
+                                ? audio->sourceSampleRate : currentSampleRate;
+    const double bpm = juce::isPositiveAndBelow (deckIndex, numDecks)
+                         ? juce::jmax (1.0f, getFloatParam (deckPrefix (deckIndex) + "Bpm"))
+                         : 120.0;
+    for (const auto& marker : getDeckUserWarpMarkers (deckIndex))
+        result.push_back ({ marker.projectBeat,
+                            marker.sourceSeconds * bpm / 60.0,
+                            marker.sourceSeconds * sampleRate, true });
+    return result;
+}
+
+int MainPluginProcessor::addDeckUserWarpMarker (int deckIndex,
+                                                 double sourceSeconds)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return -1;
+    const auto audio = deckAt (deckIndex).getLoadedAudio();
+    if (audio == nullptr || audio->sourceSampleRate <= 0.0) return -1;
+    sourceSeconds = juce::jlimit (0.0, getDeckTotalSeconds (deckIndex), sourceSeconds);
+    const auto prefix = deckPrefix (deckIndex);
+    const auto grid = BeatSyncEngine::makeGrid (
+        audio->analysis, getFloatParam (prefix + "Bpm"),
+        getFloatParam (prefix + "BeatOffset"), getFloatParam (prefix + "Downbeat"),
+        BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (
+            getFloatParam (prefix + "TempoInterpretation"))),
+        BeatSyncEngine::syncModeFromChoice ((int) std::round (
+            getFloatParam (prefix + "SyncMode"))));
+    const double sourceSample = sourceSeconds * audio->sourceSampleRate;
+    double projectBeat = sourceSeconds * juce::jmax (1.0f,
+        getFloatParam (prefix + "Bpm")) / 60.0;
+    double nearest = std::numeric_limits<double>::max();
+    for (const auto& marker : grid.warpMarkers)
+        if (const double distance = std::abs (marker.sourceSample - sourceSample);
+            distance < nearest)
+        { nearest = distance; projectBeat = marker.projectBeat; }
+
+    auto root = apvts.state.getChildWithName ("USER_WARP_MARKERS");
+    if (! root.isValid())
+    {
+        root = juce::ValueTree ("USER_WARP_MARKERS");
+        apvts.state.appendChild (root, nullptr);
+    }
+    int id = 1;
+    for (int i = 0; i < root.getNumChildren(); ++i)
+        id = juce::jmax (id, (int) root.getChild (i).getProperty ("id", 0) + 1);
+    juce::ValueTree marker ("WARP");
+    marker.setProperty ("id", id, nullptr);
+    marker.setProperty ("deck", deckIndex, nullptr);
+    marker.setProperty ("projectBeat", projectBeat, nullptr);
+    marker.setProperty ("sourceSeconds", sourceSeconds, nullptr);
+    root.appendChild (marker, nullptr);
+
+    // Editable markers define an anchor map; switch from strict mode so the map is
+    // audibly active rather than merely decorative.
+    if (auto* syncMode = apvts.getParameter (prefix + "SyncMode"))
+        syncMode->setValueNotifyingHost (syncMode->convertTo0to1 (2.0f));
+    warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
+    gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
+    triggerAsyncUpdate();
+    return id;
+}
+
+bool MainPluginProcessor::moveDeckUserWarpMarker (int deckIndex, int markerId,
+                                                   double sourceSeconds)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return false;
+    auto root = apvts.state.getChildWithName ("USER_WARP_MARKERS");
+    for (int i = 0; i < root.getNumChildren(); ++i)
+    {
+        auto marker = root.getChild (i);
+        if ((int) marker.getProperty ("deck", -1) != deckIndex
+            || (int) marker.getProperty ("id", -1) != markerId) continue;
+        marker.setProperty ("sourceSeconds", juce::jlimit (
+            0.0, getDeckTotalSeconds (deckIndex), sourceSeconds), nullptr);
+        warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
+        gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
+        triggerAsyncUpdate();
+        return true;
+    }
+    return false;
+}
+
+bool MainPluginProcessor::removeDeckUserWarpMarker (int deckIndex, int markerId)
+{
+    auto root = apvts.state.getChildWithName ("USER_WARP_MARKERS");
+    for (int i = root.getNumChildren(); --i >= 0;)
+    {
+        const auto marker = root.getChild (i);
+        if ((int) marker.getProperty ("deck", -1) != deckIndex
+            || (int) marker.getProperty ("id", -1) != markerId) continue;
+        root.removeChild (i, nullptr);
+        warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
+        gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
+        triggerAsyncUpdate();
+        return true;
+    }
+    return false;
+}
+
+void MainPluginProcessor::clearDeckUserWarpMarkers (int deckIndex)
+{
+    auto root = apvts.state.getChildWithName ("USER_WARP_MARKERS");
+    bool changed = false;
+    for (int i = root.getNumChildren(); --i >= 0;)
+        if ((int) root.getChild (i).getProperty ("deck", -1) == deckIndex)
+        { root.removeChild (i, nullptr); changed = true; }
+    if (changed)
+    {
+        warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
+        gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
+        triggerAsyncUpdate();
+    }
+}
+
 juce::String MainPluginProcessor::getWarpEngineStatus() const
 {
     return warpEngine.getStatusSummary();
@@ -3884,6 +4285,74 @@ void MainPluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     copyXmlToBinary (*xml, destData);
 }
 
+bool MainPluginProcessor::capturePerformanceScene (int sceneIndex)
+{
+    if (! juce::isPositiveAndBelow (sceneIndex, numPerformanceScenes))
+        return false;
+
+    auto scenes = apvts.state.getChildWithName ("PERFORMANCE_SCENES");
+    if (! scenes.isValid())
+    {
+        scenes = juce::ValueTree ("PERFORMANCE_SCENES");
+        apvts.state.appendChild (scenes, nullptr);
+    }
+
+    for (int i = scenes.getNumChildren(); --i >= 0;)
+        if ((int) scenes.getChild (i).getProperty ("slot", -1) == sceneIndex)
+            scenes.removeChild (i, nullptr);
+
+    juce::ValueTree scene ("SCENE");
+    scene.setProperty ("slot", sceneIndex, nullptr);
+    scene.setProperty ("capturedAt", juce::Time::getCurrentTime().toISO8601 (true), nullptr);
+    for (auto* parameter : getParameters())
+    {
+        auto* identified = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter);
+        if (identified == nullptr) continue;
+        juce::ValueTree value ("PARAM");
+        value.setProperty ("id", identified->paramID, nullptr);
+        value.setProperty ("value", parameter->getValue(), nullptr);
+        scene.appendChild (value, nullptr);
+    }
+    scenes.appendChild (scene, nullptr);
+    return true;
+}
+
+bool MainPluginProcessor::recallPerformanceScene (int sceneIndex)
+{
+    if (! juce::isPositiveAndBelow (sceneIndex, numPerformanceScenes))
+        return false;
+    const auto scenes = apvts.state.getChildWithName ("PERFORMANCE_SCENES");
+    for (int i = 0; i < scenes.getNumChildren(); ++i)
+    {
+        const auto scene = scenes.getChild (i);
+        if ((int) scene.getProperty ("slot", -1) != sceneIndex) continue;
+        for (int p = 0; p < scene.getNumChildren(); ++p)
+        {
+            const auto value = scene.getChild (p);
+            if (auto* parameter = apvts.getParameter (value.getProperty ("id").toString()))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (juce::jlimit (
+                    0.0f, 1.0f, (float) value.getProperty ("value", parameter->getValue())));
+                parameter->endChangeGesture();
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+bool MainPluginProcessor::hasPerformanceScene (int sceneIndex) const
+{
+    if (! juce::isPositiveAndBelow (sceneIndex, numPerformanceScenes))
+        return false;
+    const auto scenes = apvts.state.getChildWithName ("PERFORMANCE_SCENES");
+    for (int i = 0; i < scenes.getNumChildren(); ++i)
+        if ((int) scenes.getChild (i).getProperty ("slot", -1) == sceneIndex)
+            return true;
+    return false;
+}
+
 bool MainPluginProcessor::remapStateMediaPaths (
     juce::MemoryBlock& stateData,
     const juce::StringPairArray& replacements) const
@@ -3943,6 +4412,12 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
 
     // Re-seed the audio-thread cfSide mirror from the freshly loaded tree.
     refreshCfSideCache();
+    for (int deck = 0; deck < kMaxChannels; ++deck)
+    {
+        warpMarkerRevision[(size_t) deck].fetch_add (1, std::memory_order_relaxed);
+        gridPublishNeeded[(size_t) deck].store (true, std::memory_order_release);
+    }
+    triggerAsyncUpdate();
 }
 
 // Rewrite every "<deck>Stem<lane>Gain" PARAM node from legacy dB to v2 percent.

@@ -34,6 +34,7 @@
 #include "NeuralBeatEngine.h"
 #include "AnalysisCache.h"
 #include "EventDispatcher.h"
+#include "RetrospectiveRecorder.h"
 
 class MainPluginProcessor final : public juce::AudioProcessor,
                                   private juce::AsyncUpdater,
@@ -93,9 +94,18 @@ public:
         juce::MemoryBlock& stateData,
         const juce::StringPairArray& replacements) const;
 
+    // Four instant performance scenes. Scenes store normalized control values,
+    // not media paths or audio, so recalling one is fast and safely enters the
+    // same deterministic intent stream as moving the controls by hand.
+    static constexpr int numPerformanceScenes = 4;
+    bool capturePerformanceScene (int sceneIndex);
+    bool recallPerformanceScene (int sceneIndex);
+    bool hasPerformanceScene (int sceneIndex) const;
+
     void loadDeckFileAsync (int deckIndex, const juce::File& file);
     void loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file);
     void requestDeckAiStemsAsync (int deckIndex);
+    void cancelDeckAiStems (int deckIndex);
     void clearDeck (int deckIndex);
     void loadPadFileAsync (int padIndex, const juce::File& file);
     void triggerPad (int padIndex);
@@ -177,6 +187,11 @@ public:
     int getIntentCaptureTargetCount() const noexcept
     { return (int) stemdeck::events::ParamId::count; }
     juce::File getLastIntentStreamFile() const { return lastIntentStreamFile; }
+    bool saveRetrospectiveAudio (const juce::File& file, double seconds,
+                                 juce::String& error)
+    { return retrospectiveRecorder.saveLastSeconds (file, seconds, error); }
+    double getRetrospectiveSecondsAvailable() const noexcept
+    { return retrospectiveRecorder.getAvailableSeconds(); }
     float getAudioCpuLoad() const noexcept { return audioCpuLoad.load (std::memory_order_relaxed); }
     int getDroppedBufferCount() const noexcept;
     int getDroppedCaptureEventCount() const noexcept
@@ -288,6 +303,7 @@ public:
         bool valid = false;
         stemdeck::events::ParamId id {};
         stemdeck::events::Scope   scope;
+        std::uint32_t index = 0;
     };
     ParamMapping mapApvtsId (const juce::String& apvtsId) const;
     juce::String apvtsIdFor (const stemdeck::events::Event& e) const;
@@ -367,6 +383,17 @@ public:
     { return deckPeak[(size_t) juce::jlimit (0, numDecks - 1, deckIndex)][(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed); }
     // Beat-grid positions (source seconds) for drawing the grid on a deck waveform.
     std::vector<double> getDeckBeatGridSeconds (int deckIndex) const;
+    struct UserWarpMarker
+    {
+        int id = 0;
+        double projectBeat = 0.0;
+        double sourceSeconds = 0.0;
+    };
+    std::vector<UserWarpMarker> getDeckUserWarpMarkers (int deckIndex) const;
+    int addDeckUserWarpMarker (int deckIndex, double sourceSeconds);
+    bool moveDeckUserWarpMarker (int deckIndex, int markerId, double sourceSeconds);
+    bool removeDeckUserWarpMarker (int deckIndex, int markerId);
+    void clearDeckUserWarpMarkers (int deckIndex);
 
     // Smart mastering readouts for the MASTER OUTPUT panel.
     float getSmartMasterLufs() const noexcept { return smartMaster.getShortTermLufs(); }
@@ -543,6 +570,8 @@ private:
     // work, this (and teStopRequested) need a processor-owned timer instead of an
     // editor-owned one.
     std::array<std::atomic<bool>, numDecks> deckPlayToggleRequested {};
+    std::array<std::atomic<bool>, numDecks> deckCueRequested {};
+    std::array<std::atomic<bool>, PadBank::numPads> padTriggerRequested {};
 
 public:
     // Message thread: services deferred audio-thread requests (e.g. stopping the TE
@@ -551,6 +580,7 @@ public:
 private:
 
     juce::AudioProcessorValueTreeState apvts;
+    RetrospectiveRecorder retrospectiveRecorder;
     juce::AudioFormatManager formatManager;
     // Owned explicitly so the destructor can destroy the worker threads while the
     // neural engines they invoke are still alive.
@@ -734,7 +764,9 @@ private:
     // latches; the AsyncUpdater builds vector-owning beat grids on the message
     // thread and atomically publishes them to TrackDeckBody.
     std::array<std::atomic<bool>, kMaxChannels> gridPublishNeeded {};
+    std::array<std::atomic<int>, kMaxChannels> warpMarkerRevision {};
     void cacheDeckParamIds();
+    std::vector<BeatSyncEngine::WarpMarker> warpMarkersForGrid (int deckIndex) const;
 
     // Pad gains were read as getFloatParam("pad" + String(i+1) + "Gain") inside
     // processBlock — that heap-allocates juce::String temporaries on the audio

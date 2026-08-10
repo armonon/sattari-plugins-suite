@@ -26,7 +26,8 @@ namespace stemdeck
 {
 
 class WaveformRegion : public juce::Component,
-                       public juce::FileDragAndDropTarget
+                       public juce::FileDragAndDropTarget,
+                       public juce::SettableTooltipClient
 {
 public:
     enum class ColourMode { stems, frequency };
@@ -34,6 +35,7 @@ public:
 
     struct StructureRegion { float startNorm = 0.0f, endNorm = 0.0f; juce::String label; juce::Colour colour; };
     struct HotCue { float positionNorm = -1.0f; juce::Colour colour; int number = 0; };
+    struct WarpMarkerView { int id = 0; float positionNorm = 0.0f; double projectBeat = 0.0; };
 
     WaveformRegion()
     {
@@ -72,6 +74,17 @@ public:
     void setKeyBands (std::vector<KeyBand> k) { keyBands = std::move (k); repaint(); }
     void setStemMuted (int stem, bool m) { if (juce::isPositiveAndBelow (stem, kNumStems)) { muted[(size_t) stem] = m; repaint(); } }
     void setHotCues (std::array<HotCue, 8> c) { hotCues = std::move (c); repaint(); }
+    void setWarpMarkers (std::vector<WarpMarkerView> markers)
+    {
+        bool changed = markers.size() != warpMarkers.size();
+        for (size_t i = 0; ! changed && i < markers.size(); ++i)
+            changed = markers[i].id != warpMarkers[i].id
+                   || std::abs (markers[i].positionNorm - warpMarkers[i].positionNorm) > 0.00001f
+                   || std::abs (markers[i].projectBeat - warpMarkers[i].projectBeat) > 0.00001;
+        if (! changed) return;
+        warpMarkers = std::move (markers);
+        repaint();
+    }
     void setLoopRegion (float startNorm, float endNorm, bool active)
     {
         loopStart = juce::jlimit (0.0f, 1.0f, startNorm);
@@ -132,9 +145,62 @@ public:
     // the flat WaveformDisplay drop target.
     std::function<void (const juce::StringArray&)> onFilesDropped;
     std::function<void (float)> onSeekNorm;   // overview click -> jump the playhead (0..1)
+    std::function<void (float)> onSetDownbeatNorm; // Option-click overview -> grid anchor
+    std::function<int (float)> onAddWarpMarkerNorm; // Shift-click -> new fixed project beat
+    std::function<void (int, float)> onMoveWarpMarkerNorm;
+    std::function<void (int)> onRemoveWarpMarker;
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! overviewRect.contains (e.getPosition())) return;
+        const float norm = juce::jlimit (0.0f, 1.0f,
+            (float) (e.x - overviewRect.getX())
+                / (float) juce::jmax (1, overviewRect.getWidth()));
+        int nearest = -1;
+        float nearestPixels = 8.0f;
+        for (const auto& marker : warpMarkers)
+        {
+            const float distance = std::abs (
+                overviewRect.getX() + marker.positionNorm * overviewRect.getWidth()
+                - (float) e.x);
+            if (distance < nearestPixels) { nearestPixels = distance; nearest = marker.id; }
+        }
+        if (nearest >= 0 && e.mods.isPopupMenu())
+        {
+            if (onRemoveWarpMarker) onRemoveWarpMarker (nearest);
+            return;
+        }
+        if (nearest >= 0)
+        {
+            draggingWarpId = nearest;
+            setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+            return;
+        }
+        if (e.mods.isShiftDown() && onAddWarpMarkerNorm)
+            draggingWarpId = onAddWarpMarkerNorm (norm);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (draggingWarpId < 0 || overviewRect.isEmpty()) return;
+        const float norm = juce::jlimit (0.0f, 1.0f,
+            (float) (e.x - overviewRect.getX())
+                / (float) juce::jmax (1, overviewRect.getWidth()));
+        for (auto& marker : warpMarkers)
+            if (marker.id == draggingWarpId) marker.positionNorm = norm;
+        if (onMoveWarpMarkerNorm) onMoveWarpMarkerNorm (draggingWarpId, norm);
+        repaint();
+    }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (draggingWarpId >= 0)
+        {
+            mouseDrag (e);
+            draggingWarpId = -1;
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
         const auto p = e.getPosition();
         if (toggleRect.contains (p))
         {
@@ -148,8 +214,17 @@ public:
             setZoomBars (opts[idx]);
             return;
         }
-        if (overviewRect.contains (p) && onSeekNorm)
-            onSeekNorm (juce::jlimit (0.0f, 1.0f, (float) (p.x - overviewRect.getX()) / (float) overviewRect.getWidth()));
+        if (overviewRect.contains (p))
+        {
+            const float norm = juce::jlimit (
+                0.0f, 1.0f,
+                (float) (p.x - overviewRect.getX())
+                    / (float) juce::jmax (1, overviewRect.getWidth()));
+            if (e.mods.isAltDown() && onSetDownbeatNorm)
+                onSetDownbeatNorm (norm);
+            else if (onSeekNorm)
+                onSeekNorm (norm);
+        }
     }
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
@@ -332,6 +407,22 @@ private:
             flag.addTriangle (x, r.getY(), x + 6.0f, r.getY(), x, r.getY() + 6.0f);
             g.fillPath (flag);
         }
+
+        // User warp anchors. Their project beat stays fixed while the diamond can
+        // be dragged to the source transient that should land on it.
+        for (const auto& marker : warpMarkers)
+        {
+            const float x = r.getX() + marker.positionNorm * r.getWidth();
+            g.setColour (tokens::c (tokens::warn2).withAlpha (0.85f));
+            g.fillRect (x - 0.5f, r.getY(), 1.0f, r.getHeight());
+            juce::Path diamond;
+            diamond.startNewSubPath (x, r.getY());
+            diamond.lineTo (x + 4.0f, r.getY() + 4.0f);
+            diamond.lineTo (x, r.getY() + 8.0f);
+            diamond.lineTo (x - 4.0f, r.getY() + 4.0f);
+            diamond.closeSubPath();
+            g.fillPath (diamond);
+        }
     }
 
     void drawStemColumn (juce::Graphics& g, juce::Rectangle<int> col, int stem)
@@ -471,6 +562,7 @@ private:
     std::vector<StructureRegion> structure;
     std::vector<KeyBand> keyBands;
     std::array<HotCue, 8> hotCues {};
+    std::vector<WarpMarkerView> warpMarkers;
 
     float  playhead = 0.0f;
     float  loopStart = -1.0f, loopEnd = -1.0f;
@@ -479,6 +571,7 @@ private:
     int    zoomBars = 8;
     ColourMode colourMode = ColourMode::stems;
     bool   dragOver = false;
+    int    draggingWarpId = -1;
     juce::Rectangle<int> toggleRect, overviewRect, zoomRect;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformRegion)

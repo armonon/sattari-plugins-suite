@@ -53,11 +53,10 @@ HostGraph::HostGraph()
         loadPedal.deleteFile();
     }
 
-    // Drop anything non-Sattari left in the cache from an older full scan, so a
-    // third-party plugin can never be listed or instantiated (they crash the host).
+    // The cache may contain third-party descriptions; they are identities only and
+    // are instantiated exclusively by PluginSandboxClient. Never list ourselves.
     for (const auto& d : knownPluginList.getTypes())
-        if (! isTrustedSattariDescription (d)
-            || isPluginQuarantined (d))
+        if (d.name.containsIgnoreCase ("StemDeck") || isPluginQuarantined (d))
             knownPluginList.removeType (d);
 }
 
@@ -159,6 +158,9 @@ void HostGraph::initialiseGraph (ChainState& state)
             state.graph.addConnection ({ { state.inputNode->nodeID, ch }, { state.outputNode->nodeID, ch } });
 
     state.graph.prepareToPlay (currentSampleRate, currentBlockSize);
+    state.safetyBuffer.setSize (currentChannels, currentBlockSize,
+                                false, true, false);
+    state.outputFaulted.store (false, std::memory_order_relaxed);
     state.prepared = true;
     state.live = true;
 }
@@ -172,15 +174,27 @@ void HostGraph::prepare (double sampleRate, int blockSize, int channels)
     for (auto& chain : chains)
     {
         // First time: build the I/O pass-through graph.
-        if (! chain.prepared) { initialiseGraph (chain); chain.live = true; continue; }
+        if (! chain.prepared) { initialiseGraph (chain); chain.live = true; }
 
         // Already built: KEEP the loaded plugins and just re-prepare them at the new
         // rate/size. Re-initialising here would destroy every loaded FX (and dangle
         // any open plugin editor) on each device / sample-rate change.
-        const juce::ScopedLock lock (chain.graphLock);
-        chain.graph.setPlayConfigDetails (currentChannels, currentChannels, currentSampleRate, currentBlockSize);
-        chain.graph.prepareToPlay (currentSampleRate, currentBlockSize);
-        chain.live = true;
+        else
+        {
+            const juce::ScopedLock lock (chain.graphLock);
+            chain.graph.setPlayConfigDetails (currentChannels, currentChannels, currentSampleRate, currentBlockSize);
+            chain.graph.prepareToPlay (currentSampleRate, currentBlockSize);
+            chain.safetyBuffer.setSize (currentChannels, currentBlockSize,
+                                        false, true, false);
+            chain.outputFaulted.store (false, std::memory_order_relaxed);
+            chain.live = true;
+        }
+        {
+            const juce::ScopedLock lock (chain.graphLock);
+            if (chain.sandbox != nullptr)
+                chain.sandbox->prepare (currentSampleRate, currentBlockSize,
+                                        currentChannels);
+        }
     }
 }
 
@@ -217,10 +231,53 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
     if (! lock.isLocked())
         return;
 
+    // Sandbox lifetime is protected by graphLock too. The audio callback still
+    // never waits: a concurrent load/remove simply dry-bypasses this block.
+    if (state.sandbox != nullptr)
+    {
+        state.sandbox->process (audio);
+        return;
+    }
+
     if (! state.prepared || ! state.live || state.pluginNodes.isEmpty())
         return;
 
+    if (state.outputFaulted.load (std::memory_order_relaxed))
+        return;
+
+    // The host should honour the maximum block size supplied to prepare(), but
+    // bypass safely if it does not. Without a complete dry copy we cannot recover
+    // deterministically from invalid third-party output.
+    if (audio.getNumChannels() > state.safetyBuffer.getNumChannels()
+        || audio.getNumSamples() > state.safetyBuffer.getNumSamples())
+        return;
+
+    const int channelsToCopy = juce::jmin (audio.getNumChannels(),
+                                            state.safetyBuffer.getNumChannels());
+    const int samplesToCopy = juce::jmin (audio.getNumSamples(),
+                                           state.safetyBuffer.getNumSamples());
+    for (int channel = 0; channel < channelsToCopy; ++channel)
+        state.safetyBuffer.copyFrom (channel, 0, audio, channel, 0, samplesToCopy);
+
     state.graph.processBlock (audio, midi);
+
+    bool invalid = false;
+    for (int channel = 0; channel < audio.getNumChannels() && ! invalid; ++channel)
+    {
+        const auto* samples = audio.getReadPointer (channel);
+        for (int sample = 0; sample < audio.getNumSamples(); ++sample)
+            if (! std::isfinite (samples[sample]) || std::abs (samples[sample]) > 32.0f)
+            {
+                invalid = true;
+                break;
+            }
+    }
+    if (invalid)
+    {
+        for (int channel = 0; channel < channelsToCopy; ++channel)
+            audio.copyFrom (channel, 0, state.safetyBuffer, channel, 0, samplesToCopy);
+        state.outputFaulted.store (true, std::memory_order_release);
+    }
 }
 
 juce::StringArray HostGraph::getSupportedPluginFormats() const
@@ -246,9 +303,18 @@ juce::String HostGraph::getStatusSummary() const
              + juce::String (quarantinedPluginFiles.size());
 
     int loaded = 0;
+    int faulted = 0;
     for (const auto& chain : chains)
-        loaded += chain.pluginNodes.size();
+    {
+        loaded += chain.pluginCountAtomic.load (std::memory_order_relaxed);
+        faulted += chain.outputFaulted.load (std::memory_order_relaxed) ? 1 : 0;
+        const juce::ScopedTryLock lock (chain.graphLock);
+        if (lock.isLocked() && chain.sandbox != nullptr
+            && chain.sandbox->hasCrashed()) ++faulted;
+    }
     text += "; loaded chain plugins: " + juce::String (loaded);
+    if (faulted > 0)
+        text += "; safety-bypassed chains: " + juce::String (faulted);
     return text;
 }
 
@@ -334,6 +400,16 @@ juce::ValueTree HostGraph::createState() const
                 "bypassed", node->isBypassed(), nullptr);
             root.appendChild (item, nullptr);
         }
+        if (state.sandbox != nullptr)
+            if (auto xml = state.sandboxDescription.createXml())
+            {
+                juce::ValueTree item ("INSERT");
+                item.setProperty ("chain", chainIndex, nullptr);
+                item.setProperty ("order", 0, nullptr);
+                item.setProperty ("description", xml->toString(), nullptr);
+                item.setProperty ("sandboxed", true, nullptr);
+                root.appendChild (item, nullptr);
+            }
     }
     return root;
 }
@@ -365,12 +441,26 @@ juce::StringArray HostGraph::restoreState (
             messages.add ("Skipped an insert with invalid plugin identity.");
             continue;
         }
-        if (! isTrustedSattariDescription (description)
-            || isPluginQuarantined (description))
+        if (isPluginQuarantined (description))
         {
             messages.add (
                 "Skipped unavailable/quarantined insert: "
                 + description.name);
+            continue;
+        }
+
+        if (! isTrustedSattariDescription (description))
+        {
+            auto& chainState = stateFor ((Chain) chainIndex);
+            const juce::ScopedLock lock (chainState.graphLock);
+            chainState.sandbox = std::make_unique<PluginSandboxClient>();
+            chainState.sandbox->prepare (currentSampleRate, currentBlockSize,
+                                         currentChannels);
+            chainState.sandboxDescription = description;
+            chainState.pluginCountAtomic.store (1, std::memory_order_relaxed);
+            chainState.sandbox->launch (description, {});
+            messages.add ("Restoring " + description.name
+                          + " in isolated helper process");
             continue;
         }
 
@@ -440,12 +530,14 @@ juce::AudioPluginFormat* HostGraph::findFormatByName (const juce::String& format
 
 HostGraph::ScanResult HostGraph::scanDefaultLocations (int maxPluginsPerFormat, bool recursive)
 {
-    juce::ignoreUnused (maxPluginsPerFormat, recursive);
-    auto result = scanSattariOnly();
-    result.messages.insert (
-        0,
-        "Third-party scanning is disabled: StemDeck requires an out-of-process "
-        "sandbox before untrusted plug-ins can be used safely in a live set.");
+    ScanResult result;
+    if (! PluginSandboxClient::scanInHelper (
+            knownPluginList, result.messages, maxPluginsPerFormat, recursive))
+        result.messages.add ("No third-party effects were returned by the sandbox scan");
+    result.plugins = knownPluginList.getTypes();
+    result.scannedFormats = getSupportedPluginFormats();
+    result.blacklistedFiles = knownPluginList.getBlacklistedFiles();
+    saveCache();
     return result;
 }
 
@@ -455,11 +547,31 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
 {
     if (! isTrustedSattariDescription (description))
     {
-        if (callback)
-            callback (
-                false,
-                "Third-party plug-ins are disabled until StemDeck can host them "
-                "in an isolated helper process: " + description.name);
+        auto& state = stateFor (chain);
+        const juce::ScopedLock lock (state.graphLock);
+        if (! state.pluginNodes.isEmpty() || state.sandbox != nullptr)
+        {
+            if (callback) callback (false,
+                "Use an empty chain for an isolated third-party effect");
+            return;
+        }
+        state.sandbox = std::make_unique<PluginSandboxClient>();
+        state.sandbox->prepare (currentSampleRate, currentBlockSize,
+                                currentChannels);
+        state.sandboxDescription = description;
+        state.sandbox->launch (description,
+            [this, target = chain, alive = aliveFlag,
+             completion = std::move (callback)]
+            (bool ok, juce::String message) mutable
+            {
+                if (! alive->load (std::memory_order_acquire)) return;
+                auto& targetState = stateFor (target);
+                const juce::ScopedLock targetLock (targetState.graphLock);
+                targetState.pluginCountAtomic.store (ok ? 1 : 0,
+                                                     std::memory_order_release);
+                if (! ok) targetState.sandbox.reset();
+                if (completion) completion (ok, message);
+            });
         return;
     }
     if (isPluginQuarantined (description))
@@ -534,7 +646,14 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
 
 void HostGraph::clearChain (Chain chain)
 {
-    initialiseGraph (stateFor (chain));
+    auto& state = stateFor (chain);
+    {
+        const juce::ScopedLock lock (state.graphLock);
+        if (state.sandbox != nullptr) state.sandbox->stop();
+        state.sandbox.reset();
+        state.sandboxDescription = {};
+    }
+    initialiseGraph (state);
 }
 
 // Is this a Sattari-suite plugin file? We deliberately scan ONLY our own plugins:
@@ -636,6 +755,8 @@ int HostGraph::getChainLatencySamples (Chain chain) const
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr)
+        return state.sandbox->latencySamples();
     if (! state.prepared || state.pluginNodes.isEmpty())
         return 0;
     // Serial chain: the graph reports the summed latency of its path.
@@ -650,6 +771,10 @@ int HostGraph::getChainPluginCount (Chain chain) const
 juce::String HostGraph::getChainPluginName (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr)
+        return index == 0 ? state.sandbox->pluginName() + " (Isolated)"
+                          : juce::String();
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return {};
     if (auto* proc = state.pluginNodes[index]->getProcessor()) return proc->getName();
     return {};
@@ -658,6 +783,8 @@ juce::String HostGraph::getChainPluginName (Chain chain, int index) const
 juce::AudioProcessor* HostGraph::getChainPluginProcessor (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
+    const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr) return nullptr;
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return nullptr;
     return state.pluginNodes[index]->getProcessor();
 }
@@ -666,6 +793,7 @@ void HostGraph::moveChainPlugin (Chain chain, int fromIndex, int toIndex)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr) return;
     const int n = state.pluginNodes.size();
     if (! juce::isPositiveAndBelow (fromIndex, n) || ! juce::isPositiveAndBelow (toIndex, n)
         || fromIndex == toIndex)
@@ -679,6 +807,7 @@ void HostGraph::setChainPluginBypassed (Chain chain, int index, bool bypassed)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr) return;
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
     // Node-level bypass: the graph keeps the connections and passes audio through, so
     // this neither reallocates nor rebuilds — safe to toggle while audio is running.
@@ -690,6 +819,7 @@ bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr) return false;
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return false;
     auto* node = state.pluginNodes[index].get();
     return node != nullptr && node->isBypassed();
@@ -774,6 +904,17 @@ void HostGraph::removeChainPlugin (Chain chain, int index)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
+    if (state.sandbox != nullptr)
+    {
+        if (index == 0)
+        {
+            state.sandbox->stop();
+            state.sandbox.reset();
+            state.sandboxDescription = {};
+            state.pluginCountAtomic.store (0, std::memory_order_release);
+        }
+        return;
+    }
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
     state.graph.removeNode (state.pluginNodes[index]->nodeID);
     state.pluginNodes.remove (index);

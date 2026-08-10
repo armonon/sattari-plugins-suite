@@ -216,6 +216,7 @@ private:
             FollowAction followAction  = FollowAction::None;
             float        followProbability = 1.0f;   // 0..1
             bool         locked        = false;      // prevent accidental drag
+            int          sourceTake    = -1;         // >=0 when promoted from a take lane
 
             double lengthSeconds() const noexcept { return juce::jmax (0.0, trimEndSeconds - trimStartSeconds); }
             double timelineEndSeconds() const noexcept { return timelineStartSeconds + lengthSeconds(); }
@@ -276,6 +277,8 @@ private:
         void setClipLabel (int laneIndex, int clipIndex, const juce::String& label);
         void setClipColour (int laneIndex, int clipIndex, juce::uint32 argb);
         void setClipLocked (int laneIndex, int clipIndex, bool shouldLock);
+        bool compClipFromTakeState (int laneIndex, int clipIndex, int takeIndex,
+                                    const juce::ValueTree& takeState);
         void zoomIn();
         void zoomOut();
         void zoomToFit();
@@ -341,6 +344,8 @@ private:
 
         // Callback: editor hooks this to show the follow-action popup menu
         std::function<void(int lane, int clip)> onFollowActionRequest;
+        std::function<juce::StringArray()> onGetCompTakeNames;
+        std::function<bool(int lane, int clip, int take)> onCompFromTakeRequest;
 
         // Overlap resolution mode (public accessor for the editor toolbar button)
         OverlapMode getOverlapMode() const noexcept { return overlapMode; }
@@ -693,6 +698,9 @@ private:
     juce::TextButton launchAllButton { "LAUNCH" };   // trigger all clip slots at next beat (was cryptic ">>>")
     juce::TextButton playArrButton { "Play Arr" };
     juce::TextButton arrRecordButton { "Record" };
+    juce::TextButton keepLastButton { "Keep 60s" };
+    juce::TextButton previousTakeButton { "< Take" };
+    juce::TextButton nextTakeButton { "Take >" };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     // The ARRANGER surface owns ~14 components (transport, edit tools, zoom, the
@@ -714,6 +722,12 @@ private:
     void showExportCenter();
     void exportArrangementMixdown();
     void exportSessionPackage();
+    void keepRetrospectiveAudio();
+    void selectPerformanceTake (int delta);
+    void syncCurrentTakeToHistory();
+    void appendCurrentTakeToHistory();
+    std::vector<juce::ValueTree> performanceTakeHistory;
+    int selectedPerformanceTake = -1;
     juce::String buildDiagnosticsReport() const;
     static juce::File onboardingMarkerFile();
     void checkpointSessionUndo (const juce::String& label);
@@ -799,6 +813,7 @@ private:
     juce::TextButton commandButton { "Search" };
     juce::TextButton inspectorButton { "Inspect" };
     juce::TextButton focusModeButton { "Focus" };
+    std::array<juce::TextButton, MainPluginProcessor::numPerformanceScenes> sceneButtons;
     void showCommandPalette();
     void showQuickInspector();
     void performCommand (int commandId);

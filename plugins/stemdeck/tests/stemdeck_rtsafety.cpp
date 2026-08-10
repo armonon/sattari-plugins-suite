@@ -16,6 +16,7 @@
 #include <atomic>
 #include <thread>
 #include <iostream>
+#include <limits>
 #include <cmath>
 #include <cstdlib>
 #include <new>
@@ -163,11 +164,31 @@ int main()
     });
 
     constexpr int kBlocks = 3000;
+    int silentBlocks = 0;
+    int nonFiniteSamples = 0;
+    float minimumBlockPeak = std::numeric_limits<float>::max();
     for (int i = 0; i < kBlocks; ++i)
     {
         buf.clear();
-        rtcheck::ScopedArm arm;      // only this thread, only this scope
-        proc->processBlock (buf, midi);
+        {
+            rtcheck::ScopedArm arm;  // only this thread, only processBlock
+            proc->processBlock (buf, midi);
+        }
+
+        // The isolated ChannelGraph contract proves sample-exact continuity, but
+        // the product gate must also prove that the complete processor does not
+        // emit a silent or corrupt block while snapshots are being replaced.
+        const float peak = buf.getMagnitude (0, 0, blockSize);
+        minimumBlockPeak = juce::jmin (minimumBlockPeak, peak);
+        if (! std::isfinite (peak) || peak < 1.0e-5f)
+            ++silentBlocks;
+        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+        {
+            const auto* samples = buf.getReadPointer (ch);
+            for (int sample = 0; sample < blockSize; ++sample)
+                if (! std::isfinite (samples[sample]))
+                    ++nonFiniteSamples;
+        }
     }
 
     stop.store (true);
@@ -183,6 +204,15 @@ int main()
     check (v == 0, v == 0 ? "zero allocations on the audio thread"
                           : "audio thread allocated " + juce::String (v) + " time(s), "
                             + juce::String (b) + " bytes");
+    check (silentBlocks == 0,
+           silentBlocks == 0
+               ? "no silent output blocks during full-processor channel churn"
+               : juce::String (silentBlocks) + " silent output block(s) during channel churn");
+    check (nonFiniteSamples == 0,
+           nonFiniteSamples == 0
+               ? "all full-processor output samples remain finite"
+               : juce::String (nonFiniteSamples) + " non-finite output sample(s)");
+    std::cout << "  minimum rendered block peak " << minimumBlockPeak << std::endl;
 
     // Symbolise the captured stacks, skipping the operator-new frames themselves.
     for (int t = 0; t < rtcheck::tracesTaken && t < 4; ++t)

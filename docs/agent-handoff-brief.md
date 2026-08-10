@@ -82,43 +82,39 @@ JUCE is a submodule: `git submodule update --init --recursive` first.
 - **auto-pitch** — autotune. RubberBand engine; audio-thread allocs fixed; keeps trace import.
 - **royal-chain** — modular vocal chain.
 - **sattari-arp** — MIDI arpeggiator. Per-block/step allocations fixed.
-- **stemdeck** — 4-deck DJ/stem app. The flagship. Real engine; **least DSP-validated** (see plan).
+- **stemdeck** — 4-deck DJ/stem performance + arrangement app. The flagship;
+  architecture is broad and functional, while external DSP/hardware/DAW evidence
+  remains the largest validation program in the suite.
 - **bus** — new bus/aux channel strip (glue comp, tone, drive, width, pan, mix, ceiling).
 
 All on the shared LookAndFeel + preset system + `sattari_add_plugin()`. Nothing in this repo is
 DAW-listening-validated yet.
 
-## StemDeck phase 1 — "make the DJ half real" (execute on a Mac with ears)
+## StemDeck current release program (execute on Macs with ears and real hardware)
 
-A DJ tool lives or dies on sync and key/time-stretch quality. Do these in order; no new
-features until Perform mode feels tight. Validate on **known-BPM / known-key** material.
+A DJ tool lives or dies on sync and key/time-stretch quality. The original phase-1
+engine work is implemented; do not rebuild it from this old brief. Close the remaining
+gates in this order on **known-BPM / known-key licensed material**:
 
-1. **Beatgrid + downbeat detection (the named gap).** Today `BeatSyncEngine` only follows host
-   PPQ + per-deck Source BPM + a manual offset — there is no automatic tempo/downbeat
-   detection. Build an offline analyzer, e.g. `plugins/stemdeck/src/BeatGridAnalyzer`:
-   - onset function = positive spectral flux (or energy-envelope first difference) of the
-     loaded full mix;
-   - tempo = autocorrelation / comb-filter peak of the onset function over 70–180 BPM;
-   - downbeat/phase = best alignment of a beat pulse train to the onset function;
-   - output `BeatGrid { double bpm; double firstBeatSeconds; double confidence; }`.
-   - **Acceptance:** a synthetic click train at a known BPM resolves within ±0.5 BPM; add a
-     `stemdeck_beatgrid_contract.cpp` test (mirror `voxkey_core_contract.cpp`) wired as an
-     `EXCLUDE_FROM_ALL` target. Feed it into `BeatSyncEngine` so sync locks to a real grid.
-2. **Sync drift.** Drive playback position from a single master sample clock and derive each
-   deck's phase from it; don't accumulate per-deck `double` increments. **Acceptance:** two
-   decks at the same musical tempo stay phase-locked over a 10-minute render (offline test
-   measuring drift in ms).
-3. **Live key detection.** Current `TrackAnalysis` is lightweight Krumhansl chroma. Validate
-   false positives and behavior during breakdowns/modulations; gate auto-match so a wrong
-   estimate can't cause a bad jump. **Acceptance:** correct key on a labeled set of simple +
-   complex tracks; no audible mis-match during a set.
+1. **Beatgrid/key corpus certification.** Spectral-flux onset analysis,
+   DBN/Viterbi-style beat decoding, meter/downbeat inference, neural confidence
+   gating, variable-tempo warp markers, and manual corrections exist. Add licensed
+   ambient, breakdown, live-drummer, modulation, and tempo-change tracks to the
+   manifest gate; finish a visual per-marker correction editor.
+2. **Long sync + controller validation.** The master-clock phase path and synthetic
+   contracts exist. Prove drift over multi-hour sessions while exercising physical
+   MIDI controllers, audio devices, cue output, unplug/replug, and sample-rate changes.
+3. **Live key validation.** DSP + optional neural key detection exist. Measure false
+   positives and confidence behavior through breakdowns/modulations, and ensure a
+   weak estimate cannot create an audible auto-match jump.
 4. **Listenable time-stretch.** Rubber Band is wired (`SATTARI_STEMDECK_HAS_RUBBERBAND`). Tune
    options (engine/finer, transients, channels-together) and A/B against the resample
    reference using `build/.../timepitch-benchmark/`. **Acceptance:** no bass wobble / transient
    smear at ±8% tempo on real songs.
-5. **Then** zero-setup stem separation (bundle a one-click separator or ship stem packs — the
-   "optional Demucs" path is a dealbreaker for normal users), and only after Perform is tight,
-   the capture bridge + Build mode.
+5. **Productize what is already built.** Choose commercially cleared neural weights,
+   isolate hosted plugins out of process, validate captured plugin/master replay,
+   run AU/VST3 DAW matrices, and execute the signed/notarized clean-machine package.
+   The capture bridge and Build mode are functional alpha systems, not greenfield work.
 
 Discipline: **don't try to out-djay djay/Serato/rekordbox.** StemDeck wins only on the
 bridge (perform → keep → build → release). Everything else just needs to be good enough.

@@ -299,9 +299,11 @@ void expectHostGraphNoPluginPassThroughIsSafe()
             unexpectedlyLoaded = loaded;
             rejection = std::move (message);
         });
+    for (int tries = 0; tries < 40 && ! callbackRan; ++tries)
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
     if (! callbackRan || unexpectedlyLoaded)
-        fail ("HostGraph did not synchronously reject an untrusted in-process plug-in");
-    expectContains (rejection, "isolated helper process", "HostGraph sandbox rejection");
+        fail ("HostGraph did not keep an untrusted plug-in out of the app process");
+    expectContains (rejection, "Sandbox helper", "HostGraph sandbox availability");
 }
 }
 
@@ -320,6 +322,6 @@ int main()
               << "  offline_stem_cache=guarded\n"
               << "  offline_separator_command=ready\n"
               << "  host_graph_empty_chain=stateful-pass-through\n"
-              << "  third_party_plugins=blocked-without-sandbox\n";
+              << "  third_party_plugins=helper-process-only\n";
     return 0;
 }

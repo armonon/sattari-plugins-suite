@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include "PluginSandboxClient.h"
 
 // Standalone-first plugin host graph. The graph is intentionally separate from
 // DeckPlayer so plugin scanning/instantiation can happen off the audio path and
@@ -145,6 +146,12 @@ private:
         // Mirrors pluginNodes.size() for a lock-free "is this chain empty?" check on
         // the audio thread. Written on the message thread under graphLock.
         std::atomic<int> pluginCountAtomic { 0 };
+        // Preallocated dry safety copy. A plugin that emits NaN/Inf or runaway
+        // amplitude is automatically bypassed for the rest of the session.
+        juce::AudioBuffer<float> safetyBuffer;
+        std::atomic<bool> outputFaulted { false };
+        std::unique_ptr<PluginSandboxClient> sandbox;
+        juce::PluginDescription sandboxDescription;
     };
 
     juce::AudioPluginFormat* findFormatByName (const juce::String& formatName) const;

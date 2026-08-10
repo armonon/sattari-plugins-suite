@@ -13,13 +13,17 @@ Effort tiers: **S** = days, **M** = weeks, **L** = months / research-grade.
 
 ---
 
-## 1. Next-gen neural stem separation  — tier **M**
+## 1. Next-gen neural stem separation — engine implemented / model shipping open
 
-**Today:** `RealTimeStemSeparator` is a DSP heuristic (biquad crossovers +
-mid/side centre extraction). `StemProvider` shells out to **demucs** (real ML)
-for offline, high-quality stems.
+**Today:** `RealTimeStemSeparator` remains the zero-dependency DSP preview.
+`NeuralStemEngine` implements background ONNX waveform separation with overlap-add,
+streaming playhead-first preview, cancellation, cache publication, and CoreML/CPU
+runtime support; `StemProvider` retains **demucs** as an external fallback. The
+runtime/model are deliberately opt-in and no commercially cleared weights ship by
+default.
 
-**Target:** real-time, near-zero-artifact separation on the audio thread.
+**Target:** zero-setup, offline-first HD separation with progressive availability.
+Hard realtime inference on the audio callback is not a release requirement.
 
 **Approach:**
 - Model: a lightweight causal separation net (e.g. a distilled/quantised
@@ -37,11 +41,11 @@ optional "HD Separation" toggle, offline-first.
 
 ---
 
-## 2. Audio → MIDI (polyphonic) & sound transformation — tier **L**
+## 2. Audio → MIDI and sound transformation — transcription implemented / timbre transfer open
 
-**Today:** monophonic melody extraction (YIN) is buildable inline (see the
-`audio-to-midi` DSP feature, separate track). Polyphonic note/chord extraction and
-"hum → instrument" / "beatbox → drums" transformation are model-grade.
+**Today:** monophonic YIN melody extraction and drum-onset extraction feed editable
+MIDI clips/Piano Roll. `NeuralTranscriber` integrates Spotify basic-pitch through a
+background command adapter with YIN fallback. Timbre transfer remains unimplemented.
 
 **Approach:**
 - Polyphonic transcription: **basic-pitch** (Spotify, TF-Lite) or **MT3**
@@ -55,11 +59,11 @@ optional "HD Separation" toggle, offline-first.
 
 ---
 
-## 3. Intelligent spectral mixing & smart mastering — tier **S–M**
+## 3. Intelligent spectral mixing & smart mastering — baseline implemented
 
-**Note:** the *mastering* half (analysis → auto EQ/dynamics/LUFS) is buildable with
-classic DSP and is tracked as an inline feature. The *cross-deck spectral
-un-masking* half benefits from a model but has a strong DSP baseline.
+**Today:** `SmartMaster` provides a bounded, undoable DSP mastering baseline with
+spectral tilt, dynamics, loudness feedback, modes, and captured arrangement
+automation. Cross-deck complementary spectral un-masking remains open.
 
 **Approach:**
 - Baseline (no ML): multiband spectral analysis across active decks; detect
@@ -73,7 +77,7 @@ un-masking* half benefits from a model but has a strong DSP baseline.
 
 ---
 
-## 4. Generative AI set building — tier **M** (service-backed)
+## 4. Generative AI set building — deterministic local baseline / service planner open
 
 **Target:** "build a heavy 120 BPM set in C minor" → ordered track suggestions
 from local library + streaming.
@@ -91,7 +95,7 @@ from local library + streaming.
 
 ---
 
-## 5. Library interop — OneLibrary / Rekordbox / Traktor / Serato — tier **M**
+## 5. Library interop — OneLibrary / Rekordbox / Traktor / Serato — open, tier **M**
 
 **Target:** read/write cue points, loops, beatgrids, metadata across ecosystems.
 
@@ -109,9 +113,8 @@ write-behind-a-flag.
 
 ## Sequencing recommendation
 
-1. Inline DSP features first (per-stem FX, audio→MIDI mono, smart-master baseline,
-   automation lanes) — no external deps, immediate value.
-2. Neural separation (offline HD toggle) — highest "wow", contained via adapter.
-3. Library interop (read-only) — unlocks real-world libraries.
-4. Generative set building — service-backed, reuses existing analysis.
-5. Polyphonic transcription + timbre transfer — most research-heavy, last.
+1. **Done:** per-stem FX, mono/drum audio→MIDI, Smart Master, and automation lanes.
+2. **Engine done; distribution open:** offline/progressive neural separation.
+3. **Next:** read-only Rekordbox/Traktor/Serato library interop.
+4. **Then:** opt-in service-backed set planning over local metadata.
+5. **Last:** timbre transfer and research-heavy transformation models.

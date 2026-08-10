@@ -38,6 +38,7 @@ struct TrackDeckParams
     float low = 0.0f, mid = 0.0f, high = 0.0f, filter = 0.5f;
     float pitch = 0.0f, bpm = 120.0f, beatOffset = 0.0f, downbeat = 0.0f;
     int   tempoInterp = 0, syncMode = 0, keyTarget = 0;
+    int   warpRevision = 0;
     bool  keyLock = false, liveKey = false;
     std::array<float, DeckPlayer::numStemLanes> stemGainPercent { { 100.0f, 100.0f, 100.0f, 100.0f, 100.0f } };
     std::array<float, DeckPlayer::numStemLanes> stemPitch { {} };
@@ -132,7 +133,8 @@ public:
 
         // ── Beat grid (rebuild only when its inputs change — makeGrid sorts vectors) ──
         const GridKey key { deckAudio.get(), refined.get(), params.bpm, params.beatOffset,
-                            params.downbeat, params.tempoInterp, params.syncMode };
+                            params.downbeat, params.tempoInterp, params.syncMode,
+                            params.warpRevision };
         if (gridDirty || key != cachedKey)
         {
             // Prefer a grid built on the MESSAGE thread. makeGrid sorts and copies
@@ -214,11 +216,12 @@ private:
     struct GridKey
     {
         const void* audio = nullptr; const void* refined = nullptr;
-        float bpm = 0, beatOff = 0, downbeat = 0; int interp = 0, syncMode = 0;
+        float bpm = 0, beatOff = 0, downbeat = 0; int interp = 0, syncMode = 0, warpRevision = 0;
         bool operator!= (const GridKey& o) const noexcept
         {
             return audio != o.audio || refined != o.refined || bpm != o.bpm || beatOff != o.beatOff
-                || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode;
+                || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode
+                || warpRevision != o.warpRevision;
         }
     };
 
@@ -414,13 +417,28 @@ public:
     void publishGridForAnalysis (const TrackAnalysis& analysis,
                                  const void* audioPtr, const void* refinedPtr,
                                  float bpm, float beatOffset, float downbeat,
-                                 int tempoInterp, int syncMode)
+                                 int tempoInterp, int syncMode,
+                                 std::vector<BeatSyncEngine::WarpMarker> userMarkers = {},
+                                 int warpRevision = 0)
     {
         auto pg = std::make_shared<PublishedGrid>();
-        pg->key  = GridKey { audioPtr, refinedPtr, bpm, beatOffset, downbeat, tempoInterp, syncMode };
+        pg->key  = GridKey { audioPtr, refinedPtr, bpm, beatOffset, downbeat,
+                             tempoInterp, syncMode, warpRevision };
         pg->grid = BeatSyncEngine::makeGrid (analysis, bpm, beatOffset, downbeat,
                                              BeatSyncEngine::tempoInterpretationFromChoice (tempoInterp),
                                              BeatSyncEngine::syncModeFromChoice (syncMode));
+        for (const auto& marker : userMarkers)
+        {
+            pg->grid.warpMarkers.erase (std::remove_if (
+                pg->grid.warpMarkers.begin(), pg->grid.warpMarkers.end(),
+                [&marker] (const auto& existing)
+                { return std::abs (existing.projectBeat - marker.projectBeat) < 0.01; }),
+                pg->grid.warpMarkers.end());
+            pg->grid.warpMarkers.push_back (marker);
+        }
+        std::sort (pg->grid.warpMarkers.begin(), pg->grid.warpMarkers.end(),
+                   [] (const auto& a, const auto& b)
+                   { return a.projectBeat < b.projectBeat; });
         std::atomic_store (&publishedGrid, std::shared_ptr<const PublishedGrid> (std::move (pg)));
     }
 

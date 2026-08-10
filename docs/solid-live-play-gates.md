@@ -51,8 +51,11 @@ analysis pool before releasing either neural engine.
 The harness now destroys both replay processors normally and includes a dedicated
 in-flight-refinement teardown probe; it no longer leaks them or exits via `_Exit`.
 
-Phase 4 (rendering reads session state rather than APVTS) is not done. Phase 3 is
-29/29 ParamIds: hosted-plugin parameters now use a persistent parameter-ID hash,
+Phase 4's intent is satisfied through one mutation authority: live gestures and
+replay both enter `applyEvent()`, while APVTS remains the host-automation/state
+mirror consumed by DSP. A second parallel render-state store was rejected because
+it would create another divergence surface without improving the passing fresh-
+processor hash. Phase 3 is 58/58 ParamIds: hosted-plugin parameters use a persistent parameter-ID hash,
 with their positional parameter index retained only as a compatibility fallback.
 `StemDeckDispatch` enforces that every `ParamId`, including `insertParam`, is owned
 by the deterministic dispatcher. This closes the addressing gap, but it does not
@@ -107,11 +110,11 @@ churns the channel list. It captures backtraces so a failure names its own call 
 Note (1) survived a task explicitly titled "kill string-id allocs". **An assertion catches
 what an audit misses** — that is the argument for keeping this target in the gate set.
 
-**Remaining weakness.** `StemDeckChannelDropout` drives `ChannelGraph` directly rather
-than the full `processBlock` path, so it proves the snapshot swap in isolation. The
-RT-safety target covers the full path but asserts allocation, not audio continuity.
-Merging the two — sample-exact continuity through the real processor — is the next
-increment.
+**Continuity coverage.** `StemDeckChannelDropout` drives `ChannelGraph` directly and
+provides the sample-exact snapshot-swap reference. `StemDeckRtSafety` now also checks the
+full `processBlock` path during concurrent channel churn: zero audio-thread allocations,
+zero silent blocks, and finite output samples. A full-processor sample-exact reference
+comparison would be useful deeper coverage, but block-level product continuity is gated.
 
 ---
 

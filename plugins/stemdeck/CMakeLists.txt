@@ -98,7 +98,7 @@ sattari_add_plugin(
     SLUG stemdeck
     PRODUCT_NAME "Sattari StemDeck"
     PLUGIN_CODE Sd01
-    FORMATS VST3 Standalone
+    FORMATS AU VST3 Standalone
     IS_SYNTH
     NEEDS_MIDI_INPUT
     EDITOR_WANTS_KEYBOARD_FOCUS
@@ -123,6 +123,8 @@ sattari_add_plugin(
         src/MixerSection.cpp
         src/MusicLibraryView.cpp
         src/PerformanceRecorder.cpp
+        src/PluginSandboxClient.cpp
+        src/RetrospectiveRecorder.cpp
         src/PadBank.cpp
         src/RoadmapAdapters.h
         src/SamplePad.cpp
@@ -146,6 +148,40 @@ target_compile_definitions(SattariStemDeck
         JUCE_PLUGINHOST_VST3=1
         JUCE_PLUGINHOST_LV2=0
         JUCE_PLUGINHOST_VST=0)
+
+# Untrusted plug-ins never load into StemDeck's process. This companion executable
+# owns scanning, construction, and audio processing, communicating through a bounded
+# memory-mapped ring. A plugin crash therefore drops only the helper and the parent
+# immediately continues with its dry block.
+juce_add_console_app(StemDeckPluginSandbox
+    PRODUCT_NAME "StemDeck Plugin Sandbox")
+juce_generate_juce_header(StemDeckPluginSandbox)
+target_sources(StemDeckPluginSandbox PRIVATE
+    app/StemDeckPluginSandbox.cpp)
+target_include_directories(StemDeckPluginSandbox PRIVATE
+    src)
+target_compile_definitions(StemDeckPluginSandbox PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_AU=1
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0
+    JUCE_PLUGINHOST_VST=0
+    JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckPluginSandbox PRIVATE
+    juce::juce_audio_utils
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+if(TARGET SattariStemDeck_Standalone)
+    add_dependencies(SattariStemDeck_Standalone StemDeckPluginSandbox)
+    if(APPLE)
+        add_custom_command(TARGET SattariStemDeck_Standalone POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:StemDeckPluginSandbox>
+                    $<TARGET_BUNDLE_DIR:SattariStemDeck_Standalone>/Contents/MacOS/StemDeckPluginSandbox
+            VERBATIM)
+    endif()
+endif()
 
 sattari_enable_rubberband(SattariStemDeck SATTARI_STEMDECK_HAS_RUBBERBAND)
 sattari_enable_tracktion_engine(SattariStemDeck)
@@ -290,6 +326,7 @@ add_executable(StemDeckArchitectureContract
         src/EQProcessor.cpp
         src/FilterProcessor.cpp
         src/HostGraph.cpp
+        src/PluginSandboxClient.cpp
         src/PerformanceRecorder.cpp
         src/RealTimeStemSeparator.cpp
         src/NeuralBeatEngine.cpp
@@ -315,7 +352,8 @@ target_compile_definitions(StemDeckArchitectureContract
         JUCE_PLUGINHOST_VST3=1
         JUCE_PLUGINHOST_LV2=0
         JUCE_PLUGINHOST_VST=0
-        JUCE_VST3_CAN_REPLACE_VST2=0)
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
 
 target_link_libraries(StemDeckArchitectureContract
     PRIVATE

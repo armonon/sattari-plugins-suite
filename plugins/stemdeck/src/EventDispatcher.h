@@ -133,56 +133,14 @@ public:
     std::int64_t getClockSamples() const noexcept { return clockSamples; }
 
     // ── Conversion progress (§11 phase 3) ────────────────────────────────────
-    // Which ParamIds actually route through here. Honest reporting matters: a
-    // half-converted surface that CLAIMS to be complete produces a replay that is
-    // subtly wrong, which is worse than one that admits it is partial.
     static bool ownsParam (ParamId id) noexcept
     {
-        // This list must name only what is GENUINELY routed through dispatch in
-        // MainPluginProcessor. Listing an unconverted param here would make the
-        // conversion look further along than it is, and produce a replay missing
-        // gestures it claims to carry.
-        switch (id)
-        {
-            // Direct conversions (no APVTS parameter behind them).
-            case ParamId::channelMute:
-            case ParamId::channelSolo:
-            case ParamId::stemMute:
-            case ParamId::stemSolo:
-            case ParamId::cfSide:
-            // Routed by the APVTS bridge in MainPluginProcessor. Each of these has a
-            // mapping in BOTH directions (mapApvtsId / apvtsIdFor); a one-way mapping
-            // would capture without replaying, or replay without capturing.
-            case ParamId::channelGain:
-            case ParamId::eqLow:
-            case ParamId::eqMid:
-            case ParamId::eqHigh:
-            case ParamId::filter:
-            case ParamId::pitchSemitones:
-            case ParamId::keyLockOn:
-            case ParamId::keyTarget:
-            case ParamId::bpmSource:
-            case ParamId::tempoInterp:
-            case ParamId::syncMode:
-            case ParamId::gainStem:
-            case ParamId::masterGain:
-            case ParamId::limiterCeiling:
-            case ParamId::masterKey:
-            case ParamId::crossfader:
-            case ParamId::crossfaderCurve:
-            // Body-backed (no APVTS parameter): applied directly in applyEvent.
-            case ParamId::inputGain:
-            case ParamId::inputMonitor:
-            case ParamId::inputSource:
-            case ParamId::instGain:
-            case ParamId::instMidiChannel:
-            case ParamId::insertBypass:
-            case ParamId::insertParam:
-                return true;
-
-            default:
-                return false;
-        }
+        // ParamId is now a closed vocabulary: every member is either applied
+        // directly in applyEvent or has a two-way APVTS mapping. New IDs must land
+        // with that mapping in the same change; the dispatch contract exercises the
+        // complete [0,count) range.
+        const auto raw = static_cast<std::uint16_t> (id);
+        return raw < static_cast<std::uint16_t> (ParamId::count);
     }
 
     static int convertedParamCount() noexcept

@@ -1,26 +1,24 @@
-# ML stem separation for StemDeck (spike / plan)
+# ML stem separation for StemDeck (implemented engine / distribution plan)
 
 Goal: bring **Moises / RipX-class** 4-stem separation (drums / bass / other / vocals)
 into StemDeck, so a loaded track can be split into stems on import. This is an
 **offline** feature — it runs once on a background thread when a track is loaded,
 not in the realtime audio callback.
 
-## What's wired (committed, non-invasive)
+## What is implemented
 
-- `core/include/sattari_audio_core/SattariStemSeparator.h` — interface + the
-  **full waveform-Demucs inference pipeline** (normalise → segment → ONNX `Run`
-  → triangular overlap-add → de-normalise) behind `#if SATTARI_HAS_ONNX`, plus a
-  no-op fallback. The default build compiles the fallback with **zero** new deps.
+- `NeuralStemEngine` and the shared separator code implement the waveform inference
+  pipeline (normalise → segment → ONNX `Run` → overlap-add → de-normalise),
+  progressive playhead-first segments, cancellation, and CPU/CoreML provider setup.
+  The default build keeps this compiled out with **zero** ONNX dependency.
 - `cmake/SattariOnnx.cmake` — `sattari_enable_onnx(target DEFINE)`, **OFF by
   default** (`-DSATTARI_USE_ONNX=ON` to enable). Mirrors `SattariRubberBand.cmake`.
 - `plugins/stemdeck/CMakeLists.txt` — calls `sattari_enable_onnx(SattariStemDeck
   SATTARI_HAS_ONNX)`. With ONNX off it's a no-op, so the green build is untouched.
 
-Because the ONNX path is compiled out by default, the pipeline code can't be
-machine-verified here (no ONNX headers) — the two remaining steps both need the
-real lib + model: (1) obtain ONNX Runtime + an htdemucs/MDX `.onnx`, (2) call
-`StemSeparator::loadModel()` + `separate()` from the `TrackAnalysis` thread on
-track load.
+ONNX smoke and cancellation contracts exist when a compatible runtime/model are
+configured. The remaining product step is choosing and licensing the exact weights
+and deployable runtime, then executing the signed/notarized package on clean machines.
 
 ## Architecture (how it slots into StemDeck)
 

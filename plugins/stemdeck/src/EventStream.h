@@ -86,12 +86,26 @@ enum class ParamId : std::uint16_t
     instGain, instMidiChannel,
     masterGain, limiterCeiling, masterKey,
 
+    // v3 live-surface completion. Append-only: existing numeric values above are
+    // persisted in performance streams and must never be renumbered.
+    channelFader, fullMixGain,
+    pitchStem, filterStem, sendStem,
+    reverbMix, echoMix,
+    deckPlay, deckSync, liveKeyOn, beatOffset, downbeat,
+    crossfaderReverse, masterBpm, hostSync, beatSync,
+    micMonitorGlobal, micGainGlobal,
+    liveInstrumentOn, liveInstrumentGain,
+    masterFxX, masterFxY,
+    smartMasterOn, smartMasterMode, smartMasterAmount,
+    stemLink, padGain, slipMode, padTrigger,
+
     count
 };
 
 enum class TransportAction : std::uint8_t
 {
     play = 0, stop, cue, cueRelease, seek, loopOn, loopOff, beatJump,
+    loopSet, loopClear, loopRollOn, loopRollOff,
     count
 };
 

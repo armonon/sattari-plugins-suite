@@ -20,7 +20,10 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 
 - JUCE C++ standalone app/plugin engine using `AudioProcessorValueTreeState`.
 - Header-level standalone alpha quick-start rail with load → optional AI split → mix/FX/pads → Record WAV flow and not-notarized/not-sale-ready boundary.
-- Formats: Standalone app + VST3.
+- Formats: Standalone app + VST3 + Audio Unit (AU).
+- Local AU evidence (2026-08-09): universal Debug component builds, ad-hoc signature
+  verifies, and `auval -v aumu Sd01 Satr` succeeds. Logic/GarageBand workflow testing
+  and Developer ID/notarized release signing remain release gates.
 - Four decks: Deck A, Deck B, Deck C, and Deck D.
 - External stem lanes per deck: Full mix, Drums, Bass, Music, and Vocals lanes share one deck transport/playhead.
 - Optional offline AI stem separation command seam via `SATTARI_STEMDECK_SEPARATOR_CMD` or `~/Library/Application Support/Sattari/StemDeck/StemProvider/separator-command.txt`.
@@ -60,6 +63,10 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - Export Center with project/recording/media/storage preflight and portable session packages containing project state, source manifest, diagnostics, and available captures.
 - Session-level undo/redo for channel add/remove and destructive clears, alongside the existing arrangement edit history.
 - Hosted plug-in parameter capture/replay using persistent parameter IDs; all 29 event parameters now route through deterministic dispatch without adding audio-thread locks or allocation.
+- Third-party audio effects can be discovered and instantiated in the dedicated `StemDeckPluginSandbox` helper. A fixed shared-memory ring keeps the audio callback non-blocking and dry-bypasses a late or crashed helper.
+- Editable per-deck warp anchors: Shift-click the overview to add, drag a diamond to move it, and right-click to remove it. User anchors are stored in project state and participate in Anchor/Groove sync.
+- Region-level take comping in Arrange: razor-split the desired region, right-click it, then choose `Comp this region from take`; the source splice, short safety fades, label, and take provenance are undoable and persist with the arrangement.
+- Responsive marketing site in `apps/stemdeck-web/index.html`, with product workflow, feature, reliability, and private-alpha sections.
 - Source-controlled Developer-ID signing/notarization workflow in `scripts/release_stemdeck.sh` and `.github/workflows/stemdeck-release.yml`. It requires real Apple credentials and refuses ad-hoc release output.
 
 ## Architecture classes
@@ -75,7 +82,8 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - `MainPluginProcessor`
 - `MainPluginEditor`
 - `MasterRecorder`
-- `HostGraph` — Sattari-only VST3/AU discovery, per-chain (deck/mic/master) `AudioProcessorGraph`, chain selection, async load/clear, series FX rack, and real-time-safe pass-through fallback when graph mutation is busy
+- `HostGraph` — trusted Sattari VST3/AU processing in per-chain `AudioProcessorGraph`s plus one isolated third-party audio effect per otherwise-empty chain through `StemDeckPluginSandbox`; both paths dry-bypass safely when unavailable
+- `PluginSandboxClient` — coordinator-side helper lifecycle and fixed shared-memory audio bridge; it never waits in the audio callback
 - `TimePitchEngine` granular key-lock decision seam and `TrackAnalysis` groundwork
 - `RoadmapAdapters` header with placeholder interfaces for stem removal, mic input, and plugin hosting
 
@@ -83,7 +91,7 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 
 ```bash
 cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/stemdeck --config Release --target SattariStemDeck_Standalone SattariStemDeck_VST3 -j 4
+cmake --build build/stemdeck --config Release --target SattariStemDeck_Standalone SattariStemDeck_VST3 SattariStemDeck_AU -j 4
 ```
 
 One-command local StemDeck gate:
@@ -178,10 +186,23 @@ Latest validation log/report: `plugins/stemdeck/logs/2026-05-23-host-scan-valida
 - Still not finished/sale-ready: DAW tests, real-song listening pass, long-session soak, credentialed notarization execution, and broad third-party plug-in compatibility still need evidence.
 - Recording write, arrangement JSON export, mic input monitoring, host BPM sync, beat-grid sync, live key analysis/matching, optional offline Demucs stems, and pluginval strictness 5 are internal pre-alpha features, not sale-ready claims.
 - Offline AI stems are command-backed and cache-backed, not bundled as a consumer installer. Local Demucs requires `scripts/setup_stemdeck_demucs.sh` or equivalent user setup. The UI now feels like a product flow, but the model/runtime packaging is still developer-local until licensing/notarization are reviewed.
-- Stem-lane gain control is automatable; dedicated polished stem-mixer/progress/cancel UX still needs product work.
-- Beat-grid sync is host-PPQ/source-BPM based with per-deck beat-offset nudging; it is not yet full DJ-style transient/downbeat detection, beatgrid editing, or commercial-grade time-stretch. Preserve now enables an internal granular key-lock backend, and LiveKey can drive target-key matching from the current playback window, but these have not passed real-song listening validation or DAW matrix testing.
-- JUCE plug-in hosting includes UI, state, reorder/bypass/remove, and stable parameter capture/replay, but broad third-party compatibility testing is not complete.
-- File browser, persistent analyzed Library, MIDI pad/controller mapping, and credentialed installer automation exist; none of those replace the remaining manual validation gates.
+- Stem-lane gain control is automatable; background splitting now exposes live progress
+  and cancellation while retaining completed cache. Model/runtime licensing and bundling
+  still need a consumer distribution decision.
+- Beat-grid sync includes automatic onset/beat/downbeat analysis, optional neural
+  refinement, variable-tempo Anchor/Groove mapping, per-deck project sync, and manual
+  offset/downbeat correction, Option-click waveform downbeat anchoring, and persistent
+  draggable multi-marker Anchor/Groove edits. Licensed real-music corpus certification
+  and commercial-grade time-stretch listening evidence remain.
+- JUCE plug-in hosting includes UI, state, reorder/bypass/remove, stable parameter
+  capture/replay, crash quarantine, and automatic dry fallback for invalid output.
+  Untrusted audio effects now run in a helper process, but the first isolation release
+  intentionally supports one third-party effect per empty chain and does not yet bridge
+  its native editor, MIDI, parameter automation, or complete plug-in state. Compatibility,
+  restart/recovery, latency, and malicious/hanging plug-in soak matrices remain release gates.
+- File browser, persistent analyzed Library, BPM/key set arranging, preparation filters,
+  possible-duplicate review, and portable named MIDI-controller presets exist; none of
+  those replace the remaining manual validation gates.
 - Keyboard pad triggering requires the editor/Standalone window to have keyboard focus.
 - Normal songs retain the decoded buffer for low-latency manipulation. Files longer
   than ten minutes use a two-minute analysis/visual preview plus a bounded 30-second

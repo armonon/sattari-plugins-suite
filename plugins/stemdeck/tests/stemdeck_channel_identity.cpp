@@ -30,6 +30,23 @@ int main()
     processor.setPlayConfigDetails (2, 2, sampleRate, blockSize);
     processor.prepareToPlay (sampleRate, blockSize);
 
+    // Future channel banks are intentionally host-visible before a channel owns
+    // them.  They must remain independent: every unused slot has the sentinel
+    // channel id -1, which previously caused a write to Deck F to echo into the
+    // first unused bank (Deck E) through the event dispatcher.
+    auto* unusedE = processor.parameters().getParameter ("deckEVolume");
+    auto* unusedF = processor.parameters().getParameter ("deckFVolume");
+    check (unusedE != nullptr && unusedF != nullptr,
+           "future channel parameter banks are host-visible");
+    if (unusedE != nullptr && unusedF != nullptr)
+    {
+        unusedE->setValueNotifyingHost (0.2f);
+        unusedF->setValueNotifyingHost (0.8f);
+        check (std::abs (unusedE->getValue() - 0.2f) < 1.0e-6f
+                   && std::abs (unusedF->getValue() - 0.8f) < 1.0e-6f,
+               "automation in unused channel banks cannot cross-route");
+    }
+
     const int inputIndex = processor.addChannel (ChannelType::input);
     check (inputIndex >= 0, "a typed live-input channel can be added");
     check (processor.getChannelId (inputIndex) == 4,
