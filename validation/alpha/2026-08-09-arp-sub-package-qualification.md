@@ -62,6 +62,11 @@ by Git. Their signatures are ad-hoc, not Developer ID.
 
 ## Gates still open
 
+- GitHub Actions run `31343378224` was dispatched for commit `aa03550`, but all
+  jobs were refused before checkout because the account has failed payments or
+  reached its Actions spending limit. This is an account gate, not a test
+  failure; the local gates above remain the available evidence until billing is
+  restored and the workflow is rerun.
 - Logic, Ableton, and FL Studio scan/insert/process/automation/recall/bounce.
 - Musical listening on real kick, bass, and MIDI sessions.
 - Multi-instance stress at the supported sample rates and buffer sizes.
