@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "truth_label": "internal validation only; source audio is not shipped or published",
+  "audio_policy": "Only owned, cleared, or public-domain real vocals. Audio lives outside git; these are absolute paths on the operator's machine.",
+  "provenance_note": "Supplied by the repository owner on 2026-08-10 as cleared test vocals. Converted from 64 kbps mono AAC to 24-bit 48 kHz WAV with afconvert; the WAV copies also live outside git.",
+  "defaults": {
+    "styles": ["natural", "hard"],
+    "render_engines": ["psola-lite", "granular"]
+  },
+  "coverage_requirements": [
+    "rap",
+    "rnb",
+    "soft_singing",
+    "belting",
+    "vibrato",
+    "male_vocal",
+    "female_vocal",
+    "noisy_vocal",
+    "fast_note_transitions"
+  ],
+  "minimum_real_clip_count": 5,
+  "tagging_policy": "Every vocal_tag below is backed by a measurement recorded in measured_characteristics. Tags that could not be established from the signal were NOT applied, even where they are likely, because every later result is conditioned on these labels.",
+  "clips": [
+    {
+      "clip_id": "slay-demons",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/slay-demons.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, mid register, dense rhythmic delivery",
+      "voice_range": "measured f0 p5-p95 120-183 Hz; median 166 Hz (MIDI 52.1, ~E3)",
+      "vocal_tags": ["rap", "fast_note_transitions"],
+      "measured_characteristics": {
+        "duration_s": 81.2,
+        "sample_rate": 48000,
+        "peak_dbfs": -0.1,
+        "rms_dbfs": -16.5,
+        "voiced_fraction": 0.34,
+        "pyin_median_confidence": 0.28,
+        "f0_median_hz": 165.8,
+        "spectral_f0_hz": 172,
+        "note_changes_per_voiced_s": 6.37,
+        "longest_sustain_s": 0.89,
+        "vibrato_band_ratio": 0.13,
+        "noise_floor_db": -56.0,
+        "dynamic_gap_db": 45.4
+      },
+      "tag_justification": {
+        "rap": "6.37 pitch changes per voiced second with a 0.89 s longest sustain and only 34% voiced content — dense, consonant-heavy delivery rather than sustained singing.",
+        "fast_note_transitions": "same measurement; this is the transition-speed stress case."
+      },
+      "tags_deliberately_not_applied": {
+        "male_vocal": "f0 median 166 Hz sits in the overlap between male and female registers. Gender is not determinable from f0 alone and was not assumed.",
+        "vibrato": "13% of pitch-modulation energy in the 4-8 Hz band, with a 0.89 s longest sustain — too little sustained material to call this a vibrato case."
+      }
+    },
+    {
+      "clip_id": "guidos-pizza",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/guidos-pizza.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, band-limited/degraded capture",
+      "voice_range": "harmonic comb at 176 / 352 / 527 Hz gives f0 ~176 Hz; pyin could NOT track this clip",
+      "vocal_tags": ["noisy_vocal"],
+      "measured_characteristics": {
+        "duration_s": 20.5,
+        "sample_rate": 48000,
+        "peak_dbfs": -0.5,
+        "rms_dbfs": -17.5,
+        "voiced_fraction": 0.81,
+        "pyin_median_confidence": 0.01,
+        "f0_spectral_hz": 176,
+        "pyin_f0_median_hz": null,
+        "passband_20db_hz": [135, 1072],
+        "energy_below_100hz_pct": 0.2,
+        "energy_300_4000hz_pct": 91.1,
+        "longest_sustain_s": 2.4,
+        "vibrato_band_ratio": 0.34,
+        "noise_floor_db": -52.4,
+        "dynamic_gap_db": 40.2
+      },
+      "tag_justification": {
+        "noisy_vocal": "Degraded capture: -20 dB passband only 135-1072 Hz, essentially no energy above 4 kHz, 64 kbps source. This is the tracker-hostile case."
+      },
+      "known_hazard": "pyin FAILS on this clip. With a 55 Hz floor it reported 58.9 Hz, exactly f0/3; at 90 Hz it reported 88 Hz, exactly f0/2; at 120 Hz it pins to 120. Median voiced confidence is 0.01 while voiced_flag claims 81%. The true f0 is ~176 Hz from an unambiguous harmonic comb. Any Auto Pitch result on this clip must be read against a pitch tracker that may be making the same sub-harmonic error.",
+      "tags_deliberately_not_applied": {
+        "soft_singing": "Whether this is sung or spoken was not established from the signal.",
+        "vibrato": "34% of modulation energy sits in the 4-8 Hz band, but it was measured on a pitch curve the tracker could not resolve, so the number is not trustworthy."
+      }
+    }
+  ]
+}

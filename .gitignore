@@ -67,3 +67,12 @@ validation/*.npz
 validation/*.npy
 *.onnx
 !plugins/auto-pitch/models/crepe.onnx
+
+# Vocal-derived audio never enters git. The corpus manifests point at absolute
+# paths outside the repository, and these renders are derived from cleared-for-
+# internal-eval material whose public_release_allowed is false. Untracked is not
+# enough: one `git add -A` would publish a singer's voice.
+validation/auto-pitch/renders/
+validation/corpus/**/*.wav
+validation/corpus/**/*.m4a
+validation/listening/**/*.wav
