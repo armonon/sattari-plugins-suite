@@ -113,7 +113,8 @@
       "voice_range": "measured f0 p5-p95 209-551 Hz; median 317 Hz (MIDI 63.3, ~Eb4); 16.8 semitone range",
       "vocal_tags": [
         "soft_singing",
-        "noisy_vocal"
+        "noisy_vocal",
+        "female_vocal"
       ],
       "measured_characteristics": {
         "duration_s": 26.0,
@@ -138,17 +139,17 @@
       },
       "tag_justification": {
         "soft_singing": "1.60 s longest sustain and 3.33 pitch changes per voiced second \u2014 sustained melodic phrasing, not rap; RMS -45.9 dBFS is a quiet, unforced delivery.",
-        "noisy_vocal": "Signal-to-floor gap is only 20.8 dB, against 45.4 and 40.2 dB on the other two clips. Peak sits 29.8 dB below full scale, so any processing works on a low-level signal."
-      },
-      "inferred_tags_awaiting_confirmation": {
-        "female_vocal": "A 317 Hz median sustained over 26 s sits above the adult male modal range (85-180 Hz) and would otherwise require continuous falsetto. This is INFERRED FROM REGISTER, not measured, so it is deliberately NOT in vocal_tags and does NOT count toward coverage. The repository owner can confirm and promote it.",
-        "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
+        "noisy_vocal": "Signal-to-floor gap is only 20.8 dB, against 45.4 and 40.2 dB on the other two clips. Peak sits 29.8 dB below full scale, so any processing works on a low-level signal.",
+        "female_vocal": "CONFIRMED by the repository owner, 2026-08-10. Consistent with the measurement that prompted the question: a 317 Hz median sustained over 26 s sits above the adult male modal range. The tag was held out of vocal_tags until confirmed rather than inferred from register."
       },
       "cross_check_note": "The average-spectrum harmonic-comb check that exposed the guidos-pizza sub-harmonic error is inconclusive here BY DESIGN: this clip spans 16.8 semitones, so averaging the spectrum over the file smears several different notes together. Peaks at 275/316/352/416/551/627 Hz do not form one comb because they are not one note. pyin at confidence 0.48 is the better estimate for this clip.",
       "ground_truth": {
         "key": "G# major",
         "source": "stated by the repository owner, 2026-08-10",
         "note": "This is the first ground-truth key label in the corpus. AutoKey reported C# major at 0% confidence via its Adaptive fallback; the independent Krumhansl-Schmuckler cross-check reported G# major and was correct."
+      },
+      "tags_deliberately_not_applied": {
+        "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
       }
     }
   ]
