@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -472,11 +473,16 @@ void runCpu()
     std::printf ("\n== 4. CPU / REAL-TIME FACTOR  (2000 x 512-sample blocks @ 48k) ==\n");
     const int   nBlocks   = 2000;
     const double audioSec = (double) (nBlocks * kBlock) / kSr;
+    //  Matrix state: the run lambda below honours these so one implementation
+    //  serves both the headline figures and the sample-rate/buffer sweep.
+    double mSr = kSr; int mBlock = kBlock;
 
     auto probe = [] (bool tone) { juce::ignoreUnused (tone); };
     juce::ignoreUnused (probe);
 
     auto run = [&] (const char* label, bool live, bool neural) {
+        const double kSr = mSr; const int kBlock = mBlock;
+        const double audioSec = (double) (nBlocks * kBlock) / kSr;
         SattariAutoPitchAudioProcessor p;
         auto& a = p.parameters();
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);
@@ -493,26 +499,65 @@ void runCpu()
         { double ph = 0.0; for (int i = 0; i < kBlock; ++i) { const float s = 0.4f * (float) std::sin (ph); src.setSample (0, i, s); src.setSample (1, i, s); ph += 2.0 * M_PI * 440.0 / kSr; } }
 
         juce::AudioBuffer<float> work (2, kBlock);
-        std::vector<double> perBlockMs; perBlockMs.reserve ((size_t) nBlocks);
+        std::vector<double> perBlockMs;  perBlockMs.reserve ((size_t) nBlocks);
+        std::vector<double> perBlockCpu; perBlockCpu.reserve ((size_t) nBlocks);
         double totalMs = 0.0;
+
+        //  WALL TIME AND THREAD CPU TIME, BOTH. Wall time alone cannot tell our
+        //  DSP apart from the OS descheduling us, and that ambiguity produced a
+        //  false alarm: the 2026-08-09 scorecard recorded p95 warnings of 19.873
+        //  and 18.631 ms and they do not reproduce. Three back-to-back runs of
+        //  this same binary on an idle machine measured p95 of 11.01, 2.74 and
+        //  2.52 ms — a 4.4x spread with nothing changing between them — while a
+        //  run under eight busy cores measured 8.47 ms, LOWER than the worst
+        //  idle run. A metric that noisy cannot gate a release.
+        //
+        //  CLOCK_THREAD_CPUTIME_ID counts only cycles this thread actually
+        //  executed, so preemption does not inflate it. If CPU p95 stays flat
+        //  while wall p95 spikes, the spike was the machine, not the plugin.
+        auto cpuNowMs = []() -> double
+        {
+            timespec ts {};
+            clock_gettime (CLOCK_THREAD_CPUTIME_ID, &ts);
+            return (double) ts.tv_sec * 1000.0 + (double) ts.tv_nsec / 1.0e6;
+        };
+
         for (int b = 0; b < nBlocks; ++b)
         {
             work.makeCopyOf (src);
             juce::MidiBuffer midi;
+            const double c0 = cpuNowMs();
             const auto t0 = std::chrono::steady_clock::now();
             p.processBlock (work, midi);
             const auto t1 = std::chrono::steady_clock::now();
+            const double c1 = cpuNowMs();
             const double ms = std::chrono::duration<double, std::milli> (t1 - t0).count();
             perBlockMs.push_back (ms); totalMs += ms;
+            perBlockCpu.push_back (c1 - c0);
         }
         auditSafety (work, "cpu");
         std::sort (perBlockMs.begin(), perBlockMs.end());
-        const double p95   = perBlockMs[(size_t) (0.95 * (double) perBlockMs.size())];
+        std::sort (perBlockCpu.begin(), perBlockCpu.end());
+        const auto pct = [] (const std::vector<double>& v, double q)
+        { return v[(size_t) juce::jlimit (0.0, (double) v.size() - 1.0, q * (double) v.size())]; };
+        const double p95    = pct (perBlockMs, 0.95);
+        const double p99    = pct (perBlockMs, 0.99);
+        const double cpuP95 = pct (perBlockCpu, 0.95);
+        const double cpuMax = perBlockCpu.back();
         const double mean  = totalMs / (double) nBlocks;
         const double rtf   = (totalMs / 1000.0) / audioSec;
-        const char*  v = verdict (rtf < 0.5, rtf < 1.0);
-        std::printf ("  %-22s RTF=%.3f  (headroom %5.1fx)   mean=%.3f ms/blk   p95=%.3f ms   [%s]\n",
-                     label, rtf, rtf > 1.0e-9 ? 1.0 / rtf : 0.0, mean, p95, v);
+        //  The verdict follows CPU time. Real-time capability is a property of
+        //  how much work the block does, and the budget is the block duration.
+        const double budgetMs = 1000.0 * (double) kBlock / kSr;
+        const char*  v = verdict (cpuP95 < budgetMs * 0.5, cpuP95 < budgetMs);
+        if (label[0] == '\0')
+            std::printf ("  %8.0f %7d %8.2f ms %8.3f ms %8.1fx %s\n",
+                         kSr, kBlock, budgetMs, cpuP95,
+                         cpuP95 > 1.0e-9 ? budgetMs / cpuP95 : 0.0, v);
+        else
+            std::printf ("  %-22s RTF=%.3f  mean=%.3f ms/blk   wall p95=%.3f p99=%.3f   "
+                         "CPU p95=%.3f max=%.3f   budget=%.2f ms   [%s]\n",
+                         label, rtf, mean, p95, p99, cpuP95, cpuMax, budgetMs, v);
     };
 
     // Neural presence: prepare a throwaway instance to query the model probe.
@@ -523,7 +568,23 @@ void runCpu()
     run ("Studio lock", true, false);
     if (neuralPresent) run ("Studio + Neural Pitch", true, true);
     std::printf ("  neural model (crepe.onnx) present: %s\n", neuralPresent ? "yes" : "no");
-    std::printf ("  threshold: RTF < 0.5 PASS, < 1.0 WARN\n");
+    std::printf ("  verdict follows CPU p95 against the block budget, not wall time\n");
+
+    //  SAMPLE-RATE / BUFFER MATRIX. Real-time capability is not one number: the
+    //  budget shrinks with the buffer (128 samples at 48k is 2.67 ms) while
+    //  per-block overhead does not shrink with it, so small buffers are where a
+    //  plugin actually fails. Studio lock is swept because it was the engine the
+    //  2026-08-09 scorecard flagged.
+    std::printf ("\n  -- Studio lock across sample rate x buffer --\n");
+    std::printf ("  %8s %7s %10s %10s %9s %s\n",
+                 "rate", "buffer", "budget", "CPU p95", "headroom", "verdict");
+    for (double sr : { 44100.0, 48000.0, 96000.0 })
+        for (int blk : { 64, 128, 256, 512, 1024 })
+        {
+            mSr = sr; mBlock = blk;
+            run ("", true, false);
+        }
+    mSr = kSr; mBlock = kBlock;
 }
 
 // ============================================================================
