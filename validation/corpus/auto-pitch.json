@@ -4,8 +4,14 @@
   "audio_policy": "Only owned, cleared, or public-domain real vocals. Audio lives outside git; these are absolute paths on the operator's machine.",
   "provenance_note": "Supplied by the repository owner on 2026-08-10 as cleared test vocals. Converted from 64 kbps mono AAC to 24-bit 48 kHz WAV with afconvert; the WAV copies also live outside git.",
   "defaults": {
-    "styles": ["natural", "hard"],
-    "render_engines": ["psola-lite", "granular"]
+    "styles": [
+      "natural",
+      "hard"
+    ],
+    "render_engines": [
+      "psola-lite",
+      "granular"
+    ]
   },
   "coverage_requirements": [
     "rap",
@@ -29,7 +35,10 @@
       "public_release_allowed": false,
       "singer_profile": "single performer, mid register, dense rhythmic delivery",
       "voice_range": "measured f0 p5-p95 120-183 Hz; median 166 Hz (MIDI 52.1, ~E3)",
-      "vocal_tags": ["rap", "fast_note_transitions"],
+      "vocal_tags": [
+        "rap",
+        "fast_note_transitions"
+      ],
       "measured_characteristics": {
         "duration_s": 81.2,
         "sample_rate": 48000,
@@ -46,12 +55,12 @@
         "dynamic_gap_db": 45.4
       },
       "tag_justification": {
-        "rap": "6.37 pitch changes per voiced second with a 0.89 s longest sustain and only 34% voiced content — dense, consonant-heavy delivery rather than sustained singing.",
+        "rap": "6.37 pitch changes per voiced second with a 0.89 s longest sustain and only 34% voiced content \u2014 dense, consonant-heavy delivery rather than sustained singing.",
         "fast_note_transitions": "same measurement; this is the transition-speed stress case."
       },
       "tags_deliberately_not_applied": {
         "male_vocal": "f0 median 166 Hz sits in the overlap between male and female registers. Gender is not determinable from f0 alone and was not assumed.",
-        "vibrato": "13% of pitch-modulation energy in the 4-8 Hz band, with a 0.89 s longest sustain — too little sustained material to call this a vibrato case."
+        "vibrato": "13% of pitch-modulation energy in the 4-8 Hz band, with a 0.89 s longest sustain \u2014 too little sustained material to call this a vibrato case."
       }
     },
     {
@@ -62,7 +71,9 @@
       "public_release_allowed": false,
       "singer_profile": "single performer, band-limited/degraded capture",
       "voice_range": "harmonic comb at 176 / 352 / 527 Hz gives f0 ~176 Hz; pyin could NOT track this clip",
-      "vocal_tags": ["noisy_vocal"],
+      "vocal_tags": [
+        "noisy_vocal"
+      ],
       "measured_characteristics": {
         "duration_s": 20.5,
         "sample_rate": 48000,
@@ -72,7 +83,10 @@
         "pyin_median_confidence": 0.01,
         "f0_spectral_hz": 176,
         "pyin_f0_median_hz": null,
-        "passband_20db_hz": [135, 1072],
+        "passband_20db_hz": [
+          135,
+          1072
+        ],
         "energy_below_100hz_pct": 0.2,
         "energy_300_4000hz_pct": 91.1,
         "longest_sustain_s": 2.4,
@@ -88,6 +102,49 @@
         "soft_singing": "Whether this is sung or spoken was not established from the signal.",
         "vibrato": "34% of modulation energy sits in the 4-8 Hz band, but it was measured on a pitch curve the tracker could not resolve, so the number is not trustworthy."
       }
+    },
+    {
+      "clip_id": "dickey-prairie",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/dickey-prairie.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, sustained melodic singing, quiet capture",
+      "voice_range": "measured f0 p5-p95 209-551 Hz; median 317 Hz (MIDI 63.3, ~Eb4); 16.8 semitone range",
+      "vocal_tags": [
+        "soft_singing",
+        "noisy_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 26.0,
+        "sample_rate": 48000,
+        "peak_dbfs": -29.8,
+        "rms_dbfs": -45.9,
+        "voiced_fraction": 0.62,
+        "pyin_median_confidence": 0.48,
+        "f0_median_hz": 316.7,
+        "f0_p05_hz": 208.9,
+        "f0_p95_hz": 551.4,
+        "range_semitones": 16.8,
+        "note_changes_per_voiced_s": 3.33,
+        "longest_sustain_s": 1.6,
+        "vibrato_band_ratio": 0.19,
+        "noise_floor_db": -62.4,
+        "dynamic_gap_db": 20.8,
+        "passband_20db_hz": [
+          275,
+          832
+        ]
+      },
+      "tag_justification": {
+        "soft_singing": "1.60 s longest sustain and 3.33 pitch changes per voiced second \u2014 sustained melodic phrasing, not rap; RMS -45.9 dBFS is a quiet, unforced delivery.",
+        "noisy_vocal": "Signal-to-floor gap is only 20.8 dB, against 45.4 and 40.2 dB on the other two clips. Peak sits 29.8 dB below full scale, so any processing works on a low-level signal."
+      },
+      "inferred_tags_awaiting_confirmation": {
+        "female_vocal": "A 317 Hz median sustained over 26 s sits above the adult male modal range (85-180 Hz) and would otherwise require continuous falsetto. This is INFERRED FROM REGISTER, not measured, so it is deliberately NOT in vocal_tags and does NOT count toward coverage. The repository owner can confirm and promote it.",
+        "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
+      },
+      "cross_check_note": "The average-spectrum harmonic-comb check that exposed the guidos-pizza sub-harmonic error is inconclusive here BY DESIGN: this clip spans 16.8 semitones, so averaging the spectrum over the file smears several different notes together. Peaks at 275/316/352/416/551/627 Hz do not form one comb because they are not one note. pyin at confidence 0.48 is the better estimate for this clip."
     }
   ]
 }
