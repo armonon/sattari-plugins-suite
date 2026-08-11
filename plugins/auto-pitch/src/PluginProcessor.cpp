@@ -1227,6 +1227,9 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
             o.source = KeyOrigin::Source::FollowBus;
             o.root   = juce::jlimit (0, 11, s.root);
             o.scale  = s.scale == 1 ? 1 : (s.scale == 2 ? 2 : 0);
+            //  Anything reaching the bus has already passed the publisher's gate,
+            //  so a bus key is by construction one somebody was willing to assert.
+            o.confidence = 1.0f;
             return o;
         }
 
@@ -1235,6 +1238,7 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
         o.source = KeyOrigin::Source::KeyMap;
         o.root   = juce::jlimit (0, 11, frame.detectedRoot);
         o.scale  = juce::jlimit (0, 2, frame.detectedScale);
+        o.confidence = detectedAutoKeyConf.load (std::memory_order_relaxed);
         return o;
     }
 
@@ -1243,6 +1247,7 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
         o.source = KeyOrigin::Source::AutoKey;
         o.root   = juce::jlimit (0, 11, frame.detectedRoot);
         o.scale  = juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex());
+        o.confidence = detectedAutoKeyConf.load (std::memory_order_relaxed);
         return o;
     }
 
@@ -1289,11 +1294,15 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         {
             bestRoot = akSpecRoot.load (std::memory_order_relaxed);
             detectedAutoScale = akSpecMinor.load (std::memory_order_relaxed);
+            //  A validated model inference is a real detection. The spectrogram
+            //  model reports no margin of its own, so its validity flag stands in.
+            detectedAutoKeyConf.store (1.0f, std::memory_order_relaxed);
         }
         else if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
         {
             bestRoot = keyNetLiveRoot.load (std::memory_order_relaxed);
             detectedAutoScale = keyNetLiveMinor.load (std::memory_order_relaxed);
+            detectedAutoKeyConf.store (1.0f, std::memory_order_relaxed);
         }
         else
         {
@@ -1302,6 +1311,15 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
             {
                 bestRoot = kr.root;
                 detectedAutoScale = kr.minor ? 1 : 0;
+                //  KEEP THE MARGIN. This is the line whose absence was the defect:
+                //  kr.confidence was computed on every call and thrown away, so a
+                //  histogram with no tonal information produced a key that looked
+                //  exactly like a confident one downstream.
+                detectedAutoKeyConf.store ((float) kr.confidence, std::memory_order_relaxed);
+            }
+            else
+            {
+                detectedAutoKeyConf.store (0.0f, std::memory_order_relaxed);
             }
         }
     }
@@ -1342,6 +1360,25 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
     const bool mapOn = keyMapDriving();
     if (! autoKeyOn && ! mapOn) return;
+
+    //  DO NOT PUBLISH A GUESS. The detector's margin was previously computed and
+    //  discarded, so a histogram carrying no tonal information still produced a
+    //  key on the bus, and Harmony, Maqam, Scaler and every other follower took
+    //  it as session truth. Measured on three real solo vocals: margins of
+    //  0.067, 0.053 and -0.031, against 0.157 minimum across 48 known-correct
+    //  melodies. Below the gate we publish NOTHING, which leaves followers on
+    //  their own key rather than on a coin flip -- Compass may enhance, it must
+    //  not create fragile basic functionality.
+    //
+    //  Silence is the correct failure here: the bus has one slot, and occupying
+    //  it with a guess is worse than leaving it empty.
+    const float keyMargin = detectedAutoKeyConf.load (std::memory_order_relaxed);
+    if (keyMargin < kMinBusKeyConfidence)
+    {
+        busKeySuppressed.store (true, std::memory_order_relaxed);
+        return;
+    }
+    busKeySuppressed.store (false, std::memory_order_relaxed);
 
     // CAS throttle: the editor timer and the worker thread both call this, so claim the
     // 1 s window atomically — only the thread that wins the exchange writes the file.
@@ -3711,7 +3748,17 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, key.tonicPitchClass)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, effectiveScaleIndex())];
-    const int confidence = juce::roundToInt (key.confidence * 100.0);
+    //  REPORT THE KEY'S OWN CONFIDENCE FOR DETECTOR SOURCES. currentKeySignature()
+    //  returns max(traceConfidence, live PITCH-frame confidence) -- a property of
+    //  the pitch tracker, not of the key decision. Displaying that under a "key"
+    //  label was misleading in both directions: it read 0% on an offline render
+    //  that had a perfectly good key, and it would read high on a confidently
+    //  tracked note in a key the detector was guessing at.
+    const bool detectorSource = (origin.source == KeyOrigin::Source::AutoKey
+                                 || origin.source == KeyOrigin::Source::KeyMap);
+    const int confidence = juce::roundToInt (
+        (detectorSource ? juce::jlimit (0.0f, 1.0f, origin.confidence / 0.3f)
+                        : (float) key.confidence) * 100.0f);
     juce::String engine = "Manual";
     if (origin.source == KeyOrigin::Source::FollowBus)
         engine = "Song Key";

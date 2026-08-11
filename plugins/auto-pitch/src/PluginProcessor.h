@@ -192,7 +192,29 @@ public:
         Source source = Source::Manual;
         int    root  = 9;   // 0..11, effective correction root
         int    scale = 1;   // index into the extended local scale/mode palette
+        //  HOW MUCH TO TRUST root/scale. Krumhansl margin (winner minus
+        //  runner-up) for detector sources; 1.0 for Manual, because a key the
+        //  user typed is a decision rather than an estimate.
+        //
+        //  This field exists because it was missing. AutoKey computed the margin
+        //  and dropped it here, so a 0-margin fallback reached the session bus
+        //  indistinguishable from a confident detection, and every key-following
+        //  plugin in the suite accepted it as fact.
+        float  confidence = 1.0f;
     };
+    //  MINIMUM MARGIN AN AUTOKEY VERDICT NEEDS BEFORE IT MAY REACH THE SESSION
+    //  BUS. Derived from measurement, not chosen: the Krumhansl margin on 48
+    //  known-correct synthetic melodies (12 roots x major/minor x sine/harmonic,
+    //  all verified correct) ranged 0.157 to 0.327, while three real solo vocals
+    //  whose key AutoKey could not determine measured 0.067, 0.053 and -0.031.
+    //  Nothing falls between 0.067 and 0.157. 0.10 is the geometric midpoint of
+    //  that gap, keeping ~1.5x headroom on both sides.
+    //
+    //  A negative margin is possible and meaningful: the detector's relative-key
+    //  swap can promote a runner-up, so below zero it has overridden its own
+    //  ranking and is guessing outright.
+    static constexpr float kMinBusKeyConfidence = 0.10f;
+
     KeyOrigin currentKeyOrigin() const;
 
     LiveSnapshot getLiveSnapshot() const noexcept
@@ -330,6 +352,12 @@ private:
     std::array<double, 12> autoKeyHistogram {};
     std::atomic<int> detectedAutoRoot { 9 };
     std::atomic<int> detectedAutoScale { 1 };   // AutoKey auto-detected mode: 0=major, 1=minor
+    //  The key detector's own margin, previously computed and discarded. Plain
+    //  relaxed float store from the audio thread: lock-free, no allocation.
+    std::atomic<float> detectedAutoKeyConf { 0.0f };
+    //  True when the last publish attempt was withheld for low confidence, so the
+    //  UI can say the bus is deliberately empty instead of appearing broken.
+    std::atomic<bool>  busKeySuppressed { false };
 
     // --- Note-transition retune modeling (Antares-class "feel") --------------
     // When the correction target jumps to a new note, transitionBoost spikes to

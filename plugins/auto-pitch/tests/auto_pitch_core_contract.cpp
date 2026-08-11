@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include <sattari_audio_core/SattariEditorRender.h>
+#include <sattari_audio_core/SattariRenderHarness.h>
 
 #include <cmath>
 #include <cstdio>
@@ -488,6 +489,81 @@ int main (int argc, char** argv)
             std::cerr << "MIDI note target was not applied: " << midiStatus << "\n";
             return 1;
         }
+    }
+
+    // --- AutoKey confidence gate ---------------------------------------------
+    //  REGRESSION PROTECTION FOR A SHIPPED DEFECT. The key detector computed a
+    //  Krumhansl margin on every call and discarded it, so material with no
+    //  tonal content still produced a key on the session bus that Harmony,
+    //  Maqam, Scaler and every other follower consumed as session truth.
+    //
+    //  Two properties are asserted, because the fix is only correct if BOTH
+    //  hold: a real key must clear the gate, and noise must not. Testing only
+    //  the second would pass trivially if the gate rejected everything.
+    {
+        auto runKey = [&] (const juce::AudioBuffer<float>& in)
+        {
+            SattariAutoPitchAudioProcessor p;
+            auto& a = p.parameters();
+            setParameter (a, "autoKey", 1.0f);
+            setParameter (a, "followSongKey", 0.0f);
+            setParameter (a, "enableCorrection", 1.0f);
+            p.setNonRealtime (true);
+            //  Drive it through the SHARED harness rather than a hand-rolled
+            //  block loop. The first attempt fed a mono buffer straight to
+            //  processBlock and segfaulted inside a channel-summing loop --
+            //  Auto Pitch expects stereo, and renderThrough already handles the
+            //  channel adaptation every other caller needs.
+            (void) sattari::harness::renderThrough (p, in, 48000.0, 512);
+            return p.currentKeyOrigin();
+        };
+
+        // A clean tonal melody: must CLEAR the gate, or the fix has broken
+        // ordinary key following.
+        juce::AudioBuffer<float> tonal (1, 48000 * 6);
+        {
+            static const int deg[7] = { 0, 2, 4, 5, 7, 9, 11 };
+            static const int seq[] = { 0,2,4,2,0, 4,5,4,2,0, 0,2,4,4,2,0, 4,2,0,0 };
+            float* d = tonal.getWritePointer (0);
+            double phase = 0.0;
+            const int noteLen = (int) (48000 * 0.26);
+            for (int i = 0; i < tonal.getNumSamples(); ++i)
+            {
+                const int midi = 60 + deg[seq[(i / noteLen) % 20]];
+                const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
+                d[i] = 0.4f * (float) std::sin (phase);
+                phase += 2.0 * juce::MathConstants<double>::pi * hz / 48000.0;
+            }
+        }
+
+        // White noise: no tonal content whatsoever, so any key is a guess and
+        // the gate MUST withhold it.
+        juce::AudioBuffer<float> noise (1, 48000 * 6);
+        {
+            juce::Random rng (20260810);
+            float* d = noise.getWritePointer (0);
+            for (int i = 0; i < noise.getNumSamples(); ++i)
+                d[i] = 0.3f * (rng.nextFloat() * 2.0f - 1.0f);
+        }
+
+        const auto tonalKey = runKey (tonal);
+        const auto noiseKey = runKey (noise);
+        const float gate = SattariAutoPitchAudioProcessor::kMinBusKeyConfidence;
+
+        if (! (tonalKey.confidence >= gate))
+        {
+            std::cerr << "AutoKey gate rejects a clean tonal melody: margin "
+                      << tonalKey.confidence << " < " << gate << "\n";
+            return 1;
+        }
+        if (! (noiseKey.confidence < gate))
+        {
+            std::cerr << "AutoKey gate ACCEPTS white noise as a key: margin "
+                      << noiseKey.confidence << " >= " << gate << "\n";
+            return 1;
+        }
+        std::cout << "  autoKeyGate=tonal " << tonalKey.confidence
+                  << " >= " << gate << " > noise " << noiseKey.confidence << "\n";
     }
 
     std::cout << "Auto Pitch core contract ok\n";

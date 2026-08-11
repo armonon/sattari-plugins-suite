@@ -333,6 +333,7 @@ int main (int argc, char** argv)
         //  cannot tell a certainty from a coin flip; this exposes it for the
         //  corpus work.
         std::printf ("  AutoKey summary: %s\n", keySummary.toRawUTF8());
+        std::printf ("  AutoKey margin (KeyOrigin.confidence): %.4f\n", origin.confidence);
         std::printf ("  cents-to-scale on SUSTAINED note bodies (|dist to nearest %s-%s tone|):\n", NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
         std::printf ("    INPUT           mean=%5.1f ct   median=%5.1f ct\n", inMean, inMed);
         std::printf ("    NATURAL (vib)   mean=%5.1f ct   median=%5.1f ct   tightened %.0f%% (median)\n", nMean, nMed, inMed > 0 ? (1 - nMed / inMed) * 100.0 : 0.0);
@@ -1462,10 +1463,10 @@ int main (int argc, char** argv)
                 const int  detRoot  = ko.root;
                 const int  detScale = ko.scale;   // 0=major, 1=minor
                 const bool ok = (detRoot == root) && (detScale == (minor ? 1 : 0));
-                std::printf ("  %-2s %s  ->  detected %-2s %s  %s\n",
+                std::printf ("  %-2s %s  ->  detected %-2s %s  %s   margin %.4f\n",
                              noteName12 (root), minor ? "min" : "maj",
                              noteName12 (detRoot), detScale == 1 ? "min" : detScale == 0 ? "maj" : "chr",
-                             ok ? "OK" : "MISS");
+                             ok ? "OK" : "MISS", ko.confidence);
                 ++total; if (ok) ++correct;
             }
         std::printf ("AutoKey accuracy, %s melodies: %d/%d (%.0f%%)\n",
