@@ -15,7 +15,7 @@
   },
   "coverage_requirements": [
     "rap",
-    "rnb",
+    "melismatic",
     "soft_singing",
     "belting",
     "vibrato",
@@ -152,5 +152,12 @@
         "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
       }
     }
-  ]
+  ],
+  "coverage_vocabulary_change": {
+    "date": "2026-08-10",
+    "change": "rnb -> melismatic",
+    "authorised_by": "repository owner",
+    "reason": "No CC BY or CC0 source of genre-labelled R&B solo vocal could be found. ccMixter's 5,974 a cappellas carry no licence filter and the featured examples are CC BY-NC 3.0, which is the wrong licence for validating a commercial product. VocalSet is CC BY 4.0 but technique-labelled, not genre-labelled. Rather than apply a genre tag the data cannot support, the requirement now names the signal property the tag stood for.",
+    "not_a_relaxation": "The tag must still be satisfied by real material with the property measured, not asserted."
+  }
 }

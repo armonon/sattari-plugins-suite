@@ -19,7 +19,7 @@ import sys
 
 COVERAGE = {
     "rap",
-    "rnb",
+    "melismatic",
     "soft_singing",
     "belting",
     "vibrato",

@@ -8,7 +8,7 @@
   },
   "coverage_requirements": [
     "rap",
-    "rnb",
+    "melismatic",
     "soft_singing",
     "belting",
     "vibrato",
@@ -27,7 +27,7 @@
       "public_release_allowed": false,
       "singer_profile": "replace with a non-identifying description",
       "voice_range": "replace with observed range",
-      "vocal_tags": ["rnb", "soft_singing", "vibrato", "male_vocal"],
+      "vocal_tags": ["melismatic", "soft_singing", "vibrato", "male_vocal"],
       "expected_key": { "root": "C", "scale": "minor" },
       "style_target": ["natural", "hard"],
       "render_engines": ["psola-lite", "granular"],

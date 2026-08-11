@@ -3,22 +3,63 @@
   "$id": "https://sattari.audio/schemas/auto-pitch-corpus-manifest.schema.json",
   "title": "Sattari Auto Pitch Vocal Corpus Manifest",
   "type": "object",
-  "required": ["version", "truth_label", "audio_policy", "clips"],
+  "required": [
+    "version",
+    "truth_label",
+    "audio_policy",
+    "clips"
+  ],
   "properties": {
-    "version": { "type": "integer", "minimum": 1 },
-    "truth_label": { "type": "string" },
-    "audio_policy": { "type": "string" },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "truth_label": {
+      "type": "string"
+    },
+    "audio_policy": {
+      "type": "string"
+    },
     "defaults": {
       "type": "object",
       "properties": {
-        "styles": { "type": "array", "items": { "enum": ["natural", "modern", "hard"] } },
-        "render_engines": { "type": "array", "items": { "enum": ["psola-lite", "granular"] } }
+        "styles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "natural",
+              "modern",
+              "hard"
+            ]
+          }
+        },
+        "render_engines": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "psola-lite",
+              "granular"
+            ]
+          }
+        }
       },
       "additionalProperties": true
     },
     "coverage_requirements": {
       "type": "array",
-      "items": { "enum": ["rap", "rnb", "soft_singing", "belting", "vibrato", "male_vocal", "female_vocal", "noisy_vocal", "fast_note_transitions"] }
+      "items": {
+        "enum": [
+          "rap",
+          "melismatic",
+          "soft_singing",
+          "belting",
+          "vibrato",
+          "male_vocal",
+          "female_vocal",
+          "noisy_vocal",
+          "fast_note_transitions"
+        ]
+      }
     },
     "minimum_real_clip_count": {
       "type": "integer",
@@ -31,36 +72,106 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["clip_id", "source_path", "permission_status", "cleared_for_internal_eval", "public_release_allowed", "vocal_tags", "known_challenges"],
+        "required": [
+          "clip_id",
+          "source_path",
+          "permission_status",
+          "cleared_for_internal_eval",
+          "public_release_allowed",
+          "vocal_tags",
+          "known_challenges"
+        ],
         "properties": {
-          "clip_id": { "type": "string", "minLength": 1 },
-          "source_path": { "type": "string", "minLength": 1 },
-          "permission_status": { "enum": ["owned", "cleared", "public-domain", "synthetic-fixture"] },
-          "cleared_for_internal_eval": { "const": true },
-          "public_release_allowed": { "type": "boolean" },
-          "singer_profile": { "type": "string" },
-          "voice_range": { "type": "string" },
+          "clip_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "permission_status": {
+            "enum": [
+              "owned",
+              "cleared",
+              "public-domain",
+              "synthetic-fixture"
+            ]
+          },
+          "cleared_for_internal_eval": {
+            "const": true
+          },
+          "public_release_allowed": {
+            "type": "boolean"
+          },
+          "singer_profile": {
+            "type": "string"
+          },
+          "voice_range": {
+            "type": "string"
+          },
           "vocal_tags": {
             "type": "array",
             "minItems": 1,
-            "items": { "enum": ["rap", "rnb", "soft_singing", "belting", "vibrato", "male_vocal", "female_vocal", "noisy_vocal", "fast_note_transitions"] }
+            "items": {
+              "enum": [
+                "rap",
+                "melismatic",
+                "soft_singing",
+                "belting",
+                "vibrato",
+                "male_vocal",
+                "female_vocal",
+                "noisy_vocal",
+                "fast_note_transitions"
+              ]
+            }
           },
           "expected_key": {
             "type": "object",
             "properties": {
-              "root": { "type": "string" },
-              "scale": { "type": "string" }
+              "root": {
+                "type": "string"
+              },
+              "scale": {
+                "type": "string"
+              }
             },
             "additionalProperties": true
           },
-          "style_target": { "type": "array", "items": { "enum": ["natural", "modern", "hard"] } },
-          "render_engines": { "type": "array", "items": { "enum": ["psola-lite", "granular"] } },
-          "known_challenges": { "type": "array", "items": { "type": "string" } },
-          "notes": { "type": "string" }
+          "style_target": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "natural",
+                "modern",
+                "hard"
+              ]
+            }
+          },
+          "render_engines": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "psola-lite",
+                "granular"
+              ]
+            }
+          },
+          "known_challenges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
         },
         "additionalProperties": true
       }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "tagVocabularyNote": "'rnb' was replaced by 'melismatic' on 2026-08-10. Every other tag in this vocabulary names either a vocal technique (belting, vibrato) or a signal condition (noisy_vocal, fast_note_transitions); 'rnb' was the only genre label, and a genre is not a signal property a corpus can verify. What it actually stressed is melismatic ornamented legato: fast pitch movement WITHIN a syllable over a tonal centre, which is distinct from rap (fast movement, no tonal centre) and from soft_singing (tonal centre, slow movement). 'rap' is kept despite also being a genre word because it maps to one unambiguous signal condition this corpus already measures. This is a deliberate, recorded change to a validation requirement, not a relaxation: the tag still has to be satisfied by real material."
 }
