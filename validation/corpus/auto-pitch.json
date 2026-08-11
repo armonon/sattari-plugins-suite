@@ -2,7 +2,7 @@
   "version": 1,
   "truth_label": "internal validation only; source audio is not shipped or published",
   "audio_policy": "Only owned, cleared, or public-domain real vocals. Audio lives outside git; these are absolute paths on the operator's machine.",
-  "provenance_note": "Supplied by the repository owner on 2026-08-10 as cleared test vocals. Converted from 64 kbps mono AAC to 24-bit 48 kHz WAV with afconvert; the WAV copies also live outside git.",
+  "provenance_note": "Supplied by the repository owner on 2026-08-10 as cleared test vocals. Converted from 64 kbps mono AAC to 24-bit 48 kHz WAV with afconvert; the WAV copies also live outside git. Clips prefixed vs- come from VocalSet under CC BY 4.0; see each clip's license and attribution fields.",
   "defaults": {
     "styles": [
       "natural",
@@ -151,6 +151,125 @@
       "tags_deliberately_not_applied": {
         "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
       }
+    },
+    {
+      "clip_id": "vs-belt-m6",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-belt-m6.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/male6/scales/belt/m6_scales_belt_u.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "m6, baritone per the VocalSet readme; belted scales on the vowel 'u'",
+      "voice_range": "measured f0 p5-p95 140-305 Hz; median 209 Hz (MIDI 56.1, ~G#3)",
+      "vocal_tags": [
+        "belting",
+        "male_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 13.8,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -13.8,
+        "rms_dbfs": -28.6,
+        "voiced_fraction": 0.93,
+        "pyin_median_confidence": 0.69,
+        "f0_median_hz": 208.8,
+        "f0_p05_hz": 140.1,
+        "f0_p95_hz": 304.8,
+        "range_semitones": 13.5,
+        "note_changes_per_voiced_s": 1.01,
+        "longest_sustain_s": 12.86,
+        "vibrato_band_ratio": 0.23,
+        "input_cents_to_scale_median": 41.4
+      },
+      "tag_justification": {
+        "belting": "Dataset technique label, CORROBORATED: a baritone reaching 305 Hz (D#4) at p95 is high for the voice type, which is what belting is. 93% voiced with a 12.86 s continuous run \u2014 sustained, not phrased.",
+        "male_vocal": "VocalSet readme documents m6 as a baritone. This is the first gender tag in the corpus backed by a stated voice type rather than inferred from f0."
+      },
+      "evaluation_metric": "cents-to-scale is valid here (tonal, sustained). Also watch formant stability: belting is where a tuner is most likely to audibly alter timbre.",
+      "known_hazard": "dynamic_gap_db is only 13.1, but that is NOT noise \u2014 the clip is 93% voiced, so the quietest decile is quiet SINGING, not silence. The gap metric measures dynamic range here, not SNR, and this clip is therefore NOT tagged noisy_vocal."
+    },
+    {
+      "clip_id": "vs-vibrato-f5",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-vibrato-f5.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/female5/excerpts/vibrato/f5_caro_vibrato.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "f5, mezzo-soprano per the VocalSet readme; 'Caro Mio Ben' excerpt sung with vibrato",
+      "voice_range": "measured f0 p5-p95 265-561 Hz; median 374 Hz (MIDI 66.2, ~F#4)",
+      "vocal_tags": [
+        "vibrato",
+        "female_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 48.1,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -10.9,
+        "rms_dbfs": -29.3,
+        "voiced_fraction": 0.86,
+        "pyin_median_confidence": 0.62,
+        "f0_median_hz": 374.1,
+        "f0_p05_hz": 264.5,
+        "f0_p95_hz": 560.6,
+        "range_semitones": 13.0,
+        "note_changes_per_voiced_s": 12.1,
+        "longest_sustain_s": 3.95,
+        "vibrato_band_ratio": 0.59,
+        "dynamic_gap_db": 42.7,
+        "input_cents_to_scale_median": 31.2
+      },
+      "tag_justification": {
+        "vibrato": "59% of pitch-modulation energy in the 4-8 Hz band \u2014 the highest in the corpus by a wide margin (others: 0.13, 0.19, 0.23, 0.24, 0.34). The dataset label and the measurement agree.",
+        "female_vocal": "VocalSet readme documents f5 as a mezzo-soprano."
+      },
+      "evaluation_metric": "CENTS-TO-SCALE IS INVALID FOR THIS CLIP. Measured: input 31.2 ct, Natural 28.4 (9% 'tighter'), Hard 27.7 (11%). Those numbers look like failure and are not: the pitch is deliberately oscillating past the target and Natural mode preserves that by design. The valid measure here is whether the vibrato CENTRE moves to the target while rate and depth survive \u2014 which is not yet implemented.",
+      "known_hazard": "note_changes_per_voiced_s reads 12.10, the highest in the corpus, but that is the vibrato itself crossing the 50-cent threshold repeatedly, not note changes. The metric cannot separate modulation from articulation."
+    },
+    {
+      "clip_id": "vs-melisma-m3",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-melisma-m3.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/male3/arpeggios/fast_piano/arps_c_fast_piano.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "m3, tenor per the VocalSet readme; fast arpeggios at piano dynamic on a single vowel",
+      "voice_range": "measured f0 p5-p95 123-251 Hz; median 158 Hz (MIDI 51.3, ~D#3)",
+      "vocal_tags": [
+        "melismatic",
+        "male_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 28.7,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -24.5,
+        "rms_dbfs": -44.0,
+        "voiced_fraction": 0.55,
+        "pyin_median_confidence": 0.32,
+        "f0_median_hz": 158.2,
+        "f0_p05_hz": 122.7,
+        "f0_p95_hz": 251.1,
+        "range_semitones": 12.4,
+        "note_changes_per_voiced_s": 8.16,
+        "longest_sustain_s": 2.54,
+        "vibrato_band_ratio": 0.24,
+        "dynamic_gap_db": 43.0,
+        "input_cents_to_scale_median": 25.2
+      },
+      "tag_justification": {
+        "melismatic": "MANY NOTES ON ONE SYLLABLE, WHICH IS WHAT MELISMA IS: fast arpeggios sung on a single sustained vowel, 8.16 pitch changes per voiced second. Distinguished from rap by TONALITY \u2014 this clip sits 25.2 cents from the nearest scale tone against slay-demons' 46.5, and ~50 is what a distribution with no tonal targets produces by construction. Fast movement BETWEEN real notes, not fast movement with no notes.",
+        "male_vocal": "VocalSet readme documents m3 as a tenor."
+      },
+      "evaluation_metric": "cents-to-scale is valid (tonal). The distinct risk here is note-transition behaviour: lag, overshoot, and snapping to a transient rather than to the note.",
+      "known_hazard": "Upstream filename 'arps_c_fast_piano.wav' carries no singer prefix; the FOLDER (FULL/male3) is treated as authoritative. VocalSet contains at least one folder/filename mismatch (FULL/male8/excerpts/vibrato/m9_caro_vibrato.wav), so this was checked rather than assumed."
     }
   ],
   "coverage_vocabulary_change": {

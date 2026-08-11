@@ -2,16 +2,16 @@
 
 Truth label: **internal validation only; source audio is not shipped or published**
 
-Generated: 2026-08-10T18:39:56-07:00
+Generated: 2026-08-11T11:45:20-07:00
 Manifest: `/Users/lillypad/Projects/sattari-plugins-main/validation/corpus/auto-pitch.json`
 Renderer: `/Users/lillypad/Projects/sattari-plugins-main/build/auto-pitch-neural/AutoPitchRender`
 
 ## Corpus gate
 
-- Real cleared clips: **3 / 5 required**
-- Required coverage tags: belting, fast_note_transitions, female_vocal, male_vocal, noisy_vocal, rap, rnb, soft_singing, vibrato
-- Missing coverage tags: belting, female_vocal, male_vocal, rnb, vibrato
-- Corpus gate: **BLOCKED**
+- Real cleared clips: **6 / 5 required**
+- Required coverage tags: belting, fast_note_transitions, female_vocal, male_vocal, melismatic, noisy_vocal, rap, soft_singing, vibrato
+- Missing coverage tags: none
+- Corpus gate: **READY FOR LISTENING**
 
 Synthetic fixtures do not count toward this gate. A ready corpus is not a listening
 pass; a human must score every rendered pair below on level-matched monitoring.
@@ -25,7 +25,10 @@ severity is reversed: 1 = severe, 5 = inaudible.
 |---|---|---|---|---|---:|---:|---:|---|
 | slay-demons | rap, fast_note_transitions | owned | `089ba61636450f578e997b74d59bff69a0c253a6ad7431801c7b3b3aff4f5ff6` | rendered | TBD | TBD | TBD | hold |
 | guidos-pizza | noisy_vocal | owned | `c3a113daa19fc81da86bd3642198e08f6b53daaf7b5df5014b8102e5176514a3` | rendered | TBD | TBD | TBD | hold |
-| dickey-prairie | soft_singing, noisy_vocal | owned | `d960779141d9b10e2df89544c92bd9a9de19b3492feaddaa3186540d4ae01b90` | rendered | TBD | TBD | TBD | hold |
+| dickey-prairie | soft_singing, noisy_vocal, female_vocal | owned | `d960779141d9b10e2df89544c92bd9a9de19b3492feaddaa3186540d4ae01b90` | rendered | TBD | TBD | TBD | hold |
+| vs-belt-m6 | belting, male_vocal | public-domain | `899f08dfdcef6c18d0f143e4d56d633cb3deede02e7269101636df15c2917e5a` | rendered | TBD | TBD | TBD | hold |
+| vs-vibrato-f5 | vibrato, female_vocal | public-domain | `e180daef389554fd4b8d46ab143c92a18bf45220dd2e4645f4d3efa1a4fb2736` | rendered | TBD | TBD | TBD | hold |
+| vs-melisma-m3 | melismatic, male_vocal | public-domain | `e5dc3085841f5839da70c0d685bcf3c19675514c33b188a16e75f852d2d648d5` | rendered | TBD | TBD | TBD | hold |
 
 ## Required listening checks
 
@@ -44,193 +47,3 @@ severity is reversed: 1 = severe, 5 = inaudible.
 - [ ] Promote to release candidate
 
 Rationale:
-
----
-
-# Addendum — third clip (dickey-prairie) and an AutoKey discrepancy
-
-## dickey-prairie is the first credible tonal evidence Auto Pitch has
-
-The earlier two clips could not settle the question: one is rap (no pitch
-targets) and one defeats the reference tracker. This clip is sustained melodic
-singing that our independent tracker follows at confidence 0.48 — four times
-guidos-pizza's 0.01 and nearly double slay-demons' 0.28.
-
-| | renderer self-report | independent re-measurement |
-|---|---:|---:|
-| input | 23.4 ct | 20.6 ct |
-| Natural | 12.8 ct (45%) | 10.6 ct (48%) |
-| Hard | 10.0 ct (57%) | 9.4 ct (55%) |
-
-**Two independent measurements agree within 3 percentage points.** Confidently
-trackable frames fell 938 -> 696/736, a 22-26% loss, against the 65% loss seen
-on the rap clip — which suggests that loss was rap-specific rather than a
-general processing artifact.
-
-The result is also robust to the key disagreement below: C# major and G# major
-share six of seven scale tones, so cents-to-scale barely moves between them.
-
-Output peak was 0.030 (natural) / 0.034 (hard) — the renderer correctly passed
-a quiet source through without auto-gain. Any listening test on this clip must
-be level-matched.
-
-## AUTOKEY DISAGREES WITH AN INDEPENDENT ESTIMATE ON ALL THREE CLIPS
-
-| clip | AutoKey | Krumhansl-Schmuckler on chroma | fit |
-|---|---|---|---:|
-| slay-demons | C# minor | F minor | r=0.29 (weak) |
-| guidos-pizza | C# major | A minor | r=0.65 |
-| dickey-prairie | C# major | **G# major** | **r=0.83 (strong)** |
-
-Two things stand out. AutoKey returned **C# for three unrelated recordings**,
-and on the one clip where the independent estimator is confident (r=0.83) they
-disagree by a fifth — G# is the dominant of C#, which is a classic key-detection
-confusion rather than a random error.
-
-This is NOT yet a verdict against AutoKey. Krumhansl-Schmuckler on a solo
-monophonic vocal is itself weak evidence: chroma from a single melodic line
-without accompanying harmony is thin, which is exactly why the rap clip scores
-r=0.29 for both. Neither estimator is ground truth here.
-
-What it does establish is that **a Tier A component returned the same tonic for
-three unrelated recordings and cannot currently be corroborated**. That warrants
-investigation with proper ground truth before any key-dependent claim is made.
-
-## Coverage after three clips
-
-- Real cleared clips: **3 / 5**
-- Covered: rap, fast_note_transitions, noisy_vocal, soft_singing
-- Missing: belting, female_vocal, male_vocal, rnb, vibrato
-- Corpus gate: **BLOCKED**
-
----
-
-# Addendum 2 — the AutoKey discrepancy, resolved
-
-**AutoKey is not defective. The earlier flag is withdrawn.**
-
-## What was actually tested
-
-1. **All 12 roots, two timbres.** The existing `--autokey` test covered roots
-   { 0,2,4,5,7,9,11 } — every white key, no black key — using PURE SINES. Three
-   real vocals had all been detected as C#, a root the test never exercised, and
-   a sine has none of the harmonics that contaminate a chromagram. Both gaps are
-   now closed in the test itself:
-
-       sine melodies      24/24 (100%)   12 roots x major/minor
-       harmonic melodies  24/24 (100%)   same, with a 1/k series to H12
-
-   There is no C# bias, and harmonics do not break the detector.
-
-2. **Transposition response on the real vocal.** dickey-prairie was resampled
-   -3..+3 semitones and re-analysed. A detector that is stuck, defaulting, or
-   guessing cannot track this:
-
-       shift    -3    -2    -1    +0    +1    +2    +3
-       AutoKey  A#    B     C     C#    D     D#    E
-
-   An exact semitone-for-semitone walk. AutoKey is genuinely measuring pitch
-   content.
-
-## What the disagreement actually is
-
-The independent Krumhansl-Schmuckler cross-check tracks the same transposition
-just as cleanly (F, F#, G, G#, A, A#, B). Both estimators are self-consistent.
-They disagree by a CONSTANT PERFECT FIFTH at every transposition:
-
-    AutoKey   C# major
-    K-S       G# major
-
-G# is the dominant of C#. On a SOLO VOCAL with no accompanying harmony, tonic
-versus dominant is frequently undecidable: the melody's pitch content is
-compatible with both, and the thing that would distinguish them — the harmony —
-is not in the recording. Neither estimator is provably wrong here, and a
-constant fifth offset across seven transpositions is the signature of a genuine
-structural ambiguity rather than a bug in either.
-
-## Consequence for the corpus
-
-Key-dependent results on solo-vocal clips carry this ambiguity. It has limited
-effect on the tuning numbers already recorded, because C# major and G# major
-share six of seven scale tones, so cents-to-scale barely moves between them.
-
-Ground truth for these clips can only come from the arrangement they belong to,
-or from the person who recorded them.
-
-## Durable improvement
-
-The test-coverage gap was real even though the suspected defect was not:
-`--autokey` now covers 12 roots instead of 7 and harmonic-rich tones as well as
-sines — 48 cases instead of 14.
-
----
-
-# Addendum 3 — AutoKey, resolved with ground truth
-
-**Addendum 2's exoneration was premature and is withdrawn.** The repository
-owner confirmed dickey-prairie is **G# major**. AutoKey reported **C# major**.
-
-## But the failure is not what it looks like
-
-AutoKey was asked for its own confidence, which `KeyOrigin` does not carry and
-which therefore had to be read off the processor directly:
-
-    dickey-prairie   Key  C# major   0% confidence   Adaptive fallback
-    slay-demons      Key  C# minor   0% confidence   Adaptive fallback
-    guidos-pizza     Key  C# major   0% confidence   Adaptive fallback
-
-**AutoKey never claimed to detect anything.** It reported zero confidence on all
-three clips and fell back. The recurring C# is a fallback value, not a
-detection — which is why it looked like a bias.
-
-## Why there was nothing to detect
-
-The pitch-class content of dickey-prairie is almost flat. Uniform would be
-8.33% per class; the measured spread is 7.3% to 10.7%:
-
-    tonic       G#   10.1%
-    subdominant C#    9.0%
-    G  (the ONLY tone proving G# major, absent from C# major)   7.9%
-    F# (the ONLY tone proving C# major, absent from G# major)   7.3%
-
-G# major and C# major share six of seven tones. The two notes that discriminate
-between them both sit BELOW the uniform baseline. A solo vocal with vibrato and
-portamento, with no accompanying harmony, does not contain the evidence.
-
-The independent cross-check reaching G# was therefore as much luck as skill.
-Both estimators were reading a near-flat histogram.
-
-## The actual defect
-
-The detector computes `confidence = best - second`, and the Key Detection tab
-displays it honestly as "0% confidence · Adaptive fallback". A human looking at
-that tab is correctly informed.
-
-`KeyOrigin` — the struct published to the session bus and consumed
-programmatically by Harmony, Maqam, Scaler and every other key-following
-processor — carries only `source`, `root` and `scale`. **No confidence field,
-and no gate.** So a 0%-confidence fallback reaches the rest of the suite
-indistinguishable from a 90%-confidence detection.
-
-That is precisely what the constitution forbids:
-
-    Confidence must have semantics.
-    Do not present unreliable analysis as certainty.
-    COMPASS MAY ENHANCE. COMPASS MUST NOT CREATE FRAGILE BASIC FUNCTIONALITY.
-
-## Recommended fix (NOT implemented here)
-
-1. Add a confidence field to `KeyOrigin` and populate it from `KeyResult`.
-2. Gate bus publication: below a threshold, publish "no key" rather than a
-   fallback, so followers fall back to their own sane behaviour.
-3. Consumers treat absent context as absent, which the Compass rule already
-   requires them to handle.
-
-This touches shared architecture used by many plugins and needs its own state
-and contract review, so it is proposed rather than done.
-
-## What was verified along the way
-
-- `--autokey` extended to 12 roots and harmonic-rich tones: 24/24 and 24/24
-- Transposition -3..+3 tracks exactly (A# B C C# D D# E) — the adaptive fallback
-  is pitch-derived, not a constant, which is why it moved
