@@ -144,7 +144,12 @@
         "female_vocal": "A 317 Hz median sustained over 26 s sits above the adult male modal range (85-180 Hz) and would otherwise require continuous falsetto. This is INFERRED FROM REGISTER, not measured, so it is deliberately NOT in vocal_tags and does NOT count toward coverage. The repository owner can confirm and promote it.",
         "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
       },
-      "cross_check_note": "The average-spectrum harmonic-comb check that exposed the guidos-pizza sub-harmonic error is inconclusive here BY DESIGN: this clip spans 16.8 semitones, so averaging the spectrum over the file smears several different notes together. Peaks at 275/316/352/416/551/627 Hz do not form one comb because they are not one note. pyin at confidence 0.48 is the better estimate for this clip."
+      "cross_check_note": "The average-spectrum harmonic-comb check that exposed the guidos-pizza sub-harmonic error is inconclusive here BY DESIGN: this clip spans 16.8 semitones, so averaging the spectrum over the file smears several different notes together. Peaks at 275/316/352/416/551/627 Hz do not form one comb because they are not one note. pyin at confidence 0.48 is the better estimate for this clip.",
+      "ground_truth": {
+        "key": "G# major",
+        "source": "stated by the repository owner, 2026-08-10",
+        "note": "This is the first ground-truth key label in the corpus. AutoKey reported C# major at 0% confidence via its Adaptive fallback; the independent Krumhansl-Schmuckler cross-check reported G# major and was correct."
+      }
     }
   ]
 }

@@ -162,3 +162,75 @@ or from the person who recorded them.
 The test-coverage gap was real even though the suspected defect was not:
 `--autokey` now covers 12 roots instead of 7 and harmonic-rich tones as well as
 sines — 48 cases instead of 14.
+
+---
+
+# Addendum 3 — AutoKey, resolved with ground truth
+
+**Addendum 2's exoneration was premature and is withdrawn.** The repository
+owner confirmed dickey-prairie is **G# major**. AutoKey reported **C# major**.
+
+## But the failure is not what it looks like
+
+AutoKey was asked for its own confidence, which `KeyOrigin` does not carry and
+which therefore had to be read off the processor directly:
+
+    dickey-prairie   Key  C# major   0% confidence   Adaptive fallback
+    slay-demons      Key  C# minor   0% confidence   Adaptive fallback
+    guidos-pizza     Key  C# major   0% confidence   Adaptive fallback
+
+**AutoKey never claimed to detect anything.** It reported zero confidence on all
+three clips and fell back. The recurring C# is a fallback value, not a
+detection — which is why it looked like a bias.
+
+## Why there was nothing to detect
+
+The pitch-class content of dickey-prairie is almost flat. Uniform would be
+8.33% per class; the measured spread is 7.3% to 10.7%:
+
+    tonic       G#   10.1%
+    subdominant C#    9.0%
+    G  (the ONLY tone proving G# major, absent from C# major)   7.9%
+    F# (the ONLY tone proving C# major, absent from G# major)   7.3%
+
+G# major and C# major share six of seven tones. The two notes that discriminate
+between them both sit BELOW the uniform baseline. A solo vocal with vibrato and
+portamento, with no accompanying harmony, does not contain the evidence.
+
+The independent cross-check reaching G# was therefore as much luck as skill.
+Both estimators were reading a near-flat histogram.
+
+## The actual defect
+
+The detector computes `confidence = best - second`, and the Key Detection tab
+displays it honestly as "0% confidence · Adaptive fallback". A human looking at
+that tab is correctly informed.
+
+`KeyOrigin` — the struct published to the session bus and consumed
+programmatically by Harmony, Maqam, Scaler and every other key-following
+processor — carries only `source`, `root` and `scale`. **No confidence field,
+and no gate.** So a 0%-confidence fallback reaches the rest of the suite
+indistinguishable from a 90%-confidence detection.
+
+That is precisely what the constitution forbids:
+
+    Confidence must have semantics.
+    Do not present unreliable analysis as certainty.
+    COMPASS MAY ENHANCE. COMPASS MUST NOT CREATE FRAGILE BASIC FUNCTIONALITY.
+
+## Recommended fix (NOT implemented here)
+
+1. Add a confidence field to `KeyOrigin` and populate it from `KeyResult`.
+2. Gate bus publication: below a threshold, publish "no key" rather than a
+   fallback, so followers fall back to their own sane behaviour.
+3. Consumers treat absent context as absent, which the Compass rule already
+   requires them to handle.
+
+This touches shared architecture used by many plugins and needs its own state
+and contract review, so it is proposed rather than done.
+
+## What was verified along the way
+
+- `--autokey` extended to 12 roots and harmonic-rich tones: 24/24 and 24/24
+- Transposition -3..+3 tracks exactly (A# B C C# D D# E) — the adaptive fallback
+  is pitch-derived, not a constant, which is why it moved

@@ -230,6 +230,11 @@ int main (int argc, char** argv)
 
         // Two renders: NATURAL (vibrato preserved) and HARD (full snap, no vibrato) so
         // we can separate true note-centre correction from intentionally-kept vibrato.
+        //  The detector's confidence lives on the processor, not on KeyOrigin,
+        //  so it has to be carried out of the lambda explicitly. That asymmetry
+        //  is itself the finding: a programmatic consumer of AutoKey gets root
+        //  and scale with no way to tell a certainty from a coin flip.
+        juce::String keySummary;
         auto runCfg = [&] (bool hard) {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
@@ -244,6 +249,7 @@ int main (int argc, char** argv)
             setParam (a, "classicMode", hard ? 1.0f : 0.0f);   // hard = instant retune
             p.setNonRealtime (true);                           // offline -> synchronous CREPE
             auto o = sattari::harness::renderThrough (p, in, fsr, 512);
+            keySummary = p.getKeyDetectionTabSummary();
             return std::make_pair (o, p.currentKeyOrigin());
         };
         auto [out, origin]  = runCfg (false);
@@ -322,6 +328,11 @@ int main (int argc, char** argv)
         std::printf ("== REAL VOCAL TEST ==\n");
         std::printf ("  input: %.1f s, %.0f Hz, %d ch  (%d voiced frames)\n", rd->lengthInSamples / fsr, fsr, (int) rd->numChannels, inV);
         std::printf ("  AutoKey detected: %s %s\n", NM[juce::jlimit (0,11,origin.root)], SC[juce::jlimit (0,2,origin.scale)]);
+        //  Print the detector's own confidence alongside the verdict. KeyOrigin
+        //  does not carry it, so a caller consuming AutoKey programmatically
+        //  cannot tell a certainty from a coin flip; this exposes it for the
+        //  corpus work.
+        std::printf ("  AutoKey summary: %s\n", keySummary.toRawUTF8());
         std::printf ("  cents-to-scale on SUSTAINED note bodies (|dist to nearest %s-%s tone|):\n", NM[juce::jlimit(0,11,origin.root)], SC[juce::jlimit(0,2,origin.scale)]);
         std::printf ("    INPUT           mean=%5.1f ct   median=%5.1f ct\n", inMean, inMed);
         std::printf ("    NATURAL (vib)   mean=%5.1f ct   median=%5.1f ct   tightened %.0f%% (median)\n", nMean, nMed, inMed > 0 ? (1 - nMed / inMed) * 100.0 : 0.0);
