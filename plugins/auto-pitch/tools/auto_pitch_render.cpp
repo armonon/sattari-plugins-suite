@@ -156,8 +156,15 @@ const char* noteName12 (int r)
 // A clean monophonic tonal melody in the given key: sustained sine tones on
 // scale degrees, tonic/dominant-weighted and ending on the tonic like real
 // tonal music. Best-case material for probing AutoKey's key detection.
-juce::AudioBuffer<float> makeMelody (double sr, double seconds, int root, bool minor)
+juce::AudioBuffer<float> makeMelody (double sr, double seconds, int root, bool minor,
+                                     int nHarmonics = 1)
 {
+    //  nHarmonics = 1 gives the original PURE SINE melody. Anything higher adds
+    //  a 1/k harmonic series, which matters because a real voice is not a sine:
+    //  H3 lands on the fifth of every note and H5 on the major third, so a
+    //  chromagram without harmonic compensation accumulates energy on scale
+    //  degrees nobody sang. That is the single structural difference between
+    //  this test passing 14/14 and AutoKey disagreeing on every real vocal.
     static const int MAJ[7] = { 0, 2, 4, 5, 7, 9, 11 };
     static const int MIN[7] = { 0, 2, 3, 5, 7, 8, 10 };
     const int* deg = minor ? MIN : MAJ;
@@ -175,7 +182,14 @@ juce::AudioBuffer<float> makeMelody (double sr, double seconds, int root, bool m
         const int noteI = (i / noteLen) % seqN;
         const int midi = 60 + root + deg[seq[noteI]];
         const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
-        d[i] = 0.4f * (float) std::sin (phase);
+        double sum = 0.0, norm = 0.0;
+        for (int k = 1; k <= nHarmonics; ++k)
+        {
+            if (hz * k >= sr * 0.45) break;          // never alias
+            sum  += std::sin (phase * k) / k;
+            norm += 1.0 / k;
+        }
+        d[i] = 0.4f * (float) (sum / juce::jmax (norm, 1.0e-9));
         phase += 2.0 * M_PI * hz / sr;
     }
     return buf;
@@ -1409,11 +1423,20 @@ int main (int argc, char** argv)
     //      noise/vibrato/partial phrases are harder.
     if (autokey)
     {
+        //  ALL TWELVE ROOTS, AND HARMONIC-RICH TONES AS WELL AS SINES.
+        //  The original loop covered { 0,2,4,5,7,9,11 } — every white key and no
+        //  black key — with pure sines only. Three unrelated real vocals were all
+        //  detected as C#, a root the test never exercised, so both gaps are
+        //  closed here rather than argued about.
+        struct Timbre { const char* name; int harmonics; };
+        for (auto timbre : { Timbre { "sine", 1 }, Timbre { "harmonic", 12 } })
+        {
+        std::printf ("\n-- %s melodies --\n", timbre.name);
         int correct = 0, total = 0;
-        for (int root : { 0, 2, 4, 5, 7, 9, 11 })
+        for (int root = 0; root < 12; ++root)
             for (bool minor : { false, true })
             {
-                auto mel = makeMelody (sr, 6.0, root, minor);
+                auto mel = makeMelody (sr, 6.0, root, minor, timbre.harmonics);
                 SattariAutoPitchAudioProcessor p;
                 auto& a = p.parameters();
                 setParam (a, "scale", minor ? 1.0f : 0.0f);   // AutoKey finds the root FOR this mode
@@ -1434,8 +1457,9 @@ int main (int argc, char** argv)
                              ok ? "OK" : "MISS");
                 ++total; if (ok) ++correct;
             }
-        std::printf ("AutoKey accuracy on clean tonal melodies: %d/%d (%.0f%%)\n",
-                     correct, total, 100.0 * correct / total);
+        std::printf ("AutoKey accuracy, %s melodies: %d/%d (%.0f%%)\n",
+                     timbre.name, correct, total, 100.0 * correct / total);
+        }
         return 0;
     }
 

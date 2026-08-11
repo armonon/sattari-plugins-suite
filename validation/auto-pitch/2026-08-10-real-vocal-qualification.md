@@ -102,3 +102,63 @@ investigation with proper ground truth before any key-dependent claim is made.
 - Covered: rap, fast_note_transitions, noisy_vocal, soft_singing
 - Missing: belting, female_vocal, male_vocal, rnb, vibrato
 - Corpus gate: **BLOCKED**
+
+---
+
+# Addendum 2 — the AutoKey discrepancy, resolved
+
+**AutoKey is not defective. The earlier flag is withdrawn.**
+
+## What was actually tested
+
+1. **All 12 roots, two timbres.** The existing `--autokey` test covered roots
+   { 0,2,4,5,7,9,11 } — every white key, no black key — using PURE SINES. Three
+   real vocals had all been detected as C#, a root the test never exercised, and
+   a sine has none of the harmonics that contaminate a chromagram. Both gaps are
+   now closed in the test itself:
+
+       sine melodies      24/24 (100%)   12 roots x major/minor
+       harmonic melodies  24/24 (100%)   same, with a 1/k series to H12
+
+   There is no C# bias, and harmonics do not break the detector.
+
+2. **Transposition response on the real vocal.** dickey-prairie was resampled
+   -3..+3 semitones and re-analysed. A detector that is stuck, defaulting, or
+   guessing cannot track this:
+
+       shift    -3    -2    -1    +0    +1    +2    +3
+       AutoKey  A#    B     C     C#    D     D#    E
+
+   An exact semitone-for-semitone walk. AutoKey is genuinely measuring pitch
+   content.
+
+## What the disagreement actually is
+
+The independent Krumhansl-Schmuckler cross-check tracks the same transposition
+just as cleanly (F, F#, G, G#, A, A#, B). Both estimators are self-consistent.
+They disagree by a CONSTANT PERFECT FIFTH at every transposition:
+
+    AutoKey   C# major
+    K-S       G# major
+
+G# is the dominant of C#. On a SOLO VOCAL with no accompanying harmony, tonic
+versus dominant is frequently undecidable: the melody's pitch content is
+compatible with both, and the thing that would distinguish them — the harmony —
+is not in the recording. Neither estimator is provably wrong here, and a
+constant fifth offset across seven transpositions is the signature of a genuine
+structural ambiguity rather than a bug in either.
+
+## Consequence for the corpus
+
+Key-dependent results on solo-vocal clips carry this ambiguity. It has limited
+effect on the tuning numbers already recorded, because C# major and G# major
+share six of seven scale tones, so cents-to-scale barely moves between them.
+
+Ground truth for these clips can only come from the arrangement they belong to,
+or from the person who recorded them.
+
+## Durable improvement
+
+The test-coverage gap was real even though the suspected defect was not:
+`--autokey` now covers 12 roots instead of 7 and harmonic-rich tones as well as
+sines — 48 cases instead of 14.
