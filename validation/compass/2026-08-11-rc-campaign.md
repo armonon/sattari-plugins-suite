@@ -29,11 +29,35 @@ not a missing document.
 
 Measured on 500 labelled GiantSteps tracks (`SattariKeyDatasetEval`, 2026-08-11):
 
-| detector | MIREX x100 | raw exact |
+**CORRECTED 2026-08-11.** The first version of this table named
+Krumhansl-Schmuckler as Compass's profile. That was wrong. `SATTARI_KEY_PROFILE`
+defaults to **2**, which falls through the `#if` chain to the `#else` branch —
+**Aarden-Essen**, not Krumhansl. I read the header's prose instead of its
+`#define`. Compass is therefore WORSE than first reported, and the profile
+question is more interesting than "take the free win".
+
+Measured on TWO corpora, because one is not enough — GiantSteps is EDM-only and
+the header already warns that Sha'ath is EDM-biased:
+
+| profile | GiantSteps 500 (EDM) MIREX / exact | GTZAN 837 (9 genres) MIREX / exact |
 |---|---:|---:|
-| HPCP + Krumhansl-Schmuckler — **what Compass actually runs** | **51.90** | 38.8% |
-| HPCP + Sha'ath — best profile on the *same chroma* | 56.56 | 45.2% |
-| `keynet_spec.onnx` — **what Sattari Key runs** | **72.1** | — |
+| **Aarden-Essen — what Compass runs** | **47.34 / 39.8%** | **46.30 / 38.8%** |
+| Krumhansl-Schmuckler | 51.90 / 38.8% | 52.22 / 41.6% |
+| Temperley/Kostka-Payne | 48.86 / 39.0% | 49.81 / 43.2% |
+| **Sha'ath (audio)** | **56.56 / 45.2%** | **53.36 / 43.6%** |
+| Bellman-Budge | 44.84 / 37.6% | 47.30 / 41.8% |
+| `keynet_spec.onnx` (Sattari Key) | — | 72.1 claimed, **unverified here** |
+
+Sha'ath wins BOTH corpora, on BOTH metrics. Its GiantSteps lead (+9.22 MIREX
+over Aarden) does shrink on GTZAN (+7.06), which is the EDM bias showing up
+exactly as documented — but it does not reverse, and it still leads on raw exact
+key (43.6% vs 38.8%), which is the metric the header argues matters most for a
+corrector because "a perfect-fifth error tunes to the wrong scale".
+
+**Aarden-Essen is last or near-last on both corpora.** The header's reasoning for
+choosing it ("best-exact literature profile at 45% vs 41% Sha'ath") was measured
+on **80 GiantSteps tracks**. On 500 GiantSteps tracks and 837 GTZAN tracks that
+ordering does not hold.
 
 Verified in source, not inferred:
 
@@ -123,11 +147,20 @@ Granulator.
 
 Three options, cheapest first:
 
-1. **Change the profile constant.** `SATTARI_KEY_PROFILE` to Sha'ath: +4.66
-   MIREX for a one-line change, no new dependency, no model. Note this
-   contradicts the choice recorded in `SattariKeyDetector.h`, which selected
-   Krumhansl-Schmuckler on *synthetic* stress cases (91.7%). On 500 real tracks
-   Sha'ath wins. Real music should outrank synthetic chroma.
+1. **Change the profile constant** from 2 (Aarden) to 3 (Sha'ath): **+9.22
+   MIREX on GiantSteps, +7.06 on GTZAN, and +4.8 points of raw exact key on
+   GTZAN**, for a one-line change with no new dependency.
+
+   **BUT THIS CANNOT BE DONE UNILATERALLY TODAY.** `SATTARI_KEY_PROFILE` is a
+   GLOBAL compile-time `#define` in a shared header, so changing it changes the
+   detector for every consumer — including Auto Pitch's AutoKey fallback, which
+   is FROZEN at 7fef5442 for RC qualification. Changing it would silently
+   invalidate the frozen candidate and every measurement taken against it.
+
+   Options: scope the profile per-consumer (which the shared
+   `KeyAnalysisEngine` direction would give for free, since a config object
+   replaces a global define), or defer until the Auto Pitch RC decision is made.
+   Deferring is cheap; breaking a freeze is not.
 2. **Wire in `keynet_spec.onnx`**, as Sattari Key already does: +20.2 MIREX, at
    the cost of a model dependency in the session conductor and a decision about
    what happens when the model is absent.
@@ -146,7 +179,7 @@ Compass publishes seven things. Only key has a measured accuracy today.
 
 | field | ground truth available | measured |
 |---|---|---|
-| key / mode | GiantSteps 500, GTZAN, FMA | **51.90 MIREX** |
+| key / mode | GiantSteps 500, GTZAN 837 | **47.34 / 46.30 MIREX** |
 | confidence | — | **not validated** |
 | chord root / quality | none on disk | no |
 | tempo | host-provided, not detected | n/a |
@@ -218,7 +251,7 @@ Reuse the Auto Pitch matrix structure, plus the bus-specific cases:
 ## Status
 
     GATE 0  lifecycle    BLOCKED — the conductor runs the weakest detector
-    GATE 1  accuracy     baseline measured (51.90 MIREX); confidence unvalidated
+    GATE 1  accuracy     baseline measured on 2 corpora (47.34 / 46.30 MIREX)
     GATE 2  contract     NOT STARTED
     GATE 3  performance  NOT STARTED
     GATE 4  hosts        NOT STARTED
