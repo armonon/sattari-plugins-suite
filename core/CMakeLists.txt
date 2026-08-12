@@ -89,6 +89,29 @@ target_link_libraries(SattariKeyAnalyzer
 
 sattari_enable_onnx(SattariKeyAnalyzer SATTARI_HAS_ONNX)
 
+# KeyAnalysisEngine evaluator. Scores the SHARED engine — chroma profiles AND the
+# neural path — through one front-end and one scorer, so the 72.1 MIREX figure
+# recorded in SattariKeyNetSpec.h can be reproduced rather than quoted. Needs
+# ONNX for the neural path; without it the tool still scores every chroma profile.
+add_executable(SattariKeyEngineEval EXCLUDE_FROM_ALL
+    tools/key_engine_eval.cpp)
+
+target_include_directories(SattariKeyEngineEval
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_link_libraries(SattariKeyEngineEval
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_audio_formats
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+
+sattari_enable_onnx(SattariKeyEngineEval SATTARI_HAS_ONNX)
+
 # In-key interval walk contract (pure-std) — locks that a "third" is two SCALE steps,
 # so its semitone size follows the degree, and that a chromatic key falls back to a
 # fixed interval instead of degenerating into a whole tone.
