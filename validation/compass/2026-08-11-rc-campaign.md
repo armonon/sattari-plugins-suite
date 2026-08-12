@@ -74,14 +74,45 @@ if (conf >= kMinPublishConfidence)   // and kStableAnalyses hysteresis
 That is exactly the defect that had to be fixed in Auto Pitch on 2026-08-10
 (`8c2ce30`). Compass had it right first. The bus-publisher audit now stands at:
 
-| publisher | confidence gate |
-|---|---|
-| brain (Compass) | yes — gate + hysteresis |
-| song-key | yes — holds until a confident commit |
-| auto-pitch | yes — added 2026-08-10 |
-| **granulator** | **no — zero occurrences of "confidence" in the file** |
+| publisher | publishes | gated |
+|---|---|---|
+| brain (Compass) | a DETECTED key | yes — confidence gate + stability hysteresis |
+| song-key | a DETECTED key | yes — holds until a confident commit |
+| auto-pitch | a DETECTED key | yes — confidence gate added 2026-08-10 |
+| granulator | a USER-CHOSEN key | n/a — nothing is estimated |
 
-Granulator remains the one ungated publisher and is tracked separately.
+**Correction, 2026-08-11.** An earlier note in this campaign listed Granulator as
+"the one ungated publisher". That was wrong, and the error is worth recording
+because of how it was made: it came from `grep -c confidence` returning 0, not
+from reading the code. Absence of the word was treated as absence of the gate.
+
+Granulator does not detect anything. It publishes `sharedKey.keyRoot` — the key
+the USER set on the plugin — and only when:
+
+- the `broadcastKey` parameter is on, which **defaults OFF**, and
+- a note is currently sounding (`noteThisBlock || voiceLive`)
+
+There is no estimate, so there is no confidence to gate. An opt-in broadcast of a
+key the user typed is a decision, not a guess.
+
+### The real observation: three publishers, three policies on user-chosen keys
+
+Not a defect, but the suite has no single stated rule about who may occupy the
+one bus slot with a key the user chose rather than one that was detected:
+
+- **Auto Pitch REFUSES.** Its publisher comments: *"A manually-selected key is a
+  local choice, not session-wide truth — publishing it would stomp Sattari Key
+  (or another detector) on the single bus slot. So: detector -> source, manual
+  -> passive."*
+- **Compass PUBLISHES** manual overrides deliberately (`brainManual` ->
+  `brainManualRoot`), on the reasoning that the conductor's user is setting
+  session truth.
+- **Granulator PUBLISHES**, opt-in and off by default, while a note sounds.
+
+All three are individually defensible. Together they mean the answer to "whose
+key wins when a user has typed one" depends on which plugin they typed it into.
+That is a coherence question for the Compass contract gate, not a bug to fix in
+Granulator.
 
 ### To unblock Gate 0
 
