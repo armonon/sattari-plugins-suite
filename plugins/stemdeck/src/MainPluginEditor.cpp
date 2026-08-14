@@ -7490,7 +7490,8 @@ void MainPluginEditor::resized()
     // Both now coexist: the mix surface is fixed and the insert rack flexes.
     juce::Component* mixExtras[] = { &micGain, &micMonitor, &liveMidiButton,
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
-                                     &razorButton, &bounceEditsButton, &undoButton, &redoButton };
+                                     &razorButton, &bounceEditsButton, &undoButton, &redoButton,
+                                     &stemLinkToggle };
     // SCOPE and SYNC used to sit side by side, spending 180px of width between
     // them on a near-empty scope reading "-inf dB" and two oversized buttons that
     // read as unfinished placeholders — the exact inverse of the channel strips,
@@ -7573,6 +7574,9 @@ void MainPluginEditor::resized()
         // edit the arrangement, so hiding them behind TOOLS on the perform screen
         // meant the editing surface had no visible undo.
         chip (camelotButton, 44); chip (midiLearnButton, 48);
+        // Link Stems was created and APVTS-attached but never given bounds, so it
+        // rendered at 0x0 — visible only to host automation, not to the user.
+        chip (stemLinkToggle, 96);
         area.removeFromTop (6);
     }
     else

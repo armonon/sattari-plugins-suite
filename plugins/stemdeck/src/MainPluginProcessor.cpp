@@ -1997,6 +1997,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     }
     else
     {
+        // The click also has to work while DJing. It used to run only inside the
+        // arrangement branch above, so the Click button was silent during a normal
+        // deck set — drive it off the free-running transport counter instead.
+        if (anyDeckPlaying)
+            metronome.process (buffer, transportSampleCounter, buffer.getNumSamples());
+
         arrangementPlayer.process (buffer);                          // no-op while stopped
         if (arrWasPlaying)
             midiClipPlayer.allNotesOff();
