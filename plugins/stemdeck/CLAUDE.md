@@ -20,17 +20,32 @@ tree, not symlinks. JUCE must be **8.0.12** (see `/BUILD.md`). `ninja` and
 ## Build & validate (per-plugin — fast, no need to build the whole suite)
 
 ```bash
-cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S plugins/stemdeck -B build/stemdeck -G Ninja -DCMAKE_BUILD_TYPE=Release -DSATTARI_USE_ONNX=ON
 ```
 
 ```bash
 cmake --build build/stemdeck -j
 ```
 
-Add `-DSATTARI_UNIVERSAL=OFF` for fast host-arch-only iteration. Note the
-CMakeLists already forces host-arch when the installed ONNX Runtime is not
-universal — Homebrew ships it arm64-only, and a universal build cannot link
-against it.
+**`-DSATTARI_USE_ONNX=ON` is not optional if you want AI Split.** The flag
+defaults to **OFF** (`cmake/SattariOnnx.cmake`), so a plain configure silently
+prints *"neural runtime disabled — using Demucs CLI + RTSS/DSP fallbacks"* and
+compiles the whole on-device neural stack out, even though
+`models/neural-model.onnx` and the vendored runtime are both sitting in the tree.
+Confirm you got it with:
+
+```
+-- StemDeck: on-device neural separation ENABLED (.../third_party/onnxruntime-osx-universal2-*/lib/libonnxruntime.dylib)
+```
+
+It must resolve to the **vendored** universal2 runtime in `third_party/`, not
+`/opt/homebrew`. Homebrew's build is arm64-only with a macOS 26 floor, so it can
+neither go universal nor ship. If `third_party/onnxruntime-osx-universal2-*` is
+missing, run `scripts/fetch_onnxruntime.sh` (it is gitignored — a 68 MB dylib
+does not belong in git). Trade-off: an ONNX-enabled build raises the deployment
+floor to **macOS 13.3**; without it the floor stays 10.13.
+
+Add `-DSATTARI_UNIVERSAL=OFF` for fast host-arch-only iteration.
 
 Machine gate (AU `aumu/Sd01/Satr`, VST3 pluginval@5, and codesign):
 
