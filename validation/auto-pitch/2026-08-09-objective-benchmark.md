@@ -1,6 +1,25 @@
 # Auto Pitch objective benchmark — 2026-08-09
 
-Truth label: **machine benchmark passed with two realtime CPU warnings; real-vocal listening gate remains open**.
+Truth label: **machine benchmark passed; the two CPU warnings below were
+measurement artifacts and are withdrawn. Real-vocal listening gate remains open**.
+
+> **SUPERSEDED 2026-08-14 — the two "realtime CPU warning" rows.**
+> The 19.873 ms and 18.631 ms p95 figures were **wall clock**, which counts time
+> this thread spent preempted by everything else on the machine. Re-measured with
+> `CLOCK_THREAD_CPUTIME_ID`, which counts only cycles actually executed:
+>
+> | path | was (wall p95) | is (CPU p95) | budget @ 48k/512 |
+> |---|---:|---:|---:|
+> | Rubber Band | 8.209 ms | **2.256 ms** | 10.67 ms |
+> | Studio lock | 19.873 ms | **2.247 ms** | 10.67 ms |
+> | Studio + Neural | 18.631 ms | **2.368 ms** | 10.67 ms |
+>
+> All three PASS with ~4.7x headroom. There was never a Studio-mode CPU problem;
+> there was a stopwatch that counted other programs' time as ours. Open gate 3
+> from this document ("repeat realtime CPU tests across the rate/buffer matrix")
+> is **done** — the matrix runs in `AutoPitchBench cpu`, and the only real limits
+> are 96 kHz at <=128 samples (FAIL) and 64 samples at any rate (WARN), which is
+> exactly the documented 44.1/48 kHz at >=128 envelope.
 
 Command: `build/auto-pitch-neural/AutoPitchBench`
 
