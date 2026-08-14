@@ -214,6 +214,109 @@ int main (int argc, char** argv)
     const int    block = 512;
     const double seconds = 4.0;
 
+    // --nulltest : Gate 4 test A, run offline instead of by hand in three DAWs.
+    //
+    // The host matrix asks for two sample-aligned copies of a vocal, Auto Pitch on
+    // one of them with correction OFF, polarity inverted, and a null below
+    // -60 dBFS. That test is really asking one question: does a pass-through come
+    // back sample-aligned with what went in? A plugin that reports a fixed latency
+    // but does not hold it cannot null, and the host is not at fault.
+    //
+    // Both engines are measured, because they answer differently, and against a
+    // signal with vibrato — the shifters key their internal segmentation off the
+    // DETECTED PERIOD, so a steady tone is the one input that would hide a
+    // period-dependent misalignment.
+    if (argc > 1 && std::strcmp (argv[1], "--nulltest") == 0)
+    {
+        std::printf ("Gate 4 test A (offline): pass-through null with correction OFF\n\n");
+        std::printf ("  %-46s %10s %8s\n", "engine / signal", "null dBFS", "verdict");
+        std::printf ("  %-46s %10s %8s\n",
+                     "----------------------------------------------", "---------", "-------");
+
+        // The matrix offers two ways to make a pass-through, and they are NOT
+        // equivalent: "Enable Correction off" bypasses the shifter altogether,
+        // while "Amount = 0" leaves it running at unity ratio. Both are measured.
+        //
+        // The liveEngine cases are kept deliberately even though PluginProcessor
+        // pins `useLiveEngine = false` (the quality lock, added after the PSOLA
+        // path failed real-vocal validation). They are the regression guard: if
+        // that lock is ever lifted, these rows start reporting something
+        // different from their Rubber Band twins, and the difference is the
+        // evidence. While the lock holds they must match exactly, which is
+        // itself worth asserting — a `liveEngine` toggle visible to the host
+        // that changes nothing is a product-truth problem, not a feature.
+        int fails = 0;
+        struct Case { const char* name; bool live; bool correctionOn; double depthCents; };
+        for (const Case c : {
+                Case{"correction OFF, print engine, steady",    false, false,  0.0 },
+                Case{"correction OFF, print engine, vibrato",   false, false, 50.0 },
+                Case{"Amount 0, print engine, steady",          false, true,   0.0 },
+                Case{"Amount 0, print engine, vibrato 50ct",    false, true,  50.0 },
+                Case{"Amount 0, liveEngine=1 (LOCKED OFF)",     true,  true,  50.0 } })
+        {
+            juce::AudioBuffer<float> in;
+            makeVibratoTone (in, sr, seconds, 220.0, c.depthCents, 5.0);
+
+            SattariAutoPitchAudioProcessor p;
+            setParam (p.parameters(), "enableCorrection", c.correctionOn ? 1.0f : 0.0f);
+            setParam (p.parameters(), "amount",           0.0f);
+            setParam (p.parameters(), "autoKey",          0.0f);
+            setParam (p.parameters(), "liveEngine",       c.live ? 1.0f : 0.0f);
+            setParam (p.parameters(), "polyphonic",       0.0f);
+
+            const auto out = sattari::harness::renderThrough (p, in, sr, block);
+            const int lat  = p.getLatencySamples();
+
+            // Null exactly as a host with correct delay compensation would: shift
+            // the processed copy back by the REPORTED latency and subtract.
+            const int from = (int) (sr * 0.5), len = (int) (sr * 2.5);
+            double num = 0.0, den = 0.0;
+            for (int i = from; i < from + len; ++i)
+            {
+                const int j = i + lat;
+                if (j >= out.getNumSamples() || i >= in.getNumSamples()) break;
+                const double e = (double) out.getSample (0, j) - (double) in.getSample (0, i);
+                num += e * e;
+                den += (double) in.getSample (0, i) * in.getSample (0, i);
+            }
+            const double db = den > 1.0e-20 ? 20.0 * std::log10 (std::sqrt (num / den)) : 0.0;
+            const bool pass = db < -60.0;
+            if (! pass) ++fails;
+
+            // A failing null says "not aligned" but not BY HOW MUCH. Search for the
+            // delay that would have nulled, so the result distinguishes a wrong
+            // latency REPORT (a fixed offset, trivially fixable) from a signal that
+            // cannot be aligned at any delay (a processing difference).
+            int bestLag = 0; double bestDb = 1.0e9;
+            for (int L = -4096; L <= 4096; L += 1)
+            {
+                double n2 = 0.0, d2 = 0.0;
+                for (int i = from; i < from + len; i += 7)   // stride: coarse but unbiased
+                {
+                    const int j = i + lat + L;
+                    if (j < 0 || j >= out.getNumSamples() || i >= in.getNumSamples()) { d2 = 0.0; break; }
+                    const double e = (double) out.getSample (0, j) - (double) in.getSample (0, i);
+                    n2 += e * e;
+                    d2 += (double) in.getSample (0, i) * in.getSample (0, i);
+                }
+                if (d2 > 1.0e-20)
+                {
+                    const double cand = 20.0 * std::log10 (std::sqrt (n2 / d2));
+                    if (cand < bestDb) { bestDb = cand; bestLag = L; }
+                }
+            }
+            std::printf ("  %-46s %9.1f  %7s   (reported %d; best null %.1f dB at %+d)\n",
+                         c.name, db, pass ? "PASS" : "FAIL", lat, bestDb, bestLag);
+        }
+
+        std::printf ("\n  A FAIL here predicts a FAIL of the same test in every host: it is a\n");
+        std::printf ("  plugin-side alignment result, not a host compatibility one. Read the\n");
+        std::printf ("  'best null at +N' column before blaming the DSP — a deep null at a\n");
+        std::printf ("  non-zero N means the audio is fine and the LATENCY REPORT is short\n");
+        std::printf ("  by N samples, which is a one-line fix and a different bug entirely.\n");
+        return fails > 0 ? 1 : 0;
+    }
+
     // --file <in.wav> <out.wav> : run a REAL recording through Auto Pitch (AutoKey +
     // neural + Rubber Band, Natural style, full correction) and report objective
     // correction stats + write the tuned output for listening.
