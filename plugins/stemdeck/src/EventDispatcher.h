@@ -34,7 +34,7 @@ public:
     // used live and on replay.
     using Apply = std::function<void (const Event&)>;
 
-    explicit Dispatcher (Apply applyFn) : applyFn (std::move (applyFn)) {}
+    explicit Dispatcher (Apply apply) : applyFn (std::move (apply)) {}
 
     // ── Live path ────────────────────────────────────────────────────────────
     // Stamps the ordering fields, records if capturing, then applies. Host automation

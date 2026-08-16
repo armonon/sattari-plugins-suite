@@ -86,7 +86,9 @@ juce::String HostGraph::chainId (Chain chain)
         case Chain::deckD: return "deckD";
         case Chain::mic: return "mic";
         case Chain::master: return "master";
-        default: break;
+        case Chain::stemFirst:
+        case Chain::channelExtraFirst:
+        case Chain::count: break;
     }
     if (isStemChain (chain))
     {
@@ -112,7 +114,9 @@ juce::String HostGraph::chainName (Chain chain)
         case Chain::deckD: return "Deck D Plugin Chain";
         case Chain::mic: return "Mic/Vocal Plugin Chain";
         case Chain::master: return "Master Plugin Chain";
-        default: break;
+        case Chain::stemFirst:
+        case Chain::channelExtraFirst:
+        case Chain::count: break;
     }
     if (isStemChain (chain))
     {
@@ -217,6 +221,9 @@ void HostGraph::release()
 
 void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
+    if (emergencyBypass.load (std::memory_order_acquire))
+        return;
+
     auto& state = stateFor (chain);
 
     // Fast path: with 16 stem chains added, an empty chain is the overwhelmingly common

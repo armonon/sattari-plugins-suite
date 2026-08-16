@@ -281,7 +281,10 @@ std::shared_ptr<Channel> MainPluginProcessor::makeChannel (int index, ChannelTyp
             body = std::make_unique<InputBody>();          defaultName = "Input";      break;
         case ChannelType::midiInstrument:
             body = std::make_unique<MidiInstrumentBody>(); defaultName = "Instrument"; break;
-        default:
+        case ChannelType::sampler:
+        case ChannelType::pluginHost:
+            return {}; // reserved schema values have no renderable body yet
+        case ChannelType::trackDeck:
         {
             auto tdb = std::make_unique<TrackDeckBody>();
             // Per-stem plugin chains. Only the four real decks have them; a TrackDeck
@@ -1809,6 +1812,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     }
     const int64_t blockRecordingStart = recordingSampleCounter.load (std::memory_order_relaxed);
     updatePerformanceCaptureState (blockRecordingStart, syncSnapshot);
+    const bool safePerformance = performanceSafeMode.load (std::memory_order_acquire);
 
     const float crossfader = getFloatParam ("crossfader");
     const int   xfCurve    = (int) std::round (getFloatParam ("crossfaderCurve"));
@@ -1899,8 +1903,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             p->keyTarget   = (int) std::round (getFloatParam (ids.keyTarget));
             p->keyLock     = getBoolParam (ids.keyLock);
             p->liveKey     = getBoolParam (ids.liveKey);
-            p->revMix      = getFloatParam (ids.revMix);
-            p->echoMix     = getFloatParam (ids.echoMix);
+            p->revMix      = safePerformance ? 0.0f : getFloatParam (ids.revMix);
+            p->echoMix     = safePerformance ? 0.0f : getFloatParam (ids.echoMix);
 
             for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
             {
@@ -1908,8 +1912,10 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
                 // Pitch / filter / send params exist only for drums..vocals.
                 const bool coreLane = lane >= DeckPlayer::drumsStem && lane <= DeckPlayer::vocalsStem;
                 p->stemPitch[(size_t) lane] = coreLane ? getFloatParam (ids.stemPitch[(size_t) lane]) : 0.0f;
-                p->stemFilt [(size_t) lane] = coreLane ? getFloatParam (ids.stemFilt [(size_t) lane]) : 0.5f;
-                p->stemSend [(size_t) lane] = coreLane ? getFloatParam (ids.stemSend [(size_t) lane]) : 0.0f;
+                p->stemFilt [(size_t) lane] = coreLane && ! safePerformance
+                                             ? getFloatParam (ids.stemFilt [(size_t) lane]) : 0.5f;
+                p->stemSend [(size_t) lane] = coreLane && ! safePerformance
+                                             ? getFloatParam (ids.stemSend [(size_t) lane]) : 0.0f;
             }
 
             p->hostSync  = getBoolParam ("hostSync");
@@ -2072,11 +2078,13 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         capturedMaster.limiterCeilingDb, getFloatParam ("limiterCeiling"));
 
     hostGraph.processChain (HostGraph::Chain::master, buffer, midi);
-    masterFx.process (buffer, masterFxX, masterFxY);
+    masterFx.process (buffer,
+                      safePerformance ? 0.5f : masterFxX,
+                      safePerformance ? 0.0f : masterFxY);
     buffer.applyGain (juce::Decibels::decibelsToGain (masterGainDb));
     // AI mastering assistant sits after user trim, before the safety limiter.
     smartMaster.process (buffer, (int) std::round (smartMode),
-                         smartOn > 0.5f ? smartAmount : 0.0f);
+                         ! safePerformance && smartOn > 0.5f ? smartAmount : 0.0f);
     applyLimiter (buffer, limiterCeilingDb);
 
     // Master peak meters (block peak with fall-back decay).
@@ -3172,6 +3180,24 @@ void MainPluginProcessor::setDeckSlipEnabled (int deckIndex, bool on) noexcept
     scope.channel = channelIdForSlot (deckIndex);
     eventDispatcher->dispatchParam (
         scope, stemdeck::events::ParamId::slipMode, on ? 1.0 : 0.0);
+}
+
+void MainPluginProcessor::setPerformanceSafeMode (bool enabled) noexcept
+{
+    performanceSafeMode.store (enabled, std::memory_order_release);
+    hostGraph.setEmergencyBypass (enabled);
+
+    if (! enabled)
+        return;
+
+    // Keep every playing channel audible, but abandon temporary gestures that can
+    // otherwise trap a set in a short loop after a controller or UI disconnect.
+    for (int deckIndex = 0; deckIndex < numDecks; ++deckIndex)
+    {
+        deckAt (deckIndex).setLoopActive (false);
+        deckAt (deckIndex).setSlipEnabled (false);
+    }
+    midiClipPlayer.liveAllNotesOff();
 }
 
 bool MainPluginProcessor::isDeckSlipEnabled (int deckIndex) const noexcept

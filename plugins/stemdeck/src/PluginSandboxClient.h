@@ -32,6 +32,7 @@ public:
                               int maxPluginsPerFormat, bool recursive);
 
 private:
+    bool launchInternal (const juce::PluginDescription&, ReadyCallback, bool recovery);
     void handleMessageFromWorker (const juce::MemoryBlock&) override;
     void handleConnectionLost() override;
     bool createSharedFile();
@@ -47,6 +48,11 @@ private:
     mutable juce::CriticalSection messageLock;
     juce::String loadedName, lastMessage;
     ReadyCallback readyCallback;
+    juce::PluginDescription lastDescription;
+    int restartAttempts = 0;
+    std::atomic<bool> intentionalStop { false };
+    std::shared_ptr<std::atomic<bool>> aliveFlag {
+        std::make_shared<std::atomic<bool>> (true) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginSandboxClient)
 };

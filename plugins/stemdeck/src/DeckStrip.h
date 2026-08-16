@@ -115,7 +115,7 @@ private:
         jumpBack, jumpNum, jumpFwd, sync, key, take, chevron,
         stem0, stem1, stem2, stem3, quant, slip, grid, fxA, fxB, fxC
     };
-    Hit hitTest (juce::Point<float>) const;
+    Hit hitRegion (juce::Point<float>) const;
     juce::Rectangle<float> regionFor (Hit) const;
 
     void layoutRow1 (juce::Rectangle<float> row);

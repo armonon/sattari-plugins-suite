@@ -174,10 +174,12 @@ measured on real music.
    the transients driving the onset envelope. The synthetic beat tests are
    unchanged by the fix, which is expected: they contain no HF content to alias.
    **This one can only be judged on real material.**
-4. **Naive peak-picking** (fixed 0.4 threshold) — **STILL OPEN.** Port beat_this's
-   DBN; will fail on ambient intros/breakdowns. This is the remaining real defect
-   in the beat path and it is a multi-week job, not a patch — do it AFTER the
-   corpus exists (item 4 in §10), or there is no way to tell whether it helped.
+4. ~~**Naive peak-picking** (fixed 0.4 threshold).~~ **DONE, SYNTHETICALLY
+   VERIFIED.** `BeatGridDecoder` now decodes neural activations with a
+   probabilistic tempo-state/Viterbi path. It preserves clock continuity through
+   quiet intros and breakdowns, permits gradual tempo drift, and is covered by
+   `StemDeckBeatGridDecoderTest`. Licensed real-music corpus certification remains
+   open; the mechanism is no longer fixed-threshold peak picking.
 
 **Teardown.** Destroying a processor while neural refinement was in flight used
 to SIGSEGV inside `onnxruntime::RunSince`. Teardown now cancels cooperatively,

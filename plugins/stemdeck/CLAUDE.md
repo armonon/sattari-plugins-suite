@@ -138,18 +138,16 @@ is a deprecated alias namespace kept only for the `using namespace` blocks insid
    `src/BeatSyncEngine.cpp`. Currently a granular key-lock backend; not DAW-validated.
    Rubber Band is available via `sattari_enable_rubberband()` (already linked —
    GPLv3, see `/LICENSING.md`).
-2. **Beat peak-picking** — `NeuralBeatEngine.cpp` still peak-picks the model's
-   activations with a fixed 0.4 threshold. Porting beat_this's DBN is the real
-   fix; expect it to fail on ambient intros and breakdowns until then. The 22.05 kHz
-   decimation now has a 6th-order Butterworth anti-alias pre-filter (it previously
-   had none, folding cymbal energy down into the band the model reads) — that fix
-   is **unverified on real material**.
-3. **Separation cancellation** — `NeuralStemEngine::separate()` is one blocking
-   call with no cancellation hook, so a full-track in-process separation still
-   cannot be interrupted at shutdown. The demucs CLI path *is* cancellable
-   (`runSeparatorCommand` takes a `shouldCancel` probe and kills the child).
-   `separate()` already takes an `onProgress` callback — that is the natural place
-   to thread a cancel probe through.
+2. **Beat decoding — DONE, real-music certification open.**
+   `NeuralBeatEngine.cpp` feeds model activations into `BeatGridDecoder`, a
+   probabilistic tempo-state/Viterbi path that remains continuous through quiet
+   intros and breakdowns and follows gradual tempo drift. The 22.05 kHz path also
+   has a 6th-order Butterworth anti-alias pre-filter. Synthetic decoder contracts
+   pass; the licensed real-song corpus remains a release gate.
+3. **Separation cancellation — DONE.** `NeuralStemEngine::separate()` and the
+   streaming variant accept a cancellation probe, active ONNX `Session::Run`
+   calls are terminated, and `StemProvider::shutdown()` joins the work before
+   teardown continues. `StemDeckStemCancelSmoke` also covers reuse after cancel.
 4. **Plugin-host audio routing** — DONE via `src/HostGraph.{h,cpp}`: per-chain
    `AudioProcessorGraph` (deck/mic/master), async off-thread load, series FX rack,
    RT-safe `processChain` (try-lock, no alloc on the audio thread). Scanning is

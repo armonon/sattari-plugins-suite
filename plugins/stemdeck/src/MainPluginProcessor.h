@@ -193,6 +193,13 @@ public:
     double getRetrospectiveSecondsAvailable() const noexcept
     { return retrospectiveRecorder.getAvailableSeconds(); }
     float getAudioCpuLoad() const noexcept { return audioCpuLoad.load (std::memory_order_relaxed); }
+    // Reversible stage-emergency mode: keep transports and the dry mix alive,
+    // but bypass hosted/built-in FX and release temporary loop/slip states.
+    void setPerformanceSafeMode (bool enabled) noexcept;
+    bool isPerformanceSafeMode() const noexcept
+    {
+        return performanceSafeMode.load (std::memory_order_acquire);
+    }
     int getDroppedBufferCount() const noexcept;
     int getDroppedCaptureEventCount() const noexcept
     {
@@ -712,6 +719,7 @@ private:
     std::atomic<int64_t> recordingSampleCounter { 0 };
     std::atomic<int> currentTakeNumber { 0 };
     std::atomic<float> audioCpuLoad { 0.0f };
+    std::atomic<bool> performanceSafeMode { false };
     std::atomic<int> audioDeadlineMisses { 0 };
     int64_t transportSampleCounter = 0;
     juce::File lastPerformanceEventLogFile;

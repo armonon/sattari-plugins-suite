@@ -281,6 +281,18 @@ void expectHostGraphNoPluginPassThroughIsSafe()
     graph.processChain (HostGraph::Chain::deckA, buffer, midi);
     if (std::abs (buffer.getSample (0, 0) - 0.25f) > 0.0001f)
         fail ("HostGraph empty state round-trip changed audio");
+
+    graph.setEmergencyBypass (true);
+    if (! graph.isEmergencyBypassed())
+        fail ("HostGraph did not enter emergency dry bypass");
+    buffer.clear();
+    buffer.setSample (0, 0, 0.25f);
+    graph.processChain (HostGraph::Chain::deckA, buffer, midi);
+    if (std::abs (buffer.getSample (0, 0) - 0.25f) > 0.0001f)
+        fail ("HostGraph emergency bypass changed dry audio");
+    graph.setEmergencyBypass (false);
+    if (graph.isEmergencyBypassed())
+        fail ("HostGraph emergency bypass did not disengage");
     expectContains (graph.getStatusSummary(), "HostGraph", "HostGraph status");
 
     juce::PluginDescription untrusted;
@@ -322,6 +334,7 @@ int main()
               << "  offline_stem_cache=guarded\n"
               << "  offline_separator_command=ready\n"
               << "  host_graph_empty_chain=stateful-pass-through\n"
+              << "  host_graph_emergency_bypass=reversible-dry-path\n"
               << "  third_party_plugins=helper-process-only\n";
     return 0;
 }

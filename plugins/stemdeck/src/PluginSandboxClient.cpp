@@ -17,6 +17,7 @@ PluginSandboxClient::PluginSandboxClient() = default;
 
 PluginSandboxClient::~PluginSandboxClient()
 {
+    aliveFlag->store (false, std::memory_order_release);
     stop();
 }
 
@@ -91,11 +92,22 @@ juce::MemoryBlock PluginSandboxClient::makeConfiguration (
 bool PluginSandboxClient::launch (const juce::PluginDescription& description,
                                   ReadyCallback callback)
 {
+    return launchInternal (description, std::move (callback), false);
+}
+
+bool PluginSandboxClient::launchInternal (const juce::PluginDescription& description,
+                                          ReadyCallback callback, bool recovery)
+{
     stop();
+    if (! recovery)
+    {
+        restartAttempts = 0;
+        lastDescription = description;
+    }
     {
         const juce::ScopedLock lock (messageLock);
         loadedName = description.name;
-        lastMessage = {};
+        lastMessage = recovery ? "Restarting " + description.name + " in the sandbox" : juce::String{};
     }
     readyCallback = std::move (callback);
     const auto fail = [this] (juce::String failureText)
@@ -129,6 +141,7 @@ bool PluginSandboxClient::launch (const juce::PluginDescription& description,
 
 void PluginSandboxClient::stop()
 {
+    intentionalStop.store (true, std::memory_order_release);
     ready.store (false, std::memory_order_release);
     if (shared != nullptr)
         stemdeck::sandbox::atomic (shared->shutdown).store (1, std::memory_order_release);
@@ -136,6 +149,7 @@ void PluginSandboxClient::stop()
     shared = nullptr;
     mapping.reset();
     if (sharedFile.existsAsFile()) sharedFile.deleteFile();
+    intentionalStop.store (false, std::memory_order_release);
 }
 
 void PluginSandboxClient::process (juce::AudioBuffer<float>& audio) noexcept
@@ -213,10 +227,36 @@ void PluginSandboxClient::handleMessageFromWorker (const juce::MemoryBlock& mess
 void PluginSandboxClient::handleConnectionLost()
 {
     const bool wasReady = ready.exchange (false, std::memory_order_acq_rel);
+    if (intentionalStop.load (std::memory_order_acquire))
+        return;
+
     crashed.store (wasReady, std::memory_order_release);
-    const juce::ScopedLock lock (messageLock);
-    lastMessage = wasReady ? loadedName + " sandbox exited; chain is dry-bypassed"
-                           : "Plugin sandbox connection failed";
+    {
+        const juce::ScopedLock lock (messageLock);
+        lastMessage = wasReady ? loadedName + " sandbox exited; chain is dry-bypassed"
+                               : "Plugin sandbox connection failed";
+    }
+
+    // A transient helper crash must not require a UI intervention mid-set. Retry
+    // twice, outside the audio callback, then remain dry-bypassed. The lifetime
+    // token makes both queued callbacks harmless if the chain is removed first.
+    if (wasReady && restartAttempts < 2 && lastDescription.name.isNotEmpty())
+    {
+        const int attempt = ++restartAttempts;
+        const auto description = lastDescription;
+        const auto life = aliveFlag;
+        juce::MessageManager::callAsync (
+            [this, life, description, attempt]
+            {
+                if (! life->load (std::memory_order_acquire)) return;
+                juce::Timer::callAfterDelay (attempt * 250,
+                    [this, life, description]
+                    {
+                        if (! life->load (std::memory_order_acquire)) return;
+                        launchInternal (description, {}, true);
+                    });
+            });
+    }
 }
 
 juce::String PluginSandboxClient::pluginName() const

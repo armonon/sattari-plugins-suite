@@ -74,6 +74,16 @@ public:
     void prepare (double sampleRate, int blockSize, int channels);
     void release();
     void processChain (Chain chain, juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi);
+    // Stage-safe global bypass. The rack state stays intact, but every hosted
+    // insert becomes a zero-cost dry pass until the performer clears SAFE mode.
+    void setEmergencyBypass (bool bypass) noexcept
+    {
+        emergencyBypass.store (bypass, std::memory_order_release);
+    }
+    bool isEmergencyBypassed() const noexcept
+    {
+        return emergencyBypass.load (std::memory_order_acquire);
+    }
 
     juce::StringArray getSupportedPluginFormats() const;
     juce::String getStatusSummary() const;
@@ -173,6 +183,7 @@ private:
     int currentChannels = 2;
     juce::StringArray quarantinedPluginFiles;
     std::atomic<bool> pluginLoadInFlight { false };
+    std::atomic<bool> emergencyBypass { false };
     std::shared_ptr<std::atomic<bool>> aliveFlag {
         std::make_shared<std::atomic<bool>> (true) };
 

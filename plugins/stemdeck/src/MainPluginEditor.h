@@ -125,7 +125,8 @@ private:
 
         // ── Slip mode + Loop Roll ─────────────────────────────────────────────
         juce::TextButton slipButton    { "Slip" };
-        // Beat-size loop roll buttons: 1/4  1/2  1  2  4  8 bars
+        juce::TextButton quantizeButton { "Q 1/4" };
+        // Beat-size loop roll buttons: 1/4  1/2  1  2  4  8 beats
         std::array<juce::TextButton, 6> beatRollBtns;
         static constexpr std::array<double, 6> kBeatRollLengths { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
         static constexpr std::array<const char*, 6> kBeatRollLabels { "1/4","1/2","1","2","4","8" };
@@ -671,6 +672,7 @@ private:
     stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "PLAY ALL", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
     stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "REC",      juce::Colour (0xffff3b47) };   // header: arm/stop capturing
     stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "AUTO",     juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
+    juce::TextButton safeModeButton { "SAFE" };   // reversible emergency FX bypass
     juce::Label      automixStatusLabel; // shows the current transition plan / progress
     juce::TextButton camelotButton { "Key" };
 
@@ -937,6 +939,7 @@ private:
     void setupLoopControls (int deckIndex);
     void updateLoopButtonStates (int deckIndex);
     void updateWaveformLoopRegion (int deckIndex);
+    double quantizedDeckPosition (int deckIndex, double seconds) const;
 
     // Slip + loop roll helpers
     void setupSlipAndRoll (int deckIndex);

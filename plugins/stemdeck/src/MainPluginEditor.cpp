@@ -708,6 +708,22 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     automixButton.onClick = [this] { startAutomix(); };
     addAndMakeVisible (automixButton);
 
+    setupButton (safeModeButton);
+    safeModeButton.setClickingTogglesState (true);
+    safeModeButton.setColour (juce::TextButton::buttonOnColourId,
+                              stemdeck::tokens::c (stemdeck::tokens::warn).withAlpha (0.62f));
+    safeModeButton.setTooltip ("Emergency dry path: bypass hosted, stem, deck and master FX; release temporary loops and slip without stopping the music");
+    safeModeButton.onClick = [this]
+    {
+        const bool enabled = safeModeButton.getToggleState();
+        processorRef.setPerformanceSafeMode (enabled);
+        recordStatus.setText (enabled
+            ? "SAFE MODE - dry mix is live; plug-ins and performance FX are bypassed"
+            : "Safe mode cleared - plug-ins and performance FX restored",
+            juce::dontSendNotification);
+    };
+    addAndMakeVisible (safeModeButton);
+
     automixStatusLabel.setFont (juce::FontOptions (10.0f));
     automixStatusLabel.setColour (juce::Label::textColourId, stemdeck::tokens::c (stemdeck::tokens::fgMuted));
     automixStatusLabel.setJustificationType (juce::Justification::centredLeft);
@@ -5807,6 +5823,7 @@ void MainPluginEditor::setDeckDetailVisible (int i, bool vis)
                                 (juce::Component*) &dc.loopToggle,(juce::Component*) &dc.loopHalf,
                                 (juce::Component*) &dc.loopDouble,(juce::Component*) &dc.introEndBtn,
                                 (juce::Component*) &dc.outroStartBtn, (juce::Component*) &dc.slipButton,
+                                (juce::Component*) &dc.quantizeButton,
                                 (juce::Component*) &dc.reverbMix, (juce::Component*) &dc.echoMix,
                                 (juce::Component*) &dc.macroKnob })
         hide (*c);
@@ -6121,6 +6138,7 @@ void MainPluginEditor::applyDeckControlWeights (int i)
     // the top five, and recessing them would hide a live loop's on-state.
     set (c.loopToggle, kStandard);
     set (c.slipButton, kStandard);
+    set (c.quantizeButton, kStandard);
     set (c.aiStems, kStandard);
     set (c.keyLock, kStandard);
     set (c.liveKey, kStandard);
@@ -6594,6 +6612,7 @@ void MainPluginEditor::resized()
         place (inspectorButton,     hInspect,    34);
         topRecordButton.setVisible (false); topRecordButton.setBounds ({});
         automixButton.setVisible (false); automixButton.setBounds ({});
+        safeModeButton.setVisible (false); safeModeButton.setBounds ({});
         automixStatusLabel.setVisible (false); automixStatusLabel.setBounds ({});
         place (savePresetButton,    hSavePreset, 30);
         place (userPresets,         hPresets,    28);
@@ -6625,7 +6644,8 @@ void MainPluginEditor::resized()
         namespace L = stemdeck::layout;
         namespace T = stemdeck::tokens;
         enum ProjectIdx { pLabel, pBpm, pTap, pKey, pKeyLock, pClock,
-                          pGrid, pMaster, pSyncAll, pClick, pStatus, pNumItems };
+                          pGrid, pMaster, pSyncAll, pAuto, pSafe, pClick,
+                          pStatus, pNumItems };
         const std::vector<L::Item> items {
             L::Item::fixed (76,  9, T::gap5),
             L::Item::fixed (140, 10, T::gap4),
@@ -6636,10 +6656,12 @@ void MainPluginEditor::resized()
             L::Item::fixed (92, 10, T::gap5),
             L::Item::fixed (92,  8, T::gap4),
             L::Item::fixed (92,  9, T::gap5),
+            L::Item::fixed (82, 10, T::gap4),
+            L::Item::fixed (62, 10, T::gap4),
             L::Item::fixed (58,  4, T::gap6),
             L::Item::flexible (0, 0, 1.0f, 1, 0),
         };
-        static_assert (pNumItems == 11, "project toolbar item count mismatch");
+        static_assert (pNumItems == 13, "project toolbar item count mismatch");
         const auto cells = L::columns (projectToolbarBounds.reduced (9, 6), items);
 
         auto place = [&cells] (juce::Component& c, int idx)
@@ -6662,6 +6684,8 @@ void MainPluginEditor::resized()
         place (beatSync,           pGrid);
         place (masterDeckButton,   pMaster);
         place (syncAllDecksButton, pSyncAll);
+        place (automixButton,      pAuto);
+        place (safeModeButton,     pSafe);
         place (metronomeButton,    pClick);
         masterKeyLabel.setVisible (false);
         masterKeyLabel.setBounds ({});
@@ -7365,15 +7389,16 @@ void MainPluginEditor::resized()
             }
             case DeckControls::TabLoop:
             {
-                // Row 1: IN / OUT / LOOP / 1/2 / x2 / Slip
+                // Row 1: IN / OUT / LOOP / 1/2 / x2 / Slip / Quantize
                 auto r1 = tabContent.removeFromTop (22);
-                const int bw = juce::jmax (24, r1.getWidth() / 6);
+                const int bw = juce::jmax (22, r1.getWidth() / 7);
                 controls.loopIn    .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopOut   .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopToggle.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopHalf  .setBounds (r1.removeFromLeft (bw).reduced (1, 0));
                 controls.loopDouble.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
-                controls.slipButton.setBounds (r1.reduced (1, 0));
+                controls.slipButton.setBounds (r1.removeFromLeft (bw).reduced (1, 0));
+                controls.quantizeButton.setBounds (r1.reduced (1, 0));
                 tabContent.removeFromTop (2);
                 // Row 2: beat-roll buttons (1/4 1/2 1 2 4 8)
                 auto r2 = tabContent.removeFromTop (20);
@@ -7763,7 +7788,8 @@ void MainPluginEditor::hidePerformSurface()
                                        (juce::Component*) &c.liveKey,   (juce::Component*) &c.loopToggle,
                                        (juce::Component*) &c.loopIn,    (juce::Component*) &c.loopOut,
                                        (juce::Component*) &c.loopHalf,  (juce::Component*) &c.loopDouble,
-                                       (juce::Component*) &c.slipButton, (juce::Component*) &c.introEndBtn,
+                                       (juce::Component*) &c.slipButton, (juce::Component*) &c.quantizeButton,
+                                       (juce::Component*) &c.introEndBtn,
                                        (juce::Component*) &c.outroStartBtn, (juce::Component*) &c.tempoInterpretation,
                                        (juce::Component*) &c.syncMode,  (juce::Component*) &c.keyTarget })
             hide (*comp);
@@ -8163,6 +8189,8 @@ void MainPluginEditor::timerCallback()
     }
 
     updateAutomixRamp();
+    safeModeButton.setToggleState (processorRef.isPerformanceSafeMode(),
+                                   juce::dontSendNotification);
     if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
     refreshDeckStrips();                                        // per-deck control strips
     bool relayout = false;
@@ -8865,6 +8893,7 @@ void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
     dc.loopIn.setVisible (loop); dc.loopOut.setVisible (loop); dc.loopToggle.setVisible (loop);
     dc.loopHalf.setVisible (loop); dc.loopDouble.setVisible (loop);
     dc.slipButton.setVisible (loop);
+    dc.quantizeButton.setVisible (loop);
     for (auto& b : dc.beatRollBtns)  b.setVisible (loop);
     for (auto& b : dc.beatJumpBack)  b.setVisible (loop);
     for (auto& b : dc.beatJumpFwd)   b.setVisible (loop);
@@ -8883,6 +8912,77 @@ void MainPluginEditor::applyDeckToolTabVisibility (int deckIndex)
 }
 
 // ── Hot cue helpers ───────────────────────────────────────────────────────────
+
+double MainPluginEditor::quantizedDeckPosition (int deckIndex, double seconds) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks))
+        return juce::jmax (0.0, seconds);
+
+    // OFF / 1 bar / 1/2 beat / 1/4 beat / 1/8 beat. Bar quantization is anchored
+    // to the detected downbeat; subdivisions interpolate the actual variable-tempo
+    // grid instead of assuming the whole track has one fixed period.
+    static constexpr std::array<double, 5> quantumBeats { 0.0, 4.0, 0.5, 0.25, 0.125 };
+    const int quantIndex = juce::jlimit (0, 4, stripQuant[(size_t) deckIndex]);
+    const double quantum = quantumBeats[(size_t) quantIndex];
+    if (quantum <= 0.0)
+        return juce::jmax (0.0, seconds);
+
+    const auto analysis = processorRef.getDeckActiveAnalysis (deckIndex);
+    const double sampleRate = analysis.sampleRate;
+    const auto& grid = analysis.beatGridSamples;
+    double resultSeconds = seconds;
+
+    if (sampleRate > 0.0 && grid.size() >= 2)
+    {
+        const double sourceSample = seconds * sampleRate;
+        const auto locateBeat = [&grid] (double sample)
+        {
+            if (sample <= grid.front())
+                return (sample - grid.front()) / juce::jmax (1.0, grid[1] - grid[0]);
+            if (sample >= grid.back())
+                return (double) (grid.size() - 1)
+                     + (sample - grid.back())
+                       / juce::jmax (1.0, grid.back() - grid[grid.size() - 2]);
+            const auto hi = std::lower_bound (grid.begin(), grid.end(), sample);
+            const auto upper = (size_t) std::distance (grid.begin(), hi);
+            const size_t lower = upper - 1;
+            return (double) lower
+                 + (sample - grid[lower]) / juce::jmax (1.0, grid[upper] - grid[lower]);
+        };
+        const auto sampleForBeat = [&grid] (double beat)
+        {
+            if (beat <= 0.0)
+                return grid.front() + beat * (grid[1] - grid[0]);
+            const double lastBeat = (double) (grid.size() - 1);
+            if (beat >= lastBeat)
+                return grid.back() + (beat - lastBeat)
+                     * (grid.back() - grid[grid.size() - 2]);
+            const size_t lower = (size_t) std::floor (beat);
+            const double fraction = beat - (double) lower;
+            return grid[lower] + fraction * (grid[lower + 1] - grid[lower]);
+        };
+
+        const double downbeatBeat = locateBeat (analysis.downbeatSample);
+        const double sourceBeat = locateBeat (sourceSample);
+        const double snappedBeat = downbeatBeat
+            + std::round ((sourceBeat - downbeatBeat) / quantum) * quantum;
+        resultSeconds = sampleForBeat (snappedBeat) / sampleRate;
+    }
+    else
+    {
+        const float bpm = processorRef.parameters().getRawParameterValue (
+            deckPrefix (deckIndex) + "Bpm")->load();
+        const double beatSeconds = 60.0 / juce::jmax (1.0f, bpm);
+        const double originSeconds = sampleRate > 0.0
+                                   ? analysis.downbeatSample / sampleRate : 0.0;
+        const double beat = (seconds - originSeconds) / beatSeconds;
+        resultSeconds = originSeconds + std::round (beat / quantum) * quantum * beatSeconds;
+    }
+
+    const double total = processorRef.getDeckTotalSeconds (deckIndex);
+    return total > 0.0 ? juce::jlimit (0.0, total, resultSeconds)
+                       : juce::jmax (0.0, resultSeconds);
+}
 
 static const std::array<juce::Colour, 8> kHotCueColours {{
     juce::Colour (0xFFE03030), juce::Colour (0xFF3090E0), juce::Colour (0xFF30C050),
@@ -8952,7 +9052,9 @@ void MainPluginEditor::handleHotCuePress (int deckIndex, int cueIndex, juce::Mod
     else if (mods.isShiftDown() || processorRef.getHotCue (deckIndex, cueIndex) < 0.0)
     {
         // Shift+click or unset cue = set at current playhead
-        processorRef.setHotCue (deckIndex, cueIndex, processorRef.getDeckPlayheadSeconds (deckIndex));
+        processorRef.setHotCue (deckIndex, cueIndex,
+                                quantizedDeckPosition (deckIndex,
+                                    processorRef.getDeckPlayheadSeconds (deckIndex)));
     }
     else if (mods.isCtrlDown() || mods.isCommandDown())
     {
@@ -9032,7 +9134,8 @@ void MainPluginEditor::setupLoopControls (int deckIndex)
     dc.loopIn.onClick = [this, deckIndex]
     {
         // Set loop-in at current playhead; if loop-out already set keep it, else set 2-bar ahead
-        const double pos = processorRef.getDeckPlayheadSeconds (deckIndex);
+        const double pos = quantizedDeckPosition (
+            deckIndex, processorRef.getDeckPlayheadSeconds (deckIndex));
         double loopOut   = processorRef.getDeckLoopOutSeconds (deckIndex);
         if (loopOut < pos)
         {
@@ -9049,7 +9152,8 @@ void MainPluginEditor::setupLoopControls (int deckIndex)
     setupButton (dc.loopOut);
     dc.loopOut.onClick = [this, deckIndex]
     {
-        const double pos    = processorRef.getDeckPlayheadSeconds (deckIndex);
+        const double pos    = quantizedDeckPosition (
+            deckIndex, processorRef.getDeckPlayheadSeconds (deckIndex));
         const double loopIn = juce::jmax (0.0, processorRef.getDeckLoopInSeconds (deckIndex));
         processorRef.setDeckLoopSeconds (deckIndex, loopIn, pos);
         processorRef.setDeckLoopActive (deckIndex, true);
@@ -9121,7 +9225,24 @@ void MainPluginEditor::setupSlipAndRoll (int deckIndex)
     };
     addAndMakeVisible (dc.slipButton);
 
-    // Beat roll buttons: hold = loop+slip for that beat-length, release = snap back
+    setupButton (dc.quantizeButton);
+    dc.quantizeButton.setTooltip (
+        "Quantize cue and loop markers to the detected grid: Off, 1 bar, 1/2, 1/4, or 1/8 beat");
+    dc.quantizeButton.onClick = [this, deckIndex]
+    {
+        static constexpr std::array<const char*, 5> labels {
+            "Q OFF", "Q BAR", "Q 1/2", "Q 1/4", "Q 1/8" };
+        auto& value = stripQuant[(size_t) deckIndex];
+        value = (value + 1) % (int) labels.size();
+        deckControls[(size_t) deckIndex].quantizeButton.setButtonText (
+            labels[(size_t) value]);
+    };
+    addAndMakeVisible (dc.quantizeButton);
+
+    // Beat roll buttons: press = loop+slip for that BEAT length; release = snap
+    // back. The previous implementation multiplied these beat labels by a four-
+    // beat BAR and armed a permanent loop from onClick (mouse-up), so "1/4" made
+    // a full-beat loop and never reliably released.
     static constexpr std::array<const char*, 6> kLabels { "1/4","1/2","1","2","4","8" };
     static constexpr std::array<double, 6>      kLen    { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 };
     for (int b = 0; b < 6; ++b)
@@ -9130,16 +9251,28 @@ void MainPluginEditor::setupSlipAndRoll (int deckIndex)
         btn.setButtonText (kLabels[(size_t) b]);
         setupButton (btn);
         btn.setColour (juce::TextButton::buttonOnColourId, accent.withAlpha (0.55f));
-        btn.onClick = [this, deckIndex, b]
+        btn.setTooltip ("Hold for a " + juce::String (kLabels[(size_t) b])
+                        + "-beat slip roll; release to return to the shadow playhead");
+        btn.onStateChange = [this, deckIndex, b]
         {
-            // Single click (no hold tracking in TextButton): just arm a 1-shot loop
+            auto& controls = deckControls[(size_t) deckIndex];
+            auto& rollButton = controls.beatRollBtns[(size_t) b];
+            if (! rollButton.isDown())
+            {
+                if (controls.loopRollActive)
+                {
+                    processorRef.endDeckLoopRoll (deckIndex);
+                    controls.loopRollActive = false;
+                }
+                return;
+            }
+
+            if (controls.loopRollActive)
+                processorRef.endDeckLoopRoll (deckIndex);
             const float bpm = *processorRef.parameters().getRawParameterValue (deckPrefix (deckIndex) + "Bpm");
-            const double barSeconds = (60.0 / juce::jmax (1.0f, bpm)) * 4.0;
-            const double rollLen = kLen[(size_t) b] * barSeconds;
+            const double rollLen = kLen[(size_t) b] * 60.0 / juce::jmax (1.0f, bpm);
             processorRef.beginDeckLoopRoll (deckIndex, rollLen);
-            // Schedule end after rollLen seconds via the timer; set flag
-            deckControls[(size_t) deckIndex].loopRollActive = true;
-            deckControls[(size_t) deckIndex].beatRollBtns[(size_t) b].setToggleState (true, juce::dontSendNotification);
+            controls.loopRollActive = true;
         };
         addAndMakeVisible (btn);
     }

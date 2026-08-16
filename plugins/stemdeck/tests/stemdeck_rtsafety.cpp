@@ -167,8 +167,12 @@ int main()
     int silentBlocks = 0;
     int nonFiniteSamples = 0;
     float minimumBlockPeak = std::numeric_limits<float>::max();
+    proc->setPerformanceSafeMode (true);
+    check (proc->isPerformanceSafeMode(), "performance SAFE mode entered");
     for (int i = 0; i < kBlocks; ++i)
     {
+        if (i == kBlocks / 2)
+            proc->setPerformanceSafeMode (false);
         buf.clear();
         {
             rtcheck::ScopedArm arm;  // only this thread, only processBlock
@@ -194,6 +198,7 @@ int main()
     stop.store (true);
     churn.join();
     proc->stopMasterRecording();
+    check (! proc->isPerformanceSafeMode(), "performance SAFE mode exited");
 
     const int v = rtcheck::violations.load();
     const int b = rtcheck::violationBytes.load();

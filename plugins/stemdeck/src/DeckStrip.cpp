@@ -270,7 +270,7 @@ void DeckStrip::layoutRow2 (juce::Rectangle<float> row)
 
 juce::Rectangle<float> DeckStrip::regionFor (Hit h) const { return regions[(size_t) h]; }
 
-DeckStrip::Hit DeckStrip::hitTest (juce::Point<float> p) const
+DeckStrip::Hit DeckStrip::hitRegion (juce::Point<float> p) const
 {
     for (int i = 1; i < (int) regions.size(); ++i)
         if (! regions[(size_t) i].isEmpty() && regions[(size_t) i].contains (p))
@@ -665,7 +665,7 @@ void DeckStrip::paintRow2 (juce::Graphics& g, float alpha)
 // ── Interaction ───────────────────────────────────────────────────────────────
 void DeckStrip::mouseMove (const juce::MouseEvent& e)
 {
-    const auto h = hitTest (e.position);
+    const auto h = hitRegion (e.position);
     if (h != hovered) { hovered = h; repaint(); }
 }
 
@@ -678,11 +678,12 @@ void DeckStrip::mouseDown (const juce::MouseEvent& e)
 {
     if (callbacks.onRequestFocus && ! state.focused) callbacks.onRequestFocus();
 
-    pressed = hitTest (e.position);
+    pressed = hitRegion (e.position);
     const bool alt = e.mods.isAltDown();
 
     switch (pressed)
     {
+        case Hit::none:       break;
         case Hit::play:       if (callbacks.onTogglePlay)    callbacks.onTogglePlay(); break;
         case Hit::cue:        if (callbacks.onCue)           callbacks.onCue (true); break;   // press = jump+play
         case Hit::loopHalve:  if (callbacks.onLoopHalve)     callbacks.onLoopHalve(); break;
@@ -708,7 +709,6 @@ void DeckStrip::mouseDown (const juce::MouseEvent& e)
         case Hit::fxA:   if (callbacks.onToggleFx)      callbacks.onToggleFx (0); break;
         case Hit::fxB:   if (callbacks.onToggleFx)      callbacks.onToggleFx (1); break;
         case Hit::fxC:   break;   // removed: had no audio routing
-        default: break;
     }
     repaint();
 }
@@ -724,7 +724,7 @@ void DeckStrip::mouseUp (const juce::MouseEvent&)
 void DeckStrip::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
     // Scroll over the key readout nudges transposition in semitones.
-    if (hitTest (e.position) == Hit::key && callbacks.onNudgeKey)
+    if (hitRegion (e.position) == Hit::key && callbacks.onNudgeKey)
     {
         const int steps = w.deltaY > 0.02f ? 1 : (w.deltaY < -0.02f ? -1 : 0);
         if (steps != 0) callbacks.onNudgeKey (steps);

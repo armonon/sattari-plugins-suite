@@ -42,6 +42,13 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - Host tempo snapshot display where available.
 - Host tempo sync: each deck has its own editable source BPM parameter and, when Host Sync is on, playback follows host BPM by deck-specific BPM ratio.
 - Beat sync/grid lock: a new global Beat Sync toggle can phase-lock decks to the host PPQ beat grid while still using each deck's individual Source BPM. Each deck also has an automatable Beat Grid Offset control for nudging alignment by beats when a track's downbeat/grid needs correction.
+- Full-deck performance quantization can be cycled between off, bar, 1/2, 1/4,
+  and 1/8 beat. Hot-cue and loop-point placement snaps against the detected
+  variable-tempo beat map, with BPM fallback when no grid is available.
+- Hold-style loop rolls use true beat lengths and return to the slip playhead on
+  release. The always-visible project bar exposes Automix plus a reversible SAFE
+  control that dry-bypasses hosted/stem/deck/master FX and releases temporary
+  loops without stopping playback.
 - Internal granular key-lock backend: when Preserve is enabled and a tempo/key/pitch move is active, deck playback uses a two-grain Hann overlap engine that advances content tempo separately from local grain pitch. It is a real pitch-preserving internal backend, but still an alpha-quality algorithm that needs listening/DAW validation before sale-candidate claims.
 - Resample fallback: when Preserve is off, host sync and key/pitch controls still use the earlier playback-rate resample path.
 - Key-analysis and key-match parameters: loaded full-mix audio gets a lightweight chroma/Krumhansl key estimate plus RMS/duration analysis, with manual pitch and target-key controls routed through either granular key-lock or the resample fallback depending on Preserve.
@@ -63,7 +70,7 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - Export Center with project/recording/media/storage preflight and portable session packages containing project state, source manifest, diagnostics, and available captures.
 - Session-level undo/redo for channel add/remove and destructive clears, alongside the existing arrangement edit history.
 - Hosted plug-in parameter capture/replay using persistent parameter IDs; all 29 event parameters now route through deterministic dispatch without adding audio-thread locks or allocation.
-- Third-party audio effects can be discovered and instantiated in the dedicated `StemDeckPluginSandbox` helper. A fixed shared-memory ring keeps the audio callback non-blocking and dry-bypasses a late or crashed helper.
+- Third-party audio effects can be discovered and instantiated in the dedicated `StemDeckPluginSandbox` helper. A fixed shared-memory ring keeps the audio callback non-blocking and dry-bypasses a late or crashed helper; unexpected helper exits receive two bounded background restart attempts.
 - Editable per-deck warp anchors: Shift-click the overview to add, drag a diamond to move it, and right-click to remove it. User anchors are stored in project state and participate in Anchor/Groove sync.
 - Region-level take comping in Arrange: razor-split the desired region, right-click it, then choose `Comp this region from take`; the source splice, short safety fades, label, and take provenance are undoable and persist with the arrangement.
 - Responsive marketing site in `apps/stemdeck-web/index.html`, with product workflow, feature, reliability, and private-alpha sections.
@@ -199,7 +206,7 @@ Latest validation log/report: `plugins/stemdeck/logs/2026-05-23-host-scan-valida
   Untrusted audio effects now run in a helper process, but the first isolation release
   intentionally supports one third-party effect per empty chain and does not yet bridge
   its native editor, MIDI, parameter automation, or complete plug-in state. Compatibility,
-  restart/recovery, latency, and malicious/hanging plug-in soak matrices remain release gates.
+  latency, repeated-crash recovery, and malicious/hanging plug-in soak matrices remain release gates.
 - File browser, persistent analyzed Library, BPM/key set arranging, preparation filters,
   possible-duplicate review, and portable named MIDI-controller presets exist; none of
   those replace the remaining manual validation gates.
