@@ -2610,8 +2610,8 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.lane                 = lane;
             if (const auto* automation =
                     arrangementView.editAutomationForLane (lane);
-                automation != nullptr && automation->visible
-                    && automation->target == 0)
+                automation != nullptr && automation->target == 0
+                    && ! automation->points.empty())
                 spec.gainAutomation = automation->points;
             if (const auto* dsp =
                     arrangementView.capturedDspForLane (lane);
@@ -2958,7 +2958,7 @@ void MainPluginEditor::repairMissingMedia()
 {
     struct Target
     {
-        enum class Kind { deck, stem, pad } kind = Kind::deck;
+        enum class Kind { deck, stem, pad, arrangementClip } kind = Kind::deck;
         int index = 0, lane = 0;
         juce::String missingPath;
     };
@@ -2985,6 +2985,17 @@ void MainPluginEditor::repairMissingMedia()
         if (path.isNotEmpty() && ! juce::File (path).existsAsFile())
             missingTargets.push_back ({ Target::Kind::pad, pad, 0, path });
     }
+    const auto& arrangementClips = arrangementView.getClips();
+    for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
+        for (int clip = 0;
+             clip < (int) arrangementClips[(size_t) lane].size(); ++clip)
+        {
+            const auto path = arrangementClips[(size_t) lane][(size_t) clip]
+                                  .file.getFullPathName();
+            if (path.isNotEmpty() && ! juce::File (path).existsAsFile())
+                missingTargets.push_back (
+                    { Target::Kind::arrangementClip, clip, lane, path });
+        }
 
     if (missingTargets.empty())
     {
@@ -3045,6 +3056,12 @@ void MainPluginEditor::repairMissingMedia()
                                     case Target::Kind::pad:
                                         safe->processorRef.loadPadFileAsync (
                                             match.target.index, match.file);
+                                        break;
+                                    case Target::Kind::arrangementClip:
+                                        safe->arrangementView.relinkClip (
+                                            match.target.lane,
+                                            match.target.index,
+                                            match.file);
                                         break;
                                 }
                             }
@@ -3207,10 +3224,12 @@ void MainPluginEditor::saveProject()
             if (f == juce::File()) return;
             f = f.withFileExtension ("stemdeck");
             const auto root = safe->makeProjectState();
-            if (auto xml = root.createXml())
-                xml->writeTo (f);
-            safe->recordStatus.setText ("Saved project: " + f.getFileName(),
-                                        juce::dontSendNotification);
+            const auto xml = root.createXml();
+            const bool saved = xml != nullptr && xml->writeTo (f, {});
+            safe->recordStatus.setText (
+                saved ? "Saved project: " + f.getFileName()
+                      : "Could not save project: " + f.getFileName(),
+                juce::dontSendNotification);
         });
 }
 
@@ -3229,10 +3248,18 @@ void MainPluginEditor::loadProject()
             if (! f.existsAsFile()) return;
             if (auto xml = juce::XmlDocument::parse (f))
             {
-                safe->checkpointSessionUndo ("Open project");
-                safe->restoreProjectState (juce::ValueTree::fromXml (*xml),
-                                           "project: " + f.getFileName(), f);
+                const auto state = juce::ValueTree::fromXml (*xml);
+                if (state.isValid())
+                {
+                    safe->checkpointSessionUndo ("Open project");
+                    safe->restoreProjectState (
+                        state, "project: " + f.getFileName(), f);
+                    return;
+                }
             }
+            safe->recordStatus.setText (
+                "Could not open project: invalid or damaged file",
+                juce::dontSendNotification);
         });
 }
 
@@ -8452,7 +8479,7 @@ void MainPluginEditor::timerCallback()
         const auto bpm = juce::jlimit (40.0, 240.0, (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
         // Keep the arranger's lane count tied to the real channel count, so adding
         // or removing a channel is reflected on both surfaces.
-        arrangementView.setVisibleLanes (processorRef.getNumTrackDecks());
+        arrangementView.setVisibleLanes (processorRef.getNumChannels());
         static constexpr std::array<double, 6> grids { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125 };
         const int gridIndex = juce::jlimit (0, (int) grids.size() - 1, arrGrid.getSelectedItemIndex());
         arrangementView.setSnap (snapToggleButton.getToggleState(), grids[(size_t) gridIndex], bpm);

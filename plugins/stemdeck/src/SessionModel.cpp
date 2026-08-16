@@ -11,7 +11,8 @@ const char* eventTypeName (EventType t)
 {
     switch (t) { case EventType::deckLoad: return "deckLoad";
                  case EventType::transport: return "transport";
-                 default: return "param"; }
+                 case EventType::param: return "param"; }
+    return "param";
 }
 EventType eventTypeFrom (const juce::String& s)
 {
@@ -22,7 +23,8 @@ EventType eventTypeFrom (const juce::String& s)
 const char* transportName (TransportKind k)
 {
     switch (k) { case TransportKind::play: return "play"; case TransportKind::pause: return "pause";
-                 case TransportKind::cue: return "cue"; default: return "seek"; }
+                 case TransportKind::cue: return "cue"; case TransportKind::seek: return "seek"; }
+    return "seek";
 }
 TransportKind transportFrom (const juce::String& s)
 {
@@ -41,17 +43,37 @@ void SessionModel::sortEvents()
 
 juce::int64 SessionModel::addEvent (Event e)
 {
+    if (! std::isfinite (e.atBeat)) e.atBeat = 0.0;
+    if (! std::isfinite (e.positionBeat)) e.positionBeat = 0.0;
+    if (! std::isfinite (e.value)) e.value = 0.0;
+    e.atBeat = juce::jmax (0.0, e.atBeat);
+    e.positionBeat = juce::jmax (0.0, e.positionBeat);
     if (e.id == 0) e.id = nextEventId++;
     else nextEventId = juce::jmax (nextEventId, e.id + 1);
+    const auto id = e.id;
     events.push_back (std::move (e));
     sortEvents();
-    return events.empty() ? 0 : e.id;
+    return id;
 }
 
-void SessionModel::addTrack (TrackRef t) { tracks.push_back (std::move (t)); }
+void SessionModel::addTrack (TrackRef t)
+{
+    if (! std::isfinite (t.durationSec) || t.durationSec < 0.0)
+        t.durationSec = 0.0;
+    if (! std::isfinite (t.bpm) || t.bpm < 0.0)
+        t.bpm = 0.0;
+    if (! std::isfinite (t.downbeatSample) || t.downbeatSample < 0.0)
+        t.downbeatSample = 0.0;
+    t.keyPitchClass = juce::jlimit (-1, 11, t.keyPitchClass);
+    tracks.push_back (std::move (t));
+}
 
 juce::int64 SessionModel::addRegion (Region r)
 {
+    if (! std::isfinite (r.startBeat)) r.startBeat = 0.0;
+    if (! std::isfinite (r.endBeat)) r.endBeat = r.startBeat;
+    r.startBeat = juce::jmax (0.0, r.startBeat);
+    r.endBeat = juce::jmax (r.startBeat, r.endBeat);
     if (r.id == 0) r.id = nextRegionId++;
     else nextRegionId = juce::jmax (nextRegionId, r.id + 1);
     const auto id = r.id;
@@ -73,7 +95,12 @@ Region* SessionModel::findRegion (juce::int64 id)
 void SessionModel::moveRegion (juce::int64 regionId, double deltaBeats)
 {
     auto* r = findRegion (regionId);
-    if (r == nullptr) return;
+    if (r == nullptr || ! std::isfinite (deltaBeats)) return;
+    double earliest = r->startBeat;
+    for (auto eid : r->eventIds)
+        if (const auto* e = findEvent (eid))
+            earliest = juce::jmin (earliest, e->atBeat);
+    deltaBeats = juce::jmax (deltaBeats, -earliest);
     for (auto eid : r->eventIds)
         if (auto* e = findEvent (eid)) e->atBeat += deltaBeats;
     r->startBeat += deltaBeats;
@@ -84,7 +111,8 @@ void SessionModel::moveRegion (juce::int64 regionId, double deltaBeats)
 void SessionModel::stretchRegion (juce::int64 regionId, double newLengthBeats)
 {
     auto* r = findRegion (regionId);
-    if (r == nullptr || newLengthBeats <= 0.0) return;
+    if (r == nullptr || ! std::isfinite (newLengthBeats)
+        || newLengthBeats <= 0.0) return;
     const double oldLen = r->endBeat - r->startBeat;
     if (oldLen <= 1.0e-9) { r->endBeat = r->startBeat + newLengthBeats; return; }
     const double scale = newLengthBeats / oldLen;
@@ -163,8 +191,10 @@ SessionModel SessionModel::fromVar (const juce::var& v)
         s.sampleRate  = (double) root->getProperty ("sampleRate");
         s.masterTempo = (double) root->getProperty ("masterTempo");
         s.createdMs   = (juce::int64) root->getProperty ("createdMs");
-        if (s.sampleRate  <= 0.0) s.sampleRate = 44100.0;
-        if (s.masterTempo <= 0.0) s.masterTempo = 120.0;
+        if (! std::isfinite (s.sampleRate) || s.sampleRate <= 0.0)
+            s.sampleRate = 44100.0;
+        if (! std::isfinite (s.masterTempo) || s.masterTempo <= 1.0)
+            s.masterTempo = 120.0;
 
         if (auto* ta = root->getProperty ("tracks").getArray())
             for (auto& tv : *ta)
@@ -177,7 +207,7 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                     t.downbeatSample = o->getProperty ("downbeatSample");
                     t.keyPitchClass = (int) o->getProperty ("keyPitchClass");
                     t.keyIsMinor = (bool) o->getProperty ("keyIsMinor");
-                    s.tracks.push_back (std::move (t));
+                    s.addTrack (std::move (t));
                 }
 
         if (auto* ea = root->getProperty ("events").getArray())
@@ -185,14 +215,20 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                 if (auto* o = ev.getDynamicObject())
                 {
                     Event e;
-                    e.id = (juce::int64) o->getProperty ("id"); e.atBeat = o->getProperty ("atBeat");
+                    e.id = (juce::int64) o->getProperty ("id");
+                    e.atBeat = (double) o->getProperty ("atBeat");
+                    if (! std::isfinite (e.atBeat)) e.atBeat = 0.0;
+                    e.atBeat = juce::jmax (0.0, e.atBeat);
                     e.type = eventTypeFrom (o->getProperty ("type").toString());
                     e.deck = (int) o->getProperty ("deck");
                     e.trackId = o->getProperty ("trackId").toString();
                     e.transport = transportFrom (o->getProperty ("transport").toString());
-                    e.positionBeat = o->getProperty ("positionBeat");
+                    e.positionBeat = (double) o->getProperty ("positionBeat");
+                    if (! std::isfinite (e.positionBeat)) e.positionBeat = 0.0;
+                    e.positionBeat = juce::jmax (0.0, e.positionBeat);
                     e.paramId = o->getProperty ("paramId").toString();
-                    e.value = o->getProperty ("value");
+                    e.value = (double) o->getProperty ("value");
+                    if (! std::isfinite (e.value)) e.value = 0.0;
                     s.nextEventId = juce::jmax (s.nextEventId, e.id + 1);
                     s.events.push_back (std::move (e));
                 }
@@ -215,7 +251,12 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                 {
                     Region r;
                     r.id = (juce::int64) o->getProperty ("id"); r.kind = o->getProperty ("kind").toString();
-                    r.startBeat = o->getProperty ("startBeat"); r.endBeat = o->getProperty ("endBeat");
+                    r.startBeat = (double) o->getProperty ("startBeat");
+                    r.endBeat = (double) o->getProperty ("endBeat");
+                    if (! std::isfinite (r.startBeat)) r.startBeat = 0.0;
+                    if (! std::isfinite (r.endBeat)) r.endBeat = r.startBeat;
+                    r.startBeat = juce::jmax (0.0, r.startBeat);
+                    r.endBeat = juce::jmax (r.startBeat, r.endBeat);
                     if (auto* ids = o->getProperty ("eventIds").getArray())
                         for (auto& idv : *ids) r.eventIds.push_back ((juce::int64) idv);
                     s.nextRegionId = juce::jmax (s.nextRegionId, r.id + 1);
@@ -227,18 +268,33 @@ SessionModel SessionModel::fromVar (const juce::var& v)
                 if (auto* o = lv.getDynamicObject())
                 {
                     const double lb = (double) o->getProperty ("bpm");
-                    if (lb > 1.0)   // reject corrupt/0/negative bpm -> avoids inf/NaN sample times
-                        s.tempoLane.push_back ({ (double) o->getProperty ("atBeat"), lb });
+                    const double at = (double) o->getProperty ("atBeat");
+                    if (std::isfinite (lb) && lb > 1.0 && std::isfinite (at))
+                        s.tempoLane.push_back ({ juce::jmax (0.0, at), lb });
                 }
-        std::sort (s.tempoLane.begin(), s.tempoLane.end(),
-                   [] (const TempoPoint& a, const TempoPoint& b) { return a.atBeat < b.atBeat; });
+        std::stable_sort (s.tempoLane.begin(), s.tempoLane.end(),
+                          [] (const TempoPoint& a, const TempoPoint& b)
+                          { return a.atBeat < b.atBeat; });
+        std::vector<TempoPoint> uniqueTempo;
+        uniqueTempo.reserve (s.tempoLane.size());
+        for (const auto& point : s.tempoLane)
+        {
+            if (! uniqueTempo.empty()
+                && std::abs (uniqueTempo.back().atBeat - point.atBeat) < 1.0e-9)
+                uniqueTempo.back() = point;
+            else
+                uniqueTempo.push_back (point);
+        }
+        s.tempoLane = std::move (uniqueTempo);
     }
     return s;
 }
 
 void SessionModel::setTempoPoint (double atBeat, double bpm)
 {
-    if (bpm <= 1.0) return;
+    if (! std::isfinite (atBeat) || ! std::isfinite (bpm) || bpm <= 1.0)
+        return;
+    atBeat = juce::jmax (0.0, atBeat);
     for (auto& tp : tempoLane)
         if (std::abs (tp.atBeat - atBeat) < 1.0e-6) { tp.bpm = bpm; return; }   // replace at same beat
     tempoLane.push_back ({ atBeat, bpm });

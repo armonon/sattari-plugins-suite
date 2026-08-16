@@ -2961,6 +2961,15 @@ void MainPluginProcessor::buildAndStartArrangement (
     for (const auto& spec : clips)
         totalLen = juce::jmax (totalLen, spec.timelineStartSeconds + spec.lengthSeconds);
 
+    // Let recorded master space/echo decay naturally instead of cutting the
+    // arrangement at the final source sample. Clip-local tails are included by
+    // ArrangementPlayer's schedule length; the master bus needs its own window.
+    const bool masterCanRing = std::any_of (
+        masterAutomation.fxY.begin(), masterAutomation.fxY.end(),
+        [] (const auto& point) { return point.second > 0.0005f; });
+    if (masterCanRing && totalLen > 0.0)
+        totalLen += 6.0;
+
     const bool hasContent = ! clips.empty() || totalLen > 0.0;
     if (! hasContent)
         return;
@@ -3057,6 +3066,14 @@ void MainPluginProcessor::buildAndStartArrangement (
                         || ! c.filterAutomation.empty()
                         || ! c.reverbAutomation.empty()
                         || ! c.echoAutomation.empty();
+            const bool clipCanRing =
+                (! c.reverbAutomation.empty()
+                 && c.reverbAutomation.back().second > 0.0005f)
+                || (! c.echoAutomation.empty()
+                    && c.echoAutomation.back().second > 0.0005f);
+            if (clipCanRing)
+                c.effectTailSamples = (juce::int64) std::llround (
+                    6.0 * payload->engineSr);
             sched->push_back (std::move (c));
         }
 

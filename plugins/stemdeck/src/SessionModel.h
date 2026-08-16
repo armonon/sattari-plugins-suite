@@ -95,7 +95,11 @@ public:
     // Rescale a region to newLengthBeats, scaling contained events around startBeat.
     void stretchRegion (juce::int64 regionId, double newLengthBeats);
     // Re-time the whole session by setting the master tempo (no event data changes).
-    void setMasterTempo (double bpm) noexcept { masterTempo = bpm > 1.0 ? bpm : masterTempo; }
+    void setMasterTempo (double bpm) noexcept
+    {
+        if (std::isfinite (bpm) && bpm > 1.0)
+            masterTempo = bpm;
+    }
 
     // ── Retroactive tempo lane (§5.4) ────────────────────────────────────────────
     // Set/replace the tempo at a beat (keeps the lane sorted). The lane re-times the
@@ -127,6 +131,8 @@ public:
     // the old constant-tempo formula.
     double sampleTimeForBeat (double beat) const noexcept
     {
+        if (! std::isfinite (beat) || beat <= 0.0)
+            return 0.0;
         if (tempoLane.empty())
             return beat * (60.0 / masterTempo) * sampleRate;
 

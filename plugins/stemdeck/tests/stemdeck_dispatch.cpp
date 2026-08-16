@@ -14,6 +14,7 @@
 // It also reports conversion progress honestly rather than implying phase 3 is done.
 #include "EventDispatcher.h"
 #include <array>
+#include <cmath>
 #include <iostream>
 #include <map>
 #include <random>
@@ -150,7 +151,8 @@ int main()
         Dispatcher d5r ([&r5] (const Event& ev) { r5.apply (ev); });
         d5r.replay (d5.takeRecorded());
         const auto key = std::make_pair ((int) ParamId::channelGain, 1);
-        check (r5.params.count (key) && r5.params[key] == 0.87321,
+        check (r5.params.count (key)
+                   && std::abs (r5.params[key] - 0.87321) < 1.0e-12,
                "the gesture's END value is the one that survives replay");
     }
 

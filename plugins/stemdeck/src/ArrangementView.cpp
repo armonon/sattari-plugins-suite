@@ -21,7 +21,7 @@ const juce::Colour amber   { 0xffffb454 };   // transitions
 
 namespace stemdeck
 {
-juce::Colour sectionColour (const juce::String& label)
+static juce::Colour sectionColour (const juce::String& label)
 {
     if (label == "INTRO")     return juce::Colour (0xff4f97e8);
     if (label == "BUILD")     return juce::Colour (0xffe8c25c);

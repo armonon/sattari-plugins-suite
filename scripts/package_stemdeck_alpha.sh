@@ -86,16 +86,16 @@ Truth label: **internal alpha validation package**. This package is not sale-rea
 
 ## Current feature truth
 
-- Four decks, pads, mic monitor, master recording, per-deck post-fader recording, host BPM sync, global master BPM, beat/grid sync, and limiter are present.
+- Four default decks (expandable to eight channels), pads, mic monitor, master recording, per-channel capture, host BPM sync, global master BPM/key, beat/grid sync, and limiter are present.
 - External stem-lane loading exists for pre-separated Full/Drums/Bass/Music/Vocals files per deck, sharing one deck transport/playhead.
 - Offline-first cached stem loading has a manifest/provider seam plus optional Demucs command integration. Demucs is not bundled in the plugin/app; run \`scripts/setup_stemdeck_demucs.sh\` on a local machine to create the ignored venv and write StemDeck's separator config.
 - WarpEngine centralizes per-deck BPM/grid/downbeat/sync-mode/pitch/key-lock decisions and can compile against Rubber Band when available; machines without Rubber Band use the realtime granular fallback.
 - The Preserve control enables pitch-preserving tempo/key moves through Rubber Band when linked, otherwise through the internal granular fallback. The validation gate now emits a synthetic time/pitch benchmark WAV pack and manifest for listening review, but real-session DAW/listening validation is still required before any sale-candidate claim.
 - LiveKey can periodically analyze the current full-mix playback window and use that estimate for target-key matching/shifting, with load-time analysis as fallback. This is alpha-quality and needs real-song listening validation.
-- Beat Sync uses detected/user BPM, beat grid/downbeat correction, transient anchors, warp markers, tempo interpretation, and Strict/Groove/Anchor/Free Drift sync modes. Manual visual warp editing is still not a full editor.
+- Beat Sync uses detected/user BPM, beat grid/downbeat correction, transient anchors, draggable multi-marker warping, tempo interpretation, and Strict/Groove/Anchor/Free Drift sync modes. Real-song stress testing is still required.
 - Native editor now presents the DJ app as a split performance workspace: four live mixer/stem decks across the top, master/crossfader/record controls in the middle, and an open arrangement recorder at the bottom with lanes for Master Mix, decks, stem moves, FX/pads, and mic/voice.
 - Performance recording writes master, mic, per-deck render files, event-log JSON, and arrangement JSON v2 with deck/mic/master lanes, automation lanes, and an Add New Track placeholder.
-- HostGraph has a JUCE format-manager/scan/cache/load chain scaffold with empty-chain pass-through; plugin chain management/editor UX still needs product work.
+- The effects rack scans, browses, and hosts inserts on master, mic, channel, and stem destinations; third-party processing uses the helper-process sandbox. Plugin compatibility still needs broad vendor testing.
 - Manual DAW and real-song listening validation are still required.
 EOF_README
 

@@ -18,12 +18,12 @@
  * master output. Clips are free-positioning: timelineStart is independent of the
  * source region, so the same recording can be cut, moved, and replayed.
  *
- * RT-safety model: the schedule is immutable while playing. setSchedule() is
- * only honoured when stopped, so the audio thread never races a swap and never
- * frees a schedule (the member always holds a reference; the audio thread only
- * copies the shared_ptr into a block-local under a brief, uncontended SpinLock).
- * Linear-interpolated reads handle any source/engine sample-rate mismatch with
- * no pre-resample allocation.
+ * RT-safety model: schedules are immutable and swapped through a tiny RCU-style
+ * handoff. The audio thread reads raw pointers while a reader counter keeps
+ * replaced shared owners alive; it never locks, allocates, or releases the last
+ * shared_ptr. Effect storage is prepared by start() on the message thread and
+ * loop/seek resets only clear already-allocated histories. Linear-interpolated
+ * reads handle source/engine sample-rate mismatch without pre-resampling.
  */
 class ArrangementPlayer
 {
@@ -38,6 +38,7 @@ public:
         juce::int64 timelineStartSamples = 0;   // engine sample-rate
         juce::int64 sourceStartSamples   = 0;   // source sample-rate
         juce::int64 timelineLengthSamples = 0;  // engine sample-rate
+        juce::int64 effectTailSamples = 0;      // rendered silence through clip FX
         float       gain = 1.0f;
         juce::int64 fadeInSamples  = 0;         // engine sample-rate
         juce::int64 fadeOutSamples = 0;         // engine sample-rate
@@ -110,36 +111,53 @@ public:
     {
         juce::int64 len = 0;
         if (newSchedule != nullptr)
+        {
             for (const auto& c : *newSchedule)
-                len = juce::jmax (len, c.timelineStartSamples + c.timelineLengthSamples);
+                len = juce::jmax (
+                    len, c.timelineStartSamples + c.timelineLengthSamples
+                           + c.effectTailSamples);
+            // All effect storage must exist before the schedule becomes visible
+            // to the callback. prepare() may allocate, so it belongs here on the
+            // message thread rather than in process().
+            if (newSchedule.get() != active.get())
+                prepareClipDsp (newSchedule.get());
+        }
 
-        const juce::SpinLock::ScopedLockType l (lock);
+        retireActiveOwners();
         active = std::move (newSchedule);
+        activeRaw.store (active.get(), std::memory_order_seq_cst);
         lengthSamples.store (len, std::memory_order_relaxed);
+        reclaimRetiredOwners();
     }
 
     void setMasterAutomation (
         std::shared_ptr<const MasterAutomation> automation)
     {
-        const juce::SpinLock::ScopedLockType l (lock);
+        retireActiveOwners();
         masterAutomation = std::move (automation);
+        masterRaw.store (masterAutomation.get(), std::memory_order_seq_cst);
         currentMasterState = {};
+        reclaimRetiredOwners();
     }
 
     void start()
     {
-        resetClipDsp();
+        prepareClipDsp (active.get());
         currentMasterState = {};
-        playing.store (true, std::memory_order_relaxed);
+        resetDspRequested.store (false, std::memory_order_relaxed);
+        playing.store (true, std::memory_order_release);
     }
-    void stop()                        { playing.store (false, std::memory_order_relaxed); }
-    bool isPlaying() const noexcept    { return playing.load (std::memory_order_relaxed); }
+    void stop()                        { playing.store (false, std::memory_order_release); }
+    bool isPlaying() const noexcept    { return playing.load (std::memory_order_acquire); }
 
     void setPositionSeconds (double s)
     {
         playhead.store ((juce::int64) (juce::jmax (0.0, s) * sr),
                         std::memory_order_relaxed);
-        resetClipDsp();
+        if (playing.load (std::memory_order_acquire))
+            resetDspRequested.store (true, std::memory_order_release);
+        else
+            resetClipDsp (active.get());
     }
     void setLoop (double startSec, double endSec, bool enabled)
     {
@@ -165,16 +183,17 @@ public:
     // Audio thread. Adds the playing clips into @p out at the current playhead.
     void process (juce::AudioBuffer<float>& out)
     {
-        if (! playing.load (std::memory_order_relaxed))
+        if (! playing.load (std::memory_order_acquire))
             return;
 
-        std::shared_ptr<const Schedule> sched;
-        std::shared_ptr<const MasterAutomation> master;
-        {
-            const juce::SpinLock::ScopedLockType l (lock);
-            sched = active;   // member keeps a ref alive; this local is never the last owner
-            master = masterAutomation;
-        }
+        // Announce the read before loading either published pointer. Replaced
+        // owners remain in the message-thread retirement lists until no callback
+        // is inside this scope.
+        const ReaderScope reader (activeReaders);
+        const auto* sched = activeRaw.load (std::memory_order_seq_cst);
+        const auto* master = masterRaw.load (std::memory_order_seq_cst);
+        if (resetDspRequested.exchange (false, std::memory_order_acq_rel))
+            resetClipDsp (sched);
         const int n = out.getNumSamples();
         const int outCh = out.getNumChannels();
         juce::int64 pos = playhead.load (std::memory_order_relaxed);
@@ -182,117 +201,177 @@ public:
         currentMasterState = master != nullptr
                            ? masterStateAt (*master, pos) : MasterState {};
 
-        // Mix audio clips (skipped for a MIDI-only arrangement, but the transport
-        // below still advances so the synth and playhead progress).
-        if (sched != nullptr && ! sched->empty())
-        for (const auto& clip : *sched)
+        // Render one contiguous timeline range into a portion of the host block.
+        // The outer loop below splits at the arrangement loop boundary. The old
+        // implementation rendered the entire block past loopEnd and only moved the
+        // playhead afterwards, producing up to one buffer of wrong audio on every
+        // wrap. Keeping destinationOffset explicit makes even sub-buffer loops exact.
+        const auto renderRange = [&] (juce::int64 rangePos,
+                                      int destinationOffset,
+                                      int rangeLength)
         {
-            if ((clip.audio == nullptr && clip.streamed == nullptr)
-                || clip.timelineLengthSamples <= 0) continue;
-            const juce::int64 clipEnd = clip.timelineStartSamples + clip.timelineLengthSamples;
-            if (clipEnd <= pos || clip.timelineStartSamples >= pos + n) continue;   // no overlap with this block
+            if (sched == nullptr || sched->empty() || rangeLength <= 0)
+                return;
 
-            const int srcCh = clip.streamed != nullptr
-                                  ? clip.streamed->numChannels()
-                                  : juce::jmax (1, clip.audio->getNumChannels());
-            const juce::int64 srcLen = clip.streamed != nullptr
-                                           ? clip.streamed->lengthInSamples()
-                                           : clip.audio->getNumSamples();
-            if (srcLen <= 1) continue;
-            const double ratio = clip.sourceSampleRate / sr;
-
-            const juce::int64 from = juce::jmax (pos, clip.timelineStartSamples);
-            const juce::int64 to   = juce::jmin (pos + n, clipEnd);
-            const double firstSourcePos =
-                (double) clip.sourceStartSamples
-                + (double) (from - clip.timelineStartSamples) * ratio;
-            const auto streamView = clip.streamed != nullptr
-                                        ? clip.streamed->acquireReadView (
-                                              firstSourcePos)
-                                        : ChunkedAudioFile::ReadView {};
-
-            for (juce::int64 t = from; t < to; ++t)
+            for (const auto& clip : *sched)
             {
-                const juce::int64 since = t - clip.timelineStartSamples;
-                const double srcPos = (double) clip.sourceStartSamples + (double) since * ratio;
+                if ((clip.audio == nullptr && clip.streamed == nullptr)
+                    || clip.timelineLengthSamples <= 0) continue;
+                const juce::int64 sourceEnd =
+                    clip.timelineStartSamples + clip.timelineLengthSamples;
+                const juce::int64 renderEnd = sourceEnd + clip.effectTailSamples;
+                if (renderEnd <= rangePos
+                    || clip.timelineStartSamples >= rangePos + rangeLength) continue;
 
-                float left = clip.streamed != nullptr
-                    ? ChunkedAudioFile::readInterpolated (
-                          streamView, 0, srcPos)
-                    : readInterpolated (*clip.audio, 0, srcPos);
-                float right = srcCh > 1
-                    ? (clip.streamed != nullptr
-                        ? ChunkedAudioFile::readInterpolated (
-                              streamView, 1, srcPos)
-                        : readInterpolated (*clip.audio, 1, srcPos))
-                    : left;
+                const int srcCh = clip.streamed != nullptr
+                                      ? clip.streamed->numChannels()
+                                      : juce::jmax (1, clip.audio->getNumChannels());
+                const juce::int64 srcLen = clip.streamed != nullptr
+                                               ? clip.streamed->lengthInSamples()
+                                               : clip.audio->getNumSamples();
+                if (srcLen <= 1) continue;
+                const double ratio = clip.sourceSampleRate / sr;
 
-                if (clip.dspEnabled)
+                const juce::int64 from = juce::jmax (rangePos, clip.timelineStartSamples);
+                const juce::int64 to   = juce::jmin (rangePos + rangeLength, renderEnd);
+                const double firstSourcePos =
+                    (double) clip.sourceStartSamples
+                    + (double) (from - clip.timelineStartSamples) * ratio;
+                const auto streamView = clip.streamed != nullptr
+                                            && from < sourceEnd
+                                            ? clip.streamed->acquireReadView (
+                                                  firstSourcePos)
+                                            : ChunkedAudioFile::ReadView {};
+
+                for (juce::int64 t = from; t < to; ++t)
                 {
-                    clip.eq.processSample (
-                        left, right,
-                        automationValueAt (
-                            clip.lowAutomation, t, 0.0f),
-                        automationValueAt (
-                            clip.midAutomation, t, 0.0f),
-                        automationValueAt (
-                            clip.highAutomation, t, 0.0f));
-                    clip.filter.processSample (
-                        left, right,
-                        automationValueAt (
-                            clip.filterAutomation, t, 0.0f));
-                }
+                    const juce::int64 since = t - clip.timelineStartSamples;
+                    const double srcPos = (double) clip.sourceStartSamples + (double) since * ratio;
 
-                float g = clip.gain;
-                g *= automationGainAt (clip.gainAutomation, t);
-                if (clip.fadeInSamples > 0 && since < clip.fadeInSamples)
-                    g *= (float) since / (float) clip.fadeInSamples;
-                if (clip.fadeOutSamples > 0 && since > clip.timelineLengthSamples - clip.fadeOutSamples)
-                    g *= juce::jlimit (0.0f, 1.0f, (float) (clip.timelineLengthSamples - since) / (float) clip.fadeOutSamples);
+                    float left = 0.0f, right = 0.0f;
+                    if (t < sourceEnd)
+                    {
+                        left = clip.streamed != nullptr
+                            ? ChunkedAudioFile::readInterpolated (
+                                  streamView, 0, srcPos)
+                            : readInterpolated (*clip.audio, 0, srcPos);
+                        right = srcCh > 1
+                            ? (clip.streamed != nullptr
+                                ? ChunkedAudioFile::readInterpolated (
+                                      streamView, 1, srcPos)
+                                : readInterpolated (*clip.audio, 1, srcPos))
+                            : left;
+                    }
 
-                left *= g;
-                right *= g;
-                if (! clip.reverbAutomation.empty()
-                    || ! clip.echoAutomation.empty())
-                    if (clip.deckFx != nullptr)
+                    if (clip.dspEnabled)
+                    {
+                        clip.eq.processSample (
+                            left, right,
+                            automationValueAt (
+                                clip.lowAutomation, t, 0.0f),
+                            automationValueAt (
+                                clip.midAutomation, t, 0.0f),
+                            automationValueAt (
+                                clip.highAutomation, t, 0.0f));
+                        clip.filter.processSample (
+                            left, right,
+                            automationValueAt (
+                                clip.filterAutomation, t, 0.0f));
+                    }
+
+                    float g = clip.gain;
+                    g *= automationGainAt (clip.gainAutomation, t);
+                    if (clip.fadeInSamples > 0 && since < clip.fadeInSamples)
+                        g *= (float) since / (float) clip.fadeInSamples;
+                    if (clip.fadeOutSamples > 0 && since > clip.timelineLengthSamples - clip.fadeOutSamples)
+                        g *= juce::jlimit (0.0f, 1.0f, (float) (clip.timelineLengthSamples - since) / (float) clip.fadeOutSamples);
+
+                    left *= g;
+                    right *= g;
+                    if ((! clip.reverbAutomation.empty()
+                         || ! clip.echoAutomation.empty())
+                        && clip.deckFx != nullptr)
                         clip.deckFx->processSample (
-                        left, right,
-                        automationValueAt (
-                            clip.reverbAutomation, t, 0.0f),
-                        automationValueAt (
-                            clip.echoAutomation, t, 0.0f));
+                            left, right,
+                            automationValueAt (
+                                clip.reverbAutomation, t, 0.0f),
+                            automationValueAt (
+                                clip.echoAutomation, t, 0.0f));
 
-                const int i = (int) (t - pos);
-                if (outCh == 1)
-                    out.addSample (0, i, 0.5f * (left + right));
-                else
-                {
-                    out.addSample (0, i, left);
-                    out.addSample (1, i, right);
-                    for (int ch = 2; ch < outCh; ++ch)
-                        out.addSample (
-                            ch, i, 0.5f * (left + right));
+                    const int i = destinationOffset + (int) (t - rangePos);
+                    if (outCh == 1)
+                        out.addSample (0, i, 0.5f * (left + right));
+                    else
+                    {
+                        out.addSample (0, i, left);
+                        out.addSample (1, i, right);
+                        for (int ch = 2; ch < outCh; ++ch)
+                            out.addSample (
+                                ch, i, 0.5f * (left + right));
+                    }
                 }
             }
-        }
+        };
 
-        pos += n;
-        if (loopEnabled.load (std::memory_order_relaxed))
+        const bool wantsLoop = loopEnabled.load (std::memory_order_relaxed);
+        const juce::int64 loopStart = loopStartSamples.load (std::memory_order_relaxed);
+        const juce::int64 loopEnd = loopEndSamples.load (std::memory_order_relaxed);
+        const bool validLoop = wantsLoop && loopEnd > loopStart;
+        int destinationOffset = 0;
+        while (destinationOffset < n)
         {
-            const juce::int64 ls = loopStartSamples.load (std::memory_order_relaxed);
-            const juce::int64 le = loopEndSamples.load (std::memory_order_relaxed);
-            if (le > ls && pos >= le)
-                pos = ls;                                       // wrap at the loop end (block-boundary)
+            if (validLoop && pos >= loopEnd)
+            {
+                pos = loopStart + (pos - loopStart) % (loopEnd - loopStart);
+                resetClipDsp (sched);
+            }
+            if (! validLoop && len > 0 && pos >= len)
+            {
+                pos = len;
+                playing.store (false, std::memory_order_relaxed);
+                break;
+            }
+
+            const juce::int64 boundary = validLoop ? loopEnd : len;
+            const int remaining = n - destinationOffset;
+            const int segment = boundary > pos
+                                  ? (int) juce::jmin<juce::int64> (
+                                        remaining, boundary - pos)
+                                  : remaining;
+            if (segment <= 0)
+                break;
+            renderRange (pos, destinationOffset, segment);
+            pos += segment;
+            destinationOffset += segment;
         }
-        else if (len > 0 && pos >= len)
+        if (! validLoop && len > 0 && pos >= len)
         {
             pos = len;
-            playing.store (false, std::memory_order_relaxed);   // stop at the end
+            playing.store (false, std::memory_order_release);
         }
         playhead.store (pos, std::memory_order_relaxed);
     }
 
 private:
+    struct ReaderScope
+    {
+        explicit ReaderScope (std::atomic<uint32_t>& counterIn) noexcept
+            : counter (counterIn)
+        {
+            // Sequential consistency closes the reclamation race: either the
+            // writer observes this reader, or this reader observes the newly
+            // published pointer before an old owner may be reclaimed.
+            counter.fetch_add (1, std::memory_order_seq_cst);
+        }
+
+        ~ReaderScope() noexcept
+        {
+            counter.fetch_sub (1, std::memory_order_seq_cst);
+        }
+
+        std::atomic<uint32_t>& counter;
+    };
+
     static float automationGainAt (
         const std::vector<std::pair<juce::int64, float>>& points,
         juce::int64 timelineSample) noexcept
@@ -383,11 +462,10 @@ private:
         return state;
     }
 
-    void resetClipDsp()
+    void prepareClipDsp (const Schedule* schedule)
     {
-        const juce::SpinLock::ScopedLockType l (lock);
-        if (active == nullptr) return;
-        for (const auto& clip : *active)
+        if (schedule == nullptr) return;
+        for (const auto& clip : *schedule)
         {
             clip.eq.prepare (sr, 2);
             clip.filter.prepare (sr);
@@ -397,6 +475,37 @@ private:
             clip.eq.reset();
             clip.filter.reset();
             clip.deckFx->reset();
+        }
+    }
+
+    static void resetClipDsp (const Schedule* schedule) noexcept
+    {
+        if (schedule == nullptr) return;
+        for (const auto& clip : *schedule)
+        {
+            clip.eq.reset();
+            clip.filter.reset();
+            if (clip.deckFx != nullptr)
+                clip.deckFx->reset();
+        }
+    }
+
+    // Message-thread only. Save the current owners before a pointer publication;
+    // the audio callback never owns or destroys a schedule.
+    void retireActiveOwners()
+    {
+        if (active != nullptr)
+            retiredSchedules.push_back (active);
+        if (masterAutomation != nullptr)
+            retiredMasterAutomation.push_back (masterAutomation);
+    }
+
+    void reclaimRetiredOwners()
+    {
+        if (activeReaders.load (std::memory_order_seq_cst) == 0)
+        {
+            retiredSchedules.clear();
+            retiredMasterAutomation.clear();
         }
     }
 
@@ -411,9 +520,13 @@ private:
     }
 
     double sr = 44100.0;
-    juce::SpinLock lock;
     std::shared_ptr<const Schedule> active;
     std::shared_ptr<const MasterAutomation> masterAutomation;
+    std::atomic<const Schedule*> activeRaw { nullptr };
+    std::atomic<const MasterAutomation*> masterRaw { nullptr };
+    std::atomic<uint32_t> activeReaders { 0 };
+    std::vector<std::shared_ptr<const Schedule>> retiredSchedules;
+    std::vector<std::shared_ptr<const MasterAutomation>> retiredMasterAutomation;
     MasterState currentMasterState;
     std::atomic<bool>        playing { false };
     std::atomic<juce::int64> playhead { 0 };
@@ -421,4 +534,5 @@ private:
     std::atomic<bool>        loopEnabled { false };
     std::atomic<juce::int64> loopStartSamples { 0 };
     std::atomic<juce::int64> loopEndSamples { 0 };
+    std::atomic<bool> resetDspRequested { false };
 };

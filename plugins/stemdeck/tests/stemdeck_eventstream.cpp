@@ -118,7 +118,7 @@ int main()
     check (out.size() == src.size(), "event count preserved ("
            + juce::String ((int) out.size()) + "/" + juce::String ((int) src.size()) + ")");
 
-    check (rh.sampleRate == h.sampleRate && rh.blockSize == h.blockSize
+    check (bitEqual (rh.sampleRate, h.sampleRate) && rh.blockSize == h.blockSize
            && rh.createdUtc == h.createdUtc, "header round-trips");
     check (rh.schemaVersion == kSchemaVersion, "schema version stamped");
 
@@ -151,6 +151,10 @@ int main()
                     allOk = allOk && a.channelAdd.kind == b.channelAdd.kind
                                   && a.channelAdd.slotIndex == b.channelAdd.slotIndex;
                     break;
+                case EventType::channelRemove:
+                    idsExact = idsExact
+                            && a.channelRemove.id == b.channelRemove.id;
+                    break;
                 case EventType::channelReorder:
                     idsExact = idsExact && a.channelReorder.id == b.channelReorder.id;
                     allOk = allOk && a.channelReorder.fromPos == b.channelReorder.fromPos
@@ -162,10 +166,23 @@ int main()
                                   && a.trackLoad.contentHash == b.trackLoad.contentHash
                                   && a.trackLoad.analysisVersion == b.trackLoad.analysisVersion;
                     break;
+                case EventType::trackClear:
+                    break;
                 case EventType::insertAdd:
                     allOk = allOk && a.insertAdd.id == b.insertAdd.id
                                   && a.insertAdd.pluginUid == b.insertAdd.pluginUid
                                   && a.insertAdd.position == b.insertAdd.position;
+                    break;
+                case EventType::insertRemove:
+                    idsExact = idsExact
+                            && a.insertRemove.id == b.insertRemove.id;
+                    break;
+                case EventType::insertReorder:
+                    idsExact = idsExact
+                            && a.insertReorder.id == b.insertReorder.id;
+                    allOk = allOk
+                         && a.insertReorder.fromPos == b.insertReorder.fromPos
+                         && a.insertReorder.toPos == b.insertReorder.toPos;
                     break;
                 case EventType::tempoPoint:
                     doublesExact = doublesExact && bitEqual (a.tempoPoint.atBeat, b.tempoPoint.atBeat)
@@ -175,7 +192,9 @@ int main()
                     allOk = allOk && a.marker.index == b.marker.index;
                     doublesExact = doublesExact && bitEqual (a.marker.atBeat, b.marker.atBeat);
                     break;
-                default: break;
+                case EventType::count:
+                    allOk = false;
+                    break;
             }
         }
         check (allOk,        "every payload field round-trips");

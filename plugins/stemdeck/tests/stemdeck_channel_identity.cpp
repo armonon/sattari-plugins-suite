@@ -179,6 +179,73 @@ int main()
     check (masterLater.smartOn > 0.5f,
            "captured master toggle changes exactly at its event sample");
 
+    // A loop boundary may land anywhere inside the host buffer. Playback must
+    // fill the remainder from loopStart immediately; wrapping only after the
+    // block leaks audio beyond loopEnd and makes short arranger loops stumble.
+    auto loopSource =
+        std::make_shared<juce::AudioBuffer<float>> (2, 16);
+    for (int ch = 0; ch < 2; ++ch)
+        for (int sample = 0; sample < 16; ++sample)
+            loopSource->setSample (ch, sample, (float) sample / 10.0f);
+    ArrangementPlayer::Clip loopClip;
+    loopClip.audio = loopSource;
+    loopClip.sourceSampleRate = 100.0;
+    loopClip.timelineLengthSamples = 15;
+    auto loopSchedule =
+        std::make_shared<ArrangementPlayer::Schedule>();
+    loopSchedule->push_back (std::move (loopClip));
+    ArrangementPlayer loopingArrangement;
+    loopingArrangement.prepare (100.0, 7);
+    loopingArrangement.setSchedule (loopSchedule);
+    loopingArrangement.setPositionSeconds (0.03); // sample 3
+    loopingArrangement.setLoop (0.02, 0.05, true); // samples [2, 5)
+    loopingArrangement.start();
+    juce::AudioBuffer<float> loopOut (2, 7);
+    loopOut.clear();
+    loopingArrangement.process (loopOut);
+    const std::array<float, 7> expectedLoop {
+        0.3f, 0.4f, 0.2f, 0.3f, 0.4f, 0.2f, 0.3f
+    };
+    bool loopExact = true;
+    for (int sample = 0; sample < loopOut.getNumSamples(); ++sample)
+        loopExact = loopExact
+                 && std::abs (loopOut.getSample (0, sample)
+                              - expectedLoop[(size_t) sample]) < 1.0e-5f;
+    check (loopExact,
+           "arrangement loops wrap sample-accurately inside a host block");
+    check (loopingArrangement.getPositionSamples() == 4,
+           "arrangement loop playhead preserves the post-wrap remainder");
+
+    // Printed/live echo must not be cut off at a region's source out-point.
+    // At 100 Hz DeckFX's echo tap is 30 samples, safely beyond this one-sample
+    // source region and therefore only audible if the explicit tail is rendered.
+    auto tailSource =
+        std::make_shared<juce::AudioBuffer<float>> (2, 4);
+    tailSource->clear();
+    tailSource->setSample (0, 0, 1.0f);
+    tailSource->setSample (1, 0, 1.0f);
+    ArrangementPlayer::Clip tailClip;
+    tailClip.audio = tailSource;
+    tailClip.sourceSampleRate = 100.0;
+    tailClip.timelineLengthSamples = 1;
+    tailClip.effectTailSamples = 40;
+    tailClip.echoAutomation = { { 0, 1.0f } };
+    tailClip.dspEnabled = true;
+    auto tailSchedule =
+        std::make_shared<ArrangementPlayer::Schedule>();
+    tailSchedule->push_back (std::move (tailClip));
+    ArrangementPlayer tailArrangement;
+    tailArrangement.prepare (100.0, 41);
+    tailArrangement.setSchedule (tailSchedule);
+    tailArrangement.start();
+    juce::AudioBuffer<float> tailOut (2, 41);
+    tailOut.clear();
+    tailArrangement.process (tailOut);
+    check (std::abs (tailArrangement.getLengthSeconds() - 0.41) < 1.0e-6,
+           "arrangement duration includes captured clip-effect tails");
+    check (tailOut.getMagnitude (0, 2, 39) > 0.2f,
+           "captured echo decays after the source region instead of being cut off");
+
     auto filterSource =
         std::make_shared<juce::AudioBuffer<float>> (2, 512);
     for (int ch = 0; ch < 2; ++ch)

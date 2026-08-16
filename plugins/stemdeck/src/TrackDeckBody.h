@@ -18,6 +18,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <bit>
 #include "ChannelBody.h"
 #include "DeckPlayer.h"
 #include "DeckFX.h"
@@ -219,8 +220,15 @@ private:
         float bpm = 0, beatOff = 0, downbeat = 0; int interp = 0, syncMode = 0, warpRevision = 0;
         bool operator!= (const GridKey& o) const noexcept
         {
-            return audio != o.audio || refined != o.refined || bpm != o.bpm || beatOff != o.beatOff
-                || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode
+            const auto bits = [] (float value)
+            {
+                return std::bit_cast<juce::uint32> (value);
+            };
+            return audio != o.audio || refined != o.refined
+                || bits (bpm) != bits (o.bpm)
+                || bits (beatOff) != bits (o.beatOff)
+                || bits (downbeat) != bits (o.downbeat)
+                || interp != o.interp || syncMode != o.syncMode
                 || warpRevision != o.warpRevision;
         }
     };

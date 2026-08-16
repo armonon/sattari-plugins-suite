@@ -811,6 +811,20 @@ stemdeck_link_tracktion(StemDeckEditorRender)
 sattari_enable_rubberband(StemDeckEditorRender SATTARI_STEMDECK_HAS_RUBBERBAND)
 stemdeck_enable_onnx(StemDeckEditorRender)
 
+# ── Arranger edit/state contract: persistence, undo, overlap and clear ────────
+add_executable(StemDeckArrangementEditing EXCLUDE_FROM_ALL
+    tests/stemdeck_arrangement_editing.cpp)
+target_include_directories(StemDeckArrangementEditing PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckArrangementEditing PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(StemDeckArrangementEditing
+    PRIVATE SattariStemDeck
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckArrangementEditing)
+sattari_enable_rubberband(StemDeckArrangementEditing SATTARI_STEMDECK_HAS_RUBBERBAND)
+stemdeck_enable_onnx(StemDeckArrangementEditing)
+
 # ── A1 phase 5: THE GATE — replay must be sample-identical to the live pass ────
 add_executable(StemDeckReplayHash EXCLUDE_FROM_ALL tests/stemdeck_replayhash.cpp)
 target_include_directories(StemDeckReplayHash PRIVATE
@@ -1190,6 +1204,7 @@ if(BUILD_TESTING)
         StemDeckLoudnessTest
         StemDeckStructureTest
         StemDeckLayout
+        StemDeckArrangementEditing
         StemDeckStemFx
         StemDeckKeyLockTest
         StemDeckReplayHash

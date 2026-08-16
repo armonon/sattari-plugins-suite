@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <tracktion_engine/tracktion_engine.h>
 #include <atomic>
+#include <bit>
 #include <map>
 #include <tuple>
 #include "ArrangementPlayer.h"
@@ -743,8 +744,15 @@ private:
         int   interp = -1, syncMode = -1;
         bool operator!= (const GridCacheKey& o) const noexcept
         {
-            return analysisId != o.analysisId || bpm != o.bpm || beatOffset != o.beatOffset
-                || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode;
+            const auto bits = [] (float value)
+            {
+                return std::bit_cast<juce::uint32> (value);
+            };
+            return analysisId != o.analysisId
+                || bits (bpm) != bits (o.bpm)
+                || bits (beatOffset) != bits (o.beatOffset)
+                || bits (downbeat) != bits (o.downbeat)
+                || interp != o.interp || syncMode != o.syncMode;
         }
     };
 

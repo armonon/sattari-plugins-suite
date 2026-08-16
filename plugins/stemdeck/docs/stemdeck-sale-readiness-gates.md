@@ -14,6 +14,9 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
 - Host tempo sync with individual per-deck Source BPM controls, plus host-PPQ Beat Sync and per-deck Beat Grid Offset controls for beat-phase nudging.
 - Live key analysis/matching toggle per deck: periodically analyzes the current playback-window key and can use that estimate for target-key pitch-shift matching, with load-time analysis as fallback.
 - Synthetic time/pitch benchmark contract: renders Preserve/key-lock tempo cases, pitch-shift cases, stress cases, and a resample reference to `build/stemdeck/timepitch-benchmark/` with a metrics manifest for internal listening review.
+- Deterministic arranger contracts cover state restore/sanitisation, undo/redo,
+  Push/Replace overlap editing, full clear, sample-accurate loop wrap, and
+  post-region effect-tail playback.
 
 ## Explicit non-claims / current blockers
 
@@ -78,7 +81,9 @@ Use known, licensed local test audio. For every deck and stem lane:
 9. Set target keys, sweep manual pitch shift, toggle Preserve on/off, and document musical quality / artifacts.
 10. Record a 60-second master WAV and inspect it for clipping/silence/dropouts.
 11. Save, close, reopen, and confirm file assignments restored.
-12. Note the plugin-host scaffold status line; do not count it as hosted plugin processing until audio/MIDI routing is implemented.
+12. Load one compatible effect on master, a channel, and a stem destination;
+    confirm audio routing, state restore, sandbox status, and dry bypass after
+    intentionally terminating the helper process.
 
 ## Packaging command
 
@@ -90,7 +95,7 @@ Use known, licensed local test audio. For every deck and stem lane:
 Package output defaults to:
 
 ```text
-../deliverables/sattari-test-builds/stemdeck-plugin-alpha-v0.3.8-premium-ai-stems/
+../deliverables/sattari-test-builds/stemdeck-plugin-alpha-v0.5.0-studio-workflow/
 ```
 
 Do not distribute this outside trusted internal testers until DAW/listening evidence is recorded and legal/product packaging is ready.

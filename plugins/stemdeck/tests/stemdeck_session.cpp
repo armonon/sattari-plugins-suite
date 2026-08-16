@@ -4,6 +4,7 @@
 // session integrity (deterministic JSON round-trip).
 #include "SessionModel.h"
 #include <iostream>
+#include <limits>
 #include <string>
 #include <cmath>
 
@@ -66,6 +67,16 @@ int main()
         check (moved == 2, "moveRegion re-times the events it owns (40->56, 56->72)");
         // an event NOT in the region (the deckLoad at 0) must be untouched
         for (auto& e : s.events) if (e.type == EventType::deckLoad) check (near (e.atBeat, 0.0), "events outside the region are untouched");
+
+        s.moveRegion (rid, -1000.0);
+        r = s.findRegion (rid);
+        check (r && near (r->startBeat, 0.0) && near (r->endBeat, 32.0),
+               "moving a region left clamps at the start of the arrangement");
+        bool allNonNegative = true;
+        for (const auto& event : s.events)
+            allNonNegative = allNonNegative && event.atBeat >= 0.0;
+        check (allNonNegative,
+               "region movement can never create negative event time");
     }
 
     // ── Transition as an object: stretch scales contained events around start ────
@@ -124,6 +135,13 @@ int main()
         SessionModel f; f.sampleRate = 48000.0; f.masterTempo = 124.0;
         f.setTempoPoint (0.0, 124.0); f.setTempoPoint (200.0, 124.0);
         check (near (f.sampleTimeForBeat (64.0), atConst), "flat lane at master tempo matches constant formula");
+        check (near (f.sampleTimeForBeat (-8.0), 0.0),
+               "negative arrangement beats clamp to the session start");
+        const auto oldTempo = f.masterTempo;
+        f.setMasterTempo (std::numeric_limits<double>::infinity());
+        f.setTempoPoint (std::numeric_limits<double>::quiet_NaN(), 128.0);
+        check (near (f.masterTempo, oldTempo) && f.tempoLane.size() == 2,
+               "non-finite tempo edits are rejected without corrupting the session");
         // Round-trip preserves the lane.
         auto rt = SessionModel::fromJSON (s.toJSON());
         check (rt.tempoLane.size() == 2 && near (rt.tempoLane.back().bpm, 128.0), "tempo lane survives JSON round-trip");

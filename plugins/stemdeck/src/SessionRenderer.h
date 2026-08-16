@@ -20,6 +20,7 @@
 #include "Interpolation.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <array>
+#include <cmath>
 #include <functional>
 
 namespace stemdeck::session
@@ -183,9 +184,27 @@ public:
                             if (a.paramId == "fader" || a.paramId == "gain") d.fader = a.value;
                             else if (a.paramId == "cfSide")     d.cfSide = (int) a.value;
                             else if (a.paramId == "crossfader") crossfader = juce::jlimit (0.0, 1.0, a.value);
-                            else if (a.paramId == "low")  { d.lowDb  = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
-                            else if (a.paramId == "mid")  { d.midDb  = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
-                            else if (a.paramId == "high") { d.highDb = a.value; d.eqOn = d.lowDb || d.midDb || d.highDb; }
+                            else if (a.paramId == "low")
+                            {
+                                d.lowDb = a.value;
+                                d.eqOn = std::abs (d.lowDb) > 1.0e-9
+                                      || std::abs (d.midDb) > 1.0e-9
+                                      || std::abs (d.highDb) > 1.0e-9;
+                            }
+                            else if (a.paramId == "mid")
+                            {
+                                d.midDb = a.value;
+                                d.eqOn = std::abs (d.lowDb) > 1.0e-9
+                                      || std::abs (d.midDb) > 1.0e-9
+                                      || std::abs (d.highDb) > 1.0e-9;
+                            }
+                            else if (a.paramId == "high")
+                            {
+                                d.highDb = a.value;
+                                d.eqOn = std::abs (d.lowDb) > 1.0e-9
+                                      || std::abs (d.midDb) > 1.0e-9
+                                      || std::abs (d.highDb) > 1.0e-9;
+                            }
                             break;
                     }
                 }

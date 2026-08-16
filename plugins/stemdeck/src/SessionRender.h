@@ -101,7 +101,8 @@ private:
         switch (k) { case TransportKind::play: return ActionKind::play;
                      case TransportKind::pause: return ActionKind::pause;
                      case TransportKind::cue: return ActionKind::cue;
-                     default: return ActionKind::seek; }
+                     case TransportKind::seek: return ActionKind::seek; }
+        return ActionKind::seek;
     }
 };
 

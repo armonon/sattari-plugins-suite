@@ -97,7 +97,7 @@ int main()
                 else if (action == 1 && v.size() > 1)
                     v.erase (v.begin() + 1 + rng.nextInt ((int) v.size() - 1));   // never index 0 (persistent)
                 else if (v.size() > 2)
-                    std::swap (v[1], v[1 + rng.nextInt ((int) v.size() - 1)]);
+                    std::swap (v[1], v[(size_t) (1 + rng.nextInt ((int) v.size() - 1))]);
             });
         }
     });

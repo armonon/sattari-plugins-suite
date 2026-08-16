@@ -41,6 +41,8 @@
  #define STEMDECK_ENABLE_PLUGIN_HOST 1
 #endif
 
+struct StemDeckArrangementTestAccess;
+
 class MainPluginEditor final : public juce::AudioProcessorEditor,
                                public juce::DragAndDropContainer,
                                public juce::DragAndDropTarget,
@@ -78,6 +80,7 @@ public:
     void selectPrimarySurface (PrimarySurface surface);
 
 private:
+    friend struct StemDeckArrangementTestAccess;
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
@@ -169,7 +172,7 @@ private:
     {
     public:
         static constexpr int numLanes = MainPluginProcessor::numDecks;
-        static constexpr int masterLane = numLanes;          // 4 — master is the 5th lane
+        static constexpr int masterLane = numLanes;          // master follows the channel pool
         static constexpr int numEditableLanes = numLanes + 1;
         // Pulsebox-style track headers: icon/identity, M/S/automation and a real
         // gain readout remain legible while the timeline scrolls independently.
@@ -278,6 +281,7 @@ private:
         void setClipLabel (int laneIndex, int clipIndex, const juce::String& label);
         void setClipColour (int laneIndex, int clipIndex, juce::uint32 argb);
         void setClipLocked (int laneIndex, int clipIndex, bool shouldLock);
+        bool relinkClip (int laneIndex, int clipIndex, const juce::File& replacement);
         bool compClipFromTakeState (int laneIndex, int clipIndex, int takeIndex,
                                     const juce::ValueTree& takeState);
         void zoomIn();
@@ -306,10 +310,23 @@ private:
         // then call commitEdit() after the edit completes to push it onto the stack.
         // A snapshot captures the whole lane (its full clip vector) so split / delete
         // round-trip cleanly.
-        struct LaneSnapshot { int lane = -1; std::vector<LaneClip> state; bool full = false; LaneClips allState;
-                              std::array<std::vector<MidiClipData>, numEditableLanes> allMidi;
-                              // Automation curves ride along so point edits are undoable too.
-                              std::array<std::vector<std::pair<double, float>>, numLanes> allAutoPoints; };
+        struct LaneSnapshot
+        {
+            int lane = -1;
+            std::vector<LaneClip> state;
+            bool full = false;
+            LaneClips allState;
+            std::array<std::vector<MidiClipData>, numEditableLanes> allMidi;
+            // Mix, loop and complete editable automation state ride along so every
+            // audible arranger edit—not only clip geometry—round-trips through undo.
+            std::array<std::vector<std::pair<double, float>>, numLanes> allAutoPoints;
+            std::array<bool, numLanes> allAutoVisible {};
+            std::array<int, numLanes> allAutoTarget {};
+            std::array<bool, numEditableLanes> allMuted {}, allSoloed {};
+            std::array<float, numEditableLanes> allGainDb {};
+            double savedLoopStart = 0.0, savedLoopEnd = 0.0;
+            bool savedLoopEnabled = false;
+        };
         LaneSnapshot captureLaneState (int laneIndex) const;
         LaneSnapshot captureFullState() const;   // whole arrangement (for cross-lane moves)
         void commitEdit (LaneSnapshot before);
@@ -366,7 +383,17 @@ private:
                        ? juce::Decibels::decibelsToGain (laneGainDb[(size_t) lane]) : 1.0f;
         }
         float getLaneGainDb (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) ? laneGainDb[(size_t) lane] : 0.0f; }
-        void  setLaneGainDb (int lane, float db) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneGainDb[(size_t) lane] = juce::jlimit (-60.0f, 6.0f, db); repaint(); } }
+        void  setLaneGainDb (int lane, float db)
+        {
+            if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+            const float clamped = juce::jlimit (-60.0f, 6.0f, db);
+            if (std::abs (laneGainDb[(size_t) lane] - clamped) < 1.0e-6f) return;
+            auto before = captureFullState();
+            laneGainDb[(size_t) lane] = clamped;
+            commitEdit (std::move (before));
+            if (onLaneMixChanged) onLaneMixChanged();
+            repaint();
+        }
         // ---- Editable automation: sample-accurate lane volume ----
         // v3 captures use a pre-fader/pre-insert source, so the performed trim/fader
         // curve is promoted here and can be perfected without double-processing.
@@ -426,8 +453,24 @@ private:
 
         bool  isLaneMuted  (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneMuted[(size_t) lane]; }
         bool  isLaneSoloed (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numEditableLanes) && laneSoloed[(size_t) lane]; }
-        void  toggleLaneMute (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneMuted[(size_t) lane]  = ! laneMuted[(size_t) lane];  if (onLaneMixChanged) onLaneMixChanged(); repaint(); } }
-        void  toggleLaneSolo (int lane) { if (juce::isPositiveAndBelow (lane, numEditableLanes)) { laneSoloed[(size_t) lane] = ! laneSoloed[(size_t) lane]; if (onLaneMixChanged) onLaneMixChanged(); repaint(); } }
+        void  toggleLaneMute (int lane)
+        {
+            if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+            auto before = captureFullState();
+            laneMuted[(size_t) lane] = ! laneMuted[(size_t) lane];
+            commitEdit (std::move (before));
+            if (onLaneMixChanged) onLaneMixChanged();
+            repaint();
+        }
+        void  toggleLaneSolo (int lane)
+        {
+            if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
+            auto before = captureFullState();
+            laneSoloed[(size_t) lane] = ! laneSoloed[(size_t) lane];
+            commitEdit (std::move (before));
+            if (onLaneMixChanged) onLaneMixChanged();
+            repaint();
+        }
 
         void paint (juce::Graphics&) override;
         void mouseMove (const juce::MouseEvent& e) override;
@@ -445,6 +488,7 @@ private:
         void filesDropped  (const juce::StringArray& files, int x, int y) override;
 
     private:
+        friend struct ::StemDeckArrangementTestAccess;
         void changeListenerCallback (juce::ChangeBroadcaster*) override;
         void loadThumbnail (juce::AudioThumbnail& thumb, const juce::File& file);
         double computeMaxLengthSeconds() const;

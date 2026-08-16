@@ -270,7 +270,8 @@ That copies the app to:
 
 - Not notarized yet; macOS may still show the usual alpha/Gatekeeper warning.
 - Not a sale-ready release.
-- Not yet a complete editable Ableton-style DAW timeline with clip dragging, comping, arrangement editing, or polished export workflow.
+- Not a replacement for a full studio DAW yet; advanced MIDI/plugin automation,
+  interchange, and exhaustive long-session validation remain alpha work.
 - Not a Windows/Linux app; this package is for Apple Silicon macOS alpha testing.
 
 ## Validation included

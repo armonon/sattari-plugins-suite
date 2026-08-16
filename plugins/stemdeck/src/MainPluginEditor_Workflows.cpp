@@ -1,4 +1,5 @@
 #include "MainPluginEditor.h"
+#include "Interpolation.h"
 #include <algorithm>
 
 namespace
@@ -160,7 +161,9 @@ public:
         {
             MixdownClip spec;
             std::unique_ptr<juce::AudioFormatReader> reader;
+            juce::AudioBuffer<float> sourceScratch;
             juce::int64 timelineStart = 0, timelineLength = 0;
+            juce::int64 effectTailLength = 0;
             EQProcessor eq;
             FilterProcessor filter;
             std::unique_ptr<DeckFX> deckFx;
@@ -186,6 +189,16 @@ public:
             RuntimeClip r;
             r.spec = clip;
             r.reader = std::move (reader);
+            const int sourceChannels = juce::jlimit (
+                1, 8, (int) r.reader->numChannels);
+            const double sourceRatio = r.reader->sampleRate / sampleRate;
+            r.sourceScratch.setSize (
+                sourceChannels,
+                juce::jmax (
+                    32,
+                    (int) std::ceil ((double) blockSize * sourceRatio)
+                        + stemdeck::SincKernelTable::numTaps + 8),
+                false, true, false);
             r.timelineStart = (juce::int64) std::llround (
                 clip.timelineStart * sampleRate);
             r.timelineLength = (juce::int64) std::llround (
@@ -200,8 +213,17 @@ public:
                         || ! clip.filterAutomation.empty()
                         || ! clip.reverbAutomation.empty()
                         || ! clip.echoAutomation.empty();
+            const bool clipCanRing =
+                (! clip.reverbAutomation.empty()
+                 && clip.reverbAutomation.back().second > 0.0005f)
+                || (! clip.echoAutomation.empty()
+                    && clip.echoAutomation.back().second > 0.0005f);
+            if (clipCanRing)
+                r.effectTailLength = (juce::int64) std::llround (
+                    6.0 * sampleRate);
             totalSamples = juce::jmax (
-                totalSamples, r.timelineStart + r.timelineLength);
+                totalSamples, r.timelineStart + r.timelineLength
+                              + r.effectTailLength);
             runtime.push_back (std::move (r));
         }
 
@@ -215,6 +237,12 @@ public:
             (juce::int64) std::llround (
                 (midiPlayer.lengthSeconds() + (midiNotes.empty() ? 0.0 : 0.5))
                 * sampleRate));
+        const bool masterCanRing = master.fxY > 0.0005f
+            || std::any_of (
+                master.fxYAutomation.begin(), master.fxYAutomation.end(),
+                [] (const auto& point) { return point.second > 0.0005f; });
+        if (masterCanRing && totalSamples > 0)
+            totalSamples += (juce::int64) std::llround (6.0 * sampleRate);
 
         if ((runtime.empty() && midiNotes.empty())
             || totalSamples <= 0 || shouldExit())
@@ -271,12 +299,14 @@ public:
             const juce::int64 blockEnd = blockStart + count;
             for (auto& r : runtime)
             {
-                const juce::int64 clipEnd =
+                const juce::int64 sourceEnd =
                     r.timelineStart + r.timelineLength;
+                const juce::int64 renderEnd =
+                    sourceEnd + r.effectTailLength;
                 const juce::int64 from =
                     juce::jmax (blockStart, r.timelineStart);
                 const juce::int64 to =
-                    juce::jmin (blockEnd, clipEnd);
+                    juce::jmin (blockEnd, renderEnd);
                 if (to <= from) continue;
 
                 const double sourceRate = r.reader->sampleRate;
@@ -286,18 +316,21 @@ public:
                     r.spec.sourceStart * sourceRate
                     + (double) sinceClip * ratio;
                 const int outputCount = (int) (to - from);
+                const int sourceOutputCount = (int) juce::jmax<juce::int64> (
+                    0, juce::jmin (to, sourceEnd) - from);
                 const juce::int64 readStart =
                     juce::jmax<juce::int64> (
-                        0, (juce::int64) std::floor (firstSource));
-                const int readCount = juce::jmax (
-                    2, (int) std::ceil (
-                           (double) outputCount * ratio) + 3);
+                        0, (juce::int64) std::floor (firstSource)
+                               - stemdeck::SincKernelTable::halfWidth);
+                const int readCount = juce::jlimit (
+                    2, r.sourceScratch.getNumSamples(),
+                    (int) std::ceil ((double) sourceOutputCount * ratio)
+                        + stemdeck::SincKernelTable::numTaps + 4);
                 const int sourceChannels =
                     juce::jlimit (1, 8, (int) r.reader->numChannels);
-                juce::AudioBuffer<float> source (
-                    sourceChannels, readCount);
+                auto& source = r.sourceScratch;
                 source.clear();
-                if (! r.reader->read (
+                if (sourceOutputCount > 0 && ! r.reader->read (
                         &source, 0, readCount, readStart, true, true))
                     continue;
 
@@ -306,10 +339,6 @@ public:
                     const double absoluteSource =
                         firstSource + (double) n * ratio;
                     const double local = absoluteSource - (double) readStart;
-                    const int s0 = juce::jlimit (
-                        0, readCount - 1, (int) std::floor (local));
-                    const int s1 = juce::jmin (readCount - 1, s0 + 1);
-                    const float frac = (float) (local - (double) s0);
                     const double timeInClip =
                         (double) (sinceClip + n) / sampleRate;
                     float gain = r.spec.gain;
@@ -327,13 +356,13 @@ public:
                                 / r.spec.fadeOut);
 
                     const int dest = (int) (from - blockStart) + n;
-                    const float* leftData = source.getReadPointer (0);
-                    const float* rightData = source.getReadPointer (
-                        juce::jmin (1, sourceChannels - 1));
-                    float left = leftData[s0]
-                               + frac * (leftData[s1] - leftData[s0]);
-                    float right = rightData[s0]
-                                + frac * (rightData[s1] - rightData[s0]);
+                    float left = 0.0f, right = 0.0f;
+                    if (n < sourceOutputCount)
+                    {
+                        left = stemdeck::readSinc (source, 0, local);
+                        right = stemdeck::readSinc (
+                            source, juce::jmin (1, sourceChannels - 1), local);
+                    }
                     if (r.dspEnabled)
                     {
                         const double absoluteSeconds =
@@ -379,11 +408,16 @@ public:
                     master.fxXAutomation, blockSeconds, master.fxX),
                 automationValueAt (
                     master.fxYAutomation, blockSeconds, master.fxY));
-            block.applyGain (
-                juce::Decibels::decibelsToGain (
+            for (int sample = 0; sample < count; ++sample)
+            {
+                const double seconds =
+                    (double) (blockStart + sample) / sampleRate;
+                const float gain = juce::Decibels::decibelsToGain (
                     automationValueAt (
-                        master.gainAutomation, blockSeconds,
-                        master.gainDb)));
+                        master.gainAutomation, seconds,
+                        master.gainDb));
+                block.applyGain (sample, 1, gain);
+            }
             smartMaster.process (
                 block,
                 (int) std::lround (automationValueAt (
@@ -482,7 +516,9 @@ private:
 
     juce::File destination;
     double sampleRate = 48000.0;
-    static constexpr int blockSize = 4096;
+    // 512 keeps master/Smart-Master/FX automation within one ordinary DAW buffer
+    // while the lane gain and captured channel DSP remain sample-accurate.
+    static constexpr int blockSize = 512;
     std::vector<MixdownClip> clips;
     std::vector<MidiClipPlayer::SourceNote> midiNotes;
     double midiBpm = 120.0;
@@ -530,9 +566,15 @@ juce::String MainPluginEditor::buildDiagnosticsReport() const
                             : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
     const auto freeGb = (double) volume.getBytesFreeOnVolume()
                         / (1024.0 * 1024.0 * 1024.0);
+    int missingMedia = countMissingSessionMedia (processorRef);
+    for (const auto& lane : arrangementView.getClips())
+        for (const auto& clip : lane)
+            if (clip.file.getFullPathName().isNotEmpty()
+                && ! clip.file.existsAsFile())
+                ++missingMedia;
     report << "Recording storage free: "
            << (freeGb > 0.0 ? juce::String (freeGb, 1) + " GB" : "Unavailable") << "\n"
-           << "Missing session media: " << countMissingSessionMedia (processorRef) << "\n"
+           << "Missing session media: " << missingMedia << "\n"
            << "Master recording active: " << (processorRef.isMasterRecording() ? "Yes" : "No") << "\n";
     return report;
 }
@@ -719,12 +761,22 @@ void MainPluginEditor::showExportCenter()
     for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
         state.hasProjectContent = state.hasProjectContent
                                   || processorRef.getDeckPath (deck).isNotEmpty();
-    state.hasProjectContent = state.hasProjectContent
-                              || ! arrangementView.getClips()[0].empty();
+    int missingMedia = countMissingSessionMedia (processorRef);
+    for (int lane = 0;
+         lane < ArrangementRecorderView::numEditableLanes; ++lane)
+    {
+        state.hasProjectContent = state.hasProjectContent
+                               || ! arrangementView.getClips()[(size_t) lane].empty()
+                               || arrangementView.numMidiClips (lane) > 0;
+        for (const auto& clip : arrangementView.getClips()[(size_t) lane])
+            if (clip.file.getFullPathName().isNotEmpty()
+                && ! clip.file.existsAsFile())
+                ++missingMedia;
+    }
     const auto recording = processorRef.getMasterRecordingTarget();
     state.hasRecording = recording.existsAsFile();
     state.recordingName = state.hasRecording ? recording.getFileName() : juce::String();
-    state.hasMissingMedia = countMissingSessionMedia (processorRef) > 0;
+    state.hasMissingMedia = missingMedia > 0;
     const auto volume = recording.getFullPathName().isNotEmpty()
                             ? recording.getParentDirectory()
                             : juce::File::getSpecialLocation (juce::File::userMusicDirectory);
@@ -817,8 +869,8 @@ void MainPluginEditor::exportArrangementMixdown()
             };
             if (const auto* automation =
                     arrangementView.editAutomationForLane (lane);
-                automation != nullptr && automation->visible
-                    && automation->target == 0)
+                automation != nullptr && automation->target == 0
+                    && ! automation->points.empty())
                 mix.gainAutomation = automation->points;
             if (const auto* dsp =
                     arrangementView.capturedDspForLane (lane);
