@@ -80,18 +80,18 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (savePresetButton);
     refreshUserPresets();
 
-    // TOOLS toggle reveals the advanced toolbar (plugin host / AI master /
-    // rekordbox / project I/O / utility chips) hidden for the clean mockup view.
-    // Advanced tools: a real, visible header toggle (title double-click still works
-    // as a shortcut). Reveals rekordbox I/O, project save/open, metronome, talkover,
-    // undo/redo, MIDI learn, mic + sync utilities.
+    // Progressive disclosure keeps the performance surface calm while leaving
+    // project setup, routing and integration tools one click away.
+    setupButton (advancedToggle);
     advancedToggle.setClickingTogglesState (true);
     advancedToggle.setToggleState (advancedVisible, juce::dontSendNotification);
-    advancedToggle.setTooltip ("Show advanced tools: Rekordbox import/export, project save/open, "
-                               "metronome, talkover, undo/redo, MIDI learn, mic & sync utilities");
+    advancedToggle.setTooltip ("Show mixer, inspector, clock/grid setup, project I/O, plug-ins, MIDI, mic and sync utilities");
     advancedToggle.onClick = [this]
     {
         advancedVisible = advancedToggle.getToggleState();
+        advancedToggle.setButtonText (advancedVisible ? "Less" : "More");
+        advancedToggle.setTooltip (advancedVisible ? "Return to the focused performance surface"
+                                                   : "Show mixer, inspector, clock/grid setup, project I/O, plug-ins, MIDI, mic and sync utilities");
         resized();
         repaint();
     };
@@ -4996,8 +4996,11 @@ void MainPluginEditor::paint (juce::Graphics& g)
                     armed += value->load() > 0.5f ? 1 : 0;
             const bool inHost = processorRef.wrapperType != juce::AudioProcessor::wrapperType_Standalone
                              && processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
+            const auto* cueBus = processorRef.getBus (false, 1);
+            const bool cueReady = cueBus != nullptr && cueBus->isEnabled();
             const auto status = juce::String (armed) + "/"
-                              + juce::String (trackDecks) + " ARMED  /  "
+                              + juce::String (trackDecks) + " SYNC  /  CUE "
+                              + (cueReady ? "ON" : "OFF") + "  /  "
                               + (inHost ? "HOST" : "INTERNAL") + "  /  4/4";
             g.setColour (T::c (armed > 0 ? T::signal : T::fgMuted).withAlpha (0.78f));
             g.setFont (T::technical (8.0f, true));
@@ -5006,9 +5009,10 @@ void MainPluginEditor::paint (juce::Graphics& g)
         }
     }
 
-    // Perform HUD: the interface always tells the artist what matters now. The
-    // objective changes from loading, to starting, to mixing, to safely recording;
-    // compact status pills keep diagnostics readable without becoming a dashboard.
+    // Perform prompt: one short next action. Audio/CPU/buffer health already lives
+    // directly above, sync state lives in the project bar, and capture has a large
+    // red control. Repeating all three as pills made this row read like another
+    // dashboard instead of a calm performance hint.
     if (! performanceCoachBounds.isEmpty())
     {
         const auto panel = performanceCoachBounds.toFloat();
@@ -5028,46 +5032,18 @@ void MainPluginEditor::paint (juce::Graphics& g)
         }
         const bool recording = processorRef.isMasterRecording();
         juce::String objective;
-        if (recording)       objective = juce::String::fromUTF8 ("RECORDING YOUR SET  \xe2\x80\xa2  every move opens in Replay");
+        if (recording)       objective = juce::String::fromUTF8 ("RECORDING");
         else if (loaded == 0) objective = juce::String::fromUTF8 ("DROP A TRACK TO BEGIN");
-        else if (loaded == 1 && playing == 0) objective = juce::String::fromUTF8 ("PRESS PLAY  \xe2\x80\xa2  then load a second track");
-        else if (playing == 0) objective = juce::String::fromUTF8 ("READY  \xe2\x80\xa2  choose a deck and start the set");
-        else if (loaded == 1) objective = juce::String::fromUTF8 ("LIVE  \xe2\x80\xa2  load another deck when you are ready to transition");
-        else                  objective = juce::String::fromUTF8 ("MIX LIVE  \xe2\x80\xa2  cue, loop, stems, and FX follow the active deck");
+        else if (loaded == 1 && playing == 0) objective = juce::String::fromUTF8 ("PRESS PLAY");
+        else if (playing == 0) objective = juce::String::fromUTF8 ("READY");
+        else if (loaded == 1) objective = juce::String::fromUTF8 ("LIVE  \xe2\x80\xa2  LOAD A SECOND DECK");
+        else                  objective = juce::String::fromUTF8 ("LIVE");
 
         auto row = performanceCoachBounds.reduced (14, 0);
         row.removeFromRight (190);   // live scene buttons occupy this fixed cluster
-        auto signals = row.removeFromRight (juce::jmin (430, row.getWidth() * 43 / 100));
-        row.removeFromRight (10);
         g.setColour (recording ? stemdeck::tokens::c (stemdeck::tokens::meterHot) : accent);
         g.setFont (stemdeck::tokens::technical (10.5f, true).withExtraKerningFactor (0.035f));
         g.drawFittedText (objective, row, juce::Justification::centredLeft, 1);
-
-        const auto& health = recordingHealthBar.getState();
-        const bool audioGood = health.droppedBuffers == 0 && health.cpuLoad < 0.85f;
-        const bool syncOn = processorRef.parameters().getRawParameterValue ("beatSync")->load() > 0.5f;
-        const juce::String signalText[3] = {
-            audioGood ? "AUDIO READY" : "CHECK AUDIO",
-            syncOn ? "SYNC LOCKED" : "SYNC MANUAL",
-            recording ? "CAPTURING" : "CAPTURE READY" };
-        const juce::Colour signalColour[3] = {
-            audioGood ? stemdeck::tokens::c (stemdeck::tokens::deckA)
-                      : stemdeck::tokens::c (stemdeck::tokens::warn),
-            syncOn ? accent : stemdeck::tokens::c (stemdeck::tokens::fgMuted),
-            recording ? stemdeck::tokens::c (stemdeck::tokens::meterHot)
-                      : stemdeck::tokens::c (stemdeck::tokens::fgSecondary) };
-        const int gap = 6;
-        const int w = (signals.getWidth() - gap * 2) / 3;
-        for (int i = 0; i < 3; ++i)
-        {
-            auto pill = signals.removeFromLeft (i == 2 ? signals.getWidth() : w);
-            if (i < 2) signals.removeFromLeft (gap);
-            g.setColour (signalColour[i].withAlpha (0.11f));
-            g.fillRoundedRectangle (pill.toFloat().reduced (0.0f, 5.0f), 8.0f);
-            g.setColour (signalColour[i].withAlpha (0.9f));
-            g.setFont (stemdeck::tokens::technical (8.5f, true).withExtraKerningFactor (0.035f));
-            g.drawFittedText (signalText[i], pill.reduced (6, 0), juce::Justification::centred, 1);
-        }
     }
 
     // --- Pad-trigger flash: colour halo that decays over ~350 ms ---
@@ -6513,6 +6489,12 @@ void MainPluginEditor::layoutDeckHeaderChips (int deckIndex)
 
 void MainPluginEditor::resized()
 {
+    // This state can also change through the command menu and title shortcut, so
+    // keep the disclosure label correct even when the button itself was not used.
+    advancedToggle.setButtonText (advancedVisible ? "Less" : "More");
+    advancedToggle.setTooltip (advancedVisible ? "Return to the focused performance surface"
+                                               : "Show mixer, inspector, clock/grid setup, project I/O, plug-ins, MIDI, mic and sync utilities");
+
     // Closing Tools returns every deck to a visible action. SYNC remains fully
     // available in advanced mode, but can never leave the simple tray showing an
     // invisible selected tab.
@@ -6556,9 +6538,11 @@ void MainPluginEditor::resized()
             L::Item::fixed (94, /*pri*/ 9, T::gap6),   // REPLAY
             L::Item::fixed (94, /*pri*/ 7, T::gap5),   // global command palette
             L::Item::fixed (118, /*pri*/ 10, T::gap5), // PLAY ALL — transport never sheds
-            L::Item::fixed (68,  /*pri*/ 4, T::gap3),  // contextual detailed mixer
+            L::Item::fixed (advancedVisible ? 68 : 0, /*pri*/ 4,
+                            advancedVisible ? T::gap3 : 0), // detailed mixer lives in Tools
             L::Item::fixed (66,  /*pri*/ 3, T::gap3),  // distraction-free focus
-            L::Item::fixed (70,  /*pri*/ 3, T::gap6),  // contextual inspector
+            L::Item::fixed (advancedVisible ? 70 : 0, /*pri*/ 3,
+                            advancedVisible ? T::gap6 : 0), // inspector lives in Tools
             // The wordmark is branding: min 0, soaks up leftover, sheds silently.
             L::Item::flexible (0, 0, 1.0f, /*pri*/ 1, T::gap6),
             // Tempo/key/sync now live in the dedicated project toolbar below.
@@ -6569,8 +6553,12 @@ void MainPluginEditor::resized()
                             advancedVisible ? T::gap6 : 0),
             L::Item::fixed (advancedVisible ? 108 : 0, /*pri*/ 3,
                             advancedVisible ? T::gap5 : 0),
-            L::Item::fixed (82,  /*pri*/ 5, T::gap3),  // + CHANNEL
-            L::Item::fixed (52,  /*pri*/ 5, T::gap5),  // channel count
+            // The channel row already ends in an always-visible + tile. Keeping a
+            // second add/remove pair in the header created two competing paths.
+            L::Item::fixed (advancedVisible ? 82 : 0, /*pri*/ 5,
+                            advancedVisible ? T::gap3 : 0),
+            L::Item::fixed (advancedVisible ? 52 : 0, /*pri*/ 5,
+                            advancedVisible ? T::gap5 : 0),
             L::Item::fixed (64,  /*pri*/ 6, T::gap5),  // TOOLS
             L::Item::fixed (32,  /*pri*/ 6, 0),        // gear
         };
@@ -6651,10 +6639,17 @@ void MainPluginEditor::resized()
             L::Item::fixed (140, 10, T::gap4),
             L::Item::fixed (48,  6, T::gap5),
             L::Item::fixed (94,  9, T::gap5),
-            L::Item::fixed (84,  5, T::gap4),
-            L::Item::fixed (76,  7, T::gap4),
-            L::Item::fixed (92, 10, T::gap5),
-            L::Item::fixed (92,  8, T::gap4),
+            // Key lock, clock source, grid mode and master-deck assignment are
+            // setup decisions, not gestures performed every few seconds. They
+            // remain one click away under Tools, but leave the default bar quiet.
+            L::Item::fixed (advancedVisible ? 84 : 0,  5,
+                            advancedVisible ? T::gap4 : 0),
+            L::Item::fixed (advancedVisible ? 76 : 0,  7,
+                            advancedVisible ? T::gap4 : 0),
+            L::Item::fixed (advancedVisible ? 92 : 0, 10,
+                            advancedVisible ? T::gap5 : 0),
+            L::Item::fixed (advancedVisible ? 92 : 0,  8,
+                            advancedVisible ? T::gap4 : 0),
             L::Item::fixed (92,  9, T::gap5),
             L::Item::fixed (82, 10, T::gap4),
             L::Item::fixed (62, 10, T::gap4),
@@ -6751,7 +6746,7 @@ void MainPluginEditor::resized()
     // workspace priority. Placing it before asset sidebars keeps the clock and
     // health telemetry aligned across every surface.
     recordingHealthBar.setVisible (true);
-    recordingHealthBar.setBounds (area.removeFromTop (50));
+    recordingHealthBar.setBounds (area.removeFromTop (46));
     area.removeFromTop (stemdeck::tokens::gap4);
 
     const bool assetWorkspace = browserVisible || libraryVisible;
@@ -6762,7 +6757,7 @@ void MainPluginEditor::resized()
     performanceCoachBounds = {};
     if (performWorkspace)
     {
-        performanceCoachBounds = area.removeFromTop (34);
+        performanceCoachBounds = area.removeFromTop (28);
         auto sceneArea = performanceCoachBounds.withTrimmedLeft (
             juce::jmax (0, performanceCoachBounds.getWidth() - 184)).reduced (0, 3);
         for (auto& button : sceneButtons)
@@ -7517,13 +7512,18 @@ void MainPluginEditor::resized()
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
                                      &razorButton, &bounceEditsButton, &undoButton, &redoButton,
                                      &stemLinkToggle };
-    // SCOPE and SYNC used to sit side by side, spending 180px of width between
-    // them on a near-empty scope reading "-inf dB" and two oversized buttons that
-    // read as unfinished placeholders — the exact inverse of the channel strips,
-    // which were packing forty controls into 230px. Stacking them into one 128px
-    // column halves that footprint and gives the width back to the FX rack.
+    // Scope and global BPM/key matching are useful setup diagnostics, but they are
+    // duplicates during a set: the project bar owns matching and Master Output owns
+    // metering. Keep the diagnostic column in Tools and give its 128 px to the
+    // crossfader/FX route by default.
     auto band = area.removeFromTop (kMasterBandH);
     const int panelGap = 8;
+    scopePanelBounds = {};
+    syncPanelBounds = {};
+    mixerPanel.setVisible (advancedVisible);
+    for (auto* c : { &syncBpmButton, &syncKeyButton })
+        c->setVisible (advancedVisible);
+    if (advancedVisible)
     {
         auto leftCol = band.removeFromLeft (128);
         band.removeFromLeft (panelGap);
@@ -7543,7 +7543,6 @@ void MainPluginEditor::resized()
     // SYNC — BPM and KEY side by side. They were full-height stacked buttons,
     // which made two occasional actions the largest controls in the region.
     {
-        for (auto* c : { &syncBpmButton, &syncKeyButton }) c->setVisible (true);
         auto s = syncPanelBounds.reduced (7);
         s.removeFromTop (11);   // painted "SYNC" header
         const int pw = (s.getWidth() - stemdeck::tokens::gap4) / 2;

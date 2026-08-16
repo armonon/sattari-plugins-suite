@@ -101,6 +101,18 @@ int main (int argc, char** argv)
     if (ed == nullptr) { std::cerr << "no editor\n"; return 1; }
     ed->setSize (W, H);
 
+    // The default render gates the simple performance surface. "tools" also
+    // opens progressive disclosure so the professional controls cannot silently
+    // become unreachable while simplifying the primary UI.
+    if (scenario == "tools")
+        for (int child = 0; child < ed->getNumChildComponents(); ++child)
+            if (auto* button = dynamic_cast<juce::Button*> (ed->getChildComponent (child));
+                button != nullptr && button->getButtonText() == "More")
+            {
+                button->triggerClick();
+                break;
+            }
+
     // Optional 6th arg: select this segmented tab (0=CUE 1=LOOP 2=FX 3=SYNC 4=SRC) on
     // every deck, so each tab's panel can be photographed. Without this the gate only
     // ever sees CUE and a cropped LOOP/SYNC panel would ship unnoticed.

@@ -829,7 +829,7 @@ private:
     bool advancedVisible = false;
     bool padsCollapsed = false;   // performance-pads strip collapsed when no pad is loaded
     stemdeck::PlayIconLookAndFeel playIconLnF;   // deck play/stop rendered as an icon
-    juce::TextButton advancedToggle { "Tools" };
+    juce::TextButton advancedToggle { "More" };
     // Channel add/remove (channel architecture). Adding/removing is zero-dropout —
     // the engine swaps an immutable graph snapshot (see GraphSnapshot.h).
     // Per-type strips for non-TrackDeck channels (Input / MIDI Instrument). Deck
