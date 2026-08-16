@@ -127,7 +127,7 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
         rebuildView();
         countLabel.setText (
             before == entries.size()
-                ? "Library is clean | no missing entries"
+                ? u8 ("Library is clean  \xe2\x80\xa2  no missing entries")
                 : "Removed " + juce::String ((int) (before - entries.size()))
                     + " missing entries",
             juce::dontSendNotification);
@@ -183,7 +183,8 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     };
     addAndMakeVisible (previewPosition);
 
-    previewTitle.setText ("Select a track, then Preview | double-click auditions", juce::dontSendNotification);
+    previewTitle.setText (u8 ("Select a track  \xe2\x80\xa2  Preview or double-click to audition"),
+                          juce::dontSendNotification);
     previewTitle.setFont (juce::FontOptions (10.0f));
     previewTitle.setColour (juce::Label::textColourId, tokens::c (tokens::fgTertiary));
     previewTitle.setJustificationType (juce::Justification::centredLeft);
@@ -316,7 +317,7 @@ void MusicLibraryView::removeSelectedCrate()
 
     refreshCrateSelector();
     rebuildView();
-    countLabel.setText ("Library folder forgotten | audio files were not deleted",
+    countLabel.setText (u8 ("Library removed  \xe2\x80\xa2  audio files were not deleted"),
                         juce::dontSendNotification);
 }
 
@@ -348,7 +349,7 @@ void MusicLibraryView::addFiles (const juce::Array<juce::File>& files)
         rebuildView();
         countLabel.setText ("Imported " + juce::String (added)
                                 + (added == 1 ? " audio file" : " audio files")
-                                + " | drag a row to a deck or pad",
+                                + u8 ("  \xe2\x80\xa2  drag a row to a deck or pad"),
                             juce::dontSendNotification);
     }
 }
@@ -565,7 +566,7 @@ void MusicLibraryView::rebuildView()
 
     const int inFlight = analysesInFlight.load();
     countLabel.setText (juce::String ((int) view.size())
-                        + (view.size() == entries.size() ? " tracks" : " shown | " + juce::String ((int) entries.size()) + " total")
+                        + (view.size() == entries.size() ? " tracks" : u8 (" shown  \xe2\x80\xa2  ") + juce::String ((int) entries.size()) + " total")
                         + (inFlight > 0 ? u8 ("  \xc2\xb7  analyzing ") + juce::String (inFlight) + u8 ("\xe2\x80\xa6") : juce::String()),
                         juce::dontSendNotification);
 }
@@ -699,8 +700,8 @@ void MusicLibraryView::arrangeByBpmAndKey()
     table.repaint();
     if (! view.empty()) table.selectRow (0);
 
-    countLabel.setText ("BPM / KEY sequence | " + juce::String (readyCount)
-                        + " harmonic tracks | A-D proposal ready",
+    countLabel.setText (u8 ("BPM / Key sequence  \xe2\x80\xa2  ") + juce::String (readyCount)
+                        + u8 (" harmonic tracks  \xe2\x80\xa2  A\xe2\x80\x93" "D proposal ready"),
                         juce::dontSendNotification);
 }
 
@@ -825,8 +826,10 @@ void MusicLibraryView::buildSetFromPrompt (const juce::String& promptRaw)
     table.updateContent();
     table.repaint();
     countLabel.setText (view.empty()
-                          ? juce::String ("AI SET: no analyzed tracks matched \"" + promptRaw.trim() + "\"")
-                          : "AI SET: " + juce::String ((int) view.size()) + " picks | A-D proposal ready for \"" + promptRaw.trim() + "\"",
+                          ? juce::String ("AI Set: no analyzed tracks matched \"" + promptRaw.trim() + "\"")
+                          : u8 ("AI Set: ") + juce::String ((int) view.size())
+                                + u8 (" picks  \xe2\x80\xa2  A\xe2\x80\x93" "D proposal ready for \"")
+                                + promptRaw.trim() + "\"",
                         juce::dontSendNotification);
 }
 
@@ -1086,20 +1089,20 @@ void MusicLibraryView::timerCallback()
     updatingPreviewUi = false;
 
     if (state.loading)
-        previewTitle.setText ("Loading preview | " + state.file.getFileNameWithoutExtension(),
+        previewTitle.setText (u8 ("Loading preview  \xe2\x80\xa2  ") + state.file.getFileNameWithoutExtension(),
                               juce::dontSendNotification);
     else if (state.failed)
-        previewTitle.setText ("Could not preview | unsupported or unreadable audio",
+        previewTitle.setText (u8 ("Could not preview  \xe2\x80\xa2  unsupported or unreadable audio"),
                               juce::dontSendNotification);
     else if (state.file.existsAsFile())
         previewTitle.setText ((state.playing ? "Now playing" : "Preview paused")
                               + juce::String (state.routedToDedicatedCue
-                                                ? " in HEADPHONES | "
-                                                : " on MASTER | ")
+                                                ? u8 (" in Headphones  \xe2\x80\xa2  ")
+                                                : u8 (" on Master  \xe2\x80\xa2  "))
                               + state.file.getFileNameWithoutExtension(),
                               juce::dontSendNotification);
     else
-        previewTitle.setText ("Select a track, then Preview | double-click auditions",
+        previewTitle.setText (u8 ("Select a track  \xe2\x80\xa2  Preview or double-click to audition"),
                               juce::dontSendNotification);
 
     previewTime.setText (formatLength (state.positionSeconds) + " / "

@@ -125,6 +125,15 @@ inline juce::Font technical (float size, bool medium = false)
                                           medium ? juce::Font::bold : juce::Font::plain));
 }
 
+// Human-facing controls use the system UI face. Reserve SF Mono for changing
+// numbers and compact engineering readouts; putting every action in monospace
+// makes ordinary language harder to scan and gives the surface a prototype feel.
+inline juce::Font ui (float size, bool medium = false)
+{
+    return juce::Font (juce::FontOptions (size,
+                                          medium ? juce::Font::bold : juce::Font::plain));
+}
+
 inline juce::Font section (float size, bool bold = true)
 {
     return juce::Font (juce::FontOptions ("Avenir Next Condensed", size,

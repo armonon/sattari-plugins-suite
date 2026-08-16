@@ -113,11 +113,11 @@ private:
         std::array<juce::TextButton, MainPluginProcessor::numHotCues> hotCues;
 
         // ── Loop controls ─────────────────────────────────────────────────────
-        juce::TextButton loopIn   { "IN" };
-        juce::TextButton loopOut  { "OUT" };
-        juce::TextButton loopToggle { "LOOP" };
+        juce::TextButton loopIn   { "In" };
+        juce::TextButton loopOut  { "Out" };
+        juce::TextButton loopToggle { "Loop" };
         juce::TextButton loopHalf { "1/2" };
-        juce::TextButton loopDouble { "x2" };
+        juce::TextButton loopDouble { juce::String::fromUTF8 ("\xc3\x97" "2") };
 
         // ── Intro / Outro DJ markers ──────────────────────────────────────────
         juce::TextButton introEndBtn   { "Intro End" };
@@ -158,7 +158,7 @@ private:
     struct PadControls
     {
         juce::TextButton trigger;
-        juce::TextButton load { "load" };
+        juce::TextButton load { "Load" };
         juce::Slider gain;
         std::unique_ptr<SliderAttachment> gainAttachment;
     };
@@ -573,7 +573,7 @@ private:
     juce::TextButton reloadPluginCacheButton { "Reload Cache" };
     juce::TextButton loadPluginButton { "Load FX" };
     juce::TextButton clearChainButton { "Clear FX" };
-    juce::TextButton sattariFxButton { "SATTARI FX" };   // curated one-click Sattari-suite loader
+    juce::TextButton sattariFxButton { "Sattari FX" };   // curated one-click Sattari-suite loader
     stemdeck::SattariFxRack fxRack;                       // FX-rack panel (replaced the crossfader)
     juce::OwnedArray<stemdeck::PluginEditorWindow> pluginWindows;
     void addSattariFxToChain (int chainIndex);           // menu -> load into a specific chain
@@ -645,8 +645,8 @@ private:
     juce::TextButton aiMasterButton { "AI Master" };
     juce::ComboBox aiMasterMode;
     juce::Slider aiMasterAmount;   // depth of the auto-master (smartMasterAmount), was hardwired 0.8
-    juce::TextButton rbxExportButton { "RBX Save" };
-    juce::TextButton rbxImportButton { "RBX Load" };
+    juce::TextButton rbxExportButton { "Export XML" };
+    juce::TextButton rbxImportButton { "Import XML" };
     std::unique_ptr<juce::FileChooser> rbxChooser;
     RekordboxIO::CueMap importedCues;   // path → cues, persisted; applied on deck load
     std::array<juce::String, MainPluginProcessor::numDecks> lastCuePaths;
@@ -665,14 +665,14 @@ private:
     XYPad masterFxPad;
     juce::Slider crossfader, masterBpm, master, limiter, micGain;
     juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Cut
-    juce::TextButton crossfaderReverse { "REV" };   // hamster / reverse toggle
+    juce::TextButton crossfaderReverse { "Reverse" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
-    juce::TextButton tapTempoButton { "TAP" };
-    juce::TextButton masterDeckButton { "MASTER A" };
-    stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "PLAY ALL", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
-    stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "REC",      juce::Colour (0xffff3b47) };   // header: arm/stop capturing
-    stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "AUTO",     juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
-    juce::TextButton safeModeButton { "SAFE" };   // reversible emergency FX bypass
+    juce::TextButton tapTempoButton { "Tap" };
+    juce::TextButton masterDeckButton { "Master A" };
+    stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "Play All", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
+    stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "Record",   juce::Colour (0xffff3b47) };   // header: arm/stop capturing
+    stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "Auto Mix", juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
+    juce::TextButton safeModeButton { "Safe" };   // reversible emergency FX bypass
     juce::Label      automixStatusLabel; // shows the current transition plan / progress
     juce::TextButton camelotButton { "Key" };
 
@@ -697,12 +697,12 @@ private:
     juce::ComboBox arrGrid;
     juce::TextButton arrZoomOutButton { "-" }, arrZoomInButton { "+" }, arrZoomFitButton { "Fit" };
     juce::TextButton arrLoopButton { "Loop" };
-    juce::TextButton launchAllButton { "LAUNCH" };   // trigger all clip slots at next beat (was cryptic ">>>")
-    juce::TextButton playArrButton { "Play Arr" };
+    juce::TextButton launchAllButton { "Launch" };   // trigger all clip slots at next beat (was cryptic ">>>")
+    juce::TextButton playArrButton { "Play" };
     juce::TextButton arrRecordButton { "Record" };
     juce::TextButton keepLastButton { "Keep 60s" };
-    juce::TextButton previousTakeButton { "< Take" };
-    juce::TextButton nextTakeButton { "Take >" };
+    juce::TextButton previousTakeButton { juce::String::fromUTF8 ("\xe2\x80\xb9 Take") };
+    juce::TextButton nextTakeButton { juce::String::fromUTF8 ("Take \xe2\x80\xba") };
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     // The ARRANGER surface owns ~14 components (transport, edit tools, zoom, the
@@ -766,9 +766,9 @@ private:
     ArrangementView mixArrangeView;
     void refreshMixArrangement();   // rebuild the snapshot session from deck state
     juce::TextButton mixerButton { "Mixer" };
-    juce::TextButton saveProjButton { "Save Proj" }, openProjButton { "Open Proj" };
+    juce::TextButton saveProjButton { "Save" }, openProjButton { "Open" };
     juce::TextButton metronomeButton { "Click" };
-    juce::TextButton talkoverButton  { "Tover" };    // talkover ducking toggle
+    juce::TextButton talkoverButton  { "Talkover" };    // talkover ducking toggle
     juce::TextButton overlapModeButton { "Keep" };   // cycles Keep → Push → Replace
     double arrangementCursorSeconds = 0.0;   // play-start cursor set by clicking the ruler
     int    pianoRollLane = -1;                // which lane/clip the piano roll edits
@@ -878,7 +878,7 @@ private:
     void syncKeyAll();   // harmonically match all decks to the master deck (hotkey K)
     void showMasterDeckMenu();
     juce::TextButton syncBpmButton { "BPM" };   // in the SYNC panel; header supplies "sync"
-    juce::TextButton syncKeyButton { "KEY" };
+    juce::TextButton syncKeyButton { "Key" };
     // Master deck = sync reference. Auto-follows the last deck to start playing;
     // click a deck's letter badge to override.
     int masterDeckIndex = 0;

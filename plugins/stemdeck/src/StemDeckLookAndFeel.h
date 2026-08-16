@@ -272,6 +272,9 @@ public:
         const bool isPrimary = role == "primary";
         const bool isDanger  = role == "danger";
         const bool isPositive = role == "positive";
+        const bool isSync    = role == "sync";
+        const bool isAuto    = role == "auto";
+        const bool isSafe    = role == "safe";
 
         auto semantic = b.findColour (juce::TextButton::buttonOnColourId);
         if (semantic.isTransparent()) semantic = getAccent();
@@ -279,6 +282,8 @@ public:
         if (isRecord || isDanger) semantic = juce::Colour (T::meterHot);
         else if (isPrimary)       semantic = juce::Colour (T::selected);
         else if (isPositive)      semantic = juce::Colour (T::signal);
+        else if (isSync)          semantic = juce::Colour (T::deckA);
+        else if (isAuto || isSafe) semantic = juce::Colour (T::warn);
 
         // Pressing moves the face toward its shadow by one physical pixel. This
         // gives immediate feedback without scaling/blurring text or icons.
@@ -291,7 +296,7 @@ public:
         if (shouldDrawDown)
             r = r.translated (0.0f, 1.0f).withTrimmedBottom (1.0f);
 
-        const bool emphasized = isRecord || isPrimary || isPositive;
+        const bool emphasized = isRecord || isPrimary || isPositive || isSync || isAuto || isSafe;
         juce::Colour top = juce::Colour (kPanelRaised);
         juce::Colour bottom = juce::Colour (stemdeck::tokens::bgTile).darker (0.10f);
         juce::Colour border = juce::Colour (kHairline);
@@ -303,9 +308,11 @@ public:
         }
         else if (emphasized)
         {
-            top = semantic.withAlpha (shouldDrawHighlighted ? 0.30f : 0.21f);
-            bottom = semantic.withAlpha (shouldDrawHighlighted ? 0.16f : 0.10f);
-            border = semantic.withAlpha (shouldDrawHighlighted ? 0.82f : 0.58f);
+            const float idleTop = isRecord ? 0.34f : isSync ? 0.27f : 0.23f;
+            const float idleBottom = isRecord ? 0.15f : isSync ? 0.12f : 0.10f;
+            top = semantic.withAlpha (shouldDrawHighlighted ? idleTop + 0.10f : idleTop);
+            bottom = semantic.withAlpha (shouldDrawHighlighted ? idleBottom + 0.06f : idleBottom);
+            border = semantic.withAlpha (shouldDrawHighlighted ? 0.92f : isRecord ? 0.82f : 0.66f);
         }
         else if (isDanger)
         {
@@ -373,26 +380,96 @@ public:
         const bool isPrimary = role == "primary";
         const bool isDanger  = role == "danger";
         const bool isPositive = role == "positive";
+        const bool isSync    = role == "sync";
+        const bool isAuto    = role == "auto";
+        const bool isSafe    = role == "safe";
         auto semantic = b.findColour (juce::TextButton::buttonOnColourId);
         if (semantic.isTransparent()) semantic = getAccent();
         semantic = semantic.withAlpha (1.0f);
         if (isRecord || isDanger) semantic = juce::Colour (T::meterHot);
         else if (isPrimary)       semantic = juce::Colour (T::selected);
         else if (isPositive)      semantic = juce::Colour (T::signal);
+        else if (isSync)          semantic = juce::Colour (T::deckA);
+        else if (isAuto || isSafe) semantic = juce::Colour (T::warn);
 
         const float fs = juce::jlimit (8.5f, 12.0f, (float) b.getHeight() * 0.43f);
-        g.setFont (T::technical (fs, on || isRecord || isPrimary));
+        g.setFont (T::ui (fs, on || isRecord || isPrimary || isSync || isAuto || isSafe));
         auto text = juce::Colour (kTextPrimary);
         if (on && isRecord) text = juce::Colours::white;
-        else if (on || isRecord || isPrimary || isDanger || isPositive) text = semantic.brighter (0.24f);
+        else if (on || isRecord || isPrimary || isDanger || isPositive || isSync || isAuto || isSafe)
+            text = isRecord ? juce::Colours::white.withAlpha (0.96f) : semantic.brighter (0.24f);
         text = text.withMultipliedAlpha (b.isEnabled() ? (over || down ? 1.0f : 0.94f) : 0.38f);
         auto textBounds = b.getLocalBounds().reduced (8, 0);
         if (down) textBounds.translate (0, 1);
         g.setColour (text);
-        g.drawFittedText (b.getButtonText(), textBounds, juce::Justification::centred, 1);
+        auto symbol = b.getProperties().getWithDefault ("buttonIcon", juce::var()).toString();
+        if (symbol.isEmpty() && isRecord) symbol = "record";
+        if (symbol.isNotEmpty() && textBounds.getWidth() >= 44)
+        {
+            auto icon = textBounds.removeFromLeft (14).withSizeKeepingCentre (12, 12);
+            drawSemanticIcon (g, icon.toFloat(), symbol, text);
+            textBounds.removeFromLeft (4);
+            g.drawFittedText (b.getButtonText(), textBounds, juce::Justification::centredLeft, 1);
+        }
+        else
+        {
+            g.drawFittedText (b.getButtonText(), textBounds, juce::Justification::centred, 1);
+        }
     }
 
 private:
+    static void drawSemanticIcon (juce::Graphics& g, juce::Rectangle<float> bounds,
+                                  const juce::String& symbol, juce::Colour colour)
+    {
+        const auto r = bounds.reduced (1.0f);
+        g.setColour (colour);
+        if (symbol == "record")
+        {
+            g.fillEllipse (r.reduced (1.0f));
+            return;
+        }
+        if (symbol == "safe")
+        {
+            juce::Path shield;
+            shield.startNewSubPath (r.getCentreX(), r.getY());
+            shield.lineTo (r.getRight(), r.getY() + r.getHeight() * 0.22f);
+            shield.lineTo (r.getRight() - 1.0f, r.getCentreY() + 1.0f);
+            shield.quadraticTo (r.getCentreX(), r.getBottom(), r.getX() + 1.0f, r.getCentreY() + 1.0f);
+            shield.lineTo (r.getX(), r.getY() + r.getHeight() * 0.22f);
+            shield.closeSubPath();
+            g.strokePath (shield, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
+                                                        juce::PathStrokeType::rounded));
+            return;
+        }
+        if (symbol == "magic")
+        {
+            juce::Path star;
+            star.startNewSubPath (r.getCentreX(), r.getY());
+            star.lineTo (r.getCentreX() + 1.5f, r.getCentreY() - 1.5f);
+            star.lineTo (r.getRight(), r.getCentreY());
+            star.lineTo (r.getCentreX() + 1.5f, r.getCentreY() + 1.5f);
+            star.lineTo (r.getCentreX(), r.getBottom());
+            star.lineTo (r.getCentreX() - 1.5f, r.getCentreY() + 1.5f);
+            star.lineTo (r.getX(), r.getCentreY());
+            star.lineTo (r.getCentreX() - 1.5f, r.getCentreY() - 1.5f);
+            star.closeSubPath();
+            g.fillPath (star);
+            return;
+        }
+
+        // Two clean opposing arrows communicate global sync without relying on a
+        // font glyph, so it renders identically on macOS and Windows.
+        juce::Path arrows;
+        arrows.startNewSubPath (r.getX() + 1.0f, r.getCentreY() - 2.0f);
+        arrows.lineTo (r.getRight() - 2.0f, r.getCentreY() - 2.0f);
+        arrows.lineTo (r.getRight() - 4.5f, r.getY() + 1.0f);
+        arrows.startNewSubPath (r.getRight() - 1.0f, r.getCentreY() + 2.0f);
+        arrows.lineTo (r.getX() + 2.0f, r.getCentreY() + 2.0f);
+        arrows.lineTo (r.getX() + 4.5f, r.getBottom() - 1.0f);
+        g.strokePath (arrows, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved,
+                                                    juce::PathStrokeType::rounded));
+    }
+
     // Slim color-coded handle: a flat block in the control's accent with one bright
     // leading edge, so it reads as a precise handle rather than a stray white bar.
     static void drawFaderCap (juce::Graphics& g, juce::Rectangle<float> cap, juce::Colour col)

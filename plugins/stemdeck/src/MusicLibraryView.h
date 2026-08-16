@@ -125,10 +125,10 @@ private:
     juce::TextEditor    searchBox;
     juce::TextEditor    promptBox;                       // AI set builder prompt
     juce::TextButton    buildSetButton { "Build Set" };
-    juce::TextButton    bpmKeyArrangeButton { "BPM / KEY" };
+    juce::TextButton    bpmKeyArrangeButton { "BPM / Key" };
     juce::TextButton    loadSetButton { "Load A-D" };
     juce::TextButton    addFolderButton { "+ Folder" };
-    juce::TextButton    removeFolderButton { "Forget" };
+    juce::TextButton    removeFolderButton { "Remove" };
     juce::TextButton    clearButton     { "Clean" };
     juce::TextButton    loadButton      { "Load Selected" };
     juce::TextButton    previewButton   { "Preview" };

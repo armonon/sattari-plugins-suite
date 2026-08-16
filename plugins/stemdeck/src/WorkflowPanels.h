@@ -118,7 +118,8 @@ public:
         workflow_detail::drawPanelBackground (
             g, getLocalBounds(), "Session History",
             files.isEmpty() ? "No restore points yet"
-                            : juce::String (files.size()) + " restore points | newest first");
+                            : juce::String (files.size())
+                                + juce::String::fromUTF8 (" restore points  \xe2\x80\xa2  newest first"));
         g.setColour (tokens::c (tokens::fgTertiary));
         g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
         g.drawText ("RESTORE POINTS", list.getBounds().translated (0, -20),
@@ -177,7 +178,8 @@ private:
                     juce::Justification::centredLeft, true);
         g.setColour (tokens::c (tokens::fgMuted));
         g.setFont (juce::FontOptions (9.5f));
-        g.drawText (file.getLastModificationTime().formatted ("%b %d, %Y | %I:%M %p"),
+        g.drawText (file.getLastModificationTime().formatted (
+                        juce::String::fromUTF8 ("%b %d, %Y  \xe2\x80\xa2  %I:%M %p")),
                     text, juce::Justification::centredLeft);
     }
 
@@ -250,7 +252,7 @@ public:
         workflow_detail::styleButton (copy);
         workflow_detail::styleButton (save);
         copy.setButtonText ("Copy Report");
-        save.setButtonText ("Save...");
+        save.setButtonText (juce::String::fromUTF8 ("Save\xe2\x80\xa6"));
         copy.onClick = [this]
         {
             juce::SystemClipboard::copyTextToClipboard (report);

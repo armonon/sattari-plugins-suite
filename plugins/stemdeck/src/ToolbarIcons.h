@@ -5,6 +5,7 @@
 // PNG-verified standalone and reused by the editor's paint().
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "DesignTokens.h"
 
 namespace stemdeck
 {
@@ -57,15 +58,15 @@ inline void drawToolButton (juce::Graphics& g, juce::Rectangle<float> r, ToolIco
                             const juce::String& label, juce::Colour accent, bool active,
                             bool hover = false, bool down = false)
 {
-    const float radius = 8.0f;
-    const float lift = down ? -0.06f : (hover ? 0.10f : 0.0f);
-    const auto baseTop = juce::Colour (0xff20242e).brighter (juce::jmax (0.0f, lift));
-    const auto baseBot = juce::Colour (0xff161a22).brighter (juce::jmax (0.0f, lift));
+    const float radius = tokens::radiusControl;
+    const float lift = down ? -0.04f : (hover ? 0.08f : 0.0f);
+    const auto baseTop = tokens::c (tokens::bgControl).brighter (juce::jmax (0.0f, lift));
+    const auto baseBot = tokens::c (tokens::bgTile).darker (0.10f).brighter (juce::jmax (0.0f, lift));
     const auto top = active ? accent.withAlpha (down ? 0.82f : 0.92f).brighter (hover ? 0.08f : 0.0f) : baseTop;
     const auto bot = active ? accent.withAlpha (0.72f) : baseBot;
     g.setGradientFill (juce::ColourGradient (top, r.getX(), r.getY(), bot, r.getX(), r.getBottom(), false));
     g.fillRoundedRectangle (r, radius);
-    g.setColour (active ? accent.brighter (0.3f) : accent.withAlpha (hover ? 0.85f : 0.55f));
+    g.setColour (active ? accent.brighter (0.3f) : accent.withAlpha (hover ? 0.92f : 0.66f));
     g.drawRoundedRectangle (r.reduced (0.5f), radius, active || hover ? 1.4f : 1.2f);
 
     const auto fg = active ? juce::Colours::white : accent.brighter (hover ? 0.3f : 0.15f);
@@ -74,10 +75,10 @@ inline void drawToolButton (juce::Graphics& g, juce::Rectangle<float> r, ToolIco
     drawToolIcon (g, ic, iconArea, fg);
 
     content.removeFromLeft (5.0f);
-    juce::Font f (juce::FontOptions (11.0f, juce::Font::bold)); f.setExtraKerningFactor (0.04f);
-    g.setColour (active ? juce::Colours::white : juce::Colour (0xffe6ebf3).brighter (hover ? 0.15f : 0.0f));
-    g.setFont (f);
-    g.drawText (label, content.toNearestInt(), juce::Justification::centredLeft);
+    g.setColour (active ? juce::Colours::white
+                        : tokens::c (tokens::fgPrimary).brighter (hover ? 0.12f : 0.0f));
+    g.setFont (tokens::ui (11.0f, true));
+    g.drawFittedText (label, content.toNearestInt(), juce::Justification::centredLeft, 1);
 }
 
 // A self-painting pill button matching the nav-bar look. Set the icon/label/accent

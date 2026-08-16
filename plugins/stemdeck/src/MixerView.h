@@ -78,7 +78,7 @@ public:
         g.drawText ("CHANNELS  " + juce::String (n), context.removeFromLeft (130),
                     juce::Justification::centredLeft);
         g.setColour (tokens::c (tokens::fgFaint));
-        g.drawText ("DOUBLE-CLICK A FADER FOR UNITY  |  SCROLL FOR FINE GAIN",
+        g.drawText (juce::String::fromUTF8 ("Double-click a fader for unity  \xe2\x80\xa2  Scroll for fine gain"),
                     context, juce::Justification::centredRight);
         content.removeFromTop (tokens::gap5);
 

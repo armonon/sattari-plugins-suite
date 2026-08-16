@@ -247,8 +247,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     }
     masterKeyAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "masterKey", masterKey);
     setupButton (syncAllDecksButton);
-    syncAllDecksButton.getProperties().set ("buttonRole", "primary");
-    syncAllDecksButton.setButtonText ("MATCH ALL");
+    syncAllDecksButton.getProperties().set ("buttonRole", "sync");
+    syncAllDecksButton.getProperties().set ("buttonIcon", "sync");
+    syncAllDecksButton.setButtonText ("Match All");
     syncAllDecksButton.setTooltip ("Lock every armed track to the project BPM and match it to the project key");
     syncAllDecksButton.onClick = [this] { syncBpmAll(); syncKeyAll(); };
     addAndMakeVisible (syncAllDecksButton);
@@ -709,6 +710,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (automixButton);
 
     setupButton (safeModeButton);
+    safeModeButton.getProperties().set ("buttonRole", "safe");
+    safeModeButton.getProperties().set ("buttonIcon", "safe");
     safeModeButton.setClickingTogglesState (true);
     safeModeButton.setColour (juce::TextButton::buttonOnColourId,
                               stemdeck::tokens::c (stemdeck::tokens::warn).withAlpha (0.62f));
@@ -794,15 +797,15 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     masterBpm.setTooltip ("Project tempo - type a BPM, drag vertically, use +/- or scroll");
     master   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
     limiter  .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
-    hostSync.setButtonText ("CLOCK");
+    hostSync.setButtonText ("Clock");
     setupButton (hostSync);
     hostSync.setTooltip ("Follow the host clock when used as a plug-in; use StemDeck's project clock standalone");
     addAndMakeVisible (hostSync);
-    beatSync.setButtonText ("GRID SYNC");
+    beatSync.setButtonText ("Grid Sync");
     setupButton (beatSync);
     beatSync.setTooltip ("Enable project-grid synchronisation for tracks whose SYNC button is armed");
     addAndMakeVisible (beatSync);
-    micMonitor.setButtonText ("Mic monitor");
+    micMonitor.setButtonText ("Mic Monitor");
     setupButton (micMonitor);
     addAndMakeVisible (micMonitor);
     liveMidiButton.setButtonText ("Live MIDI");
@@ -883,7 +886,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (playArrButton);
     setupButton (arrRecordButton);
     arrRecordButton.getProperties().set ("buttonRole", "record");
-    arrRecordButton.setButtonText ("RECORD");
+    arrRecordButton.setButtonText ("Record");
     arrRecordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffff5f6a));
     arrRecordButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
     arrRecordButton.onClick = [this]
@@ -896,7 +899,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     };
     addAndMakeVisible (arrRecordButton);
     setupButton (keepLastButton);
-    keepLastButton.setButtonText ("KEEP 60s");
+    keepLastButton.setButtonText ("Keep 60s");
     keepLastButton.setTooltip ("Save the last 60 seconds of master audio, even when Record was not armed");
     keepLastButton.onClick = [this] { keepRetrospectiveAudio(); };
     addAndMakeVisible (keepLastButton);
@@ -1838,7 +1841,7 @@ void MainPluginEditor::refreshChannelButtons()
     // channel. The old readout was "4D+2I", which is only legible if you already
     // know the architecture — the count is what a user actually wants, and the
     // breakdown belongs in the tooltip.
-    addChannelButton.setButtonText ("+ CHANNEL");
+    addChannelButton.setButtonText ("+ Channel");
     removeChannelButton.setButtonText (juce::String (total) + " CH");
     addChannelButton.setTooltip ("Add a channel - track deck, audio input, or MIDI instrument");
     removeChannelButton.setTooltip (
@@ -1908,9 +1911,9 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     for (int i = 0; i < keyTargets.size(); ++i)
         controls.keyTarget.addItem (keyTargets[i], i + 1);
     controls.keyTarget.setSelectedId (1, juce::dontSendNotification);
-    controls.keyLock.setButtonText ("KeyLock");
+    controls.keyLock.setButtonText ("Key Lock");
     setupButton (controls.keyLock);
-    controls.liveKey.setButtonText ("LiveKey");
+    controls.liveKey.setButtonText ("Live Key");
     setupButton (controls.liveKey);
     controls.keyInfo.setColour (juce::Label::textColourId, stemdeck::tokens::c (stemdeck::tokens::fgMuted));
     controls.keyInfo.setJustificationType (juce::Justification::centredLeft);
@@ -4716,7 +4719,7 @@ void MainPluginEditor::setMasterDeck (int deckIndex)
     {
         masterDeckIndex = deckIndex;
         masterDeckButton.setButtonText (
-            "MASTER " + juce::String::charToString ((juce_wchar) ('A' + deckIndex)));
+            "Master " + juce::String::charToString ((juce_wchar) ('A' + deckIndex)));
         recordStatus.setText ("Master deck = Deck " + juce::String::charToString ((juce_wchar) ('A' + deckIndex))
                               + " (BPM/Key sync reference)", juce::dontSendNotification);
         repaint();
@@ -7716,12 +7719,12 @@ void MainPluginEditor::resized()
                 pads[(size_t) i].gain.setVisible (false);
                 pads[(size_t) i].gain.setBounds ({});
                 pads[(size_t) i].load.setVisible (true);
-                pads[(size_t) i].load.setButtonText (juce::String (i + 1) + "  LOAD");
+                pads[(size_t) i].load.setButtonText (juce::String (i + 1) + "  Load");
                 pads[(size_t) i].load.setBounds (cell.reduced (1, 2));
                 continue;
             }
 
-            pads[(size_t) i].load.setButtonText ("load");
+            pads[(size_t) i].load.setButtonText ("Load");
 
             for (juce::Component* c : { (juce::Component*) &pads[(size_t) i].trigger,
                                         (juce::Component*) &pads[(size_t) i].load,
@@ -8324,7 +8327,7 @@ void MainPluginEditor::timerCallback()
                                       + juce::String (res.controller) + u8 ("  \xe2\x86\x92  ") + name,
                                       juce::dontSendNotification);
         }
-        midiLearnButton.setButtonText (midi.isLearning() ? u8 ("LEARN\xe2\x80\xa6") : juce::String ("MIDI"));
+        midiLearnButton.setButtonText (midi.isLearning() ? u8 ("Learn\xe2\x80\xa6") : juce::String ("MIDI"));
         midiLearnButton.setColour (juce::TextButton::buttonColourId,
                                    midi.isLearning() ? stemdeck::tokens::c (stemdeck::tokens::selected).withAlpha (0.55f)
                                                      : stemdeck::tokens::c (stemdeck::tokens::bgControl));
@@ -8343,10 +8346,10 @@ void MainPluginEditor::timerCallback()
     tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? u8 ("  \xe2\x96\xb6") : u8 ("  \xe2\x97\xbc")),
                         juce::dontSendNotification);
     masterDeckButton.setButtonText (
-        "MASTER " + juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex)));
+        "Master " + juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex)));
     const bool inHost = processorRef.wrapperType != juce::AudioProcessor::wrapperType_Standalone
                      && processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
-    hostSync.setButtonText (inHost ? "HOST" : "INTERNAL");
+    hostSync.setButtonText (inHost ? "Host" : "Internal");
     bool everyKeyLocked = true;
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
         everyKeyLocked = everyKeyLocked
@@ -8355,12 +8358,12 @@ void MainPluginEditor::timerCallback()
     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
     const bool recording = processorRef.isMasterRecording();
     arrRecordButton.setToggleState (recording, juce::dontSendNotification);
-    const juce::String recordLabel = recording ? juce::String (u8 ("REC  \xe2\x80\xa2"))
-                                                : juce::String ("RECORD");
+    const juce::String recordLabel = recording ? juce::String (u8 ("Recording  \xe2\x80\xa2"))
+                                                : juce::String ("Record");
     if (arrRecordButton.getButtonText() != recordLabel)
         arrRecordButton.setButtonText (recordLabel);
     // topRecordButton self-paints its active (red) state from isActive(); label pulses.
-    topRecordButton.setLabel (recording ? "REC \xe2\x80\xa2" : "REC");
+    topRecordButton.setLabel (recording ? "Recording \xe2\x80\xa2" : "Record");
 
     // Persistent recording/system-health model. Every field is sourced from the
     // corresponding engine or recorder; no badge is driven by showcase/demo state.
@@ -8497,7 +8500,7 @@ void MainPluginEditor::timerCallback()
         for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
             anyPlaying = anyPlaying || lastDeckPlayingUI[(size_t) i];
         masterPlayButton.setIcon (anyPlaying ? stemdeck::ToolIcon::stop : stemdeck::ToolIcon::play);
-        masterPlayButton.setLabel (anyPlaying ? "STOP ALL" : "PLAY ALL");
+        masterPlayButton.setLabel (anyPlaying ? "Stop All" : "Play All");
         repaint();   // refresh the deck-card active glow
     }
 
@@ -9517,7 +9520,7 @@ void MainPluginEditor::showLibraryMeta (const juce::File& file)
 {
     if (! file.existsAsFile()) { libraryMetaLabel.setText ({}, juce::dontSendNotification); return; }
     // Show what we know without full analysis (duration via thumbnail if loaded)
-    libraryMetaLabel.setText (file.getFileName() + "  |  " + file.getFileExtension().toUpperCase(),
+    libraryMetaLabel.setText (file.getFileName() + u8 ("  \xe2\x80\xa2  ") + file.getFileExtension().toUpperCase(),
                                juce::dontSendNotification);
 }
 
@@ -9654,6 +9657,6 @@ void MainPluginEditor::updateMidiLearnUI()
                         + u8 ("\"\xe2\x80\xa6"),
                     juce::dontSendNotification);
             }
-            safe->midiLearnButton.setButtonText (u8 ("LEARN\xe2\x80\xa6"));
+            safe->midiLearnButton.setButtonText (u8 ("Learn\xe2\x80\xa6"));
         });
 }

@@ -259,8 +259,7 @@ private:
             auto content = top.reduced (8, 0);
             auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
             drawRecordGlyph (g, icon, true, juce::Colours::white);
-            label (g, "HOLD TO STOP", content, juce::Colours::white, tokens::tSmall,
-                   juce::Justification::centred);
+            buttonLabel (g, "Hold to Stop", content, juce::Colours::white, tokens::tSmall);
         }
         else
         {
@@ -272,14 +271,13 @@ private:
             auto content = recordBounds.withTrimmedBottom (9).reduced (8, 0);
             auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
             drawRecordGlyph (g, icon, false, red);
-            label (g, "RECORD", content, red.brighter (0.18f), tokens::tSmall,
-                   juce::Justification::centred);
-            label (g, state.countInBars > 0 ? juce::String (state.countInBars) + " bar count-in" : "count-in off",
+            buttonLabel (g, "Record", content, juce::Colours::white.withAlpha (0.96f), tokens::tSmall);
+            label (g, state.countInBars > 0 ? juce::String (state.countInBars) + "-bar count-in" : "Count-in off",
                    countInBounds, muted, tokens::tCaption, juce::Justification::centred);
         }
         undoBounds = bottom;
         clipBounds = {};
-        label (g, "undo", bottom, muted, tokens::tCaption, juce::Justification::centred);
+        buttonLabel (g, "Undo", bottom, muted, tokens::tCaption);
     }
 
     static juce::String timeText (double seconds)
@@ -307,6 +305,14 @@ private:
         g.drawText (text, r, justification, true);
     }
 
+    static void buttonLabel (juce::Graphics& g, const juce::String& text,
+                             juce::Rectangle<int> r, juce::Colour colour, float size)
+    {
+        g.setColour (colour);
+        g.setFont (tokens::ui (size, true));
+        g.drawFittedText (text, r, juce::Justification::centred, 1);
+    }
+
     static void drawActionFace (juce::Graphics& g, juce::Rectangle<int> bounds,
                                 juce::Colour accent, bool active, bool hover, bool down)
     {
@@ -320,13 +326,13 @@ private:
             r = r.translated (0.0f, 1.0f).withTrimmedBottom (1.0f);
 
         const auto top = active ? accent.withAlpha (0.96f)
-                                : accent.withAlpha (hover ? 0.31f : 0.20f);
+                                : accent.withAlpha (hover ? 0.46f : 0.34f);
         const auto bottom = active ? accent.withAlpha (0.70f)
-                                   : accent.withAlpha (hover ? 0.16f : 0.09f);
+                                   : accent.withAlpha (hover ? 0.22f : 0.15f);
         g.setGradientFill (juce::ColourGradient (top, r.getX(), r.getY(),
                                                  bottom, r.getX(), r.getBottom(), false));
         g.fillRoundedRectangle (r, tokens::radiusControl);
-        g.setColour (accent.withAlpha (active ? 0.98f : hover ? 0.82f : 0.58f));
+        g.setColour (accent.withAlpha (active ? 0.98f : hover ? 0.94f : 0.82f));
         g.drawRoundedRectangle (r.reduced (0.5f), tokens::radiusControl,
                                 active || hover ? 1.35f : 1.0f);
         if (! down)
@@ -486,9 +492,8 @@ private:
             auto titleRow = top.removeFromTop (25).reduced (10, 0);
             auto icon = titleRow.removeFromLeft (20).withSizeKeepingCentre (14, 14);
             drawRecordGlyph (g, icon, true, juce::Colours::white);
-            label (g, "STOP", titleRow, juce::Colours::white, tokens::tControl,
-                   juce::Justification::centred);
-            label (g, "hold - keeps take", top, muted, tokens::tCaption,
+            buttonLabel (g, "Stop", titleRow, juce::Colours::white, tokens::tControl);
+            label (g, "Hold to keep take", top, muted, tokens::tCaption,
                    juce::Justification::centred);
             countInBounds = {};
         }
@@ -500,11 +505,10 @@ private:
             auto titleRow = top.removeFromTop (25).reduced (10, 0);
             auto icon = titleRow.removeFromLeft (20).withSizeKeepingCentre (14, 14);
             drawRecordGlyph (g, icon, false, red);
-            label (g, "RECORD", titleRow, red.brighter (0.18f), tokens::tControl,
-                   juce::Justification::centred);
+            buttonLabel (g, "Record", titleRow, juce::Colours::white.withAlpha (0.96f), tokens::tControl);
             countInBounds = top;
             label (g, state.countInBars > 0 ? juce::String (state.countInBars) + "-bar count-in"
-                                            : "count-in off",
+                                            : "Count-in off",
                    top, muted, tokens::tCaption, juce::Justification::centred);
         }
 
@@ -512,7 +516,7 @@ private:
         undoBounds = bottom;
         g.setColour (tokens::c (tokens::bgControl));
         g.fillRoundedRectangle (bottom.toFloat(), tokens::radiusControl);
-        label (g, "undo", bottom, primary, tokens::tSmall, juce::Justification::centred);
+        buttonLabel (g, "Undo", bottom, primary, tokens::tSmall);
     }
 
     void timerCallback() override
