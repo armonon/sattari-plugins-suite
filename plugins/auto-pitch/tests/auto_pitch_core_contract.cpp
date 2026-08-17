@@ -316,9 +316,9 @@ int main (int argc, char** argv)
     }
 
     const auto status = processor.getLiveStatusSummary();
-    // Assert on what proves the engine ran, not on marketing copy: the status
-    // must name either the real Rubber Band engine or the fallback guide.
-    if (! (status.containsIgnoreCase ("Rubber Band") || status.containsIgnoreCase ("fallback")))
+    // Assert on what proves the engine ran, not on obsolete selector copy: the
+    // status must identify the single release engine or the fallback guide.
+    if (! (status.containsIgnoreCase ("Studio HQ") || status.containsIgnoreCase ("fallback")))
     {
         std::cerr << "unexpected status: " << status << "\n";
         return 1;
@@ -562,8 +562,15 @@ int main (int argc, char** argv)
                       << noiseKey.confidence << " >= " << gate << "\n";
             return 1;
         }
+        if (noiseKey.root != 9 || noiseKey.scale != 1)
+        {
+            std::cerr << "AutoKey No Result did not retain the manual A minor fallback: "
+                      << noiseKey.root << "/" << noiseKey.scale << "\n";
+            return 1;
+        }
         std::cout << "  autoKeyGate=tonal " << tonalKey.confidence
-                  << " >= " << gate << " > noise " << noiseKey.confidence << "\n";
+                  << " >= " << gate << " > noise " << noiseKey.confidence
+                  << " (manual fallback retained)\n";
     }
 
     std::cout << "Auto Pitch core contract ok\n";

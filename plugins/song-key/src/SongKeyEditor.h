@@ -8,6 +8,7 @@
 
 class SattariSongKeyAudioProcessorEditor final
     : public juce::AudioProcessorEditor,
+      public juce::FileDragAndDropTarget,
       private juce::Timer
 {
 public:
@@ -17,6 +18,10 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override;
+    void fileDragExit (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int, int) override;
 
 private:
     using ComboAttachment =
@@ -32,8 +37,11 @@ private:
         const juce::String& title);
     juce::String currentRoot() const;
     juce::String currentMode() const;
+    void chooseSong();
+    void beginFileAnalysis (const juce::File&);
 
     static juce::String rootName (int pitchClass);
+    static juce::String camelotName (int pitchClass, bool minor);
 
     SattariSongKeyAudioProcessor& audioProcessor;
     const juce::Colour accent {
@@ -43,31 +51,39 @@ private:
         sattari::brand::productAccent ("song-key")
     };
     sattari::studio::Header header {
-        "Sattari Key", "KEY DETECTOR / SESSION FALLBACK", accent
+        "Sattari Key", "SONG ANALYSIS / SUITE KEY", accent
     };
 
     sattari::ui::SessionHud sessionHud;
-    juce::ToggleButton publishToggle { "Publish to suite" };
+    juce::ToggleButton lockToggle { "Lock session" };
+    juce::TextButton chooseSongButton { "Choose song" };
+    juce::TextButton liveButton { "Listen live" };
     juce::TextButton rescanButton { "Re-scan" };
     juce::ToggleButton manualToggle { "Manual override" };
     juce::ComboBox manualRootBox;
     juce::ComboBox manualScaleBox;
-    std::unique_ptr<ButtonAttachment> publishAttachment;
+    std::unique_ptr<ButtonAttachment> lockAttachment;
     std::unique_ptr<ButtonAttachment> manualAttachment;
     std::unique_ptr<ComboAttachment> rootAttachment;
     std::unique_ptr<ComboAttachment> scaleAttachment;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     sattari::studio::analysis::Metric confidenceMetric {
-        "Confidence", accent
+        "Decision margin", accent
     };
     sattari::studio::analysis::Metric tuningMetric {
         "Reference offset", accent
     };
-    sattari::studio::analysis::Metric engineMetric {
-        "Detection engine", accent
+    sattari::studio::analysis::Metric tempoMetric {
+        "Tempo", accent
+    };
+    sattari::studio::analysis::Metric alternativeMetric {
+        "Second estimate", accent
     };
 
     SattariSongKeyAudioProcessor::Detected snapshot;
+    bool dragActive = false;
+    juce::Rectangle<int> sourceArea;
     juce::Rectangle<int> keyArea;
     juce::Rectangle<int> manualArea;
 

@@ -154,7 +154,7 @@ Three options, cheapest first:
    **BUT THIS CANNOT BE DONE UNILATERALLY TODAY.** `SATTARI_KEY_PROFILE` is a
    GLOBAL compile-time `#define` in a shared header, so changing it changes the
    detector for every consumer — including Auto Pitch's AutoKey fallback, which
-   is FROZEN at 7fef5442 for RC qualification. Changing it would silently
+   is FROZEN at `7fef544a6d49` for RC qualification. Changing it would silently
    invalidate the frozen candidate and every measurement taken against it.
 
    Options: scope the profile per-consumer (which the shared

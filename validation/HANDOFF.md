@@ -1,7 +1,9 @@
 # Sattari — session handoff
 
-Last updated 2026-08-16 at `b4f8eb9`, branch `harmony-engine-and-portal-compass`,
-PR #1. Everything below is pushed.
+Last synced baseline: 2026-08-16 at `767beca`, branch
+`harmony-engine-and-portal-compass`, PR #1. Auto Pitch 0.5.0 RC3, Sattari Key
+0.3.0, shared-key adoption, the new contracts and qualification records below
+are local working-tree changes until they are committed and pushed.
 
 ---
 
@@ -30,54 +32,69 @@ PR #1. Everything below is pushed.
 
 ---
 
-## Auto Pitch — the flagship. Frozen at `7fef5442`.
+## Auto Pitch — 0.5.0 RC3, new line based on `767beca`
 
-**Do not modify the plugin.** Tooling and documents are fair game; plugin DSP,
-parameters, and reported latency are not. Rebuilding it mid-matrix voids every
-measurement taken against it.
+The earlier 0.4.1 candidate is preserved at `7fef544a6d49`; its sealed listening
+package remains untouched. Before any 0.4.1 scores existed, the user explicitly
+requested further hardening, so 0.5.0 RC3 is a new working line and must receive
+new scores. It is not yet committed; do not change DSP again once listening begins.
 
 ```
-GATE 0 lifecycle     PASS       validation
-GATE 1 performance   PASS       CPU p95 2.25 ms vs 10.67 ms budget, ~4.7x headroom
-GATE 2 corpus        PASS       6 clips, all 9 coverage tags, CC BY where sourced
-GATE 3 listening     READY      18 items — USER'S TASK, blocking
-GATE 4 hosts         2 BLOCKERS found offline before the manual matrix ran
-GATE 5 RC review     BLOCKED    on 3 and 4
+GATE 0 lifecycle     PASS       remains validation
+GATE 1 performance   PASS       R3 CPU p95 5.97 ms vs 10.67 ms at 48k/512 under load
+GATE 2 corpus        PASS       6 clips, all 9 required tags
+GATE 3 listening     READY      new 18-item RC3 package; USER'S TASK
+GATE 4 offline       PASS       dry null + reconstructed group delay + auval
+GATE 4 hosts         OPEN       Logic/Ableton/REAPER manual matrix
+GATE 5 RC review     BLOCKED    on user listening + manual hosts
 ```
+
+### What RC3 changed
+
+- Explicit Rubber Band R3/Finer Short vocal engine; old code accidentally stayed on R2.
+- Correction Off and zero Amount select untouched delay-aligned dry audio.
+- Five strict null cases are `-inf` dBFS at zero offset.
+- 2,885 samples reported at 48 kHz; forced-unity R3 and tuned-onset group delay
+  both land within 0.77 ms.
+- Controlled Hard-mode vibrato falls from 19.7 to 4.0 cents after measured
+  -30 ms moving-control compensation; a sustained belt reaches 2.3 cents median.
+- Conservative YIN/CREPE fusion; CREPE validates or rescues YIN without smearing
+  an agreeing YIN contour, and cannot independently steer AutoKey.
+- Auto Pitch's frozen internal fallback remains Aarden/chroma. Sattari Key now
+  uses a separate balanced 16 kHz full-mix engine, preserves the 0.10 margin and
+  No Result policy, and hands an explicitly locked result to Auto Pitch over the
+  existing session bus. The held-out-losing neural path remains absent.
+- Legacy live controls remain recall-compatible but are visibly inactive and
+  non-automatable. A separate Sattari Live alpha now passes its isolated causal
+  tracker/shifter contract at 15.17 ms and has twelve private corpus renders, but
+  it is not connected to the plugin and there is still no live-monitoring claim.
+- Auto Pitch 0.5.0 and the previous Sattari Key 0.2.0 universal AU/VST3/Standalone
+  builds are installed locally. Both AUs passed `auval`; Sattari Key 0.3.0 still
+  needs the full packaging/host pass after its focused validation closes.
+
+Primary records:
+`validation/auto-pitch/2026-08-16-rc2-engine-hardening.md` and
+`validation/auto-pitch/2026-08-16-rc3-fast-correction-hardening.md`, with the
+final corpus inventory in
+`validation/auto-pitch/2026-08-16-rc3-real-vocal-qualification.md`. The isolated
+next-generation live work is recorded in
+`validation/auto-pitch/2026-08-16-live-engine-alpha-01.md`.
 
 ### Gate 3 — the critical path
 
-18 items, 6 sets A-F, at `~/Desktop/vocal test/listening-package/`. RMS matched to
-0.001-0.105 dB, key sealed. Only the user can score these. When they do, write the
-Gate 3 record from their numbers and nothing else.
+Use only `~/Desktop/vocal test/listening-package-0.5.0-rc3/`: 18 level-matched
+24-bit WAVs, six sets A-F. The old `listening-package/` is the 0.4.1 candidate.
+The generator refuses to overwrite a non-empty package, and the RC3 key has not been
+opened. Only the user can score it; never fabricate or infer scores.
 
-### Gate 4 — two blockers, both recorded in
-`validation/auto-pitch/2026-08-14-gate4-null-and-engine-lock.md`
+### Gate 4 — remaining manual work
 
-1. **Reported latency is 32 samples short** — 2048 published, 2080 actual. Test A
-   reads −1.0 dBFS against a −60 dBFS bar and **cannot pass in any host**. Remove
-   the offset and it nulls at −43.8 dB, so the audio is nearly transparent and the
-   published number is simply wrong. Fixing it is host-visible, so it is an **RC
-   decision, not a freeze-time change**.
-2. **`liveEngine` and `lowLatency` are automatable parameters that do nothing.**
-   `PluginProcessor.cpp:3187` pins `useLiveEngine = false` — a documented quality
-   lock added after PSOLA failed real-vocal validation. Consequence: the recorded
-   **42.7 / 28.6 / 15.4 ms latency tiers describe unreachable code**; the shipping
-   build has one tier. Any low-latency monitoring claim is false as built.
-3. Open and un-isolated: the −43.8 dB residual at perfect alignment. A level trim,
-   the final soft ceiling, and Rubber Band reconstruction are all plausible; none
-   ruled out. Do not guess in the document.
-
-**Do not run Gate 4 test A by hand until the latency report is settled** — it will
-fail for a known reason and cost three DAW sessions. Run
-`AutoPitchRender --nulltest` instead.
-
-The rest of the manual matrix (scan, state, automation, transport, render, bypass,
-editor, multi-instance) still needs real DAWs:
-`validation/daw/2026-08-10-auto-pitch-host-matrix.md`. **Step 0 first** — stale
-April `AutoPitch` bundles with a different identity (`OGTA`/`OGT_`) are installed
-and will appear beside the real plugin in every host list. Confirm what they are
-before deleting; they may be another product.
+Offline PDC/pass-through and Apple component validation are closed. State,
+automation, transport, bypass, editor, multi-instance, offline bounce and ARA
+still need real DAWs via
+`validation/daw/2026-08-10-auto-pitch-host-matrix.md`. Start at 48 kHz / 512;
+R3/Finer Short is a 60.10 ms print path. Begin at 48 kHz / 512; 64/128-sample
+and 96 kHz sessions are not approved for RC3.
 
 ---
 
@@ -118,9 +135,27 @@ profile change from silently invalidating Auto Pitch's freeze. `KeyAnalysisConfi
 reproduces `detectKey()` byte-identically, so adopting it changes nothing until a
 caller opts in.
 
-Still open for Compass: contract-test the engine, and the three-publishers-one-bus
-coherence question (Auto Pitch refuses to publish a manual key, Compass publishes
-it, Granulator publishes it opt-in).
+The shared engine implementation contract is now **PASS**:
+`validation/compass/2026-08-16-key-analysis-engine-contract.md`. It locks default
+byte-equivalence, all six runtime profiles, validity/source semantics, model-free
+fallback, and deterministic whole-buffer analysis. This is not an accuracy or
+lifecycle promotion claim.
+
+Sattari Key 0.3.0 now adds asynchronous full-song selection, drag/drop, explicit
+live listening, 50%-overlap live coverage, per-section agreement/modulation
+warning, Camelot notation, ranked alternate/relative key, file/live tempo and a
+frozen **Lock session** publication step. The balanced, model-free full-mix key
+engine now matches all 26 recorded TuneBat key/mode results through both the
+native evaluator and plugin file path; BPM remains 26/26 within 2 BPM. The old
+engine's baseline was 7/26 primary and 15/26 top-two. This is development-set
+agreement, not ground truth or a universal parity claim. The focused record is
+`validation/song-key/2026-08-16-full-song-and-live-analysis.md`. Workflow is
+implemented; a clean labeled contemporary cross-genre comparison remains the
+release accuracy gate.
+
+Still open for Compass: the three-publishers-one-bus coherence question (Auto
+Pitch refuses to publish a manual key, Compass publishes it, Granulator publishes
+it opt-in), plus the held-out cross-genre accuracy corpus.
 
 ---
 
@@ -134,13 +169,17 @@ modules, four rack hosts, the session bus — is the real asset. Catalog is lops
 
 ## Recommended next actions, in order
 
-1. **Gate 3 listening.** User-only, and the last substantive gate on the flagship.
-2. **Settle the latency report + dead parameters** (task #69). RC decision.
-3. **Gate 4 manual matrix**, after Step 0 folder cleanup.
-4. **Gate 5 RC review.**
-5. **Compass held-out corpus across genres** — real work, but should not jump ahead
+1. **Freeze/commit the RC3 worktree before any more DSP change.** The current
+   listening package is labeled to the working tree, not an immutable commit.
+2. **Gate 3 RC3 listening.** User-only; use `listening-package-0.5.0-rc3` and do not open
+   its key early.
+3. **Gate 4 manual matrix**, after Step 0 folder cleanup, at 48 kHz / 512 first.
+4. **Gate 5 RC review** using the actual listening and DAW evidence.
+5. **Build a real low-latency epoch/phase engine** only after RC3 print quality is
+   scored; do not unlock the failed PSOLA path.
+6. **Compass held-out corpus across genres** — real work, but should not jump ahead
    of finishing the flagship.
-6. GitHub billing — user's account action.
+7. GitHub billing — user's account action.
 
 ---
 

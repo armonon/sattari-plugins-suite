@@ -4,7 +4,7 @@ product: auto-pitch
 from: alpha
 to: validation
 date: 2026-08-10
-candidate_revision: 7fef5442  (frozen; see "Frozen candidate" below)
+candidate_revision: 7fef544a6d49  (frozen; see "Frozen candidate" below)
 truth_label: internal validation only; not sale-ready, not release-candidate
 ---
 
@@ -20,7 +20,7 @@ The caveats are part of the record, not a footnote to it.
 
 ## Frozen candidate
 
-    revision  7fef5442  "Auto Pitch bench: measure CPU time, and sweep sample rate x buffer"
+    revision  7fef544a6d49  "Auto Pitch bench: measure CPU time, and sweep sample rate x buffer"
     DSP as of 8c2ce30   "AutoKey: stop publishing unconfident keys to the session bus"
 
 Feature development on Auto Pitch is **frozen** for the duration of RC

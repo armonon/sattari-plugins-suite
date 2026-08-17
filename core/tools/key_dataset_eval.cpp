@@ -39,6 +39,7 @@
 #include <sattari_audio_core/SattariChromagram.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariSongKeyEstimator.h>
 
 #include <array>
 #include <cctype>
@@ -367,13 +368,17 @@ int main (int argc, char** argv)
     const juce::File datasetDir (juce::File::getCurrentWorkingDirectory()
                                      .getChildFile (juce::String (datasetArg)));
     const juce::File labelsFile = datasetDir.getChildFile ("labels.csv");
-    const juce::File wavDir     = datasetDir.getChildFile ("wav");
+    const juce::File wavDir = argc > 2
+        ? juce::File (juce::String::fromUTF8 (argv[2]))
+        : datasetDir.getChildFile ("wav");
 
     std::printf ("Sattari Key — real-dataset MIREX evaluation\n");
-    std::printf ("Dataset: %s\n\n", datasetDir.getFullPathName().toRawUTF8());
+    std::printf ("Dataset: %s\n", datasetDir.getFullPathName().toRawUTF8());
+    std::printf ("Audio:   %s\n\n", wavDir.getFullPathName().toRawUTF8());
 
     // --- graceful handling of missing / empty dataset -------------------------
-    if (! datasetDir.isDirectory() || ! labelsFile.existsAsFile())
+    if (! datasetDir.isDirectory() || ! labelsFile.existsAsFile()
+        || ! wavDir.isDirectory())
     {
         std::printf ("No dataset found (expected %s + %s).\n",
                      labelsFile.getFullPathName().toRawUTF8(),
@@ -410,6 +415,7 @@ int main (int argc, char** argv)
     };
     ProfileScore scores[NPROF];       // current linear-FFT chroma
     ProfileScore scoresHpcp[NPROF];   // new HPCP chroma (tuning-corrected + harmonic-summed)
+    ProfileScore songKeyScore { "Sattari Song Key" };
     for (int i = 0; i < NPROF; ++i)
     {
         scores[i].name     = profiles[i].name;
@@ -453,6 +459,12 @@ int main (int argc, char** argv)
         fileChroma     (fft, hann, mono, sampleRate, chroma);
         fileChromaHpcp (fft, hann, mono, sampleRate, chromaHpcp);
 
+        SongKeyEstimator songKey;
+        songKey.prepare (sampleRate, (std::int64_t) mono.size());
+        songKey.addSamples (mono.data(), (int) mono.size());
+        songKey.finalise();
+        const auto songKeyResult = songKey.result();
+
         ++nTracks;
         for (int p = 0; p < NPROF; ++p)
         {
@@ -460,6 +472,23 @@ int main (int argc, char** argv)
             const KeyResult kh = detail::detectKeyWithProfiles (chromaHpcp, profiles[p].maj, profiles[p].min);
             scores[p].add     (k.valid  ? categorise (k.root,  k.minor,  truth.root, truth.minor) : Cat::Wrong);
             scoresHpcp[p].add (kh.valid ? categorise (kh.root, kh.minor, truth.root, truth.minor) : Cat::Wrong);
+        }
+        const auto songKeyCategory = songKeyResult.valid
+            ? categorise (songKeyResult.root, songKeyResult.minor,
+                          truth.root, truth.minor)
+            : Cat::Wrong;
+        songKeyScore.add (songKeyCategory);
+        if (songKeyCategory != Cat::Exact)
+        {
+            std::printf ("  song-key mismatch: %s -> %s %s (target %s)\n",
+                         fileField.c_str(),
+                         songKeyResult.valid ? kNoteNames[songKeyResult.root] : "invalid",
+                         songKeyResult.valid ? (songKeyResult.minor ? "minor" : "major") : "",
+                         labelField.c_str());
+            const auto diagnosticChroma = songKey.chroma();
+            std::printf ("    pcp(A..G#):");
+            for (double value : diagnosticChroma) std::printf (" %.6f", value);
+            std::printf ("\n");
         }
         std::array<double,12> ch; for (int i = 0; i < 12; ++i) ch[(size_t)i] = chromaHpcp[i];
         allChroma.push_back (ch); allTruth.push_back (truth);
@@ -485,7 +514,7 @@ int main (int argc, char** argv)
     std::printf ("Scored %d tracks  (skipped %d unparseable/silence/modal, %d missing audio)\n\n",
                  nTracks, nSkipped, nMissingAudio);
 
-    auto printBlock = [NPROF] (const char* title, const ProfileScore s[])
+    auto printBlock = [] (const char* title, const ProfileScore s[])
     {
         std::printf ("== %s ==\n", title);
         std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
@@ -506,6 +535,16 @@ int main (int argc, char** argv)
 
     printBlock ("CURRENT chroma (linear FFT)",  scores);
     printBlock ("HPCP chroma (tuning-corrected + harmonic sum)", scoresHpcp);
+    std::printf ("== SATTARI SONG KEY (16 kHz balanced full-mix path) ==\n");
+    std::printf ("  %-24s  %6s  %8s  %9s   %s\n",
+                 "Detector", "N", "RawAcc", "MIREXx100",
+                 "exact/fifth/rel/par/wrong");
+    std::printf ("  %-24s  %6d  %6.1f %%  %9.2f   %d/%d/%d/%d/%d\n\n",
+                 songKeyScore.name, songKeyScore.scored,
+                 100.0 * (double) songKeyScore.exact / (double) songKeyScore.scored,
+                 100.0 * songKeyScore.weightSum / (double) songKeyScore.scored,
+                 songKeyScore.exact, songKeyScore.fifth, songKeyScore.relative,
+                 songKeyScore.parallel, songKeyScore.wrong);
 
     // ── Empirical profile: FIT to our own HPCP chroma, scored held-out ───────────
     // Tonic-align each track's chroma by its ground-truth root, average per mode over
@@ -526,9 +565,11 @@ int main (int argc, char** argv)
         if (nMaj) for (auto& v : maj) v /= nMaj;
         if (nMin) for (auto& v : mnr) v /= nMin;
     };
-    // Dump per-track HPCP chroma + label for training a neural key model on the EXACT
-    // feature the plugin computes (avoids a train/deploy chroma mismatch). One row:
-    // chroma0..chroma11, root(0..11), minor(0/1).
+    // Dump training features only for a dataset that owns its local wav/ folder.
+    // An external audio directory may be private comparison material; evaluating
+    // it must not silently create audio-derived artifacts inside the repository.
+    // One chroma row: chroma0..chroma11, root(0..11), minor(0/1).
+    if (argc <= 2)
     {
         const juce::File dump = datasetDir.getChildFile ("chroma.csv");
         juce::String csv;
@@ -568,6 +609,10 @@ int main (int argc, char** argv)
             os.flush();
             std::printf ("wrote %d chroma sequences -> %s\n\n", (int) allSeq.size(), sdump.getFullPathName().toRawUTF8());
         }
+    }
+    else
+    {
+        std::printf ("external audio directory: feature export disabled\n\n");
     }
 
     std::array<double,12> empMaj, empMin;

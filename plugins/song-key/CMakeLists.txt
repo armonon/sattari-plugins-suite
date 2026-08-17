@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_SONG_KEY_PLUGIN VERSION 0.1.0)
+project(SATTARI_SONG_KEY_PLUGIN VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,10 +20,10 @@ sattari_add_plugin(
         src/SongKeyProcessor.cpp
         src/SongKeyEditor.cpp)
 
-# The spectrogram key model (keynet_spec.onnx, 72.1 MIREX) runs on the worker thread.
-# Optional: without ONNX the KeyNetSpec wrapper compiles to an inert stub and the
-# plugin falls back to its HPCP chroma detector.
-sattari_enable_onnx(SattariSongKey SATTARI_HAS_ONNX)
+# The optional key model lost the only held-out evaluation. Production Sattari
+# Key is deliberately model-free: no hidden model loading, 30-second ring, or
+# ONNX runtime dependency. Research evaluators remain separate targets.
+target_compile_definitions(SattariSongKey PRIVATE SATTARI_HAS_ONNX=0)
 
 # Offline detection proof: feed a chord, assert the chroma->key chain detects it.
 add_executable(SongKeyRender
@@ -52,5 +52,5 @@ target_link_libraries(SongKeyRender
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
-# Same for the render tool (it compiles SongKeyProcessor.cpp directly).
-sattari_enable_onnx(SongKeyRender SATTARI_HAS_ONNX)
+# Same release shape for the render tool (it compiles the processor directly).
+target_compile_definitions(SongKeyRender PRIVATE SATTARI_HAS_ONNX=0)

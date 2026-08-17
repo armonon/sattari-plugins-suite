@@ -686,7 +686,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     // Quality-locked engine selector. Legacy Live/Low-Latency parameters remain
     // serializable, but the PSOLA path is hidden until it passes real-vocal QA.
     styleCaption (engineCaption, "ENGINE");
-    engineSelect.addItem ("Studio  (quality locked)", 1);
+    engineSelect.addItem ("Studio HQ  (R3 Finer)", 1);
     engineSelect.onChange = [this]
     {
         setKeyParam ("liveEngine", 0.0f);
@@ -1017,10 +1017,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
 
     // Paint a meaningful engine value on the very first frame. Previously this
     // remained blank until the 15 Hz editor timer fired.
-    const bool initialLowLat = params.getRawParameterValue ("lowLatency")->load() > 0.5f;
-    const bool initialLive   = params.getRawParameterValue ("liveEngine")->load() > 0.5f;
-    engineSelect.setSelectedItemIndex (initialLowLat ? 2 : (initialLive ? 1 : 0),
-                                       juce::dontSendNotification);
+    engineSelect.setSelectedItemIndex (0, juce::dontSendNotification);
 
     showTab (0);
     startTimerHz (15);

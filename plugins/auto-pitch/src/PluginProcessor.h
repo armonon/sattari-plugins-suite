@@ -4,10 +4,12 @@
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariAudioCore.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariKeyAnalysis.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
+#include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
 #include <sattari_audio_core/SattariScaleInterval.h>
 #include <sattari_audio_core/SattariKeyNetSpec.h>
@@ -213,7 +215,7 @@ public:
     //  A negative margin is possible and meaningful: the detector's relative-key
     //  swap can promote a runner-up, so below zero it has overridden its own
     //  ranking and is guessing outright.
-    static constexpr float kMinBusKeyConfidence = 0.10f;
+    static constexpr float kMinBusKeyConfidence = (float) sattari::dsp::kReleaseKeyConfidence;
 
     KeyOrigin currentKeyOrigin() const;
 
@@ -303,6 +305,8 @@ private:
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
     void applyGraphTimeCorrection (juce::AudioBuffer<float>& buffer, double hostTimeSeconds);
+    void renderDelayedDryReference (const juce::AudioBuffer<float>& input);
+    void copyDelayedDryReferenceTo (juce::AudioBuffer<float>& output) const;
 
     // Reported latency of whichever engine is active right now: the streaming
     // PSOLA path (Low Latency / Live Engine) has a small fixed delay; the Rubber
@@ -310,6 +314,7 @@ private:
     // prepare and, when the engine toggles, from handleAsyncUpdate() on the
     // message thread (setLatencySamples must never run on the audio thread).
     int  activeEngineLatencySamples() const;
+    int  monoEngineLatencySamples() const noexcept;
     // PSOLA prep helpers. Low-latency vocal mode raises the min-Hz floor so PSOLA's
     // fixed ~2-period latency shrinks (33 ms -> ~15 ms) at the cost of not tracking
     // fundamentals below the floor. preparePsolaInto builds a fresh shifter set (may
@@ -368,10 +373,19 @@ private:
     int    lastTargetMidiForTransition = -1000;
     double transitionBoost = 0.0;        // 1.0 right after a note onset, decays to 0
     double flexEngageState = 0.0;        // smoothed Flex-Tune engagement [0,1]
+    double classicControlPrevCents = 0.0;
+    double classicControlOffsetSeconds = -0.030;
+    bool   classicControlValid = false;
 
     // Reported processing latency (Rubber Band start delay). Recomputed in
     // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.
     int reportedLatencySamples = 0;
+
+    // Sample-identical, latency-aligned reference for Correction Off and true
+    // zero-amount operation. The ring runs continuously, so selecting the dry
+    // path does not have to reconstruct unity-ratio audio through Rubber Band.
+    juce::AudioBuffer<float> dryDelayRing, dryDelayOutput;
+    int dryDelayRingSize = 0, dryDelayWrite = 0, dryDelaySamples = 0;
 
     // Which engine ran last block (liveEngine || lowLatency). processBlock compares
     // against this to detect a runtime engine swap and flush/prime both paths so
@@ -417,6 +431,10 @@ private:
     // GiantSteps: linear ~20 -> HPCP ~52 MIREX). Reset + accumulated per analysis
     // window; the rolling histogram blend below smooths it and follows modulations.
     sattari::dsp::HpcpChromagram autoKeyHpcp;
+    // One suite key decision implementation. The release path deliberately runs the held-out
+    // winning Aarden chroma configuration; the optional neural key model stays
+    // quarantined until it beats that path on representative held-out genres.
+    sattari::dsp::KeyAnalysisEngine keyAnalysis;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
@@ -567,9 +585,11 @@ private:
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
-    // When "Neural Pitch" is on, the embedded CREPE estimate overrides YIN for
-    // difficult breathy/noisy frames. ONNX-less builds keep using YIN.
+    // When "Neural Pitch" is on, CREPE is conservatively fused with YIN: agreeing
+    // estimates refine one another, high-confidence CREPE can rescue an unvoiced
+    // YIN frame, and conflicting neural/octave estimates cannot seize correction.
     sattari::dsp::CrepePitchTracker crepe;
+    sattari::dsp::MonophonicPitchFusion pitchFusion;
     bool  crepeModelPresent = false;
     sattari::dsp::KeyNet keyNet;              // neural key model (90-dim HPCP feature -> 24 keys)
     bool  keyNetPresent = false;

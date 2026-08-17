@@ -20,6 +20,7 @@
 #include <SattariAutoPitchModelData.h>
 #include <sattari_audio_core/SattariRenderHarness.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
+#include <sattari_audio_core/SattariLivePitchEngine.h>
 #include <sattari_audio_core/SattariLogSpec.h>
 
 #include <cmath>
@@ -87,6 +88,52 @@ double pitchStdCents (const juce::AudioBuffer<float>& buf, double sr)
     double var = 0.0;  for (double m : midis) var += (m - mean) * (m - mean);
     var /= (double) midis.size();
     return std::sqrt (var) * 100.0;               // semitones -> cents
+}
+
+struct ChromaticPitchStats
+{
+    double medianCents = 0.0;
+    double withinTenPercent = 0.0;
+    int sustainedFrames = 0;
+};
+
+// Diagnostic only: cents from the nearest chromatic note on stable voiced
+// frames. Intentional vibrato and melisma can make this number worse while
+// sounding better, so it is never used as a listening verdict.
+ChromaticPitchStats chromaticPitchStats (const juce::AudioBuffer<float>& buffer, double sr)
+{
+    sattari::dsp::PitchDetector detector;
+    detector.prepare (sr, 70.0f, 1100.0f, 0.045f);
+    constexpr int hop = 256;
+    std::vector<double> errors;
+    double previousMidi = -1000.0;
+    int withinTen = 0;
+    for (int start = 0; start + hop <= buffer.getNumSamples(); start += hop)
+    {
+        detector.pushBlock (buffer.getReadPointer (0) + start, hop);
+        const auto result = detector.analyse (0.3f);
+        if (! result.voiced)
+        {
+            previousMidi = -1000.0;
+            continue;
+        }
+        const double midi = 69.0 + 12.0 * std::log2 ((double) result.frequencyHz / 440.0);
+        const bool stable = previousMidi > -900.0 && std::abs (midi - previousMidi) < 0.25;
+        previousMidi = midi;
+        if (! stable) continue;
+        const double error = 100.0 * std::abs (midi - std::round (midi));
+        errors.push_back (error);
+        if (error <= 10.0) ++withinTen;
+    }
+    std::sort (errors.begin(), errors.end());
+    ChromaticPitchStats stats;
+    stats.sustainedFrames = (int) errors.size();
+    if (! errors.empty())
+    {
+        stats.medianCents = errors[errors.size() / 2];
+        stats.withinTenPercent = 100.0 * (double) withinTen / (double) errors.size();
+    }
+    return stats;
 }
 
 // Extract a detected-pitch track (MIDI values, one per hop) over the tail of a
@@ -226,9 +273,92 @@ int main (int argc, char** argv)
     // signal with vibrato — the shifters key their internal segmentation off the
     // DETECTED PERIOD, so a steady tone is the one input that would hide a
     // period-dependent misalignment.
+    // --wetalign : the question --nulltest can no longer answer.
+    //
+    // Since the delayed dry reference was added, Correction Off and Amount 0 both
+    // return a sample-exact delay line, so --nulltest passes at -inf whatever the
+    // CORRECTING path does. That is a correct bypass, and it is also why the null
+    // stopped being evidence about alignment: it now measures a delay line.
+    //
+    // The alignment that a session actually depends on is the WET one. If the
+    // engine's group delay differs from the dry reference, then moving Amount off
+    // zero — a fader move, or an automation ramp — slides the vocal in time. So
+    // measure wet against the plugin's own dry output, on a signal that is already
+    // in tune, where correction is near-unity and the two are comparable.
+    if (argc > 1 && std::strcmp (argv[1], "--wetalign") == 0)
+    {
+        std::printf ("Wet-path alignment: does Amount move the vocal in time?\n");
+        std::printf ("  A3 = 220 Hz, already in tune in C major, so correction is ~unity\n");
+        std::printf ("  and wet/dry stay comparable. Lag is wet MINUS dry.\n\n");
+        std::printf ("  %-34s %10s %12s %12s\n", "amount", "lag(smp)", "lag(ms)", "best null");
+        std::printf ("  %-34s %10s %12s %12s\n",
+                     "----------------------------------", "--------", "-----------", "---------");
+
+        juce::AudioBuffer<float> in;
+        makeVibratoTone (in, sr, seconds, 220.0, 0.0, 5.0);
+
+        // Dry reference straight from the plugin, at its own reported latency.
+        juce::AudioBuffer<float> dry;
+        int reported = 0;
+        {
+            SattariAutoPitchAudioProcessor p;
+            setParam (p.parameters(), "enableCorrection", 0.0f);
+            setParam (p.parameters(), "autoKey",          0.0f);
+            setParam (p.parameters(), "polyphonic",       0.0f);
+            dry = sattari::harness::renderThrough (p, in, sr, block);
+            reported = p.getLatencySamples();
+        }
+        std::printf ("  reported latency: %d samples (%.2f ms)\n\n", reported, 1000.0 * reported / sr);
+
+        int worst = 0;
+        for (const float amount : { 1.0f, 25.0f, 50.0f, 100.0f })
+        {
+            SattariAutoPitchAudioProcessor p;
+            setParam (p.parameters(), "enableCorrection", 1.0f);
+            setParam (p.parameters(), "amount",           amount);
+            setParam (p.parameters(), "autoKey",          0.0f);
+            setParam (p.parameters(), "keyRoot",          0.0f);   // C
+            setParam (p.parameters(), "polyphonic",       0.0f);
+            const auto wet = sattari::harness::renderThrough (p, in, sr, block);
+
+            const int from = (int) (sr * 1.0), len = (int) (sr * 1.5);
+            int bestLag = 0; double bestDb = 1.0e9;
+            for (int L = -600; L <= 600; ++L)
+            {
+                double num = 0.0, den = 0.0;
+                for (int i = from; i < from + len; i += 5)
+                {
+                    const int j = i + L;
+                    if (j < 0 || j >= wet.getNumSamples() || i >= dry.getNumSamples()) { den = 0.0; break; }
+                    const double e = (double) wet.getSample (0, j) - (double) dry.getSample (0, i);
+                    num += e * e;
+                    den += (double) dry.getSample (0, i) * dry.getSample (0, i);
+                }
+                if (den > 1.0e-20)
+                {
+                    const double cand = 20.0 * std::log10 (std::sqrt (num / den));
+                    if (cand < bestDb) { bestDb = cand; bestLag = L; }
+                }
+            }
+            worst = juce::jmax (worst, std::abs (bestLag));
+            std::printf ("  %-34s %10d %11.2f %11.1f\n",
+                         juce::String ("Amount " + juce::String (amount, 0)).toRawUTF8(),
+                         bestLag, 1000.0 * bestLag / sr, bestDb);
+        }
+
+        std::printf ("\n  worst wet-vs-dry shift: %d samples (%.2f ms)\n", worst, 1000.0 * worst / sr);
+        std::printf ("  This is how far the vocal jumps when Amount leaves zero. It is\n");
+        std::printf ("  invisible to --nulltest, which only ever sees the dry delay line.\n");
+        return 0;
+    }
+
     if (argc > 1 && std::strcmp (argv[1], "--nulltest") == 0)
     {
-        std::printf ("Gate 4 test A (offline): pass-through null with correction OFF\n\n");
+        std::printf ("Gate 4 test A (offline): pass-through null with correction OFF\n");
+        std::printf ("  NOTE: since the delayed dry reference was added, correction-off and\n");
+        std::printf ("  Amount 0 both return a sample-exact delay line, so these rows no\n");
+        std::printf ("  longer say anything about the CORRECTING path. Use --wetalign for\n");
+        std::printf ("  that. A pass here means the bypass is clean, nothing more.\n\n");
         std::printf ("  %-46s %10s %8s\n", "engine / signal", "null dBFS", "verdict");
         std::printf ("  %-46s %10s %8s\n",
                      "----------------------------------------------", "---------", "-------");
@@ -317,9 +447,115 @@ int main (int argc, char** argv)
         return fails > 0 ? 1 : 0;
     }
 
-    // --file <in.wav> <out.wav> : run a REAL recording through Auto Pitch (AutoKey +
-    // neural + Rubber Band, Natural style, full correction) and report objective
-    // correction stats + write the tuned output for listening.
+    // --live-alpha-file <in.wav> <out.wav> [natural|hard] : render the isolated,
+    // not-shipping Sattari Live core for private real-vocal evaluation. Output is
+    // latency-trimmed back to the source duration. This path cannot be selected by
+    // a plugin parameter; promotion requires the corpus and listening gates.
+    if (argc > 1 && std::strcmp (argv[1], "--live-alpha-file") == 0)
+    {
+        if (argc < 4)
+        {
+            std::fprintf (stderr, "usage: auto_pitch_render --live-alpha-file <in.wav> <out.wav> [natural|hard]\n");
+            return 2;
+        }
+        const bool hard = argc >= 5 && std::strcmp (argv[4], "hard") == 0;
+        juce::File inputFile (juce::String::fromUTF8 (argv[2]));
+        juce::File outputFile (juce::String::fromUTF8 (argv[3]));
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (inputFile));
+        if (reader == nullptr)
+        {
+            std::fprintf (stderr, "FAIL: cannot read %s\n", argv[2]);
+            return 2;
+        }
+
+        const double fileSampleRate = reader->sampleRate;
+        const int sourceSamples = (int) reader->lengthInSamples;
+        juce::AudioBuffer<float> decoded ((int) juce::jmax (1u, reader->numChannels), sourceSamples);
+        reader->read (&decoded, 0, sourceSamples, 0, true, true);
+        std::vector<float> mono ((size_t) sourceSamples, 0.0f);
+        for (int i = 0; i < sourceSamples; ++i)
+        {
+            double sum = 0.0;
+            for (int ch = 0; ch < decoded.getNumChannels(); ++ch)
+                sum += decoded.getSample (ch, i);
+            mono[(size_t) i] = (float) (sum / (double) decoded.getNumChannels());
+        }
+
+        constexpr int liveBlock = 128;
+        sattari::dsp::LivePitchEngine engine;
+        // Wide vocal coverage. Its worst-case low-note latency is reported below;
+        // the 100 Hz normal-vocal mode is separately locked to 15.17 ms.
+        engine.prepare (fileSampleRate, liveBlock, 70.0, 1100.0);
+        sattari::dsp::LiveCorrectionPlanner::Settings settings;
+        settings.amount = 1.0;
+        settings.retuneMilliseconds = hard ? 0.0 : 24.0;
+        settings.preserveVibrato = hard ? 0.0 : 0.82;
+        settings.noteHysteresisCents = hard ? 12.0 : 22.0;
+
+        const int latency = engine.getLatencySamples();
+        const int renderSamples = sourceSamples + latency + 2048;
+        std::vector<float> rendered ((size_t) renderSamples, 0.0f);
+        std::array<float, liveBlock> inputBlock {}, outputBlock {};
+        int voicedBlocks = 0, correctedBlocks = 0;
+        double maximumCorrectionCents = 0.0;
+        for (int start = 0; start < renderSamples; start += liveBlock)
+        {
+            const int count = std::min (liveBlock, renderSamples - start);
+            std::fill (inputBlock.begin(), inputBlock.end(), 0.0f);
+            for (int i = 0; i < count; ++i)
+                if (start + i < sourceSamples)
+                    inputBlock[(size_t) i] = mono[(size_t) (start + i)];
+            engine.processCorrected (inputBlock.data(), outputBlock.data(), count, settings);
+            if (start < sourceSamples && engine.getPitchResult().voiced)
+            {
+                ++voicedBlocks;
+                const double correction = std::abs (engine.getCorrectionCents());
+                if (correction >= 0.5) ++correctedBlocks;
+                maximumCorrectionCents = std::max (maximumCorrectionCents, correction);
+            }
+            for (int i = 0; i < count; ++i)
+                rendered[(size_t) (start + i)] = outputBlock[(size_t) i];
+        }
+
+        juce::AudioBuffer<float> aligned (1, sourceSamples);
+        bool finite = true;
+        float peak = 0.0f;
+        for (int i = 0; i < sourceSamples; ++i)
+        {
+            const float sample = rendered[(size_t) (i + latency)];
+            finite = finite && std::isfinite (sample);
+            peak = std::max (peak, std::abs (sample));
+            aligned.setSample (0, i, sample);
+        }
+        sattari::harness::writeWav (outputFile, aligned, fileSampleRate);
+        juce::AudioBuffer<float> sourceMono (1, sourceSamples);
+        std::copy (mono.begin(), mono.end(), sourceMono.getWritePointer (0));
+        const auto inputStats = chromaticPitchStats (sourceMono, fileSampleRate);
+        const auto outputStats = chromaticPitchStats (aligned, fileSampleRate);
+        std::printf ("== SATTARI LIVE ALPHA / PRIVATE CORPUS RENDER ==\n");
+        std::printf ("  mode: %s, source %.1f s @ %.0f Hz\n",
+                     hard ? "hard" : "natural", (double) sourceSamples / fileSampleRate,
+                     fileSampleRate);
+        std::printf ("  latency: %d samples / %.2f ms (70 Hz wide-vocal floor)\n",
+                     latency, 1000.0 * latency / fileSampleRate);
+        std::printf ("  peak: %.6f, finite: %s\n", peak, finite ? "yes" : "NO");
+        std::printf ("  tracker: %d voiced blocks, %d corrected, max correction %.1f ct\n",
+                     voicedBlocks, correctedBlocks, maximumCorrectionCents);
+        std::printf ("  stable nearest-chromatic: input %.1f ct / %.0f%% within 10 ct (%d); output %.1f ct / %.0f%% (%d)\n",
+                     inputStats.medianCents, inputStats.withinTenPercent, inputStats.sustainedFrames,
+                     outputStats.medianCents, outputStats.withinTenPercent, outputStats.sustainedFrames);
+        std::printf ("  wrote: %s\n", outputFile.getFullPathName().toRawUTF8());
+        return finite && peak <= 4.0f ? 0 : 1;
+    }
+
+    // --file <in.wav> <out.wav> : run a REAL recording through Auto Pitch (manual
+    // chromatic + neural/YIN fusion + R3/Finer, Natural style, full correction)
+    // and report objective correction stats + write the tuned output for listening.
+    // A solo vocal often cannot establish song key; using AutoKey here would test
+    // a missing-harmony guess instead of the pitch engine. Suite key-follow is
+    // qualified separately on full instrumental material.
     if (argc > 1 && std::strcmp (argv[1], "--file") == 0)
     {
         if (argc < 4) { std::fprintf (stderr, "usage: auto_pitch_render --file <in.wav> <out.wav>\n"); return 2; }
@@ -333,16 +569,14 @@ int main (int argc, char** argv)
 
         // Two renders: NATURAL (vibrato preserved) and HARD (full snap, no vibrato) so
         // we can separate true note-centre correction from intentionally-kept vibrato.
-        //  The detector's confidence lives on the processor, not on KeyOrigin,
-        //  so it has to be carried out of the lambda explicitly. That asymmetry
-        //  is itself the finding: a programmatic consumer of AutoKey gets root
-        //  and scale with no way to tell a certainty from a coin flip.
         juce::String keySummary;
         auto runCfg = [&] (bool hard) {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
             setParam (a, "vocalRange", 0.0f);       // Wide
-            setParam (a, "autoKey", 1.0f);          setParam (a, "followSongKey", 0.0f);
+            setParam (a, "autoKey", 0.0f);          setParam (a, "followSongKey", 0.0f);
+            setParam (a, "keyRoot", 0.0f);          setParam (a, "scale", 2.0f);
+            setParam (a, "scaleMode", 2.0f);        // C chromatic: nearest semitone, no wrong-key pull
             setParam (a, "neuralPitch", 1.0f);      setParam (a, "liveEngine", 0.0f);   // Rubber Band
             setParam (a, "style", 0.0f);            // Natural
             setParam (a, "amount", 1.0f);           setParam (a, "speed", hard ? 0.97f : 0.9f);
@@ -1632,7 +1866,8 @@ int main (int argc, char** argv)
     // ---- Feature proof: vibrato preservation + Studio engine -------------------
     // Separate from the golden null-test. Uses a vibrato tone (A3 + 5.5 Hz, +/-40
     // cents) tuned to A: with vibrato preservation OFF the wiggle is flattened;
-    // ON, it survives. Also proves the PSOLA engine produces valid audio.
+    // ON, it survives. Also proves the shipping Studio HQ R3/Finer path produces
+    // valid audio under a fast, moving correction target.
     //
     // Vibrato preservation is only observable at fast retune: a slow correction
     // cannot flatten a 5.5 Hz wiggle enough to leave anything meaningful to restore.
@@ -1644,7 +1879,7 @@ int main (int argc, char** argv)
         makeVibratoTone (vib, sr, 3.0, 440.0 /*A4*/, 40.0, 5.5);
         const double inStd = pitchStdCents (vib, sr);
 
-        auto render = [&] (float vibAmt, bool live) {
+        auto render = [&] (float vibAmt, bool classic) {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
             setParam (a, "keyRoot", 9.0f);            // A
@@ -1656,27 +1891,28 @@ int main (int argc, char** argv)
             setParam (a, "speed", 0.95f);
             setParam (a, "enableCorrection", 1.0f);
             setParam (a, "doNoHarm", 0.0f);
-            setParam (a, "classicMode", 0.0f);
+            setParam (a, "classicMode", classic ? 1.0f : 0.0f);
             setParam (a, "flexTune", 0.0f);
             setParam (a, "vibrato", vibAmt);
-            setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+            setParam (a, "liveEngine", 0.0f);
             p.setNonRealtime (true);                    // deterministic synchronous CREPE
             return sattari::harness::renderThrough (p, vib, sr, block);
         };
 
         const auto noVib = render (0.0f, false);
         const auto keptVib = render (0.9f, false);
-        const auto liveOut = render (0.0f, false);
+        const auto hardOut = render (0.0f, true);
 
         const double sNo   = pitchStdCents (noVib, sr);
         const double sKept = pitchStdCents (keptVib, sr);
-        std::printf ("vibrato: input=%.1f ct, corrected(off)=%.1f ct, corrected(0.9)=%.1f ct\n",
-                     inStd, sNo, sKept);
+        const double sHard = pitchStdCents (hardOut, sr);
+        std::printf ("vibrato: input=%.1f ct, corrected(off)=%.1f ct, corrected(0.9)=%.1f ct, hard=%.1f ct\n",
+                     inStd, sNo, sKept, sHard);
 
         bool finite = true; float peak = 0.0f;
-        for (int i = 0; i < liveOut.getNumSamples(); ++i)
+        for (int i = 0; i < hardOut.getNumSamples(); ++i)
         {
-            const float v = liveOut.getSample (0, i);
+            const float v = hardOut.getSample (0, i);
             if (! std::isfinite (v)) finite = false;
             peak = std::max (peak, std::fabs (v));
         }
@@ -1690,6 +1926,7 @@ int main (int argc, char** argv)
         int fails = 0;
         if (errKept > inStd * 0.30) { std::fprintf (stderr, "FAIL: preserved vibrato differs from natural depth by more than 30%%\n"); ++fails; }
         if (sKept <= inStd * 0.5)   { std::fprintf (stderr, "FAIL: vibrato-0.9 collapsed too far below the natural wiggle\n"); ++fails; }
+        if (sHard >= inStd * 0.35)  { std::fprintf (stderr, "FAIL: Hard mode retained more than 35%% of controlled vibrato depth\n"); ++fails; }
         if (! finite)              { std::fprintf (stderr, "FAIL: Studio produced non-finite samples\n"); ++fails; }
         if (peak < 1.0e-3f)        { std::fprintf (stderr, "FAIL: Studio output is silent\n"); ++fails; }
 

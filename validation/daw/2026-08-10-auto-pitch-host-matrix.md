@@ -1,7 +1,7 @@
 ---
 type: host-compatibility-matrix
 product: auto-pitch
-candidate_revision: 7fef5442
+candidate_revision: Auto Pitch 0.5.0 RC3 working tree based on 767becadb7cd
 date: 2026-08-10
 gate: 4
 truth_label: internal validation only; nothing here is a shipping claim
@@ -10,9 +10,9 @@ status: NOT STARTED
 
 # Auto Pitch — Gate 4 host matrix
 
-Frozen candidate **7fef5442**. If the plugin is rebuilt mid-matrix, every result
-above that point is void and the matrix restarts. That is the whole point of
-freezing.
+RC3 supersedes the preserved 0.4.1 candidate at `7fef544a6d49`. Commit/freeze
+the current worktree before filling this matrix. If the plugin is rebuilt after
+testing begins, every result above that point is void and the matrix restarts.
 
 Only claim a host that was actually tested. A blank box is a blank box, not a
 pass.
@@ -29,8 +29,8 @@ and they will appear in every DAW's plugin list next to the real one:
 | `~/Library/Audio/Plug-Ins/Components/AutoPitch.component` | 2026-04-28 | `aufx OGTA OGT_` |
 | `~/Library/Audio/Plug-Ins/VST3/AutoPitch.vst3` | 2026-04-28 | — |
 | `~/Library/Audio/Plug-Ins/VST3/AutoPitch.component` | 2026-04-10 | **a .component inside the VST3 folder** |
-| `~/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component` | 2026-08-10 | `aufx Ap01 Satr` ← the candidate |
-| `~/Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3` | 2026-08-10 | ← the candidate |
+| `~/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component` | 2026-08-16 | `aufx Ap01 Satr`, version 0.5.0 ← RC3 |
+| `~/Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3` | 2026-08-16 | version 0.5.0 ← RC3 |
 
 The April bundles carry a **different** identity (`OGTA`/`OGT_`), so they are not
 an identity collision — they are a different product or a much older build. The
@@ -78,9 +78,11 @@ plugin specifically is likely to fail, and both are easy to get wrong.
 
 ### A. Latency compensation — the null test
 
-Auto Pitch reports latency (2048 samples at 48 kHz on the Studio path, measured
-2080, 0.67 ms delta). If the host's delay compensation is not honoured, the
-tuned vocal sits ~43 ms late against the rest of the session and nobody notices
+Auto Pitch RC3 reports 2,885 samples at 48 kHz on Studio HQ. Offline, the dry
+reference measures exactly 2,885, forced-unity R3 measures 2,848 and a tuned
+onset measures 2,922; both reconstructed cases are within 0.77 ms of the centred
+report. If the host's delay compensation is not honoured, the tuned vocal sits
+~60 ms late against the rest of the session and nobody notices
 until the mix feels wrong.
 
 Do this, per host, and do not accept "it sounds fine":
@@ -99,11 +101,14 @@ Do this, per host, and do not accept "it sounds fine":
 - [ ] REAPER  null: ______ dBFS
 - [ ] FL      null: ______ dBFS
 
-### B. The AutoKey confidence gate — new behaviour in this candidate
+### B. Auto Pitch internal AutoKey confidence gate — RC3 behavior
 
-As of `8c2ce30`, Auto Pitch **withholds** a detected key from the session bus
-when the detector's margin is below 0.10. On a solo vocal the margin is
-routinely 0.01-0.07, so the correct behaviour is now **no key published at all**.
+Auto Pitch's frozen internal AutoKey uses the Aarden/chroma decision and
+**withholds** a detected key when the margin is below 0.10. On a solo vocal the
+margin is routinely 0.01-0.07, so the correct behavior is **No Result**, no bus
+publish, and retention of Auto Pitch's visible manual key. Sattari Key now uses
+a specialized full-mix detector and only publishes after the user explicitly
+locks its result; that separate master/song workflow is not part of this test.
 
 This will look like a regression to anyone who does not know. Verify it is
 working AS DESIGNED:
@@ -112,9 +117,8 @@ working AS DESIGNED:
 2. A second Sattari plugin that follows song key (Harmony or Maqam), Follow Song
    Key ON.
 3. **PASS: the follower does NOT adopt a key, and keeps its own.**
-4. Auto Pitch's own Key Detection tab should show a low confidence percentage
-   rather than 0% (the tab used to display the pitch tracker's confidence, which
-   was the wrong quantity entirely — fixed in this candidate).
+4. Auto Pitch's key readout should say **No Result** and identify the retained
+   manual key; it must not display a confident guessed key.
 5. Repeat on a full instrumental where the margin should clear the gate, and
    confirm the key DOES propagate.
 
@@ -133,20 +137,22 @@ no such feature — say so rather than leaving it blank.
 - [ ] Cold scan completes with no error or timeout
 - [ ] Instantiates on a mono track
 - [ ] Instantiates on a stereo track
-- [ ] Reported latency visible in the host and matches ~2048 samples @ 48 kHz
+- [ ] Reported latency visible in the host and matches 2,885 samples @ 48 kHz
 - [ ] Remove and re-insert 5x, no crash, no leak in the host's plugin list
 
 ### Automation
-All 21 registered parameters: `amount speed style scale keyRoot scaleMode
-autoKey followSongKey neuralPitch liveEngine enableCorrection doNoHarm
-formantPreserve vibrato classicMode vocalRange throat humanize transition
-outputGain traceConfidence`
+All 43 registered parameters must recall. The two compatibility IDs,
+`liveEngine` and `lowLatency`, are intentionally labeled inactive and
+non-automatable; they may appear in a host's parameter inventory but must not be
+offered as functioning engine controls.
 
 - [ ] Every parameter appears in the host's automation list
 - [ ] Writing automation on `amount` is read back correctly
 - [ ] Writing automation on `style` (discrete) lands on exact values, no drift
 - [ ] Fast automation ramps produce no zipper noise or dropout
 - [ ] Automation survives save/reload
+- [ ] Legacy Live/Low-Latency cannot be armed as meaningful automation and do
+      not alter audio or reported latency
 
 ### State
 - [ ] Save project, close, reopen — every parameter restored
@@ -159,22 +165,23 @@ outputGain traceConfidence`
 
 ### Sample rate and buffer — verify the documented envelope
 
-The envelope is **44.1/48 kHz at 128 samples or above**. Measured CPU p95
-against block budget: 96 kHz at <=128 samples FAILS (0.4-0.8x headroom), and 64
-samples is marginal at every rate. This is documented, not a surprise. What the
+The conservative RC3 envelope is **44.1 kHz at 256+ or 48 kHz at 512+**.
+44.1 kHz / 128 passed the isolated machine run; 48 kHz / 128 warned, 64 samples
+warned, and 96 kHz produced warnings/failures across the matrix. This is
+documented, not a surprise. What the
 host matrix must establish is that it **fails gracefully** — dropouts, not
 crashes, not silence, not corruption.
 
 | rate | buffer | expected | Logic | Ableton | REAPER | FL |
 |---|---|---|---|---|---|---|
-| 44.1k | 128 | clean | | | | |
+| 44.1k | 128 | diagnostic; outside conservative envelope | | | | |
 | 44.1k | 512 | clean | | | | |
-| 48k | 128 | clean | | | | |
+| 48k | 128 | marginal | | | | |
 | 48k | 256 | clean | | | | |
 | 48k | 512 | clean | | | | |
 | 48k | 1024 | clean | | | | |
 | 48k | 64 | marginal | | | | |
-| 96k | 512 | marginal | | | | |
+| 96k | 512 | unapproved / marginal | | | | |
 | 96k | 128 | **overrun expected** | | | | |
 | 96k | 64 | **overrun expected** | | | | |
 

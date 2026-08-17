@@ -7,24 +7,25 @@
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariChromagram.h>
 #include <sattari_audio_core/SattariKeyDetector.h>
+#include <sattari_audio_core/SattariKeyAnalysis.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
-#include <sattari_audio_core/SattariLogSpec.h>
-#include <sattari_audio_core/SattariKeyNetSpec.h>
+#include <sattari_audio_core/SattariSongKeyEstimator.h>
+#include <sattari_audio_core/SattariTempoEstimator.h>
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
 // =============================================================================
 //  Sattari Key — master-track key scanner + suite key publisher
 // -----------------------------------------------------------------------------
-//  Drop it on the master bus: it scans the full mix (its MAIN input — no
-//  sidechain routing), builds a rolling chromagram, runs the shared 24-key
-//  Krumhansl detector, and publishes ONE authoritative key to the cross-plugin
+//  Drop it on the master bus for continuous listening, or choose/drop a complete
+//  song for an asynchronous full-file scan. Both paths use the balanced 16 kHz
+//  full-mix detector and can publish ONE authoritative key to the cross-plugin
 //  session bus. Every other Sattari plugin in "Follow Song Key" mode then locks
-//  to it — "scan the master, get the key, apply to the whole project". Audio
-//  passes through untouched.
+//  to it. Live audio passes through untouched.
 // =============================================================================
 class SattariSongKeyAudioProcessor final : public juce::AudioProcessor
 {
@@ -63,14 +64,52 @@ public:
     // Run one detection pass over the current ring (FFT -> chroma -> key). Called
     // by the background publisher thread and by the offline render proof.
     void analyseNow();
-    void requestRescan() noexcept { rescan.store (true); }
+    void requestRescan();
 
-    // Live readout for the editor.
-    // `neural` tells the UI which detector produced this key. Without it a missing
-    // keynet_spec.onnx would silently drop the plugin onto the (weaker) chroma path
-    // with no way for the user to tell — the difference is ~61% vs ~45% exact.
-    struct Detected { bool valid=false; int root=0; bool minor=false; double confidence=0.0; bool publishing=false; double detuneCents=0.0; bool neural=false; };
-    Detected detected() const noexcept;
+    // A file analysis is deliberately a command, not an automatable parameter.
+    // It decodes and scans on its own worker so neither the audio callback nor the
+    // message thread is blocked. Live mode keeps listening to the plugin's main
+    // input, including a standalone app's selected audio input.
+    enum class AnalysisSource { Live, File };
+    bool analyseFileAsync (const juce::File&);
+    void listenLive();
+    void reanalyseCurrentSource();
+    void setSessionLocked (bool);
+    void unlockSession();
+    static bool isSupportedAudioFile (const juce::File&);
+
+    // Live readout for the editor. The release build is model-free: the balanced
+    // full-mix detector runs locally, with no hidden model or network dependency.
+    struct Detected
+    {
+        bool valid = false;
+        int root = 0;
+        bool minor = false;
+        double confidence = 0.0;
+        bool alternativeValid = false;
+        int alternativeRoot = 0;
+        bool alternativeMinor = false;
+        bool publishing = false;
+        double detuneCents = 0.0;
+        bool tempoValid = false;
+        double bpm = 0.0;
+        double tempoConfidence = 0.0;
+        bool tempoFromHost = false;
+        bool tempoOctaveAmbiguous = false;
+        bool lockRequested = false;
+        bool sessionLocked = false;
+        int lockedRoot = 0;
+        bool lockedMinor = false;
+        AnalysisSource source = AnalysisSource::Live;
+        bool analysing = false;
+        double progress = 0.0;
+        double segmentAgreement = 0.0;
+        int segments = 0;
+        bool possibleModulation = false;
+        juce::String sourceName;
+        juce::String error;
+    };
+    Detected detected() const;
 
     sattari::midi::SattariMidiLearn midiLearn { apvts };
 
@@ -78,6 +117,22 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float param (const char* id) const noexcept { return apvts.getRawParameterValue (id)->load(); }
     void  publishCurrent();
+
+    struct OfflineResult
+    {
+        sattari::dsp::KeyAnalysisResult key;
+        sattari::dsp::KeyCandidate alternative;
+        sattari::dsp::TempoResult tempo;
+        double detuneCents = 0.0;
+        double segmentAgreement = 0.0;
+        int segments = 0;
+        bool possibleModulation = false;
+    };
+    bool analyseFile (const juce::File&, OfflineResult&, juce::String& error);
+    static float onsetStrength (const float* magnitude, int numBins,
+                                std::vector<float>& previous);
+    void stopFileWorker();
+    void clearPublishedDecision();
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -88,65 +143,59 @@ private:
     std::array<std::atomic<float>, fftSize> ring;
     std::array<float, fftSize * 2> scratch {};
     std::array<float, fftSize> hann {};
+    std::array<float, fftSize> liveKeyInput {};
     std::atomic<int> writePos { 0 };
+    std::atomic<juce::int64> totalSamplesWritten { 0 };
     double running[12] = { 0 };                    // background-thread-only
     double runningDetune = 0.0;                    // background-thread-only (cents)
+    std::vector<float> livePreviousSpectrum;       // worker-thread-only
+    std::vector<float> liveOnsetEnvelope;          // worker-thread-only
 
-    // --- Key detection engines (worker-thread only) --------------------------
-    // Measured on 500 real GiantSteps tracks (SattariKeyDatasetEval), MIREXx100 /
-    // exact-match: the plain linear accumulateChroma fold this plugin used to run on
-    // scores 17.4 / 9.0% — barely above the ~4% chance rate for 24 keys, because
-    // low-frequency FFT bins are too coarse to separate semitones. Two upgrades, both
-    // already proven elsewhere in the suite, replace it:
-    //   * HpcpChromagram  (tuning-corrected + harmonic sum)   56.6 / 45.2%
-    //   * KeyNetSpec      (spectrogram CNN, needs ~30 s)      72.1 / 67.8%
-    // The neural model is the primary; HPCP is the always-available fallback, so the
-    // plugin is ~5x better than before even with no model installed.
+    // --- Release key engines (worker-thread only) ----------------------------
+    // SongKeyEstimator owns the balanced full-mix decision. The historical HPCP
+    // path remains as a warm-up fallback and provides the A440 detune readout;
+    // changing Sattari Key therefore does not change Compass or frozen Auto Pitch.
     sattari::dsp::HpcpChromagram hpcp;
-
-    // Neural key model. It was trained on 30 s excerpts, so a long rolling mono ring
-    // (separate from the 4096-pt FFT ring) feeds it, and inference is throttled — a
-    // TTA pass is 12 forward passes and there is no reason to run it every cycle.
-    sattari::dsp::LogSpec    logSpec;
-    sattari::dsp::KeyNetSpec keyNetSpec;
-    bool keyNetSpecPresent = false;
-    static constexpr double kSpecSeconds     = 30.0;   // model's training excerpt length
-    static constexpr double kSpecIntervalSec = 5.0;    // re-run the net at most this often
-    std::unique_ptr<std::atomic<float>[]> specRing;    // audio thread writes, worker reads
-    int  specRingSize = 0;
-    std::atomic<int>  specWritePos { 0 };
-    std::atomic<long> specFilled   { 0 };              // total samples seen (for readiness)
-    std::vector<float> specMono, specFeat;             // worker scratch (sized in prepare)
-    // Throttle by AUDIO CONSUMED, not by tick count: analyseNow() is called by the
-    // worker every ~700 ms in the plugin but back-to-back by offline harnesses, so a
-    // per-call countdown would fire the net at wildly different rates. Counting
-    // samples makes the cadence identical in both.
-    long specLastRunSamples = -1;                      // specFilled when the net last ran
-    // Latched neural verdict. The net runs every kSpecIntervalSec but analyseNow()
-    // publishes every ~700 ms, so without latching the chroma answer would overwrite
-    // the (much better) neural one on ~6 of every 7 cycles. Once the net has spoken we
-    // keep publishing its verdict until it speaks again.
-    bool specHaveResult = false;
-    int  specRoot = 0;
-    bool specMinor = false;
-    double specConfidence = 0.0;
+    sattari::dsp::KeyAnalysisEngine keyAnalysis;
+    sattari::dsp::SongKeyEstimator liveSongKey;
 
     std::atomic<int>   detRoot { 0 };
     std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
-    std::atomic<bool>  detNeural { false };        // true when the last key came from the neural model
     std::atomic<double> detConf { 0.0 };
+    std::atomic<bool>   detAlternativeValid { false };
+    std::atomic<int>    detAlternativeRoot { 0 };
+    std::atomic<bool>   detAlternativeMinor { false };
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
+    std::atomic<bool>   detTempoValid { false };
+    std::atomic<double> detBpm { 0.0 };
+    std::atomic<double> detTempoConfidence { 0.0 };
+    std::atomic<bool>   detTempoOctaveAmbiguous { false };
+    std::atomic<double> detSegmentAgreement { 0.0 };
+    std::atomic<int>    detSegments { 0 };
+    std::atomic<bool>   detPossibleModulation { false };
     std::atomic<double> hostBpm { 0.0 };
     juce::int64 transientId = 0;
 
-    // Confidence-gated + hysteresis publish state (worker thread only). The key we
-    // actually broadcast (pub*) only changes when a new candidate is confident AND
-    // stays the winner for kStableAnalyses cycles, so a single ambiguous frame can't
-    // flip the whole suite's key.
-    int  pubRoot = -1, pubScale = 0;
-    int  candRoot = -1, candScale = 0, candCount = 0;
-    static constexpr double kMinPublishConfidence = 0.02;
-    static constexpr int    kStableAnalyses = 2;
+    std::atomic<AnalysisSource> analysisSource { AnalysisSource::Live };
+    std::atomic<bool> fileAnalysing { false };
+    std::atomic<double> fileProgress { 0.0 };
+    std::atomic<bool> fileCancel { false };
+    std::thread fileWorker;
+    juce::File lastFile;
+    juce::String fileSourceName;
+    juce::String fileError;
+    mutable juce::CriticalSection fileStateLock;
+    mutable std::mutex analysisStateMutex;
+
+    // Lock snapshot is guarded by analysisStateMutex. Detection may continue and
+    // show a new candidate, but the session bus cannot change until the user
+    // explicitly unlocks and locks again.
+    bool lockSnapshotValid = false;
+    int lockedRoot = 0;
+    bool lockedMinor = false;
+    double lockedReferenceHz = 440.0;
+    double lockedBpm = 0.0;
+    static constexpr double kMinPublishConfidence = sattari::dsp::kReleaseKeyConfidence;
 
     std::thread worker;
     std::atomic<bool> workerRunning { false };

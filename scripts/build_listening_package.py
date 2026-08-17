@@ -21,19 +21,21 @@ SEPARATE key file that must not be opened until scoring is finished.
 """
 from __future__ import annotations
 
+import argparse
+import datetime as dt
 import json
 import pathlib
 import random
 import sys
+import wave
 
 import numpy as np
-import soundfile as sf
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = REPO / "validation/corpus/auto-pitch.json"
-RENDERS = REPO / "validation/auto-pitch/renders"
+DEFAULT_RENDERS = REPO / "validation/auto-pitch/renders"
 # Audio never enters the repository, ignored or not.
-OUT = pathlib.Path("/Users/lillypad/Desktop/vocal test/listening-package")
+DEFAULT_OUT = pathlib.Path("/Users/lillypad/Desktop/vocal test/listening-package")
 
 SEED = 20260810          # reproducible; the key file is the secret, not the seed
 TARGET_PEAK_DBFS = -1.0
@@ -46,8 +48,45 @@ CONDITIONS = [
 
 
 def load(path: pathlib.Path):
-    audio, sr = sf.read(str(path), always_2d=True, dtype="float64")
+    """Read uncompressed integer PCM WAV without a third-party audio package."""
+    with wave.open(str(path), "rb") as wav:
+        channels = wav.getnchannels()
+        width = wav.getsampwidth()
+        sr = wav.getframerate()
+        frames = wav.getnframes()
+        raw = wav.readframes(frames)
+
+    if width == 1:
+        audio = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64) - 128.0) / 128.0
+    elif width == 2:
+        audio = np.frombuffer(raw, dtype="<i2").astype(np.float64) / 32768.0
+    elif width == 3:
+        packed = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        values = packed[:, 0] | (packed[:, 1] << 8) | (packed[:, 2] << 16)
+        values = (values ^ 0x800000) - 0x800000
+        audio = values.astype(np.float64) / 8388608.0
+    elif width == 4:
+        audio = np.frombuffer(raw, dtype="<i4").astype(np.float64) / 2147483648.0
+    else:
+        raise ValueError(f"unsupported WAV sample width ({width} bytes): {path}")
+
+    audio = audio.reshape(-1, channels)
     return audio.mean(axis=1), sr
+
+
+def write_pcm24(path: pathlib.Path, audio: np.ndarray, sr: int) -> None:
+    """Write a mono 24-bit PCM WAV deterministically using the standard library."""
+    values = np.clip(np.rint(audio * 8388607.0), -8388608, 8388607).astype(np.int32)
+    unsigned = values.astype(np.uint32) & 0xFFFFFF
+    packed = np.empty((len(unsigned), 3), dtype=np.uint8)
+    packed[:, 0] = unsigned & 0xFF
+    packed[:, 1] = (unsigned >> 8) & 0xFF
+    packed[:, 2] = (unsigned >> 16) & 0xFF
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(3)
+        wav.setframerate(sr)
+        wav.writeframes(packed.tobytes())
 
 
 def active_rms(x: np.ndarray, sr: int) -> float:
@@ -69,12 +108,34 @@ def active_rms(x: np.ndarray, sr: int) -> float:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument ("--renders", type=pathlib.Path, default=DEFAULT_RENDERS,
+                         help="directory containing the Natural/Hard candidate renders")
+    parser.add_argument ("--output", type=pathlib.Path, default=DEFAULT_OUT,
+                         help="destination package; use a new directory for a new candidate")
+    parser.add_argument ("--candidate", default="uncommitted candidate",
+                         help="revision or immutable candidate label written into the sheet")
+    parser.add_argument ("--force", action="store_true",
+                         help="replace an existing package (never use after scoring begins)")
+    args = parser.parse_args()
+    renders = args.renders.expanduser().resolve()
+    out = args.output.expanduser().resolve()
+
     manifest = json.loads(MANIFEST.read_text())
     src_root = pathlib.Path(manifest["clips"][0]["source_path"]).parent
-    OUT.mkdir(parents=True, exist_ok=True)
+    if out.exists() and not args.force and any(out.iterdir()):
+        print(f"ERROR: refusing to overwrite sealed/non-empty package: {out}", file=sys.stderr)
+        print("Choose a new --output directory for every candidate.", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
 
     rng = random.Random(SEED)
-    clips = [c["clip_id"] for c in manifest["clips"]]
+    manifest_clips = manifest["clips"]
+    clips = [c["clip_id"] for c in manifest_clips]
+    required_count = int(manifest.get("minimum_real_clip_count", 5))
+    required_tags = set(manifest.get("coverage_requirements", []))
+    covered_tags = {tag for clip in manifest_clips for tag in clip.get("vocal_tags", [])}
+    missing_tags = sorted(required_tags - covered_tags)
     set_order = clips[:]
     rng.shuffle(set_order)                      # clip identity hidden too
 
@@ -84,7 +145,7 @@ def main() -> int:
 
         loaded = []
         for cond, pattern, kind in CONDITIONS:
-            path = (src_root if kind == "source" else RENDERS) / pattern.format(clip=clip)
+            path = (src_root if kind == "source" else renders) / pattern.format(clip=clip)
             if not path.is_file():
                 print(f"ERROR: missing {path}", file=sys.stderr)
                 return 2
@@ -104,7 +165,7 @@ def main() -> int:
         for slot, idx in enumerate(order, start=1):
             cond, x, sr = scaled[idx]
             name = f"{set_name}{slot}.wav"
-            sf.write(str(OUT / name), x.astype(np.float32), sr, subtype="PCM_24")
+            write_pcm24(out / name, x, sr)
             items.append(name)
             key_rows.append((f"{set_name}{slot}", clip, cond,
                              20 * np.log10(max(float(np.max(np.abs(x))), 1e-12))))
@@ -116,7 +177,7 @@ def main() -> int:
            "Opening this before scoring invalidates the session.", "",
            "| item | clip | condition | peak dBFS |", "|---|---|---|---|"]
     key += [f"| {i} | {c} | {cond} | {pk:.1f} |" for i, c, cond, pk in key_rows]
-    (OUT / "KEY-DO-NOT-OPEN.md").write_text("\n".join(key) + "\n")
+    (out / "KEY-DO-NOT-OPEN.md").write_text("\n".join(key) + "\n")
 
     # --- the scoring sheet --------------------------------------------------
     crit = [("pitch naturalness", "does the tuning sound like a person or a machine"),
@@ -129,7 +190,7 @@ def main() -> int:
 
     sheet = [
         "---", "type: listening-test-report", "product: auto-pitch",
-        "candidate_revision: 7fef5442", "date: 2026-08-10",
+        f"candidate_revision: {args.candidate}", f"date: {dt.date.today().isoformat()}",
         "truth_label: internal validation only; not sale-ready", "---", "",
         "# Auto Pitch — blind listening session", "",
         "## Before you start", "",
@@ -154,6 +215,21 @@ def main() -> int:
         sheet += ["", f"Artifacts heard in SET {set_name}, with timestamps:", "",
                   "```", "", "```", ""]
 
+    if len(clips) >= required_count and not missing_tags:
+        coverage_note = [
+            f"**Corpus coverage.** This session contains {len(clips)} cleared clips against",
+            f"a {required_count}-clip minimum and covers all {len(required_tags)} required tags.",
+            "The listening result must still be limited to this corpus; it is not a",
+            "universal quality claim.",
+        ]
+    else:
+        missing = ", ".join(missing_tags) or "none"
+        coverage_note = [
+            f"**Corpus limitation.** This session contains {len(clips)} cleared clips against",
+            f"a {required_count}-clip minimum. Missing required tags: {missing}.",
+            "This session cannot speak for material its corpus does not contain.",
+        ]
+
     sheet += [
         "## After scoring", "",
         "- [ ] All sets scored", "- [ ] Artifact notes written",
@@ -163,13 +239,10 @@ def main() -> int:
         "product licensed and driven to equivalent settings on this same audio.",
         "That has not been done, so no reference is included rather than a",
         "misleading one. Any parity claim needs that session to happen first.", "",
-        "**Three sets, not five.** The corpus stands at 3/5 clips; belting, rnb,",
-        "vibrato and male_vocal are uncovered. This session cannot speak for",
-        "material it does not contain.", "",
-    ]
-    (OUT / "SCORING-SHEET.md").write_text("\n".join(sheet) + "\n")
+    ] + coverage_note + [""]
+    (out / "SCORING-SHEET.md").write_text("\n".join(sheet) + "\n")
 
-    print(f"\npackage: {OUT}")
+    print(f"\npackage: {out}")
     print(f"  {len(key_rows)} items, {len(sheet_sets)} sets")
     print("  SCORING-SHEET.md   fill this in")
     print("  KEY-DO-NOT-OPEN.md do not open until scoring is complete")

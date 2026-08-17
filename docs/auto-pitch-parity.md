@@ -1,18 +1,22 @@
-# Auto Pitch 0.4.1 parity record
+# Auto Pitch 0.5.0 RC3 parity record
 
-Comparison target: Auto-Tune Pro 11's published product surface and manual
-(checked 2026-08-05):
+Comparison target: AutoTune Pro 11.6 and AutoKey 2.6 published product surfaces
+and manuals (checked 2026-08-16):
 
 - <https://www.antarestech.com/products/pitch-correction/pro>
 - <https://www.antarestech.com/documentation/auto-tune-pro-11>
+- <https://www.antarestech.com/products/pitch-correction/auto-key>
+- <https://www.antarestech.com/documentation/auto-key>
 
 This record is an engineering scope map, not a sound-quality or trademark claim.
 
-| Workflow | Sattari Auto Pitch 0.4.1 | Status |
+| Workflow | Sattari Auto Pitch 0.5.0 | Status |
 |---|---|---|
 | Realtime automatic tuning | YIN/optional CREPE, Natural through Hard/Robot styles, Flex, Humanize, transition, throat, formant and vibrato controls | Implemented |
-| Low-latency tracking | Studio Rubber Band, Live PSOLA and Low-Latency PSOLA with measured/reported latency contract | Implemented |
+| Audibly validated vocal quality | Synthetic target math, controlled Hard-mode modulation, safety, and six real-vocal corpus renders pass; the 18-item blind package still has no user scores | **Unproven; blocking** |
+| Low-latency tracking | Shipping DSP is quality-locked to the 60.10 ms R3/Finer Short Studio HQ path. Legacy Live and Low-Latency parameters remain inactive. A separate causal, waveform-locked Sattari Live alpha now passes its isolated 15.17 ms foundation contract and has private corpus renders, but is not connected to plugin controls | **Foundation implemented; not shipping or listening-qualified** |
 | Key and scale | Manual, AutoKey, Song Key bus, modulation-aware Key Map, editable pitch classes and 13 scale/mode choices | Implemented |
+| AutoKey + Sattari Key handoff | Auto Pitch's frozen internal fallback remains Aarden/chroma and retains the manual key below its 0.10 margin. Sattari Key uses a specialized balanced full-mix engine, applies the same conservative margin policy, and sends only an explicitly locked result over the session bus. No neural model is shipped in either path | Implemented; wider held-out calibration still required |
 | Reference pitch | A4 detune ±100 cents or opt-in suite reference | Implemented |
 | MIDI | Exact held-note targeting plus the suite MIDI Learn mapper | Implemented |
 | Graph-style note editing | Stable persistent objects, vertical retarget, bypass, split/join/delete and 64-step undo/redo | Implemented |
@@ -21,7 +25,7 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 | Detailed per-object controls | Amount, retune, transition, humanize, vibrato, formant, gain and ±500 ms timing, with horizontal graph zoom/fit | Implemented |
 | Graph pitch curves/lines | Region-level pitch is editable; freehand curve and line tools are not present | Future DSP/UI work |
 | Graph time correction | Opt-in latency-compensated fractional-delay engine with 500 ms look-ahead | Implemented; DAW stress qualification pending |
-| ARA2 whole-clip access | ARA 2.2 playback renderer feeds the same tuning DSP; build is enabled when the public SDK is present | Implemented; host qualification pending |
+| ARA2 whole-clip access | ARA 2.2 foundation builds when the SDK is present | **Host workflow and correction/state qualification pending** |
 | AAX / Pro Tools | Reproducible AAX build target and dependency checks are present | Requires licensed Avid SDK, signing credentials and Pro Tools qualification |
 | Multi-track view | Session bus coordinates key/reference, but there is no shared multi-instance editor | Future host/UI architecture |
 
@@ -33,6 +37,10 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 - Objective benchmark audits pitch accuracy, latency honesty, THD/alias proxy,
   CPU, transitions, vibrato, polyphonic correction and output safety.
 - Trace contract checks the expanded public parameter surface.
+
+Machine evidence does not establish vocal sound quality. A sine can land within
+0.01 cents while a real voice still exhibits warble, consonant damage, formant
+drift, transient blur or note-transition artifacts.
 
 ## Format builds
 
@@ -54,7 +62,11 @@ cmake -S plugins/auto-pitch -B build-auto-pitch-aax \
 
 ## Release boundary
 
-Version 0.4.1 is an internal test candidate. A commercial parity statement needs
-real-vocal blind listening against the chosen references, DAW automation/state
-round-trips, multi-instance stress, signed/notarized installers, licensed model
-distribution, ARA/AAX host certification, and the remaining freehand Graph tools above.
+Version 0.4.1 remains preserved at `7fef544a6d49`; version 0.5.0 is the new RC3
+working line created before any 0.4.1 listening scores existed. A
+commercial parity statement needs real-vocal blind listening against AutoTune Pro
+on the same level-matched material, a genuinely usable live engine, correct
+latency/PDC across the DAW matrix, a wider held-out and calibrated shared key detector, DAW automation/state
+round-trips, multi-instance stress, ARA/AAX host qualification, and the remaining
+freehand Graph tools above. Signing/notarization is intentionally outside the
+current work scope.

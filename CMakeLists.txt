@@ -99,6 +99,35 @@ if(TARGET juce::juce_audio_utils)
             juce::juce_recommended_warning_flags)
 endif()
 
+# Shared KeyAnalysisEngine contract. It intentionally compiles with ONNX off:
+# neural inference may enhance Compass, but missing model assets must always
+# leave the complete chroma path available and correctly attributed.
+if(TARGET juce::juce_dsp)
+    add_executable(SattariKeyAnalysisContract
+        EXCLUDE_FROM_ALL
+        core/tests/key_analysis_contract.cpp)
+    target_compile_definitions(SattariKeyAnalysisContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariKeyAnalysisContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
+    add_executable(SattariSongKeyEstimatorContract
+        EXCLUDE_FROM_ALL
+        core/tests/song_key_estimator_contract.cpp)
+    target_compile_definitions(SattariSongKeyEstimatorContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariSongKeyEstimatorContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()
+
 # Root-suite CTest inventory. The executables remain explicit build targets so a
 # developer can build a focused contract, while `ctest` finally provides standard
 # discovery/reporting for a prepared root tree.
@@ -108,6 +137,7 @@ if(BUILD_TESTING)
         SattariAudioCorePitchContract
         SattariAudioCoreHarmonicContract
         SattariAudioCoreKeyContract
+        SattariAudioCoreTempoContract
         SattariAudioCoreScaleIntervalContract
         SattariAudioCoreKWeightingContract
         SattariAudioCoreDrumKitContract
@@ -119,7 +149,9 @@ if(BUILD_TESTING)
         SattariAudioCoreArrangementContract
         SattariAudioCoreNoteEngineContract
         SattariAudioCorePsolaContract
+        SattariAudioCoreLivePitchContract
         SattariAudioCoreCrepeContract
+        SattariAudioCorePitchFusionContract
         SattariAudioCoreVoxContract
         SattariAudioCoreVoxSynthContract
         SattariAudioCoreFormantContract
@@ -128,6 +160,8 @@ if(BUILD_TESTING)
         SattariAudioCoreOnsetCurveContract
         SattariAudioCoreHarmonicMaskContract
         SattariAudioCoreRealtimeSnapshotContract
+        SattariKeyAnalysisContract
+        SattariSongKeyEstimatorContract
         SattariCrossPluginBusContract
         SattariRackHostContract
         SattariVocalProductContract
@@ -181,6 +215,12 @@ if(BUILD_TESTING)
         if(TARGET ${contract})
             add_test(NAME ${contract} COMMAND $<TARGET_FILE:${contract}>)
             set_tests_properties(${contract} PROPERTIES LABELS "contract;non-stemdeck")
+            if(contract STREQUAL "SattariAudioCoreLivePitchContract")
+                # Its callback percentile gate measures one engine on one core;
+                # parallel contracts would turn scheduler contention into a false
+                # DSP regression.
+                set_tests_properties(${contract} PROPERTIES RUN_SERIAL TRUE)
+            endif()
         endif()
     endforeach()
 
@@ -271,7 +311,11 @@ if(BUILD_TESTING)
 
     if(TARGET SongKeyRender)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
-        set_tests_properties(SongKeyRenderSmoke PROPERTIES LABELS "render;non-stemdeck")
+        add_test(NAME SongKeyFileAnalysisSmoke COMMAND $<TARGET_FILE:SongKeyRender> --file-smoke)
+        add_test(NAME SongKeyLiveTempoSmoke COMMAND $<TARGET_FILE:SongKeyRender> --live-tempo-smoke)
+        set_tests_properties(
+            SongKeyRenderSmoke SongKeyFileAnalysisSmoke SongKeyLiveTempoSmoke
+            PROPERTIES LABELS "render;non-stemdeck")
     endif()
     if(TARGET AutoPitchRender)
         add_test(NAME AutoPitchRenderSmoke COMMAND $<TARGET_FILE:AutoPitchRender> --smoke)

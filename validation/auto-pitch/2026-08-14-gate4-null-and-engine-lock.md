@@ -1,7 +1,7 @@
 ---
 type: gate-finding
 product: auto-pitch
-candidate_revision: 7fef5442
+candidate_revision: 7fef544a6d49
 date: 2026-08-14
 gate: 4
 truth_label: internal validation only; nothing here is a shipping claim
@@ -9,6 +9,15 @@ status: TWO BLOCKERS FOUND BEFORE THE MANUAL MATRIX WAS RUN
 ---
 
 # Auto Pitch — Gate 4 test A, measured offline
+
+> **RC2 resolution — 2026-08-16:** This file remains the historical 0.4.1
+> finding. Auto Pitch 0.5.0 is a separate candidate line. It selects an untouched
+> dry reference at the measured R3 group delay, reports 5,428 samples at 48 kHz,
+> and passes all five rows below at `-inf` dBFS with zero offset. A forced-unity
+> R3 render measures 5,402 samples and a corrected onset 5,455; both are within
+> 0.6 ms of the centred host report. Legacy Live/Low-Latency parameters retain
+> state compatibility but are renamed inactive and made non-automatable. Manual
+> DAW matrix testing remains open.
 
 Gate 4 test A was written as a manual DAW procedure: two sample-aligned copies of
 a vocal, Auto Pitch on one with correction off, invert, **pass is below
@@ -18,7 +27,7 @@ That test asks one question — *does a pass-through come back sample-aligned wi
 what went in?* — and it does not need a DAW to answer. `AutoPitchRender
 --nulltest` now answers it offline.
 
-**The plugin was not modified.** Auto Pitch remains frozen at `7fef5442`; only
+**The plugin was not modified.** Auto Pitch remains frozen at `7fef544a6d49`; only
 the test tool changed. Measuring a freeze is the point of freezing it.
 
 ```

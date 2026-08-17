@@ -12,7 +12,8 @@ sessions and automation contracts do not.
 
 Sattari Key remains a focused detector. It can publish key and host tempo when
 Compass is absent, but its lower-priority lease cannot overwrite a live Compass
-frame.
+frame. Detection alone never publishes: the user reviews the primary/alternate
+key and tempo, then **Lock session** freezes and publishes the snapshot.
 
 ## Context flow
 

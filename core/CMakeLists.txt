@@ -34,6 +34,14 @@ target_link_libraries(SattariAudioCoreKeyContract
     PRIVATE
         SattariAudioCore)
 
+# Global BPM inference from a streaming spectral-flux/onset envelope (pure std).
+add_executable(SattariAudioCoreTempoContract
+    tests/tempo_estimator_contract.cpp)
+
+target_link_libraries(SattariAudioCoreTempoContract
+    PRIVATE
+        SattariAudioCore)
+
 # Key-profile benchmark tool — evidence for the default profile in
 # SattariKeyDetector.h (Krumhansl vs Temperley vs Aarden-Essen). Pure-std; a tool,
 # not a test, so EXCLUDE_FROM_ALL — build/run it explicitly to regenerate the table.
@@ -215,12 +223,31 @@ target_link_libraries(SattariAudioCorePsolaContract
     PRIVATE
         SattariAudioCore)
 
+# Next-generation causal tracker + waveform-locked TD-PSOLA foundation. This is
+# intentionally an isolated core contract until its real-vocal gates beat the
+# legacy live path; it is not connected to any shipping plugin control.
+add_executable(SattariAudioCoreLivePitchContract
+    tests/live_pitch_engine_contract.cpp)
+
+target_link_libraries(SattariAudioCoreLivePitchContract
+    PRIVATE
+        SattariAudioCore)
+
 # CREPE salience-decode contract (pure-std; ONNX inference itself is optional and
 # not exercised here — this locks the bin<->Hz mapping + weighted-average decode).
 add_executable(SattariAudioCoreCrepeContract
     tests/crepe_pitch_contract.cpp)
 
 target_link_libraries(SattariAudioCoreCrepeContract
+    PRIVATE
+        SattariAudioCore)
+
+# Conservative YIN + CREPE fusion contract. Locks agreement blending, neural
+# octave rejection, conflict fallback, and high-confidence neural rescue.
+add_executable(SattariAudioCorePitchFusionContract
+    tests/pitch_fusion_contract.cpp)
+
+target_link_libraries(SattariAudioCorePitchFusionContract
     PRIVATE
         SattariAudioCore)
 

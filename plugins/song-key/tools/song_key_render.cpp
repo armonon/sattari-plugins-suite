@@ -6,25 +6,30 @@
 //
 //   song_key_render          # detect + assert C (local proof)
 //   song_key_render --smoke  # assert a valid key is detected (CI-safe)
+//   song_key_render --file-smoke # choose/drop path: decode + full-song analysis
+//   song_key_render --live-tempo-smoke # live 120 BPM onset/tempo contract
+//   song_key_render --analyse-file <audio> # print the production file verdict
 //   song_key_render --corpus <dir> [N]   # score the REAL PLUGIN on a labelled corpus
 //
 // --corpus is the honest end-to-end measurement: it streams each track through
 // SattariSongKeyAudioProcessor::processBlock exactly as a host would, then reads
 // detected() and scores MIREX. SattariKeyDatasetEval scores the shared detector
 // core; this scores what the plugin actually ships, including its ring buffers,
-// worker cadence and neural-vs-chroma fallback logic.
+// worker cadence and shared Aarden/chroma decision.
 #include "SongKeyProcessor.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <sattari_audio_core/SattariEditorRender.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -71,8 +76,136 @@ bool renderUi (const juce::File& destination, bool minimumSize)
 
     return sattari::test::renderEditorToPng (
         processor, destination,
-        minimumSize ? 660 : 0,
-        minimumSize ? 470 : 0);
+        minimumSize ? 720 : 0,
+        minimumSize ? 600 : 0);
+}
+
+bool fileAnalysisSmoke()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int seconds = 12;
+    juce::AudioBuffer<float> song (2, (int) sampleRate * seconds);
+    const double frequencies[] = { 261.6256, 329.6276, 391.9954 };
+    double phases[] = { 0.0, 0.0, 0.0 };
+    for (int sample = 0; sample < song.getNumSamples(); ++sample)
+    {
+        const int beatSamples = (int) (sampleRate * 0.5); // 120 BPM
+        const int beatPosition = sample % beatSamples;
+        const double pulse = std::exp (-beatPosition / (sampleRate * 0.035));
+        const double envelope = 0.18 + 0.82 * pulse;
+        float value = 0.0f;
+        for (int tone = 0; tone < 3; ++tone)
+        {
+            value += (float) (0.22 * envelope * std::sin (phases[tone]));
+            phases[tone] += juce::MathConstants<double>::twoPi
+                * frequencies[tone] / sampleRate;
+        }
+        song.setSample (0, sample, value);
+        song.setSample (1, sample, value);
+    }
+
+    const auto file = juce::File::createTempFile (".wav");
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::OutputStream> stream (file.createOutputStream());
+    if (stream == nullptr)
+        return false;
+    const auto options = juce::AudioFormatWriterOptions {}
+                             .withSampleRate (sampleRate)
+                             .withNumChannels (2)
+                             .withBitsPerSample (24);
+    auto writer = wav.createWriterFor (stream, options);
+    if (writer == nullptr)
+        return false;
+    if (! writer->writeFromAudioSampleBuffer (song, 0, song.getNumSamples()))
+        return false;
+    writer.reset();
+
+    SattariSongKeyAudioProcessor processor;
+    if (! processor.analyseFileAsync (file))
+    {
+        file.deleteFile();
+        return false;
+    }
+
+    auto detected = processor.detected();
+    for (int wait = 0; detected.analysing && wait < 1000; ++wait)
+    {
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        detected = processor.detected();
+    }
+
+    const bool passed = ! detected.analysing
+        && detected.error.isEmpty()
+        && detected.source == SattariSongKeyAudioProcessor::AnalysisSource::File
+        && detected.valid
+        && detected.root == 0
+        && ! detected.minor
+        && detected.alternativeValid
+        && detected.tempoValid
+        && std::abs (detected.bpm - 120.0) <= 2.0
+        && detected.segments >= 1;
+
+    processor.setSessionLocked (true);
+    const auto locked = processor.detected();
+    const bool lockedCorrectly = locked.lockRequested
+        && locked.sessionLocked
+        && locked.publishing
+        && locked.lockedRoot == 0
+        && ! locked.lockedMinor;
+    processor.listenLive();
+    const bool returnedLive = processor.detected().source
+        == SattariSongKeyAudioProcessor::AnalysisSource::Live;
+    file.deleteFile();
+    return passed && lockedCorrectly && returnedLive;
+}
+
+bool liveTempoSmoke()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    constexpr int seconds = 14;
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+    processor.releaseResources();
+    setParam (processor.parameters(), "publish", 0.0f);
+
+    const double frequencies[] = { 261.6256, 329.6276, 391.9954 };
+    double phases[] = { 0.0, 0.0, 0.0 };
+    int absoluteSample = 0;
+    int sinceAnalysis = 0;
+    for (int block = 0; block < seconds * (int) sampleRate / blockSize; ++block)
+    {
+        juce::AudioBuffer<float> audio (2, blockSize);
+        for (int sample = 0; sample < blockSize; ++sample, ++absoluteSample)
+        {
+            const int beatSamples = (int) (sampleRate * 0.5);
+            const int beatPosition = absoluteSample % beatSamples;
+            const double pulse = std::exp (-beatPosition / (sampleRate * 0.035));
+            const double envelope = 0.18 + 0.82 * pulse;
+            float value = 0.0f;
+            for (int tone = 0; tone < 3; ++tone)
+            {
+                value += (float) (0.22 * envelope * std::sin (phases[tone]));
+                phases[tone] += juce::MathConstants<double>::twoPi
+                    * frequencies[tone] / sampleRate;
+            }
+            audio.setSample (0, sample, value);
+            audio.setSample (1, sample, value);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (audio, midi);
+        sinceAnalysis += blockSize;
+        if (sinceAnalysis >= 2048)
+        {
+            sinceAnalysis = 0;
+            processor.analyseNow();
+        }
+    }
+    processor.analyseNow();
+    const auto detected = processor.detected();
+    return detected.source == SattariSongKeyAudioProcessor::AnalysisSource::Live
+        && detected.tempoValid
+        && std::abs (detected.bpm - 120.0) <= 2.0;
 }
 }
 
@@ -116,6 +249,70 @@ double mirexScore (int pRoot, bool pMin, int tRoot, bool tMin)
 
 int main (int argc, char** argv)
 {
+    if (argc == 3 && std::strcmp (argv[1], "--analyse-file") == 0)
+    {
+        SattariSongKeyAudioProcessor processor;
+        setParam (processor.parameters(), "publish", 0.0f);
+        if (! processor.analyseFileAsync (juce::File (argv[2])))
+        {
+            std::fprintf (stderr, "FAIL: file was not accepted\n");
+            return 1;
+        }
+        auto detected = processor.detected();
+        while (detected.analysing)
+        {
+            std::this_thread::sleep_for (std::chrono::milliseconds (10));
+            detected = processor.detected();
+        }
+        if (! detected.valid)
+        {
+            std::fprintf (stderr, "FAIL: %s\n", detected.error.toRawUTF8());
+            return 1;
+        }
+        static const char* names[] = {
+            "C", "C#", "D", "D#", "E", "F",
+            "F#", "G", "G#", "A", "A#", "B"
+        };
+        std::printf ("%s %s | margin %.3f",
+                     names[detected.root % 12], detected.minor ? "minor" : "major",
+                     detected.confidence);
+        if (detected.alternativeValid)
+            std::printf (" | alternate %s %s",
+                         names[detected.alternativeRoot % 12],
+                         detected.alternativeMinor ? "minor" : "major");
+        if (detected.tempoValid)
+            std::printf (" | %.2f BPM (tempo confidence %.3f)%s",
+                         detected.bpm, detected.tempoConfidence,
+                         detected.tempoOctaveAmbiguous ? " [half/double ambiguous]" : "");
+        std::printf (" | tuning %+.1f cents | sections %d | agreement %.1f%%%s\n",
+                     detected.detuneCents, detected.segments,
+                     100.0 * detected.segmentAgreement,
+                     detected.possibleModulation ? " | possible modulation" : "");
+        return 0;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--file-smoke") == 0)
+    {
+        if (! fileAnalysisSmoke())
+        {
+            std::fprintf (stderr, "FAIL: full-song file analysis workflow\n");
+            return 1;
+        }
+        std::printf ("Sattari Key file analysis smoke ok\n");
+        return 0;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--live-tempo-smoke") == 0)
+    {
+        if (! liveTempoSmoke())
+        {
+            std::fprintf (stderr, "FAIL: live tempo workflow\n");
+            return 1;
+        }
+        std::printf ("Sattari Key live tempo smoke ok\n");
+        return 0;
+    }
+
     if (argc == 3
         && (std::strcmp (argv[1], "--render-ui") == 0
             || std::strcmp (argv[1], "--render-ui-min") == 0))

@@ -1,5 +1,5 @@
 // =============================================================================
-//  Sattari — KeyAnalysisEngine: ONE key detector for the whole suite
+//  Sattari — KeyAnalysisEngine: shared realtime/fallback key detector
 // -----------------------------------------------------------------------------
 //  WHY THIS EXISTS
 //
@@ -14,7 +14,13 @@
 //      Krumhansl                   51.90 / 38.8%          52.22 / 41.6%
 //      Sha'ath                     56.56 / 45.2%          53.36 / 43.6%
 //
-//  The obvious fix — flip SATTARI_KEY_PROFILE — could not be applied, because
+//  Those training-corpus figures did not hold up as release evidence. On the
+//  genuinely held-out 48-track Winterreise set, Aarden scored 88.12 MIREX while
+//  Sha'ath scored 80.00 and keynet_spec scored 55.00. The release configuration
+//  therefore remains Aarden and neural-disabled until representative held-out
+//  pop/rock/electronic evidence supports a change.
+//
+//  The obvious early fix — flip SATTARI_KEY_PROFILE — could not be applied, because
 //  it is a GLOBAL compile-time #define. Changing it changes the detector for
 //  every consumer at once, including Auto Pitch's AutoKey fallback, which is
 //  frozen for release-candidate qualification. A "one-line free win" would have
@@ -31,6 +37,11 @@
 //  intelligence: the chroma path still calls detail::detectKeyWithProfiles()
 //  and the neural path still calls KeyNetSpec, unchanged. Nothing is
 //  reimplemented here, only routed.
+//
+//  Sattari Key's whole-song/file verdict now uses SongKeyEstimator, a specialized
+//  16 kHz full-mix path validated against its private song-development set. This
+//  engine remains Sattari Key's high-confidence exposed-chord fallback and the
+//  stable path for consumers whose lifecycle does not permit that specialization.
 //
 //  BEHAVIOUR IS PRESERVED BY DEFAULT. KeyAnalysisConfig{} reproduces exactly
 //  what detectKey() does today — Aarden profile, chroma only, no model — so a
@@ -55,6 +66,11 @@
 namespace sattari::dsp
 {
 
+// Release acceptance floor for the Aarden chroma winner-vs-runner-up margin.
+// Clean known-key melodies measured 0.157..0.327; ambiguous solo vocals measured
+// at most 0.067. The midpoint keeps roughly 1.5x separation on both sides.
+inline constexpr double kReleaseKeyConfidence = 0.10;
+
 //  The published profile sets, selectable at RUNTIME. The numbering matches
 //  SATTARI_KEY_PROFILE so the two cannot drift apart.
 enum class KeyProfile
@@ -62,7 +78,7 @@ enum class KeyProfile
     Krumhansl = 0,
     Temperley = 1,
     Aarden    = 2,     // the historical global default
-    Shaath    = 3,     // best measured on both corpora, 2026-08-11
+    Shaath    = 3,     // training-corpus leader; not the held-out release winner
     Bellman   = 4,
     Empirical = 6,
 };
@@ -88,6 +104,17 @@ struct KeyAnalysisResult
     double confidence = 0.0;   // see KeyAnalysisSource — NOT comparable across sources
     bool   valid = false;
     KeyAnalysisSource source = KeyAnalysisSource::None;
+};
+
+// A ranked review candidate uses its raw profile correlation as `score`. It is
+// deliberately not called confidence: only the primary result owns the
+// winner-versus-runner-up margin used by release gates.
+struct KeyCandidate
+{
+    int root = 0;
+    bool minor = false;
+    double score = -1.0;
+    bool valid = false;
 };
 
 namespace detail
@@ -149,6 +176,41 @@ public:
         r.confidence = k.confidence; r.valid = k.valid;
         r.source = k.valid ? KeyAnalysisSource::Chroma : KeyAnalysisSource::None;
         return r;
+    }
+
+    // Highest-scoring key other than the release decision. This supports an
+    // honest top-two review without changing the frozen primary detector or its
+    // relative-key tiebreak.
+    KeyCandidate analyseAlternativeChroma (
+        const double chroma[12], const KeyAnalysisResult& primary,
+        const KeyAnalysisConfig& cfg = {}) const noexcept
+    {
+        KeyCandidate alternative;
+        if (! primary.valid) return alternative;
+        double total = 0.0;
+        for (int i = 0; i < 12; ++i) total += chroma[i];
+        if (total <= 1.0e-9) return alternative;
+
+        const auto* major = detail::profileMajor (cfg.profile);
+        const auto* minor = detail::profileMinor (cfg.profile);
+        for (int root = 0; root < 12; ++root)
+        {
+            for (int mode = 0; mode < 2; ++mode)
+            {
+                const bool isMinor = mode != 0;
+                if (root == primary.root && isMinor == primary.minor) continue;
+                const double score = detail::pearson (
+                    chroma, isMinor ? minor : major, root);
+                if (! alternative.valid || score > alternative.score)
+                {
+                    alternative.root = root;
+                    alternative.minor = isMinor;
+                    alternative.score = score;
+                    alternative.valid = true;
+                }
+            }
+        }
+        return alternative;
     }
 
     //  --- whole-buffer path -------------------------------------------------

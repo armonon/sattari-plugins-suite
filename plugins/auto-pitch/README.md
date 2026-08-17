@@ -1,13 +1,13 @@
 # Sattari Auto Pitch
 
-Flagship realtime tuning plugin for AU, VST3, and Standalone on macOS.
+Flagship automatic tuning plugin for AU, VST3, and Standalone on macOS.
 
 ## Current product
 
 Auto Pitch has two intentionally distinct audio paths:
 
-- **Monophonic vocal correction:** YIN detection by default, optional CREPE neural
-  detection, per-note scale targeting, vibrato/flex controls, formant control,
+- **Monophonic vocal correction:** YIN detection by default, optional conservative
+  YIN/CREPE fusion, per-note scale targeting, vibrato/flex controls, formant control,
   editable pitch classes, MIDI note targeting, reference tuning, generated
   vibrato, and Natural, Classic, Modern Rap, Robot, and Big Harmony styles.
 - **Polyphonic tonal correction:** a phase-vocoder path for sustained instruments
@@ -42,14 +42,28 @@ feature-by-feature implementation and remaining external SDK gates.
 
 ## Engines and measured baseline
 
-- **Studio:** Rubber Band, the quality-locked monophonic path.
+- **Studio HQ:** Rubber Band R3/Finer with its short vocal window, the
+  quality-locked monophonic path. R3 is explicitly selected; the former build
+  silently used the default R2 engine. The short window materially improves
+  fast correction timing while retaining R3's non-percussive vocal quality.
 
-The current 48 kHz synthetic benchmark measured approximately 43.3 ms group
-delay against 42.7 ms reported latency and 0.01 cents mean steady-note error.
+The 0.5.0 RC3 path reports 2,885 samples at 48 kHz (60.10 ms). The delayed-dry
+path nulls at negative infinity with zero alignment error; forced-unity R3 and
+a genuinely corrected onset land 0.77 ms either side of the centred host report.
+Mean steady-note correction error is 0.01 cents. A measured -30 ms moving-control
+offset on Classic mode suppresses a controlled 5.5 Hz vibrato from 19.7 to 4.0
+cents without changing steady correction or fresh note transitions. R3/Finer is
+still a print-quality engine: begin testing at 48 kHz / 512 samples; 64/128-sample
+and 96 kHz sessions remain outside the approved envelope.
+
 Adaptive 128-sample ratio interpolation keeps note-transition timing within
 5.3 ms across 64–1024-sample host buffers without taxing stationary notes. The
-experimental PSOLA path remains serialized for old-session compatibility but
-is not selectable until it passes real-vocal quality testing.
+experimental legacy PSOLA path remains serialized for old-session compatibility
+but is not selectable. A separate `SattariLivePitchEngine` alpha now provides
+causal YIN, waveform-locked epochs, exact unity dry, transient-safe crossfades
+and a measured 15.17 ms normal-vocal foundation. It remains isolated from the
+plugin until private real-vocal listening and DAW stress qualification pass; see
+`validation/auto-pitch/2026-08-16-live-engine-alpha-01.md`.
 
 ## Build and prove the neural release shape
 
@@ -68,14 +82,14 @@ The MIT CREPE-tiny pitch model is embedded in every neural build. Its pinned
 source, hashes, license, release record, and deterministic converter live in
 `plugins/auto-pitch/models/` and `scripts/fetch_crepe_onnx.py`.
 
-Optional key models are still loaded from `~/Library/Sattari Audio/models/`:
-
-- `keynet.onnx` — optional live neural key classification
-- `keynet_spec.onnx` — optional 30-second spectral key classification and Key Map
-
-Neural Pitch is opt-in because the CNN costs materially more CPU than YIN. If
-the key models are absent, AutoKey and Key Map visibly fall back to deterministic
-analysis; pitch detection still has both YIN and the bundled neural option.
+Auto Pitch and Sattari Key now use the same Aarden/chroma `KeyAnalysisEngine`,
+the same release confidence threshold, and the same **No Result** semantics.
+The optional neural key models are deliberately quarantined: `keynet_spec`
+scored 37.5% exact on its only held-out evaluation versus 85.4% for Aarden.
+Low-confidence AutoKey never drives correction; the visible manual key remains
+in force. This quarantine does not affect Neural Pitch, whose embedded CREPE
+model is fused conservatively with YIN and remains opt-in because it costs more
+CPU.
 
 For a complete internal tester build, run
 `scripts/package_auto_pitch_neural_tester.sh`. It includes the embedded pitch

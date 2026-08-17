@@ -400,7 +400,69 @@ void runLatency()
         std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
                      label, reported, repMs, measured, measMs, diffMs, verdict (honest, measured >= 0));
     }
-    std::printf ("  threshold: |reported - measured| <= 3 ms; legacy params stay quality-locked\n");
+
+    // The bypass rows above prove the host contract but no longer traverse the
+    // reconstructed signal. Force a unity-ratio Rubber Band render through the
+    // Transpose path as a second, independent check of the fixed engine delay.
+    {
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "followSongKey", 0.0f);    setParam (a, "enableCorrection", 0.0f);
+        setParam (a, "xposeMode", 1.0f);        setParam (a, "xposeSemis", 0.0f);
+        const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
+        auditSafety (out, "latency-engine-unity");
+        const int reported = p.getLatencySamples();
+        const int outOnset = halfRiseIdx (out);
+        const int measured = (outOnset >= 0 && inOnset >= 0) ? outOnset - inOnset : -1;
+        const double repMs = 1000.0 * (double) reported / kSr;
+        const double measMs = 1000.0 * (double) measured / kSr;
+        const double diffMs = std::fabs (repMs - measMs);
+        const bool honest = measured >= 0 && diffMs <= 3.0;
+        std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
+                     "Studio unity", reported, repMs, measured, measMs, diffMs,
+                     verdict (honest, measured >= 0));
+    }
+
+    // A genuinely corrected off-centre note also includes detector acquisition,
+    // ratio smoothing and R3's response to changing pitch. That content-dependent
+    // onset settling is perceptually important, but it is not fixed host PDC and
+    // must not be mislabeled as such. Report the excess separately.
+    {
+        juce::AudioBuffer<float> tunedSig (1, sig.getNumSamples());
+        tunedSig.clear();
+        float* d = tunedSig.getWritePointer (0);
+        const int sIdx = (int) std::round (kSr * 0.25);
+        double ph = 0.0;
+        const double hz = 440.0 * std::pow (2.0, 35.0 / 1200.0);
+        for (int i = sIdx; i < tunedSig.getNumSamples(); ++i)
+        {
+            d[i] = 0.4f * (float) std::sin (ph);
+            ph += 2.0 * M_PI * hz / kSr;
+        }
+
+        SattariAutoPitchAudioProcessor p;
+        auto& a = p.parameters();
+        setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);
+        setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
+        setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);
+        setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
+        setParam (a, "doNoHarm", 0.0f);         setParam (a, "liveEngine", 0.0f);
+        setParam (a, "lowLatency", 0.0f);
+        const auto out = sattari::harness::renderThrough (p, tunedSig, kSr, kBlock);
+        auditSafety (out, "latency-tuned");
+        const int reported = p.getLatencySamples();
+        const int tunedInOnset = halfRiseIdx (tunedSig);
+        const int outOnset = halfRiseIdx (out);
+        const int measured = (outOnset >= 0 && tunedInOnset >= 0) ? outOnset - tunedInOnset : -1;
+        const double repMs = 1000.0 * (double) reported / kSr;
+        const double measMs = 1000.0 * (double) measured / kSr;
+        const double diffMs = std::fabs (repMs - measMs);
+        const bool settlesPromptly = measured >= 0 && diffMs <= 35.0;
+        std::printf ("  %-12s fixed PDC=%5d smp   half-rise=%5d smp   onset settle=%.2f ms   [%s]\n",
+                     "Tuned onset", reported, measured, diffMs,
+                     verdict (settlesPromptly, measured >= 0));
+    }
+    std::printf ("  thresholds: fixed-delay |reported - measured| <= 3 ms; tuned onset settle <= 35 ms\n");
 }
 
 // ============================================================================
