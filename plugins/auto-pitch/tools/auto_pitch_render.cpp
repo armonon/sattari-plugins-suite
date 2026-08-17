@@ -287,15 +287,45 @@ int main (int argc, char** argv)
     // in tune, where correction is near-unity and the two are comparable.
     if (argc > 1 && std::strcmp (argv[1], "--wetalign") == 0)
     {
+        // Measured on ONSET ARRIVAL, not cross-correlation. The correcting path
+        // also applies Style drive and the output stage, so wet and dry are not
+        // waveform-comparable; a correlation search over a periodic tone then locks
+        // onto whichever period-aliased peak happens to win and reports a confident
+        // wrong number. An amplitude onset survives all of that.
         std::printf ("Wet-path alignment: does Amount move the vocal in time?\n");
-        std::printf ("  A3 = 220 Hz, already in tune in C major, so correction is ~unity\n");
-        std::printf ("  and wet/dry stay comparable. Lag is wet MINUS dry.\n\n");
-        std::printf ("  %-34s %10s %12s %12s\n", "amount", "lag(smp)", "lag(ms)", "best null");
-        std::printf ("  %-34s %10s %12s %12s\n",
-                     "----------------------------------", "--------", "-----------", "---------");
+        std::printf ("  Gated 220 Hz burst; arrival measured as the first crossing of 20%%\n");
+        std::printf ("  of the burst's steady RMS. Lag is wet arrival MINUS dry arrival.\n\n");
 
+        // Silence, then an abrupt tone burst: an unambiguous arrival edge.
         juce::AudioBuffer<float> in;
-        makeVibratoTone (in, sr, seconds, 220.0, 0.0, 5.0);
+        {
+            makeVibratoTone (in, sr, seconds, 220.0, 0.0, 5.0);
+            const int gate = (int) (sr * 1.0);
+            for (int i = 0; i < gate && i < in.getNumSamples(); ++i)
+                in.setSample (0, i, 0.0f);
+        }
+
+        // First sample whose short-window RMS exceeds 20% of the steady level.
+        auto arrival = [sr] (const juce::AudioBuffer<float>& b) -> int
+        {
+            const int w = 64;
+            double steady = 0.0; int n = 0;
+            for (int i = (int) (sr * 2.0); i < (int) (sr * 3.0) && i < b.getNumSamples(); ++i)
+            { steady += (double) b.getSample (0, i) * b.getSample (0, i); ++n; }
+            steady = std::sqrt (steady / juce::jmax (1, n));
+            const double thresh = 0.2 * steady;
+            for (int i = 0; i + w < b.getNumSamples(); ++i)
+            {
+                double r = 0.0;
+                for (int k = 0; k < w; ++k) r += (double) b.getSample (0, i + k) * b.getSample (0, i + k);
+                if (std::sqrt (r / w) > thresh) return i;
+            }
+            return -1;
+        };
+
+        std::printf ("  %-34s %10s %12s\n", "amount", "lag(smp)", "lag(ms)");
+        std::printf ("  %-34s %10s %12s\n",
+                     "----------------------------------", "--------", "-----------");
 
         // Dry reference straight from the plugin, at its own reported latency.
         juce::AudioBuffer<float> dry;
@@ -321,29 +351,19 @@ int main (int argc, char** argv)
             setParam (p.parameters(), "polyphonic",       0.0f);
             const auto wet = sattari::harness::renderThrough (p, in, sr, block);
 
-            const int from = (int) (sr * 1.0), len = (int) (sr * 1.5);
-            int bestLag = 0; double bestDb = 1.0e9;
-            for (int L = -600; L <= 600; ++L)
+            const int aDry = arrival (dry), aWet = arrival (wet);
+            if (aDry < 0 || aWet < 0)
             {
-                double num = 0.0, den = 0.0;
-                for (int i = from; i < from + len; i += 5)
-                {
-                    const int j = i + L;
-                    if (j < 0 || j >= wet.getNumSamples() || i >= dry.getNumSamples()) { den = 0.0; break; }
-                    const double e = (double) wet.getSample (0, j) - (double) dry.getSample (0, i);
-                    num += e * e;
-                    den += (double) dry.getSample (0, i) * dry.getSample (0, i);
-                }
-                if (den > 1.0e-20)
-                {
-                    const double cand = 20.0 * std::log10 (std::sqrt (num / den));
-                    if (cand < bestDb) { bestDb = cand; bestLag = L; }
-                }
+                std::printf ("  %-34s %10s %12s\n",
+                             juce::String ("Amount " + juce::String (amount, 0)).toRawUTF8(),
+                             "no onset", "-");
+                continue;
             }
-            worst = juce::jmax (worst, std::abs (bestLag));
-            std::printf ("  %-34s %10d %11.2f %11.1f\n",
+            const int lag = aWet - aDry;
+            worst = juce::jmax (worst, std::abs (lag));
+            std::printf ("  %-34s %10d %11.2f\n",
                          juce::String ("Amount " + juce::String (amount, 0)).toRawUTF8(),
-                         bestLag, 1000.0 * bestLag / sr, bestDb);
+                         lag, 1000.0 * lag / sr);
         }
 
         std::printf ("\n  worst wet-vs-dry shift: %d samples (%.2f ms)\n", worst, 1000.0 * worst / sr);
