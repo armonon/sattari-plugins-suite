@@ -21,6 +21,7 @@
 #include "WaveformDisplay.h"
 #include "DeckStrip.h"
 #include "StemGainKnob.h"
+#include "GainScale.h"
 #include "CamelotWheel.h"
 #include "WaveformRegion.h"
 #include "TempoPanel.h"
@@ -106,7 +107,7 @@ private:
         juce::Label keyInfo;
         juce::Label stemStatus;
         juce::Slider bpm, beatOffset, downbeat, volume, fader, pitch, low, mid, high, filter;
-        std::array<stemdeck::StemGainKnob, DeckPlayer::numStemLanes> stemGains;   // 0/100/200 knobs (§3)
+        std::array<stemdeck::StemGainKnob, DeckPlayer::numStemLanes> stemGains;   // 0/100/300 knobs (§3)
         std::unique_ptr<ButtonAttachment> playAttachment, keyLockAttachment, liveKeyAttachment;
         std::unique_ptr<ComboBoxAttachment> keyTargetAttachment, tempoInterpretationAttachment, syncModeAttachment;
         std::unique_ptr<SliderAttachment> bpmAttachment, beatOffsetAttachment, downbeatAttachment, volumeAttachment, faderAttachment, pitchAttachment, lowAttachment, midAttachment, highAttachment, filterAttachment;
@@ -386,7 +387,8 @@ private:
         void  setLaneGainDb (int lane, float db)
         {
             if (! juce::isPositiveAndBelow (lane, numEditableLanes)) return;
-            const float clamped = juce::jlimit (-60.0f, 6.0f, db);
+            const float clamped = juce::jlimit (stemdeck::gainscale::kMinDb,
+                                                stemdeck::gainscale::kMaxDb, db);
             if (std::abs (laneGainDb[(size_t) lane] - clamped) < 1.0e-6f) return;
             auto before = captureFullState();
             laneGainDb[(size_t) lane] = clamped;
@@ -676,15 +678,19 @@ private:
     // Master Control Band — stage controls remain visible without displacing FX.
     juce::Rectangle<int> scopePanelBounds {};   // SCOPE
     juce::Rectangle<int> syncPanelBounds {};     // SYNC (stacked BPM/KEY pills)
-    juce::Rectangle<int> xfPanelBounds {};       // live crossfader + deck meters
+    juce::Rectangle<int> xfPanelBounds {};       // arbitrary From -> To transition
     juce::Rectangle<int> fxRackPanelBounds {};   // trusted insert rack
-    juce::Rectangle<int> masterFxPanelBounds {}; // MASTER FX (FILTER pad)
-    juce::Rectangle<int> masterOutBounds {};    // MASTER OUTPUT panel (meters/gain/tempo)
+    juce::Rectangle<int> masterFxPanelBounds {}; // retired; kept empty for state/UI compatibility
+    juce::Rectangle<int> masterOutBounds {};     // master stems + output safety
     juce::Rectangle<int> masterMeterBounds {};  // stereo meter zone inside it
     juce::Rectangle<int> masterTempoBounds {};  // painted GLOBAL TEMPO box
     juce::Rectangle<int> masterLufsBounds {};   // live integrated LUFS + limiter GR readout
     std::array<float, 2> masterMeterHold { { 0.0f, 0.0f } };   // per-channel peak-hold (0..1)
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckMeterBounds {};  // console per-deck meters
+    std::array<juce::Rectangle<int>, 4> masterStemCellBounds {};
+    std::array<stemdeck::StemGainKnob, 4> masterStemGains;
+    std::array<juce::TextButton, 4> masterStemMutes;
+    std::array<juce::TextButton, 4> masterStemSolos;
     juce::TextButton keyLockAllButton { "Key Lock" };
     juce::TextButton aiMasterButton { "AI Master" };
     juce::ComboBox aiMasterMode;
@@ -707,8 +713,9 @@ private:
     juce::Rectangle<int> projectToolbarStatusBounds {};
     MixerSection mixerPanel;
     XYPad masterFxPad;
-    juce::Slider crossfader, masterBpm, master, limiter, micGain;
-    juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Cut
+    juce::Slider crossfader, masterBpm, master, masterFilter, limiter, micGain;
+    juce::ComboBox transitionFrom, transitionTo;
+    juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Reverse
     juce::TextButton crossfaderReverse { "Reverse" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "Tap" };
@@ -826,9 +833,12 @@ private:
     bool   arrangementLoopEnabled = false;
     std::array<PadControls, PadBank::numPads> pads;
 
-    std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment, limiterAttachment, micGainAttachment;
-    std::unique_ptr<ComboBoxAttachment> crossfaderCurveAttachment;
+    std::unique_ptr<SliderAttachment> crossfaderAttachment, masterBpmAttachment, masterAttachment,
+        masterFilterAttachment, limiterAttachment, micGainAttachment;
+    std::unique_ptr<ComboBoxAttachment> transitionFromAttachment, transitionToAttachment, crossfaderCurveAttachment;
     std::unique_ptr<ButtonAttachment> crossfaderReverseAttachment;
+    std::array<std::unique_ptr<SliderAttachment>, 4> masterStemGainAttachments;
+    std::array<std::unique_ptr<ButtonAttachment>, 4> masterStemMuteAttachments, masterStemSoloAttachments;
     std::unique_ptr<ButtonAttachment> hostSyncAttachment, beatSyncAttachment, micMonitorAttachment, liveMidiAttachment;
 
     juce::FileChooser deckChooser { "Load a deck track" };
@@ -838,6 +848,7 @@ private:
     std::array<std::array<juce::String, DeckPlayer::numStemLanes>, MainPluginProcessor::numDecks> deckStemPaths {};
     std::array<bool, MainPluginProcessor::numDecks> lastDeckPlayingUI {};
     std::array<juce::String, MainPluginProcessor::numDecks> lastBeatGridKey {};
+    std::array<int, MainPluginProcessor::numDecks> lastWarpMarkerRevision { { -1, -1, -1, -1 } };
 
     juce::TimeSliceThread browserThread { "StemDeck file browser" };
     juce::WildcardFileFilter browserFilter { "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a;*.ogg", "*", "Audio files" };
@@ -1081,6 +1092,7 @@ private:
     void updateDropTarget (juce::Point<int> point, bool pluginPayload);
     void clearDropTarget();
     void handleAudioDrop (const juce::File&, const DropTarget&);
+    void handleAudioFilesDrop (const juce::Array<juce::File>&, const DropTarget&);
     DropTarget activeDropTarget;
 
     void parameterChanged (const juce::String& parameterID, float newValue) override;

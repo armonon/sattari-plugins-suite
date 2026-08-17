@@ -19,6 +19,7 @@
 #include "ChannelBody.h"
 #include "MidiClipPlayer.h"
 #include "EQProcessor.h"
+#include "GainScale.h"
 #include "FilterProcessor.h"
 
 class MidiInstrumentBody : public ChannelBody
@@ -29,7 +30,7 @@ public:
     ChannelType type() const noexcept override { return ChannelType::midiInstrument; }
 
     // Message thread; read on the audio thread → atomic.
-    void  setGain (float linear) noexcept { gain.store (juce::jlimit (0.0f, 4.0f, linear), std::memory_order_relaxed); }
+    void  setGain (float linear) noexcept { gain.store (juce::jlimit (0.0f, stemdeck::gainscale::kMaxLinear, linear), std::memory_order_relaxed); }
     float getGain() const noexcept        { return gain.load (std::memory_order_relaxed); }
     // Only respond to one MIDI channel (1-16); 0 = omni.
     void  setMidiChannel (int ch) noexcept { midiChannel.store (juce::jlimit (0, 16, ch), std::memory_order_relaxed); }
@@ -41,9 +42,9 @@ public:
     bool  hasReceivedMidi() const noexcept { return everPlayed.load (std::memory_order_relaxed); }
 
     // ── Channel-strip controls (same DSP the decks use) ──────────────────────
-    void  setLowDb  (float db) noexcept { lowDb.store  (juce::jlimit (-24.0f, 24.0f, db), std::memory_order_relaxed); }
-    void  setMidDb  (float db) noexcept { midDb.store  (juce::jlimit (-24.0f, 24.0f, db), std::memory_order_relaxed); }
-    void  setHighDb (float db) noexcept { highDb.store (juce::jlimit (-24.0f, 24.0f, db), std::memory_order_relaxed); }
+    void  setLowDb  (float db) noexcept { lowDb.store  (juce::jlimit (-24.0f, stemdeck::gainscale::kMaxDb, db), std::memory_order_relaxed); }
+    void  setMidDb  (float db) noexcept { midDb.store  (juce::jlimit (-24.0f, stemdeck::gainscale::kMaxDb, db), std::memory_order_relaxed); }
+    void  setHighDb (float db) noexcept { highDb.store (juce::jlimit (-24.0f, stemdeck::gainscale::kMaxDb, db), std::memory_order_relaxed); }
     float getLowDb()  const noexcept { return lowDb.load  (std::memory_order_relaxed); }
     float getMidDb()  const noexcept { return midDb.load  (std::memory_order_relaxed); }
     float getHighDb() const noexcept { return highDb.load (std::memory_order_relaxed); }

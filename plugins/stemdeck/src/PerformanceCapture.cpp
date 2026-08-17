@@ -304,7 +304,15 @@ juce::var PerformanceCapture::buildArrangementJson (const std::vector<Event>& so
     }));
 
     juce::Array<juce::var> masterAutomation;
-    addAutomationLane (masterAutomation, "crossfader", "Crossfader", automationPointsFor (sourceEvents, { "crossfader" }));
+    addAutomationLane (masterAutomation, "crossfader", "Transition Handoff", automationPointsFor (sourceEvents, { "crossfader" }));
+    addAutomationLane (masterAutomation, "transition_route", "Transition From / To / Curve",
+                       automationPointsFor (sourceEvents, { "transition_from", "transition_to", "transition_curve" }));
+    addAutomationLane (masterAutomation, "master_stems", "Master Stem Buses",
+                       automationPointsFor (sourceEvents, {
+                           "master_stem_drums_gain", "master_stem_drums_mute", "master_stem_drums_solo",
+                           "master_stem_bass_gain", "master_stem_bass_mute", "master_stem_bass_solo",
+                           "master_stem_music_gain", "master_stem_music_mute", "master_stem_music_solo",
+                           "master_stem_vocals_gain", "master_stem_vocals_mute", "master_stem_vocals_solo" }));
     addAutomationLane (masterAutomation, "tempo", "Global Master Tempo", automationPointsFor (sourceEvents, { "master_bpm", "host_sync", "beat_sync" }));
     lanes.add (objectWith ({
         { "id", "master_reference" },

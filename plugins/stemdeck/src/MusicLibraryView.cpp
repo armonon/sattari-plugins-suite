@@ -33,6 +33,7 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
 
     table.setColour (juce::TableListBox::backgroundColourId, tokens::c (tokens::bgWell));
     table.setColour (juce::TableListBox::outlineColourId, tokens::c (tokens::borderSubtle));
+    table.setMultipleSelectionEnabled (true);
     table.setRowHeight (30);
     table.setHeaderHeight (30);
     auto& header = table.getHeader();
@@ -982,12 +983,17 @@ juce::var MusicLibraryView::getDragSourceDescription (const juce::SparseSet<int>
 {
     if (rows.size() <= 0)
         return {};
-    const int row = rows[0];
-    if (! juce::isPositiveAndBelow (row, (int) view.size()))
-        return {};
-    const auto& file = entries[(size_t) view[(size_t) row]].file;
-    return stemdeck::drag::isSupportedAudioFile (file)
-             ? stemdeck::drag::makeAudio (file) : juce::var();
+    juce::Array<juce::File> files;
+    for (int i = 0; i < rows.size(); ++i)
+    {
+        const int row = rows[i];
+        if (! juce::isPositiveAndBelow (row, (int) view.size()))
+            continue;
+        const auto& file = entries[(size_t) view[(size_t) row]].file;
+        if (stemdeck::drag::isSupportedAudioFile (file))
+            files.add (file);
+    }
+    return files.isEmpty() ? juce::var() : stemdeck::drag::makeAudioFiles (files);
 }
 
 void MusicLibraryView::refreshPreparationControls()
@@ -1066,7 +1072,10 @@ void MusicLibraryView::toggleSelectedPreview()
 
 void MusicLibraryView::timerCallback()
 {
-    if (! getPreviewState)
+    // The library lives for the lifetime of the editor, but most performance time
+    // is spent on another surface. Avoid 20 Hz file/string/UI churn while hidden;
+    // the first tick after it is shown catches the preview state up immediately.
+    if (! isShowing() || ! getPreviewState)
         return;
 
     const auto state = getPreviewState();

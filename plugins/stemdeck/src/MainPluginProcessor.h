@@ -5,6 +5,7 @@
 #include <atomic>
 #include <bit>
 #include <map>
+#include <mutex>
 #include <tuple>
 #include "ArrangementPlayer.h"
 #include "MidiClipPlayer.h"
@@ -53,7 +54,7 @@ public:
     // Plugin-state schema. v2 changed stem gain from dB to linear percent — see
     // StemGain.h. Bump this whenever a stored value's MEANING changes, and add a
     // migration in setStateInformation; never reinterpret old values in place.
-    static constexpr int kStateVersion = 2;
+    static constexpr int kStateVersion = 3;
 
     // Neural key must clear this to override the DSP result (§A3 confidence gating).
     // "valid" from the model only means it ran; below this floor the measured DSP
@@ -103,8 +104,10 @@ public:
     bool recallPerformanceScene (int sceneIndex);
     bool hasPerformanceScene (int sceneIndex) const;
 
-    void loadDeckFileAsync (int deckIndex, const juce::File& file);
-    void loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file);
+    void loadDeckFileAsync (int deckIndex, const juce::File& file,
+                            bool allowNeuralRefinement = true);
+    void loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file,
+                                bool allowNeuralRefinement = true);
     void requestDeckAiStemsAsync (int deckIndex);
     void cancelDeckAiStems (int deckIndex);
     void clearDeck (int deckIndex);
@@ -289,6 +292,8 @@ public:
     bool isStemMuted                 (int deckIndex, int stemIndex) const;
     bool isStemSoloed                (int deckIndex, int stemIndex) const;
     void setInsertBypassDispatched   (int chainIndex, int insertPos, bool bypassed);
+    void setChainMixDispatched (int chainIndex, float mix);
+    void setChainBypassDispatched (int chainIndex, bool bypassed);
     void setInsertParameterDispatched (int chainIndex, int insertPos,
                                        int fallbackParameterIndex,
                                        std::uint64_t stableParameterId,
@@ -380,6 +385,14 @@ public:
     { hostGraph.setChainPluginBypassed ((HostGraph::Chain) chainIndex, i, b); }
     bool isChainPluginBypassed (int chainIndex, int i) const
     { return hostGraph.isChainPluginBypassed ((HostGraph::Chain) chainIndex, i); }
+    void setChainBypassed (int chainIndex, bool b)
+    { hostGraph.setChainBypassed ((HostGraph::Chain) chainIndex, b); }
+    bool isChainBypassed (int chainIndex) const
+    { return hostGraph.isChainBypassed ((HostGraph::Chain) chainIndex); }
+    void setChainMix (int chainIndex, float mix)
+    { hostGraph.setChainMix ((HostGraph::Chain) chainIndex, mix); }
+    float getChainMix (int chainIndex) const
+    { return hostGraph.getChainMix ((HostGraph::Chain) chainIndex); }
     juce::String getPadPath (int padIndex) const;
     juce::StringArray getSupportedAudioExtensions() const;
     TransportSync::Snapshot getTransportSnapshot() const { return sync.getSnapshot(); }
@@ -389,6 +402,8 @@ public:
     // Per-deck output peak (pre-crossfader) for the console channel meters.
     float getDeckPeak (int deckIndex, int ch) const noexcept
     { return deckPeak[(size_t) juce::jlimit (0, numDecks - 1, deckIndex)][(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed); }
+    float getMasterStemPeak (int stemIndex) const noexcept
+    { return masterStemPeak[(size_t) juce::jlimit (0, 3, stemIndex)].load (std::memory_order_relaxed); }
     // Beat-grid positions (source seconds) for drawing the grid on a deck waveform.
     std::vector<double> getDeckBeatGridSeconds (int deckIndex) const;
     struct UserWarpMarker
@@ -398,6 +413,12 @@ public:
         double sourceSeconds = 0.0;
     };
     std::vector<UserWarpMarker> getDeckUserWarpMarkers (int deckIndex) const;
+    int getDeckWarpMarkerRevision (int deckIndex) const noexcept
+    {
+        return juce::isPositiveAndBelow (deckIndex, kMaxChannels)
+             ? warpMarkerRevision[(size_t) deckIndex].load (std::memory_order_relaxed)
+             : 0;
+    }
     int addDeckUserWarpMarker (int deckIndex, double sourceSeconds);
     bool moveDeckUserWarpMarker (int deckIndex, int markerId, double sourceSeconds);
     bool removeDeckUserWarpMarker (int deckIndex, int markerId);
@@ -684,6 +705,9 @@ private:
     std::array<std::atomic<float>, 2> masterPeak { 0.0f, 0.0f };
     // Per-deck peaks (pre-crossfader) for the console channel meters.
     std::array<std::array<std::atomic<float>, 2>, kMaxChannels> deckPeak {};
+    // Contribution of each pre-master stem bus (drums/bass/music/vocals). These
+    // are telemetry only; the gains below are applied in the render path itself.
+    std::array<std::atomic<float>, 4> masterStemPeak {};
     StemProvider stemProvider;
 
     double currentSampleRate = 44100.0;
@@ -772,6 +796,10 @@ private:
     // Trained neural beat/downbeat tracker (optional). Overrides the DSP
     // beat grid when the model is installed; inert otherwise.
     NeuralBeatEngine neuralBeat;
+    // ORT inference owns large temporary activation buffers. Serialising optional
+    // refinement stops a restored multi-deck set from multiplying that RAM/CPU
+    // burst while the audio engine is trying to become performance-ready.
+    std::mutex neuralRefineMutex;
     // Persistent analysis cache — a re-load skips DSP + neural analysis.
     AnalysisCache analysisCache;
 
@@ -789,6 +817,9 @@ private:
     // thread every block. Cache the atomic pointers instead: no allocation AND
     // no per-block APVTS string lookup.
     std::array<std::atomic<float>*, PadBank::numPads> padGainParams {};
+    std::array<std::atomic<float>*, 4> masterStemGainParams {};
+    std::array<std::atomic<float>*, 4> masterStemMuteParams {};
+    std::array<std::atomic<float>*, 4> masterStemSoloParams {};
 
     struct DeckPerformanceState
     {
@@ -826,6 +857,10 @@ private:
     float lastSmartMasterAmount = 0.8f;
     int lastSmartMasterMode = 0;
     bool lastSmartMasterOn = false;
+    int lastTransitionFrom = 0, lastTransitionTo = 1, lastTransitionCurve = 0;
+    std::array<float, 4> lastMasterStemGain { 100.0f, 100.0f, 100.0f, 100.0f };
+    std::array<bool, 4> lastMasterStemMute { false, false, false, false };
+    std::array<bool, 4> lastMasterStemSolo { false, false, false, false };
 
     // ── Tracktion Engine wrapper ──────────────────────────────────────────────
     struct PluginEngineBehaviour : public tracktion::EngineBehaviour

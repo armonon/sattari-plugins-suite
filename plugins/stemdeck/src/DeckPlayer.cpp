@@ -285,7 +285,7 @@ void DeckPlayer::fillRubberBandInput (int numFrames,
             if (! laneData || laneData->numSourceSamples() <= 1)
                 continue;
 
-            const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
+            const float laneGain = juce::jlimit (0.0f, 3.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
             if (laneGain <= 0.00001f)
                 continue;
 
@@ -480,7 +480,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
 
     const float preFaderGain =
         juce::Decibels::decibelsToGain (
-            juce::jlimit (-60.0f, 6.0f, trimGainDb))
+            juce::jlimit (-60.0f, 9.542425f, trimGainDb))
         * deckMixGain;
     const float linearGain = preFaderGain
                            * juce::jlimit (0.0f, 1.0f, channelFader);
@@ -630,7 +630,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     if (! laneData || laneData->numSourceSamples() <= 1)
                         continue;
 
-                    const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
+                    const float laneGain = juce::jlimit (0.0f, 3.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
                     if (laneGain <= 0.00001f)
                         continue;
 
@@ -660,7 +660,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                 if (! laneData || laneData->numSourceSamples() <= 1)
                     continue;
 
-                const float laneGain = juce::jlimit (0.0f, 2.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
+                const float laneGain = juce::jlimit (0.0f, 3.0f, stemLaneGains[(size_t) lane]);   // linear (see StemGain.h)
                 if (laneGain <= 0.00001f)
                     continue;
 

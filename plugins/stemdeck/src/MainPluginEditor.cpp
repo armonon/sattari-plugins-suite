@@ -750,34 +750,45 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (mixerPanel);
     masterFxPad.setAccent (deckAccent (0));   // product cyan
     masterFxPad.attach (processorRef.parameters(), "masterFxX", "masterFxY");
-    addAndMakeVisible (masterFxPad);
+    // Kept attached so old sessions and automation remain readable, but the fixed
+    // XY panel is retired. Master filtering now belongs in the visible FX rack.
+    addChildComponent (masterFxPad);
     setupSlider (crossfader, false);
-    // A crossfader's raw 0..1 value is meaningless; show the actual A/C <-> B/D
-    // balance instead, and double-click snaps back to CENTER. Honour REVERSE so the
-    // label names the bus you're actually fading toward.
+    // A transition's raw 0..1 value is meaningless; the panel names its selected
+    // endpoints and double-click snaps to the middle of the handoff.
     crossfader.textFromValueFunction = [this] (double v) -> juce::String
     {
         if (std::abs (v - 0.5) < 0.02) return "CENTER";
-        const bool rev = processorRef.parameters().getRawParameterValue ("crossfaderReverse")->load() > 0.5f;
-        const bool acSide = (v < 0.5) != rev;   // reverse swaps which bus each end feeds
+        const bool rev = crossfaderCurve.getSelectedId() == 4;
+        const bool fromSide = (v < 0.5) != rev;
         const int pct = (int) std::round (std::abs (v - 0.5) * 200.0);
-        return (acSide ? "A/C " : "B/D ") + juce::String (pct) + "%";
+        const auto endpoint = fromSide ? transitionFrom.getText() : transitionTo.getText();
+        return endpoint + " " + juce::String (pct) + "%";
     };
     crossfader.setDoubleClickReturnValue (true, 0.5);
     crossfader.updateText();
     // The CROSSFADER panel header carries the tabular value; hide the slider's own
     // textbox so the fader reads as one clean control (no duplicate 0.5 under it).
     crossfader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    crossfader.setTooltip ("Crossfader: blends the A/C bus into the B/D bus. Double-click to centre.");
+    crossfader.setTooltip ("Transition: hands off between any two selected channels. Double-click to centre.");
 
-    // Response curve: Smooth (equal-power blend) · Linear · Sharp (fast crossover) ·
-    // Cut (scratch/transform — near-instant near either edge).
+    for (auto* box : { &transitionFrom, &transitionTo })
+    {
+        setupComboBox (*box);
+        for (int i = 0; i < MainPluginProcessor::getMaxChannels(); ++i)
+            box->addItem (juce::String::charToString ((juce::juce_wchar) ('A' + i)), i + 1);
+        addAndMakeVisible (*box);
+    }
+    transitionFrom.setTooltip ("Channel fading out of this transition");
+    transitionTo.setTooltip ("Channel fading into this transition");
+
+    // Response curve: Reverse swaps the endpoints while preserving the smooth law.
     setupComboBox (crossfaderCurve);
     crossfaderCurve.addItem ("Smooth", 1);
     crossfaderCurve.addItem ("Linear", 2);
     crossfaderCurve.addItem ("Sharp",  3);
-    crossfaderCurve.addItem ("Cut",    4);
-    crossfaderCurve.setTooltip ("Crossfader curve: Smooth = long blends, Sharp/Cut = fast cuts & scratching");
+    crossfaderCurve.addItem ("Reverse", 4);
+    crossfaderCurve.setTooltip ("Transition curve: Smooth, Linear, Sharp, or a reversed smooth handoff");
     addAndMakeVisible (crossfaderCurve);
 
     setupButton (crossfaderReverse);
@@ -787,8 +798,43 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     crossfaderReverse.setTooltip ("Reverse (hamster): swap which end feeds A/C vs B/D");
     crossfaderReverse.onClick = [this] { crossfader.updateText(); };   // keep the readout in sync
     addAndMakeVisible (crossfaderReverse);
+
+    static const char* const masterStemNames[4] = { "DRM", "BAS", "OTH", "VOX" };
+    static const char* const masterStemIds[4] = { "Drums", "Bass", "Music", "Vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        auto& gain = masterStemGains[(size_t) stem];
+        gain.setRange (0.0, 300.0, 1.0);
+        gain.setSkewFactorFromMidPoint (100.0);
+        gain.setDoubleClickReturnValue (true, 100.0);
+        gain.setTooltip (juce::String (masterStemNames[stem]) + " contribution to the master bus (0/100/300%)");
+        addAndMakeVisible (gain);
+
+        auto& mute = masterStemMutes[(size_t) stem];
+        auto& solo = masterStemSolos[(size_t) stem];
+        mute.setButtonText ("M"); solo.setButtonText ("S");
+        for (auto* button : { &mute, &solo })
+        {
+            setupButton (*button);
+            button->setClickingTogglesState (true);
+            addAndMakeVisible (*button);
+        }
+        const auto prefix = "masterStem" + juce::String (masterStemIds[stem]);
+        masterStemGainAttachments[(size_t) stem] = std::make_unique<SliderAttachment> (
+            processorRef.parameters(), prefix + "Gain", gain);
+        masterStemMuteAttachments[(size_t) stem] = std::make_unique<ButtonAttachment> (
+            processorRef.parameters(), prefix + "Mute", mute);
+        masterStemSoloAttachments[(size_t) stem] = std::make_unique<ButtonAttachment> (
+            processorRef.parameters(), prefix + "Solo", solo);
+    }
     setupSlider (masterBpm, false, " BPM");
-    setupSlider (master, true, " dB");
+    setupSlider (master, true, "%");
+    master.setDoubleClickReturnValue (true, 0.0);   // stored dB; displayed as 100%
+    setupSlider (masterFilter, true);
+    masterFilter.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    masterFilter.setDoubleClickReturnValue (true, 0.5);
+    masterFilter.setTooltip ("Permanent master filter. Add all other master effects in the rack.");
+    addAndMakeVisible (masterFilter);
     setupSlider (limiter, true, " dB");
     // Widen these readouts so "120.0 BPM" / "-60.0 dB" fit without truncation.
     masterBpm.setSliderStyle (juce::Slider::IncDecButtons);
@@ -796,7 +842,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     masterBpm.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 88, 28);
     masterBpm.setTooltip ("Project tempo - type a BPM, drag vertically, use +/- or scroll");
     master   .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
-    limiter  .setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
+    // The limiter lives in a deliberately shallow safety row. A below-knob text
+    // box escaped the panel at compact window sizes, so keep the control itself
+    // graphical and include the exact ceiling in the adjacent loudness readout.
+    limiter.setSliderStyle (juce::Slider::LinearHorizontal);
+    limiter.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     hostSync.setButtonText ("Clock");
     setupButton (hostSync);
     hostSync.setTooltip ("Follow the host clock when used as a plug-in; use StemDeck's project clock standalone");
@@ -812,7 +862,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupButton (liveMidiButton);
     liveMidiButton.setTooltip ("Play a connected MIDI controller through the built-in instrument (into the mix)");
     addAndMakeVisible (liveMidiButton);
-    setupSlider (micGain, false, " dB");
+    setupSlider (micGain, false, "%");
+    micGain.setDoubleClickReturnValue (true, 0.0);  // stored dB; displayed as 100%
     micGain.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
     setupButton (revealRecordingButton);
     revealRecordingButton.setEnabled (false);
@@ -1003,13 +1054,26 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         fxRack.onToggleBypass = [this] (int i)
         {
             const int c = fxRack.currentChainIndex();
-            processorRef.setChainPluginBypassed (c, i, ! processorRef.isChainPluginBypassed (c, i));
+            processorRef.setInsertBypassDispatched (
+                c, i, ! processorRef.isChainPluginBypassed (c, i));
         };
         fxRack.onReorder      = [this] (int from, int to)
         {
             processorRef.moveChainPlugin (fxRack.currentChainIndex(), from, to);
             fxRack.repaint();
         };
+        fxRack.isChainBypassed = [this]
+        { return processorRef.isChainBypassed (fxRack.currentChainIndex()); };
+        fxRack.onToggleChainBypass = [this]
+        {
+            const int chain = fxRack.currentChainIndex();
+            processorRef.setChainBypassDispatched (
+                chain, ! processorRef.isChainBypassed (chain));
+        };
+        fxRack.getChainMix = [this]
+        { return processorRef.getChainMix (fxRack.currentChainIndex()); };
+        fxRack.onChainMixChanged = [this] (float mix)
+        { processorRef.setChainMixDispatched (fxRack.currentChainIndex(), mix); };
         fxRack.onChainChanged = [this]
         {
             // Keep the older advanced host selector aligned with the performance
@@ -1446,10 +1510,13 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addAndMakeVisible (arrangementView);
 
     crossfaderAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "crossfader", crossfader);
-    crossfaderCurveAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "crossfaderCurve", crossfaderCurve);
+    transitionFromAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "transitionFrom", transitionFrom);
+    transitionToAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "transitionTo", transitionTo);
+    crossfaderCurveAttachment = std::make_unique<ComboBoxAttachment> (processorRef.parameters(), "transitionCurve", crossfaderCurve);
     crossfaderReverseAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "crossfaderReverse", crossfaderReverse);
     masterBpmAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "masterBpm", masterBpm);
     masterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "master", master);
+    masterFilterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "masterFxX", masterFilter);
     limiterAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "limiterCeiling", limiter);
     hostSyncAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "hostSync", hostSync);
     beatSyncAttachment = std::make_unique<ButtonAttachment> (processorRef.parameters(), "beatSync", beatSync);
@@ -1471,7 +1538,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             pad.trigger.setColour (juce::TextButton::textColourOffId, pc.brighter (0.5f));
         }
         setupButton (pad.load);
-        setupSlider (pad.gain, false, " dB");
+        setupSlider (pad.gain, false, "%");
+        pad.gain.setDoubleClickReturnValue (true, 0.0);
         pad.trigger.onClick = [this, i]
         {
             processorRef.triggerPad (i);
@@ -1928,12 +1996,12 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     setupSlider (controls.bpm, false, " BPM");
     setupSlider (controls.beatOffset, false, " beat");
     setupSlider (controls.downbeat, false, " beat");
-    setupSlider (controls.volume, false, " dB");
+    setupSlider (controls.volume, false, "%");
     setupSlider (controls.fader, false);
     setupSlider (controls.pitch, false, " st");
-    setupSlider (controls.low, true, " dB");
-    setupSlider (controls.mid, true, " dB");
-    setupSlider (controls.high, true, " dB");
+    setupSlider (controls.low, true, "%");
+    setupSlider (controls.mid, true, "%");
+    setupSlider (controls.high, true, "%");
     setupSlider (controls.filter, true);
 
     controls.volume.setSliderStyle (juce::Slider::LinearVertical);
@@ -1946,12 +2014,15 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     controls.volume.setPopupDisplayEnabled (true, true, this);
     controls.fader .setPopupDisplayEnabled (true, true, this);
     controls.pitch .setPopupDisplayEnabled (true, true, this);
+    controls.volume.setDoubleClickReturnValue (true, 0.0); // 100% / unity
     // Clean EQ knobs — no inline value text; value shows on hover (matches stems/faders).
     for (auto* eq : { &controls.low, &controls.mid, &controls.high, &controls.filter })
     {
         eq->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         eq->setPopupDisplayEnabled (true, true, this);
     }
+    for (auto* eq : { &controls.low, &controls.mid, &controls.high })
+        eq->setDoubleClickReturnValue (true, 0.0);          // 100% / flat
     controls.bpm.setTextBoxStyle (juce::Slider::TextBoxRight, false, 58, 18);
     controls.beatOffset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
     controls.downbeat.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
@@ -1986,10 +2057,10 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
     for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
     {
         auto& knob = controls.stemGains[(size_t) lane];
-        // StemGainKnob's ctor sets rotary / range 0..200 / unity-at-top / dbl-click 100.
+        // StemGainKnob's ctor sets rotary / range 0..300 / unity-at-top / dbl-click 100.
         knob.setStemColour (stemLaneColour (lane));
         knob.setName (DeckPlayer::stemLaneLabel (lane));
-        knob.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain (100 = unity, 200 = +6 dB)");
+        knob.setTooltip (DeckPlayer::stemLaneLabel (lane) + " stem gain (100 = unity, 300 = +9.54 dB)");
         addAndMakeVisible (knob);
         controls.stemGainAttachments[(size_t) lane] = std::make_unique<SliderAttachment> (
             processorRef.parameters(),
@@ -3591,7 +3662,7 @@ void MainPluginEditor::loadLastArrangementIntoView (juce::String statusLine)
             {
                 struct CurveSpec { const char* param; const char* label; juce::Colour colour; float lo, hi; };
                 const std::array<CurveSpec, 3> specs {
-                    CurveSpec { "volume", "VOL",    juce::Colour (0xff67f6d2), -60.0f,  6.0f },
+                    CurveSpec { "volume", "VOL",    juce::Colour (0xff67f6d2), -60.0f,  stemdeck::gainscale::kMaxDb },
                     CurveSpec { "pitch",  "PITCH",  juce::Colour (0xffff7a8d), -12.0f, 12.0f },
                     CurveSpec { "filter", "FILTER", juce::Colour (0xffffcf4a),  -1.0f,  1.0f }
                 };
@@ -5393,7 +5464,10 @@ void MainPluginEditor::paint (juce::Graphics& g)
         const auto& controls = deckControls[(size_t) i];
         auto drawAbove = [&g] (const juce::String& text, const juce::Component& component)
         {
-            if (! component.isVisible()) return;   // tab-hidden controls draw no stray label
+            // A component can remain logically visible while a compact workspace
+            // gives it an empty layout rectangle.  Drawing relative to that empty
+            // rectangle leaked a clipped label into the editor's top-left corner.
+            if (! component.isVisible() || component.getBounds().isEmpty()) return;
             // Expanded horizontally because the label belongs to the CELL, not to the
             // knob inside it. An EQ knob is ~16px wide at a four-channel layout, so
             // measuring the label against the knob ellipsized "HIGH" to "HI…" —
@@ -5452,11 +5526,12 @@ void MainPluginEditor::paint (juce::Graphics& g)
     if (! projectToolbarBounds.contains (masterBpm.getBounds()))
         sliderLabel ("GLOBAL TEMPO", masterBpm);
     sliderLabel ("MASTER GAIN",  master);
+    sliderLabel ("FILT",         masterFilter);
     sliderLabel ("LIMIT",        limiter);
     sliderLabel ("MIC GAIN",     micGain);
 
-    // Per-deck channel meters flanking the crossfader — see which deck is hot and
-    // how the mix balances left (A/C) vs right (B/D) at a glance.
+    // Per-deck meters remain available on the channel cards. The old duplicate bank
+    // beside the fixed A/C↔B/D crossfader is intentionally retired.
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
         const auto mb = deckMeterBounds[(size_t) d];
@@ -5596,19 +5671,21 @@ void MainPluginEditor::paint (juce::Graphics& g)
         // SCOPE + MASTER FX + MASTER OUT and the FX rack self-draw. Frame the
         // two lightweight stage panels here.
         panelFrame (syncPanelBounds, "SYNC");
-        panelFrame (xfPanelBounds, "LIVE MIX");
+        panelFrame (xfPanelBounds, "TRANSITION");
 
         if (! xfPanelBounds.isEmpty())
         {
             const double v = crossfader.getValue();
-            const bool rev = processorRef.parameters().getRawParameterValue ("crossfaderReverse")->load() > 0.5f;
+            const bool rev = crossfaderCurve.getSelectedId() == 4;
+            const auto fromName = transitionFrom.getText().isNotEmpty() ? transitionFrom.getText() : "A";
+            const auto toName = transitionTo.getText().isNotEmpty() ? transitionTo.getText() : "B";
             juce::String mixReadout;
             if (std::abs (v - 0.5) < 0.02)
                 mixReadout = "CENTER";
             else
             {
-                const bool acSide = (v < 0.5) != rev;
-                mixReadout = (acSide ? "A/C " : "B/D ")
+                const bool fromSide = (v < 0.5) != rev;
+                mixReadout = (fromSide ? fromName + " " : toName + " ")
                            + juce::String ((int) std::round (std::abs (v - 0.5) * 200.0)) + "%";
             }
 
@@ -5622,9 +5699,9 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.setColour (juce::Colour (stemdeck::tokens::fgMuted));
             g.setFont (juce::FontOptions (8.0f, juce::Font::bold)
                            .withKerningFactor (stemdeck::tokens::trackLabel));
-            g.drawText (rev ? "B/D" : "A/C", track.withHeight (11).translated (0, -9),
+            g.drawText (rev ? toName : fromName, track.withHeight (11).translated (0, -9),
                         juce::Justification::centredLeft);
-            g.drawText (rev ? "A/C" : "B/D", track.withHeight (11).translated (0, -9),
+            g.drawText (rev ? fromName : toName, track.withHeight (11).translated (0, -9),
                         juce::Justification::centredRight);
         }
     }
@@ -5643,8 +5720,42 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
         g.setColour (juce::Colour (kAccent));
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        g.drawText ("MASTER OUTPUT", masterOutBounds.reduced (12, 6).withHeight (14),
+        g.drawText ("MASTER STEMS  /  OUTPUT", masterOutBounds.reduced (12, 6).withHeight (14),
                     juce::Justification::centredLeft);
+
+        // Four pre-master contribution cells. The meter is deliberately adjacent to
+        // the gain and M/S controls so a performer can see exactly what a bus change
+        // is doing without scanning the separate stereo safety meter.
+        static const char* const stemLabels[4] = { "DRM", "BAS", "OTH", "VOX" };
+        static const juce::uint32 stemColours[4] = {
+            sdp::stemDrm, sdp::stemBas, sdp::stemOth, sdp::stemVox
+        };
+        for (int stem = 0; stem < 4; ++stem)
+        {
+            const auto cell = masterStemCellBounds[(size_t) stem];
+            if (cell.isEmpty()) continue;
+            const auto colour = juce::Colour (stemColours[stem]);
+            g.setColour (juce::Colour (sdp::bgWell));
+            g.fillRoundedRectangle (cell.toFloat(), 5.0f);
+            g.setColour (colour.withAlpha (0.26f));
+            g.drawRoundedRectangle (cell.toFloat().reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (colour);
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            g.drawText (stemLabels[stem], cell.reduced (4, 2).withHeight (10),
+                        juce::Justification::centred);
+
+            const float peak = processorRef.getMasterStemPeak (stem);
+            const float db = juce::Decibels::gainToDecibels (peak, -48.0f);
+            const float norm = juce::jmap (juce::jlimit (-48.0f, 0.0f, db), -48.0f, 0.0f, 0.0f, 1.0f);
+            auto meter = cell.reduced (5, 3).removeFromRight (3).toFloat();
+            g.setColour (colour.withAlpha (0.12f));
+            g.fillRoundedRectangle (meter, 1.5f);
+            if (norm > 0.001f)
+            {
+                g.setColour (colour.withAlpha (0.9f));
+                g.fillRoundedRectangle (meter.withTop (meter.getBottom() - meter.getHeight() * norm), 1.5f);
+            }
+        }
 
         // GLOBAL TEMPO box: label, value (120.0), and a small green "synced" square.
         if (! masterTempoBounds.isEmpty())
@@ -5717,6 +5828,20 @@ void MainPluginEditor::paint (juce::Graphics& g)
             const float  grDb  = processorRef.getLimiterGrDb();
             const float  ceil  = processorRef.parameters().getRawParameterValue ("limiterCeiling")->load();
 
+            if (lb.getHeight() < 24.0f)
+            {
+                const bool haveI = ilufs > -70.0;
+                g.setColour (juce::Colour (sdp::fgTertiary));
+                g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+                const auto compact = juce::String ("I ")
+                    + (haveI ? juce::String (ilufs, 1) : juce::String ("--"))
+                    + "  GR " + juce::String (grDb, 1)
+                    + "  C " + juce::String (ceil, 1);
+                g.drawFittedText (compact, masterLufsBounds,
+                                  juce::Justification::centredLeft, 1);
+            }
+            else
+            {
             // Integrated LUFS — primary readout.
             auto top = lb.removeFromTop (17.0f);
             g.setColour (juce::Colour (sdp::fgTertiary));
@@ -5751,44 +5876,9 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 g.setColour (juce::Colour (0xffFFB84A));
                 g.fillRoundedRectangle (track.withWidth (track.getWidth() * grNorm), 1.5f);
             }
-        }
-
-        // Smart-master readout: loudness vs. the mode target + a live gain-reduction
-        // bar, so the "AI" is legible instead of a black box.
-        if (aiMasterButton.getToggleState())
-        {
-            const float lufs   = processorRef.getSmartMasterLufs();
-            const float gr     = processorRef.getSmartMasterGr();
-            const int   mode   = aiMasterMode.getSelectedId();          // 1 Streaming, 2 Club, 3 Warm
-            const float target = mode == 2 ? -9.0f : mode == 3 ? -16.0f : -14.0f;
-            const bool  live   = lufs > -45.0f;
-
-            auto strip  = masterOutBounds.reduced (12, 4).withTop (masterOutBounds.getBottom() - 16).toFloat();
-            auto grArea = strip.removeFromRight (58.0f);
-
-            // Loudness current → target: green when locked in (±1 dB), amber while converging.
-            const bool locked = live && std::abs (lufs - target) <= 1.0f;
-            juce::String txt = (live ? juce::String (lufs, 1) : juce::String ("--"))
-                             + u8 (" \xe2\x86\x92 ") + juce::String (target, 0) + " LUFS";
-            g.setColour ((locked ? stemdeck::tokens::c (stemdeck::tokens::signal)
-                                 : stemdeck::tokens::c (stemdeck::tokens::warn)).withAlpha (0.95f));
-            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            g.drawText (txt, strip, juce::Justification::bottomLeft);
-
-            // Gain-reduction bar (0..6 dB), lit amber as the bus compressor works.
-            g.setColour (juce::Colour (kTextMuted));
-            g.setFont (juce::FontOptions (7.5f));
-            g.drawText ("GR", grArea.removeFromLeft (13.0f), juce::Justification::centredLeft);
-            auto barTrack = grArea.withSizeKeepingCentre (grArea.getWidth(), 4.0f);
-            g.setColour (juce::Colour (kHairline));
-            g.fillRoundedRectangle (barTrack, 1.5f);
-            const float grNorm = juce::jlimit (0.0f, 1.0f, gr / 6.0f);
-            if (grNorm > 0.001f)
-            {
-                g.setColour (stemdeck::tokens::c (stemdeck::tokens::warn));
-                g.fillRoundedRectangle (barTrack.withWidth (barTrack.getWidth() * grNorm), 1.5f);
             }
         }
+
     }
 
     // Empty decks are already reduced to a single actionable load surface in
@@ -6871,10 +6961,24 @@ void MainPluginEditor::resized()
         anyPadAssigned = anyPadAssigned
                       || processorRef.getPadPath (pad).isNotEmpty();
 
-    const int kMasterBandH = assetWorkspace ? 112 : 126;
-    const int kPadStripH = assetWorkspace ? 0 : (anyPadAssigned ? 124 : 66);
+    const bool compactHeight = getHeight() < 700;
+    const int kMasterBandH = assetWorkspace ? 112 : (compactHeight ? 96 : 126);
+    // Library/Explore keeps a compact pad dock visible.  Previously opening the
+    // source browser removed every pad target, making the advertised "drag a row
+    // to a deck or pad" workflow impossible without changing screens mid-drag.
+    const int kPadStripH = assetWorkspace ? 42
+                                          : (compactHeight ? 42 : (anyPadAssigned ? 124 : 66));
     const int reservedBelow = kMasterBandH + kPadStripH + stemdeck::tokens::gap6 * 2;
-    auto decksArea = area.removeFromTop (juce::jmax (378, area.getHeight() - reservedBelow));
+    // Source workspaces share the window with a full library/browser column and
+    // use monitor-style deck controls, so they can safely contract further than
+    // the hands-on Perform surface. Keeping Perform's 378px floor here pushed the
+    // master strip and pad targets below shorter laptop windows.
+    // At the supported 1024x630 floor, the old 378px minimum consumed more than
+    // the entire remaining height once the master and pad bands were reserved,
+    // clipping both bands below the window. Compact mode keeps every live control
+    // reachable and lets LayoutStack shed low-priority deck chrome first.
+    const int deckMinH = assetWorkspace ? 260 : (compactHeight ? 245 : 378);
+    auto decksArea = area.removeFromTop (juce::jmax (deckMinH, area.getHeight() - reservedBelow));
     const int deckGap = 10;
     // EVERY channel is a box of the same size in one row — a deck shows its stem
     // panel, an input/instrument shows its own body. Same frame, different content
@@ -7534,10 +7638,9 @@ void MainPluginEditor::resized()
     area.removeFromTop (10);
 
     // ── Stage dock ────────────────────────────────────────────────────────────
-    // [SCOPE/SYNC] [LIVE MIX] [SATTARI FX] [MASTER FX] [MASTER OUTPUT]
-    // The crossfader is a defining DJ-performance control. It previously vanished
-    // when the FX rack took its slot, leaving no fluid A/C ↔ B/D gesture on Live.
-    // Both now coexist: the mix surface is fixed and the insert rack flexes.
+    // [TRANSITION] [FULL FX RACK] [MASTER STEMS + OUTPUT]
+    // This is signal flow, left to right. The former fixed MASTER FX XY panel is
+    // intentionally gone: master filtering is now an ordinary visible rack insert.
     juce::Component* mixExtras[] = { &micGain, &micMonitor, &liveMidiButton,
                                      &camelotButton, &midiLearnButton, &snapToggleButton,
                                      &razorButton, &bounceEditsButton, &undoButton, &redoButton,
@@ -7561,9 +7664,12 @@ void MainPluginEditor::resized()
         leftCol.removeFromTop (stemdeck::tokens::gap4);
         syncPanelBounds = leftCol;
     }
-    masterOutBounds     = band.removeFromRight (282);          band.removeFromRight (panelGap);
-    masterFxPanelBounds = band.removeFromRight (100);          band.removeFromRight (panelGap);
-    const int liveMixW  = juce::jlimit (300, 420, band.getWidth() * 38 / 100);
+    const int masterOutW = juce::jlimit (340, 470, band.getWidth() * 39 / 100);
+    masterOutBounds     = band.removeFromRight (masterOutW);    band.removeFromRight (panelGap);
+    masterFxPanelBounds = {};
+    masterFxPad.setVisible (false);
+    masterFxPad.setBounds ({});
+    const int liveMixW  = juce::jlimit (250, 330, band.getWidth() * 30 / 100);
     xfPanelBounds       = band.removeFromLeft (liveMixW);       band.removeFromLeft (panelGap);
     fxRackPanelBounds   = band;
 
@@ -7581,34 +7687,29 @@ void MainPluginEditor::resized()
         syncKeyButton.setBounds (s.removeFromLeft (pw));
     }
 
-    // MASTER FX — a single FILTER XY pad (option A: the panel fits the pad).
-    masterFxPad.setBounds (masterFxPanelBounds.reduced (8).withTrimmedTop (12));
-
-    // LIVE MIX — crossfader, curve, hamster reverse, and four clickable meters.
+    // TRANSITION — explicit endpoints, curve, and one physical handoff gesture.
     {
         crossfader.setVisible (true);
+        transitionFrom.setVisible (true);
+        transitionTo.setVisible (true);
         crossfaderCurve.setVisible (true);
-        crossfaderReverse.setVisible (true);
+        crossfaderReverse.setVisible (false);   // legacy parameter only
+        crossfaderReverse.setBounds ({});
 
         auto liveMix = xfPanelBounds.reduced (10, 8);
         liveMix.removeFromTop (15);   // painted title/value row
         auto options = liveMix.removeFromBottom (24);
-        crossfaderCurve.setBounds (options.removeFromLeft (112));
+        const int endpointW = juce::jmax (42, (options.getWidth() - 102 - 10) / 2);
+        transitionFrom.setBounds (options.removeFromLeft (endpointW));
         options.removeFromLeft (5);
-        crossfaderReverse.setBounds (options.removeFromLeft (54));
+        transitionTo.setBounds (options.removeFromLeft (endpointW));
+        options.removeFromLeft (5);
+        crossfaderCurve.setBounds (options);
 
         liveMix.removeFromBottom (6);
-        auto leftMeters  = liveMix.removeFromLeft (48);
-        auto rightMeters = liveMix.removeFromRight (48);
         liveMix.reduce (8, 4);
         crossfader.setBounds (liveMix);
-
-        for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
-        {
-            auto& side = d < 2 ? leftMeters : rightMeters;
-            const int meterW = side.getWidth() / 2;
-            deckMeterBounds[(size_t) d] = side.removeFromLeft (meterW).reduced (2, 0);
-        }
+        deckMeterBounds.fill ({});
     }
 
     // Trusted suite insert rack gets the flexible centre of the dock.
@@ -7638,44 +7739,72 @@ void MainPluginEditor::resized()
         for (auto* c : mixExtras) { c->setVisible (false); c->setBounds ({}); }
     }
 
-    // MASTER OUT panel internals. Absorbs the LIMIT ceiling (an output-stage control)
-    // and the Master-to-target control + selector (3.1), so they sit with the LUFS
-    // readout they concern instead of floating over the crossfader.
+    // MASTER STEMS + OUTPUT. The four buses take most of the panel; safety and
+    // loudness stay compact at the right edge.
     {
-        for (juce::Component* c : { (juce::Component*) &aiMasterButton, (juce::Component*) &aiMasterMode,
+        for (juce::Component* c : { (juce::Component*) &master, (juce::Component*) &masterFilter,
+                                    (juce::Component*) &aiMasterButton, (juce::Component*) &aiMasterMode,
                                     (juce::Component*) &aiMasterAmount, (juce::Component*) &limiter })
             c->setVisible (true);
 
-        auto mo = masterOutBounds.reduced (12, 8);
+        auto mo = masterOutBounds.reduced (10, 8);
         mo.removeFromTop (15);   // painted "MASTER OUTPUT" title
-        masterMeterBounds = mo.removeFromLeft (38).reduced (0, 2);
+        auto stemZone = mo.removeFromLeft (juce::jmax (190, mo.getWidth() * 58 / 100));
         mo.removeFromLeft (8);
-        auto col = mo;   // right stack
+        const int stemW = juce::jmax (42, stemZone.getWidth() / 4);
+        for (int stem = 0; stem < 4; ++stem)
+        {
+            auto cell = (stem < 3 ? stemZone.removeFromLeft (stemW) : stemZone).reduced (2, 0);
+            masterStemCellBounds[(size_t) stem] = cell;
+            auto controls = cell.reduced (3, 14);
+            auto switches = controls.removeFromBottom (18);
+            masterStemGains[(size_t) stem].setVisible (true);
+            masterStemMutes[(size_t) stem].setVisible (true);
+            masterStemSolos[(size_t) stem].setVisible (true);
+            masterStemGains[(size_t) stem].setBounds (controls);
+            masterStemMutes[(size_t) stem].setBounds (switches.removeFromLeft (switches.getWidth() / 2).reduced (1, 0));
+            masterStemSolos[(size_t) stem].setBounds (switches.reduced (1, 0));
+        }
 
-        // Row 1: MASTER GAIN knob + GLOBAL TEMPO box (painted, small). The knob cell is
-        // ≥60px so its "-14.0 dB" readout isn't clipped to "-14.0...".
-        auto row1 = col.removeFromTop (40);
-        master.setBounds (row1.removeFromLeft (60));
-        row1.removeFromLeft (8);
+        masterMeterBounds = mo.removeFromLeft (34).reduced (0, 2);
+        mo.removeFromLeft (6);
+        auto col = mo;   // output safety stack
+
+        // Three dense rows fit both the 96 px compact dock and the 126 px studio
+        // dock. The previous inherited four-row layout escaped the panel at 800p.
+        const bool compactMaster = col.getHeight() < 82;
+        const int row1H = compactMaster ? 25 : 31;
+        const int rowH = compactMaster ? 18 : 21;
+        const int rowGap = compactMaster ? 2 : 3;
+        auto row1 = col.removeFromTop (row1H);
+        master.setBounds (row1.removeFromLeft (juce::jmin (48, row1.getWidth())));
+        row1.removeFromLeft (3);
+        masterFilter.setBounds (row1.removeFromLeft (juce::jmin (34, row1.getWidth())));
+        row1.removeFromLeft (5);
         masterTempoBounds = row1;
 
-        // Row 2: Master-to-target button + target selector + depth rotary.
-        col.removeFromTop (4);
-        auto row2 = col.removeFromTop (22);
-        aiMasterButton.setBounds (row2.removeFromLeft (74));
-        row2.removeFromLeft (5);
-        aiMasterAmount.setBounds (row2.removeFromRight (22));   // compact depth knob
-        row2.removeFromRight (5);
+        col.removeFromTop (rowGap);
+        auto row2 = col.removeFromTop (rowH);
+        aiMasterButton.setBounds (row2.removeFromLeft (juce::jmin (64, row2.getWidth())));
+        row2.removeFromLeft (3);
+        if (row2.getWidth() >= 70)
+        {
+            aiMasterAmount.setVisible (true);
+            aiMasterAmount.setBounds (row2.removeFromRight (rowH));
+            row2.removeFromRight (3);
+        }
+        else
+        {
+            aiMasterAmount.setVisible (false);
+            aiMasterAmount.setBounds ({});
+        }
         aiMasterMode.setBounds (row2);
 
-        // Row 3: output limiter. Project timing/key controls live in the toolbar.
-        col.removeFromTop (4);
-        auto row3 = col.removeFromTop (24);
-        limiter.setBounds (row3.removeFromLeft (juce::jmin (90, row3.getWidth())));
-
-        // Row 4: live integrated LUFS (primary) + limiter GR (painted).
-        col.removeFromTop (4);
-        masterLufsBounds = col.removeFromTop (30);
+        col.removeFromTop (rowGap);
+        auto row3 = col.removeFromTop (juce::jmin (rowH, col.getHeight()));
+        limiter.setBounds (row3.removeFromLeft (juce::jmin (58, row3.getWidth())));
+        row3.removeFromLeft (4);
+        masterLufsBounds = row3;
 
         // Reveal / Reload are advanced-only; park them on the utility row when shown.
         revealRecordingButton.setVisible (false); revealRecordingButton.setBounds ({});
@@ -7696,18 +7825,43 @@ void MainPluginEditor::resized()
     {
         if (assetWorkspace)
         {
-            samplerLabel.setVisible (false); samplerLabel.setBounds ({});
+            // Compact source-workspace dock: library/file rows can be dragged
+            // directly onto any pad without leaving the screen. Loaded pads keep
+            // their trigger face; empty pads expose a numbered drop target.
+            auto padArea = area.removeFromTop (juce::jmin (area.getHeight(), kPadStripH));
+            samplerLabel.setVisible (true);
+            samplerLabel.setText ("DROP TO PADS", juce::dontSendNotification);
+            samplerLabel.setBounds (padArea.removeFromLeft (94).reduced (2, 4));
+            padArea.removeFromLeft (stemdeck::tokens::gap4);
+
             recordStatus.setVisible (false); recordStatus.setBounds ({});
             libraryMetaLabel.setVisible (false); libraryMetaLabel.setBounds ({});
-            for (auto& pad : pads)
+            const int padGap = stemdeck::tokens::gap3;
+            const int padW = juce::jmax (42,
+                (padArea.getWidth() - padGap * (PadBank::numPads - 1)) / PadBank::numPads);
+            for (int i = 0; i < PadBank::numPads; ++i)
             {
-                pad.trigger.setVisible (false); pad.trigger.setBounds ({});
-                pad.load.setVisible (false);    pad.load.setBounds ({});
-                pad.gain.setVisible (false);    pad.gain.setBounds ({});
+                auto cell = padArea.removeFromLeft (i == PadBank::numPads - 1
+                                                      ? padArea.getWidth() : padW);
+                if (i < PadBank::numPads - 1) padArea.removeFromLeft (padGap);
+                auto& pad = pads[(size_t) i];
+                const bool loaded = processorRef.getPadPath (i).isNotEmpty();
+                pad.gain.setVisible (false); pad.gain.setBounds ({});
+                pad.trigger.setVisible (loaded);
+                pad.trigger.setBounds (loaded ? cell.reduced (1, 3) : juce::Rectangle<int>());
+                pad.trigger.setTooltip ("Trigger Pad " + juce::String (i + 1)
+                                        + "; drop audio here to replace it");
+                pad.load.setVisible (! loaded);
+                // The dock caption already explains the action. A short target
+                // label remains legible at the supported 1024px window width.
+                pad.load.setButtonText ("P" + juce::String (i + 1));
+                pad.load.setTooltip ("Drop audio into Pad " + juce::String (i + 1));
+                pad.load.setBounds (! loaded ? cell.reduced (1, 3) : juce::Rectangle<int>());
             }
         }
         else
         {
+        samplerLabel.setText ("PERFORMANCE PADS", juce::dontSendNotification);
         samplerLabel.setVisible (true);
         recordStatus.setVisible (true);
         libraryMetaLabel.setVisible (true);
@@ -7843,6 +7997,12 @@ void MainPluginEditor::hidePerformSurface()
         // paint() drawing deck panels, chips and stem cells behind the overlay.
         deckPanelBounds[(size_t) d]    = {};
         deckHeaderBounds[(size_t) d]   = {};
+        // Collapsed decks are painted from a separate parent-owned rectangle.
+        // Leaving it populated meant a secondary deck could reappear behind the
+        // Replay toolbar even though every child control had been hidden.  This
+        // was especially visible after focusing a loaded deck, when all of the
+        // other loaded decks became collapsed monitors.
+        deckCollapsedBounds[(size_t) d] = {};
         deckStemBounds[(size_t) d]     = {};
         deckStemFxBounds[(size_t) d]   = {};
         deckTabStripBounds[(size_t) d] = {};
@@ -7856,11 +8016,23 @@ void MainPluginEditor::hidePerformSurface()
 
     for (auto& p : pads) { hide (p.trigger); hide (p.load); hide (p.gain); }
 
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        hide (masterStemGains[(size_t) stem]);
+        hide (masterStemMutes[(size_t) stem]);
+        hide (masterStemSolos[(size_t) stem]);
+        masterStemCellBounds[(size_t) stem] = {};
+    }
+
     for (juce::Component* comp : { (juce::Component*) &mixerPanel,   (juce::Component*) &fxRack,
                                    (juce::Component*) &masterFxPad,  (juce::Component*) &syncBpmButton,
                                    (juce::Component*) &syncKeyButton, (juce::Component*) &master,
+                                   (juce::Component*) &masterFilter,
                                    (juce::Component*) &limiter,      (juce::Component*) &aiMasterButton,
                                    (juce::Component*) &aiMasterMode, (juce::Component*) &aiMasterAmount,
+                                   (juce::Component*) &crossfader, (juce::Component*) &transitionFrom,
+                                   (juce::Component*) &transitionTo, (juce::Component*) &crossfaderCurve,
+                                   (juce::Component*) &crossfaderReverse,
                                    (juce::Component*) &samplerLabel, (juce::Component*) &recordStatus })
         hide (*comp);
 
@@ -8176,12 +8348,21 @@ void MainPluginEditor::timerCallback()
     if (underPressure != cpuPressureMode)
     {
         cpuPressureMode = underPressure;
+        // Protect the audio callback from window-server pressure as well as DSP.
+        // Eight visual frames per second keeps emergency controls responsive while
+        // cutting meter/waveform/string work almost in half; recover automatically.
+        startTimerHz (cpuPressureMode ? 8 : 15);
         recordStatus.setText (
             underPressure
                 ? "Performance protection - reducing visual refresh while CPU is high"
                 : "Performance protection cleared - full visual refresh restored",
             juce::dontSendNotification);
     }
+    // These requests originate on the audio thread and must be serviced even when
+    // the editor window is hidden/minimised.
+    processorRef.serviceDeferredActions();
+    if ((autosaveTick++ % 150) == 0)
+        scheduleRecoveryAutosave();
     if (processorRef.isIntentCaptureActive())
         processorRef.pollHostedPluginParameterChanges();
     if (mixerView.isVisible() && (! cpuPressureMode || uiTimerTick % 3 == 0))
@@ -8189,11 +8370,6 @@ void MainPluginEditor::timerCallback()
         mixerView.numChannels = processorRef.getNumChannels();
         mixerView.repaint();
     }
-
-    // Service deferred audio-thread requests (e.g. TE transport auto-stop).
-    processorRef.serviceDeferredActions();
-    if ((autosaveTick++ % 150) == 0)
-        scheduleRecoveryAutosave();
 
     if (pendingRecordingStartMs > 0.0)
     {
@@ -8221,7 +8397,12 @@ void MainPluginEditor::timerCallback()
     safeModeButton.setToggleState (processorRef.isPerformanceSafeMode(),
                                    juce::dontSendNotification);
     if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
-    refreshDeckStrips();                                        // per-deck control strips
+    const bool deckUiVisible = std::any_of (
+        deckPanelBounds.begin(), deckPanelBounds.end(), [] (const auto& bounds) { return ! bounds.isEmpty(); })
+        || std::any_of (deckCollapsedBounds.begin(), deckCollapsedBounds.end(),
+                        [] (const auto& bounds) { return ! bounds.isEmpty(); });
+    if (deckUiVisible)
+        refreshDeckStrips();                                    // per-deck control strips
     bool relayout = false;
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
@@ -8361,7 +8542,7 @@ void MainPluginEditor::timerCallback()
     }
 
     // Live input meters / instrument activity on the per-type strips.
-    if (! cpuPressureMode || uiTimerTick % 3 == 0)
+    if (deckUiVisible && (! cpuPressureMode || uiTimerTick % 3 == 0))
         refreshChannelStrips();
 
     // The processor already limits the heavy FFT to roughly once per second.
@@ -8479,11 +8660,15 @@ void MainPluginEditor::timerCallback()
         const auto bpm = juce::jlimit (40.0, 240.0, (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load());
         // Keep the arranger's lane count tied to the real channel count, so adding
         // or removing a channel is reflected on both surfaces.
-        arrangementView.setVisibleLanes (processorRef.getNumChannels());
         static constexpr std::array<double, 6> grids { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125 };
         const int gridIndex = juce::jlimit (0, (int) grids.size() - 1, arrGrid.getSelectedItemIndex());
-        arrangementView.setSnap (snapToggleButton.getToggleState(), grids[(size_t) gridIndex], bpm);
-        pianoRoll.setBpm (bpm);
+        if (arrangementView.isVisible())
+        {
+            arrangementView.setVisibleLanes (processorRef.getNumChannels());
+            arrangementView.setSnap (snapToggleButton.getToggleState(), grids[(size_t) gridIndex], bpm);
+        }
+        if (pianoRoll.isVisible())
+            pianoRoll.setBpm (bpm);
     }
 
     // Push live playback state into each deck's waveform display so the playhead
@@ -8492,21 +8677,26 @@ void MainPluginEditor::timerCallback()
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
         const bool playing = processorRef.parameters().getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
-        if (auto* wave = deckWaves[(size_t) i].get())
+        if (auto* wave = deckWaves[(size_t) i].get(); wave != nullptr && wave->isVisible())
             wave->setPlaybackState (processorRef.getDeckPlayheadSeconds (i),
                                     processorRef.getDeckTotalSeconds (i),
                                     playing);
-        if (auto* region = deckWaveRegions[(size_t) i].get())
+        if (auto* region = deckWaveRegions[(size_t) i].get(); region != nullptr && region->isVisible())
         {
-            std::vector<stemdeck::WaveformRegion::WarpMarkerView> markers;
-            const double total = processorRef.getDeckTotalSeconds (i);
-            if (total > 0.0)
-                for (const auto& marker : processorRef.getDeckUserWarpMarkers (i))
-                    markers.push_back ({ marker.id,
-                        (float) juce::jlimit (0.0, 1.0,
-                                             marker.sourceSeconds / total),
-                        marker.projectBeat });
-            region->setWarpMarkers (std::move (markers));
+            const int revision = processorRef.getDeckWarpMarkerRevision (i);
+            if (revision != lastWarpMarkerRevision[(size_t) i])
+            {
+                lastWarpMarkerRevision[(size_t) i] = revision;
+                std::vector<stemdeck::WaveformRegion::WarpMarkerView> markers;
+                const double total = processorRef.getDeckTotalSeconds (i);
+                if (total > 0.0)
+                    for (const auto& marker : processorRef.getDeckUserWarpMarkers (i))
+                        markers.push_back ({ marker.id,
+                            (float) juce::jlimit (0.0, 1.0,
+                                                 marker.sourceSeconds / total),
+                            marker.projectBeat });
+                region->setWarpMarkers (std::move (markers));
+            }
         }
         if (playing != lastDeckPlayingUI[(size_t) i])
         {
@@ -8531,29 +8721,33 @@ void MainPluginEditor::timerCallback()
         repaint();   // refresh the deck-card active glow
     }
 
-    undoButton.setEnabled (arrangementView.canUndo());
-    redoButton.setEnabled (arrangementView.canRedo());
-
-    // Arrangement transport feedback: moving playhead + button state.
-    const bool arrPlaying = processorRef.isArrangementPlaying();
-    arrangementView.setPlaybackPosition (processorRef.getArrangementPositionSeconds(), arrPlaying);
-
-    playArrButton.setToggleState (arrPlaying, juce::dontSendNotification);
-    playArrButton.setButtonText (arrPlaying ? u8 ("\xe2\x96\xa0") : u8 ("\xe2\x96\xb6"));   // ■ / ▶
-    if (recording)
+    if (arrangementView.isVisible())
     {
-        const auto samples = processorRef.getRecordedSamples();
-        const auto sr = processorRef.getRecordingSampleRate();
-        const double seconds = sr > 0.0 ? (double) samples / sr : 0.0;
-        arrangementView.setRecordingProgress (seconds, processorRef.getMasterRecordingTarget().getFullPathName());
-    }
-    else if (! arrangementView.hasArrangement())
-    {
-        arrangementView.setIdle ("Hit Record to capture your set across every channel lane.");
+        undoButton.setEnabled (arrangementView.canUndo());
+        redoButton.setEnabled (arrangementView.canRedo());
+
+        // Arrangement transport feedback: moving playhead + button state.
+        const bool arrPlaying = processorRef.isArrangementPlaying();
+        arrangementView.setPlaybackPosition (processorRef.getArrangementPositionSeconds(), arrPlaying);
+        playArrButton.setToggleState (arrPlaying, juce::dontSendNotification);
+        playArrButton.setButtonText (arrPlaying ? u8 ("\xe2\x96\xa0") : u8 ("\xe2\x96\xb6"));   // ■ / ▶
+        if (recording)
+        {
+            const auto samples = processorRef.getRecordedSamples();
+            const auto sr = processorRef.getRecordingSampleRate();
+            const double seconds = sr > 0.0 ? (double) samples / sr : 0.0;
+            arrangementView.setRecordingProgress (seconds, processorRef.getMasterRecordingTarget().getFullPathName());
+        }
+        else if (! arrangementView.hasArrangement())
+        {
+            arrangementView.setIdle ("Hit Record to capture your set across every channel lane.");
+        }
     }
 
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        if (! deckUiVisible)
+            continue;
         // Update slip button visual state
         updateSlipButtonState (i);
 

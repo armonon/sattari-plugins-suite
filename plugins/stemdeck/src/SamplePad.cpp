@@ -52,7 +52,7 @@ void SamplePad::process (juce::AudioBuffer<float>& destination, int startSample,
         return;
     }
 
-    const float gain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 6.0f, gainDb));
+    const float gain = juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 9.542425f, gainDb));
     const double ratio = audio->sourceSampleRate / currentSampleRate;
     const int sourceLength = audio->audio.getNumSamples();
 

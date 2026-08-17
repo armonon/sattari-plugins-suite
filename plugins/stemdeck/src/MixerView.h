@@ -5,6 +5,7 @@
 #include <functional>
 #include "DesignTokens.h"
 #include "ChannelTypes.h"
+#include "GainScale.h"
 
 /**
  * Full-session live mixer.
@@ -34,7 +35,8 @@ public:
         setDescription ("Live channel gain, metering, mute, solo, and routing.");
     }
 
-    static constexpr float minDb = -60.0f, maxDb = 6.0f;
+    static constexpr float minDb = stemdeck::gainscale::kMinDb;
+    static constexpr float maxDb = stemdeck::gainscale::kMaxDb;
 
     void paint (juce::Graphics& g) override
     {
@@ -240,8 +242,7 @@ private:
         g.setColour (gain > 0.0f ? tokens::c (tokens::warn)
                                  : tokens::c (tokens::fgSecondary));
         g.setFont (tokens::numeric (10.5f, true));
-        g.drawText (gain <= minDb + 0.1f ? "-INF dB"
-                                         : juce::String (gain, 1) + " dB",
+        g.drawText (stemdeck::gainscale::percentTextFromDb (gain) + "%",
                     gainReadout, juce::Justification::centred);
         controls.removeFromTop (4);
         auto buttons = controls.removeFromTop (29);
@@ -274,7 +275,7 @@ private:
         // Console scale: labels appear when the strip is wide enough, while the
         // physical tick marks remain useful in compact channel banks.
         g.setFont (tokens::technical (7.0f));
-        for (const float tickDb : { 6.0f, 0.0f, -6.0f, -12.0f, -24.0f, -48.0f })
+        for (const float tickDb : { maxDb, 0.0f, -6.0206f, -12.0412f, -24.0f, minDb })
         {
             const int y = dbToY (tickDb, fader);
             g.setColour (tokens::c (tickDb == 0.0f ? tokens::fgTertiary
@@ -282,7 +283,10 @@ private:
             g.drawHorizontalLine (y, (float) centreX - 9.0f,
                                   (float) centreX + 9.0f);
             if (strip.getWidth() >= 118)
-                g.drawText (tickDb > 0.0f ? "+6" : juce::String ((int) tickDb),
+                g.drawText (tickDb >= maxDb - 0.01f ? "300"
+                            : tickDb == 0.0f ? "100"
+                            : juce::String (juce::roundToInt (
+                                  stemdeck::gainscale::dbToPercent (tickDb))),
                             fader.getX() - 26, y - 5, 23, 10,
                             juce::Justification::centredRight);
         }
@@ -377,8 +381,8 @@ private:
 
     static int dbToY (float db, juce::Rectangle<int> fader)
     {
-        const float proportion = juce::jlimit (
-            0.0f, 1.0f, (db - minDb) / (maxDb - minDb));
+        const float proportion = stemdeck::gainscale::bipolarDbToNorm (
+            db, minDb, maxDb);
         return fader.getBottom()
                - (int) std::round (proportion * (float) fader.getHeight());
     }
@@ -389,7 +393,7 @@ private:
             0.0f, 1.0f,
             (float) (fader.getBottom() - y)
                 / (float) juce::jmax (1, fader.getHeight()));
-        return minDb + proportion * (maxDb - minDb);
+        return stemdeck::gainscale::normToBipolarDb (proportion, minDb, maxDb);
     }
 
     void applyFader (int channel, int y)

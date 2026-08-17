@@ -78,6 +78,21 @@ int main()
         src.push_back (e);
     }
     {
+        Event e; e.atSample = 480001; e.seq = 9; e.type = EventType::param;
+        e.scope.kind = ScopeKind::master; e.scope.stemLane = StemLane::vocals;
+        e.param.id = ParamId::masterStemGain;
+        e.param.value = 137.25;
+        e.param.index = 3;
+        src.push_back (e);
+    }
+    {
+        Event e; e.atSample = 480002; e.seq = 10; e.type = EventType::param;
+        e.scope.kind = ScopeKind::insert; e.scope.channel = 5;
+        e.param.id = ParamId::chainMix;
+        e.param.value = 0.625;
+        src.push_back (e);
+    }
+    {
         Event e; e.atSample = 960000; e.seq = 4; e.type = EventType::trackLoad;
         e.scope.kind = ScopeKind::channel; e.scope.channel = 42;
         e.trackLoad.track = 77;

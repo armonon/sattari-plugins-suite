@@ -271,8 +271,19 @@ void expectHostGraphNoPluginPassThroughIsSafe()
         fail ("HostGraph empty chain changed audio");
     const auto state = graph.createState();
     if (state.getType() != juce::Identifier ("HOST_GRAPH")
-        || (int) state.getProperty ("version", 0) != 1)
+        || (int) state.getProperty ("version", 0) != 2)
         fail ("HostGraph did not create a versioned rack state");
+    graph.setChainMix (HostGraph::Chain::deckA, 0.37f);
+    graph.setChainBypassed (HostGraph::Chain::deckA, true);
+    const auto routedState = graph.createState();
+    HostGraph restoredGraph;
+    restoredGraph.prepare (44100.0, 128, 2);
+    if (! restoredGraph.restoreState (routedState).isEmpty()
+        || std::abs (restoredGraph.getChainMix (HostGraph::Chain::deckA) - 0.37f) > 0.001f
+        || ! restoredGraph.isChainBypassed (HostGraph::Chain::deckA))
+        fail ("HostGraph did not preserve chain mix/bypass state");
+    graph.setChainMix (HostGraph::Chain::deckA, 1.0f);
+    graph.setChainBypassed (HostGraph::Chain::deckA, false);
     if (! graph.restoreState (state).isEmpty())
         fail ("HostGraph empty rack state produced restore warnings");
 

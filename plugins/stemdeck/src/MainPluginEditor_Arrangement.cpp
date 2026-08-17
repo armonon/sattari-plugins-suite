@@ -753,7 +753,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
             const float norm = juce::jlimit (0.0f, 1.0f,
                 (float) (inspectorGainTrackRect.getBottom() - e.getPosition().y)
                     / (float) juce::jmax (1, inspectorGainTrackRect.getHeight()));
-            laneGainDb[(size_t) selectedLane] = -60.0f + 66.0f * norm;
+            laneGainDb[(size_t) selectedLane] = stemdeck::gainscale::normToBipolarDb (norm);
             if (onLaneMixChanged) onLaneMixChanged();
             repaint();
             return;
@@ -812,7 +812,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         const auto r = gainSliderRects[(size_t) i];
         const float n = juce::jlimit (0.0f, 1.0f,
             (float) (e.getPosition().x - r.getX()) / (float) juce::jmax (1, r.getWidth()));
-        laneGainDb[(size_t) i] = -60.0f + 66.0f * n;
+        laneGainDb[(size_t) i] = stemdeck::gainscale::normToBipolarDb (n);
         if (onLaneMixChanged) onLaneMixChanged();
         repaint();
         return;
@@ -1110,10 +1110,11 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
         const float norm = juce::jlimit (0.0f, 1.0f,
             (float) (inspectorGainTrackRect.getBottom() - e.getPosition().y)
                 / (float) juce::jmax (1, inspectorGainTrackRect.getHeight()));
-        laneGainDb[(size_t) selectedLane] = -60.0f + 66.0f * norm;
+        laneGainDb[(size_t) selectedLane] = stemdeck::gainscale::normToBipolarDb (norm);
         dragReadout = (selectedLane == masterLane ? juce::String ("Master")
                                                   : laneDisplayNames[(size_t) selectedLane])
-                    + " gain: " + juce::String (laneGainDb[(size_t) selectedLane], 1) + " dB";
+                    + " gain: " + stemdeck::gainscale::percentTextFromDb (
+                                        laneGainDb[(size_t) selectedLane]) + "%";
         if (onLaneMixChanged) onLaneMixChanged();
         repaint();
         return;
@@ -1124,10 +1125,11 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
         const auto r = gainSliderRects[(size_t) dragGainLane];
         const float n = juce::jlimit (0.0f, 1.0f,
             (float) (e.getPosition().x - r.getX()) / (float) juce::jmax (1, r.getWidth()));
-        laneGainDb[(size_t) dragGainLane] = -60.0f + 66.0f * n;
+        laneGainDb[(size_t) dragGainLane] = stemdeck::gainscale::normToBipolarDb (n);
         dragReadout = (dragGainLane == masterLane ? juce::String ("Master")
                                                    : laneDisplayNames[(size_t) dragGainLane])
-                    + " gain: " + juce::String (laneGainDb[(size_t) dragGainLane], 1) + " dB";
+                    + " gain: " + stemdeck::gainscale::percentTextFromDb (
+                                        laneGainDb[(size_t) dragGainLane]) + "%";
         if (onLaneMixChanged) onLaneMixChanged();
         repaint();
         return;
@@ -1744,7 +1746,7 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
         laneMuted[(size_t) lane]  = lt.getProperty ("muted",  false);
         laneSoloed[(size_t) lane] = lt.getProperty ("soloed", false);
         laneGainDb[(size_t) lane] = juce::jlimit (
-            -60.0f, 6.0f,
+            stemdeck::gainscale::kMinDb, stemdeck::gainscale::kMaxDb,
             (float) finiteOr ((double) lt.getProperty ("gainDb", 0.0), 0.0));
         for (int j = 0; j < lt.getNumChildren(); ++j)
         {
@@ -3046,7 +3048,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         gainSliderRects[(size_t) deckIndex] = gainTrack.expanded (0, 4);
         g.setColour (juce::Colour (0xff111317));
         g.fillRoundedRectangle (gainTrack.toFloat(), 2.0f);
-        const float gainNorm = juce::jlimit (0.0f, 1.0f, (laneGainDb[(size_t) deckIndex] + 60.0f) / 66.0f);
+        const float gainNorm = stemdeck::gainscale::bipolarDbToNorm (
+            laneGainDb[(size_t) deckIndex]);
         const float gainX = (float) gainTrack.getX() + gainNorm * (float) gainTrack.getWidth();
         g.setColour (colour.withAlpha (0.82f));
         g.fillRoundedRectangle (gainTrack.toFloat().withWidth (juce::jmax (1.0f, gainX - (float) gainTrack.getX())), 2.0f);
@@ -3054,7 +3057,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         g.fillEllipse (gainX - 2.5f, (float) gainTrack.getCentreY() - 2.5f, 5.0f, 5.0f);
         g.setColour (juce::Colour (kTextMuted));
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-        g.drawText (laneGainDb[(size_t) deckIndex] <= -59.9f ? "-inf" : juce::String (laneGainDb[(size_t) deckIndex], 1),
+        g.drawText (stemdeck::gainscale::percentTextFromDb (
+                        laneGainDb[(size_t) deckIndex]) + "%",
                     gainValue, juce::Justification::centredRight);
 
         // Track timeline area — must match hitTestAt: lane.withTrimmedLeft (labelWidth).reduced (4, 3)
@@ -3599,8 +3603,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                                                                faderArea.getHeight() - 36);
                 g.setColour (juce::Colour (0xff0d1116));
                 g.fillRoundedRectangle (inspectorGainTrackRect.toFloat(), 3.0f);
-                const float gainNorm = juce::jlimit (0.0f, 1.0f,
-                    (laneGainDb[(size_t) selectedLane] + 60.0f) / 66.0f);
+                const float gainNorm = stemdeck::gainscale::bipolarDbToNorm (
+                    laneGainDb[(size_t) selectedLane]);
                 const float gainY = (float) inspectorGainTrackRect.getBottom()
                                   - gainNorm * (float) inspectorGainTrackRect.getHeight();
                 g.setColour (channelColour.withAlpha (0.8f));
@@ -3613,12 +3617,11 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (cap, 3.0f);
                 g.setColour (juce::Colour (kTextFaint));
                 g.setFont (juce::FontOptions (8.0f));
-                g.drawText ("+6", faderArea.withHeight (12), juce::Justification::centredRight);
-                g.drawText ("0", faderArea.withHeight (12).withCentre ({ faderArea.getCentreX(),
-                                                                         inspectorGainTrackRect.getY()
-                                                                         + inspectorGainTrackRect.getHeight() * 1 / 11 }),
+                g.drawText ("300", faderArea.withHeight (12), juce::Justification::centredRight);
+                g.drawText ("100", faderArea.withHeight (12).withCentre ({ faderArea.getCentreX(),
+                                                                           inspectorGainTrackRect.getCentreY() }),
                             juce::Justification::centredRight);
-                g.drawText ("-60", faderArea.withHeight (12).withBottomY (faderArea.getBottom()),
+                g.drawText ("0", faderArea.withHeight (12).withBottomY (faderArea.getBottom()),
                             juce::Justification::centredRight);
 
                 auto readout = mixArea.reduced (8, 14);
@@ -3629,13 +3632,12 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 g.drawText ("GAIN", readout.removeFromTop (20), juce::Justification::centred);
                 g.setColour (juce::Colour (kTextPrimary));
                 g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
-                g.drawText (laneGainDb[(size_t) selectedLane] <= -59.9f
-                                ? juce::String ("-inf")
-                                : juce::String (laneGainDb[(size_t) selectedLane], 1),
+                g.drawText (stemdeck::gainscale::percentTextFromDb (
+                                laneGainDb[(size_t) selectedLane]),
                             readout.removeFromTop (34), juce::Justification::centred);
                 g.setColour (juce::Colour (kTextMuted));
                 g.setFont (juce::FontOptions (9.0f));
-                g.drawText ("dB", readout.removeFromTop (16), juce::Justification::centred);
+                g.drawText ("%", readout.removeFromTop (16), juce::Justification::centred);
 
                 panel.removeFromTop (8);
                 g.setColour (juce::Colour (kHairline));

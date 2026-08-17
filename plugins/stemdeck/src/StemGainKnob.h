@@ -1,14 +1,14 @@
 #pragma once
 
-// StemGainKnob — the 0/100/200 stem gain control (perform-screen §3).
+// StemGainKnob — the 0/100/300 stem gain control (perform-screen §3).
 //
 //   0   = silence   (full left,  -135deg)
 //   100 = unity      (straight up,  0deg)   <- rest position
-//   200 = x2.0/+6dB  (full right, +135deg)
+//   300 = x3.0/+9.54dB (full right, +135deg)
 //
 // Symmetric +/-135deg sweep so unity sits exactly at top with equal travel each way.
 // The arc fills FROM 12 o'clock: the stem's colour when boosting above unity (going
-// amber as it approaches the 200 red zone), neutral grey when cutting below unity —
+// amber as it approaches the 300% red zone), neutral grey when cutting below unity —
 // so which stems are hot reads at a glance without numbers.
 //
 // Header-only so it can be PNG-verified standalone and reused by the editor. The
@@ -21,10 +21,16 @@
 namespace stemdeck
 {
 
-// Pointer angle (radians, clockwise from 12 o'clock) for a 0..200 percent value.
+// Pointer angle (radians, clockwise from 12 o'clock). Unity is deliberately the
+// physical midpoint even though the boost side now spans 100..300.
 inline float stemKnobAngle (float percent) noexcept
 {
-    const float t = juce::jlimit (0.0f, 200.0f, percent) / 200.0f;   // 0..1
+    const float p = juce::jlimit (stemdeck::stemgain::kMin,
+                                  stemdeck::stemgain::kMax, percent);
+    const float t = p <= stemdeck::stemgain::kUnity
+                      ? 0.5f * p / stemdeck::stemgain::kUnity
+                      : 0.5f + 0.5f * (p - stemdeck::stemgain::kUnity)
+                                      / (stemdeck::stemgain::kMax - stemdeck::stemgain::kUnity);
     return juce::degreesToRadians (-135.0f + t * 270.0f);
 }
 
@@ -65,11 +71,11 @@ inline void drawStemGainKnob (juce::Graphics& g, juce::Rectangle<float> area,
     g.strokePath (track, juce::PathStrokeType (arcW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
     // Value arc, filling FROM 12 o'clock. The reference switches HARD to --warn above
-    // 175 rather than fading toward it: a threshold you can see is the point ("amber
-    // above ~175 approaching clip"). Lerping across the whole boost range means there
+    // 250 rather than fading toward it: a threshold you can see is the point ("amber
+    // above ~250 approaching clip"). Lerping across the whole boost range means there
     // is no moment where it starts warning.
     const float a = stemKnobAngle (percent);
-    const juce::Colour arcCol = percent > 175.0f          ? T::c (T::warn)
+    const juce::Colour arcCol = percent > 250.0f          ? T::c (T::warn)
                               : percent >= stemdeck::stemgain::kUnity ? stem
                                                           : T::c (T::fgFaint);
     if (std::abs (percent - stemdeck::stemgain::kUnity) > 0.5f)
@@ -100,7 +106,7 @@ inline void drawStemGainKnob (juce::Graphics& g, juce::Rectangle<float> area,
 }
 
 
-// A rotary Slider wired to a 0..200 percent value, drawn by drawStemGainKnob.
+// A rotary Slider wired to a 0..300 percent value, drawn by drawStemGainKnob.
 // Keeps Slider's drag/attachment behaviour; double-click returns to unity.
 class StemGainKnob : public juce::Slider
 {
@@ -109,6 +115,7 @@ public:
     {
         setSliderStyle (juce::Slider::RotaryVerticalDrag);
         setRange (stemdeck::stemgain::kMin, stemdeck::stemgain::kMax, 0.0);
+        setSkewFactorFromMidPoint (stemdeck::stemgain::kUnity);
         // JUCE requires non-negative rotary angles. 225°..495° is visually the
         // same arc as -135°..135° but does not trip Slider's debug contract.
         setRotaryParameters (juce::degreesToRadians (225.0f),
@@ -135,7 +142,7 @@ public:
             auto readout = b.removeFromBottom (12.0f);
             drawStemGainKnob (g, b, (float) getValue(), stem, mutedLook, stemLight);
             g.setColour (mutedLook               ? stemdeck::tokens::c (stemdeck::tokens::fgTertiary)
-                       : getValue() > 175.0        ? stemdeck::tokens::c (stemdeck::tokens::warn)
+                       : getValue() > 250.0        ? stemdeck::tokens::c (stemdeck::tokens::warn)
                                                    : stemLight);
             g.setFont (juce::FontOptions (stemdeck::tokens::tBody, juce::Font::bold));
             g.drawText (stemdeck::stemgain::displayText ((float) getValue(), mutedLook),

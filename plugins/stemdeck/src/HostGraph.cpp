@@ -225,6 +225,11 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
         return;
 
     auto& state = stateFor (chain);
+    const bool chainBypassed = state.chainBypassed.load (std::memory_order_relaxed);
+    const float targetWet = chainBypassed ? 0.0f : juce::jlimit (
+        0.0f, 1.0f, state.chainMix.load (std::memory_order_relaxed));
+    if (chainBypassed && state.smoothedChainMix <= 0.0001f)
+        return;
 
     // Fast path: with 16 stem chains added, an empty chain is the overwhelmingly common
     // case and must cost nothing. This atomic mirrors pluginNodes.size() and lets an
@@ -236,13 +241,67 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
     // (initialiseGraph, plugin load, release) while holding graphLock.
     const juce::ScopedTryLock lock (state.graphLock);
     if (! lock.isLocked())
+    {
+        const int fade = juce::jmin (64, audio.getNumSamples());
+        for (int channel = 0; channel < audio.getNumChannels()
+                              && channel < (int) state.lastOutputSample.size(); ++channel)
+        {
+            auto* samples = audio.getWritePointer (channel);
+            const float previous = state.lastOutputSample[(size_t) channel];
+            for (int i = 0; i < fade; ++i)
+            {
+                const float t = (float) (i + 1) / (float) fade;
+                samples[i] = previous * (1.0f - t) + samples[i] * t;
+            }
+            if (audio.getNumSamples() > 0)
+                state.lastOutputSample[(size_t) channel] = samples[audio.getNumSamples() - 1];
+        }
+        state.resumeFromDry = true;
         return;
+    }
 
     // Sandbox lifetime is protected by graphLock too. The audio callback still
     // never waits: a concurrent load/remove simply dry-bypasses this block.
     if (state.sandbox != nullptr)
     {
+        if (audio.getNumChannels() > state.safetyBuffer.getNumChannels()
+            || audio.getNumSamples() > state.safetyBuffer.getNumSamples())
+            return;
+        for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+            state.safetyBuffer.copyFrom (channel, 0, audio, channel, 0,
+                                         audio.getNumSamples());
         state.sandbox->process (audio);
+        const float fromWet = state.smoothedChainMix;
+        if (targetWet < 0.9999f || fromWet < 0.9999f)
+            for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+            {
+                auto* wetSamples = audio.getWritePointer (channel);
+                const auto* drySamples = state.safetyBuffer.getReadPointer (channel);
+                for (int i = 0; i < audio.getNumSamples(); ++i)
+                {
+                    const float t = (float) (i + 1) / (float) audio.getNumSamples();
+                    const float mix = fromWet + (targetWet - fromWet) * t;
+                    wetSamples[i] = wetSamples[i] * mix + drySamples[i] * (1.0f - mix);
+                }
+            }
+        state.smoothedChainMix = targetWet;
+        if (state.resumeFromDry)
+        {
+            const int fade = juce::jmin (64, audio.getNumSamples());
+            for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+                for (int i = 0; i < fade; ++i)
+                {
+                    const float t = (float) (i + 1) / (float) fade;
+                    audio.setSample (channel, i,
+                        state.safetyBuffer.getSample (channel, i) * (1.0f - t)
+                        + audio.getSample (channel, i) * t);
+                }
+            state.resumeFromDry = false;
+        }
+        for (int channel = 0; channel < audio.getNumChannels()
+                              && channel < (int) state.lastOutputSample.size(); ++channel)
+            if (audio.getNumSamples() > 0)
+                state.lastOutputSample[(size_t) channel] = audio.getSample (channel, audio.getNumSamples() - 1);
         return;
     }
 
@@ -285,6 +344,41 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
             audio.copyFrom (channel, 0, state.safetyBuffer, channel, 0, samplesToCopy);
         state.outputFaulted.store (true, std::memory_order_release);
     }
+    else
+    {
+        const float fromWet = state.smoothedChainMix;
+        if (targetWet < 0.9999f || fromWet < 0.9999f)
+            for (int channel = 0; channel < channelsToCopy; ++channel)
+            {
+                auto* wetSamples = audio.getWritePointer (channel);
+                const auto* drySamples = state.safetyBuffer.getReadPointer (channel);
+                for (int i = 0; i < samplesToCopy; ++i)
+                {
+                    const float t = (float) (i + 1) / (float) samplesToCopy;
+                    const float mix = fromWet + (targetWet - fromWet) * t;
+                    wetSamples[i] = wetSamples[i] * mix + drySamples[i] * (1.0f - mix);
+                }
+            }
+        state.smoothedChainMix = targetWet;
+    }
+
+    if (state.resumeFromDry)
+    {
+        const int fade = juce::jmin (64, samplesToCopy);
+        for (int channel = 0; channel < channelsToCopy; ++channel)
+            for (int i = 0; i < fade; ++i)
+            {
+                const float t = (float) (i + 1) / (float) fade;
+                audio.setSample (channel, i,
+                    state.safetyBuffer.getSample (channel, i) * (1.0f - t)
+                    + audio.getSample (channel, i) * t);
+            }
+        state.resumeFromDry = false;
+    }
+    for (int channel = 0; channel < channelsToCopy
+                          && channel < (int) state.lastOutputSample.size(); ++channel)
+        if (samplesToCopy > 0)
+            state.lastOutputSample[(size_t) channel] = audio.getSample (channel, samplesToCopy - 1);
 }
 
 juce::StringArray HostGraph::getSupportedPluginFormats() const
@@ -376,12 +470,17 @@ bool HostGraph::saveCache() const
 juce::ValueTree HostGraph::createState() const
 {
     juce::ValueTree root ("HOST_GRAPH");
-    root.setProperty ("version", 1, nullptr);
+    root.setProperty ("version", 2, nullptr);
     for (int chainIndex = 0; chainIndex < (int) Chain::count; ++chainIndex)
     {
         const auto chain = (Chain) chainIndex;
         const auto& state = stateFor (chain);
         const juce::ScopedLock lock (state.graphLock);
+        juce::ValueTree chainSettings ("CHAIN");
+        chainSettings.setProperty ("chain", chainIndex, nullptr);
+        chainSettings.setProperty ("mix", state.chainMix.load (std::memory_order_relaxed), nullptr);
+        chainSettings.setProperty ("bypassed", state.chainBypassed.load (std::memory_order_relaxed), nullptr);
+        root.appendChild (chainSettings, nullptr);
         for (int insert = 0; insert < state.pluginNodes.size(); ++insert)
         {
             const auto node = state.pluginNodes.getReference (insert);
@@ -434,6 +533,17 @@ juce::StringArray HostGraph::restoreState (
     for (int child = 0; child < root.getNumChildren(); ++child)
     {
         const auto item = root.getChild (child);
+        if (item.getType() == juce::Identifier ("CHAIN"))
+        {
+            const int chainIndex = juce::jlimit (0, (int) Chain::count - 1,
+                (int) item.getProperty ("chain", 0));
+            auto& settings = stateFor ((Chain) chainIndex);
+            settings.chainMix.store (juce::jlimit (0.0f, 1.0f,
+                (float) item.getProperty ("mix", 1.0f)), std::memory_order_relaxed);
+            settings.chainBypassed.store ((bool) item.getProperty ("bypassed", false),
+                                           std::memory_order_relaxed);
+            continue;
+        }
         if (item.getType() != juce::Identifier ("INSERT"))
             continue;
         const int chainIndex = juce::jlimit (
@@ -830,6 +940,27 @@ bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return false;
     auto* node = state.pluginNodes[index].get();
     return node != nullptr && node->isBypassed();
+}
+
+void HostGraph::setChainBypassed (Chain chain, bool bypassed) noexcept
+{
+    stateFor (chain).chainBypassed.store (bypassed, std::memory_order_release);
+}
+
+bool HostGraph::isChainBypassed (Chain chain) const noexcept
+{
+    return stateFor (chain).chainBypassed.load (std::memory_order_acquire);
+}
+
+void HostGraph::setChainMix (Chain chain, float mix) noexcept
+{
+    stateFor (chain).chainMix.store (juce::jlimit (0.0f, 1.0f, mix),
+                                     std::memory_order_release);
+}
+
+float HostGraph::getChainMix (Chain chain) const noexcept
+{
+    return stateFor (chain).chainMix.load (std::memory_order_acquire);
 }
 
 std::uint64_t HostGraph::stableParameterId (juce::AudioProcessorParameter& parameter,

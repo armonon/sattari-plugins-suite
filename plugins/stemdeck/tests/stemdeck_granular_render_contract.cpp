@@ -87,7 +87,7 @@ juce::AudioBuffer<float> renderDeck (const TimePitchDecision& decision, int numS
     deck.setLoadedAudio (makeSineAudio (440.0, 3.0));
 
     std::array<float, DeckPlayer::numStemLanes> stemGains {};
-    // Stem lane gains are LINEAR (see StemGain.h): 0.0 = mute, 1.0 = unity, up to 2.0.
+    // Stem lane gains are LINEAR (see StemGain.h): 0.0 = mute, 1.0 = unity, up to 3.0.
     // (This test predates the dB->linear migration; -60/0 dB would silence the mix.)
     stemGains.fill (0.0f);
     stemGains[(size_t) DeckPlayer::fullMixStem] = 1.0f;
@@ -105,7 +105,7 @@ void expectBeatSyncUsesPerDeckSourceBpmAndOffset()
     deck.setLoadedAudio (makeRampAudio (2.0));
 
     std::array<float, DeckPlayer::numStemLanes> stemGains {};
-    // Stem lane gains are LINEAR (see StemGain.h): 0.0 = mute, 1.0 = unity, up to 2.0.
+    // Stem lane gains are LINEAR (see StemGain.h): 0.0 = mute, 1.0 = unity, up to 3.0.
     // (This test predates the dB->linear migration; -60/0 dB would silence the mix.)
     stemGains.fill (0.0f);
     stemGains[(size_t) DeckPlayer::fullMixStem] = 1.0f;

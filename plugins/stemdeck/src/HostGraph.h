@@ -120,6 +120,10 @@ public:
     void moveChainPlugin (Chain chain, int fromIndex, int toIndex);
     void setChainPluginBypassed (Chain chain, int index, bool bypassed);
     bool isChainPluginBypassed (Chain chain, int index) const;
+    void setChainBypassed (Chain chain, bool bypassed) noexcept;
+    bool isChainBypassed (Chain chain) const noexcept;
+    void setChainMix (Chain chain, float mix) noexcept;
+    float getChainMix (Chain chain) const noexcept;
 
     struct ParameterSnapshot
     {
@@ -160,6 +164,14 @@ private:
         // amplitude is automatically bypassed for the rest of the session.
         juce::AudioBuffer<float> safetyBuffer;
         std::atomic<bool> outputFaulted { false };
+        std::atomic<bool> chainBypassed { false };
+        std::atomic<float> chainMix { 1.0f };
+        float smoothedChainMix = 1.0f;   // audio thread only
+        // Audio-thread-only topology handoff smoothing. A concurrent graph edit is
+        // never waited on; the dry fallback and the first wet block are feathered
+        // over 64 samples so a lock miss cannot become a full-scale click.
+        std::array<float, 16> lastOutputSample {};
+        bool resumeFromDry = false;
         std::unique_ptr<PluginSandboxClient> sandbox;
         juce::PluginDescription sandboxDescription;
     };

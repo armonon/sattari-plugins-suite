@@ -9,12 +9,26 @@ inline constexpr const char* audioKind = "stemdeck.audio";
 inline constexpr const char* pluginKind = "stemdeck.plugin";
 inline constexpr const char* fileBrowserKind = "stemdeck.file-browser";
 
-inline juce::var makeAudio (const juce::File& file)
+inline juce::var makeAudioFiles (const juce::Array<juce::File>& files)
 {
     auto* payload = new juce::DynamicObject();
     payload->setProperty ("kind", audioKind);
-    payload->setProperty ("path", file.getFullPathName());
+
+    juce::Array<juce::var> paths;
+    for (const auto& file : files)
+        if (file.existsAsFile())
+            paths.add (file.getFullPathName());
+    payload->setProperty ("paths", juce::var (paths));
+
+    // Keep the original scalar field for compatibility with older drag targets.
+    if (! paths.isEmpty())
+        payload->setProperty ("path", paths.getFirst());
     return juce::var (payload);
+}
+
+inline juce::var makeAudio (const juce::File& file)
+{
+    return makeAudioFiles ({ file });
 }
 
 inline juce::var makePlugin (int pluginIndex, const juce::String& name)
@@ -39,6 +53,28 @@ inline juce::File audioFile (const juce::var& payload)
         if (object->getProperty ("kind").toString() == audioKind)
             return juce::File (object->getProperty ("path").toString());
     return {};
+}
+
+inline juce::Array<juce::File> audioFiles (const juce::var& payload)
+{
+    juce::Array<juce::File> result;
+    if (auto* object = payload.getDynamicObject())
+    {
+        if (object->getProperty ("kind").toString() != audioKind)
+            return result;
+        if (auto* paths = object->getProperty ("paths").getArray())
+            for (const auto& path : *paths)
+            {
+                const juce::File file (path.toString());
+                if (file.existsAsFile()) result.add (file);
+            }
+        if (result.isEmpty())
+        {
+            const juce::File file (object->getProperty ("path").toString());
+            if (file.existsAsFile()) result.add (file);
+        }
+    }
+    return result;
 }
 
 inline int pluginIndex (const juce::var& payload)

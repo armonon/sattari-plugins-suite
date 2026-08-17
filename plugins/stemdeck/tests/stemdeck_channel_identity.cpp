@@ -40,10 +40,12 @@ int main()
            "future channel parameter banks are host-visible");
     if (unusedE != nullptr && unusedF != nullptr)
     {
-        unusedE->setValueNotifyingHost (0.2f);
-        unusedF->setValueNotifyingHost (0.8f);
-        check (std::abs (unusedE->getValue() - 0.2f) < 1.0e-6f
-                   && std::abs (unusedF->getValue() - 0.8f) < 1.0e-6f,
+        unusedE->setValueNotifyingHost (unusedE->convertTo0to1 (-12.0f));
+        unusedF->setValueNotifyingHost (unusedF->convertTo0to1 (6.0f));
+        check (std::abs (processor.parameters().getRawParameterValue ("deckEVolume")->load()
+                         - (-12.0f)) < 0.01f
+                   && std::abs (processor.parameters().getRawParameterValue ("deckFVolume")->load()
+                                - 6.0f) < 0.01f,
                "automation in unused channel banks cannot cross-route");
     }
 
@@ -94,6 +96,37 @@ int main()
     check (monitorOffActivity > 0.035f,
            "monitor-off input still runs through capture and metering");
 
+    // Perform-dock state is host-visible and round-trippable: arbitrary endpoints
+    // plus four real pre-master stem buses (0/100/300 gain, mute, solo).
+    auto* transitionFrom = processor.parameters().getParameter ("transitionFrom");
+    auto* transitionTo = processor.parameters().getParameter ("transitionTo");
+    auto* vocalGain = processor.parameters().getParameter ("masterStemVocalsGain");
+    auto* vocalSolo = processor.parameters().getParameter ("masterStemVocalsSolo");
+    check (transitionFrom != nullptr && transitionTo != nullptr
+               && vocalGain != nullptr && vocalSolo != nullptr,
+           "transition and master-stem controls are host-visible parameters");
+    auto* deckGain = processor.parameters().getParameter ("deckAVolume");
+    auto* deckLow = processor.parameters().getParameter ("deckALow");
+    check (deckGain != nullptr && deckLow != nullptr,
+           "track gain and EQ remain host-visible parameters");
+    if (deckGain != nullptr && deckLow != nullptr && vocalGain != nullptr)
+    {
+        check (std::abs (deckGain->convertTo0to1 (0.0f) - 0.5f) < 0.002f
+                   && std::abs (deckLow->convertTo0to1 (0.0f) - 0.5f) < 0.002f,
+               "100% unity is physically centred for track gain and EQ");
+        check (std::abs (vocalGain->getNormalisableRange().end - 300.0f) < 0.01f
+                   && std::abs (vocalGain->convertTo0to1 (100.0f) - 0.5f) < 0.002f,
+               "stem gain spans 0..300% with 100% physically centred");
+    }
+    if (transitionFrom != nullptr && transitionTo != nullptr
+        && vocalGain != nullptr && vocalSolo != nullptr)
+    {
+        transitionFrom->setValueNotifyingHost (transitionFrom->convertTo0to1 (2.0f));
+        transitionTo->setValueNotifyingHost (transitionTo->convertTo0to1 (0.0f));
+        vocalGain->setValueNotifyingHost (vocalGain->convertTo0to1 (137.0f));
+        vocalSolo->setValueNotifyingHost (1.0f);
+    }
+
     check (processor.removeChannel (1), "a channel can be removed from the middle");
     const int instrumentIndex = processor.addChannel (ChannelType::midiInstrument);
     check (instrumentIndex >= 0, "an instrument channel can be added after removal");
@@ -110,10 +143,27 @@ int main()
         slots.push_back (processor.getChannelSlot (i));
     }
 
+    // Persist a deliberately unsafe live state. Loading a project/preset must keep
+    // its routing and media while requiring a fresh gesture before sound starts.
+    if (auto* play = processor.parameters().getParameter ("deckAPlay"))
+        play->setValueNotifyingHost (1.0f);
+    if (auto* monitor = processor.parameters().getParameter ("micMonitor"))
+        monitor->setValueNotifyingHost (1.0f);
+
     juce::MemoryBlock state;
     processor.getStateInformation (state);
     MainPluginProcessor restored;
     restored.setStateInformation (state.getData(), (int) state.getSize());
+    check (restored.parameters().getRawParameterValue ("deckAPlay")->load() < 0.5f,
+           "state restore never auto-starts a saved deck transport");
+    check (restored.parameters().getRawParameterValue ("micMonitor")->load() < 0.5f,
+           "state restore never auto-enables microphone monitoring");
+    check (std::abs (restored.parameters().getRawParameterValue ("transitionFrom")->load() - 2.0f) < 0.01f
+               && std::abs (restored.parameters().getRawParameterValue ("transitionTo")->load()) < 0.01f,
+           "state restore preserves arbitrary transition endpoints");
+    check (std::abs (restored.parameters().getRawParameterValue ("masterStemVocalsGain")->load() - 137.0f) < 0.01f
+               && restored.parameters().getRawParameterValue ("masterStemVocalsSolo")->load() > 0.5f,
+           "state restore preserves master-stem gain and solo intent");
     check (restored.getNumChannels() == processor.getNumChannels(),
            "state restore preserves the dynamic channel count");
     for (int i = 0; i < restored.getNumChannels(); ++i)

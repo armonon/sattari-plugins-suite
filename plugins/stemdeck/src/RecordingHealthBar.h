@@ -221,7 +221,11 @@ private:
         auto row = outer.reduced (10, 6);
         auto transport = row.removeFromLeft (juce::jmin (190, row.getWidth() / 4));
         row.removeFromLeft (10);
-        auto controls = row.removeFromRight (juce::jmin (128, row.getWidth() / 4));
+        // The record action is the one control that must remain unmistakable in
+        // the compact bar.  Give it enough width for a real primary button plus
+        // a separate undo action instead of stacking an unreadable "Undo" under
+        // the record face.
+        auto controls = row.removeFromRight (juce::jmin (206, row.getWidth() / 3));
         row.removeFromRight (10);
 
         g.setColour (state.recording ? red : red.withAlpha (0.42f));
@@ -249,35 +253,54 @@ private:
         metric ("BUFFER", juce::String (state.bufferMs, 1) + "ms",
                 state.droppedBuffers == 0 ? teal : amber);
 
-        auto top = controls.removeFromTop (juce::jmax (26, controls.getHeight() * 2 / 3));
-        auto bottom = controls;
+        auto undo = controls.removeFromLeft (juce::jmin (44, controls.getWidth() / 4));
+        controls.removeFromLeft (6);
+        auto action = controls;
+
+        undoBounds = undo;
+        g.setColour (tokens::c (tokens::bgControl));
+        g.fillRoundedRectangle (undo.toFloat(), tokens::radiusControl);
+        g.setColour (tokens::c (tokens::borderSubtle));
+        g.drawRoundedRectangle (undo.toFloat().reduced (0.5f), tokens::radiusControl, 1.0f);
+        label (g, juce::String::charToString ((juce_wchar) 0x21B6), undo, secondary,
+               16.0f, juce::Justification::centred);
+
         if (state.recording)
         {
-            stopBounds = top;
+            stopBounds = action;
             recordBounds = countInBounds = {};
-            drawActionFace (g, top, red, true, top.contains (getMouseXYRelative()), holdingStop);
-            auto content = top.reduced (8, 0);
+            drawActionFace (g, action, red, true, action.contains (getMouseXYRelative()), holdingStop);
+            auto content = action.reduced (10, 0);
             auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
             drawRecordGlyph (g, icon, true, juce::Colours::white);
-            buttonLabel (g, "Hold to Stop", content, juce::Colours::white, tokens::tSmall);
+            buttonLabel (g, "HOLD TO STOP", content, juce::Colours::white, tokens::tSmall);
         }
         else
         {
-            recordBounds = top;
+            // One cohesive control with two explicit hit zones: the large left
+            // side starts capture, while the compact right chip changes count-in.
+            // The old design placed count-in text on top of the record hit target.
+            auto countIn = action.removeFromRight (juce::jmin (58, action.getWidth() / 3));
+            recordBounds = action;
             stopBounds = {};
-            countInBounds = top.removeFromBottom (10);
-            drawActionFace (g, recordBounds, red, false,
-                            recordBounds.contains (getMouseXYRelative()), false);
-            auto content = recordBounds.withTrimmedBottom (9).reduced (8, 0);
+            countInBounds = countIn;
+            drawActionFace (g, controls, red, false,
+                            controls.contains (getMouseXYRelative()), false);
+            auto content = recordBounds.reduced (9, 0);
             auto icon = content.removeFromLeft (18).withSizeKeepingCentre (14, 14);
-            drawRecordGlyph (g, icon, false, red);
-            buttonLabel (g, "Record", content, juce::Colours::white.withAlpha (0.96f), tokens::tSmall);
-            label (g, state.countInBars > 0 ? juce::String (state.countInBars) + "-bar count-in" : "Count-in off",
-                   countInBounds, muted, tokens::tCaption, juce::Justification::centred);
+            drawRecordGlyph (g, icon, false, juce::Colours::white);
+            buttonLabel (g, "RECORD", content, juce::Colours::white, tokens::tSmall);
+
+            g.setColour (juce::Colours::white.withAlpha (0.18f));
+            g.drawVerticalLine (countInBounds.getX(), (float) countInBounds.getY() + 7.0f,
+                                (float) countInBounds.getBottom() - 7.0f);
+            const auto countText = state.countInBars > 0
+                ? juce::String (state.countInBars) + " BAR"
+                : juce::String ("OFF");
+            label (g, countText, countInBounds, juce::Colours::white.withAlpha (0.88f),
+                   tokens::tCaption, juce::Justification::centred);
         }
-        undoBounds = bottom;
         clipBounds = {};
-        buttonLabel (g, "Undo", bottom, muted, tokens::tCaption);
     }
 
     static juce::String timeText (double seconds)
@@ -326,9 +349,9 @@ private:
             r = r.translated (0.0f, 1.0f).withTrimmedBottom (1.0f);
 
         const auto top = active ? accent.withAlpha (0.96f)
-                                : accent.withAlpha (hover ? 0.46f : 0.34f);
+                                : accent.withAlpha (hover ? 0.82f : 0.68f);
         const auto bottom = active ? accent.withAlpha (0.70f)
-                                   : accent.withAlpha (hover ? 0.22f : 0.15f);
+                                   : accent.withAlpha (hover ? 0.52f : 0.38f);
         g.setGradientFill (juce::ColourGradient (top, r.getX(), r.getY(),
                                                  bottom, r.getX(), r.getBottom(), false));
         g.fillRoundedRectangle (r, tokens::radiusControl);

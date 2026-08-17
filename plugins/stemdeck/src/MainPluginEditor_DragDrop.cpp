@@ -234,12 +234,15 @@ void MainPluginEditor::itemDropped (const DragDetails& details)
     }
     else
     {
-        auto file = stemdeck::drag::audioFile (details.description);
+        auto files = stemdeck::drag::audioFiles (details.description);
         if (payloadKind == stemdeck::drag::fileBrowserKind && fileBrowser != nullptr
             && fileBrowser->getNumSelectedFiles() > 0)
-            file = fileBrowser->getSelectedFile (0);
-        if (stemdeck::drag::isSupportedAudioFile (file))
-            handleAudioDrop (file, target);
+        {
+            files.clear();
+            for (int i = 0; i < fileBrowser->getNumSelectedFiles(); ++i)
+                files.add (fileBrowser->getSelectedFile (i));
+        }
+        handleAudioFilesDrop (files, target);
     }
     clearDropTarget();
 }
@@ -282,32 +285,91 @@ void MainPluginEditor::fileDragExit (const juce::StringArray&)
 void MainPluginEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     const auto target = findDropTarget ({ x, y }, false);
+    juce::Array<juce::File> dropped;
+    for (const auto& path : files)
+        dropped.add (juce::File (path));
+
     if (target.kind == DropTarget::Kind::explorer)
     {
-        juce::Array<juce::File> imported;
-        for (const auto& path : files) imported.add (juce::File (path));
-        if (libraryView != nullptr) libraryView->addFiles (imported);
-        if (! imported.isEmpty())
+        if (libraryView != nullptr) libraryView->addFiles (dropped);
+        if (! dropped.isEmpty())
         {
-            const auto first = imported.getFirst();
+            const auto first = dropped.getFirst();
             browserNavigateTo (first.isDirectory() ? first : first.getParentDirectory());
             if (fileBrowser != nullptr && first.existsAsFile())
                 fileBrowser->setSelectedFile (first);
         }
     }
     else
-    {
-        for (const auto& path : files)
-        {
-            const juce::File file (path);
-            if (stemdeck::drag::isSupportedAudioFile (file))
-            {
-                handleAudioDrop (file, target);
-                break;
-            }
-        }
-    }
+        handleAudioFilesDrop (dropped, target);
     clearDropTarget();
+}
+
+void MainPluginEditor::handleAudioFilesDrop (const juce::Array<juce::File>& files,
+                                              const DropTarget& target)
+{
+    juce::Array<juce::File> audio;
+    for (const auto& file : files)
+        if (stemdeck::drag::isSupportedAudioFile (file))
+            audio.add (file);
+    if (audio.isEmpty())
+        return;
+
+    // Batch drops behave like a hardware loading workflow: the pointed-at target
+    // receives the first file and later files advance through consecutive slots.
+    // A four-track selection dropped on Deck B therefore fills B/C/D, while a
+    // sample folder selection dropped on Pad 3 fills Pads 3..8.
+    if (target.kind == DropTarget::Kind::deck)
+    {
+        int loaded = 0;
+        for (const auto& file : audio)
+        {
+            const int deck = target.index + loaded;
+            if (! juce::isPositiveAndBelow (deck, MainPluginProcessor::numDecks))
+                break;
+            setFocusedDeck (deck);
+            requestDeckLoad (deck, file);
+            ++loaded;
+        }
+        if (loaded > 1)
+            recordStatus.setText ("Loaded " + juce::String (loaded)
+                                  + " tracks across Decks "
+                                  + juce::String::charToString ((juce_wchar) ('A' + target.index))
+                                  + "-"
+                                  + juce::String::charToString ((juce_wchar) ('A' + target.index + loaded - 1)),
+                                  juce::dontSendNotification);
+        return;
+    }
+
+    if (target.kind == DropTarget::Kind::pad)
+    {
+        int loaded = 0;
+        for (const auto& file : audio)
+        {
+            const int pad = target.index + loaded;
+            if (! juce::isPositiveAndBelow (pad, PadBank::numPads))
+                break;
+            processorRef.loadPadFileAsync (pad, file);
+            ++loaded;
+        }
+        recordStatus.setText ("Loaded " + juce::String (loaded)
+                              + (loaded == 1 ? " sample into Pad " : " samples starting at Pad ")
+                              + juce::String (target.index + 1),
+                              juce::dontSendNotification);
+        return;
+    }
+
+    if (target.kind == DropTarget::Kind::arrangement)
+    {
+        juce::StringArray paths;
+        for (const auto& file : audio)
+            paths.add (file.getFullPathName());
+        arrangementView.filesDropped (paths, target.localPoint.x, target.localPoint.y);
+        return;
+    }
+
+    for (const auto& file : audio)
+        handleAudioDrop (file, target);
 }
 
 void MainPluginEditor::handleAudioDrop (const juce::File& file, const DropTarget& target)
@@ -351,12 +413,13 @@ bool MainPluginEditor::shouldDropFilesWhenDraggedExternally (const DragDetails& 
                                                               bool& canMoveFiles)
 {
     canMoveFiles = false;
-    const auto audio = stemdeck::drag::audioFile (details.description);
-    if (stemdeck::drag::isSupportedAudioFile (audio))
+    const auto audio = stemdeck::drag::audioFiles (details.description);
+    for (const auto& file : audio)
     {
-        files.add (audio.getFullPathName());
-        return true;
+        if (stemdeck::drag::isSupportedAudioFile (file))
+            files.add (file.getFullPathName());
     }
+    if (! files.isEmpty()) return true;
     if (stemdeck::drag::kind (details.description) == stemdeck::drag::fileBrowserKind
         && fileBrowser != nullptr)
     {

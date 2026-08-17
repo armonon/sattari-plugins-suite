@@ -1,5 +1,6 @@
 #include "MainPluginProcessor.h"
 #include "MainPluginEditor.h"
+#include "GainScale.h"
 
 namespace
 {
@@ -98,6 +99,52 @@ std::unique_ptr<juce::AudioParameterFloat> floatParam (const juce::String& id, c
         juce::AudioParameterFloatAttributes()
             .withLabel (unit)
             .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); }));
+}
+
+// Store dB for backward compatibility, but present the control as a universal
+// 0..300% gain with 100% physically centred. Old project values therefore retain
+// their exact loudness while the musician sees one consistent gain language.
+std::unique_ptr<juce::AudioParameterFloat> percentGainParam (
+    const juce::String& id, const juce::String& name, float minimumDb,
+    float defaultDb)
+{
+    juce::NormalisableRange<float> range (minimumDb, stemdeck::gainscale::kMaxDb, 0.001f);
+    range.setSkewForCentre (0.0f);
+    return std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID (id, 1), name, range,
+        juce::jlimit (minimumDb, stemdeck::gainscale::kMaxDb, defaultDb),
+        juce::AudioParameterFloatAttributes()
+            .withLabel ("%")
+            .withStringFromValueFunction ([] (float db, int)
+            {
+                return stemdeck::gainscale::percentTextFromDb (db);
+            })
+            .withValueFromStringFunction ([] (const juce::String& text)
+            {
+                return stemdeck::gainscale::percentToDb (text.getFloatValue());
+            }));
+}
+
+std::unique_ptr<juce::AudioParameterFloat> linearPercentParam (
+    const juce::String& id, const juce::String& name)
+{
+    juce::NormalisableRange<float> range (stemdeck::stemgain::kMin,
+                                           stemdeck::stemgain::kMax, 0.001f);
+    range.setSkewForCentre (stemdeck::stemgain::kUnity);
+    return std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID (id, 1), name, range, stemdeck::stemgain::kUnity,
+        juce::AudioParameterFloatAttributes()
+            .withLabel ("%")
+            .withStringFromValueFunction ([] (float percent, int)
+            {
+                return juce::String (juce::roundToInt (percent));
+            })
+            .withValueFromStringFunction ([] (const juce::String& text)
+            {
+                return juce::jlimit (stemdeck::stemgain::kMin,
+                                     stemdeck::stemgain::kMax,
+                                     text.getFloatValue());
+            }));
 }
 
 std::unique_ptr<juce::AudioParameterChoice> choiceParam (const juce::String& id, const juce::String& name,
@@ -903,6 +950,14 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             break;
         }
 
+        case ParamId::chainMix:
+            if (slot >= 0) hostGraph.setChainMix ((HostGraph::Chain) slot, (float) e.param.value);
+            break;
+
+        case ParamId::chainBypass:
+            if (slot >= 0) hostGraph.setChainBypassed ((HostGraph::Chain) slot, e.param.value > 0.5);
+            break;
+
         default:
         {
             // APVTS-backed params: write the parameter with the guard set so the
@@ -985,6 +1040,15 @@ void MainPluginProcessor::cacheDeckParamIds()
     // Pad gains: resolve the atomics once so processBlock never builds a String.
     for (int i = 0; i < PadBank::numPads; ++i)
         padGainParams[(size_t) i] = apvts.getRawParameterValue ("pad" + juce::String (i + 1) + "Gain");
+
+    static const char* const stemNames[4] = { "Drums", "Bass", "Music", "Vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        const auto prefix = "masterStem" + juce::String (stemNames[stem]);
+        masterStemGainParams[(size_t) stem] = apvts.getRawParameterValue (prefix + "Gain");
+        masterStemMuteParams[(size_t) stem] = apvts.getRawParameterValue (prefix + "Mute");
+        masterStemSoloParams[(size_t) stem] = apvts.getRawParameterValue (prefix + "Solo");
+    }
 }
 
 void MainPluginProcessor::buildMidiTargets()
@@ -1182,6 +1246,9 @@ const GlobalMap kGlobals[] = {
     { "smartMasterMode", stemdeck::events::ParamId::smartMasterMode },
     { "smartMasterAmount", stemdeck::events::ParamId::smartMasterAmount },
     { "stemLink",        stemdeck::events::ParamId::stemLink },
+    { "transitionFrom",  stemdeck::events::ParamId::transitionFrom },
+    { "transitionTo",    stemdeck::events::ParamId::transitionTo },
+    { "transitionCurve", stemdeck::events::ParamId::transitionCurve },
 };
 } // namespace
 
@@ -1189,6 +1256,23 @@ MainPluginProcessor::ParamMapping MainPluginProcessor::mapApvtsId (const juce::S
 {
     using namespace stemdeck::events;
     ParamMapping m;
+
+    static const char* const masterStemIds[4] = { "Drums", "Bass", "Music", "Vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        const auto prefix = "masterStem" + juce::String (masterStemIds[stem]);
+        if (id == prefix + "Gain" || id == prefix + "Mute" || id == prefix + "Solo")
+        {
+            m.valid = true;
+            m.scope.kind = ScopeKind::master;
+            m.scope.stemLane = (StemLane) (stem + 1);
+            m.index = (std::uint32_t) stem;
+            m.id = id.endsWith ("Gain") ? ParamId::masterStemGain
+                 : id.endsWith ("Mute") ? ParamId::masterStemMute
+                                         : ParamId::masterStemSolo;
+            return m;
+        }
+    }
 
     for (const auto& g : kGlobals)
         if (id == g.id)
@@ -1285,6 +1369,18 @@ juce::String MainPluginProcessor::apvtsIdFor (const stemdeck::events::Event& e) 
 
     for (const auto& g : kGlobals)
         if (e.param.id == g.pid) return g.id;
+
+    if (e.param.id == ParamId::masterStemGain
+        || e.param.id == ParamId::masterStemMute
+        || e.param.id == ParamId::masterStemSolo)
+    {
+        static const char* const names[4] = { "Drums", "Bass", "Music", "Vocals" };
+        const int stem = (int) e.param.index;
+        if (! juce::isPositiveAndBelow (stem, 4)) return {};
+        return "masterStem" + juce::String (names[stem])
+             + (e.param.id == ParamId::masterStemGain ? "Gain"
+              : e.param.id == ParamId::masterStemMute ? "Mute" : "Solo");
+    }
 
     if (e.param.id == ParamId::padGain)
         return juce::isPositiveAndBelow ((int) e.param.index, PadBank::numPads)
@@ -1481,6 +1577,24 @@ void MainPluginProcessor::setInsertBypassDispatched (int chainIndex, int insertP
                                     (std::uint32_t) insertPos);
 }
 
+void MainPluginProcessor::setChainMixDispatched (int chainIndex, float mix)
+{
+    stemdeck::events::Scope sc;
+    sc.kind = stemdeck::events::ScopeKind::insert;
+    sc.channel = chainIndex;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::chainMix,
+                                    juce::jlimit (0.0, 1.0, (double) mix));
+}
+
+void MainPluginProcessor::setChainBypassDispatched (int chainIndex, bool bypassed)
+{
+    stemdeck::events::Scope sc;
+    sc.kind = stemdeck::events::ScopeKind::insert;
+    sc.channel = chainIndex;
+    eventDispatcher->dispatchParam (sc, stemdeck::events::ParamId::chainBypass,
+                                    bypassed ? 1.0 : 0.0);
+}
+
 void MainPluginProcessor::setInsertParameterDispatched (
     int chainIndex, int insertPos, int fallbackParameterIndex,
     std::uint64_t stableParameterId, float normalizedValue)
@@ -1556,7 +1670,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
         params.push_back (choiceParam (deck + "SyncMode", label + " Sync Mode", BeatSyncEngine::syncModeChoices(), 0));
         params.push_back (std::make_unique<juce::AudioParameterBool> (
             juce::ParameterID (deck + "Sync", 1), label + " Project Sync", true));
-        params.push_back (floatParam (deck + "Volume", label + " Gain", -60.0f, 6.0f, 0.0f, "dB"));
+        params.push_back (percentGainParam (deck + "Volume", label + " Gain",
+                                            stemdeck::gainscale::kMinDb, 0.0f));
         params.push_back (floatParam (deck + "Fader", label + " Channel Fader", 0.0f, 1.0f, 1.0f));
         params.push_back (floatParam (deck + "Pitch", label + " Pitch Shift", -12.0f, 12.0f, 0.0f, " st"));
         params.push_back (floatParam (deck + "BeatOffset", label + " Beat Grid Offset", -4.0f, 4.0f, 0.0f, " beats"));
@@ -1564,19 +1679,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
         params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (deck + "KeyLock", 1), label + " Pitch Preserve Request", false));
         params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (deck + "LiveKey", 1), label + " Live Key Analysis", false));
         params.push_back (choiceParam (deck + "KeyTarget", label + " Match Target Key", keyTargetChoices(), 0));
-        params.push_back (floatParam (deck + "Low", label + " Low", -24.0f, 12.0f, 0.0f, "dB"));
-        params.push_back (floatParam (deck + "Mid", label + " Mid", -24.0f, 12.0f, 0.0f, "dB"));
-        params.push_back (floatParam (deck + "High", label + " High", -24.0f, 12.0f, 0.0f, "dB"));
+        params.push_back (percentGainParam (deck + "Low", label + " Low", -24.0f, 0.0f));
+        params.push_back (percentGainParam (deck + "Mid", label + " Mid", -24.0f, 0.0f));
+        params.push_back (percentGainParam (deck + "High", label + " High", -24.0f, 0.0f));
         params.push_back (floatParam (deck + "Filter", label + " Filter", -1.0f, 1.0f, 0.0f));
 
-        // Stem gain is a LINEAR PERCENT (0 = silence, 100 = unity, 200 = x2.0/+6 dB).
+        // Stem gain is a LINEAR PERCENT (0 = silence, 100 = unity, 300 = x3.0/+9.54 dB).
         // See StemGain.h — this replaced a dB range in schema v2 and old state is
         // migrated in setStateInformation (0 dB meant unity; 0% means silence).
         for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
-            params.push_back (floatParam (deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain",
-                                          label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem Gain",
-                                          stemdeck::stemgain::kMin, stemdeck::stemgain::kMax,
-                                          stemdeck::stemgain::kUnity, "%"));
+            params.push_back (linearPercentParam (
+                deck + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain",
+                label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem Gain"));
 
         // Independent per-stem pitch (semitones) — pitch e.g. the vocal acapella while
         // the instrumental stays in key. Only the 4 separated stems, not the full mix.
@@ -1606,16 +1720,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
                                    { "Smooth", "Linear", "Sharp", "Cut" }, 0));
     // Hamster / reverse: swaps the fader sense so A/C and B/D trade ends.
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("crossfaderReverse", 1), "Crossfader Reverse", false));
+    // The handoff remains stored in `crossfader` for backward-compatible automation,
+    // but its endpoints are no longer hard-coded A/C and B/D buses.
+    params.push_back (choiceParam ("transitionFrom", "Transition From",
+                                   { "A", "B", "C", "D", "E", "F", "G", "H" }, 0));
+    params.push_back (choiceParam ("transitionTo", "Transition To",
+                                   { "A", "B", "C", "D", "E", "F", "G", "H" }, 1));
+    params.push_back (choiceParam ("transitionCurve", "Transition Curve",
+                                   { "Smooth", "Linear", "Sharp", "Reverse" }, 0));
     params.push_back (floatParam ("masterBpm", "Global Master BPM", 40.0f, 240.0f, 120.0f, " BPM"));
-    params.push_back (floatParam ("master", "Master", -60.0f, 6.0f, 0.0f, "dB"));
+    params.push_back (percentGainParam ("master", "Master",
+                                        stemdeck::gainscale::kMinDb, 0.0f));
     params.push_back (floatParam ("limiterCeiling", "Limiter Ceiling", -12.0f, -0.1f, -1.0f, "dB"));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("hostSync", 1), "Host Tempo Sync", true));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("beatSync", 1), "Host Beat/Grid Sync", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("micMonitor", 1), "Mic/Input Monitor", false));
-    params.push_back (floatParam ("micGain", "Mic/Input Gain", -60.0f, 6.0f, -12.0f, "dB"));
+    params.push_back (percentGainParam ("micGain", "Mic/Input Gain",
+                                        stemdeck::gainscale::kMinDb, -12.0f));
     // Built-in live-MIDI instrument: play a connected controller straight into the mix.
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("liveInstrument", 1), "Live MIDI Instrument", false));
-    params.push_back (floatParam ("liveInstrumentGain", "Live Instrument Gain", -60.0f, 6.0f, -6.0f, "dB"));
+    params.push_back (percentGainParam ("liveInstrumentGain", "Live Instrument Gain",
+                                        stemdeck::gainscale::kMinDb, -6.0f));
     // Global Master Effects XY pad: X = bipolar filter, Y = space/echo send.
     params.push_back (floatParam ("masterFxX", "Master FX Filter", 0.0f, 1.0f, 0.5f));
     params.push_back (floatParam ("masterFxY", "Master FX Space/Echo", 0.0f, 1.0f, 0.0f));
@@ -1627,8 +1752,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
     params.push_back (choiceParam ("masterKey", "Master Key Target", keyTargetChoices(), 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("stemLink", 1), "Link Stem Gains Across Decks", false));
 
+    // Four real stem buses immediately before the master insert chain. Gain is a
+    // linear percent (0/100/300), matching every per-deck stem control.
+    for (const auto* stem : { "Drums", "Bass", "Music", "Vocals" })
+    {
+        const auto prefix = "masterStem" + juce::String (stem);
+        params.push_back (linearPercentParam (
+            prefix + "Gain", "Master " + juce::String (stem) + " Stem Gain"));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID (prefix + "Mute", 1), "Master " + juce::String (stem) + " Stem Mute", false));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID (prefix + "Solo", 1), "Master " + juce::String (stem) + " Stem Solo", false));
+    }
+
     for (int i = 0; i < PadBank::numPads; ++i)
-        params.push_back (floatParam ("pad" + juce::String (i + 1) + "Gain", "Pad " + juce::String (i + 1) + " Gain", -60.0f, 6.0f, 0.0f, "dB"));
+        params.push_back (percentGainParam ("pad" + juce::String (i + 1) + "Gain",
+                                            "Pad " + juce::String (i + 1) + " Gain",
+                                            stemdeck::gainscale::kMinDb, 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -1815,8 +1955,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     const bool safePerformance = performanceSafeMode.load (std::memory_order_acquire);
 
     const float crossfader = getFloatParam ("crossfader");
-    const int   xfCurve    = (int) std::round (getFloatParam ("crossfaderCurve"));
-    const bool  xfReverse  = getBoolParam ("crossfaderReverse");
+    const int   transitionCurve = (int) std::round (getFloatParam ("transitionCurve"));
+    const int   xfCurve    = transitionCurve == 1 ? 1 : transitionCurve == 2 ? 2 : 0;
+    const bool  xfReverse  = transitionCurve == 3 || getBoolParam ("crossfaderReverse");
     const auto  xfGains    = crossfaderBusGains (crossfader, xfCurve, xfReverse);
     const float leftBusGain  = xfGains.first;    // A/C bus
     const float rightBusGain = xfGains.second;   // B/D bus
@@ -1839,6 +1980,31 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     blockCtx.inputAudio       = micCaptured ? &micInput : nullptr;
 
     auto channelSnapshot = channelGraph.current();
+
+    const int transitionFrom = juce::jlimit (0, kMaxChannels - 1,
+        (int) std::round (getFloatParam ("transitionFrom")));
+    int transitionTo = juce::jlimit (0, kMaxChannels - 1,
+        (int) std::round (getFloatParam ("transitionTo")));
+    if (transitionTo == transitionFrom)
+        transitionTo = (transitionFrom + 1) % kMaxChannels;
+    bool anyMasterStemSolo = false;
+    std::array<float, 4> masterStemScale {};
+    for (int stem = 0; stem < 4; ++stem)
+        anyMasterStemSolo = anyMasterStemSolo
+                         || (masterStemSoloParams[(size_t) stem] != nullptr
+                             && masterStemSoloParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f);
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        const bool muted = masterStemMuteParams[(size_t) stem] != nullptr
+                        && masterStemMuteParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        const bool soloed = masterStemSoloParams[(size_t) stem] != nullptr
+                         && masterStemSoloParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        const float percent = masterStemGainParams[(size_t) stem] != nullptr
+                            ? masterStemGainParams[(size_t) stem]->load (std::memory_order_relaxed)
+                            : stemdeck::stemgain::kUnity;
+        masterStemScale[(size_t) stem] = (muted || (anyMasterStemSolo && ! soloed))
+                                       ? 0.0f : juce::jlimit (0.0f, 3.0f, percent / 100.0f);
+    }
 
     // ── Live delay alignment (RT-safe: atomic reads only) ────────────────────
     // Each channel's latency = cached FX-chain latency + its body's CURRENT latency
@@ -1866,13 +2032,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         if (ch == nullptr)
             continue;
 
-        // Crossfader assignment (0 = A/left bus, 1 = Center, 2 = B/right bus).
+        // Arbitrary transition endpoints. Channels outside the selected pair remain
+        // at unity, so changing the route never silently attenuates the rest of a set.
         const int slot = ch->slotIndex;
-        const int cfSide = juce::isPositiveAndBelow (slot, numDecks)
-                               ? getDeckCfSide (slot) : 1;
-        ch->cfSide = cfSide == 0 ? CrossfaderSide::ac
-                   : cfSide == 2 ? CrossfaderSide::bd
-                                 : CrossfaderSide::center;
+        ch->cfSide = slot == transitionFrom ? CrossfaderSide::ac
+                   : slot == transitionTo   ? CrossfaderSide::bd
+                                            : CrossfaderSide::center;
 
         auto* body = ch->getBody();
         if (body == nullptr)
@@ -1909,6 +2074,8 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
             {
                 p->stemGainPercent[(size_t) lane] = getFloatParam (ids.stemGain[(size_t) lane]);
+                if (lane >= DeckPlayer::drumsStem && lane <= DeckPlayer::vocalsStem)
+                    p->stemGainPercent[(size_t) lane] *= masterStemScale[(size_t) (lane - DeckPlayer::drumsStem)];
                 // Pitch / filter / send params exist only for drums..vocals.
                 const bool coreLane = lane >= DeckPlayer::drumsStem && lane <= DeckPlayer::vocalsStem;
                 p->stemPitch[(size_t) lane] = coreLane ? getFloatParam (ids.stemPitch[(size_t) lane]) : 0.0f;
@@ -1926,6 +2093,26 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         }
 
         ch->processBlock (buffer, blockCtx);
+    }
+
+    // Decayed contribution telemetry. Where only a full mix exists this is an
+    // energy estimate; once separated files/RTSS are active the same controls still
+    // drive the exact four pre-master lanes. It intentionally adds no separator work
+    // at the unity defaults.
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        float contribution = 0.0f;
+        for (int deck = 0; deck < numDecks; ++deck)
+        {
+            const float deckEnergy = juce::jmax (getDeckPeak (deck, 0), getDeckPeak (deck, 1));
+            const auto& ids = deckIds[(size_t) deck];
+            const int lane = DeckPlayer::drumsStem + stem;
+            const float deckStem = getFloatParam (ids.stemGain[(size_t) lane]) / 100.0f;
+            contribution = juce::jmax (contribution, deckEnergy * deckStem * masterStemScale[(size_t) stem]);
+        }
+        const float previous = masterStemPeak[(size_t) stem].load (std::memory_order_relaxed);
+        masterStemPeak[(size_t) stem].store (juce::jmax (contribution, previous * 0.84f),
+                                             std::memory_order_relaxed);
     }
 
     // Preserve a raw, sample-aligned safety recording before any legacy mic-chain
@@ -2524,7 +2711,8 @@ void MainPluginProcessor::loadAudioAsync (const juce::File& file, std::function<
         std::move (guarded)), true);
 }
 
-void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& file)
+void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& file,
+                                             bool allowNeuralRefinement)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks) || ! file.existsAsFile())
         return;
@@ -2539,7 +2727,8 @@ void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& fi
         deckAt (deckIndex).setStemAudio (lane, {});
         setStatePathProperty (deckStemPathProperty (deckIndex, lane), {});
     }
-    loadDeckStemFileAsync (deckIndex, DeckPlayer::fullMixStem, file);
+    loadDeckStemFileAsync (deckIndex, DeckPlayer::fullMixStem, file,
+                           allowNeuralRefinement);
 }
 
 void MainPluginProcessor::clearDeck (int deckIndex)
@@ -2635,6 +2824,14 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
         if (! alive->load (std::memory_order_acquire))
             return juce::ThreadPoolJob::jobHasFinished;
 
+        // The beat model's activation workspace is intentionally substantial.
+        // Running one copy per restored deck in parallel caused launch-time CPU
+        // saturation and multi-gigabyte resident spikes. Refinement is optional
+        // and the deck is already playable, so queue it behind one shared gate.
+        const std::unique_lock<std::mutex> neuralGate (neuralRefineMutex);
+        if (! alive->load (std::memory_order_acquire))
+            return juce::ThreadPoolJob::jobHasFinished;
+
         auto audio = deckAt (deckIndex).getLoadedAudio();
         if (audio == nullptr || audio->path != file.getFullPathName())
             return juce::ThreadPoolJob::jobHasFinished;   // deck moved on; drop the result
@@ -2643,9 +2840,11 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
 
         // Long tracks keep only a one-sample sentinel in LoadedAudio because the
         // player reads them from ChunkedAudioFile. Neural models still need the
-        // complete signal, so decode a temporary worker-owned buffer here. This
-        // preserves accurate optional AI analysis without putting a DJ-length song
-        // back into the deck's permanent resident set.
+        // signal, so decode a temporary worker-owned buffer here. Both models sum
+        // to mono internally; reading stereo doubled peak RAM for no information
+        // gain. Cap unusually long recordings to twelve minutes: ordinary tracks
+        // remain fully covered, while hour-long live recordings cannot allocate
+        // gigabytes merely because they were restored into a deck.
         juce::AudioBuffer<float> streamedNeuralAudio;
         const juce::AudioBuffer<float>* neuralAudio = &audio->audio;
         if (audio->streamed != nullptr)
@@ -2657,13 +2856,19 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
            #endif
             auto reader = std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (file));
             if (reader == nullptr || reader->lengthInSamples <= 0
-                || reader->lengthInSamples > std::numeric_limits<int>::max())
+                || reader->sampleRate <= 0.0)
                 return juce::ThreadPoolJob::jobHasFinished;
 
-            const int channelsToRead = (int) juce::jmin<int64> (reader->numChannels, 2);
-            streamedNeuralAudio.setSize (channelsToRead, (int) reader->lengthInSamples);
+            constexpr double maxNeuralWindowSeconds = 12.0 * 60.0;
+            const auto maxWindowSamples = (juce::int64) std::llround (
+                reader->sampleRate * maxNeuralWindowSeconds);
+            const auto samplesToRead = juce::jmin (
+                reader->lengthInSamples,
+                juce::jmin<juce::int64> (maxWindowSamples,
+                                         std::numeric_limits<int>::max()));
+            streamedNeuralAudio.setSize (1, (int) samplesToRead);
             if (! reader->read (&streamedNeuralAudio, 0, streamedNeuralAudio.getNumSamples(),
-                                0, true, true))
+                                0, true, false))
                 return juce::ThreadPoolJob::jobHasFinished;
             neuralAudio = &streamedNeuralAudio;
         }
@@ -2750,7 +2955,9 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
     }));
 }
 
-void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneIndex, const juce::File& file)
+void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneIndex,
+                                                 const juce::File& file,
+                                                 bool allowNeuralRefinement)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks)
         || ! juce::isPositiveAndBelow (stemLaneIndex, DeckPlayer::numStemLanes)
@@ -2799,7 +3006,8 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
     }
 
     auto onAnalysisReady = [this, deckIndex, stemLaneIndex, generation,
-                            path = file.getFullPathName(), alive = aliveFlag]
+                            path = file.getFullPathName(), alive = aliveFlag,
+                            allowNeuralRefinement]
                            (std::shared_ptr<const TrackAnalysis> analysis)
     {
         if (! alive->load (std::memory_order_acquire) || analysis == nullptr)
@@ -2815,8 +3023,11 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
             if (auto* bpm = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (deckPrefix (deckIndex) + "Bpm")))
                 bpm->setValueNotifyingHost (bpm->convertTo0to1 (juce::jlimit (40.0f, 240.0f, analysis->detectedBpm)));
 
-        // Neural refinement on top of the DSP grid/key, as before.
-        refineAnalysisAsync (deckIndex, juce::File (path));
+        // User-initiated imports refine automatically. State restoration deliberately
+        // trusts the persisted/cache analysis instead: reopening a set must become
+        // performance-ready without silently launching heavyweight model work.
+        if (allowNeuralRefinement)
+            refineAnalysisAsync (deckIndex, juce::File (path));
 
         // Loading a song must stay cheap and predictable. Reuse stems that already
         // exist in the cache, but never start an expensive AI/CLI separation behind
@@ -3043,7 +3254,7 @@ void MainPluginProcessor::buildAndStartArrangement (
                 c.gainAutomation.emplace_back (
                     (juce::int64) std::llround (
                         seconds * payload->engineSr),
-                    juce::jlimit (0.0f, 2.0f, value));
+                    juce::jlimit (0.0f, 3.0f, value));
             auto copyAutomation = [engineSr = payload->engineSr] (
                 const std::vector<std::pair<double, float>>& source,
                 std::vector<std::pair<juce::int64, float>>& destination)
@@ -3293,9 +3504,12 @@ stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inD
     if (audioIn != nullptr && audioIn->sourceSampleRate > 0.0)
         deckAt (inDeck).seekToSamples (plan.inPointSampleB);   // in-point is in source samples
 
-    // Crossfader routing: outgoing on A/left, incoming on B/right.
-    setDeckCfSide (outDeck, 0);
-    setDeckCfSide (inDeck, 2);
+    // Explicit transition routing: the gesture follows these channels regardless of
+    // where they happen to sit in the deck row.
+    if (auto* p = apvts.getParameter ("transitionFrom"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) outDeck));
+    if (auto* p = apvts.getParameter ("transitionTo"))
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) inDeck));
 
     // Beat-sync so the incoming deck locks to the master grid.
     if (auto* p = apvts.getParameter ("beatSync")) p->setValueNotifyingHost (1.0f);
@@ -4285,7 +4499,7 @@ void MainPluginProcessor::restoreFileAssignmentsFromState()
         // Snapshot lane paths before starting the full-mix request: a deliberate
         // source replacement clears old stem assignments immediately.
         if (path.isNotEmpty())
-            loadDeckFileAsync (i, juce::File (path));
+            loadDeckFileAsync (i, juce::File (path), false);
 
         for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
         {
@@ -4412,6 +4626,25 @@ bool MainPluginProcessor::remapStateMediaPaths (
         return false;
 
     auto tree = juce::ValueTree::fromXml (*xml);
+
+    auto ensureParameterNode = [&tree] (const juce::String& id, float value)
+    {
+        if (tree.getChildWithProperty ("id", id).isValid()) return;
+        juce::ValueTree node ("PARAM");
+        node.setProperty ("id", id, nullptr);
+        node.setProperty ("value", value, nullptr);
+        tree.appendChild (node, nullptr);
+    };
+    ensureParameterNode ("transitionFrom", 0.0f);
+    ensureParameterNode ("transitionTo", 1.0f);
+    ensureParameterNode ("transitionCurve", 0.0f);
+    for (const auto* stem : { "Drums", "Bass", "Music", "Vocals" })
+    {
+        const auto prefix = "masterStem" + juce::String (stem);
+        ensureParameterNode (prefix + "Gain", 100.0f);
+        ensureParameterNode (prefix + "Mute", 0.0f);
+        ensureParameterNode (prefix + "Solo", 0.0f);
+    }
     auto rewrite = [&replacements] (auto&& self, juce::ValueTree node) -> void
     {
         for (int property = 0; property < node.getNumProperties(); ++property)
@@ -4450,8 +4683,41 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
     if (fileVersion < 2)
     {
         migrateStemGainsDbToPercent (tree);
-        tree.setProperty ("stateVersion", kStateVersion, nullptr);
     }
+    if (fileVersion < 3)
+    {
+        // Fixed-bus crossfader -> arbitrary Transition. Preserve every curve we can
+        // represent; legacy Cut becomes Sharp, while Hamster becomes Reverse.
+        const auto legacyCurve = tree.getChildWithProperty ("id", "crossfaderCurve");
+        auto legacyReverse = tree.getChildWithProperty ("id", "crossfaderReverse");
+        const int oldCurve = legacyCurve.isValid()
+                           ? (int) (float) legacyCurve.getProperty ("value", 0.0f) : 0;
+        const bool wasReverse = legacyReverse.isValid()
+                             && (float) legacyReverse.getProperty ("value", 0.0f) > 0.5f;
+        auto transitionCurveNode = tree.getChildWithProperty ("id", "transitionCurve");
+        if (transitionCurveNode.isValid())
+            transitionCurveNode.setProperty ("value", wasReverse ? 3.0f
+                                                   : (float) juce::jlimit (0, 2, oldCurve), nullptr);
+        if (legacyReverse.isValid())
+            legacyReverse.setProperty ("value", 0.0f, nullptr);
+    }
+    tree.setProperty ("stateVersion", kStateVersion, nullptr);
+
+    // A saved set is configuration, not a command to start making sound. Restoring
+    // a true Play value previously launched every active deck as soon as the audio
+    // device opened, which could both surprise the performer and immediately spin
+    // up several Rubber Band stretchers. Microphone monitoring is equally unsafe
+    // to resume implicitly. Keep files, cues, sync, routing and processing intact,
+    // but require an explicit transport/monitor gesture after every state load.
+    auto forceMomentaryParameterOff = [&tree] (const juce::String& id)
+    {
+        auto node = tree.getChildWithProperty ("id", id);
+        if (node.isValid())
+            node.setProperty ("value", 0.0f, nullptr);
+    };
+    for (int deck = 0; deck < numDecks; ++deck)
+        forceMomentaryParameterOff (deckPrefix (deck) + "Play");
+    forceMomentaryParameterOff ("micMonitor");
 
     apvts.replaceState (tree);
     restoreChannelsFromState();
@@ -4508,6 +4774,9 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
     lastMicMonitor = getBoolParam ("micMonitor");
     lastHostSync = getBoolParam ("hostSync");
     lastBeatSync = getBoolParam ("beatSync");
+    lastTransitionFrom = (int) std::round (getFloatParam ("transitionFrom"));
+    lastTransitionTo = (int) std::round (getFloatParam ("transitionTo"));
+    lastTransitionCurve = (int) std::round (getFloatParam ("transitionCurve"));
 
     logPerformanceEvent (sample, "parameter_change", {}, "crossfader", juce::String (lastCrossfader, 4));
     logPerformanceEvent (sample, "parameter_change", {}, "master_bpm", juce::String (lastMasterBpm, 2));
@@ -4521,6 +4790,23 @@ void MainPluginProcessor::initialisePerformanceCaptureState()
     logPerformanceEvent (sample, lastMicMonitor ? "mic_start" : "mic_stop", {}, "mic_monitor", lastMicMonitor ? "on" : "off");
     logPerformanceEvent (sample, "sync_change", {}, "host_sync", lastHostSync ? "on" : "off");
     logPerformanceEvent (sample, "sync_change", {}, "beat_sync", lastBeatSync ? "on" : "off");
+    logPerformanceEvent (sample, "parameter_change", {}, "transition_from", juce::String (lastTransitionFrom));
+    logPerformanceEvent (sample, "parameter_change", {}, "transition_to", juce::String (lastTransitionTo));
+    logPerformanceEvent (sample, "parameter_change", {}, "transition_curve", juce::String (lastTransitionCurve));
+    static const char* const stemLogNames[4] = { "drums", "bass", "music", "vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        const auto* name = stemLogNames[stem];
+        lastMasterStemGain[(size_t) stem] = masterStemGainParams[(size_t) stem]->load (std::memory_order_relaxed);
+        lastMasterStemMute[(size_t) stem] = masterStemMuteParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        lastMasterStemSolo[(size_t) stem] = masterStemSoloParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        logPerformanceEvent (sample, "parameter_change", {}, "master_stem_" + juce::String (name) + "_gain",
+                             juce::String (lastMasterStemGain[(size_t) stem], 2));
+        logPerformanceEvent (sample, "effect_toggle", {}, "master_stem_" + juce::String (name) + "_mute",
+                             lastMasterStemMute[(size_t) stem] ? "on" : "off");
+        logPerformanceEvent (sample, "effect_toggle", {}, "master_stem_" + juce::String (name) + "_solo",
+                             lastMasterStemSolo[(size_t) stem] ? "on" : "off");
+    }
 
     for (int i = 0; i < numDecks; ++i)
     {
@@ -4577,6 +4863,43 @@ void MainPluginProcessor::updatePerformanceCaptureState (int64_t blockStartSampl
     {
         lastCrossfader = crossfaderValue;
         logPerformanceEvent (blockStartSample, "parameter_change", {}, "crossfader", juce::String (crossfaderValue, 4));
+    }
+
+    auto logTransitionChoice = [&] (juce::StringRef name, int current, int& previous)
+    {
+        if (current == previous) return;
+        previous = current;
+        logPerformanceEvent (blockStartSample, "parameter_change", {}, name,
+                             juce::String (current));
+    };
+    logTransitionChoice ("transition_from", (int) std::round (getFloatParam ("transitionFrom")), lastTransitionFrom);
+    logTransitionChoice ("transition_to", (int) std::round (getFloatParam ("transitionTo")), lastTransitionTo);
+    logTransitionChoice ("transition_curve", (int) std::round (getFloatParam ("transitionCurve")), lastTransitionCurve);
+    static const char* const stemLogNames[4] = { "drums", "bass", "music", "vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+    {
+        const auto* name = stemLogNames[stem];
+        const float gain = masterStemGainParams[(size_t) stem]->load (std::memory_order_relaxed);
+        if (changedFloat (gain, lastMasterStemGain[(size_t) stem], 0.05f))
+        {
+            lastMasterStemGain[(size_t) stem] = gain;
+            logPerformanceEvent (blockStartSample, "parameter_change", {},
+                                 "master_stem_" + juce::String (name) + "_gain", juce::String (gain, 2));
+        }
+        const bool mute = masterStemMuteParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        const bool solo = masterStemSoloParams[(size_t) stem]->load (std::memory_order_relaxed) > 0.5f;
+        if (mute != lastMasterStemMute[(size_t) stem])
+        {
+            lastMasterStemMute[(size_t) stem] = mute;
+            logPerformanceEvent (blockStartSample, "effect_toggle", {},
+                                 "master_stem_" + juce::String (name) + "_mute", mute ? "on" : "off");
+        }
+        if (solo != lastMasterStemSolo[(size_t) stem])
+        {
+            lastMasterStemSolo[(size_t) stem] = solo;
+            logPerformanceEvent (blockStartSample, "effect_toggle", {},
+                                 "master_stem_" + juce::String (name) + "_solo", solo ? "on" : "off");
+        }
     }
 
     const float masterBpmValue = (float) snapshot.bpm;

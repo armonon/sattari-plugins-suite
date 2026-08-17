@@ -18,6 +18,7 @@
 #include <JuceHeader.h>
 #include "ChannelTypes.h"
 #include "DesignTokens.h"
+#include "GainScale.h"
 #include <array>
 #include <cmath>
 
@@ -33,13 +34,13 @@ public:
         juce::String name;
         juce::Colour accent { 0xff4AD9C4 };
         bool  focused = false;
-        float gain    = 1.0f;    // 0..2 linear
+        float gain    = 1.0f;    // 0..3 linear; unity is the physical midpoint
         float level   = 0.0f;    // 0..1 for the meter (input peak / instrument activity)
         bool  monitor = true;    // Input: audible in the mix
         bool  active  = false;   // MidiInstrument: a note is sounding
         int   midiChannel = 0;   // 0 = omni
         bool  clipping = false;
-        float lowDb = 0.0f, midDb = 0.0f, highDb = 0.0f;   // -24..+24
+        float lowDb = 0.0f, midDb = 0.0f, highDb = 0.0f;   // -24..+9.54; 0 = 100%
         float filter = 0.5f;                               // 0..1, 0.5 = bypass
         bool  muted = false;
         bool  soloed = false;
@@ -61,7 +62,7 @@ public:
     // Hit targets the host wires up.
     std::function<void()>      onToggleMonitor;
     std::function<void()>      onRequestFocus;
-    std::function<void(float)> onGainChanged;   // 0..2 linear
+    std::function<void(float)> onGainChanged;   // 0..3 linear
     std::function<void()>      onRemove;
     std::function<void(int,float)> onEqChanged;      // band 0=low 1=mid 2=high, dB
     std::function<void(float)>     onFilterChanged;  // 0..1
@@ -335,7 +336,10 @@ public:
             if (eqBounds[(size_t) i].contains (down) && onEqChanged)
             {
                 const float base = i == 0 ? state.lowDb : i == 1 ? state.midDb : state.highDb;
-                onEqChanged (i, juce::jlimit (-24.0f, 24.0f, base + dy * 0.15f));
+                const float baseNorm = stemdeck::gainscale::bipolarDbToNorm (
+                    base, -24.0f, stemdeck::gainscale::kMaxDb);
+                onEqChanged (i, stemdeck::gainscale::normToBipolarDb (
+                    baseNorm + dy * 0.005f, -24.0f, stemdeck::gainscale::kMaxDb));
                 return;
             }
 
@@ -343,7 +347,12 @@ public:
         { onFilterChanged (juce::jlimit (0.0f, 1.0f, state.filter + dy * 0.004f)); return; }
 
         if (gainBounds.contains (down) && onGainChanged)
-        { onGainChanged (juce::jlimit (0.0f, 2.0f, state.gain + dy * 0.01f)); return; }
+        {
+            const float baseNorm = stemdeck::gainscale::linearToControlNorm (state.gain);
+            onGainChanged (stemdeck::gainscale::controlNormToLinear (
+                baseNorm + dy * 0.005f));
+            return;
+        }
     }
 
 private:
@@ -445,7 +454,8 @@ private:
         const float rad = juce::jmin (r.getWidth(), r.getHeight()) * 0.44f;
         if (rad < 4.0f) return;
 
-        const float t = juce::jlimit (-1.0f, 1.0f, valueDb / 24.0f);
+        const float t = stemdeck::gainscale::bipolarDbToNorm (
+                            valueDb, -24.0f, stemdeck::gainscale::kMaxDb) * 2.0f - 1.0f;
         const float halfSweep = juce::MathConstants<float>::pi * 0.75f;
 
         juce::Path track;
@@ -476,7 +486,7 @@ private:
 
         const float start = juce::MathConstants<float>::pi * 1.25f;
         const float range = juce::MathConstants<float>::pi * 1.5f;
-        const float t = juce::jlimit (0.0f, 1.0f, gain * 0.5f);   // 0..2 -> 0..1
+        const float t = stemdeck::gainscale::linearToControlNorm (gain);
 
         juce::Path track;
         track.addCentredArc (c.x, c.y, rad, rad, 0.0f, start, start + range, true);
@@ -485,7 +495,11 @@ private:
 
         juce::Path val;
         val.addCentredArc (c.x, c.y, rad, rad, 0.0f, start, start + range * t, true);
-        g.setColour (gain > 1.02f ? accent.interpolatedWith (stemdeck::tokens::c (stemdeck::tokens::warn2), (gain - 1.0f)) : accent);
+        const float boost = juce::jlimit (0.0f, 1.0f, (gain - 1.0f)
+                                                       / (stemdeck::gainscale::kMaxLinear - 1.0f));
+        g.setColour (gain > 1.02f ? accent.interpolatedWith (
+                                           stemdeck::tokens::c (stemdeck::tokens::warn2), boost)
+                                  : accent);
         g.strokePath (val, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         // Readout under the arc's open bottom, not across the arc itself.

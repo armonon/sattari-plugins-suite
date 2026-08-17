@@ -99,6 +99,13 @@ enum class ParamId : std::uint16_t
     smartMasterOn, smartMasterMode, smartMasterAmount,
     stemLink, padGain, slipMode, padTrigger,
 
+    // v4 Perform dock: arbitrary two-channel transitions and master stem buses.
+    // APPEND ONLY. These are captured as master-scoped intent so Replay can edit
+    // the handoff and the four bus trims independently of the printed safety lane.
+    transitionFrom, transitionTo, transitionCurve,
+    masterStemGain, masterStemMute, masterStemSolo,
+    chainMix, chainBypass,
+
     count
 };
 

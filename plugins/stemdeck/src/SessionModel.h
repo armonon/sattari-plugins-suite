@@ -19,7 +19,7 @@ namespace stemdeck::session
 {
 
 // v2: stem-gain param events changed from dB to linear percent (0=silence,
-// 100=unity, 200=x2.0) — see StemGain.h. Sessions written as v1 are migrated on
+// 100=unity, 300=x3.0) — see StemGain.h. Sessions written as v1 are migrated on
 // load; never reinterpret a v1 value as v2 (0.0 flips from unity to silence).
 constexpr int kSchemaVersion = 2;
 

@@ -10,6 +10,7 @@
 #include "FxTargetModel.h"
 #include <vector>
 #include <functional>
+#include <limits>
 
 namespace stemdeck
 {
@@ -28,6 +29,10 @@ public:
     std::function<bool (int)>         isBypassed;      // per-insert bypass state
     std::function<void (int)>         onToggleBypass;
     std::function<void (int,int)>     onReorder;       // drag an insert to a new position
+    std::function<bool()>             isChainBypassed;
+    std::function<void()>             onToggleChainBypass;
+    std::function<float()>            getChainMix;
+    std::function<void(float)>        onChainMixChanged;
     // Called by the MASTER / CHANNEL / STEM chips and the current-target button.
     // A negative kind requests the complete target menu.
     std::function<void (int)>         onChooseTarget;
@@ -40,6 +45,7 @@ public:
     {
         targetModel.setTargets (std::move (names), std::move (chainIndices),
                                 std::move (targetKinds));
+        folded.clear();
         repaint();
     }
     int currentTarget() const noexcept { return targetModel.currentIndex(); }
@@ -133,16 +139,26 @@ public:
         g.setColour (T::c (T::bgWell));
         g.fillRoundedRectangle (rail.toFloat(), 8.0f);
 
-        editRects.clear(); removeRects.clear(); bypassRects.clear(); tileRects.clear(); addRect = {};
+        editRects.clear(); removeRects.clear(); bypassRects.clear(); foldRects.clear();
+        tileRects.clear(); insertionRects.clear(); addRect = {}; chainBypassRect = {}; chainMixRect = {};
 
         auto lane = rail.reduced (T::gap7);
+        juce::Rectangle<int> chainControlArea;
+        if (lane.getWidth() >= 180)
+        {
+            chainControlArea = lane.removeFromRight (108);
+            lane.removeFromRight (T::gap5);
+        }
         const int count = getPluginCount ? getPluginCount() : 0;
-        constexpr int kTileW = 118, kArrowW = 16, kAddW = 60;
+        if ((int) folded.size() < count) folded.resize ((size_t) count, false);
+        constexpr int kTileW = 140, kFoldedW = 86, kArrowW = 12, kAddW = 86;
 
         for (int i = 0; i < count; ++i)
         {
-            if (lane.getWidth() < kTileW + kArrowW) break;   // rail full; remainder scrolls off
-            auto tile = lane.removeFromLeft (kTileW);
+            const int tileW = folded[(size_t) i] ? kFoldedW : kTileW;
+            if (lane.getWidth() < tileW + kArrowW) break;   // rail full; remainder scrolls off
+            insertionRects.push_back ({ i, lane.withWidth (8).translated (-4, 0) });
+            auto tile = lane.removeFromLeft (tileW);
             tileRects.push_back ({ i, tile });
             paintInsertTile (g, tile, i);
 
@@ -153,6 +169,16 @@ public:
             g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")), arrow, juce::Justification::centred);
             lane.removeFromLeft (T::gap3);
         }
+
+        insertionRects.push_back ({ count, lane.withWidth (8).translated (-4, 0) });
+
+        if (dragFrom >= 0 && dragInsert >= 0)
+            for (const auto& [index, rect] : insertionRects)
+                if (index == dragInsert)
+                {
+                    g.setColour (accent);
+                    g.fillRoundedRectangle (rect.toFloat(), 2.0f);
+                }
 
         // Empty state is an "add FX" SLOT, never a dead "No FX loaded" message — the
         // reference is explicit about this. The slot is always present, so adding the
@@ -174,7 +200,33 @@ public:
                         inner.removeFromTop (inner.getHeight() / 2), juce::Justification::centredBottom);
             g.setColour (T::c (T::fgTertiary));
             g.setFont (juce::FontOptions (T::tLabel));
-            g.drawText ("add FX", inner, juce::Justification::centredTop);
+            g.drawText (count == 0 ? "DROP EFFECTS HERE" : "ADD FX", inner,
+                        juce::Justification::centredTop);
+        }
+
+
+        // End-of-chain controls are always visible: global bypass plus true
+        // dry/wet mix. They are atomics in HostGraph and therefore stage-safe.
+        if (! chainControlArea.isEmpty())
+        {
+            auto end = chainControlArea.reduced (4);
+            chainBypassRect = end.removeFromTop (18).removeFromLeft (52);
+            chainMixRect = end.removeFromBottom (18);
+            const bool chainOff = isChainBypassed && isChainBypassed();
+            g.setColour (chainOff ? T::c (T::warn).withAlpha (0.18f) : T::c (T::bgControl));
+            g.fillRoundedRectangle (chainBypassRect.toFloat(), T::radiusPill);
+            g.setColour (chainOff ? T::c (T::warn) : T::c (T::fgSecondary));
+            g.setFont (juce::FontOptions (T::tCaption, juce::Font::bold));
+            g.drawText (chainOff ? "CHAIN OFF" : "CHAIN ON", chainBypassRect,
+                        juce::Justification::centred);
+            const float mix = getChainMix ? juce::jlimit (0.0f, 1.0f, getChainMix()) : 1.0f;
+            g.setColour (T::c (T::borderSubtle));
+            g.fillRoundedRectangle (chainMixRect.toFloat(), 2.0f);
+            g.setColour (accent);
+            g.fillRoundedRectangle (chainMixRect.toFloat().withWidth (chainMixRect.getWidth() * mix), 2.0f);
+            g.setColour (T::c (T::fgTertiary));
+            g.drawText ("MIX " + juce::String ((int) std::round (mix * 100.0f)) + "%",
+                        chainMixRect.translated (0, -17), juce::Justification::centred);
         }
 
         if (status.isNotEmpty())
@@ -196,89 +248,142 @@ public:
         g.setColour (T::c (T::borderSubtle));
         g.drawRoundedRectangle (tile.toFloat().reduced (0.5f), T::radiusWell, 0.5f);
 
-        auto in = tile.reduced (T::gap7);
+        auto in = tile.reduced (T::gap5);
         const float dim = byp ? 0.45f : 1.0f;
 
-        // Drag handle — real: dragging a tile reorders the chain via onReorder.
-        auto grip = in.removeFromTop (10);
-        auto gripR = grip.removeFromRight (10);
-        g.setColour (T::c (T::fgMuted));
-        g.setFont (juce::FontOptions (T::tLabel));
-        g.drawText ("::", gripR, juce::Justification::centredRight);
+        // Uniform header: [power] [fold] [name] [preset/editor] [remove].
+        auto header = in.removeFromTop (18);
+        auto power = header.removeFromLeft (18);
+        auto fold = header.removeFromLeft (18);
+        auto remove = header.removeFromRight (18);
+        auto preset = header.removeFromRight (34);
+        bypassRects.push_back ({ i, power });
+        foldRects.push_back ({ i, fold });
+        removeRects.push_back ({ i, remove });
+        editRects.push_back ({ i, preset });
 
-        g.setColour (accent.withMultipliedAlpha (dim));
-        g.setFont (juce::FontOptions (T::tLabel));
-        g.drawText (juce::String (i + 1).paddedLeft ('0', 2), grip, juce::Justification::centredLeft);
-
-        in.removeFromTop (T::gap1);
+        g.setColour (byp ? T::c (T::fgMuted) : accent);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (byp ? "○" : "●", power, juce::Justification::centred);
+        g.setColour (T::c (T::fgSecondary));
+        g.drawText (folded[(size_t) i] ? ">" : "v", fold, juce::Justification::centred);
         g.setColour (T::c (T::fgPrimary).withMultipliedAlpha (dim));
-        g.setFont (juce::FontOptions (T::tControl));
+        g.setFont (juce::FontOptions (T::tLabel, juce::Font::bold));
         g.drawFittedText (getPluginName ? getPluginName (i) : juce::String ("FX"),
-                          in.removeFromTop (26), juce::Justification::topLeft, 2);
-
-        // on / edit chips.
-        auto chips = in.removeFromBottom (16);
-        auto onR = chips.removeFromLeft (chips.getWidth() / 2 - 2);
-        chips.removeFromLeft (4);
-        auto edR = chips;
-        bypassRects.push_back ({ i, onR });
-        editRects.push_back ({ i, edR });
-
-        g.setColour (byp ? T::c (T::bgControl) : T::c (T::stemBasLight).withAlpha (0.12f));
-        g.fillRoundedRectangle (onR.toFloat(), T::radiusPill);
-        g.setColour (byp ? T::c (T::fgMuted) : T::c (T::stemBasLight));
+                          header, juce::Justification::centredLeft, 1);
+        g.setColour (T::c (T::fgMuted));
         g.setFont (juce::FontOptions (T::tCaption));
-        g.drawText (byp ? "byp" : "on", onR, juce::Justification::centred);
+        g.drawText ("UI", preset, juce::Justification::centred);
+        g.drawText (juce::String::charToString ((juce_wchar) 0x00d7), remove,
+                    juce::Justification::centred);
 
-        g.setColour (T::c (T::bgControl));
-        g.fillRoundedRectangle (edR.toFloat(), T::radiusPill);
-        g.setColour (T::c (T::fgTertiary));
-        g.drawText ("edit", edR, juce::Justification::centred);
+        if (folded[(size_t) i])
+            return;
 
-        // Remove target: the grip corner doubles as it on right-click; keep an explicit
-        // hit box so removal never requires a context menu.
-        removeRects.push_back ({ i, gripR });
+        in.removeFromTop (T::gap3);
+        auto thumb = in.removeFromTop (juce::jmax (18, in.getHeight() / 2));
+        g.setColour (accent.withAlpha (0.08f));
+        g.fillRoundedRectangle (thumb.toFloat(), 4.0f);
+        g.setColour (accent.withAlpha (0.35f));
+        for (int bar = 0; bar < 7; ++bar)
+        {
+            const float h = 3.0f + (float) ((bar * 7) % 13);
+            g.fillRoundedRectangle ((float) thumb.getX() + 6.0f + bar * 14.0f,
+                                    (float) thumb.getCentreY() - h * 0.5f,
+                                    7.0f, h, 1.5f);
+        }
+        in.removeFromTop (T::gap2);
+        g.setColour (T::c (T::fgTertiary).withMultipliedAlpha (dim));
+        g.setFont (juce::FontOptions (T::tCaption));
+        g.drawFittedText ("MIX 100   TONE 0   DRIVE 0", in,
+                          juce::Justification::centredLeft, 1);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
         dragFrom = -1;
+        dragInsert = -1;
+        adjustingChainMix = chainMixRect.contains (e.getPosition());
+        if (adjustingChainMix)
+        {
+            updateChainMixFromX (e.x);
+            return;
+        }
         for (const auto& [i, rect] : tileRects)
             if (rect.contains (e.getPosition())) { dragFrom = i; break; }
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (adjustingChainMix)
+        {
+            updateChainMixFromX (e.x);
+            return;
+        }
+        if (dragFrom < 0 || e.getDistanceFromDragStart() <= 5) return;
+        int best = -1;
+        int distance = std::numeric_limits<int>::max();
+        for (const auto& [index, rect] : insertionRects)
+        {
+            const int d = std::abs (e.x - rect.getCentreX());
+            if (d < distance) { distance = d; best = index; }
+        }
+        if (best != dragInsert) { dragInsert = best; repaint(); }
     }
 
     void mouseUp (const juce::MouseEvent& e) override
     {
         const auto p = e.getPosition();
+        if (adjustingChainMix) { adjustingChainMix = false; updateChainMixFromX (e.x); return; }
 
-        // A drag that ends over a different tile reorders; a click falls through.
+        // A dragged tile has a visible insertion gap. Dropping outside the rack is
+        // an explicit remove gesture, mirroring Ableton's device rail.
         if (dragFrom >= 0 && e.getDistanceFromDragStart() > 6)
         {
-            for (const auto& [i, rect] : tileRects)
-                if (i != dragFrom && rect.contains (p))
-                { const int from = dragFrom; dragFrom = -1; if (onReorder) onReorder (from, i); repaint(); return; }
+            const int from = dragFrom;
             dragFrom = -1;
+            if (! getLocalBounds().expanded (10).contains (p))
+            { if (onRemove) onRemove (from); dragInsert = -1; repaint(); return; }
+            int to = dragInsert;
+            if (to > from) --to;
+            dragInsert = -1;
+            if (to >= 0 && to != from && onReorder) onReorder (from, to);
+            repaint();
             return;
         }
-        dragFrom = -1;
+        dragFrom = -1; dragInsert = -1;
 
         for (const auto& [i, rect] : kindRects)
             if (rect.contains (p) && onChooseTarget) { onChooseTarget (i); return; }
         if (targetRect.contains (p) && onChooseTarget) { onChooseTarget (-1); return; }
         for (const auto& [i, rect] : bypassRects) if (rect.contains (p) && onToggleBypass) { onToggleBypass (i); repaint(); return; }
+        for (const auto& [i, rect] : foldRects) if (rect.contains (p))
+        { if (juce::isPositiveAndBelow (i, (int) folded.size())) folded[(size_t) i] = ! folded[(size_t) i]; repaint(); return; }
         for (const auto& [i, rect] : editRects)   if (rect.contains (p) && onEdit)   { onEdit (i);   return; }
         for (const auto& [i, rect] : removeRects) if (rect.contains (p) && onRemove) { onRemove (i); return; }
+        if (chainBypassRect.contains (p) && onToggleChainBypass) { onToggleChainBypass(); repaint(); return; }
         if (! addRect.isEmpty() && addRect.contains (p) && onAdd) { onAdd(); return; }
     }
 
     void setAccent (juce::Colour c) { accent = c; repaint(); }
 
 private:
+    void updateChainMixFromX (int x)
+    {
+        if (chainMixRect.isEmpty() || ! onChainMixChanged) return;
+        onChainMixChanged (juce::jlimit (0.0f, 1.0f,
+            (float) (x - chainMixRect.getX()) / (float) juce::jmax (1, chainMixRect.getWidth())));
+        repaint();
+    }
+
     juce::String status;
-    std::vector<std::pair<int, juce::Rectangle<int>>> editRects, removeRects, bypassRects, tileRects, kindRects;
-    juce::Rectangle<int> addRect, targetRect;
+    std::vector<std::pair<int, juce::Rectangle<int>>> editRects, removeRects, bypassRects,
+        foldRects, tileRects, kindRects, insertionRects;
+    std::vector<bool> folded;
+    juce::Rectangle<int> addRect, targetRect, chainBypassRect, chainMixRect;
     FxTargetModel targetModel;
-    int dragFrom = -1;
+    int dragFrom = -1, dragInsert = -1;
+    bool adjustingChainMix = false;
     juce::Colour accent { stemdeck::tokens::deckA };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariFxRack)
 };

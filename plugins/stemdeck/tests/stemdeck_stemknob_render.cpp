@@ -1,5 +1,5 @@
 // Render the stem gain knob across its range + stem colours to a PNG, to verify the
-// 0/100/200 arc + unity-at-top geometry before wiring into the deck.
+// 0/100/300 arc + unity-at-top geometry before wiring into the deck.
 #include "StemGainKnob.h"
 #include <juce_graphics/juce_graphics.h>
 #include <iostream>
@@ -23,12 +23,12 @@ int main (int argc, char** argv)
         const Cell top[] = {
             { 0.0f,   bas, "0",   false }, { 50.0f,  bas, "50",  false },
             { 100.0f, bas, "100", false }, { 150.0f, bas, "150", false },
-            { 200.0f, bas, "200", false }, { 100.0f, bas, "MUTE", true } };
+            { 300.0f, bas, "300", false }, { 100.0f, bas, "MUTE", true } };
         // Second row: one knob per stem colour at a boosted value, to check colour read.
         const Cell bot[] = {
             { 160.0f, vox, "VOX 160", false }, { 130.0f, drm, "DRM 130", false },
             { 100.0f, bas, "BAS 100", false }, { 175.0f, oth, "OTH 175", false },
-            { 195.0f, vox, "VOX 195", false }, { 200.0f, drm, "DRM 200", false } };
+            { 275.0f, vox, "VOX 275", false }, { 300.0f, drm, "DRM 300", false } };
 
         auto drawRow = [&] (const Cell* cells, int y)
         {

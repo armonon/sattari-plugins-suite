@@ -165,7 +165,7 @@ int main()
         check (near (valueOf ("stemGain0"), 100.0), "v1 0 dB migrates to 100% (unity), not silence");
         check (valueOf ("stemGain1") < 1.0,          "v1 -60 dB migrates to ~0% (silence)");
         // Note x2.0 is +6.0206 dB, so +6.0 dB is 199.5%; +12 dB is x3.98 and clamps.
-        check (near (valueOf ("stemGain2"), 200.0),  "v1 +12 dB clamps to the 200% (x2.0) ceiling");
+        check (near (valueOf ("stemGain2"), 300.0),  "v1 +12 dB clamps to the 300% (x3.0) ceiling");
         check (near (valueOf ("fader"), 0.0),        "non-stem-gain params are left untouched by migration");
 
         // A v2 session must pass through unchanged (no double migration).
