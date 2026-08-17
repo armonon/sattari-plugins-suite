@@ -372,6 +372,132 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // --livetest : does Live Mode work, and does it take the key from Sattari Key?
+    //
+    // Four questions, in order of what would embarrass us most:
+    //   1. Is the print path unchanged? Adding a live engine beside the RC3
+    //      candidate must not move the candidate, or the listening package is void.
+    //   2. Does Live Mode actually report ITS latency and hold it?
+    //   3. Does it correct a detuned note toward the scale?
+    //   4. Does the key published on the session bus by Sattari Key reach it?
+    //
+    // (4) is the one that cannot be faked by inspection: the same detuned input is
+    // rendered twice with Follow Song Key on, against two DIFFERENT keys published
+    // to the real bus. If the bus key is reaching the live planner the two renders
+    // land on different targets; if it is ignored they are identical.
+    if (argc > 1 && std::strcmp (argv[1], "--livetest") == 0)
+    {
+        std::printf ("Live Mode — engine, latency, correction, and key source\n\n");
+        int fails = 0;
+
+        //  A note 45 cents sharp of A3 (220 Hz). Sharp enough to correct audibly,
+        //  small enough that the nearest scale tone is unambiguous.
+        const double detunedHz = 220.0 * std::pow (2.0, 45.0 / 1200.0);
+
+        auto renderWith = [&] (bool live, bool follow, int manualRoot, float amount)
+        {
+            juce::AudioBuffer<float> in;
+            makeVibratoTone (in, sr, seconds, detunedHz, 0.0, 5.0);
+            auto p = std::make_unique<SattariAutoPitchAudioProcessor>();
+            setParam (p->parameters(), "liveMode",         live ? 1.0f : 0.0f);
+            setParam (p->parameters(), "enableCorrection", 1.0f);
+            setParam (p->parameters(), "amount",           amount);
+            setParam (p->parameters(), "speed",            100.0f);
+            setParam (p->parameters(), "autoKey",          0.0f);
+            setParam (p->parameters(), "followSongKey",    follow ? 1.0f : 0.0f);
+            setParam (p->parameters(), "keyRoot",          (float) manualRoot);
+            setParam (p->parameters(), "scaleMode",        0.0f);   // major
+            setParam (p->parameters(), "polyphonic",       0.0f);
+            auto out = sattari::harness::renderThrough (*p, in, sr, block);
+            const int lat = p->getLatencySamples();
+            return std::make_pair (std::move (out), lat);
+        };
+
+        //  Measured pitch of the tail, in cents relative to A3.
+        //  Median of the tracked contour, in cents relative to A3. Median rather
+        //  than mean so a single octave slip in the tracker cannot move the verdict.
+        auto centsOf = [&] (const juce::AudioBuffer<float>& b, int)
+        {
+            auto midis = pitchTrackMidi (b, sr);
+            if (midis.empty()) return -9999.0;
+            std::sort (midis.begin(), midis.end());
+            const double medianMidi = midis[midis.size() / 2];
+            return (medianMidi - 57.0) * 100.0;    // MIDI 57 = A3 = 220 Hz
+        };
+
+        // --- 1. the print path must not have moved ---------------------------
+        {
+            auto [printOut, printLat] = renderWith (false, false, 0, 100.0f);
+            std::printf ("  1. print path (Live Mode OFF)\n");
+            std::printf ("       reported latency : %d samples\n", printLat);
+            std::printf ("       corrected to     : %+.1f cents from A3\n",
+                         centsOf (printOut, printLat));
+            std::printf ("       (compare against the RC3 record; this must not have moved)\n\n");
+        }
+
+        // --- 2 + 3. Live Mode latency and correction -------------------------
+        int liveLat = 0;
+        {
+            auto [liveOut, lat] = renderWith (true, false, 0, 100.0f);
+            liveLat = lat;
+            const double c = centsOf (liveOut, lat);
+            std::printf ("  2. Live Mode latency  : %d samples (%.2f ms)\n",
+                         lat, 1000.0 * lat / sr);
+            std::printf ("  3. Live Mode corrects : input %+.0f cents -> output %+.1f cents\n",
+                         45.0, c);
+            if (lat >= 2000) { std::printf ("       FAIL: not a low-latency path\n"); ++fails; }
+            if (std::abs (c) > 25.0)
+            { std::printf ("       FAIL: did not pull the note to the scale tone\n"); ++fails; }
+            std::printf ("\n");
+        }
+
+        // --- 4. the key actually comes from the bus ---------------------------
+        //  Publish as "song-key", the id Sattari Key uses, so this exercises the
+        //  real publisher path and the real priority rules — not a test hook.
+        std::printf ("  4. Follow Song Key: same audio, two keys on the session bus\n");
+        //  The keys must DISAGREE about this note or the test cannot fail.
+        //  Input is A3 + 45 cents.
+        //    C major  (C D E F G A B)      : A is diatonic -> target A,  ~ -45 cents
+        //    Db major (Db Eb F Gb Ab Bb C) : A is NOT diatonic; A+45c sits 55 cents
+        //                                    below Bb and 145 above Ab -> target Bb,
+        //                                    ~ +55 cents
+        //  So a working bus link shows roughly a semitone between the two renders.
+        double centsPerKey[2] = { -9999.0, -9999.0 };
+        const int roots[2] = { 0, 1 };            // C major, then Db major
+        for (int i = 0; i < 2; ++i)
+        {
+            const bool published = sattari::xplugin::publishKey ("song-key", roots[i], 0);
+            if (! published)
+            {
+                std::printf ("       could not publish to the bus; skipping\n");
+                break;
+            }
+            //  The reader polls, so give it a beat to pick the new key up.
+            juce::Thread::sleep (900);
+            auto [out, lat] = renderWith (true, true, 7 /* manual G, must be overridden */, 100.0f);
+            centsPerKey[i] = centsOf (out, lat);
+            std::printf ("       bus key %-9s -> output %+.1f cents from A3 (expect %s)\n",
+                         roots[i] == 0 ? "C major" : "Db major", centsPerKey[i],
+                         roots[i] == 0 ? "~0, snapped to A" : "~+100, snapped to Bb");
+        }
+        if (centsPerKey[0] > -9000.0 && centsPerKey[1] > -9000.0)
+        {
+            const double delta = std::abs (centsPerKey[0] - centsPerKey[1]);
+            std::printf ("       difference: %.1f cents\n", delta);
+            if (delta > 60.0)
+                std::printf ("       PASS: the bus key reaches the live planner, and it\n"
+                             "             overrode the manual key (G) that was also set.\n");
+            else
+            {
+                std::printf ("       FAIL: both keys produced the same target, so the bus\n"
+                             "             key is not reaching the live correction planner.\n");
+                ++fails;
+            }
+        }
+        std::printf ("\n");
+        return fails > 0 ? 1 : 0;
+    }
+
     if (argc > 1 && std::strcmp (argv[1], "--nulltest") == 0)
     {
         std::printf ("Gate 4 test A (offline): pass-through null with correction OFF\n");
@@ -396,13 +522,20 @@ int main (int argc, char** argv)
         // itself worth asserting — a `liveEngine` toggle visible to the host
         // that changes nothing is a product-truth problem, not a feature.
         int fails = 0;
-        struct Case { const char* name; bool live; bool correctionOn; double depthCents; };
+        //  Live Mode rows matter as much as the print ones: its delay differs, so
+        //  the dry reference has to follow the ACTIVE engine. If it were pinned to
+        //  the Rubber Band figure these would fail by ~1,850 samples.
+        struct Case { const char* name; bool live; bool correctionOn; double depthCents;
+                      bool liveMode; };
         for (const Case c : {
-                Case{"correction OFF, print engine, steady",    false, false,  0.0 },
-                Case{"correction OFF, print engine, vibrato",   false, false, 50.0 },
-                Case{"Amount 0, print engine, steady",          false, true,   0.0 },
-                Case{"Amount 0, print engine, vibrato 50ct",    false, true,  50.0 },
-                Case{"Amount 0, liveEngine=1 (LOCKED OFF)",     true,  true,  50.0 } })
+                Case{"correction OFF, print engine, steady",    false, false,  0.0, false },
+                Case{"correction OFF, print engine, vibrato",   false, false, 50.0, false },
+                Case{"Amount 0, print engine, steady",          false, true,   0.0, false },
+                Case{"Amount 0, print engine, vibrato 50ct",    false, true,  50.0, false },
+                Case{"Amount 0, liveEngine=1 (LOCKED OFF)",     true,  true,  50.0, false },
+                Case{"correction OFF, LIVE MODE, vibrato",      false, false, 50.0, true  },
+                Case{"Amount 0, LIVE MODE, steady",             false, true,   0.0, true  },
+                Case{"Amount 0, LIVE MODE, vibrato 50ct",       false, true,  50.0, true  } })
         {
             juce::AudioBuffer<float> in;
             makeVibratoTone (in, sr, seconds, 220.0, c.depthCents, 5.0);
@@ -413,6 +546,7 @@ int main (int argc, char** argv)
             setParam (p.parameters(), "autoKey",          0.0f);
             setParam (p.parameters(), "liveEngine",       c.live ? 1.0f : 0.0f);
             setParam (p.parameters(), "polyphonic",       0.0f);
+            setParam (p.parameters(), "liveMode",         c.liveMode ? 1.0f : 0.0f);
 
             const auto out = sattari::harness::renderThrough (p, in, sr, block);
             const int lat  = p.getLatencySamples();

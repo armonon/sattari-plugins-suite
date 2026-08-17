@@ -178,6 +178,7 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // handleAsyncUpdate() on the message thread (setLatencySamples must not run on
     // the audio thread).
     apvts.addParameterListener ("liveEngine", this);
+    apvts.addParameterListener ("liveMode", this);
     apvts.addParameterListener ("lowLatency", this);
     apvts.addParameterListener ("scale", this);
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
@@ -200,6 +201,7 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
 {
     stopTimer();   // bus-publish heartbeat
     apvts.removeParameterListener ("liveEngine", this);
+    apvts.removeParameterListener ("liveMode", this);
     apvts.removeParameterListener ("lowLatency", this);
     apvts.removeParameterListener ("scale", this);
     apvts.removeParameterListener ("polyphonic", this);
@@ -355,6 +357,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         "liveEngine", "Legacy Live Engine (inactive)", false,
         juce::AudioParameterBoolAttributes().withAutomatable (false)));
+
+    // Live Mode: the causal low-latency path (SattariLivePitchEngine). This is a
+    // NEW parameter rather than a revival of `liveEngine` above, deliberately. That
+    // one meant the legacy PSOLA engine, which was locked off after it failed
+    // real-vocal validation; reusing the id would silently hand a different engine
+    // to any old session that happened to save it on. Legacy stays inert, and the
+    // new control carries the new behaviour under its own name.
+    //
+    // Default OFF: the print path is the qualification candidate and must not move
+    // because a live path was added beside it.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "liveMode", "Live Mode (low latency)", false));
 
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
     // CNN costs roughly a quarter of one performance core at an 83 Hz cadence on
@@ -542,6 +556,21 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         psolaSwapReady.store (false, std::memory_order_relaxed);
     }
 
+    //  Live Mode engines, one per output channel. Prepared unconditionally so that
+    //  toggling Live Mode never allocates on the audio thread; an unused engine
+    //  costs memory and nothing else.
+    //
+    //  The tracker range is the Wide vocal span. Unlike the legacy PSOLA path there
+    //  is no min-Hz floor to raise for latency, because the epoch shifter locks its
+    //  analysis marks to the waveform rather than to a fixed grid.
+    liveEngines.resize ((size_t) juce::jmax (1, getTotalNumOutputChannels()));
+    for (auto& e : liveEngines)
+    {
+        e.prepare (sampleRate, samplesPerBlock, 70.0, 1100.0);
+        e.reset();
+    }
+    lastLiveModeActive = liveModeActive();
+
     // CREPE model: every ONNX-enabled shipping build uses the same provenance-
     // locked tiny model embedded in its binary. Developers can explicitly point
     // SATTARI_AUTOPITCH_CREPE_MODEL at another contract-compatible model; an old
@@ -708,8 +737,18 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // it without asking Rubber Band to reconstruct a unity-ratio signal. Allocate
     // enough for an oversized host block while keeping every audio-thread operation
     // bounded and allocation-free.
-    dryDelaySamples = monoEngineLatencySamples();
-    dryDelayRingSize = juce::jmax (dryDelaySamples + preparedBlockSize + 1,
+    //  The delayed dry reference is what Correction Off and Amount 0 return, so it
+    //  has to sit at whichever engine's delay is being REPORTED. Pinning it to the
+    //  Rubber Band figure would make the bypass 60 ms late in Live Mode — the exact
+    //  class of latency-report mismatch that failed Gate 4 test A at 0.4.1.
+    dryDelaySamples = liveModeActive() ? liveEngineLatencySamples()
+                                       : monoEngineLatencySamples();
+    //  Size for the LARGEST delay either engine can ask for, not the current one.
+    //  Live Mode can be toggled while the transport rolls, and that must move a read
+    //  pointer rather than resize a buffer on the audio thread.
+    dryDelayRingSize = juce::jmax (juce::jmax (monoEngineLatencySamples(),
+                                               liveEngineLatencySamples())
+                                       + preparedBlockSize + 1,
                                    preparedBlockSize * 2 + 1);
     dryDelayRing.setSize (juce::jmax (1, getTotalNumOutputChannels()), dryDelayRingSize,
                           false, false, true);
@@ -791,11 +830,35 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     //   Transpose-to-Key always runs Rubber Band, whatever else is on;
     //   then Polyphonic (phase vocoder); otherwise the quality-locked Rubber Band path.
     int engineLatency = rbLat;
-    if (xposeOn)               engineLatency = rbLat;
-    else if (polyOn && corrOn) engineLatency = pvInFifoLatency;
+    if (xposeOn)                 engineLatency = rbLat;
+    else if (polyOn && corrOn)   engineLatency = pvInFifoLatency;
+    else if (liveModeActive())   engineLatency = liveEngineLatencySamples();
     const bool timeOn = apvts.getRawParameterValue ("graphTimeCorrection") != nullptr
                      && apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f;
     return engineLatency + (timeOn ? (int) std::round (0.5 * currentSampleRate) : 0);
+}
+
+bool SattariAutoPitchAudioProcessor::liveModeActive() const noexcept
+{
+    //  Live Mode yields to the two engines that are not interchangeable with it:
+    //  Transpose-to-Key is a whole-mix Rubber Band shift, and Polyphonic is the
+    //  phase vocoder. Both do things the mono live path cannot, so neither is
+    //  silently downgraded by enabling Live Mode.
+    auto on = [this] (const char* id)
+    {
+        auto* v = apvts.getRawParameterValue (id);
+        return v != nullptr && v->load() > 0.5f;
+    };
+    if (on ("xposeMode")) return false;
+    if (on ("polyphonic") && (apvts.getRawParameterValue ("enableCorrection") == nullptr
+                              || apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f))
+        return false;
+    return on ("liveMode");
+}
+
+int SattariAutoPitchAudioProcessor::liveEngineLatencySamples() const noexcept
+{
+    return liveEngines.empty() ? 0 : liveEngines.front().getLatencySamples();
 }
 
 int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
@@ -824,7 +887,8 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // thread, and parameterChanged may be called from the audio thread (host
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
-    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic"
+    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "liveMode"
+        || parameterID == "polyphonic"
         || parameterID == "xposeMode" || parameterID == "enableCorrection"
         || parameterID == "graphTimeCorrection")
         triggerAsyncUpdate();
@@ -2852,6 +2916,18 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     if (numChannels <= 0)
         return;
 
+    // The dry reference must sit at the ACTIVE engine's delay, and Live Mode can be
+    // toggled while the transport rolls. Re-read the tap here, before the ring is
+    // written, so the very first block after a toggle is already aligned. The ring
+    // was sized in prepareToPlay for the larger of the two engines, so this only
+    // ever moves a read offset — no allocation on the audio thread.
+    {
+        const int wanted = liveModeActive() ? liveEngineLatencySamples()
+                                            : monoEngineLatencySamples();
+        if (wanted != dryDelaySamples && dryDelayRingSize > 0)
+            dryDelaySamples = juce::jlimit (0, dryDelayRingSize - 1, wanted);
+    }
+
     // Capture the untouched insert input before analysis or any DSP mutates it.
     // The reference ring runs continuously so Correction Off can become a true,
     // sample-identical bypass without changing the plugin's declared latency.
@@ -3320,6 +3396,21 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // discontinuity (an audible ~28 ms dropout / click). Resetting both makes the
     // incoming engine re-prime cleanly from silence (its reported start-up latency)
     // and guarantees the outgoing engine is empty for its next turn. Allocation-free.
+    //  Live Mode swapped in or out: flush it and the print pipeline for the same
+    //  reason the legacy swap below does. The outgoing engine still holds a pipeline
+    //  of processed audio, and the incoming one must re-prime from silence rather
+    //  than splice across a phase discontinuity. Allocation-free.
+    const bool liveNow = liveModeActive();
+    if (liveNow != lastLiveModeActive)
+    {
+        for (auto& e : liveEngines) e.reset();
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        for (auto& st : rubberBand) if (st != nullptr) st->reset();
+        resetRbFifo();
+#endif
+        lastLiveModeActive = liveNow;
+    }
+
     if (useLiveEngine != lastUseLiveEngine)
     {
         for (auto& p : psola) p.reset();
@@ -3370,11 +3461,24 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // Keep the print engine warm at unity so re-enabling correction does not
         // replay stale FIFO data or impose a fresh 43 ms dropout. Its reconstructed
         // output is intentionally discarded in favour of the delayed dry reference.
+        if (liveNow)
+        {
+            //  Keep the live engine warm at unity for the same reason: re-enabling
+            //  correction must not re-prime from silence mid-phrase.
+            for (int ch = 0; ch < juce::jmin (mainBuffer.getNumChannels(),
+                                              (int) liveEngines.size()); ++ch)
+                liveEngines[(size_t) ch].process (mainBuffer.getReadPointer (ch),
+                                                  mainBuffer.getWritePointer (ch),
+                                                  mainBuffer.getNumSamples(), 1.0);
+        }
+        else
+        {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-        processWithRubberBand (mainBuffer, 1.0, inputGain);
+            processWithRubberBand (mainBuffer, 1.0, inputGain);
 #else
-        processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
+            processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
 #endif
+        }
         copyDelayedDryReferenceTo (mainBuffer);
         if (std::abs (inputGain - 1.0f) > 1.0e-6f)
             mainBuffer.applyGain (inputGain);
@@ -3402,6 +3506,14 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // Real polyphonic: every spectral peak is retuned independently to its
         // nearest enabled in-scale tone. Replaces the mono single-ratio engine.
         processPolyphonicRetune (mainBuffer, inputGain);
+    }
+    else if (liveNow)
+    {
+        //  The live engine plans its own correction from its own causal tracker, so
+        //  it takes the note mask rather than engineScale — the print path's scale
+        //  is derived from a look-ahead contour this engine deliberately does not
+        //  have.
+        processWithLiveEngine (mainBuffer, inputGain);
     }
     else if (useLiveEngine)
     {
@@ -3527,6 +3639,80 @@ void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>&
         psola[(size_t) ch].process (d, d, n, pitchScale, period);
     }
     buffer.applyGain (linearGain);
+}
+
+//  Live Mode. The causal engine plans its own correction from its own tracker, so
+//  this function's real job is to hand it the SAME musical decision the print path
+//  makes — which notes are legal — and to keep multiple channels coherent.
+//
+//  KEY SOURCE. enabledNotes is built from currentCorrectionRootIndex() and
+//  effectiveScaleIndex(), which are the same two accessors the print engine uses.
+//  Both already honour the full precedence chain — Follow Song Key (the session bus,
+//  i.e. Sattari Key) > Key Map > AutoKey > manual — so Live Mode inherits the shared
+//  key with no second code path to drift out of agreement. The Edit Notes mask is
+//  intersected on top, exactly as buildCorrectionFrame() does it.
+void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<float>& buffer,
+                                                            float linearGain)
+{
+    const int nCh = juce::jmin (buffer.getNumChannels(), (int) liveEngines.size());
+    const int n   = buffer.getNumSamples();
+    if (nCh <= 0 || n <= 0) return;
+
+    sattari::dsp::LiveCorrectionPlanner::Settings settings;
+
+    const int rootIndex  = currentCorrectionRootIndex();
+    const int scaleIndex = effectiveScaleIndex();
+    const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
+    const int editMask   = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
+
+    int allowed = 0;
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        const int degree = ((pc - rootIndex) % 12 + 12) % 12;
+        const bool inScale = (scaleName == "chromatic") || scaleAllowsDegree (degree, scaleName);
+        const bool enabled = editMask == 0 || ((editMask >> pc) & 1) != 0;
+        settings.enabledNotes[(size_t) pc] = inScale && enabled;
+        if (settings.enabledNotes[(size_t) pc]) ++allowed;
+    }
+    //  Never hand the planner an empty mask: nearestEnabledMidi would have nothing
+    //  to snap to. Same reasoning as buildCorrectionFrame's mask == 0 fallback —
+    //  a user who disables everything gets no correction, not silence-on-pitch.
+    if (allowed == 0)
+        settings.enabledNotes.fill (true);
+
+    const float amountParam = lastPitchFrame.objectActive && lastPitchFrame.objectAmount >= 0.0f
+        ? lastPitchFrame.objectAmount : apvts.getRawParameterValue ("amount")->load();
+    //  `amount` is a 0..1 parameter, NOT 0..100. Dividing by 100 here silently
+    //  reduced every correction to 1% of what was asked for, which reads exactly
+    //  like "the engine is not correcting".
+    settings.amount = juce::jlimit (0.0, 1.0, (double) amountParam);
+
+    //  Speed is the same 0..100 control the print path uses; map it to the retune
+    //  time constant. Classic Mode is the deliberate dead-flat sound, so it pins the
+    //  fastest retune and drops vibrato retention.
+    //  `speed` runs 0.05..1.0, high = fast. Map it onto the retune time constant,
+    //  fast end first so the sense of the control is preserved.
+    const bool classic = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
+    const float speed  = juce::jlimit (0.05f, 1.0f, apvts.getRawParameterValue ("speed")->load());
+    settings.retuneMilliseconds = classic ? 1.5
+                                          : juce::jmap ((double) speed, 0.05, 1.0, 120.0, 3.0);
+    settings.preserveVibrato = classic ? 0.0
+        : juce::jlimit (0.0, 1.0, (double) apvts.getRawParameterValue ("vibrato")->load());
+
+    //  Channel 0 plans; the rest follow ITS scale. Independent planners on a stereo
+    //  source would let the channels disagree by a few cents and smear the image.
+    liveEngines[0].processCorrected (buffer.getReadPointer (0), buffer.getWritePointer (0),
+                                     n, settings);
+    if (nCh > 1)
+    {
+        const double scale = std::pow (2.0, liveEngines[0].getCorrectionCents() / 1200.0);
+        for (int ch = 1; ch < nCh; ++ch)
+            liveEngines[(size_t) ch].process (buffer.getReadPointer (ch),
+                                              buffer.getWritePointer (ch), n, scale);
+    }
+
+    if (std::abs (linearGain - 1.0f) > 1.0e-6f)
+        buffer.applyGain (linearGain);
 }
 
 void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,

@@ -8,6 +8,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/SattariLivePitchEngine.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -315,6 +316,11 @@ private:
     // message thread (setLatencySamples must never run on the audio thread).
     int  activeEngineLatencySamples() const;
     int  monoEngineLatencySamples() const noexcept;
+    //  Live Mode's delay is the epoch shifter's, not Rubber Band's. Reported
+    //  through activeEngineLatencySamples() and used for the dry reference, so
+    //  the bypass stays aligned with whichever engine is actually running.
+    int  liveEngineLatencySamples() const noexcept;
+    bool liveModeActive() const noexcept;
     // PSOLA prep helpers. Low-latency vocal mode raises the min-Hz floor so PSOLA's
     // fixed ~2-period latency shrinks (33 ms -> ~15 ms) at the cost of not tracking
     // fundamentals below the floor. preparePsolaInto builds a fresh shifter set (may
@@ -577,12 +583,19 @@ private:
     // Near-zero-latency, formant-preserving pitch shift for tracking/monitoring.
     // Rubber Band stays the default "print" engine (higher fidelity, more
     // latency); the "Live Engine" toggle swaps to PSOLA per channel.
+    //  Live Mode: one engine per channel. Only channel 0 plans the correction;
+    //  the others are driven with ITS pitch scale so a stereo source cannot
+    //  drift apart into a wandering image.
+    std::vector<sattari::dsp::LivePitchEngine> liveEngines;
+    bool lastLiveModeActive = false;
+
     std::vector<sattari::dsp::PsolaShifter> psola;
     std::vector<sattari::dsp::PsolaShifter> pendingPsola;     // message-thread-built, audio-thread-swapped (low-latency toggle)
     std::atomic<bool> psolaSwapReady { false };              // pendingPsola is ready to swap in
     std::atomic<bool> psolaLiveLowLat { false };            // low-latency state of the LIVE shifter (set by the audio thread on swap)
     bool pendingLowLat = false;                             // low-latency target the pendingPsola set was built for
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processWithLiveEngine (juce::AudioBuffer<float>& buffer, float linearGain);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
     // When "Neural Pitch" is on, CREPE is conservatively fused with YIN: agreeing

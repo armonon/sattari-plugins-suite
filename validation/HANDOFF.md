@@ -65,9 +65,16 @@ GATE 5 RC review     BLOCKED    on user listening + manual hosts
   No Result policy, and hands an explicitly locked result to Auto Pitch over the
   existing session bus. The held-out-losing neural path remains absent.
 - Legacy live controls remain recall-compatible but are visibly inactive and
-  non-automatable. A separate Sattari Live alpha now passes its isolated causal
-  tracker/shifter contract at 15.17 ms and has twelve private corpus renders, but
-  it is not connected to the plugin and there is still no live-monitoring claim.
+  non-automatable. **Live Mode is now connected** (2026-08-17): a NEW `liveMode`
+  parameter, default OFF, selecting `SattariLivePitchEngine` at 1,037 samples /
+  21.60 ms against the print path's 60.10 ms. It takes its key from
+  `currentCorrectionRootIndex()` / `effectiveScaleIndex()`, so Follow Song Key
+  reaches it from Sattari Key over the session bus with no second code path —
+  verified against two disagreeing keys on the real bus. The print path is
+  bit-identical (`--nulltest` still `-inf` at 2885, smoke and contract pass).
+  `AutoPitchRender --livetest`; record in
+  `validation/auto-pitch/2026-08-17-live-mode-wired.md`. Still alpha: no
+  listening evidence, no host testing, and no low-latency monitoring claim.
 - Auto Pitch 0.5.0 and the previous Sattari Key 0.2.0 universal AU/VST3/Standalone
   builds are installed locally. Both AUs passed `auval`; Sattari Key 0.3.0 still
   needs the full packaging/host pass after its focused validation closes.
