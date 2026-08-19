@@ -168,7 +168,9 @@ private:
 // -----------------------------------------------------------------------------
 // Editor proper.
 // -----------------------------------------------------------------------------
-class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor, private juce::Timer
+class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                                   public juce::FileDragAndDropTarget,
+                                                   private juce::Timer
 {
 public:
     explicit SattariAutoPitchAudioProcessorEditor (SattariAutoPitchAudioProcessor&);
@@ -176,6 +178,13 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    //  Drop a whole song anywhere on the editor: the absorbed Sattari Key analyses
+    //  it (key + tempo + detune) and the verdict outranks live detection.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override;
+    void fileDragExit (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray& files, int, int) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -192,7 +201,6 @@ private:
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
     void loadTraceFromClipboard();
-    void showTab (int idx);
     // Set an APVTS param by its real value (handles the 0-1 conversion + gesture).
     void setKeyParam (const juce::String& id, float value);
 
@@ -202,9 +210,18 @@ private:
     sattari::presets::SattariPresetManager presetManager;
     sattari::ui::SattariABRow abRow { presetManager };
 
-    // --- Tab strip ------------------------------------------------------------
-    juce::TextButton tabBasic { "BASIC" }, tabPro { "PRO" }, tabEdit { "EDIT" };
-    int currentTab = 0;
+    // --- Single-view chrome -----------------------------------------------------
+    //  The BASIC/PRO/EDIT tab strip is gone: everything lives on one view, with the
+    //  former PRO panel as a collapsible ADVANCED drawer. The three container
+    //  components survive as layout bands so no child is reparented.
+    juce::TextButton liveModeButton { "LIVE" };    // the low-latency engine, at last in the UI
+    std::unique_ptr<ButtonAttachment> liveModeAttachment;
+    juce::Label latencyReadout;                    // reported delay of the ACTIVE engine
+    juce::TextButton advancedToggle { "ADVANCED" };
+    juce::Label songStatusLabel;                   // drop-analysis progress / verdict
+    bool advancedOpen = false;
+    bool dragActive = false;
+
     float keyLock = 0.0f;   // smoothed detection-confidence for the readout meter
     juce::Component basicPanel, proPanel, editPanel;
 
@@ -228,8 +245,6 @@ private:
     juce::TextButton autoDetectBtn { "AUTO-DETECT" }, followSongBtn { "FOLLOW SONG" }, setKeyBtn { "SET KEY" };
     // Quality-locked Studio selector. Legacy live parameters remain in the
     // processor so old sessions still deserialize safely.
-    juce::ComboBox engineSelect;
-    juce::Label engineCaption;
 
     juce::Label retuneSpeedCaption, flexTuneCaption, humanizeCaption, styleCaptionLabel;
     juce::Slider retuneSpeed, flexTune, humanize;

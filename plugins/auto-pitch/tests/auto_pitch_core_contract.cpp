@@ -81,8 +81,10 @@ int main (int argc, char** argv)
     {
         SattariAutoPitchAudioProcessor processor;
         const bool minimumSize = std::strcmp (argv[1], "--render-ui-min") == 0;
+        //  The tab strip is gone — one page now. "--render-ui-pro" renders with the
+        //  ADVANCED drawer open (the old PRO content), and "--render-ui-edit" is the
+        //  same page as the default since the graph is always visible.
         const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
-        const bool editTab = std::strcmp (argv[1], "--render-ui-edit") == 0;
         const juce::File destination (argv[2]);
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         bool ok = editor != nullptr;
@@ -90,9 +92,7 @@ int main (int argc, char** argv)
         {
             editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 680 : 700);
             if (proTab)
-                ok = clickButtonNamed (*editor, "PRO");
-            if (editTab)
-                ok = clickButtonNamed (*editor, "EDIT");
+                ok = clickButtonNamed (*editor, "ADVANCED");
             if (ok)
                 ok = sattari::test::renderComponentToPng (*editor, destination);
         }

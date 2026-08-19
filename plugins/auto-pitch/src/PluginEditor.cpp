@@ -574,19 +574,35 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     refreshUserPresets();
 
     // Tabs
-    tabBasic.setClickingTogglesState (true);
-    tabPro.setClickingTogglesState (true);
-    tabEdit.setClickingTogglesState (true);
-    tabBasic.setRadioGroupId (10);
-    tabPro.setRadioGroupId (10);
-    tabEdit.setRadioGroupId (10);
-    tabBasic.setToggleState (true, juce::dontSendNotification);
-    tabBasic.onClick = [this] { showTab (0); };
-    tabPro.onClick   = [this] { showTab (1); };
-    tabEdit.onClick  = [this] { showTab (2); };
-    addAndMakeVisible (tabBasic);
-    addAndMakeVisible (tabPro);
-    addAndMakeVisible (tabEdit);
+    //  Single view: all three former tab panels are bands of one page. The
+    //  ADVANCED drawer (the old PRO tab) starts collapsed — the everyday controls
+    //  are the whole first impression, which is the "minimal" in minimal UI.
+    liveModeButton.setClickingTogglesState (true);
+    liveModeButton.setTooltip ("Live Mode: the causal low-latency engine (~22 ms) for "
+                               "tracking and monitoring. Off = the Studio print engine "
+                               "(~60 ms, highest quality).");
+    liveModeAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "liveMode", liveModeButton);
+    addAndMakeVisible (liveModeButton);
+
+    latencyReadout.setJustificationType (juce::Justification::centredLeft);
+    latencyReadout.setInterceptsMouseClicks (false, false);
+    latencyReadout.setText ("60.1 ms STUDIO", juce::dontSendNotification);   // real value on the first tick
+    addAndMakeVisible (latencyReadout);
+
+    advancedToggle.setClickingTogglesState (true);
+    advancedToggle.onClick = [this]
+    {
+        advancedOpen = advancedToggle.getToggleState();
+        resized();
+    };
+    addAndMakeVisible (advancedToggle);
+
+    songStatusLabel.setJustificationType (juce::Justification::centredRight);
+    songStatusLabel.setInterceptsMouseClicks (false, false);
+    songStatusLabel.setText ("Drop a song anywhere to detect its key + tempo",
+                             juce::dontSendNotification);
+    addAndMakeVisible (songStatusLabel);
 
     // Panels
     addAndMakeVisible (basicPanel);
@@ -683,17 +699,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     styleCaption (editNotesLabel, "EDIT NOTES");
     basicPanel.addAndMakeVisible (editNotesLabel);
 
-    // Quality-locked engine selector. Legacy Live/Low-Latency parameters remain
-    // serializable, but the PSOLA path is hidden until it passes real-vocal QA.
-    styleCaption (engineCaption, "ENGINE");
-    engineSelect.addItem ("Studio HQ  (R3 Finer)", 1);
-    engineSelect.onChange = [this]
-    {
-        setKeyParam ("liveEngine", 0.0f);
-        setKeyParam ("lowLatency", 0.0f);
-    };
-    basicPanel.addAndMakeVisible (engineCaption);
-    basicPanel.addAndMakeVisible (engineSelect);
 
     styleKnob (retuneSpeed, true);
     styleKnob (flexTune);
@@ -1015,11 +1020,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     graphTimeCorrectionAttach = std::make_unique<ButtonAttachment> (params, "graphTimeCorrection", graphTimeCorrection);
     transposeSemisAttach   = std::make_unique<SliderAttachment> (params, "xposeSemis", transposeSemis);
 
-    // Paint a meaningful engine value on the very first frame. Previously this
-    // remained blank until the 15 Hz editor timer fired.
-    engineSelect.setSelectedItemIndex (0, juce::dontSendNotification);
-
-    showTab (0);
+    basicPanel.setVisible (true);
+    proPanel.setVisible (true);    // the ADVANCED drawer band; zero-height while collapsed
+    editPanel.setVisible (true);
     startTimerHz (15);
 }
 
@@ -1202,21 +1205,12 @@ void SattariAutoPitchAudioProcessorEditor::onScanTrackClicked()
     });
 }
 
-void SattariAutoPitchAudioProcessorEditor::showTab (int idx)
-{
-    currentTab = idx;
-    basicPanel.setVisible (idx == 0);
-    proPanel.setVisible   (idx == 1);
-    editPanel.setVisible  (idx == 2);
-}
-
 void SattariAutoPitchAudioProcessorEditor::timerCallback()
 {
     const auto snap = audioProcessor.getLiveSnapshot();
     noteDisplay.setSnapshot (snap);
 
-    if (currentTab == 2)
-    {
+    {   // graph widgets are always visible now; update them every tick
         auto edits = audioProcessor.getPitchEdits();
         const int revision = audioProcessor.getPitchEditRevision();
         pitchEditTimeline.setData (edits, audioProcessor.getKeyMapPlayheadSec());
@@ -1286,12 +1280,49 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         ? "Detune " + juce::String (snap.correctionCents, 1) + " ct"
         : "Detune -", juce::dontSendNotification);
 
+    //  Engine + latency readout: the ACTIVE engine's reported delay, which is what
+    //  the host compensates by. Reading it live means the label can never disagree
+    //  with the number the host sees.
+    {
+        const int lat = audioProcessor.getLatencySamples();
+        const double srNow = audioProcessor.getSampleRate() > 0.0 ? audioProcessor.getSampleRate() : 48000.0;
+        latencyReadout.setText (juce::String (lat > 0 ? 1000.0 * lat / srNow : 0.0, 1) + " ms "
+                                    + (liveModeButton.getToggleState() ? "LIVE" : "STUDIO"),
+                                juce::dontSendNotification);
+    }
+
+    //  Song drop analysis: progress while running, the verdict once done, and the
+    //  No Result policy spelled out when the margin is below the trust gate.
+    {
+        const float prog = audioProcessor.fileProgress.load (std::memory_order_acquire);
+        if (prog < 0.0f)
+            songStatusLabel.setText ("Song analysis failed - unreadable or unpitched audio",
+                                     juce::dontSendNotification);
+        else if (prog > 0.0f && prog < 1.0f)
+            songStatusLabel.setText ("Analysing song... " + juce::String ((int) (prog * 100.0f)) + "%",
+                                     juce::dontSendNotification);
+        else if (audioProcessor.fileKeyValid.load (std::memory_order_acquire))
+        {
+            static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+            const float conf = audioProcessor.fileKeyConf.load();
+            const float bpm  = audioProcessor.fileBpm.load();
+            juce::String text = "Song: "
+                + juce::String (nm[juce::jlimit (0, 11, audioProcessor.fileKeyRoot.load())])
+                + (audioProcessor.fileKeyMinor.load() != 0 ? " minor" : " major");
+            if (bpm > 0.0f) text += "  -  " + juce::String (bpm, 1) + " BPM";
+            text += conf >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
+                        ? "  (driving AutoKey)"
+                        : "  (low confidence - shown, not applied)";
+            songStatusLabel.setText (text, juce::dontSendNotification);
+        }
+        else
+            songStatusLabel.setText ("Drop a song anywhere to detect its key + tempo",
+                                     juce::dontSendNotification);
+    }
+
     // Show only the live engine status; the JSON-trace summary is dev-only.
     traceStatus.setText (audioProcessor.getLiveStatusSummary(), juce::dontSendNotification);
     keyDetectionStatus.setText (audioProcessor.getKeyDetectionTabSummary(), juce::dontSendNotification);
-
-    if (engineSelect.getSelectedItemIndex() != 0)
-        engineSelect.setSelectedItemIndex (0, juce::dontSendNotification);
 
     // Transpose-to-Key readout: detected source key -> shift -> resulting key.
     {
@@ -1386,25 +1417,77 @@ void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c,
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+
+    if (dragActive)
+    {
+        //  A song is being dragged over the editor: invite the drop.
+        const auto accent = lookAndFeel.findColour (juce::Slider::thumbColourId);
+        g.setColour (accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (10.0f), 12.0f);
+        g.setColour (accent.withAlpha (0.85f));
+        juce::Path outline;
+        outline.addRoundedRectangle (getLocalBounds().toFloat().reduced (10.0f), 12.0f);
+        const float dashes[] = { 8.0f, 6.0f };
+        juce::PathStrokeType (2.0f).createDashedStroke (outline, outline, dashes, 2);
+        g.fillPath (outline);
+        g.setFont (juce::Font (juce::FontOptions (22.0f, juce::Font::bold)));
+        g.drawText ("DROP TO ANALYSE SONG  -  KEY + TEMPO",
+                    getLocalBounds(), juce::Justification::centred);
+    }
+}
+
+bool SattariAutoPitchAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return files.size() == 1
+        && audioProcessor.isSupportedAudioFile (juce::File (files[0]));
+}
+
+void SattariAutoPitchAudioProcessorEditor::fileDragEnter (const juce::StringArray&, int, int)
+{
+    dragActive = true;
+    repaint();
+}
+
+void SattariAutoPitchAudioProcessorEditor::fileDragExit (const juce::StringArray&)
+{
+    dragActive = false;
+    repaint();
+}
+
+void SattariAutoPitchAudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    dragActive = false;
+    repaint();
+    if (files.size() == 1)
+        audioProcessor.analyseSongFileAsync (juce::File (files[0]));
 }
 
 void SattariAutoPitchAudioProcessorEditor::resized()
 {
+    //  One page, four bands: header / everyday controls / graph / ADVANCED drawer.
+    //  The former tab panels survive as the band containers so that none of their
+    //  ~60 children needed reparenting — only this function changed shape.
     auto area = getLocalBounds().reduced (16);
 
-    // Header row
+    // ---- Header band -----------------------------------------------------------
     auto header = area.removeFromTop (50);
     title.setBounds (header.removeFromLeft (240));
     header.removeFromLeft (10);
 
-    auto vocalBlock = header.removeFromLeft (180);
+    auto vocalBlock = header.removeFromLeft (150);
     vocalRangeCaption.setBounds (vocalBlock.removeFromTop (14));
     vocalRange.setBounds (vocalBlock);
-    header.removeFromLeft (10);
-    // (Key & Scale dropdowns removed from the header — the KeyButton on the Basic
-    //  tab is now the single key control.)
+    header.removeFromLeft (12);
 
-    // Preset (right of header)
+    //  Engine mode: one pill, lit while Live Mode runs, with the ACTIVE engine's
+    //  reported delay beside it. The old three-item combo pretending to offer
+    //  locked-off engines is gone.
+    auto engineBlock = header.removeFromLeft (150);
+    engineBlock.removeFromTop (10);
+    liveModeButton.setBounds (engineBlock.removeFromLeft (64).reduced (0, 2));
+    engineBlock.removeFromLeft (6);
+    latencyReadout.setBounds (engineBlock);
+
     auto presetCol = header.removeFromRight (300);
     auto factoryRow = presetCol.removeFromTop (24);
     abRow.setBounds (factoryRow.removeFromRight (84));
@@ -1416,238 +1499,263 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     userRow.removeFromRight (4);
     userPresets.setBounds (userRow);
 
-    area.removeFromTop (10);
+    area.removeFromTop (8);
 
-    // Tabs row
-    auto tabRow = area.removeFromTop (28);
-    tabBasic.setBounds (tabRow.removeFromLeft (90));
-    tabRow.removeFromLeft (6);
-    tabPro.setBounds (tabRow.removeFromLeft (90));
-    tabRow.removeFromLeft (6);
-    tabEdit.setBounds (tabRow.removeFromLeft (90));
+    // ---- Everyday band (the old BASIC panel, compacted) -------------------------
+    const int basicH = 236;
+    basicPanel.setBounds (area.removeFromTop (basicH));
+    {
+        auto b = juce::Rectangle<int> (0, 0, basicPanel.getWidth(), basicH);
+        auto left = b.removeFromLeft ((int) (b.getWidth() * 0.56f));
+        b.removeFromLeft (12);
+        auto right = b;
 
-    area.removeFromTop (10);
+        keyButton.setBounds (left.removeFromTop (46));
+        left.removeFromTop (4);
+        auto keyBtnRow = left.removeFromTop (26);
+        const int keyBw = (keyBtnRow.getWidth() - 12) / 3;
+        autoDetectBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
+        keyBtnRow.removeFromLeft (6);
+        followSongBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
+        keyBtnRow.removeFromLeft (6);
+        setKeyBtn.setBounds (keyBtnRow);
+        left.removeFromTop (6);
 
-    // Panels share the body area
-    basicPanel.setBounds (area);
-    proPanel.setBounds (area);
+        auto meterRow = left;
+        noteDisplay.setBounds (meterRow.removeFromLeft ((int) (meterRow.getWidth() * 0.46f)));
+        meterRow.removeFromLeft (10);
+        editNotesLabel.setBounds (meterRow.removeFromTop (14));
+        pillRow.setBounds (meterRow.removeFromTop (72));
+        meterRow.removeFromTop (4);
+        detuneLabel.setBounds (meterRow.removeFromTop (22));
+
+        //  Right: the everyday knobs in one row — the big retune plus two smalls —
+        //  and the style selector under them.
+        auto knobRow = right.removeFromTop (170);
+        auto bigCell = knobRow.removeFromLeft ((int) (knobRow.getWidth() * 0.44f));
+        retuneSpeedCaption.setBounds (bigCell.removeFromTop (14));
+        const int bigSide = juce::jmin (bigCell.getWidth(), bigCell.getHeight());
+        retuneSpeed.setBounds (bigCell.withSizeKeepingCentre (bigSide, bigSide));
+        const int kw = knobRow.getWidth() / 2;
+        auto flexCell = knobRow.removeFromLeft (kw);
+        flexTuneCaption.setBounds (flexCell.removeFromTop (14));
+        flexTune.setBounds (flexCell.reduced (6));
+        auto humanCell = knobRow;
+        humanizeCaption.setBounds (humanCell.removeFromTop (14));
+        humanize.setBounds (humanCell.reduced (6));
+
+        right.removeFromTop (4);
+        auto styleRow = right.removeFromTop (44);
+        styleCaptionLabel.setBounds (styleRow.removeFromTop (14));
+        styleSelect.setBounds (styleRow.removeFromTop (28).removeFromLeft (juce::jmin (280, styleRow.getWidth())));
+    }
+
+    area.removeFromTop (6);
+
+    // ---- ADVANCED drawer (bottom): toggle bar + the old PRO panel ---------------
+    auto drawerBar = area.removeFromBottom (24);
+    advancedToggle.setBounds (drawerBar.removeFromLeft (110));
+    drawerBar.removeFromLeft (10);
+    songStatusLabel.setBounds (drawerBar);
+
+    //  An open drawer gets its full height before the graph does: its content is
+    //  fixed-size rows that clip, while the timeline shrinks gracefully. 100 px of
+    //  graph stays as a floor so the playhead never vanishes entirely.
+    const int drawerH = advancedOpen ? juce::jmin (280, area.getHeight() - 124) : 0;
+    if (drawerH > 0)
+    {
+        area.removeFromBottom (6);
+        proPanel.setBounds (area.removeFromBottom (drawerH));
+    }
+    else
+    {
+        proPanel.setBounds (area.removeFromBottom (0));
+    }
+
+    area.removeFromBottom (6);
+
+    // ---- Graph band (the old EDIT panel) — everything that remains --------------
     editPanel.setBounds (area);
 
-    // ---- Basic panel ----
-    auto bArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (4);
-    auto left  = bArea.removeFromLeft ((int) (bArea.getWidth() * 0.6f));
-    bArea.removeFromLeft (12);
-    auto right = bArea;
-
-    // Key readout spans the top of the left column, with the 3 action buttons under it.
-    keyButton.setBounds (left.removeFromTop (58));
-    left.removeFromTop (6);
-    auto keyBtnRow = left.removeFromTop (30);
-    const int keyBw = (keyBtnRow.getWidth() - 12) / 3;
-    autoDetectBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
-    keyBtnRow.removeFromLeft (6);
-    followSongBtn.setBounds (keyBtnRow.removeFromLeft (keyBw));
-    keyBtnRow.removeFromLeft (6);
-    setKeyBtn.setBounds (keyBtnRow);
-    left.removeFromTop (10);
-
-    noteDisplay.setBounds (left.removeFromTop ((int) (left.getHeight() * 0.55f)));
-    left.removeFromTop (8);
-
-    editNotesLabel.setBounds (left.removeFromTop (16));
-    pillRow.setBounds (left.removeFromTop (80));
-
-    left.removeFromTop (10);
-    auto bottomRow = left.removeFromTop (32);
-    detuneLabel.setBounds (bottomRow.removeFromLeft (150));
-    // Engine selector on the right: caption + 3-way combo.
-    auto engineArea = bottomRow.removeFromRight (juce::jmin (244, bottomRow.getWidth()));
-    engineCaption.setBounds (engineArea.removeFromLeft (56));
-    engineSelect.setBounds (engineArea.reduced (0, 2));
-
-    // ---- Right side (big knob + 2 small + style) ----
-    retuneSpeedCaption.setBounds (right.removeFromTop (16));
-    auto bigKnob = right.removeFromTop (200);
-    retuneSpeed.setBounds (bigKnob.withSizeKeepingCentre (juce::jmin (bigKnob.getWidth(), bigKnob.getHeight()),
-                                                          juce::jmin (bigKnob.getWidth(), bigKnob.getHeight())));
-
-    right.removeFromTop (8);
-    auto twoKnobRow = right.removeFromTop (130);
-    const int kw = twoKnobRow.getWidth() / 2;
-    auto flexCell = twoKnobRow.removeFromLeft (kw);
-    flexTuneCaption.setBounds (flexCell.removeFromTop (14));
-    flexTune.setBounds (flexCell);
-    auto humanizeCell = twoKnobRow;
-    humanizeCaption.setBounds (humanizeCell.removeFromTop (14));
-    humanize.setBounds (humanizeCell);
-
-    right.removeFromTop (12);
-    styleCaptionLabel.setBounds (right.removeFromTop (14));
-    styleSelect.setBounds (right.removeFromTop (30));
-
-    // ---- Pro panel ----
-    auto pArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (8);
-    auto pLeft = pArea.removeFromLeft ((int) (pArea.getWidth() * 0.45f));
-    pArea.removeFromLeft (12);
-    auto pRight = pArea;
-
-    auto toggles1 = pLeft.removeFromTop (28);
-    enableCorrection.setBounds (toggles1.removeFromLeft (toggles1.getWidth() / 2));
-    doNoHarm.setBounds (toggles1);
-    pLeft.removeFromTop (4);
-    auto toggles2 = pLeft.removeFromTop (28);
-    formantPreserve.setBounds (toggles2.removeFromLeft (toggles2.getWidth() / 2));
-    polyphonic.setBounds (toggles2);
-    pLeft.removeFromTop (4);
-    auto toggles3 = pLeft.removeFromTop (28);
-    scaleLock.setBounds (toggles3.removeFromLeft (toggles3.getWidth() / 2));
-    neuralPitch.setBounds (toggles3);
-    pLeft.removeFromTop (10);
-
-    auto knobsRow = pLeft.removeFromTop (112);
-    const int pKw = knobsRow.getWidth() / 3;
-    auto iCell = knobsRow.removeFromLeft (pKw);
-    inputCaption.setBounds (iCell.removeFromTop (14));
-    inputGain.setBounds (iCell);
-    auto oCell = knobsRow.removeFromLeft (pKw);
-    outputCaption.setBounds (oCell.removeFromTop (14));
-    outputGain.setBounds (oCell);
-    auto fCell = knobsRow;
-    formantCaption.setBounds (fCell.removeFromTop (14));
-    formantShift.setBounds (fCell);
-
-    pLeft.removeFromTop (8);
-    auto modeRow = pLeft.removeFromTop (28);
-    classicMode.setBounds (modeRow.removeFromLeft (modeRow.getWidth() / 2));
-    midiTarget.setBounds (modeRow);
-    pLeft.removeFromTop (6);
-    auto behaviourRow = pLeft.removeFromTop (105);
-    const int bKw = behaviourRow.getWidth() / 4;
-    auto flexAmtCell = behaviourRow.removeFromLeft (bKw);
-    flexAmtCaption.setBounds (flexAmtCell.removeFromTop (14));
-    flexAmt.setBounds (flexAmtCell);
-    auto transCell = behaviourRow.removeFromLeft (bKw);
-    transitionCaption.setBounds (transCell.removeFromTop (14));
-    transition.setBounds (transCell);
-    auto throatCell = behaviourRow.removeFromLeft (bKw);
-    throatCaption.setBounds (throatCell.removeFromTop (14));
-    throat.setBounds (throatCell);
-    auto vibratoCell = behaviourRow;
-    vibratoCaption.setBounds (vibratoCell.removeFromTop (14));
-    vibratoKnob.setBounds (vibratoCell);
-
-    pLeft.removeFromTop (4);
-    auto generatedRow = pLeft.removeFromTop (92);
-    const int gKw = generatedRow.getWidth() / 3;
-    auto depthCell = generatedRow.removeFromLeft (gKw);
-    addVibratoCaption.setBounds (depthCell.removeFromTop (14));
-    addVibrato.setBounds (depthCell);
-    auto rateCell = generatedRow.removeFromLeft (gKw);
-    vibratoRateCaption.setBounds (rateCell.removeFromTop (14));
-    vibratoRate.setBounds (rateCell);
-    auto onsetCell = generatedRow;
-    vibratoOnsetCaption.setBounds (onsetCell.removeFromTop (14));
-    vibratoOnset.setBounds (onsetCell);
-
-    pLeft.removeFromTop (4);
-    referenceDetuneCaption.setBounds (pLeft.removeFromTop (14));
-    referenceDetune.setBounds (pLeft.removeFromTop (26));
-    followReference.setBounds (pLeft.removeFromTop (26));
-
-    // Transpose to Key (top of right column): whole-mix transpose for beats/instruments.
-    transposeCaption.setBounds (pRight.removeFromTop (16));
-    auto xRow = pRight.removeFromTop (28);
-    transposeMode.setBounds (xRow.removeFromLeft ((int) (xRow.getWidth() * 0.62f)));
-    xRow.removeFromLeft (8);
-    matchKeyButton.setBounds (xRow);
-    pRight.removeFromTop (4);
-    transposeSemis.setBounds (pRight.removeFromTop (28));
-    transposeReadout.setBounds (pRight.removeFromTop (18));
-    pRight.removeFromTop (10);
-
-    polyHarmonyCaption.setBounds (pRight.removeFromTop (14));
-    polyHarmonyKnob.setBounds (pRight.removeFromTop (22));
-    pRight.removeFromTop (10);
-
-    highTrackCaption.setBounds (pRight.removeFromTop (14));
-    highTrackKnob.setBounds (pRight.removeFromTop (22));
-    pRight.removeFromTop (6);
-    tonalFocusCaption.setBounds (pRight.removeFromTop (14));
-    tonalFocusKnob.setBounds (pRight.removeFromTop (22));
-    pRight.removeFromTop (12);
-
-    // Live status + key-detection (top half of right column).
-    // loadTraceButton is intentionally not laid out - it's dev-only.
-    auto statusArea = pRight.removeFromTop ((int) (pRight.getHeight() * 0.45f));
-    traceStatus.setBounds (statusArea.removeFromTop ((int) (statusArea.getHeight() * 0.55f)));
-    keyDetectionStatus.setBounds (statusArea);
-
-    // Track Key Map (bottom half of right column)
-    pRight.removeFromTop (10);
-    auto keymapHeader = pRight.removeFromTop (28);
-    scanTrackButton.setBounds (keymapHeader.removeFromLeft (130));
-    keymapHeader.removeFromLeft (6);
-    clearMapButton.setBounds  (keymapHeader.removeFromLeft (100));
-    keymapHeader.removeFromLeft (10);
-    useKeyMap.setBounds (keymapHeader.removeFromLeft (140));
-    keymapHeader.removeFromLeft (10);
-    midiLearnButton.setBounds (keymapHeader);
-    pRight.removeFromTop (6);
-    // Timeline takes the bulk of the remaining space (it IS the key map now); the
-    // status line keeps a single row underneath for filename / progress / errors.
-    keyMapTimeline.setBounds (pRight.removeFromTop (juce::jmax (54, pRight.getHeight() - 30)));
-    pRight.removeFromTop (4);
-    keyMapStatusLabel.setBounds (pRight);
-
-    // ---- Edit panel ----
-    auto eArea = juce::Rectangle<int> (0, 0, area.getWidth(), area.getHeight()).reduced (8);
-    auto editToolbar = eArea.removeFromTop (32);
-    capturePitchEdits.setBounds (editToolbar.removeFromLeft (132));
-    editToolbar.removeFromLeft (8);
-    usePitchEdits.setBounds (editToolbar.removeFromLeft (152));
-    editToolbar.removeFromLeft (8);
-    graphTimeCorrection.setBounds (editToolbar.removeFromLeft (158));
-    editToolbar.removeFromLeft (14);
-    pitchEditStatus.setBounds (editToolbar);
-
-    eArea.removeFromTop (5);
-    auto commandBar = eArea.removeFromTop (28);
-    for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit, &deletePitchEdit, &clearPitchEdits })
+    // ---- Drawer internals: the PRO content reflowed into three columns ----------
+    if (drawerH > 0)
     {
-        button->setBounds (commandBar.removeFromLeft (70));
-        commandBar.removeFromLeft (5);
+        auto pArea = juce::Rectangle<int> (0, 0, proPanel.getWidth(), drawerH).reduced (8, 4);
+        const int colW = (pArea.getWidth() - 24) / 3;
+
+        auto c1 = pArea.removeFromLeft (colW);
+        pArea.removeFromLeft (12);
+        auto c2 = pArea.removeFromLeft (colW);
+        pArea.removeFromLeft (12);
+        auto c3 = pArea;
+
+        //  Column 1: switches + gain/formant knobs.
+        auto t1 = c1.removeFromTop (22);
+        enableCorrection.setBounds (t1.removeFromLeft (t1.getWidth() / 2));
+        doNoHarm.setBounds (t1);
+        auto t2 = c1.removeFromTop (22);
+        formantPreserve.setBounds (t2.removeFromLeft (t2.getWidth() / 2));
+        polyphonic.setBounds (t2);
+        auto t3 = c1.removeFromTop (22);
+        scaleLock.setBounds (t3.removeFromLeft (t3.getWidth() / 2));
+        neuralPitch.setBounds (t3);
+        auto t4 = c1.removeFromTop (22);
+        classicMode.setBounds (t4.removeFromLeft (t4.getWidth() / 2));
+        midiTarget.setBounds (t4);
+        c1.removeFromTop (6);
+        auto gains = c1.removeFromTop (82);
+        const int gw = gains.getWidth() / 3;
+        auto iCell = gains.removeFromLeft (gw);
+        inputCaption.setBounds (iCell.removeFromTop (14));
+        inputGain.setBounds (iCell);
+        auto oCell = gains.removeFromLeft (gw);
+        outputCaption.setBounds (oCell.removeFromTop (14));
+        outputGain.setBounds (oCell);
+        auto fCell = gains;
+        formantCaption.setBounds (fCell.removeFromTop (14));
+        formantShift.setBounds (fCell);
+        c1.removeFromTop (4);
+        referenceDetuneCaption.setBounds (c1.removeFromTop (14));
+        referenceDetune.setBounds (c1.removeFromTop (22));
+        followReference.setBounds (c1.removeFromTop (22));
+
+        //  Column 2: behaviour + generated vibrato.
+        auto beh = c2.removeFromTop (78);
+        const int bw = beh.getWidth() / 4;
+        auto flexAmtCell = beh.removeFromLeft (bw);
+        flexAmtCaption.setBounds (flexAmtCell.removeFromTop (14));
+        flexAmt.setBounds (flexAmtCell);
+        auto transCell = beh.removeFromLeft (bw);
+        transitionCaption.setBounds (transCell.removeFromTop (14));
+        transition.setBounds (transCell);
+        auto throatCell = beh.removeFromLeft (bw);
+        throatCaption.setBounds (throatCell.removeFromTop (14));
+        throat.setBounds (throatCell);
+        auto vibCell = beh;
+        vibratoCaption.setBounds (vibCell.removeFromTop (14));
+        vibratoKnob.setBounds (vibCell);
+        c2.removeFromTop (6);
+        auto gen = c2.removeFromTop (72);
+        const int gw2 = gen.getWidth() / 3;
+        auto depthCell = gen.removeFromLeft (gw2);
+        addVibratoCaption.setBounds (depthCell.removeFromTop (14));
+        addVibrato.setBounds (depthCell);
+        auto rateCell = gen.removeFromLeft (gw2);
+        vibratoRateCaption.setBounds (rateCell.removeFromTop (14));
+        vibratoRate.setBounds (rateCell);
+        auto onsetCell = gen;
+        vibratoOnsetCaption.setBounds (onsetCell.removeFromTop (14));
+        vibratoOnset.setBounds (onsetCell);
+        c2.removeFromTop (6);
+        transposeCaption.setBounds (c2.removeFromTop (14));
+        auto xRow = c2.removeFromTop (24);
+        transposeMode.setBounds (xRow.removeFromLeft ((int) (xRow.getWidth() * 0.62f)));
+        xRow.removeFromLeft (8);
+        matchKeyButton.setBounds (xRow);
+        transposeSemis.setBounds (c2.removeFromTop (24));
+        transposeReadout.setBounds (c2.removeFromTop (16));
+
+        //  Column 3: fine tracking, status, and the Track Key Map.
+        auto ph = c3.removeFromTop (18);
+        polyHarmonyCaption.setBounds (ph.removeFromLeft (ph.getWidth() / 2));
+        polyHarmonyKnob.setBounds (ph);
+        auto ht = c3.removeFromTop (18);
+        highTrackCaption.setBounds (ht.removeFromLeft (ht.getWidth() / 2));
+        highTrackKnob.setBounds (ht);
+        auto tf = c3.removeFromTop (18);
+        tonalFocusCaption.setBounds (tf.removeFromLeft (tf.getWidth() / 2));
+        tonalFocusKnob.setBounds (tf);
+        c3.removeFromTop (4);
+        traceStatus.setBounds (c3.removeFromTop (30));
+        keyDetectionStatus.setBounds (c3.removeFromTop (30));
+        c3.removeFromTop (4);
+        auto kmHeader = c3.removeFromTop (24);
+        scanTrackButton.setBounds (kmHeader.removeFromLeft (100));
+        kmHeader.removeFromLeft (4);
+        clearMapButton.setBounds (kmHeader.removeFromLeft (70));
+        kmHeader.removeFromLeft (6);
+        useKeyMap.setBounds (kmHeader.removeFromLeft (110));
+        kmHeader.removeFromLeft (6);
+        midiLearnButton.setBounds (kmHeader);
+        c3.removeFromTop (4);
+        keyMapTimeline.setBounds (c3.removeFromTop (juce::jmax (40, c3.getHeight() - 22)));
+        c3.removeFromTop (2);
+        keyMapStatusLabel.setBounds (c3);
     }
-    commandBar.removeFromLeft (10);
-    zoomOutPitchEdit.setBounds (commandBar.removeFromLeft (34));
-    commandBar.removeFromLeft (3);
-    zoomInPitchEdit.setBounds (commandBar.removeFromLeft (34));
-    commandBar.removeFromLeft (3);
-    fitPitchEdit.setBounds (commandBar.removeFromLeft (52));
-    eArea.removeFromTop (5);
-    pitchEditHelp.setBounds (eArea.removeFromTop (24));
 
-    eArea.removeFromTop (4);
-    auto controlsArea = eArea.removeFromTop (104);
-    auto layoutControlRow = [] (juce::Rectangle<int> row,
-                                std::initializer_list<std::pair<juce::Label*, juce::Slider*>> controls)
+    // ---- Graph internals ---------------------------------------------------------
     {
-        const int gap = 8;
-        const int width = (row.getWidth() - gap * ((int) controls.size() - 1)) / (int) controls.size();
-        for (const auto& control : controls)
+        auto eArea = juce::Rectangle<int> (0, 0, editPanel.getWidth(), editPanel.getHeight()).reduced (4);
+        auto editToolbar = eArea.removeFromTop (28);
+        capturePitchEdits.setBounds (editToolbar.removeFromLeft (132));
+        editToolbar.removeFromLeft (8);
+        usePitchEdits.setBounds (editToolbar.removeFromLeft (152));
+        editToolbar.removeFromLeft (8);
+        graphTimeCorrection.setBounds (editToolbar.removeFromLeft (158));
+        editToolbar.removeFromLeft (14);
+        pitchEditStatus.setBounds (editToolbar);
+
+        eArea.removeFromTop (4);
+        auto commandBar = eArea.removeFromTop (26);
+        for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit, &deletePitchEdit, &clearPitchEdits })
         {
-            auto cell = row.removeFromLeft (width);
-            control.first->setBounds (cell.removeFromTop (16));
-            control.second->setBounds (cell);
-            row.removeFromLeft (gap);
+            button->setBounds (commandBar.removeFromLeft (70));
+            commandBar.removeFromLeft (5);
         }
-    };
-    layoutControlRow (controlsArea.removeFromTop (48), {
-        { &objectAmountLabel, &objectAmount }, { &objectRetuneLabel, &objectRetune },
-        { &objectTransitionLabel, &objectTransition }, { &objectHumanizeLabel, &objectHumanize } });
-    controlsArea.removeFromTop (6);
-    layoutControlRow (controlsArea.removeFromTop (48), {
-        { &objectVibratoLabel, &objectVibrato }, { &objectFormantLabel, &objectFormant },
-        { &objectTimeLabel, &objectTime }, { &objectGainLabel, &objectGain } });
-    eArea.removeFromTop (7);
-    pitchEditTimeline.setBounds (eArea);
+        commandBar.removeFromLeft (10);
+        zoomOutPitchEdit.setBounds (commandBar.removeFromLeft (34));
+        commandBar.removeFromLeft (3);
+        zoomInPitchEdit.setBounds (commandBar.removeFromLeft (34));
+        commandBar.removeFromLeft (3);
+        fitPitchEdit.setBounds (commandBar.removeFromLeft (52));
+
+        //  On a tight layout (drawer open on a short window) the help line and the
+        //  per-object slider rows yield to the timeline: editing objects is a
+        //  drawer-closed activity, and a graph you cannot see is worth less than
+        //  eight sliders you are not touching.
+        const bool roomy = eArea.getHeight() >= 300;
+        pitchEditHelp.setVisible (roomy);
+        if (roomy)
+        {
+            eArea.removeFromTop (4);
+            pitchEditHelp.setBounds (eArea.removeFromTop (22));
+        }
+
+        auto layoutControlRow = [] (juce::Rectangle<int> row,
+                                    std::initializer_list<std::pair<juce::Label*, juce::Slider*>> controls)
+        {
+            const int gap = 8;
+            const int width = (row.getWidth() - gap * ((int) controls.size() - 1)) / (int) controls.size();
+            for (const auto& control : controls)
+            {
+                auto cell = row.removeFromLeft (width);
+                control.first->setBounds (cell.removeFromTop (16));
+                control.second->setBounds (cell);
+                row.removeFromLeft (gap);
+            }
+        };
+        for (auto* c : { (juce::Component*) &objectAmount, (juce::Component*) &objectRetune,
+                         (juce::Component*) &objectTransition, (juce::Component*) &objectHumanize,
+                         (juce::Component*) &objectVibrato, (juce::Component*) &objectFormant,
+                         (juce::Component*) &objectTime, (juce::Component*) &objectGain,
+                         (juce::Component*) &objectAmountLabel, (juce::Component*) &objectRetuneLabel,
+                         (juce::Component*) &objectTransitionLabel, (juce::Component*) &objectHumanizeLabel,
+                         (juce::Component*) &objectVibratoLabel, (juce::Component*) &objectFormantLabel,
+                         (juce::Component*) &objectTimeLabel, (juce::Component*) &objectGainLabel })
+            c->setVisible (roomy);
+        if (roomy)
+        {
+            eArea.removeFromTop (4);
+            auto controlsArea = eArea.removeFromBottom (100);
+            layoutControlRow (controlsArea.removeFromTop (47), {
+                { &objectAmountLabel, &objectAmount }, { &objectRetuneLabel, &objectRetune },
+                { &objectTransitionLabel, &objectTransition }, { &objectHumanizeLabel, &objectHumanize } });
+            controlsArea.removeFromTop (6);
+            layoutControlRow (controlsArea.removeFromTop (47), {
+                { &objectVibratoLabel, &objectVibrato }, { &objectFormantLabel, &objectFormant },
+                { &objectTimeLabel, &objectTime }, { &objectGainLabel, &objectGain } });
+            eArea.removeFromBottom (6);
+        }
+        pitchEditTimeline.setBounds (eArea);
+    }
 }
