@@ -20,6 +20,17 @@ with nothing to hear and no accuracy gate at all.
 
 ---
 
+> **SUPERSEDED 2026-08-18 — the detector question is resolved.** Compass now runs
+> `SongKeyEstimator` (57.6% exact / 65.12 MIREX over 1337 labelled tracks) instead
+> of Aarden/HPCP (39.2% / 46.69). Note what this section could not have known: by
+> 2026-08-16 Sattari Key had adopted that engine while Compass had not, so the gap
+> the section describes had roughly TRIPLED before it was closed. See
+> `validation/compass/2026-08-18-conductor-key-upgrade.md` and
+> `validation/song-key/2026-08-18-song-key-engine-on-labelled-corpora.md`.
+> The three options below are all obsolete: option 1 (Sha'ath) was later measured
+> as a held-out REGRESSION, option 2 (the neural model) failed held-out data
+> outright, and option 3 was overtaken by both plugins sharing one better detector.
+
 ## GATE 0 — lifecycle: **BLOCKED**
 
 Compass does **not** qualify for `alpha -> validation` today, and the reason is

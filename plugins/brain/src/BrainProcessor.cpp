@@ -80,7 +80,7 @@ SattariBrainAudioProcessor::~SattariBrainAudioProcessor()
     stopWorker();
 }
 
-void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int)
+void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     stopWorker();
 
@@ -97,6 +97,23 @@ void SattariBrainAudioProcessor::prepareToPlay (double sampleRate, int)
     writePos.store (0);
     hpcp.reserveBins (fftSize / 2 + 1);
     hpcp.reset();
+
+    //  Four seconds of feed against a ~700 ms worker cadence: room for the worker
+    //  to be late without dropping audio, and small enough to stay trivial
+    //  (~768 kB at 48 kHz). Allocated here, never on the audio thread.
+    {
+        const int feedSamples = juce::jmax (samplesPerBlock * 8,
+                                            (int) std::ceil (sampleRate * 4.0));
+        keyFeed = std::vector<std::atomic<float>> ((size_t) feedSamples);
+        for (auto& sample : keyFeed) sample.store (0.0f, std::memory_order_relaxed);
+        keyDrain.assign ((size_t) feedSamples, 0.0f);
+        keyFeedWrite.store (0, std::memory_order_relaxed);
+        keyFeedRead = 0;
+        keyFeedDropped.store (0, std::memory_order_relaxed);
+        songKeyFrames.store (0, std::memory_order_relaxed);
+        songKey.prepare (sampleRate, 0);   // 0 = open-ended live stream
+        songKey.reset();
+    }
     runningDetune = 0.0;
     pubRoot = -1; pubScale = 0; candRoot = -1; candScale = 0; candCount = 0;
     detValid.store (false);
@@ -160,6 +177,13 @@ void SattariBrainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch) m += buffer.getSample (ch, i);
         m /= (float) nc;
         ring[(size_t) wp].store (m, std::memory_order_relaxed);
+        if (! keyFeed.empty())
+        {
+            const std::int64_t w = keyFeedWrite.load (std::memory_order_relaxed);
+            keyFeed[(size_t) (w % (std::int64_t) keyFeed.size())]
+                .store (m, std::memory_order_relaxed);
+            keyFeedWrite.store (w + 1, std::memory_order_release);
+        }
         sumSquares += (double) m * (double) m;
 
         const float level = std::abs (m);
@@ -193,6 +217,39 @@ void SattariBrainAudioProcessor::analyseNow()
         hpcp.reset();
         runningDetune = 0.0;
         pubRoot = -1; candCount = 0;   // let a fresh scan re-commit the key
+        //  The estimator accumulates over the whole session, so a rescan has to
+        //  clear it as well — otherwise "rescan" would keep answering with the
+        //  chroma of everything played before it.
+        songKey.reset();
+        songKeyFrames.store (0, std::memory_order_relaxed);
+        keyFeedRead = keyFeedWrite.load (std::memory_order_acquire);
+    }
+
+    //  Drain whatever the audio thread has produced since the last pass.
+    if (! keyFeed.empty())
+    {
+        const std::int64_t w = keyFeedWrite.load (std::memory_order_acquire);
+        const std::int64_t capacity = (std::int64_t) keyFeed.size();
+        std::int64_t available = w - keyFeedRead;
+        if (available > capacity)
+        {
+            //  The worker fell far enough behind that the audio thread lapped the
+            //  buffer. Count it rather than silently analysing a scrambled ring:
+            //  a key built from torn audio is worse than one built from less of it.
+            keyFeedDropped.fetch_add (available - capacity, std::memory_order_relaxed);
+            keyFeedRead = w - capacity;
+            available = capacity;
+        }
+        if (available > 0)
+        {
+            const int count = (int) juce::jmin (available, (std::int64_t) keyDrain.size());
+            for (int i = 0; i < count; ++i)
+                keyDrain[(size_t) i] = keyFeed[(size_t) ((keyFeedRead + i) % capacity)]
+                                           .load (std::memory_order_relaxed);
+            keyFeedRead += count;
+            songKey.addSamples (keyDrain.data(), count);
+            songKeyFrames.store (songKey.framesAnalysed(), std::memory_order_relaxed);
+        }
     }
 
     const int wp = writePos.load (std::memory_order_acquire);
@@ -208,8 +265,31 @@ void SattariBrainAudioProcessor::analyseNow()
     runningDetune += 0.2 * (hpcp.tuningOffsetSemitones() * 100.0 - runningDetune);
     detDetuneCents.store (runningDetune);
 
+    //  Key: prefer the SongKeyEstimator once it has heard enough to have an
+    //  opinion, and fall back to the HPCP/Aarden path until then. The fallback is
+    //  not an error path — it is what answers in the first seconds of a session,
+    //  and it is why removing the model-shaped dependency mattered: the estimator
+    //  is plain DSP, so there is nothing to install and nothing to be missing.
+    //
+    //  Both confidences are winner-minus-runner-up margins, so kMinPublishConfidence
+    //  and the stability hysteresis downstream keep their meaning. They are not the
+    //  SAME margin though, computed over different features, so the threshold is
+    //  inherited rather than re-derived and should be recalibrated against measured
+    //  data before anyone leans on its exact value.
+    constexpr int kMinSongKeyFrames = 120;         // ~30 s of 16 kHz frames
+    const auto songKeyResult = songKey.result();
+    const bool useSongKey = songKeyResult.valid
+                         && songKey.framesAnalysed() >= kMinSongKeyFrames;
+
     const auto k = sattari::dsp::detectKey (frame);
-    if (k.valid)
+    if (useSongKey)
+    {
+        detRoot.store (songKeyResult.root);
+        detMinor.store (songKeyResult.minor);
+        detConf.store (songKeyResult.confidence);
+        detValid.store (true);
+    }
+    else if (k.valid)
     {
         detRoot.store (k.root);
         detMinor.store (k.minor);

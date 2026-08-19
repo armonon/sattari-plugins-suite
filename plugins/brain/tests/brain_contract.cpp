@@ -49,6 +49,73 @@ bool waitForSession (const std::function<bool (const sattari::xplugin::SessionMe
 }
 } // namespace
 
+
+//  6. the conductor detects with the SongKeyEstimator, not the old chroma path.
+//
+//  Compass used to publish `detectKey()` (Aarden/HPCP), which measured 39.2% exact
+//  on 1337 labelled tracks against the estimator's 57.6%. Since Compass OUTRANKS
+//  Sattari Key on the single bus slot (priority 100 vs 80), the whole suite was
+//  receiving the weaker answer whenever both plugins were loaded.
+//
+//  Audio is fed in real-time-sized chunks with the worker left to run on its own
+//  ~700 ms cadence, rather than force-calling analyseNow(). Two reasons: the
+//  worker-thread state (chroma, estimator, feed cursor) has a single owner and
+//  calling it from here would race it, and the estimator's feed is sized for a
+//  live stream — pushing 45 s in at once would lap the ring and be counted as
+//  dropped, which is correct behaviour but not what a DAW does.
+static int checkSongKeyDetector()
+{
+    const double sr = 48000.0;
+    const int block = 512;
+
+    SattariBrainAudioProcessor p;
+    p.setRateAndBufferSizeDetails (sr, block);
+    p.prepareToPlay (sr, block);
+
+    const double hz[3] = { 261.63, 329.63, 392.00 };   // C E G
+    juce::AudioBuffer<float> buf (2, block);
+    juce::MidiBuffer midi;
+    double phase[3] = { 0.0, 0.0, 0.0 };
+
+    //  ~48 s of audio in 2 s chunks, pausing so the worker keeps up. The estimator
+    //  needs about 30 s before it will answer at all.
+    const int chunks = 24;
+    const int blocksPerChunk = (int) (sr * 2.0 / block);
+    for (int c = 0; c < chunks; ++c)
+    {
+        for (int b = 0; b < blocksPerChunk; ++b)
+        {
+            for (int i = 0; i < block; ++i)
+            {
+                float m = 0.0f;
+                for (int v = 0; v < 3; ++v)
+                {
+                    m += 0.22f * (float) std::sin (phase[v]);
+                    phase[v] += 2.0 * juce::MathConstants<double>::pi * hz[v] / sr;
+                }
+                buf.setSample (0, i, m);
+                buf.setSample (1, i, m);
+            }
+            p.processBlock (buf, midi);
+        }
+        std::this_thread::sleep_for (std::chrono::milliseconds (250));
+    }
+    //  Let a final worker pass land.
+    std::this_thread::sleep_for (std::chrono::milliseconds (1600));
+
+    const auto d = p.detected();
+    static const char* names[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    std::printf ("  songKey: valid=%d key=%s %s conf=%.4f\n",
+                 (int) d.valid, d.valid ? names[((d.root % 12) + 12) % 12] : "-",
+                 d.minor ? "minor" : "major", d.confidence);
+    if (! d.valid || ((d.root % 12) + 12) % 12 != 0 || d.minor)
+    {
+        std::printf ("  FAIL: expected C major from ~48 s of a C major triad\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -238,6 +305,12 @@ int main (int argc, char** argv)
     proc.releaseResources();
 
     if (fails != 0) { std::fprintf (stderr, "Sattari Compass contract FAILED (%d)\n", fails); return 1; }
+    if (checkSongKeyDetector() != 0)
+    {
+        std::printf ("Sattari Compass contract FAILED (song key detector)\n");
+        return 1;
+    }
+
     std::printf ("Sattari Compass contract ok\n");
     return 0;
 }

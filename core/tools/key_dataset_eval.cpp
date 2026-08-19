@@ -647,8 +647,21 @@ int main (int argc, char** argv)
         if (m  > bestMirex) { bestMirex = m;  bestName = scores[p].name;     bestChroma = "current"; }
         if (mh > bestMirex) { bestMirex = mh; bestName = scoresHpcp[p].name; bestChroma = "HPCP"; }
     }
-    std::printf ("  BEST MIREX: %s chroma + %s  (%.2f / 100 over %d tracks)\n",
-                 bestChroma, bestName, bestMirex, nTracks);
+    //  The SongKeyEstimator is a detector, not a (chroma, profile) pair, so it was
+    //  never in this loop — the summary went on naming a chroma profile as "BEST"
+    //  while the estimator outscored it by ~10 MIREX on both corpora. Anyone who
+    //  read only the last line got the wrong answer.
+    if (songKeyScore.scored > 0)
+    {
+        const double sk = 100.0 * songKeyScore.weightSum / (double) songKeyScore.scored;
+        if (sk > bestMirex) { bestMirex = sk; bestName = songKeyScore.name; bestChroma = nullptr; }
+    }
+    if (bestChroma != nullptr)
+        std::printf ("  BEST MIREX: %s chroma + %s  (%.2f / 100 over %d tracks)\n",
+                     bestChroma, bestName, bestMirex, nTracks);
+    else
+        std::printf ("  BEST MIREX: %s  (%.2f / 100 over %d tracks)\n",
+                     bestName, bestMirex, nTracks);
     (void) kNoteNames;
     return 0;
 }

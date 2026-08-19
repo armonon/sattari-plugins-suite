@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariHostTransport.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
@@ -119,6 +120,26 @@ private:
     std::atomic<int> writePos { 0 };
     sattari::dsp::HpcpChromagram hpcp;             // worker-thread-only
     double runningDetune = 0.0;                    // worker-thread-only (cents)
+
+    //  Whole-session key. Measured on 1337 labelled tracks the SongKeyEstimator
+    //  reaches 57.6% exact / 65.12 MIREX against the Aarden/HPCP path's
+    //  39.2% / 46.69, so the conductor no longer publishes the weakest key in its
+    //  own product family. The HPCP path above is retained: it still produces the
+    //  detune estimate and the triad evidence, and it is the fallback until the
+    //  estimator has heard enough audio to have an opinion.
+    //
+    //  The estimator wants CONTINUOUS audio, and `ring` above is one 4096-sample
+    //  FFT frame (~85 ms) while the worker wakes on a ~700 ms cadence — it would
+    //  see roughly one eighth of the session. So it gets its own feed: processBlock
+    //  writes every mono sample, the worker drains whatever has arrived. Single
+    //  producer, single consumer, no locks and no allocation on the audio thread.
+    sattari::dsp::SongKeyEstimator songKey;        // worker-thread-only
+    std::vector<std::atomic<float>> keyFeed;       // sized in prepareToPlay
+    std::atomic<std::int64_t> keyFeedWrite { 0 };  // audio thread writes
+    std::int64_t keyFeedRead = 0;                  // worker thread reads
+    std::vector<float> keyDrain;                   // worker scratch
+    std::atomic<std::int64_t> keyFeedDropped { 0 };// audio outran the worker
+    std::atomic<int> songKeyFrames { 0 };          // frames the estimator has analysed
 
     // Detection readout (audio/worker -> UI), all lock-free.
     std::atomic<int>    detRoot { 0 };
