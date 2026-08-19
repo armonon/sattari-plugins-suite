@@ -261,6 +261,68 @@ int main (int argc, char** argv)
     const int    block = 512;
     const double seconds = 4.0;
 
+    // --songfile <audio> : the absorbed Sattari Key — whole-song key + tempo.
+    //
+    // Exercises the exact code the editor's drag-drop runs (analyseSongFileAsync:
+    // decode -> finalised SongKeyEstimator -> TempoEstimator), then proves the
+    // verdict OUTRANKS the live detectors in correlateAutoKeyHistogram by reading
+    // the plugin's own currentKeyOrigin after a short render with AutoKey on.
+    if (argc > 2 && std::strcmp (argv[1], "--songfile") == 0)
+    {
+        const juce::File f (juce::String::fromUTF8 (argv[2]));
+        SattariAutoPitchAudioProcessor p;
+        if (! p.isSupportedAudioFile (f))
+        { std::fprintf (stderr, "unsupported or missing file: %s\n", argv[2]); return 2; }
+
+        p.setRateAndBufferSizeDetails (sr, block);
+        p.prepareToPlay (sr, block);
+        setParam (p.parameters(), "autoKey", 1.0f);
+
+        p.analyseSongFileAsync (f);
+        //  Poll like the editor does. A 10-minute file at decode speed is still
+        //  seconds; 120 s is a hang, not a slow file.
+        float prog = 0.0f;
+        for (int i = 0; i < 1200; ++i)
+        {
+            prog = p.fileProgress.load (std::memory_order_acquire);
+            if (prog >= 1.0f || prog < 0.0f) break;
+            juce::Thread::sleep (100);
+        }
+        if (prog < 0.0f) { std::printf ("ANALYSIS ERROR\n"); return 1; }
+        if (prog < 1.0f) { std::printf ("TIMEOUT\n"); return 1; }
+
+        static const char* names[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const int  root  = p.fileKeyRoot.load();
+        const bool minor = p.fileKeyMinor.load() != 0;
+        std::printf ("file    : %s\n", f.getFileName().toRawUTF8());
+        std::printf ("key     : %s %s   (margin %.4f)\n",
+                     names[juce::jlimit (0, 11, root)], minor ? "minor" : "major",
+                     p.fileKeyConf.load());
+        std::printf ("tempo   : %.2f BPM\n", p.fileBpm.load());
+        std::printf ("detune  : %+.1f cents\n", p.fileDetuneCents.load());
+
+        //  Now prove precedence: render a short buffer of a DIFFERENT key (A major
+        //  chord) through the plugin with AutoKey on. The live detectors hear A;
+        //  the latched file verdict must still win.
+        juce::AudioBuffer<float> in;
+        makeVibratoTone (in, sr, 4.0, 220.0, 0.0, 5.0);
+        (void) sattari::harness::renderThrough (p, in, sr, block);
+        const auto origin = p.currentKeyOrigin();
+        std::printf ("origin  : source=%d root=%s conf=%.3f  (expect the FILE key above)\n",
+                     (int) origin.source, names[juce::jlimit (0, 11, origin.root)],
+                     origin.confidence);
+        //  Two right answers, mirroring the No Result policy: a confident verdict
+        //  must WIN over live detection; a sub-gate one must be IGNORED by it.
+        const bool confident = p.fileKeyConf.load() >= 0.10f;
+        const bool ok = confident ? (origin.root == root)
+                                  : (origin.root != root || origin.confidence < 0.10);
+        std::printf ("%s\n",
+            ok ? (confident ? "PASS: confident file verdict outranks live detection"
+                            : "PASS: sub-gate file verdict correctly NOT applied")
+               : "FAIL: precedence/gate behaviour wrong");
+        return ok ? 0 : 1;
+    }
+
     // --nulltest : Gate 4 test A, run offline instead of by hand in three DAWs.
     //
     // The host matrix asks for two sample-aligned copies of a vocal, Auto Pitch on

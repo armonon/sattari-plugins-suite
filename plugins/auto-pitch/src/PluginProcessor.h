@@ -9,6 +9,8 @@
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
 #include <sattari_audio_core/SattariLivePitchEngine.h>
+#include <sattari_audio_core/SattariSongKeyEstimator.h>
+#include <sattari_audio_core/SattariTempoEstimator.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -219,6 +221,22 @@ public:
     static constexpr float kMinBusKeyConfidence = (float) sattari::dsp::kReleaseKeyConfidence;
 
     KeyOrigin currentKeyOrigin() const;
+
+    //  Full-song drop analysis (ported from Sattari Key): decode + finalised
+    //  SongKeyEstimator + TempoEstimator on a background thread. The finalised
+    //  whole-file verdict outranks the mid-stream one in AutoKey.
+    void analyseSongFileAsync (const juce::File& file);
+    bool isSupportedAudioFile (const juce::File& file) const;
+    void clearSongFileResult();
+    std::thread fileWorker;
+    std::atomic<bool>  fileWorkerCancel { false };
+    std::atomic<float> fileProgress { 0.0f };      // 0..1; <0 = error
+    std::atomic<bool>  fileKeyValid { false };
+    std::atomic<int>   fileKeyRoot { 0 };
+    std::atomic<int>   fileKeyMinor { 0 };
+    std::atomic<float> fileKeyConf { 0.0f };
+    std::atomic<float> fileBpm { 0.0f };
+    std::atomic<float> fileDetuneCents { 0.0f };
 
     LiveSnapshot getLiveSnapshot() const noexcept
     {
@@ -663,6 +681,27 @@ private:
     std::atomic<bool> akSpecValid { false };
     std::atomic<int>  akSpecRoot  { 0 };
     std::atomic<int>  akSpecMinor { 0 };
+
+    //  --- Sattari Key, absorbed -------------------------------------------------
+    //  The SongKeyEstimator measured 57.6% exact / 65.12 MIREX on 1337 labelled
+    //  tracks against 39-45% for every chroma profile and 37.5% held-out for the
+    //  spectrogram model above, so once it is warm it outranks both.
+    //
+    //  It drains the SAME akSpecRing the spectrogram model reads — akSpecFilled is
+    //  a monotonic sample counter, so a private read cursor turns the rolling ring
+    //  into a continuous stream. No new audio-thread work, and by construction the
+    //  estimator hears exactly the audio the other full-mix detectors hear.
+    //  Worker-thread-only, like the ring itself.
+    sattari::dsp::SongKeyEstimator songKeyLive;    // crepe-worker-thread-only
+    long songKeyReadCursor = 0;                    // worker-only, vs akSpecFilled
+    std::vector<float> songKeyDrain;               // worker scratch
+    std::atomic<bool>  skValid { false };
+    std::atomic<int>   skRoot  { 0 };
+    std::atomic<int>   skMinor { 0 };
+    std::atomic<float> skConf  { 0.0f };
+    std::atomic<int>   skFrames { 0 };
+    std::atomic<bool>  songKeyRescan { false };    // any thread -> worker
+
     static constexpr double kAkSpecSeconds     = 30.0;
     static constexpr double kAkSpecIntervalSec = 5.0;
 

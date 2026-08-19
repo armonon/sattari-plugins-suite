@@ -217,6 +217,11 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     if (crepeThread.joinable())
         crepeThread.join();
 
+    // Same for the full-song analysis worker (it owns a format reader / file handle).
+    fileWorkerCancel.store (true, std::memory_order_release);
+    if (fileWorker.joinable())
+        fileWorker.join();
+
     // Stop and join the offline scan thread cleanly so we never leak a worker
     // across plugin unloads (the worker holds a juce::AudioFormatReader that
     // owns a file handle). Signal cancel first so the join returns promptly.
@@ -295,6 +300,56 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
                         akSpecMinor.store (ks.minor ? 1 : 0, std::memory_order_relaxed);
                         akSpecValid.store (true,             std::memory_order_release);
                     }
+                }
+            }
+        }
+
+        //  Sattari Key live estimator: drain the SAME ring incrementally. akSpecFilled
+        //  is monotonic, so cursor arithmetic turns the rolling window into a stream.
+        //  Unlike the model above this needs no presence check — it is plain DSP and
+        //  is always compiled in. Skipped offline like every live detector here (the
+        //  offline bounce path is deterministic and uses the histogram fallback).
+        if (! offlineMode.load (std::memory_order_relaxed)
+            && akSpecRing != nullptr && akSpecRingSize > 0 && ! songKeyDrain.empty())
+        {
+            if (songKeyRescan.exchange (false, std::memory_order_acq_rel))
+            {
+                songKeyLive.reset();
+                skValid.store (false, std::memory_order_relaxed);
+                skFrames.store (0, std::memory_order_relaxed);
+                songKeyReadCursor = akSpecFilled.load (std::memory_order_acquire);
+            }
+            const long filled = akSpecFilled.load (std::memory_order_acquire);
+            long available = filled - songKeyReadCursor;
+            if (available > (long) akSpecRingSize)
+            {
+                //  Lapped: the worker fell a whole ring behind. Skip forward rather
+                //  than analyse torn audio — a key from scrambled samples is worse
+                //  than a key from fewer samples.
+                songKeyReadCursor = filled - akSpecRingSize;
+                available = akSpecRingSize;
+            }
+            if (available > 0)
+            {
+                //  The ring's write position IS filled % size, so the oldest unread
+                //  sample sits at cursor % size.
+                const int count = (int) juce::jmin (available, (long) songKeyDrain.size());
+                for (int i = 0; i < count; ++i)
+                    songKeyDrain[(size_t) i] = akSpecRing[(size_t) ((songKeyReadCursor + i) % akSpecRingSize)]
+                                                   .load (std::memory_order_relaxed);
+                songKeyReadCursor += count;
+                songKeyLive.addSamples (songKeyDrain.data(), count);
+                skFrames.store (songKeyLive.framesAnalysed(), std::memory_order_relaxed);
+
+                const auto r = songKeyLive.result();
+                if (r.valid)
+                {
+                    skRoot.store  (r.root, std::memory_order_relaxed);
+                    skMinor.store (r.minor ? 1 : 0, std::memory_order_relaxed);
+                    //  The REAL margin, never a forced 1.0 — the publish gate at
+                    //  kMinBusKeyConfidence depends on this being honest.
+                    skConf.store  ((float) r.confidence, std::memory_order_relaxed);
+                    skValid.store (true, std::memory_order_release);
                 }
             }
         }
@@ -652,6 +707,14 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     akSpecWritePos.store (0);
     akSpecFilled.store (0);
     akSpecMono.assign ((size_t) akSpecRingSize, 0.0f);
+    //  Sattari Key live path: open-ended stream (never finalise), reset with the
+    //  ring. The drain scratch is the ring's own size — the largest one drain can be.
+    songKeyLive.prepare (currentSampleRate, 0);
+    songKeyLive.reset();
+    songKeyReadCursor = 0;
+    songKeyDrain.assign ((size_t) akSpecRingSize, 0.0f);
+    skValid.store (false, std::memory_order_relaxed);
+    skFrames.store (0, std::memory_order_relaxed);
     akSpecFeat.assign ((size_t) (sattari::dsp::LogSpec::kBins
                                * sattari::dsp::LogSpec::kFrames), 0.0f);
     akSpecLastRun = -1;
@@ -1441,6 +1504,45 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 
     int bestRoot = detectedAutoRoot;
 
+    // The two absorbed Sattari Key detectors sit ABOVE the scale branch: they only
+    // know major/minor, but their ROOT is the best root estimate for ANY scale, so
+    // a dorian or harmonic-minor user still benefits — only the mode readout is
+    // reserved for the major/minor modes, where AutoKey chooses the mode itself.
+    //
+    // Order is by MEASURED accuracy: the finalised whole-file verdict, then the
+    // live SongKeyEstimator once warm (57.6% exact / 65.12 MIREX on 1337 labelled
+    // tracks). The spectrogram model below is now a warm-up fallback — its 72.1
+    // MIREX claim did not survive held-out evaluation (37.5% exact, last of six).
+    {
+        constexpr int kSongKeyWarmFrames = 16;   // ~4 s of 256 ms frames
+        const bool modal = (scaleName == "major" || scaleName == "minor");
+        //  Both carry Sattari Key's No Result policy: a verdict below the 0.10
+        //  margin is DISPLAYED by the UI but never drives correction or the bus.
+        //  A user-dropped file does not get a trust exemption — the analysis being
+        //  explicit does not make its answer more reliable.
+        if (fileKeyValid.load (std::memory_order_acquire)
+            && fileKeyConf.load (std::memory_order_relaxed) >= kMinBusKeyConfidence)
+        {
+            detectedAutoRoot = fileKeyRoot.load (std::memory_order_relaxed);
+            if (modal)
+                detectedAutoScale = fileKeyMinor.load (std::memory_order_relaxed);
+            detectedAutoKeyConf.store (fileKeyConf.load (std::memory_order_relaxed),
+                                       std::memory_order_relaxed);
+            return;
+        }
+        if (skValid.load (std::memory_order_acquire)
+            && skFrames.load (std::memory_order_relaxed) >= kSongKeyWarmFrames
+            && skConf.load (std::memory_order_relaxed) >= kMinBusKeyConfidence)
+        {
+            detectedAutoRoot = skRoot.load (std::memory_order_relaxed);
+            if (modal)
+                detectedAutoScale = skMinor.load (std::memory_order_relaxed);
+            detectedAutoKeyConf.store (skConf.load (std::memory_order_relaxed),
+                                       std::memory_order_relaxed);
+            return;
+        }
+    }
+
     if (scaleName == "major" || scaleName == "minor")
     {
         // AutoKey picks BOTH the root AND the mode (major vs minor); detectedAutoScale
@@ -1449,9 +1551,6 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         // ~58% exact vs ~45% for the profile on real mixes. Absent a sidechain the
         // neural result never validates and we fall back to the pitch-histogram
         // detector, which is the right tool for a monophonic vocal.
-        // Spectrogram model first when it has spoken: 72.1 MIREX vs 61.5 for the HPCP
-        // keyNet below, and it is the SAME model Sattari Key publishes from, so AutoKey
-        // and the session bus now agree instead of quietly reporting different keys.
         if (keyNetSpecPresent && akSpecValid.load (std::memory_order_acquire))
         {
             bestRoot = akSpecRoot.load (std::memory_order_relaxed);
@@ -2131,6 +2230,162 @@ void SattariAutoPitchAudioProcessor::processPolyphonicRetune (juce::AudioBuffer<
 // ============================================================================
 // Track Key Map
 // ============================================================================
+//  ============================================================================
+//  Sattari Key, absorbed: whole-song key + tempo analysis of a dropped file.
+//  Ported from SongKeyProcessor::analyseFile — decode chunked, feed a FINALISED
+//  SongKeyEstimator (prepared with the exact length for deterministic end
+//  handling), build a spectral-flux onset envelope for the TempoEstimator, and
+//  latch the verdict where correlateAutoKeyHistogram() outranks every live
+//  detector with it. Distinct from the Key Map scan on purpose: drop = ONE
+//  whole-song key + tempo; SCAN TRACK = per-section key segments. useKeyMap
+//  still outranks AutoKey entirely, so the two features compose instead of
+//  fighting over detectedAutoRoot.
+//  ============================================================================
+bool SattariAutoPitchAudioProcessor::isSupportedAudioFile (const juce::File& file) const
+{
+    return file.existsAsFile()
+        && file.hasFileExtension ("wav;aif;aiff;flac;mp3;m4a;aac;ogg");
+}
+
+void SattariAutoPitchAudioProcessor::clearSongFileResult()
+{
+    fileKeyValid.store (false, std::memory_order_release);
+    fileBpm.store (0.0f, std::memory_order_relaxed);
+    fileProgress.store (0.0f, std::memory_order_relaxed);
+}
+
+void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& file)
+{
+    //  Serialise: one file analysis at a time, and never concurrently with a dying
+    //  predecessor (the reader owns a file handle).
+    fileWorkerCancel.store (true, std::memory_order_release);
+    if (fileWorker.joinable())
+        fileWorker.join();
+    fileWorkerCancel.store (false, std::memory_order_relaxed);
+    clearSongFileResult();
+
+    fileWorker = std::thread ([this, file]
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        if (reader == nullptr || reader->lengthInSamples <= 0
+            || reader->numChannels == 0 || reader->sampleRate <= 0.0)
+        {
+            fileProgress.store (-1.0f, std::memory_order_release);   // error
+            return;
+        }
+
+        constexpr int order = 12, fft = 1 << order, hop = fft / 2;
+        constexpr int chunkSamples = 65536;
+        const int channels = juce::jmax (1, (int) reader->numChannels);
+
+        juce::AudioBuffer<float> decoded (channels, chunkSamples);
+        std::vector<float> mono ((size_t) chunkSamples + fft, 0.0f);
+        std::vector<float> spectrum ((size_t) fft * 2, 0.0f);
+        std::vector<float> window ((size_t) fft, 0.0f);
+        for (int i = 0; i < fft; ++i)
+            window[(size_t) i] = 0.5f - 0.5f * std::cos (
+                juce::MathConstants<float>::twoPi * (float) i / (float) (fft - 1));
+
+        juce::dsp::FFT fileFft (order);
+        sattari::dsp::HpcpChromagram fileHpcp;
+        sattari::dsp::SongKeyEstimator fileKey;
+        fileHpcp.reserveBins (fft / 2 + 1);
+        fileKey.prepare (reader->sampleRate, (std::int64_t) reader->lengthInSamples);
+
+        std::vector<float> previousSpectrum ((size_t) fft / 2 + 1, 0.0f);
+        std::vector<float> onsetEnvelope;
+        onsetEnvelope.reserve ((size_t) std::ceil (
+            (double) reader->lengthInSamples / (double) hop));
+        int frames = 0;
+
+        auto analyseFrame = [&] (const float* samples)
+        {
+            for (int i = 0; i < fft; ++i)
+                spectrum[(size_t) i] = samples[i] * window[(size_t) i];
+            std::fill (spectrum.begin() + fft, spectrum.end(), 0.0f);
+            fileFft.performFrequencyOnlyForwardTransform (spectrum.data());
+            fileHpcp.accumulate (spectrum.data(), fft / 2 + 1,
+                                 reader->sampleRate / (double) fft);
+            //  Spectral flux on log magnitudes (SongKeyProcessor::onsetStrength).
+            double flux = 0.0;
+            for (int bin = 2; bin < fft / 2 + 1; ++bin)
+            {
+                const float value = std::log1p (juce::jmax (0.0f, spectrum[(size_t) bin]));
+                flux += juce::jmax (0.0f, value - previousSpectrum[(size_t) bin]);
+                previousSpectrum[(size_t) bin] = value;
+            }
+            onsetEnvelope.push_back ((float) (flux / (double) (fft / 2 - 1)));
+            ++frames;
+        };
+
+        int carried = 0;
+        juce::int64 readPosition = 0;
+        while (readPosition < reader->lengthInSamples)
+        {
+            if (fileWorkerCancel.load (std::memory_order_acquire))
+                return;
+            const int count = (int) juce::jmin ((juce::int64) chunkSamples,
+                                                reader->lengthInSamples - readPosition);
+            decoded.clear();
+            if (! reader->read (&decoded, 0, count, readPosition, true, true))
+            {
+                fileProgress.store (-1.0f, std::memory_order_release);
+                return;
+            }
+            for (int i = 0; i < count; ++i)
+            {
+                float sum = 0.0f;
+                for (int channel = 0; channel < channels; ++channel)
+                    sum += decoded.getSample (channel, i);
+                mono[(size_t) carried + (size_t) i] = sum / (float) channels;
+            }
+            fileKey.addSamples (mono.data() + carried, count);
+
+            const int available = carried + count;
+            int cursor = 0;
+            while (cursor + fft <= available)
+            {
+                analyseFrame (mono.data() + cursor);
+                cursor += hop;
+            }
+            carried = available - cursor;
+            if (carried > 0)
+                std::memmove (mono.data(), mono.data() + cursor,
+                              (size_t) carried * sizeof (float));
+            readPosition += count;
+            fileProgress.store ((float) (0.98 * (double) readPosition
+                                               / (double) reader->lengthInSamples),
+                                std::memory_order_release);
+        }
+        if (carried > 0 && (frames == 0 || carried >= hop / 2))
+        {
+            std::fill (mono.begin() + carried, mono.begin() + fft, 0.0f);
+            analyseFrame (mono.data());
+        }
+        fileKey.finalise();
+
+        const auto key = fileKey.result();
+        if (frames == 0 || ! key.valid)
+        {
+            fileProgress.store (-1.0f, std::memory_order_release);
+            return;
+        }
+        const auto tempo = sattari::dsp::TempoEstimator::analyse (
+            onsetEnvelope, reader->sampleRate / (double) hop);
+
+        fileKeyRoot.store (key.root, std::memory_order_relaxed);
+        fileKeyMinor.store (key.minor ? 1 : 0, std::memory_order_relaxed);
+        fileKeyConf.store ((float) key.confidence, std::memory_order_relaxed);
+        fileDetuneCents.store ((float) (fileHpcp.tuningOffsetSemitones() * 100.0),
+                               std::memory_order_relaxed);
+        fileBpm.store (tempo.valid ? (float) tempo.bpm : 0.0f, std::memory_order_relaxed);
+        fileKeyValid.store (true, std::memory_order_release);
+        fileProgress.store (1.0f, std::memory_order_release);
+    });
+}
+
 bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFile)
 {
     if (! audioFile.existsAsFile()) return false;
