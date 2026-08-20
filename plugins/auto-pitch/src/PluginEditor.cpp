@@ -1891,9 +1891,18 @@ void SattariAutoPitchAudioProcessorEditor::resized()
         if (! haveModel)
         {
             keyHintLabel.setBounds (k);
-            keyBigLabel.setBounds ({}); keyMetaLabel.setBounds ({});
-            keyAltLabel.setBounds ({}); songMapView.setBounds ({});
-            keySectionsLabel.setBounds ({}); keyInspectorLabel.setBounds ({});
+            //  Zero EVERY populated-state child, not just some: going populated
+            //  -> empty (clearSongFileResult, or loading a project) otherwise
+            //  leaves these floating at their last bounds over the drop hint.
+            for (auto* c : { (juce::Component*) &keyBigLabel, (juce::Component*) &keyMetaLabel,
+                             (juce::Component*) &keyAltLabel, (juce::Component*) &songMapView,
+                             (juce::Component*) &keySectionsLabel,
+                             (juce::Component*) &keyChordsLabel, (juce::Component*) &keyModsLabel,
+                             (juce::Component*) &keyInspectorLabel,
+                             (juce::Component*) &followSongMapButton,
+                             (juce::Component*) &regionRootBox, (juce::Component*) &regionScaleBox,
+                             (juce::Component*) &regionApplyButton })
+                c->setBounds ({});
         }
         else
         {
