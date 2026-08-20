@@ -82,8 +82,8 @@ GATE 5 RC review     BLOCKED    on user listening + manual hosts
   `AutoPitchRender --livetest`; record in
   `validation/auto-pitch/2026-08-17-live-mode-wired.md`. Still alpha: no
   listening evidence, no host testing, and no low-latency monitoring claim.
-- **Installed 2026-08-20 at `9bd2afb`**: universal (arm64 + x86_64) AU and VST3
-  of the four-workspace line, `auval` PASS. Everything before this was the
+- **Installed 2026-08-20**: universal (arm64 + x86_64) AU and VST3 of the
+  four-workspace line including the Classic-control recalibration, `auval` PASS. Everything before this was the
   Aug 16 build, which predated the merge entirely.
 - Auto Pitch 0.5.0 and the previous Sattari Key 0.2.0 universal AU/VST3/Standalone
   builds are installed locally. Both AUs passed `auval`; Sattari Key 0.3.0 still
@@ -99,8 +99,11 @@ next-generation live work is recorded in
 
 ### Gate 3 — the critical path
 
-**Use `~/Desktop/vocal test/listening-package-9bd2afb/`** — 18 level-matched
-24-bit WAVs, six sets A-F, rendered from the CURRENT four-workspace line.
+**Use `~/Desktop/vocal test/listening-package-vibfix/`** — 18 level-matched
+24-bit WAVs, six sets A-F, rendered from the CURRENT line including the
+2026-08-20 Classic-control recalibration. The 9bd2afb package was deleted
+rather than left beside it: its renders predate that DSP change, and two
+plausible-looking packages on one desktop is how the wrong one gets scored.
 
 The earlier packages are superseded and must not be scored: `listening-package/`
 is 0.4.1, and `listening-package-0.5.0-rc3/` predates the Sattari Key merge and

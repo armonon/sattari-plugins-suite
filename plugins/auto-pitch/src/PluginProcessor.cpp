@@ -622,7 +622,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     resetPitchState (preparedBlockSize);
     {
         const auto offsetText = juce::SystemStats::getEnvironmentVariable (
-            "SATTARI_AUTOPITCH_CLASSIC_CONTROL_MS", "-30");
+            "SATTARI_AUTOPITCH_CLASSIC_CONTROL_MS", "-20");
         classicControlOffsetSeconds = 0.001 * juce::jlimit (-60.0, 60.0, offsetText.getDoubleValue());
     }
     graphTimeRingSize = juce::jmax (preparedBlockSize * 2, (int) std::ceil (currentSampleRate * 1.05) + preparedBlockSize);
@@ -3935,11 +3935,32 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 
     // R3's analysis window has a finite response time. On the intentionally
     // dead-flat Classic path, offset only the MOVING part of the requested curve
-    // so fast vibrato is cancelled at the correct phase. Measurement on a
-    // controlled 5.5 Hz / +/-40-cent tone selected -30 ms (4.0 cents remaining;
-    // -20 ms left 5.1 and -40 ms regressed to 8.6). Steady correction remains
-    // mathematically unchanged, and fresh note transitions bypass compensation
-    // so a melodic jump cannot overshoot. The extra term is bounded to 75 cents.
+    // so fast vibrato is cancelled at the correct phase. Steady correction remains
+    // mathematically unchanged, and fresh note transitions bypass compensation so
+    // a melodic jump cannot overshoot. The extra term is bounded to 75 cents.
+    //
+    // RE-CALIBRATED 2026-08-20 to -20 ms. The original -30 ms was chosen on ONE
+    // controlled 5.5 Hz / +/-40-cent synthetic tone, where it is genuinely best
+    // (4.0 cents remaining vs 5.1 at -20). On the six-clip REAL corpus it is not:
+    // over-leading pushes the correction past the target on material whose
+    // vibrato rate and depth differ from the calibration tone, and on the heavy
+    // vibrato clip it made Hard mode correct LESS than Natural — a visible
+    // inversion of what the control means.
+    //
+    //   Hard-mode cents-to-scale, median, by offset:
+    //     clip             0ms   -10   -15   -20   -30
+    //     slay-demons     16.2  12.1   9.4   7.4   8.7
+    //     guidos-pizza    11.5   7.6   5.7   4.2   4.6
+    //     dickey-prairie   8.4   6.4   6.3   6.1   6.3
+    //     vs-belt-m6       5.8   4.4   3.7   2.7   2.3
+    //     vs-vibrato-f5   18.5  14.6  13.7  14.1  16.7
+    //     vs-melisma-m3   21.3  15.6  13.3  11.1  11.4
+    //
+    // -20 wins 4 of 6 outright and wins on both mean (7.60 vs 8.33) and median
+    // (6.75 vs 7.50), while still passing the controlled release gate with margin
+    // (5.1 ct against its 6.9 ct limit). -15 scores better on the vibrato clip
+    // alone but FAILS that gate at 7.3, so it is rejected: tuning to the one clip
+    // that exposed the bug would repeat the original error inverted.
     if (classicMode && lastPitchFrame.voiced)
     {
         const double rawCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, targetPitchScale));
