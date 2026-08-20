@@ -265,6 +265,7 @@ public:
         std::array<bool, 4> active { false, false, false, false };
         double confidence = 0.0;
         bool   fromChord = false;
+        int    heldNotes = 0;      // MIDI mode: how many notes were actually held
     };
     HarmonyReadout planHarmonyNow() const;
     mutable sattari::dsp::HarmonyVoicePlanner harmonyPlanner;
@@ -277,6 +278,17 @@ public:
     //  permanently, reports full confidence (their assertion IS the evidence),
     //  and is pushed straight into the Follow Song Map table.
     void setRegionKey (int regionIndex, int root, bool minor);
+
+    //  Apply the time-aware key source at a transport position, and read the
+    //  resulting correction key directly. Public so the offline harness can prove
+    //  Follow Song Map actually drives correction — the defect that made it a
+    //  dead control was invisible to every other test. Reading the EFFECTIVE
+    //  root here rather than through currentKeyOrigin() matters: that one reports
+    //  the UI frame, which only refreshes from processBlock.
+    void applyKeyMapAtSeconds (double seconds);
+    int  effectiveCorrectionRoot() const { return currentCorrectionRootIndex(); }
+    int  effectiveCorrectionScale() const { return effectiveScaleIndex(); }
+    bool effectiveCorrectionRootIsMapDriven() const { return keyMapDriving(); }
 
     sattari::dsp::SongAnalysis songAnalysisCopy() const
     {
@@ -609,7 +621,7 @@ private:
     juce::String keyMapLastError;
     std::unique_ptr<std::thread> keyMapScanThread;
     void runKeyMapScan (juce::File audioFile);
-    void applyKeyMapAtSeconds (double seconds);
+
 
     // Captured/editable note regions. Audio reads/writes only through try-locks;
     // the vector is reserved on prepare so capture never allocates in processBlock.

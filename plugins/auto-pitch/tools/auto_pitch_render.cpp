@@ -261,6 +261,82 @@ int main (int argc, char** argv)
     const int    block = 512;
     const double seconds = 4.0;
 
+    // --followmap : does Follow Song Map actually DRIVE correction?
+    //
+    // This exists because it did not. keyMapDriving() was widened to accept the
+    // new source while the single call site that performs the lookup stayed
+    // gated on the OLD parameter, so the control was dead — the same defect
+    // class as the liveEngine/lowLatency parameters this project already fixed.
+    // A toggle whose only evidence is "the code looks right" is not verified.
+    if (argc > 2 && std::strcmp (argv[1], "--followmap") == 0)
+    {
+        static const char* names[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const juce::File f (juce::String::fromUTF8 (argv[2]));
+        SattariAutoPitchAudioProcessor p;
+        p.setRateAndBufferSizeDetails (sr, block);
+        p.prepareToPlay (sr, block);
+        setParam (p.parameters(), "autoKey", 1.0f);
+        setParam (p.parameters(), "useKeyMap", 0.0f);      // the OTHER source stays off
+        setParam (p.parameters(), "followSongMap", 1.0f);
+
+        p.analyseSongFileAsync (f);
+        float prog = 0.0f;
+        for (int i = 0; i < 1200; ++i)
+        {
+            prog = p.fileProgress.load (std::memory_order_acquire);
+            if (prog >= 1.0f || prog < 0.0f) break;
+            juce::Thread::sleep (100);
+        }
+        if (prog < 1.0f) { std::printf ("analysis did not complete\n"); return 1; }
+
+        const auto model = p.songAnalysisCopy();
+        std::printf ("regions : %d\n", (int) model.scaleRegions.size());
+        for (const auto& r : model.scaleRegions)
+            std::printf ("  %6.1f-%6.1f  %-2s %-5s  conf %.3f\n", r.startSec, r.endSec,
+                         names[juce::jlimit (0, 11, r.root)], r.minor ? "minor" : "major",
+                         r.confidence);
+
+        //  Drive the follower directly at points inside each region and confirm
+        //  the correction key TRACKS the map rather than staying on one answer.
+        int distinct = 0, lastRoot = -999, applied = 0;
+        for (const auto& r : model.scaleRegions)
+        {
+            p.applyKeyMapAtSeconds (0.5 * (r.startSec + r.endSec));
+            //  Read the EFFECTIVE correction root, not currentKeyOrigin(): that
+            //  one reports the UI frame, which only refreshes from processBlock.
+            const bool driving = p.effectiveCorrectionRootIsMapDriven();
+            const int  root    = p.effectiveCorrectionRoot();
+            std::printf ("  at %6.1fs -> %-8s root=%s%s\n",
+                         0.5 * (r.startSec + r.endSec),
+                         driving ? "SONG MAP" : "not-map",
+                         names[juce::jlimit (0, 11, root)],
+                         r.confidence < 0.10 ? "   (below gate: correctly not applied)" : "");
+            if (driving)
+            {
+                ++applied;
+                if (root != lastRoot) { ++distinct; lastRoot = root; }
+                //  The target must be the region's own key, not merely "some key".
+                if (root != r.root)
+                {
+                    std::printf ("  FAIL: region says %s but correction uses %s\n",
+                                 names[juce::jlimit (0, 11, r.root)],
+                                 names[juce::jlimit (0, 11, root)]);
+                    return 1;
+                }
+            }
+        }
+        //  At least one region must actually drive; and where the song has more
+        //  than one confident key, the target must CHANGE with position.
+        int confidentRegions = 0;
+        for (const auto& r : model.scaleRegions) if (r.confidence >= 0.10) ++confidentRegions;
+        const bool ok = confidentRegions == 0 ? true : applied > 0;
+        std::printf ("%s  (%d/%d regions drove correction, %d distinct keys)\n",
+                     ok ? "PASS: Follow Song Map drives the correction target"
+                        : "FAIL: Follow Song Map never drove correction",
+                     applied, (int) model.scaleRegions.size(), distinct);
+        return ok ? 0 : 1;
+    }
+
     // --songfile <audio> : the absorbed Sattari Key — whole-song key + tempo.
     //
     // Exercises the exact code the editor's drag-drop runs (analyseSongFileAsync:

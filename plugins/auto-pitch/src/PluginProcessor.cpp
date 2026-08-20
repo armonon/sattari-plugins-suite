@@ -445,6 +445,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "harmonyMode", "Harmony Mode",
         juce::StringArray { "Intelligent", "Interval", "MIDI" }, 0));
+    //  ONLY the parameters that genuinely change the planned notes exist. Level
+    //  and pan are RENDERING controls, and there is no renderer yet — shipping
+    //  them would have been eight more automatable parameters that do nothing,
+    //  which is precisely the liveEngine/lowLatency defect this project already
+    //  had to fix. They arrive with the voice renderer or not at all.
     for (int v = 1; v <= 4; ++v)
     {
         const auto id = juce::String ("h") + juce::String (v);
@@ -455,13 +460,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             juce::StringArray { "Upper", "Lower", "High", "Low",
                                 "Octave Up", "Octave Down", "Choir" },
             v == 1 ? 0 : v == 2 ? 1 : v == 3 ? 2 : 3));
-        params.push_back (std::make_unique<juce::AudioParameterFloat> (
-            id + "Level", "Harmony " + juce::String (v) + " Level",
-            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.7f));
-        params.push_back (std::make_unique<juce::AudioParameterFloat> (
-            id + "Pan", "Harmony " + juce::String (v) + " Pan",
-            juce::NormalisableRange<float> (-1.0f, 1.0f, 0.01f),
-            v == 1 ? -0.4f : v == 2 ? 0.4f : v == 3 ? -0.7f : 0.7f));
+        //  Interval mode's actual control: diatonic degrees. Without it every
+        //  voice planned the identical note, making the mode indistinguishable
+        //  from a single-voice transposer.
+        params.push_back (std::make_unique<juce::AudioParameterInt> (
+            id + "Degrees", "Harmony " + juce::String (v) + " Interval",
+            -7, 7, v == 1 ? 2 : v == 2 ? -2 : v == 3 ? 4 : -4));
+        params.push_back (std::make_unique<juce::AudioParameterInt> (
+            id + "Octave", "Harmony " + juce::String (v) + " Octave", -2, 2, 0));
     }
 
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
@@ -2348,6 +2354,14 @@ void SattariAutoPitchAudioProcessor::clearSongFileResult()
     fileKeyValid.store (false, std::memory_order_release);
     fileBpm.store (0.0f, std::memory_order_relaxed);
     fileProgress.store (0.0f, std::memory_order_relaxed);
+    {
+        //  The follow table is derived from the analysis; clearing one without
+        //  the other left a previous song's key map driving correction while the
+        //  UI showed no analysis at all.
+        const juce::ScopedLock kl (keyMapLock);
+        songMapEntries.clear();
+    }
+    keyMapCurrentSegment.store (-1);
     const std::lock_guard<std::mutex> lock (songAnalysisMutex);
     songAnalysis = {};
 }
@@ -2592,6 +2606,17 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
             }
 
             const std::lock_guard<std::mutex> lock (songAnalysisMutex);
+            //  Carry USER-SET regions across re-analysis. The UI promises a manual
+            //  key outranks detection permanently, and wholesale replacement broke
+            //  that promise the moment a second song was analysed.
+            for (const auto& oldRegion : songAnalysis.scaleRegions)
+            {
+                if (! oldRegion.userSet) continue;
+                for (auto& r : a.scaleRegions)
+                    if (r.startSec < oldRegion.endSec && r.endSec > oldRegion.startSec)
+                    { r.root = oldRegion.root; r.minor = oldRegion.minor;
+                      r.userSet = true; r.confidence = 1.0; }
+            }
             songAnalysis = std::move (a);
         }
 
@@ -2933,7 +2958,14 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
                       && apvts.getRawParameterValue ("followSongMap")->load() > 0.5f
                       && ! songMapEntries.empty();
     if (! useScan && ! useSong)
+    {
+        //  Clear the latch. Returning without this left keyMapCurrentSegment at
+        //  its last value while keyMapDriving() ORs in followSongMap, so the
+        //  correction key froze on a dead segment FOREVER: AutoKey stays
+        //  suppressed, and nothing else ever writes this atomic during playback.
+        keyMapCurrentSegment.store (-1);
         return;
+    }
     const auto& table = useScan ? keyMap : songMapEntries;
 
     // Binary search for the latest entry whose timeSec <= seconds.
@@ -2950,10 +2982,16 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
     }
 
     const auto& e = table[(size_t) idx];
-    //  A region below the trust gate must not silently steer correction. Leave
-    //  the previous target and report no segment, so currentKeyOrigin falls back
-    //  exactly as it does when AutoKey is uncertain.
-    if (e.confidence < kMinBusKeyConfidence)
+    //  A region below the trust gate must not silently steer correction. Report
+    //  no segment, so currentKeyOrigin falls back exactly as when AutoKey is
+    //  uncertain.
+    //
+    //  The threshold is applied ONLY to the song-map source. Scan entries carry
+    //  a confidence produced by a different detector on a different scale, and
+    //  judging them by the chroma-margin gate would reject or admit them for
+    //  reasons unrelated to how good they are. The scan path keeps the
+    //  behaviour it was validated with.
+    if (useSong && e.confidence < kMinBusKeyConfidence)
     {
         keyMapCurrentSegment.store (-1);
         return;
@@ -3293,12 +3331,17 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
         settings[v].enabled = apvts.getRawParameterValue (id + "Enable")->load() > 0.5f;
         settings[v].role = (sattari::dsp::HarmonyRole)
             juce::jlimit (0, 6, (int) std::lround (apvts.getRawParameterValue (id + "Role")->load()));
-        settings[v].level = apvts.getRawParameterValue (id + "Level")->load();
-        settings[v].pan   = apvts.getRawParameterValue (id + "Pan")->load();
+        settings[v].intervalDegrees =
+            juce::jlimit (-7, 7, (int) std::lround (apvts.getRawParameterValue (id + "Degrees")->load()));
+        settings[v].octaveOffset =
+            juce::jlimit (-2, 2, (int) std::lround (apvts.getRawParameterValue (id + "Octave")->load()));
     }
 
     const auto origin = currentKeyOrigin();
-    const auto scaleId = sattari::harmony::scaleIdFromBus (origin.scale);
+    //  scaleIdFromCHOICE, not FromBus: origin.scale is an index into Auto Pitch's
+    //  13-entry scaleChoices, while scaleIdFromBus understands only the 3-value
+    //  bus code — every mode beyond major/minor/chromatic silently became Major.
+    const auto scaleId = sattari::harmony::scaleIdFromChoice (origin.scale);
     const auto mode = (sattari::dsp::HarmonyMode)
         juce::jlimit (0, 2, (int) std::lround (apvts.getRawParameterValue ("harmonyMode")->load()));
     //  UI order is Intelligent/Interval/MIDI; the enum is interval/intelligent/midi.
@@ -3322,9 +3365,20 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
         }
     }
 
+    //  MIDI mode needs the notes actually held. Without this it planned nothing
+    //  while the UI still reported a plan — a mode that silently cannot work.
+    int held[4]; int numHeld = 0;
+    if (realMode == sattari::dsp::HarmonyMode::midi)
+    {
+        const int t = midiTargetNote.load (std::memory_order_relaxed);
+        if (t >= 0) held[numHeld++] = t;
+    }
+
     const auto plan = harmonyPlanner.plan (out.leadMidi, realMode, settings, 4,
                                            origin.root, scaleId,
-                                           numPcs > 0 ? pcs : nullptr, numPcs, chordConf);
+                                           numPcs > 0 ? pcs : nullptr, numPcs, chordConf,
+                                           numHeld > 0 ? held : nullptr, numHeld);
+    out.heldNotes = numHeld;
     for (int v = 0; v < 4; ++v)
     {
         out.active[(size_t) v] = plan.voices[(size_t) v].active;
@@ -3345,31 +3399,43 @@ double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFram
     //  them alone can hold correction back. This is the "false corrections are
     //  more damaging than missed corrections" rule made numeric.
 
+    //  A DELIBERATE target is not a guess. MIDI Target and captured Pitch Edits
+    //  are the user naming the note, and those corrections are LARGE by design —
+    //  the first version of this gate throttled them to 20% because it treated
+    //  their size as evidence of doubt. Anything the user asked for explicitly
+    //  bypasses the gate entirely.
+    if (frame.objectActive
+        || apvts.getRawParameterValue ("midiTarget")->load() > 0.5f)
+        return 1.0;
+
     //  1. DISTANCE. Sitting a long way from the nearest legal note usually means
     //     the singer is between notes, not badly off one. Full trust within a
-    //     quarter tone, falling away toward a semitone.
+    //     quarter tone, easing to a floor rather than to zero — a semitone-off
+    //     note is still a note, and refusing to correct it is its own failure.
     const double cents = std::abs (frame.correctionCents);
     const double distance = cents <= 50.0 ? 1.0
-                          : juce::jlimit (0.0, 1.0, 1.0 - (cents - 50.0) / 50.0);
+                          : juce::jlimit (0.55, 1.0, 1.0 - (cents - 50.0) / 110.0);
 
     //  2. DETECTOR CONFIDENCE. A weak pitch estimate is a weak basis for moving
     //     someone's voice at all.
     const double detector = juce::jlimit (0.0, 1.0, frame.confidence / 0.6);
 
-    //  3. STABILITY. A pitch travelling fast is a slide or a transition, and the
-    //     spec is explicit that those are to be preserved, not snapped. The
-    //     transition boost already tracks note changes; reuse it rather than
-    //     inventing a second notion of "moving".
-    const double motion = juce::jlimit (0.0, 1.0, transitionBoost);
-    const double stability = 1.0 - 0.65 * motion;
+    //  3. STABILITY. A pitch travelling fast is a slide, and the spec says to
+    //     preserve those. But transitionBoost spikes at EVERY note change, so
+    //     scaling by it directly under-corrected the attack of every single note
+    //     and systematically weakened fast passages — the opposite of the intent.
+    //     Only sustained motion counts, and even then it eases rather than cuts.
+    const double motion = juce::jlimit (0.0, 1.0, (transitionBoost - 0.55) / 0.45);
+    const double stability = 1.0 - 0.30 * motion;
 
-    //  4. KEY TRUST. If the note set itself came from a low-confidence detection,
-    //     every target derived from it inherits that doubt. Manual keys are the
-    //     user's assertion and carry full trust.
-    const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
-    const double keyTrust = autoKeyOn
-        ? juce::jlimit (0.35, 1.0, (double) detectedAutoKeyConf.load (std::memory_order_relaxed)
-                                       / (double) kMinBusKeyConfidence)
+    //  4. KEY TRUST. If the note set itself came from a low-confidence DETECTION,
+    //     every target derived from it inherits that doubt. Crucially this must
+    //     key off where the correction key ACTUALLY came from, not merely whether
+    //     the AutoKey switch is on: a manual, bus, or song-map key is not made
+    //     doubtful by an unrelated AutoKey estimate running alongside it.
+    const auto origin = currentKeyOrigin();
+    const double keyTrust = origin.source == KeyOrigin::Source::AutoKey
+        ? juce::jlimit (0.35, 1.0, (double) origin.confidence / (double) kMinBusKeyConfidence)
         : 1.0;
 
     return juce::jlimit (0.0, 1.0, distance * detector * stability * keyTrust);
@@ -3562,6 +3628,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
     const bool useKeyMap = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f;
+    const bool followSongMapOn = apvts.getRawParameterValue ("followSongMap")->load() > 0.5f;
     double hostTimeSeconds = -1.0;
     bool chromaSourceActiveThisBlock = false;
     bool sidechainHasAudioThisBlock = false;
@@ -3589,7 +3656,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 // Always publish the playhead so the editor's Key Map timeline can
                 // draw a position marker even when Use Key Map is off.
                 keyMapPlayheadSec.store (*t, std::memory_order_relaxed);
-                if (useKeyMap)
+                //  Either time-aware source arms the follower. Gating this on
+                //  useKeyMap alone made Follow Song Map a dead automatable
+                //  parameter — the exact defect class this project already had
+                //  to fix once with liveEngine/lowLatency.
+                if (useKeyMap || followSongMapOn)
                     applyKeyMapAtSeconds (*t);
             }
         }

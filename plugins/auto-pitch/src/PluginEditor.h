@@ -240,6 +240,7 @@ private:
     juce::ComboBox regionRootBox, regionScaleBox;
     juce::TextButton regionApplyButton { "SET REGION KEY" };
     int selectedRegionIndex = -1;
+    juce::String pendingRegionConfirm;   // survives the model rebuild it triggers
 
     //  HARMONY workspace.
     juce::Component harmonyPanel;
@@ -250,11 +251,11 @@ private:
     {
         juce::TextButton enable;
         juce::ComboBox   role;
-        juce::Slider     level, pan;
+        juce::Slider     degrees, octave;
         juce::Label      caption, readout;
         std::unique_ptr<ButtonAttachment> enableAttach;
         std::unique_ptr<ComboAttachment>  roleAttach;
-        std::unique_ptr<SliderAttachment> levelAttach, panAttach;
+        std::unique_ptr<SliderAttachment> degreesAttach, octaveAttach;
     };
     std::array<HarmonyVoiceStrip, 4> harmonyVoices;
     double songModelSeenDuration = -1.0;   // repopulate the map only on change

@@ -682,11 +682,32 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
                                   "and reports full confidence: you asserting the key IS the evidence.");
     regionApplyButton.onClick = [this]
     {
-        if (selectedRegionIndex < 0) return;
+        //  Say so rather than doing nothing. After every editor reopen no region
+        //  is selected, and a silent no-op reads as a broken button.
+        if (selectedRegionIndex < 0)
+        {
+            keyInspectorLabel.setText ("Click a region on the map first, then set its key",
+                                       juce::dontSendNotification);
+            return;
+        }
+        //  The index is only meaningful for the model it came from: a re-analysis
+        //  between click and apply would stamp a permanent user key onto a region
+        //  the user never selected.
+        const auto model = audioProcessor.songAnalysisCopy();
+        if (selectedRegionIndex >= (int) model.scaleRegions.size()
+            || model.durationSec != songModelSeenDuration)
+        {
+            selectedRegionIndex = -1;
+            keyInspectorLabel.setText ("The analysis changed - click the region again",
+                                       juce::dontSendNotification);
+            return;
+        }
         audioProcessor.setRegionKey (selectedRegionIndex,
                                      regionRootBox.getSelectedId() - 1,
                                      regionScaleBox.getSelectedId() == 2);
         songModelSeenRegions = -1;   // force the page to rebuild from the model
+        pendingRegionConfirm = "Region key set to "
+            + regionRootBox.getText() + " " + regionScaleBox.getText() + "   USER SET";
     };
     keyPanel.addAndMakeVisible (regionRootBox);
     keyPanel.addAndMakeVisible (regionScaleBox);
@@ -732,17 +753,22 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
             audioProcessor.parameters(), id + "Role", strip.role);
         harmonyPanel.addAndMakeVisible (strip.role);
 
-        strip.level.setSliderStyle (juce::Slider::LinearHorizontal);
-        strip.level.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
-        strip.levelAttach = std::make_unique<SliderAttachment> (
-            audioProcessor.parameters(), id + "Level", strip.level);
-        harmonyPanel.addAndMakeVisible (strip.level);
+        //  Interval degrees + octave: the two controls that actually change the
+        //  planned note. Level and pan are deliberately absent until there is a
+        //  renderer for them to control.
+        strip.degrees.setSliderStyle (juce::Slider::IncDecButtons);
+        strip.degrees.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 54, 20);
+        strip.degrees.setTooltip ("Interval mode: diatonic degrees from the lead "
+                                  "(2 = a third in the current key).");
+        strip.degreesAttach = std::make_unique<SliderAttachment> (
+            audioProcessor.parameters(), id + "Degrees", strip.degrees);
+        harmonyPanel.addAndMakeVisible (strip.degrees);
 
-        strip.pan.setSliderStyle (juce::Slider::LinearHorizontal);
-        strip.pan.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
-        strip.panAttach = std::make_unique<SliderAttachment> (
-            audioProcessor.parameters(), id + "Pan", strip.pan);
-        harmonyPanel.addAndMakeVisible (strip.pan);
+        strip.octave.setSliderStyle (juce::Slider::IncDecButtons);
+        strip.octave.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 54, 20);
+        strip.octaveAttach = std::make_unique<SliderAttachment> (
+            audioProcessor.parameters(), id + "Octave", strip.octave);
+        harmonyPanel.addAndMakeVisible (strip.octave);
 
         strip.readout.setJustificationType (juce::Justification::centredLeft);
         strip.readout.setText ("-", juce::dontSendNotification);
@@ -1525,10 +1551,17 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                          << juce::String ((int) m.atSec % 60).paddedLeft ('0', 2)
                          << " " << nm[juce::jlimit (0, 11, m.toRoot)]
                          << (m.toMinor ? " min" : " maj")
-                         << " (" << sattari::dsp::modulationTypeName (m.type) << ")";
+                         << " (" << sattari::dsp::modulationTypeName (m.type)
+                         //  Mark the uncertain ones. Presenting a 0.03-margin
+                         //  boundary in the same voice as a 0.4-margin one states
+                         //  a guess as a fact.
+                         << (m.confidence < SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
+                                 ? ", uncertain)" : ")");
                 }
+                //  "None detected" is not the same claim as "one key throughout":
+                //  the second asserts something the analysis never established.
                 keyModsLabel.setText (model.modulations.empty()
-                                          ? "CHANGES  none detected - one key throughout"
+                                          ? "CHANGES  no key changes detected"
                                           : "CHANGES  " + mods,
                                       juce::dontSendNotification);
             }
@@ -1542,7 +1575,11 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                 sections << sec.name << " " << fmt (sec.startSec) << "-" << fmt (sec.endSec);
             }
             keySectionsLabel.setText (sections, juce::dontSendNotification);
-            keyInspectorLabel.setText ("Click a region for detail", juce::dontSendNotification);
+            keyInspectorLabel.setText (pendingRegionConfirm.isNotEmpty()
+                                           ? pendingRegionConfirm
+                                           : juce::String ("Click a region for detail"),
+                                       juce::dontSendNotification);
+            pendingRegionConfirm.clear();
             if (workspace == Workspace::key)
                 resized();   // swap the hint for the populated page
         }
@@ -1608,14 +1645,19 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                             : juce::String (hn[((midi % 12) + 12) % 12])
                                   + juce::String (midi / 12 - 1);
         };
+        const bool midiMode = harmonyModeBox.getSelectedId() == 3;
+        juce::String status;
+        if (! h.valid)
+            status = "Play a vocal to see the planned harmony";
+        else if (midiMode && h.heldNotes == 0)
+            status = "Lead " + noteName (h.leadMidi)
+                   + "   -   MIDI mode: no notes held, so no harmony is planned";
+        else
+            status = "Lead " + noteName (h.leadMidi)
+                   + (h.fromChord ? "   -   planning from the detected chord"
+                                  : "   -   no chord known here, planning from the scale");
         harmonyStatusLabel.setText (
-            h.valid
-                ? "Lead " + noteName (h.leadMidi)
-                      + (h.fromChord ? "   -   planning from the detected chord"
-                                     : "   -   no chord known here, planning from the scale")
-                      + "      VOICE RENDERING NOT YET CONNECTED - planned notes only"
-                : "Play a vocal to see the planned harmony      "
-                  "VOICE RENDERING NOT YET CONNECTED - planned notes only",
+            status + "      VOICE RENDERING NOT YET CONNECTED - planned notes only",
             juce::dontSendNotification);
         for (int v = 0; v < 4; ++v)
             harmonyVoices[(size_t) v].readout.setText (
@@ -1869,12 +1911,10 @@ void SattariAutoPitchAudioProcessorEditor::resized()
             row.removeFromLeft (8);
             strip.role.setBounds (row.removeFromLeft (140).reduced (0, 8));
             row.removeFromLeft (10);
-            auto levelCell = row.removeFromLeft (juce::jmax (140, row.getWidth() / 3));
-            strip.level.setBounds (levelCell.reduced (0, 10));
+            strip.degrees.setBounds (row.removeFromLeft (120).reduced (0, 10));
             row.removeFromLeft (8);
-            auto panCell = row.removeFromLeft (juce::jmax (140, row.getWidth() / 2));
-            strip.pan.setBounds (panCell.reduced (0, 10));
-            row.removeFromLeft (10);
+            strip.octave.setBounds (row.removeFromLeft (120).reduced (0, 10));
+            row.removeFromLeft (12);
             strip.readout.setBounds (row);
             h.removeFromTop (6);
         }

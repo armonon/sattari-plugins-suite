@@ -146,6 +146,21 @@ private:
 
 namespace songmodel
 {
+    //  The pitch classes of a chord, so a region's notes always match its label.
+    inline std::array<int, 4> notesFor (int root, ChordQuality q) noexcept
+    {
+        std::array<int, 4> n { -1, -1, -1, -1 };
+        static const int iv[(size_t) ChordQuality::count][4] = {
+            { 0, 4, 7, -1 }, { 0, 3, 7, -1 }, { 0, 3, 6, -1 }, { 0, 4, 8, -1 },
+            { 0, 2, 7, -1 }, { 0, 5, 7, -1 }, { 0, 4, 7, 11 }, { 0, 3, 7, 10 },
+            { 0, 4, 7, 10 },
+        };
+        const auto& row = iv[(size_t) q];
+        for (int i = 0; i < 4; ++i)
+            n[(size_t) i] = row[i] >= 0 ? ((root + row[i]) % 12) : -1;
+        return n;
+    }
+
     //  Chord frames -> regions.
     //
     //  A per-frame chord margin is NOT a usable confidence on real polyphonic
@@ -216,6 +231,11 @@ namespace songmodel
                     r.chord.quality = (ChordQuality) (voted[runStart] % (int) ChordQuality::count);
                     r.chord.valid = true;
                     r.chord.confidence = agreement;
+                    //  Recompute the notes FROM the voted chord. Copying them
+                    //  from the run's first raw frame published a chord whose
+                    //  displayed name and note list could disagree — and harmony
+                    //  planning reads those notes.
+                    r.chord.notes = notesFor (r.chord.root, r.chord.quality);
                     out.push_back (r);
                 }
             }
