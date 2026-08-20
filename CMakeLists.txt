@@ -115,6 +115,18 @@ if(TARGET juce::juce_dsp)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
 
+    add_executable(SattariChordAnalysisContract
+        EXCLUDE_FROM_ALL
+        core/tests/chord_analysis_contract.cpp)
+    target_compile_definitions(SattariChordAnalysisContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariChordAnalysisContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
     add_executable(SattariSongKeyEstimatorContract
         EXCLUDE_FROM_ALL
         core/tests/song_key_estimator_contract.cpp)
@@ -134,6 +146,7 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     set(SATTARI_CONTRACT_TARGETS
+        SattariChordAnalysisContract
         SattariAudioCorePitchContract
         SattariAudioCoreHarmonicContract
         SattariAudioCoreKeyContract

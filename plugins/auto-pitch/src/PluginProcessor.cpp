@@ -2346,6 +2346,17 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
         sattari::dsp::HpcpChromagram fileHpcp;
         sattari::dsp::SongKeyEstimator fileKey;
         fileHpcp.reserveBins (fft / 2 + 1);
+
+        //  Chord timeline accumulators (worker-local, like everything else here).
+        constexpr int kChordFrames = 16;                 // hops per chord frame
+        sattari::dsp::HpcpChromagram chordHpcp;
+        chordHpcp.reserveBins (fft / 2 + 1);
+        chordHpcp.reset();
+        sattari::dsp::ChordAnalyzer chordAnalyzer;
+        std::vector<sattari::dsp::ChordResult> chordFrames;
+        int chordFrameFill = 0;
+        const double chordFrameSeconds =
+            (double) (kChordFrames * hop) / reader->sampleRate;
         fileKey.prepare (reader->sampleRate, (std::int64_t) reader->lengthInSamples);
 
         std::vector<float> previousSpectrum ((size_t) fft / 2 + 1, 0.0f);
@@ -2372,6 +2383,21 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
             fileFft.performFrequencyOnlyForwardTransform (spectrum.data());
             fileHpcp.accumulate (spectrum.data(), fft / 2 + 1,
                                  reader->sampleRate / (double) fft);
+            //  Chord evidence: a SEPARATE short-window chroma. The global HPCP
+            //  above accumulates the whole song and must not be reset, so chords
+            //  get their own accumulator, finished every kChordFrames hops
+            //  (~0.7 s at 4096/2048 — long enough to be stable, short enough to
+            //  land on real chord changes).
+            chordHpcp.accumulate (spectrum.data(), fft / 2 + 1,
+                                  reader->sampleRate / (double) fft);
+            if (++chordFrameFill >= kChordFrames)
+            {
+                double c[12] = {};
+                chordHpcp.finish (c);
+                chordFrames.push_back (chordAnalyzer.analyse (c));
+                chordHpcp.reset();
+                chordFrameFill = 0;
+            }
             //  Spectral flux on log magnitudes (SongKeyProcessor::onsetStrength).
             double flux = 0.0;
             for (int bin = 2; bin < fft / 2 + 1; ++bin)
@@ -2486,6 +2512,24 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
                     ? (float) std::sqrt (rmsAccum[(size_t) i] / (double) rmsCount[(size_t) i])
                     : 0.0f;
             a.sections = sattari::dsp::songmodel::deriveSections (a.scaleRegions, rms, a.durationSec);
+
+            //  Phase 2: chord timeline + what each scale boundary actually IS.
+            a.chordRegions = sattari::dsp::songmodel::buildChordRegions (
+                chordFrames, chordFrameSeconds, a.durationSec);
+            //  Mark each chord diatonic or borrowed against the scale region it
+            //  sits in — the distinction the UI needs to explain itself.
+            for (auto& cr : a.chordRegions)
+            {
+                int sr = a.globalKey.valid ? a.globalKey.root : -1;
+                bool sm = a.globalKey.minor;
+                for (const auto& reg : a.scaleRegions)
+                    if (cr.startSec >= reg.startSec && cr.startSec < reg.endSec)
+                    { sr = reg.root; sm = reg.minor; break; }
+                cr.diatonic = sr < 0
+                    || sattari::dsp::ChordAnalyzer::chordIsDiatonic (
+                           cr.chord.root, cr.chord.quality, sr, sm);
+            }
+            a.modulations = sattari::dsp::songmodel::classifyModulations (a.scaleRegions);
             a.waveform = std::move (wavePeaks);
 
             const std::lock_guard<std::mutex> lock (songAnalysisMutex);

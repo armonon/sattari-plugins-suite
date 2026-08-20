@@ -315,6 +315,23 @@ int main (int argc, char** argv)
             for (const auto& sec : a.sections)
                 std::printf ("  section %7.1f - %7.1f s   %s\n",
                              sec.startSec, sec.endSec, sec.name.c_str());
+            std::printf ("  chords  : %d regions\n", (int) a.chordRegions.size());
+            for (size_t i = 0; i < a.chordRegions.size() && i < 12; ++i)
+            {
+                const auto& cr = a.chordRegions[i];
+                std::printf ("    %6.1f-%6.1f  %-2s%-4s  margin %.3f  %s\n",
+                             cr.startSec, cr.endSec,
+                             names[juce::jlimit (0, 11, cr.chord.root)],
+                             sattari::dsp::chordQualityName (cr.chord.quality),
+                             cr.chord.confidence, cr.diatonic ? "diatonic" : "BORROWED");
+            }
+            for (const auto& m : a.modulations)
+                std::printf ("  modulation @%6.1f s  %s %s -> %s %s   (%s, conf %.3f)\n",
+                             m.atSec, names[juce::jlimit (0, 11, m.fromRoot)],
+                             m.fromMinor ? "min" : "maj",
+                             names[juce::jlimit (0, 11, m.toRoot)],
+                             m.toMinor ? "min" : "maj",
+                             sattari::dsp::modulationTypeName (m.type), m.confidence);
         }
 
         //  Now prove precedence: render a short buffer of a DIFFERENT key (A major

@@ -20,6 +20,7 @@
 #include <sattari_audio_core/SattariKeyAnalysis.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -35,6 +36,10 @@ struct ScaleRegion
     int    root     = 0;        // 0..11 (C..B)
     bool   minor    = false;
     double confidence = 0.0;    // mean winner-minus-runner-up margin of its span
+    //  A user edit outranks detection permanently and survives re-analysis of
+    //  everything around it. Manual regions also report full confidence to the
+    //  trust gate: the user asserting a key IS the evidence.
+    bool   userSet = false;
 };
 
 //  A structural span. Phase 1 names are NEUTRAL ("Section A") — the analyser can
@@ -48,6 +53,71 @@ struct SongSection
     std::string name;           // "Section A", or whatever the user typed
     bool   userNamed = false;
 };
+
+enum class ChordQuality
+{
+    major = 0, minor, dim, aug, sus2, sus4, maj7, min7, dom7,
+    count
+};
+
+inline const char* chordQualityName (ChordQuality q) noexcept
+{
+    switch (q)
+    {
+        case ChordQuality::major: return "";
+        case ChordQuality::minor: return "m";
+        case ChordQuality::dim:   return "dim";
+        case ChordQuality::aug:   return "aug";
+        case ChordQuality::sus2:  return "sus2";
+        case ChordQuality::sus4:  return "sus4";
+        case ChordQuality::maj7:  return "maj7";
+        case ChordQuality::min7:  return "m7";
+        case ChordQuality::dom7:  return "7";
+        default:                  return "";
+    }
+}
+
+struct ChordResult
+{
+    bool  valid = false;
+    int   root  = 0;                       // 0..11
+    ChordQuality quality = ChordQuality::major;
+    double confidence = 0.0;               // winner-minus-runner-up margin
+    std::array<int, 4> notes { -1, -1, -1, -1 };   // pitch classes, -1 = unused
+};
+
+//  --- timeline structures, appended to the song model --------------------------
+
+struct ChordRegion
+{
+    double startSec = 0.0, endSec = 0.0;
+    ChordResult chord;
+    bool diatonic = true;      // vs the scale region it sits in
+};
+
+enum class ModulationType { keyChange, modalShift, relativeShift, possibleTonicization };
+
+inline const char* modulationTypeName (ModulationType t) noexcept
+{
+    switch (t)
+    {
+        case ModulationType::keyChange:            return "key change";
+        case ModulationType::modalShift:           return "modal shift";
+        case ModulationType::relativeShift:        return "relative shift";
+        case ModulationType::possibleTonicization: return "possible tonicization";
+        default:                                   return "";
+    }
+}
+
+struct ModulationEvent
+{
+    double atSec = 0.0;
+    int fromRoot = 0; bool fromMinor = false;
+    int toRoot = 0;   bool toMinor = false;
+    ModulationType type = ModulationType::keyChange;
+    double confidence = 0.0;   // min of the two regions' margins
+};
+
 
 struct SongAnalysis
 {
@@ -66,6 +136,12 @@ struct SongAnalysis
 
     std::vector<ScaleRegion> scaleRegions;
     std::vector<SongSection> sections;
+
+    //  Phase 2. Declared here so every workspace sees one model; populated by
+    //  the offline analysis. Empty is a legitimate state and means "not known",
+    //  never "no chords".
+    std::vector<ChordRegion>     chordRegions;
+    std::vector<ModulationEvent> modulations;
 
     //  Peak envelope for drawing, fixed bin count; empty until analysed.
     std::vector<float> waveform;

@@ -12,6 +12,7 @@
 #include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariTempoEstimator.h>
 #include <sattari_audio_core/SattariSongModel.h>
+#include <sattari_audio_core/SattariChordAnalysis.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
