@@ -115,6 +115,18 @@ if(TARGET juce::juce_dsp)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
 
+    add_executable(SattariHarmonyVoicesContract
+        EXCLUDE_FROM_ALL
+        core/tests/harmony_voices_contract.cpp)
+    target_compile_definitions(SattariHarmonyVoicesContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariHarmonyVoicesContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
     add_executable(SattariChordAnalysisContract
         EXCLUDE_FROM_ALL
         core/tests/chord_analysis_contract.cpp)
@@ -147,6 +159,7 @@ include(CTest)
 if(BUILD_TESTING)
     set(SATTARI_CONTRACT_TARGETS
         SattariChordAnalysisContract
+        SattariHarmonyVoicesContract
         SattariAudioCorePitchContract
         SattariAudioCoreHarmonicContract
         SattariAudioCoreKeyContract
