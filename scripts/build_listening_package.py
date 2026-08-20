@@ -47,14 +47,52 @@ CONDITIONS = [
 ]
 
 
+def read_riff_pcm(path: pathlib.Path):
+    """Minimal RIFF reader for WAVE_FORMAT_EXTENSIBLE (0xFFFE).
+
+    Python's `wave` module rejects format tag 65534 outright, but extensible
+    PCM *is* plain PCM — the tag only means the header carries a channel mask
+    and a sub-format GUID. Refusing it would have meant the corpus could never
+    include a normally-exported file: every one of the user's own three vocals
+    is extensible, so this is the common case, not the exotic one.
+    """
+    import struct
+    data = path.read_bytes()
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise ValueError(f"not a RIFF/WAVE file: {path}")
+    pos, fmt, raw = 12, None, None
+    while pos + 8 <= len(data):
+        cid = data[pos:pos + 4]
+        size = struct.unpack_from("<I", data, pos + 4)[0]
+        body = data[pos + 8: pos + 8 + size]
+        if cid == b"fmt ":
+            tag, channels, sr, _, _, bits = struct.unpack_from("<HHIIHH", body, 0)
+            if tag == 0xFFFE:
+                # The real format lives in the sub-format GUID's first two bytes.
+                tag = struct.unpack_from("<H", body, 24)[0] if len(body) >= 26 else 1
+            if tag != 1:
+                raise ValueError(f"not integer PCM (format {tag}): {path}")
+            fmt = (channels, sr, bits // 8)
+        elif cid == b"data":
+            raw = body
+        pos += 8 + size + (size & 1)          # chunks are word-aligned
+    if fmt is None or raw is None:
+        raise ValueError(f"missing fmt/data chunk: {path}")
+    channels, sr, width = fmt
+    return channels, width, sr, raw
+
+
 def load(path: pathlib.Path):
     """Read uncompressed integer PCM WAV without a third-party audio package."""
-    with wave.open(str(path), "rb") as wav:
-        channels = wav.getnchannels()
-        width = wav.getsampwidth()
-        sr = wav.getframerate()
-        frames = wav.getnframes()
-        raw = wav.readframes(frames)
+    try:
+        with wave.open(str(path), "rb") as wav:
+            channels = wav.getnchannels()
+            width = wav.getsampwidth()
+            sr = wav.getframerate()
+            frames = wav.getnframes()
+            raw = wav.readframes(frames)
+    except wave.Error:
+        channels, width, sr, raw = read_riff_pcm(path)
 
     if width == 1:
         audio = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64) - 128.0) / 128.0

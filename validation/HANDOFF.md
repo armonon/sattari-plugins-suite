@@ -82,6 +82,9 @@ GATE 5 RC review     BLOCKED    on user listening + manual hosts
   `AutoPitchRender --livetest`; record in
   `validation/auto-pitch/2026-08-17-live-mode-wired.md`. Still alpha: no
   listening evidence, no host testing, and no low-latency monitoring claim.
+- **Installed 2026-08-20 at `9bd2afb`**: universal (arm64 + x86_64) AU and VST3
+  of the four-workspace line, `auval` PASS. Everything before this was the
+  Aug 16 build, which predated the merge entirely.
 - Auto Pitch 0.5.0 and the previous Sattari Key 0.2.0 universal AU/VST3/Standalone
   builds are installed locally. Both AUs passed `auval`; Sattari Key 0.3.0 still
   needs the full packaging/host pass after its focused validation closes.
@@ -96,10 +99,17 @@ next-generation live work is recorded in
 
 ### Gate 3 — the critical path
 
-Use only `~/Desktop/vocal test/listening-package-0.5.0-rc3/`: 18 level-matched
-24-bit WAVs, six sets A-F. The old `listening-package/` is the 0.4.1 candidate.
-The generator refuses to overwrite a non-empty package, and the RC3 key has not been
-opened. Only the user can score it; never fabricate or infer scores.
+**Use `~/Desktop/vocal test/listening-package-9bd2afb/`** — 18 level-matched
+24-bit WAVs, six sets A-F, rendered from the CURRENT four-workspace line.
+
+The earlier packages are superseded and must not be scored: `listening-package/`
+is 0.4.1, and `listening-package-0.5.0-rc3/` predates the Sattari Key merge and
+the intent engine, so its renders no longer describe any build that exists. Both
+are left in place, unscored, as history.
+
+Level match verified at **0.000 dB spread** within every set. The generator
+refuses to overwrite a non-empty package; the 9bd2afb key has not been opened.
+Only the user can score it; never fabricate or infer scores.
 
 ### Gate 4 — remaining manual work
 
