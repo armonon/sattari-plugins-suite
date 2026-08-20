@@ -77,6 +77,7 @@ int main (int argc, char** argv)
         && (std::strcmp (argv[1], "--render-ui") == 0
             || std::strcmp (argv[1], "--render-ui-min") == 0
             || std::strcmp (argv[1], "--render-ui-pro") == 0
+            || std::strcmp (argv[1], "--render-ui-key") == 0
             || std::strcmp (argv[1], "--render-ui-edit") == 0))
     {
         SattariAutoPitchAudioProcessor processor;
@@ -85,6 +86,8 @@ int main (int argc, char** argv)
         //  ADVANCED drawer open (the old PRO content), and "--render-ui-edit" is the
         //  same page as the default since the graph is always visible.
         const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
+        const bool keyWs  = std::strcmp (argv[1], "--render-ui-key") == 0;
+        const bool editWs = std::strcmp (argv[1], "--render-ui-edit") == 0;
         const juce::File destination (argv[2]);
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
         bool ok = editor != nullptr;
@@ -96,6 +99,10 @@ int main (int argc, char** argv)
             editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 760 : 820);
             if (proTab)
                 ok = clickButtonNamed (*editor, "ADVANCED");
+            if (keyWs)
+                ok = clickButtonNamed (*editor, "KEY");
+            if (editWs)
+                ok = clickButtonNamed (*editor, "EDIT");
             if (ok)
                 ok = sattari::test::renderComponentToPng (*editor, destination);
         }

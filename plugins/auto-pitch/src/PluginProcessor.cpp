@@ -2304,6 +2304,8 @@ void SattariAutoPitchAudioProcessor::clearSongFileResult()
     fileKeyValid.store (false, std::memory_order_release);
     fileBpm.store (0.0f, std::memory_order_relaxed);
     fileProgress.store (0.0f, std::memory_order_relaxed);
+    const std::lock_guard<std::mutex> lock (songAnalysisMutex);
+    songAnalysis = {};
 }
 
 void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& file)
@@ -2352,6 +2354,16 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
             (double) reader->lengthInSamples / (double) hop));
         int frames = 0;
 
+        //  Display waveform (peak) + level envelope (RMS) for the song model.
+        //  Fixed bin counts: the UI draws them at any width, and the section
+        //  deriver compares 8-bin windows, so resolution is a display decision.
+        constexpr int kWaveBins = 1024, kRmsBins = 256;
+        std::vector<float> wavePeaks ((size_t) kWaveBins, 0.0f);
+        std::vector<double> rmsAccum ((size_t) kRmsBins, 0.0);
+        std::vector<long>   rmsCount ((size_t) kRmsBins, 0);
+        const double samplesPerWaveBin = (double) reader->lengthInSamples / (double) kWaveBins;
+        const double samplesPerRmsBin  = (double) reader->lengthInSamples / (double) kRmsBins;
+
         auto analyseFrame = [&] (const float* samples)
         {
             for (int i = 0; i < fft; ++i)
@@ -2395,6 +2407,17 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
             }
             fileKey.addSamples (mono.data() + carried, count);
 
+            for (int i = 0; i < count; ++i)
+            {
+                const float v = mono[(size_t) carried + (size_t) i];
+                const auto globalIndex = (double) (readPosition + i);
+                const int wb = juce::jlimit (0, kWaveBins - 1, (int) (globalIndex / samplesPerWaveBin));
+                const int rb = juce::jlimit (0, kRmsBins - 1,  (int) (globalIndex / samplesPerRmsBin));
+                wavePeaks[(size_t) wb] = juce::jmax (wavePeaks[(size_t) wb], std::abs (v));
+                rmsAccum[(size_t) rb] += (double) v * v;
+                ++rmsCount[(size_t) rb];
+            }
+
             const int available = carried + count;
             int cursor = 0;
             while (cursor + fft <= available)
@@ -2434,6 +2457,41 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
                                std::memory_order_relaxed);
         fileBpm.store (tempo.valid ? (float) tempo.bpm : 0.0f, std::memory_order_relaxed);
         fileKeyValid.store (true, std::memory_order_release);
+
+        //  Publish the shared song model — the time-aware view every workspace
+        //  reads. Scale regions come from the SAME finalised pass (the estimator
+        //  keeps a verdict per ~15 s internally); sections are neutral A/B/C from
+        //  scale changes and sustained level shifts, never guessed names.
+        {
+            sattari::dsp::SongAnalysis a;
+            a.valid = true;
+            a.durationSec = (double) reader->lengthInSamples / reader->sampleRate;
+            a.globalKey   = key;
+            a.alternative = fileKey.alternative();
+            a.bpm = tempo.valid ? tempo.bpm : 0.0;
+            a.tempoConfidence = tempo.confidence;
+            a.tempoOctaveAmbiguous = tempo.octaveAmbiguous;
+            a.detuneCents = fileHpcp.tuningOffsetSemitones() * 100.0;
+
+            const double sectionSeconds =
+                (double) sattari::dsp::SongKeyEstimator::kSectionFrames
+                * (double) sattari::dsp::SongKeyEstimator::kFftSize
+                / sattari::dsp::SongKeyEstimator::kAnalysisSampleRate;
+            a.scaleRegions = sattari::dsp::songmodel::buildScaleRegions (
+                fileKey.sections(), sectionSeconds, a.durationSec);
+
+            std::vector<float> rms ((size_t) kRmsBins, 0.0f);
+            for (int i = 0; i < kRmsBins; ++i)
+                rms[(size_t) i] = rmsCount[(size_t) i] > 0
+                    ? (float) std::sqrt (rmsAccum[(size_t) i] / (double) rmsCount[(size_t) i])
+                    : 0.0f;
+            a.sections = sattari::dsp::songmodel::deriveSections (a.scaleRegions, rms, a.durationSec);
+            a.waveform = std::move (wavePeaks);
+
+            const std::lock_guard<std::mutex> lock (songAnalysisMutex);
+            songAnalysis = std::move (a);
+        }
+
         fileProgress.store (1.0f, std::memory_order_release);
     });
 }

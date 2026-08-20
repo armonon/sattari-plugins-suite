@@ -11,6 +11,7 @@
 #include <sattari_audio_core/SattariLivePitchEngine.h>
 #include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariTempoEstimator.h>
+#include <sattari_audio_core/SattariSongModel.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -237,6 +238,18 @@ public:
     std::atomic<float> fileKeyConf { 0.0f };
     std::atomic<float> fileBpm { 0.0f };
     std::atomic<float> fileDetuneCents { 0.0f };
+
+    //  The shared song model (Phase 1): everything the drop analysis learned,
+    //  time-aware. Written by the file worker under the mutex, copied out by the
+    //  UI at poll rate. A copy at 12 Hz of a few-KB struct is cheaper than any
+    //  clever lock-free scheme and impossible to tear.
+    sattari::dsp::SongAnalysis songAnalysisCopy() const
+    {
+        const std::lock_guard<std::mutex> lock (songAnalysisMutex);
+        return songAnalysis;
+    }
+    mutable std::mutex songAnalysisMutex;
+    sattari::dsp::SongAnalysis songAnalysis;
 
     LiveSnapshot getLiveSnapshot() const noexcept
     {

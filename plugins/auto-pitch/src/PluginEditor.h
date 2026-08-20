@@ -211,6 +211,31 @@ private:
     sattari::presets::SattariPresetManager presetManager;
     sattari::ui::SattariABRow abRow { presetManager };
 
+    // --- Workspaces ---------------------------------------------------------------
+    //  KEY | TUNE | HARMONY | EDIT. One primary workspace at a time; the header
+    //  and its musical summary persist across all of them. HARMONY is declared
+    //  but disabled — Phase 4 work, and a dead button labelled as such is more
+    //  honest than a page of controls that do nothing.
+    enum class Workspace { key, tune, harmony, edit };
+    Workspace workspace = Workspace::tune;
+    void setWorkspace (Workspace w);
+    //  Lays out the graph band inside editPanel's current bounds. editMode gates
+    //  the surgical chrome: command bar and per-object sliders live in EDIT, while
+    //  TUNE keeps the always-visible graph with just the capture toggles.
+    void layoutEditPanel (bool editMode);
+    juce::TextButton wsKeyButton { "KEY" }, wsTuneButton { "TUNE" },
+                     wsHarmonyButton { "HARMONY" }, wsEditButton { "EDIT" };
+    juce::Label headerSummary;             // key - bpm - tuning - confidence, always honest
+
+    //  KEY workspace: the musical-analysis centre. Reads ONLY the shared song
+    //  model (songAnalysisCopy) — no analysis logic lives in the UI.
+    juce::Component keyPanel;
+    juce::Label keyBigLabel, keyMetaLabel, keyAltLabel, keySectionsLabel,
+                keyInspectorLabel, keyHintLabel;
+    sattari::ui::KeyMapTimeline songMapView;
+    double songModelSeenDuration = -1.0;   // repopulate the map only on change
+    int    songModelSeenRegions = -1;
+
     // --- Single-view chrome -----------------------------------------------------
     //  The BASIC/PRO/EDIT tab strip is gone: everything lives on one view, with the
     //  former PRO panel as a collapsible ADVANCED drawer. The three container

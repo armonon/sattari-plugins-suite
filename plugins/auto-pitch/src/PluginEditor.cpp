@@ -598,6 +598,65 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     };
     addAndMakeVisible (advancedToggle);
 
+    //  Workspace navigation. Radio-style; TUNE is the everyday default.
+    for (auto* b : { &wsKeyButton, &wsTuneButton, &wsHarmonyButton, &wsEditButton })
+    {
+        b->setClickingTogglesState (true);
+        b->setRadioGroupId (77);
+        addAndMakeVisible (*b);
+    }
+    wsTuneButton.setToggleState (true, juce::dontSendNotification);
+    wsKeyButton.onClick     = [this] { setWorkspace (Workspace::key); };
+    wsTuneButton.onClick    = [this] { setWorkspace (Workspace::tune); };
+    wsEditButton.onClick    = [this] { setWorkspace (Workspace::edit); };
+    wsHarmonyButton.setEnabled (false);
+    wsHarmonyButton.setTooltip ("Harmony workspace arrives in a later phase - "
+                                "chord-aware voices need the Phase 2 chord map first.");
+
+    headerSummary.setJustificationType (juce::Justification::centredLeft);
+    headerSummary.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (headerSummary);
+
+    //  KEY workspace. Pure view over the shared song model.
+    addAndMakeVisible (keyPanel);
+    keyPanel.setVisible (false);
+    auto initKeyLabel = [this] (juce::Label& l, float size, bool bold)
+    {
+        l.setJustificationType (juce::Justification::centredLeft);
+        l.setFont (juce::Font (juce::FontOptions (size, bold ? juce::Font::bold : juce::Font::plain)));
+        keyPanel.addAndMakeVisible (l);
+    };
+    initKeyLabel (keyBigLabel, 44.0f, true);
+    initKeyLabel (keyMetaLabel, 18.0f, false);
+    initKeyLabel (keyAltLabel, 14.0f, false);
+    initKeyLabel (keySectionsLabel, 14.0f, false);
+    initKeyLabel (keyInspectorLabel, 14.0f, false);
+    initKeyLabel (keyHintLabel, 16.0f, false);
+    keyHintLabel.setJustificationType (juce::Justification::centred);
+    keyHintLabel.setText ("Drop a song here to map its keys, sections, and tempo",
+                          juce::dontSendNotification);
+    keyPanel.addAndMakeVisible (songMapView);
+    songMapView.onSegmentClicked = [this] (double sec)
+    {
+        const auto a = audioProcessor.songAnalysisCopy();
+        static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        for (const auto& r : a.scaleRegions)
+        {
+            if (sec < r.startSec || sec >= r.endSec) continue;
+            auto fmt = [] (double t) { return juce::String ((int) t / 60) + ":"
+                + juce::String ((int) t % 60).paddedLeft ('0', 2); };
+            keyInspectorLabel.setText (
+                "REGION  " + fmt (r.startSec) + " - " + fmt (r.endSec)
+                + "   " + juce::String (nm[juce::jlimit (0, 11, r.root)])
+                + (r.minor ? " minor" : " major")
+                + "   margin " + juce::String (r.confidence, 3)
+                + (r.confidence >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
+                       ? "" : "   (below trust gate - shown, not applied)"),
+                juce::dontSendNotification);
+            break;
+        }
+    };
+
     songStatusLabel.setJustificationType (juce::Justification::centredRight);
     songStatusLabel.setInterceptsMouseClicks (false, false);
     songStatusLabel.setText ("Drop a song anywhere to detect its key + tempo",
@@ -1280,6 +1339,90 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         ? "Detune " + juce::String (snap.correctionCents, 1) + " ct"
         : "Detune -", juce::dontSendNotification);
 
+    //  Persistent musical summary. The song model when it exists (it is the
+    //  richer truth), otherwise the live key state — ALWAYS labelled with its
+    //  source, never a bare assertion.
+    {
+        static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const auto model = audioProcessor.songAnalysisCopy();
+        juce::String text;
+        if (model.valid && model.globalKey.valid)
+        {
+            text << "SONG  " << nm[juce::jlimit (0, 11, model.globalKey.root)]
+                 << (model.globalKey.minor ? " MINOR" : " MAJOR");
+            if (model.bpm > 0.0) text << "  -  " << juce::String (model.bpm, 1) << " BPM";
+            text << "  -  A=" << juce::String (model.tuningHz(), 1) << " Hz"
+                 << "  -  margin " << juce::String (model.globalKey.confidence, 2);
+        }
+        else
+        {
+            const auto origin = audioProcessor.currentKeyOrigin();
+            const char* src = origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus ? "BUS"
+                            : origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::KeyMap    ? "KEY MAP"
+                            : origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey   ? "AUTO"
+                                                                                                            : "MANUAL";
+            text << src << "  " << nm[juce::jlimit (0, 11, origin.root)]
+                 << (origin.scale == 1 ? " minor" : origin.scale == 2 ? "" : " major");
+            if (origin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey)
+                text << "  -  margin " << juce::String (origin.confidence, 2);
+        }
+        headerSummary.setText (text, juce::dontSendNotification);
+
+        //  KEY page: rebuild only when the model actually changed shape.
+        if (model.valid
+            && (model.durationSec != songModelSeenDuration
+                || (int) model.scaleRegions.size() != songModelSeenRegions))
+        {
+            songModelSeenDuration = model.durationSec;
+            songModelSeenRegions  = (int) model.scaleRegions.size();
+
+            keyBigLabel.setText (juce::String (nm[juce::jlimit (0, 11, model.globalKey.root)])
+                                     + (model.globalKey.minor ? " MINOR" : " MAJOR"),
+                                 juce::dontSendNotification);
+            juce::String meta;
+            if (model.bpm > 0.0)
+                meta << juce::String (model.bpm, 1) << " BPM"
+                     << (model.tempoOctaveAmbiguous ? " (octave ambiguous)" : "") << "   -   ";
+            meta << "A = " << juce::String (model.tuningHz(), 1) << " Hz   -   "
+                 << juce::String (model.detuneCents, 1) << " cents   -   "
+                 << juce::String (model.durationSec / 60.0, 0) << ":"
+                 << juce::String ((int) model.durationSec % 60).paddedLeft ('0', 2);
+            keyMetaLabel.setText (meta, juce::dontSendNotification);
+
+            juce::String alt ("margin " + juce::String (model.globalKey.confidence, 3));
+            if (model.alternative.valid)
+                alt << "   -   alternative: " << nm[juce::jlimit (0, 11, model.alternative.root)]
+                    << (model.alternative.minor ? " minor" : " major");
+            if (model.globalKey.confidence < SattariAutoPitchAudioProcessor::kMinBusKeyConfidence)
+                alt << "   -   BELOW TRUST GATE: shown, not applied";
+            keyAltLabel.setText (alt, juce::dontSendNotification);
+
+            std::vector<sattari::ui::KeyMapSegment> segs;
+            for (const auto& r : model.scaleRegions)
+                segs.push_back ({ r.startSec, r.root, r.minor ? 1 : 0, (float) r.confidence });
+            songMapView.setData (model.waveform, std::move (segs), model.durationSec);
+
+            juce::String sections;
+            for (const auto& sec : model.sections)
+            {
+                auto fmt = [] (double t) { return juce::String ((int) t / 60) + ":"
+                    + juce::String ((int) t % 60).paddedLeft ('0', 2); };
+                if (sections.isNotEmpty()) sections << "    ";
+                sections << sec.name << " " << fmt (sec.startSec) << "-" << fmt (sec.endSec);
+            }
+            keySectionsLabel.setText (sections, juce::dontSendNotification);
+            keyInspectorLabel.setText ("Click a region for detail", juce::dontSendNotification);
+            if (workspace == Workspace::key)
+                resized();   // swap the hint for the populated page
+        }
+        if (! model.valid && songModelSeenRegions > 0)
+        {
+            songModelSeenDuration = -1.0; songModelSeenRegions = -1;
+            songMapView.clear();
+            if (workspace == Workspace::key) resized();
+        }
+    }
+
     //  Engine + latency readout: the ACTIVE engine's reported delay, which is what
     //  the host compensates by. Reading it live means the label can never disagree
     //  with the number the host sees.
@@ -1414,6 +1557,12 @@ void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c,
     if (std::abs (c.getAlpha() - a) > 1.0e-6f) c.setAlpha (a);
 }
 
+void SattariAutoPitchAudioProcessorEditor::setWorkspace (Workspace w)
+{
+    workspace = w;
+    resized();
+}
+
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
@@ -1465,7 +1614,12 @@ void SattariAutoPitchAudioProcessorEditor::filesDropped (const juce::StringArray
     dragActive = false;
     repaint();
     if (files.size() == 1)
+    {
         audioProcessor.analyseSongFileAsync (juce::File (files[0]));
+        //  The analysis lands in the KEY workspace — take the user there.
+        wsKeyButton.setToggleState (true, juce::dontSendNotification);
+        setWorkspace (Workspace::key);
+    }
 }
 
 void SattariAutoPitchAudioProcessorEditor::resized()
@@ -1505,7 +1659,68 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     userRow.removeFromRight (4);
     userPresets.setBounds (userRow);
 
+    area.removeFromTop (4);
+
+    // ---- Workspace bar: KEY | TUNE | HARMONY | EDIT + the persistent summary ----
+    {
+        auto wsRow = area.removeFromTop (26);
+        for (auto* b : { &wsKeyButton, &wsTuneButton, &wsHarmonyButton, &wsEditButton })
+        {
+            b->setBounds (wsRow.removeFromLeft (86));
+            wsRow.removeFromLeft (6);
+        }
+        wsRow.removeFromLeft (10);
+        headerSummary.setBounds (wsRow);
+    }
     area.removeFromTop (8);
+
+    const bool inKey  = workspace == Workspace::key;
+    const bool inTune = workspace == Workspace::tune;
+    const bool inEdit = workspace == Workspace::edit;
+    keyPanel.setVisible (inKey);
+    basicPanel.setVisible (inTune);
+    editPanel.setVisible (inTune || inEdit);
+    advancedToggle.setVisible (inTune);
+    songStatusLabel.setVisible (inTune);    // KEY and EDIT have their own status surfaces
+
+    // ---- KEY workspace -----------------------------------------------------------
+    if (inKey)
+    {
+        keyPanel.setBounds (area);
+        auto k = juce::Rectangle<int> (0, 0, keyPanel.getWidth(), keyPanel.getHeight()).reduced (8);
+        const bool haveModel = songModelSeenRegions > 0;
+        keyHintLabel.setVisible (! haveModel);
+        if (! haveModel)
+        {
+            keyHintLabel.setBounds (k);
+            keyBigLabel.setBounds ({}); keyMetaLabel.setBounds ({});
+            keyAltLabel.setBounds ({}); songMapView.setBounds ({});
+            keySectionsLabel.setBounds ({}); keyInspectorLabel.setBounds ({});
+        }
+        else
+        {
+            keyBigLabel.setBounds (k.removeFromTop (52));
+            keyMetaLabel.setBounds (k.removeFromTop (24));
+            keyAltLabel.setBounds (k.removeFromTop (20));
+            k.removeFromTop (8);
+            keyInspectorLabel.setBounds (k.removeFromBottom (22));
+            keySectionsLabel.setBounds (k.removeFromBottom (22));
+            k.removeFromBottom (6);
+            songMapView.setBounds (k);
+        }
+        proPanel.setBounds ({});
+        return;   // KEY owns the whole body; the other bands are hidden
+    }
+
+    // ---- EDIT workspace: the graph gets everything ------------------------------
+    if (inEdit)
+    {
+        basicPanel.setBounds ({});
+        proPanel.setBounds ({});
+        editPanel.setBounds (area);
+        layoutEditPanel (true);
+        return;
+    }
 
     // ---- Everyday band (the old BASIC panel, compacted) -------------------------
     const int basicH = 236;
@@ -1692,79 +1907,87 @@ void SattariAutoPitchAudioProcessorEditor::resized()
         keyMapStatusLabel.setBounds (c3);
     }
 
-    // ---- Graph internals ---------------------------------------------------------
+    layoutEditPanel (false);
+}
+
+void SattariAutoPitchAudioProcessorEditor::layoutEditPanel (bool editMode)
+{
+    auto eArea = juce::Rectangle<int> (0, 0, editPanel.getWidth(), editPanel.getHeight()).reduced (4);
+    auto editToolbar = eArea.removeFromTop (28);
+    capturePitchEdits.setBounds (editToolbar.removeFromLeft (132));
+    editToolbar.removeFromLeft (8);
+    usePitchEdits.setBounds (editToolbar.removeFromLeft (152));
+    editToolbar.removeFromLeft (8);
+    graphTimeCorrection.setBounds (editToolbar.removeFromLeft (158));
+    editToolbar.removeFromLeft (14);
+    pitchEditStatus.setBounds (editToolbar);
+
+    eArea.removeFromTop (4);
+    auto commandBar = editMode ? eArea.removeFromTop (26) : juce::Rectangle<int>();
+    for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit, &deletePitchEdit, &clearPitchEdits })
     {
-        auto eArea = juce::Rectangle<int> (0, 0, editPanel.getWidth(), editPanel.getHeight()).reduced (4);
-        auto editToolbar = eArea.removeFromTop (28);
-        capturePitchEdits.setBounds (editToolbar.removeFromLeft (132));
-        editToolbar.removeFromLeft (8);
-        usePitchEdits.setBounds (editToolbar.removeFromLeft (152));
-        editToolbar.removeFromLeft (8);
-        graphTimeCorrection.setBounds (editToolbar.removeFromLeft (158));
-        editToolbar.removeFromLeft (14);
-        pitchEditStatus.setBounds (editToolbar);
-
-        eArea.removeFromTop (4);
-        auto commandBar = eArea.removeFromTop (26);
-        for (auto* button : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit, &deletePitchEdit, &clearPitchEdits })
-        {
-            button->setBounds (commandBar.removeFromLeft (70));
-            commandBar.removeFromLeft (5);
-        }
-        commandBar.removeFromLeft (10);
-        zoomOutPitchEdit.setBounds (commandBar.removeFromLeft (34));
-        commandBar.removeFromLeft (3);
-        zoomInPitchEdit.setBounds (commandBar.removeFromLeft (34));
-        commandBar.removeFromLeft (3);
-        fitPitchEdit.setBounds (commandBar.removeFromLeft (52));
-
-        //  On a tight layout (drawer open on a short window) the help line and the
-        //  per-object slider rows yield to the timeline: editing objects is a
-        //  drawer-closed activity, and a graph you cannot see is worth less than
-        //  eight sliders you are not touching.
-        const bool roomy = eArea.getHeight() >= 300;
-        pitchEditHelp.setVisible (roomy);
-        if (roomy)
-        {
-            eArea.removeFromTop (4);
-            pitchEditHelp.setBounds (eArea.removeFromTop (22));
-        }
-
-        auto layoutControlRow = [] (juce::Rectangle<int> row,
-                                    std::initializer_list<std::pair<juce::Label*, juce::Slider*>> controls)
-        {
-            const int gap = 8;
-            const int width = (row.getWidth() - gap * ((int) controls.size() - 1)) / (int) controls.size();
-            for (const auto& control : controls)
-            {
-                auto cell = row.removeFromLeft (width);
-                control.first->setBounds (cell.removeFromTop (16));
-                control.second->setBounds (cell);
-                row.removeFromLeft (gap);
-            }
-        };
-        for (auto* c : { (juce::Component*) &objectAmount, (juce::Component*) &objectRetune,
-                         (juce::Component*) &objectTransition, (juce::Component*) &objectHumanize,
-                         (juce::Component*) &objectVibrato, (juce::Component*) &objectFormant,
-                         (juce::Component*) &objectTime, (juce::Component*) &objectGain,
-                         (juce::Component*) &objectAmountLabel, (juce::Component*) &objectRetuneLabel,
-                         (juce::Component*) &objectTransitionLabel, (juce::Component*) &objectHumanizeLabel,
-                         (juce::Component*) &objectVibratoLabel, (juce::Component*) &objectFormantLabel,
-                         (juce::Component*) &objectTimeLabel, (juce::Component*) &objectGainLabel })
-            c->setVisible (roomy);
-        if (roomy)
-        {
-            eArea.removeFromTop (4);
-            auto controlsArea = eArea.removeFromBottom (100);
-            layoutControlRow (controlsArea.removeFromTop (47), {
-                { &objectAmountLabel, &objectAmount }, { &objectRetuneLabel, &objectRetune },
-                { &objectTransitionLabel, &objectTransition }, { &objectHumanizeLabel, &objectHumanize } });
-            controlsArea.removeFromTop (6);
-            layoutControlRow (controlsArea.removeFromTop (47), {
-                { &objectVibratoLabel, &objectVibrato }, { &objectFormantLabel, &objectFormant },
-                { &objectTimeLabel, &objectTime }, { &objectGainLabel, &objectGain } });
-            eArea.removeFromBottom (6);
-        }
-        pitchEditTimeline.setBounds (eArea);
+        button->setBounds (commandBar.removeFromLeft (70));
+        commandBar.removeFromLeft (5);
     }
+    commandBar.removeFromLeft (10);
+    zoomOutPitchEdit.setBounds (commandBar.removeFromLeft (34));
+    commandBar.removeFromLeft (3);
+    zoomInPitchEdit.setBounds (commandBar.removeFromLeft (34));
+    commandBar.removeFromLeft (3);
+    fitPitchEdit.setBounds (commandBar.removeFromLeft (52));
+
+    //  On a tight layout (drawer open on a short window) the help line and the
+    //  per-object slider rows yield to the timeline: editing objects is a
+    //  drawer-closed activity, and a graph you cannot see is worth less than
+    //  eight sliders you are not touching.
+    //  TUNE keeps the graph as a monitor: toggles + timeline. The surgical
+    //  chrome — command bar and per-object sliders — is the EDIT workspace.
+    const bool roomy = editMode && eArea.getHeight() >= 260;
+    for (auto* b : { &undoPitchEdit, &redoPitchEdit, &splitPitchEdit, &joinPitchEdit,
+                     &deletePitchEdit, &clearPitchEdits, &zoomOutPitchEdit,
+                     &zoomInPitchEdit, &fitPitchEdit })
+        b->setVisible (editMode);
+    pitchEditHelp.setVisible (roomy);
+    if (roomy)
+    {
+        eArea.removeFromTop (4);
+        pitchEditHelp.setBounds (eArea.removeFromTop (22));
+    }
+
+    auto layoutControlRow = [] (juce::Rectangle<int> row,
+                                std::initializer_list<std::pair<juce::Label*, juce::Slider*>> controls)
+    {
+        const int gap = 8;
+        const int width = (row.getWidth() - gap * ((int) controls.size() - 1)) / (int) controls.size();
+        for (const auto& control : controls)
+        {
+            auto cell = row.removeFromLeft (width);
+            control.first->setBounds (cell.removeFromTop (16));
+            control.second->setBounds (cell);
+            row.removeFromLeft (gap);
+        }
+    };
+    for (auto* c : { (juce::Component*) &objectAmount, (juce::Component*) &objectRetune,
+                     (juce::Component*) &objectTransition, (juce::Component*) &objectHumanize,
+                     (juce::Component*) &objectVibrato, (juce::Component*) &objectFormant,
+                     (juce::Component*) &objectTime, (juce::Component*) &objectGain,
+                     (juce::Component*) &objectAmountLabel, (juce::Component*) &objectRetuneLabel,
+                     (juce::Component*) &objectTransitionLabel, (juce::Component*) &objectHumanizeLabel,
+                     (juce::Component*) &objectVibratoLabel, (juce::Component*) &objectFormantLabel,
+                     (juce::Component*) &objectTimeLabel, (juce::Component*) &objectGainLabel })
+        c->setVisible (roomy);
+    if (roomy)
+    {
+        eArea.removeFromTop (4);
+        auto controlsArea = eArea.removeFromBottom (100);
+        layoutControlRow (controlsArea.removeFromTop (47), {
+            { &objectAmountLabel, &objectAmount }, { &objectRetuneLabel, &objectRetune },
+            { &objectTransitionLabel, &objectTransition }, { &objectHumanizeLabel, &objectHumanize } });
+        controlsArea.removeFromTop (6);
+        layoutControlRow (controlsArea.removeFromTop (47), {
+            { &objectVibratoLabel, &objectVibrato }, { &objectFormantLabel, &objectFormant },
+            { &objectTimeLabel, &objectTime }, { &objectGainLabel, &objectGain } });
+        eArea.removeFromBottom (6);
+    }
+    pitchEditTimeline.setBounds (eArea);
 }

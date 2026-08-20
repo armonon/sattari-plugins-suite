@@ -301,6 +301,22 @@ int main (int argc, char** argv)
         std::printf ("tempo   : %.2f BPM\n", p.fileBpm.load());
         std::printf ("detune  : %+.1f cents\n", p.fileDetuneCents.load());
 
+        //  The shared song model — the time-aware map every workspace reads.
+        {
+            const auto a = p.songAnalysisCopy();
+            std::printf ("model   : valid=%d duration=%.1fs regions=%d sections=%d waveform=%d bins\n",
+                         (int) a.valid, a.durationSec,
+                         (int) a.scaleRegions.size(), (int) a.sections.size(),
+                         (int) a.waveform.size());
+            for (const auto& r : a.scaleRegions)
+                std::printf ("  region  %7.1f - %7.1f s   %-2s %-5s  margin %.3f\n",
+                             r.startSec, r.endSec, names[juce::jlimit (0, 11, r.root)],
+                             r.minor ? "minor" : "major", r.confidence);
+            for (const auto& sec : a.sections)
+                std::printf ("  section %7.1f - %7.1f s   %s\n",
+                             sec.startSec, sec.endSec, sec.name.c_str());
+        }
+
         //  Now prove precedence: render a short buffer of a DIFFERENT key (A major
         //  chord) through the plugin with AutoKey on. The live detectors hear A;
         //  the latched file verdict must still win.
