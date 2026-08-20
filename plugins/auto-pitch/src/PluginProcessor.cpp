@@ -321,13 +321,16 @@ void SattariAutoPitchAudioProcessor::crepeWorkerLoop()
             }
             const long filled = akSpecFilled.load (std::memory_order_acquire);
             long available = filled - songKeyReadCursor;
-            if (available > (long) akSpecRingSize)
+            //  Keep clear of the live write position: skipping to exactly
+            //  filled - ringSize would start the read on the very slots the audio
+            //  thread is overwriting during the multi-millisecond drain that
+            //  follows. Half a second of forfeited history buys a clean read.
+            const long lapMargin = (long) juce::jmin (akSpecRingSize / 4,
+                                                      (int) (currentSampleRate / 2.0));
+            if (available > (long) akSpecRingSize - lapMargin)
             {
-                //  Lapped: the worker fell a whole ring behind. Skip forward rather
-                //  than analyse torn audio — a key from scrambled samples is worse
-                //  than a key from fewer samples.
-                songKeyReadCursor = filled - akSpecRingSize;
-                available = akSpecRingSize;
+                songKeyReadCursor = filled - ((long) akSpecRingSize - lapMargin);
+                available = (long) akSpecRingSize - lapMargin;
             }
             if (available > 0)
             {
@@ -661,14 +664,6 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // wins on held-out pop/rock/electronic material.
     keyNetPresent = false;
     keyNetSpecPresent = false;
-    // Spin up the inference worker only when there's actually a model to run. It
-    // idles cheaply until Neural Pitch is toggled on. (Re)start it fresh here, now
-    // that the model + buffers are fully configured.
-    if (crepeModelPresent || keyNetPresent || keyNetSpecPresent)
-    {
-        crepeThreadRun.store (true);
-        crepeThread = std::thread ([this] { crepeWorkerLoop(); });
-    }
 
     const int scratchChannels = juce::jmax (2, getTotalNumOutputChannels());
     formantScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
@@ -718,6 +713,20 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     akSpecFeat.assign ((size_t) (sattari::dsp::LogSpec::kBins
                                * sattari::dsp::LogSpec::kFrames), 0.0f);
     akSpecLastRun = -1;
+
+    // (Re)start the worker LAST, after every buffer it reads is rebuilt. The first
+    // version restarted it right after the model load, 30 lines above the akSpec
+    // ring and estimator re-init — so on any SECOND prepare (a sample-rate or
+    // buffer-size change), the fresh worker could drain last session's leftover
+    // cursor state while this thread was freeing and reallocating the very ring it
+    // was reading: a use-after-free found in adversarial review, not in testing.
+    //
+    // Started unconditionally now, not only when an ONNX model is present: the
+    // SongKeyEstimator drain is plain DSP and must not silently die with the model
+    // — this repo has already documented rebuilds dropping onnx self-containment.
+    // An idle worker costs one 12 ms poll.
+    crepeThreadRun.store (true);
+    crepeThread = std::thread ([this] { crepeWorkerLoop(); });
     akSpecValid.store (false);
     keyNetLiveValid.store (false, std::memory_order_relaxed);
 
@@ -959,6 +968,28 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
 
 void SattariAutoPitchAudioProcessor::timerCallback()
 {
+    //  A dropped file's verdict must reach correction and the bus even while the
+    //  transport is STOPPED — the classic "drop the song, get the key" workflow.
+    //  correlateAutoKeyHistogram (the only writer of the detected latch) runs off
+    //  voiced frames and sidechain audio, neither of which exists in a stopped
+    //  session, so the file worker's result would otherwise sit in its atomics
+    //  until the user happened to sing. Applying it here mirrors exactly what the
+    //  next correlate call would do, minus the parts only live audio can supply.
+    //  The Key Map keeps right of way, same as in the correlate chain.
+    if (fileKeyValid.load (std::memory_order_acquire) && ! keyMapDriving())
+    {
+        const float conf = fileKeyConf.load (std::memory_order_relaxed);
+        if (conf >= kMinBusKeyConfidence)
+        {
+            detectedAutoRoot = fileKeyRoot.load (std::memory_order_relaxed);
+            const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
+            const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
+            if (scaleName == "major" || scaleName == "minor")
+                detectedAutoScale = fileKeyMinor.load (std::memory_order_relaxed);
+            detectedAutoKeyConf.store (conf, std::memory_order_relaxed);
+        }
+    }
+
     // Editor-independent, model-independent bus heartbeat. publishCurrentKeyToBus()
     // self-throttles and returns early unless AutoKey / Key Map is the active source.
     publishCurrentKeyToBus();
@@ -1051,6 +1082,10 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
     detectedAutoScale = 1;
+    //  The live estimator accumulates whole-session chroma, so everything that
+    //  clears the histogram must clear it too — via the flag, because it is
+    //  worker-thread-owned and this can run on the audio thread.
+    songKeyRescan.store (true, std::memory_order_release);
     lastTargetMidiForTransition = -1000;
     transitionBoost = 0.0;
     classicControlPrevCents = 0.0;
@@ -1587,7 +1622,7 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
     else
     {
         // Chromatic / non-modal: "which root maximises in-scale energy".
-        double bestScore = -2.0;
+        double bestScore = -2.0, secondScore = -2.0;
         for (int root = 0; root < 12; ++root)
         {
             double score = 0.0;
@@ -1597,8 +1632,20 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
                 score += autoKeyHistogram[(size_t) noteIndex]
                        * (scaleAllowsDegree (degree, scaleName) ? 1.0 : -0.18);
             }
-            if (score > bestScore) { bestScore = score; bestRoot = root; }
+            if (score > bestScore) { secondScore = bestScore; bestScore = score; bestRoot = root; }
+            else if (score > secondScore) { secondScore = score; }
         }
+        //  This branch used to leave detectedAutoKeyConf untouched, so the publish
+        //  gate rode whatever confidence a DIFFERENT detector had stored before the
+        //  user switched scale — a 0.25 major-mode margin could keep publishing a
+        //  dorian argmax forever. The winner-minus-runner-up separation below is
+        //  uncalibrated, but it is at least a margin measured by THIS detector on
+        //  THIS audio, and it goes to zero when the histogram stops caring.
+        const double denom = std::abs (bestScore) + std::abs (secondScore);
+        detectedAutoKeyConf.store (denom > 1.0e-9
+                                       ? (float) juce::jlimit (0.0, 1.0, (bestScore - secondScore) / denom)
+                                       : 0.0f,
+                                   std::memory_order_relaxed);
     }
 
     detectedAutoRoot = bestRoot;
@@ -1685,7 +1732,12 @@ void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int 
             sp = (sp + 1) % akSpecRingSize;
         }
         akSpecWritePos.store (sp, std::memory_order_release);
-        akSpecFilled.fetch_add (numSamples, std::memory_order_relaxed);
+        //  RELEASE, not relaxed: the songKey drain acquire-loads THIS counter to
+        //  learn how far it may read. A relaxed increment has no happens-before
+        //  edge to the sample stores above, so on ARM the drain could see the new
+        //  count before the new samples — and feed last lap's 30-second-old audio
+        //  into an estimator whose histogram never decays.
+        akSpecFilled.fetch_add (numSamples, std::memory_order_release);
     }
 
     // Run the FFT roughly every 256 ms (chroma changes slowly; this keeps the
@@ -4536,6 +4588,20 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 
 void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    //  A restored project must not inherit the previous song's dropped-file
+    //  verdict: the file key is runtime evidence about audio THIS session heard,
+    //  and is deliberately not serialized (same policy as Sattari Key).
+    //
+    //  The DERIVED latch has to die with it — correlateAutoKeyHistogram already
+    //  copied the verdict into detectedAutoKeyConf, and the ~1 Hz bus heartbeat
+    //  republishes on that number. Zeroing the confidence is sufficient: below the
+    //  0.10 gate nothing publishes and correction falls back to the manual key,
+    //  while live detection re-derives an honest value within seconds. The live
+    //  estimator accumulated the PREVIOUS project's audio, so it resets too.
+    clearSongFileResult();
+    detectedAutoKeyConf.store (0.0f, std::memory_order_relaxed);
+    songKeyRescan.store (true, std::memory_order_release);
+
     std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
     if (xml && xml->hasTagName (apvts.state.getType()))
     {

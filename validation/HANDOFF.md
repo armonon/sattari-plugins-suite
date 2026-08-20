@@ -32,6 +32,13 @@ are local working-tree changes until they are committed and pushed.
 
 ---
 
+> **2026-08-19 — Auto Pitch absorbed Sattari Key.** One plugin now detects
+> (live estimator + whole-song drop analysis + tempo) and corrects, with Live
+> Mode surfaced in a one-page UI. This is a NEW candidate line: the sealed RC3
+> listening package no longer matches the shipping detector chain. See
+> `validation/auto-pitch/2026-08-19-one-plugin-merge.md` — including the ten
+> adversarial-review findings (one use-after-free) fixed before push.
+
 ## Auto Pitch — 0.5.0 RC3, new line based on `767beca`
 
 The earlier 0.4.1 candidate is preserved at `7fef544a6d49`; its sealed listening

@@ -90,7 +90,10 @@ int main (int argc, char** argv)
         bool ok = editor != nullptr;
         if (ok)
         {
-            editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 680 : 700);
+            //  Render at sizes a host can actually produce: the editor's own limits
+            //  are 960x760 - 1600x1100, and the old 700-high render silently
+            //  clipped the very drawer the pro screenshot exists to prove.
+            editor->setSize (minimumSize ? 960 : 1120, minimumSize ? 760 : 820);
             if (proTab)
                 ok = clickButtonNamed (*editor, "ADVANCED");
             if (ok)

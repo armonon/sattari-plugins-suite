@@ -177,6 +177,7 @@ public:
     ~SattariAutoPitchAudioProcessorEditor() override;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
     //  Drop a whole song anywhere on the editor: the absorbed Sattari Key analyses

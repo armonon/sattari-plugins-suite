@@ -1417,7 +1417,13 @@ void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c,
 void SattariAutoPitchAudioProcessorEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+}
 
+void SattariAutoPitchAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
+{
+    //  The drop invite must go OVER the children: paint() renders beneath them,
+    //  and the graph timeline fills the editor centre with an opaque panel — the
+    //  first version drew the banner exactly where nobody could see it.
     if (dragActive)
     {
         //  A song is being dragged over the editor: invite the drop.
@@ -1670,12 +1676,15 @@ void SattariAutoPitchAudioProcessorEditor::resized()
         keyDetectionStatus.setBounds (c3.removeFromTop (30));
         c3.removeFromTop (4);
         auto kmHeader = c3.removeFromTop (24);
-        scanTrackButton.setBounds (kmHeader.removeFromLeft (100));
+        //  Proportional, not fixed: at the editor's minimum width this column is
+        //  296 px, and 296 px of fixed widths left MIDI Learn a zero-width button.
+        const int kmW = kmHeader.getWidth() - 12;
+        scanTrackButton.setBounds (kmHeader.removeFromLeft (kmW * 30 / 100));
         kmHeader.removeFromLeft (4);
-        clearMapButton.setBounds (kmHeader.removeFromLeft (70));
-        kmHeader.removeFromLeft (6);
-        useKeyMap.setBounds (kmHeader.removeFromLeft (110));
-        kmHeader.removeFromLeft (6);
+        clearMapButton.setBounds (kmHeader.removeFromLeft (kmW * 20 / 100));
+        kmHeader.removeFromLeft (4);
+        useKeyMap.setBounds (kmHeader.removeFromLeft (kmW * 32 / 100));
+        kmHeader.removeFromLeft (4);
         midiLearnButton.setBounds (kmHeader);
         c3.removeFromTop (4);
         keyMapTimeline.setBounds (c3.removeFromTop (juce::jmax (40, c3.getHeight() - 22)));
