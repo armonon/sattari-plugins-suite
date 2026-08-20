@@ -13,6 +13,7 @@
 #include <sattari_audio_core/SattariTempoEstimator.h>
 #include <sattari_audio_core/SattariSongModel.h>
 #include <sattari_audio_core/SattariChordAnalysis.h>
+#include <sattari_audio_core/SattariHarmonyVoices.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -252,10 +253,31 @@ public:
     //  state) but it is the one place that knows the applied intent scale.
     mutable std::atomic<float> intentConfidenceUi { 1.0f };
 
+    //  Harmony planning. The planner is contract-tested; this exposes the notes
+    //  it WOULD sing so the workspace can show real output while voice rendering
+    //  is still being built. Planned on the message thread from the UI snapshot,
+    //  so no audio-thread cost at all.
+    struct HarmonyReadout
+    {
+        bool valid = false;
+        int  leadMidi = -1;
+        std::array<int, 4> midi { -1, -1, -1, -1 };
+        std::array<bool, 4> active { false, false, false, false };
+        double confidence = 0.0;
+        bool   fromChord = false;
+    };
+    HarmonyReadout planHarmonyNow() const;
+    mutable sattari::dsp::HarmonyVoicePlanner harmonyPlanner;
+
     //  The shared song model (Phase 1): everything the drop analysis learned,
     //  time-aware. Written by the file worker under the mutex, copied out by the
     //  UI at poll rate. A copy at 12 Hz of a few-KB struct is cheaper than any
     //  clever lock-free scheme and impossible to tear.
+    //  Manual region override. The user's key for a region outranks detection
+    //  permanently, reports full confidence (their assertion IS the evidence),
+    //  and is pushed straight into the Follow Song Map table.
+    void setRegionKey (int regionIndex, int root, bool minor);
+
     sattari::dsp::SongAnalysis songAnalysisCopy() const
     {
         const std::lock_guard<std::mutex> lock (songAnalysisMutex);

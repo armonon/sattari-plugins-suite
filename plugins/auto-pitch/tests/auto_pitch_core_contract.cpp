@@ -78,6 +78,7 @@ int main (int argc, char** argv)
             || std::strcmp (argv[1], "--render-ui-min") == 0
             || std::strcmp (argv[1], "--render-ui-pro") == 0
             || std::strcmp (argv[1], "--render-ui-key") == 0
+            || std::strcmp (argv[1], "--render-ui-harmony") == 0
             || std::strcmp (argv[1], "--render-ui-edit") == 0))
     {
         SattariAutoPitchAudioProcessor processor;
@@ -87,6 +88,7 @@ int main (int argc, char** argv)
         //  same page as the default since the graph is always visible.
         const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
         const bool keyWs  = std::strcmp (argv[1], "--render-ui-key") == 0;
+        const bool harmWs = std::strcmp (argv[1], "--render-ui-harmony") == 0;
         const bool editWs = std::strcmp (argv[1], "--render-ui-edit") == 0;
         const juce::File destination (argv[2]);
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
@@ -101,6 +103,8 @@ int main (int argc, char** argv)
                 ok = clickButtonNamed (*editor, "ADVANCED");
             if (keyWs)
                 ok = clickButtonNamed (*editor, "KEY");
+            if (harmWs)
+                ok = clickButtonNamed (*editor, "HARMONY");
             if (editWs)
                 ok = clickButtonNamed (*editor, "EDIT");
             if (ok)

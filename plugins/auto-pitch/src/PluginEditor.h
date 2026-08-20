@@ -233,6 +233,30 @@ private:
     juce::Label keyBigLabel, keyMetaLabel, keyAltLabel, keySectionsLabel,
                 keyInspectorLabel, keyHintLabel;
     sattari::ui::KeyMapTimeline songMapView;
+    juce::Label keyChordsLabel, keyModsLabel;
+    juce::TextButton followSongMapButton { "FOLLOW SONG MAP" };
+    std::unique_ptr<ButtonAttachment> followSongMapAttachment;
+    //  Region editing: the user's assertion outranks detection, permanently.
+    juce::ComboBox regionRootBox, regionScaleBox;
+    juce::TextButton regionApplyButton { "SET REGION KEY" };
+    int selectedRegionIndex = -1;
+
+    //  HARMONY workspace.
+    juce::Component harmonyPanel;
+    juce::ComboBox harmonyModeBox;
+    std::unique_ptr<ComboAttachment> harmonyModeAttachment;
+    juce::Label harmonyHeaderLabel, harmonyStatusLabel;
+    struct HarmonyVoiceStrip
+    {
+        juce::TextButton enable;
+        juce::ComboBox   role;
+        juce::Slider     level, pan;
+        juce::Label      caption, readout;
+        std::unique_ptr<ButtonAttachment> enableAttach;
+        std::unique_ptr<ComboAttachment>  roleAttach;
+        std::unique_ptr<SliderAttachment> levelAttach, panAttach;
+    };
+    std::array<HarmonyVoiceStrip, 4> harmonyVoices;
     double songModelSeenDuration = -1.0;   // repopulate the map only on change
     int    songModelSeenRegions = -1;
 

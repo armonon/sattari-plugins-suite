@@ -436,6 +436,34 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         "followSongMap", "Follow Song Map", false));
 
+    //  --- HARMONY (Phase 4) -----------------------------------------------------
+    //  Voice PLANNING is implemented and contract-tested (HarmonyVoicePlanner);
+    //  these parameters expose it. Voice RENDERING — four independent shifted
+    //  streams — is the remaining work, so the workspace shows the planned notes
+    //  and says plainly that it is not yet producing audio. A control that
+    //  silently does nothing is the thing this project refuses to ship.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "harmonyMode", "Harmony Mode",
+        juce::StringArray { "Intelligent", "Interval", "MIDI" }, 0));
+    for (int v = 1; v <= 4; ++v)
+    {
+        const auto id = juce::String ("h") + juce::String (v);
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            id + "Enable", "Harmony " + juce::String (v) + " Enable", false));
+        params.push_back (std::make_unique<juce::AudioParameterChoice> (
+            id + "Role", "Harmony " + juce::String (v) + " Role",
+            juce::StringArray { "Upper", "Lower", "High", "Low",
+                                "Octave Up", "Octave Down", "Choir" },
+            v == 1 ? 0 : v == 2 ? 1 : v == 3 ? 2 : 3));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Level", "Harmony " + juce::String (v) + " Level",
+            juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.7f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Pan", "Harmony " + juce::String (v) + " Pan",
+            juce::NormalisableRange<float> (-1.0f, 1.0f, 0.01f),
+            v == 1 ? -0.4f : v == 2 ? 0.4f : v == 3 ? -0.7f : 0.7f));
+    }
+
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
     // CNN costs roughly a quarter of one performance core at an 83 Hz cadence on
     // the reference Mac, so a new session stays on efficient YIN until requested.
@@ -3222,6 +3250,90 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     detected.targetMidi = (double) targetMidi;
     detected.correctionCents = (detected.targetMidi - detected.midi) * 100.0;
     return detected;
+}
+
+void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bool minor)
+{
+    {
+        const std::lock_guard<std::mutex> lock (songAnalysisMutex);
+        if (regionIndex < 0 || regionIndex >= (int) songAnalysis.scaleRegions.size()) return;
+        auto& r = songAnalysis.scaleRegions[(size_t) regionIndex];
+        r.root = juce::jlimit (0, 11, root);
+        r.minor = minor;
+        r.userSet = true;
+        //  Full confidence: a manual key is not a guess, and it must clear every
+        //  trust gate the detected ones have to pass.
+        r.confidence = 1.0;
+    }
+    //  Republish the follow table so the change takes effect immediately.
+    {
+        const auto model = songAnalysisCopy();
+        std::vector<KeyMapEntry> entries;
+        entries.reserve (model.scaleRegions.size());
+        for (const auto& r : model.scaleRegions)
+            entries.push_back ({ r.startSec, juce::jlimit (0, 11, r.root),
+                                 r.minor ? 1 : 0, (float) r.confidence });
+        const juce::ScopedLock kl (keyMapLock);
+        songMapEntries = std::move (entries);
+    }
+}
+
+SattariAutoPitchAudioProcessor::HarmonyReadout
+SattariAutoPitchAudioProcessor::planHarmonyNow() const
+{
+    HarmonyReadout out;
+    const auto snap = getLiveSnapshot();
+    if (! snap.voiced || snap.detectedMidi < 0) return out;
+    out.leadMidi = snap.detectedMidi;
+
+    sattari::dsp::HarmonyVoiceSettings settings[4];
+    for (int v = 0; v < 4; ++v)
+    {
+        const auto id = juce::String ("h") + juce::String (v + 1);
+        settings[v].enabled = apvts.getRawParameterValue (id + "Enable")->load() > 0.5f;
+        settings[v].role = (sattari::dsp::HarmonyRole)
+            juce::jlimit (0, 6, (int) std::lround (apvts.getRawParameterValue (id + "Role")->load()));
+        settings[v].level = apvts.getRawParameterValue (id + "Level")->load();
+        settings[v].pan   = apvts.getRawParameterValue (id + "Pan")->load();
+    }
+
+    const auto origin = currentKeyOrigin();
+    const auto scaleId = sattari::harmony::scaleIdFromBus (origin.scale);
+    const auto mode = (sattari::dsp::HarmonyMode)
+        juce::jlimit (0, 2, (int) std::lround (apvts.getRawParameterValue ("harmonyMode")->load()));
+    //  UI order is Intelligent/Interval/MIDI; the enum is interval/intelligent/midi.
+    const auto realMode = mode == (sattari::dsp::HarmonyMode) 0 ? sattari::dsp::HarmonyMode::intelligent
+                        : mode == (sattari::dsp::HarmonyMode) 1 ? sattari::dsp::HarmonyMode::interval
+                                                                : sattari::dsp::HarmonyMode::midi;
+
+    //  The current chord, from the analysed song model at the playhead. Absent a
+    //  chord the planner falls back to the scale and says so via confidence.
+    int pcs[4]; int numPcs = 0; double chordConf = 0.0;
+    {
+        const auto model = songAnalysisCopy();
+        const double at = getKeyMapPlayheadSec();
+        for (const auto& cr : model.chordRegions)
+        {
+            if (at < cr.startSec || at >= cr.endSec) continue;
+            for (int i = 0; i < 4; ++i)
+                if (cr.chord.notes[(size_t) i] >= 0) pcs[numPcs++] = cr.chord.notes[(size_t) i];
+            chordConf = cr.chord.confidence;
+            break;
+        }
+    }
+
+    const auto plan = harmonyPlanner.plan (out.leadMidi, realMode, settings, 4,
+                                           origin.root, scaleId,
+                                           numPcs > 0 ? pcs : nullptr, numPcs, chordConf);
+    for (int v = 0; v < 4; ++v)
+    {
+        out.active[(size_t) v] = plan.voices[(size_t) v].active;
+        out.midi[(size_t) v]   = plan.voices[(size_t) v].midi;
+        out.confidence = juce::jmax (out.confidence, plan.voices[(size_t) v].confidence);
+    }
+    out.fromChord = numPcs > 0;
+    out.valid = true;
+    return out;
 }
 
 double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFrame& frame) const noexcept

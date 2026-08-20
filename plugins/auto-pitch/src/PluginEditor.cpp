@@ -609,9 +609,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     wsKeyButton.onClick     = [this] { setWorkspace (Workspace::key); };
     wsTuneButton.onClick    = [this] { setWorkspace (Workspace::tune); };
     wsEditButton.onClick    = [this] { setWorkspace (Workspace::edit); };
-    wsHarmonyButton.setEnabled (false);
-    wsHarmonyButton.setTooltip ("Harmony workspace arrives in a later phase - "
-                                "chord-aware voices need the Phase 2 chord map first.");
 
     headerSummary.setJustificationType (juce::Justification::centredLeft);
     headerSummary.setInterceptsMouseClicks (false, false);
@@ -640,9 +637,13 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     {
         const auto a = audioProcessor.songAnalysisCopy();
         static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
-        for (const auto& r : a.scaleRegions)
+        for (size_t ri = 0; ri < a.scaleRegions.size(); ++ri)
         {
+            const auto& r = a.scaleRegions[ri];
             if (sec < r.startSec || sec >= r.endSec) continue;
+            selectedRegionIndex = (int) ri;
+            regionRootBox.setSelectedId (r.root + 1, juce::dontSendNotification);
+            regionScaleBox.setSelectedId (r.minor ? 2 : 1, juce::dontSendNotification);
             auto fmt = [] (double t) { return juce::String ((int) t / 60) + ":"
                 + juce::String ((int) t % 60).paddedLeft ('0', 2); };
             keyInspectorLabel.setText (
@@ -650,12 +651,106 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
                 + "   " + juce::String (nm[juce::jlimit (0, 11, r.root)])
                 + (r.minor ? " minor" : " major")
                 + "   margin " + juce::String (r.confidence, 3)
-                + (r.confidence >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
+                + (r.userSet ? "   USER SET"
+                   : r.confidence >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
                        ? "" : "   (below trust gate - shown, not applied)"),
                 juce::dontSendNotification);
             break;
         }
     };
+
+    //  KEY: chord + modulation readouts, Follow Song Map, and region editing.
+    initKeyLabel (keyChordsLabel, 13.0f, false);
+    initKeyLabel (keyModsLabel, 13.0f, false);
+    keyChordsLabel.setText ("CHORDS   -", juce::dontSendNotification);
+    keyModsLabel.setText ("CHANGES  -", juce::dontSendNotification);
+    followSongMapButton.setClickingTogglesState (true);
+    followSongMapButton.setTooltip ("Correction follows the analysed song's scale regions "
+                                    "as the transport moves, so a verse and a chorus in "
+                                    "different modes are both legal in their own places.");
+    followSongMapAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "followSongMap", followSongMapButton);
+    keyPanel.addAndMakeVisible (followSongMapButton);
+
+    static const char* kNoteNames[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    for (int i = 0; i < 12; ++i) regionRootBox.addItem (kNoteNames[i], i + 1);
+    regionScaleBox.addItem ("major", 1);
+    regionScaleBox.addItem ("minor", 2);
+    regionRootBox.setSelectedId (1, juce::dontSendNotification);
+    regionScaleBox.setSelectedId (1, juce::dontSendNotification);
+    regionApplyButton.setTooltip ("Your key for this region outranks detection permanently, "
+                                  "and reports full confidence: you asserting the key IS the evidence.");
+    regionApplyButton.onClick = [this]
+    {
+        if (selectedRegionIndex < 0) return;
+        audioProcessor.setRegionKey (selectedRegionIndex,
+                                     regionRootBox.getSelectedId() - 1,
+                                     regionScaleBox.getSelectedId() == 2);
+        songModelSeenRegions = -1;   // force the page to rebuild from the model
+    };
+    keyPanel.addAndMakeVisible (regionRootBox);
+    keyPanel.addAndMakeVisible (regionScaleBox);
+    keyPanel.addAndMakeVisible (regionApplyButton);
+
+    //  HARMONY workspace.
+    addAndMakeVisible (harmonyPanel);
+    harmonyPanel.setVisible (false);
+    harmonyHeaderLabel.setJustificationType (juce::Justification::centredLeft);
+    harmonyHeaderLabel.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)));
+    harmonyHeaderLabel.setText ("HARMONY", juce::dontSendNotification);
+    harmonyPanel.addAndMakeVisible (harmonyHeaderLabel);
+    harmonyStatusLabel.setJustificationType (juce::Justification::centredLeft);
+    harmonyStatusLabel.setText ("Play a vocal to see the planned harmony      "
+                                "VOICE RENDERING NOT YET CONNECTED - planned notes only",
+                                juce::dontSendNotification);
+    harmonyPanel.addAndMakeVisible (harmonyStatusLabel);
+    harmonyModeBox.addItem ("Intelligent  (chord-aware)", 1);
+    harmonyModeBox.addItem ("Interval  (fixed diatonic)", 2);
+    harmonyModeBox.addItem ("MIDI  (held notes)", 3);
+    harmonyModeAttachment = std::make_unique<ComboAttachment> (
+        audioProcessor.parameters(), "harmonyMode", harmonyModeBox);
+    harmonyPanel.addAndMakeVisible (harmonyModeBox);
+
+    for (int v = 0; v < 4; ++v)
+    {
+        auto& strip = harmonyVoices[(size_t) v];
+        const auto id = juce::String ("h") + juce::String (v + 1);
+        strip.caption.setText ("H" + juce::String (v + 1), juce::dontSendNotification);
+        strip.caption.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+        harmonyPanel.addAndMakeVisible (strip.caption);
+
+        strip.enable.setButtonText ("ON");
+        strip.enable.setClickingTogglesState (true);
+        strip.enableAttach = std::make_unique<ButtonAttachment> (
+            audioProcessor.parameters(), id + "Enable", strip.enable);
+        harmonyPanel.addAndMakeVisible (strip.enable);
+
+        for (const char* r : { "Upper", "Lower", "High", "Low",
+                               "Octave Up", "Octave Down", "Choir" })
+            strip.role.addItem (r, strip.role.getNumItems() + 1);
+        strip.roleAttach = std::make_unique<ComboAttachment> (
+            audioProcessor.parameters(), id + "Role", strip.role);
+        harmonyPanel.addAndMakeVisible (strip.role);
+
+        strip.level.setSliderStyle (juce::Slider::LinearHorizontal);
+        strip.level.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
+        strip.levelAttach = std::make_unique<SliderAttachment> (
+            audioProcessor.parameters(), id + "Level", strip.level);
+        harmonyPanel.addAndMakeVisible (strip.level);
+
+        strip.pan.setSliderStyle (juce::Slider::LinearHorizontal);
+        strip.pan.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
+        strip.panAttach = std::make_unique<SliderAttachment> (
+            audioProcessor.parameters(), id + "Pan", strip.pan);
+        harmonyPanel.addAndMakeVisible (strip.pan);
+
+        strip.readout.setJustificationType (juce::Justification::centredLeft);
+        strip.readout.setText ("-", juce::dontSendNotification);
+        harmonyPanel.addAndMakeVisible (strip.readout);
+    }
+    wsHarmonyButton.setEnabled (true);
+    wsHarmonyButton.onClick = [this] { setWorkspace (Workspace::harmony); };
+    wsHarmonyButton.setTooltip ({});
 
     songStatusLabel.setJustificationType (juce::Justification::centredRight);
     songStatusLabel.setInterceptsMouseClicks (false, false);
@@ -1402,6 +1497,42 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                 segs.push_back ({ r.startSec, r.root, r.minor ? 1 : 0, (float) r.confidence });
             songMapView.setData (model.waveform, std::move (segs), model.durationSec);
 
+            //  Chord + modulation summaries. Both say plainly when empty rather
+            //  than leaving a blank the user has to interpret.
+            {
+                juce::String chords;
+                for (size_t i = 0; i < model.chordRegions.size() && i < 10; ++i)
+                {
+                    const auto& cr = model.chordRegions[i];
+                    if (chords.isNotEmpty()) chords << "  ";
+                    chords << "| " << nm[juce::jlimit (0, 11, cr.chord.root)]
+                           << sattari::dsp::chordQualityName (cr.chord.quality);
+                    if (! cr.diatonic) chords << "*";
+                }
+                if (model.chordRegions.empty())
+                    chords = "CHORDS   none confident enough to show";
+                else
+                    chords = "CHORDS   " + chords
+                           + (model.chordRegions.size() > 10 ? "  ..." : "")
+                           + "     (* = borrowed)";
+                keyChordsLabel.setText (chords, juce::dontSendNotification);
+
+                juce::String mods;
+                for (const auto& m : model.modulations)
+                {
+                    if (mods.isNotEmpty()) mods << "   ";
+                    mods << juce::String ((int) m.atSec / 60) << ":"
+                         << juce::String ((int) m.atSec % 60).paddedLeft ('0', 2)
+                         << " " << nm[juce::jlimit (0, 11, m.toRoot)]
+                         << (m.toMinor ? " min" : " maj")
+                         << " (" << sattari::dsp::modulationTypeName (m.type) << ")";
+                }
+                keyModsLabel.setText (model.modulations.empty()
+                                          ? "CHANGES  none detected - one key throughout"
+                                          : "CHANGES  " + mods,
+                                      juce::dontSendNotification);
+            }
+
             juce::String sections;
             for (const auto& sec : model.sections)
             {
@@ -1461,6 +1592,36 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         else
             songStatusLabel.setText ("Drop a song anywhere to detect its key + tempo",
                                      juce::dontSendNotification);
+    }
+
+    //  HARMONY: show the notes the planner would actually sing right now. This
+    //  is real planner output, not a mock — and the status line states plainly
+    //  that voice RENDERING is not yet connected, so nothing here can be mistaken
+    //  for audio the plugin is producing.
+    if (workspace == Workspace::harmony)
+    {
+        static const char* hn[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const auto h = audioProcessor.planHarmonyNow();
+        auto noteName = [&] (int midi)
+        {
+            return midi < 0 ? juce::String ("-")
+                            : juce::String (hn[((midi % 12) + 12) % 12])
+                                  + juce::String (midi / 12 - 1);
+        };
+        harmonyStatusLabel.setText (
+            h.valid
+                ? "Lead " + noteName (h.leadMidi)
+                      + (h.fromChord ? "   -   planning from the detected chord"
+                                     : "   -   no chord known here, planning from the scale")
+                      + "      VOICE RENDERING NOT YET CONNECTED - planned notes only"
+                : "Play a vocal to see the planned harmony      "
+                  "VOICE RENDERING NOT YET CONNECTED - planned notes only",
+            juce::dontSendNotification);
+        for (int v = 0; v < 4; ++v)
+            harmonyVoices[(size_t) v].readout.setText (
+                h.valid && h.active[(size_t) v]
+                    ? noteName (h.midi[(size_t) v]) : juce::String ("-"),
+                juce::dontSendNotification);
     }
 
     // Show only the live engine status; the JSON-trace summary is dev-only.
@@ -1677,11 +1838,48 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     const bool inKey  = workspace == Workspace::key;
     const bool inTune = workspace == Workspace::tune;
     const bool inEdit = workspace == Workspace::edit;
+    const bool inHarm = workspace == Workspace::harmony;
+    harmonyPanel.setVisible (inHarm);
     keyPanel.setVisible (inKey);
     basicPanel.setVisible (inTune);
     editPanel.setVisible (inTune || inEdit);
     advancedToggle.setVisible (inTune);
     songStatusLabel.setVisible (inTune);    // KEY and EDIT have their own status surfaces
+
+    // ---- HARMONY workspace -------------------------------------------------------
+    if (inHarm)
+    {
+        basicPanel.setBounds ({}); proPanel.setBounds ({}); editPanel.setBounds ({});
+        harmonyPanel.setBounds (area);
+        auto h = juce::Rectangle<int> (0, 0, harmonyPanel.getWidth(),
+                                       harmonyPanel.getHeight()).reduced (8);
+        auto top = h.removeFromTop (30);
+        harmonyHeaderLabel.setBounds (top.removeFromLeft (140));
+        harmonyModeBox.setBounds (top.removeFromLeft (260).reduced (0, 2));
+        h.removeFromTop (4);
+        harmonyStatusLabel.setBounds (h.removeFromTop (22));
+        h.removeFromTop (10);
+
+        for (int v = 0; v < 4; ++v)
+        {
+            auto& strip = harmonyVoices[(size_t) v];
+            auto row = h.removeFromTop (46);
+            strip.caption.setBounds (row.removeFromLeft (40));
+            strip.enable.setBounds (row.removeFromLeft (54).reduced (2, 8));
+            row.removeFromLeft (8);
+            strip.role.setBounds (row.removeFromLeft (140).reduced (0, 8));
+            row.removeFromLeft (10);
+            auto levelCell = row.removeFromLeft (juce::jmax (140, row.getWidth() / 3));
+            strip.level.setBounds (levelCell.reduced (0, 10));
+            row.removeFromLeft (8);
+            auto panCell = row.removeFromLeft (juce::jmax (140, row.getWidth() / 2));
+            strip.pan.setBounds (panCell.reduced (0, 10));
+            row.removeFromLeft (10);
+            strip.readout.setBounds (row);
+            h.removeFromTop (6);
+        }
+        return;
+    }
 
     // ---- KEY workspace -----------------------------------------------------------
     if (inKey)
@@ -1699,16 +1897,32 @@ void SattariAutoPitchAudioProcessorEditor::resized()
         }
         else
         {
-            keyBigLabel.setBounds (k.removeFromTop (52));
+            auto head = k.removeFromTop (52);
+            keyBigLabel.setBounds (head.removeFromLeft (juce::jmax (260, head.getWidth() / 2)));
+            //  Follow Song Map sits WITH the map it follows, not in a drawer.
+            followSongMapButton.setBounds (head.removeFromRight (190).reduced (0, 12));
             keyMetaLabel.setBounds (k.removeFromTop (24));
             keyAltLabel.setBounds (k.removeFromTop (20));
-            k.removeFromTop (8);
-            keyInspectorLabel.setBounds (k.removeFromBottom (22));
-            keySectionsLabel.setBounds (k.removeFromBottom (22));
+            k.removeFromTop (6);
+
+            //  Region editing row: pick a region on the map, set its key.
+            auto editRow = k.removeFromBottom (26);
+            regionApplyButton.setBounds (editRow.removeFromLeft (150));
+            editRow.removeFromLeft (8);
+            regionRootBox.setBounds (editRow.removeFromLeft (80));
+            editRow.removeFromLeft (6);
+            regionScaleBox.setBounds (editRow.removeFromLeft (90));
+            editRow.removeFromLeft (12);
+            keyInspectorLabel.setBounds (editRow);
+            k.removeFromBottom (4);
+            keyModsLabel.setBounds (k.removeFromBottom (20));
+            keyChordsLabel.setBounds (k.removeFromBottom (20));
+            keySectionsLabel.setBounds (k.removeFromBottom (20));
             k.removeFromBottom (6);
             songMapView.setBounds (k);
         }
         proPanel.setBounds ({});
+        harmonyPanel.setBounds ({});
         return;   // KEY owns the whole body; the other bands are hidden
     }
 
