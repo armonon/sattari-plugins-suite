@@ -51,6 +51,8 @@ class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
         int detectedRoot = 9;
         int detectedScale = 1;
         bool voiced = false;
+        int   intentMidi = -1;         // note believed intended
+        float intentConfidence = 1.0f; // scales the correction actually applied
     };
 
 public:
@@ -182,6 +184,12 @@ public:
         float correctionCents = 0.0f;
         float confidence = 0.0f;
         int   detectedRoot = 0;      // 0..11, AutoKey output (or selected key)
+        //  INPUT / INTENT / OUTPUT transparency: what was sung, what Auto Pitch
+        //  believes was meant, and how sure it is. intentConfidence scales the
+        //  correction, so this readout explains the amount actually applied.
+        int   intentMidi = -1;       // the note Auto Pitch believes was intended
+        float intentConfidence = 0.0f;
+        float appliedScale = 1.0f;   // 0..1 of the requested correction actually used
     };
     // Push the current correction key to the cross-plugin bus so other Sattari
     // plugins (e.g. Royal Chain's Tune) can follow. Called from the editor
@@ -239,6 +247,10 @@ public:
     std::atomic<float> fileKeyConf { 0.0f };
     std::atomic<float> fileBpm { 0.0f };
     std::atomic<float> fileDetuneCents { 0.0f };
+    //  Latest intent confidence, for the UI's INPUT/INTENT/OUTPUT readout.
+    //  mutable: pitchScaleForFrame is const (it computes, it does not mutate
+    //  state) but it is the one place that knows the applied intent scale.
+    mutable std::atomic<float> intentConfidenceUi { 1.0f };
 
     //  The shared song model (Phase 1): everything the drop analysis learned,
     //  time-aware. Written by the file worker under the mutex, copied out by the
@@ -262,6 +274,11 @@ public:
         s.correctionCents = (float) juce::jlimit (-200.0, 200.0, frame.correctionCents);
         s.confidence = (float) juce::jlimit (0.0, 1.0, frame.confidence);
         s.detectedRoot = frame.detectedRoot;
+        s.intentMidi = frame.intentMidi;
+        s.intentConfidence = frame.intentConfidence;
+        //  How much of the requested correction actually survived the intent
+        //  gate — the number the UI needs to explain what it did.
+        s.appliedScale = juce::jlimit (0.2f, 1.0f, frame.intentConfidence);
         return s;
     }
 
@@ -284,6 +301,13 @@ public:
     }
 
 private:
+    //  Intent estimation. Returns 0..1: how strongly Auto Pitch believes the
+    //  detected pitch is heading for `targetMidi` rather than being an
+    //  in-between, a slide, or a detector wobble. Correction is SCALED by this,
+    //  because a false correction is more damaging than a missed one.
+    struct PitchFrame;
+    double estimateIntentConfidence (const PitchFrame& frame) const noexcept;
+
     struct PitchFrame
     {
         double frequencyHz = 0.0;
@@ -542,6 +566,9 @@ private:
     // skips lookup if the writer holds it (the writer's hold is microseconds).
     juce::CriticalSection keyMapLock;
     std::vector<KeyMapEntry> keyMap;
+    //  Follow Song Map's table: the analysed scale regions, in the SAME shape the
+    //  validated Key Map follower consumes. Guarded by keyMapLock like keyMap.
+    std::vector<KeyMapEntry> songMapEntries;
     // Peak envelope + duration of the scanned file, published with the map so the
     // editor can draw the waveform under the key sections.
     std::vector<float> keyMapWave;

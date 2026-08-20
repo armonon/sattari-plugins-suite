@@ -428,6 +428,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         "liveMode", "Live Mode (low latency)", false));
 
+    //  Follow Song Map: the correction target tracks the analysed song's scale
+    //  regions as the transport moves, so a verse in C natural minor and a
+    //  chorus in C harmonic minor are BOTH legal note sets in their own places.
+    //  Default OFF — it changes what notes are legal, which is exactly the kind
+    //  of thing that must be opted into rather than discovered.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "followSongMap", "Follow Song Map", false));
+
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
     // CNN costs roughly a quarter of one performance core at an 83 Hz cadence on
     // the reference Mac, so a new session stays on efficient YIN until requested.
@@ -1157,6 +1165,9 @@ void SattariAutoPitchAudioProcessor::publishUiFrame() noexcept
     frame.midi = lastPitchFrame.midi;
     frame.targetMidi = lastPitchFrame.targetMidi;
     frame.correctionCents = lastPitchFrame.correctionCents;
+    frame.intentMidi = lastPitchFrame.voiced
+        ? juce::jlimit (0, 127, (int) std::llround (lastPitchFrame.targetMidi)) : -1;
+    frame.intentConfidence = intentConfidenceUi.load (std::memory_order_relaxed);
     frame.confidence = lastPitchFrame.confidence;
     frame.fedPitchScale = lastFedPitchScale;
     frame.detectedRoot = detectedAutoRoot.load (std::memory_order_relaxed);
@@ -1464,8 +1475,13 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
 
 bool SattariAutoPitchAudioProcessor::keyMapDriving() const
 {
-    return apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f
-        && keyMapCurrentSegment.load (std::memory_order_relaxed) >= 0;
+    //  Two time-aware sources now drive the correction target: the scanned Key
+    //  Map, and Follow Song Map (the analysed song's scale regions). Either one
+    //  outranks a single global AutoKey verdict, because both know something a
+    //  global answer cannot: WHERE in the song the singer currently is.
+    const bool anySource = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f
+                        || apvts.getRawParameterValue ("followSongMap")->load() > 0.5f;
+    return anySource && keyMapCurrentSegment.load (std::memory_order_relaxed) >= 0;
 }
 
 SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::currentKeyOrigin() const
@@ -2532,6 +2548,21 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
             a.modulations = sattari::dsp::songmodel::classifyModulations (a.scaleRegions);
             a.waveform = std::move (wavePeaks);
 
+            //  Feed the analysed scale regions into the SAME keyMap the Key Map
+            //  follower already drives from. That follower is validated code
+            //  (binary search per block, RT-safe try-lock, no allocation); giving
+            //  it a second source is strictly better than writing a parallel
+            //  follower that could disagree with it.
+            {
+                std::vector<KeyMapEntry> entries;
+                entries.reserve (a.scaleRegions.size());
+                for (const auto& r : a.scaleRegions)
+                    entries.push_back ({ r.startSec, juce::jlimit (0, 11, r.root),
+                                         r.minor ? 1 : 0, (float) r.confidence });
+                const juce::ScopedLock kl (keyMapLock);
+                songMapEntries = std::move (entries);
+            }
+
             const std::lock_guard<std::mutex> lock (songAnalysisMutex);
             songAnalysis = std::move (a);
         }
@@ -2863,15 +2894,26 @@ SattariAutoPitchAudioProcessor::keyMapKeyAtSeconds (double seconds) const
 void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
 {
     const juce::ScopedTryLock l (keyMapLock);
-    if (! l.isLocked() || keyMap.empty())
+    if (! l.isLocked())
         return;
 
+    //  Source precedence: an explicit SCAN TRACK key map is a deliberate act and
+    //  outranks the song analysis, which the user may simply have left loaded.
+    const bool useScan = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f
+                      && ! keyMap.empty();
+    const bool useSong = ! useScan
+                      && apvts.getRawParameterValue ("followSongMap")->load() > 0.5f
+                      && ! songMapEntries.empty();
+    if (! useScan && ! useSong)
+        return;
+    const auto& table = useScan ? keyMap : songMapEntries;
+
     // Binary search for the latest entry whose timeSec <= seconds.
-    int lo = 0, hi = (int) keyMap.size() - 1, idx = 0;
+    int lo = 0, hi = (int) table.size() - 1, idx = 0;
     while (lo <= hi)
     {
         const int mid = (lo + hi) / 2;
-        if (keyMap[(size_t) mid].timeSec <= seconds)
+        if (table[(size_t) mid].timeSec <= seconds)
         {
             idx = mid;
             lo = mid + 1;
@@ -2879,7 +2921,15 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
         else hi = mid - 1;
     }
 
-    const auto& e = keyMap[(size_t) idx];
+    const auto& e = table[(size_t) idx];
+    //  A region below the trust gate must not silently steer correction. Leave
+    //  the previous target and report no segment, so currentKeyOrigin falls back
+    //  exactly as it does when AutoKey is uncertain.
+    if (e.confidence < kMinBusKeyConfidence)
+    {
+        keyMapCurrentSegment.store (-1);
+        return;
+    }
     detectedAutoRoot = juce::jlimit (0, 11, e.rootIdx);
     detectedAutoScale = juce::jlimit (0, 2, e.scaleIdx);
     keyMapCurrentSegment.store (idx);
@@ -3174,6 +3224,45 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     return detected;
 }
 
+double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFrame& frame) const noexcept
+{
+    if (! frame.voiced) return 0.0;
+
+    //  Four independent reasons to doubt that the detected pitch is heading for
+    //  the chosen target. Each is a 0..1 factor; they multiply, so any one of
+    //  them alone can hold correction back. This is the "false corrections are
+    //  more damaging than missed corrections" rule made numeric.
+
+    //  1. DISTANCE. Sitting a long way from the nearest legal note usually means
+    //     the singer is between notes, not badly off one. Full trust within a
+    //     quarter tone, falling away toward a semitone.
+    const double cents = std::abs (frame.correctionCents);
+    const double distance = cents <= 50.0 ? 1.0
+                          : juce::jlimit (0.0, 1.0, 1.0 - (cents - 50.0) / 50.0);
+
+    //  2. DETECTOR CONFIDENCE. A weak pitch estimate is a weak basis for moving
+    //     someone's voice at all.
+    const double detector = juce::jlimit (0.0, 1.0, frame.confidence / 0.6);
+
+    //  3. STABILITY. A pitch travelling fast is a slide or a transition, and the
+    //     spec is explicit that those are to be preserved, not snapped. The
+    //     transition boost already tracks note changes; reuse it rather than
+    //     inventing a second notion of "moving".
+    const double motion = juce::jlimit (0.0, 1.0, transitionBoost);
+    const double stability = 1.0 - 0.65 * motion;
+
+    //  4. KEY TRUST. If the note set itself came from a low-confidence detection,
+    //     every target derived from it inherits that doubt. Manual keys are the
+    //     user's assertion and carry full trust.
+    const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
+    const double keyTrust = autoKeyOn
+        ? juce::jlimit (0.35, 1.0, (double) detectedAutoKeyConf.load (std::memory_order_relaxed)
+                                       / (double) kMinBusKeyConfidence)
+        : 1.0;
+
+    return juce::jlimit (0.0, 1.0, distance * detector * stability * keyTrust);
+}
+
 float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 {
     return styleCorrectionStrengthFor (apvts.getRawParameterValue ("amount")->load());
@@ -3244,6 +3333,23 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
     const float selectedAmount = frame.objectActive && frame.objectAmount >= 0.0f
         ? frame.objectAmount : apvts.getRawParameterValue ("amount")->load();
     double strength = (double) styleCorrectionStrengthFor (selectedAmount);
+
+    //  INTENT GATE. Scale the correction by how confident we are that this note
+    //  is heading where we think it is. Classic Mode is exempt by design — its
+    //  whole identity is the unconditional hard pull, and a user asking for that
+    //  sound is not asking for the engine's second thoughts.
+    if (! classic)
+    {
+        const double intent = estimateIntentConfidence (frame);
+        intentConfidenceUi.store ((float) intent, std::memory_order_relaxed);
+        //  Never below 0.2 of the requested amount: the gate exists to soften a
+        //  doubtful correction, not to make Amount silently stop working.
+        strength *= juce::jlimit (0.2, 1.0, intent);
+    }
+    else
+    {
+        intentConfidenceUi.store (1.0f, std::memory_order_relaxed);
+    }
 
     if (classic)
     {
