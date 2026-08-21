@@ -644,7 +644,6 @@ private:
     ArrangementPlayer arrangementPlayer;
     MidiClipPlayer    midiClipPlayer;
     Metronome         metronome;
-    juce::int64       lastArrPos = 0;     // for loop-wrap detection (all-notes-off)
     bool              arrWasPlaying = false;
     // Per-deck scratch buffers for RTSS output (allocated in prepareToPlay)
 
@@ -717,7 +716,6 @@ private:
     std::atomic<bool>  talkoverEnabled      { false };
     std::atomic<float> talkoverThresholdDb  { -40.0f };
     std::atomic<float> talkoverDuckDb       { -12.0f };
-    float talkoverEnvelope = 0.0f;   // audio-thread: smoothed mic level [0,1]
     float talkoverDuckGain = 1.0f;   // audio-thread: current duck gain [0,1]
     std::array<std::atomic<int>, kMaxChannels> liveKeyPitchClass;
     std::array<std::atomic<int>, kMaxChannels> liveKeyIsMinor;

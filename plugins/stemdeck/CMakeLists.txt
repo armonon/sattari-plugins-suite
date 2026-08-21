@@ -214,6 +214,39 @@ endfunction()
 # ── Optional: on-device neural stem separation via ONNX Runtime ───────────────
 # Off by default. Enabling it routes through the suite-wide helper, which checks
 # the dylib's real LC_BUILD_VERSION floor and refuses a lying shipping binary.
+# ── Correctness warnings, enforced ────────────────────────────────────────────
+# StemDeck previously compiled with no warning flags at all, so an entire class
+# of compiler-provable defects (uninitialised reads, missing returns, switch
+# fallthrough, out-of-bounds indexing) could never surface. A full scan of all
+# 111 StemDeck translation units showed every warning below at ZERO occurrences,
+# so promoting them to errors is a pure ratchet: it cannot break today's build,
+# and it stops this class of bug from ever landing.
+#
+# Deliberately NOT enforced: -Wall/-Wextra as a whole. Those currently produce
+# ~60 hits that are style, not defects (shadowing, sign conversion, JUCE
+# deprecations), and turning them on wholesale would bury real findings in noise.
+# Fix those separately if desired, then extend this list.
+#
+# PRIVATE so JUCE and Tracktion headers are unaffected.
+set(STEMDECK_CORRECTNESS_WARNINGS
+    -Werror=return-type            # falling off a non-void function is UB
+    -Werror=uninitialized
+    -Werror=conditional-uninitialized
+    -Werror=sometimes-uninitialized
+    -Werror=implicit-fallthrough    # a missing break in a switch
+    -Werror=unreachable-code
+    -Werror=self-assign
+    -Werror=self-move
+    -Werror=array-bounds
+    -Werror=shift-overflow
+    -Werror=tautological-compare    # a condition that is always true/false
+    -Werror=unused-result           # discarding a [[nodiscard]] return
+    -Werror=dangling-gsl            # reference outliving its temporary
+    -Werror=delete-non-virtual-dtor)
+if(NOT MSVC)
+    target_compile_options(SattariStemDeck PRIVATE ${STEMDECK_CORRECTNESS_WARNINGS})
+endif()
+
 sattari_enable_onnx(SattariStemDeck SATTARI_STEMDECK_HAS_ONNX)
 if(SATTARI_USE_ONNX AND ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
     set(STEMDECK_ONNX_ENABLED ON)
