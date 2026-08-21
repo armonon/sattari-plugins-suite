@@ -176,6 +176,10 @@ private:
     int    lastTargetMidiForTransition = -1000;
     double transitionBoost = 0.0;        // 1.0 right after a note onset, decays to 0
     double flexEngageState = 0.0;        // smoothed Flex-Tune engagement [0,1]
+    // Hysteresis: prevents vibrato oscillating across a scale-note boundary from
+    // repeatedly spiking transitionBoost=1.0 on every crossing.
+    int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
+    double hysteresisAge       = 999.0;  // seconds elapsed since last target change
 
     // Reported processing latency (Rubber Band start delay). Recomputed in
     // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.

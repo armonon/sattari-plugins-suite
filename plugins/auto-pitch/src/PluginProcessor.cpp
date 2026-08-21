@@ -311,6 +311,8 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     lastTargetMidiForTransition = -1000;
     transitionBoost = 0.0;
     flexEngageState = 0.0;
+    hysteresisAltTarget = -1000;
+    hysteresisAge       = 999.0;
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1220,21 +1222,30 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const bool classicMode = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
     const double transition = (double) apvts.getRawParameterValue ("transition")->load();
 
+    const double blockTimeSec = (double) numSamples / currentSampleRate;
+
     if (lastPitchFrame.voiced)
     {
         const int tgt = (int) std::llround (lastPitchFrame.targetMidi);
         if (tgt != lastTargetMidiForTransition)
         {
-            transitionBoost = 1.0;                 // fresh note: snap fast
+            // Clamp the boost when the same two targets alternate rapidly
+            // (< 150 ms between changes). This prevents vibrato oscillating
+            // across a scale-note boundary from spiking transitionBoost=1.0
+            // on every crossing and producing audible stepping artifacts.
+            const bool isRapidAlternation = (tgt == hysteresisAltTarget)
+                                         && (hysteresisAge < 0.150);
+            transitionBoost = isRapidAlternation ? std::min (transitionBoost, 0.30) : 1.0;
+            hysteresisAltTarget        = lastTargetMidiForTransition;
+            hysteresisAge              = 0.0;
             lastTargetMidiForTransition = tgt;
-            sessionTransientId.fetch_add (1);      // pulse for the cross-plugin bus
+            if (! isRapidAlternation)
+                sessionTransientId.fetch_add (1);  // pulse for the cross-plugin bus
         }
     }
+    hysteresisAge += blockTimeSec;
     // Decay the boost once per block (~time constant 60 ms).
-    {
-        const double blockTime = (double) numSamples / currentSampleRate;
-        transitionBoost *= std::exp (-blockTime / 0.060);
-    }
+    transitionBoost *= std::exp (-blockTimeSec / 0.060);
 
     // Sustain retune from the Style/Speed control; onset retune is much faster.
     const double sustainRetune = (double) styleRetuneCoefficient();
