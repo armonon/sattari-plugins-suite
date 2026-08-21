@@ -1,0 +1,457 @@
+{
+  "A": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 11.46,
+      "p95AbsOutputError": 11.453,
+      "meanSSError": 11.374,
+      "meanEfficiency": 0.48,
+      "meanTimeTo20c": 0.015,
+      "meanTimeTo10c": 0.018,
+      "meanTimeTo5c": 0.024,
+      "meanOvershoot": 0.918,
+      "meanJitter": 0.002,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 14.748,
+      "p95AbsOutputError": 16.342,
+      "meanSSError": 14.312,
+      "meanEfficiency": 0.52,
+      "meanTimeTo20c": 0.012,
+      "meanTimeTo10c": 0.011,
+      "meanTimeTo5c": 0.06,
+      "meanOvershoot": 0.772,
+      "meanJitter": 0.003,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 23.88
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 19.575,
+      "meanCenterError": 1.599,
+      "meanJitter": 13.695
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 16.01
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 1.61
+      },
+      "10-20": {
+        "meanSSError": 4.8
+      },
+      "20-30": {
+        "meanSSError": 9.6
+      },
+      "30-40": {
+        "meanSSError": 14.4
+      },
+      "40-50": {
+        "meanSSError": 21.36
+      }
+    }
+  },
+  "B": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 4.865,
+      "p95AbsOutputError": 4.871,
+      "meanSSError": 4.739,
+      "meanEfficiency": 0.738,
+      "meanTimeTo20c": 0.009,
+      "meanTimeTo10c": 0.043,
+      "meanTimeTo5c": 0.02,
+      "meanOvershoot": 0.869,
+      "meanJitter": 0.001,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 6.639,
+      "p95AbsOutputError": 9.013,
+      "meanSSError": 5.968,
+      "meanEfficiency": 0.8,
+      "meanTimeTo20c": 0.005,
+      "meanTimeTo10c": 0.048,
+      "meanTimeTo5c": 0.019,
+      "meanOvershoot": 0.654,
+      "meanJitter": 0.003,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 9.95
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 18.271,
+      "meanCenterError": 0.599,
+      "meanJitter": 12.719
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 6.67
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 0.67
+      },
+      "10-20": {
+        "meanSSError": 2.0
+      },
+      "20-30": {
+        "meanSSError": 4.0
+      },
+      "30-40": {
+        "meanSSError": 6.0
+      },
+      "40-50": {
+        "meanSSError": 8.9
+      }
+    }
+  },
+  "C": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 1.336,
+      "p95AbsOutputError": 1.345,
+      "meanSSError": 1.184,
+      "meanEfficiency": 0.877,
+      "meanTimeTo20c": 0.007,
+      "meanTimeTo10c": 0.019,
+      "meanTimeTo5c": 0.036,
+      "meanOvershoot": 0.953,
+      "meanJitter": 0.001,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 2.303,
+      "p95AbsOutputError": 5.228,
+      "meanSSError": 1.498,
+      "meanEfficiency": 0.95,
+      "meanTimeTo20c": 0.004,
+      "meanTimeTo10c": 0.019,
+      "meanTimeTo5c": 0.041,
+      "meanOvershoot": 0.701,
+      "meanJitter": 0.004,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 2.49
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 17.812,
+      "meanCenterError": 0.068,
+      "meanJitter": 12.377
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 1.67
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 0.17
+      },
+      "10-20": {
+        "meanSSError": 0.5
+      },
+      "20-30": {
+        "meanSSError": 1.0
+      },
+      "30-40": {
+        "meanSSError": 1.5
+      },
+      "40-50": {
+        "meanSSError": 2.23
+      }
+    }
+  },
+  "D": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 0.526,
+      "p95AbsOutputError": 2.649,
+      "meanSSError": 0.004,
+      "meanEfficiency": 0.923,
+      "meanTimeTo20c": 0.013,
+      "meanTimeTo10c": 0.032,
+      "meanTimeTo5c": 0.073,
+      "meanOvershoot": 1.022,
+      "meanJitter": 0.001,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 2.555,
+      "p95AbsOutputError": 8.719,
+      "meanSSError": 0.61,
+      "meanEfficiency": 0.979,
+      "meanTimeTo20c": 0.011,
+      "meanTimeTo10c": 0.034,
+      "meanTimeTo5c": 0.09,
+      "meanOvershoot": 0.754,
+      "meanJitter": 0.076,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 0.0
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 22.436,
+      "meanCenterError": -0.338,
+      "meanJitter": 15.825
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 0.98
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 0.0
+      },
+      "10-20": {
+        "meanSSError": 0.01
+      },
+      "20-30": {
+        "meanSSError": 0.0
+      },
+      "30-40": {
+        "meanSSError": 0.0
+      },
+      "40-50": {
+        "meanSSError": 0.01
+      }
+    }
+  },
+  "E": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 3.474,
+      "p95AbsOutputError": 3.484,
+      "meanSSError": 3.347,
+      "meanEfficiency": 0.661,
+      "meanTimeTo20c": 0.007,
+      "meanTimeTo10c": 0.02,
+      "meanTimeTo5c": 0.044,
+      "meanOvershoot": 0.943,
+      "meanJitter": 0.002,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 4.465,
+      "p95AbsOutputError": 7.182,
+      "meanSSError": 3.758,
+      "meanEfficiency": 0.779,
+      "meanTimeTo20c": 0.004,
+      "meanTimeTo10c": 0.017,
+      "meanTimeTo5c": 0.051,
+      "meanOvershoot": 0.823,
+      "meanJitter": 0.004,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 0.39
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 18.037,
+      "meanCenterError": -0.031,
+      "meanJitter": 12.546
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 0.01
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 2.0
+      },
+      "10-20": {
+        "meanSSError": 6.0
+      },
+      "20-30": {
+        "meanSSError": 6.0
+      },
+      "30-40": {
+        "meanSSError": 4.5
+      },
+      "40-50": {
+        "meanSSError": 1.12
+      }
+    }
+  },
+  "F": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 3.614,
+      "p95AbsOutputError": 3.851,
+      "meanSSError": 3.347,
+      "meanEfficiency": 0.661,
+      "meanTimeTo20c": 0.012,
+      "meanTimeTo10c": 0.039,
+      "meanTimeTo5c": 0.078,
+      "meanOvershoot": 0.943,
+      "meanJitter": 0.002,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 5.278,
+      "p95AbsOutputError": 11.145,
+      "meanSSError": 3.782,
+      "meanEfficiency": 0.778,
+      "meanTimeTo20c": 0.007,
+      "meanTimeTo10c": 0.038,
+      "meanTimeTo5c": 0.105,
+      "meanOvershoot": 0.823,
+      "meanJitter": 0.012,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 0.39
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 18.037,
+      "meanCenterError": 0.053,
+      "meanJitter": 12.605
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 0.01
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 2.0
+      },
+      "10-20": {
+        "meanSSError": 6.0
+      },
+      "20-30": {
+        "meanSSError": 6.0
+      },
+      "30-40": {
+        "meanSSError": 4.5
+      },
+      "40-50": {
+        "meanSSError": 1.12
+      }
+    }
+  },
+  "G": {
+    "stable": {
+      "n": 39,
+      "meanAbsOutputError": 0.464,
+      "p95AbsOutputError": 2.156,
+      "meanSSError": 0.004,
+      "meanEfficiency": 0.923,
+      "meanTimeTo20c": 0.009,
+      "meanTimeTo10c": 0.022,
+      "meanTimeTo5c": 0.042,
+      "meanOvershoot": 0.937,
+      "meanJitter": 0.001,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "duration": {
+      "n": 50,
+      "meanAbsOutputError": 2.065,
+      "p95AbsOutputError": 6.706,
+      "meanSSError": 0.615,
+      "meanEfficiency": 0.968,
+      "meanTimeTo20c": 0.005,
+      "meanTimeTo10c": 0.021,
+      "meanTimeTo5c": 0.047,
+      "meanOvershoot": 0.666,
+      "meanJitter": 0.066,
+      "totalFalseTargets": 0.0,
+      "totalOctaveErrors": 0
+    },
+    "boundary": {
+      "n": 72,
+      "casesWithFalseTarget": 0,
+      "totalOctaveErrors": 0,
+      "meanSSAbsError": 0.0
+    },
+    "vibrato": {
+      "n": 48,
+      "meanVibratoDepthRetained": 22.444,
+      "meanCenterError": 0.007,
+      "meanJitter": 15.703
+    },
+    "slides": {
+      "n": 15,
+      "totalFalseTargetGrabs": 0,
+      "meanSwitchLagMs": 137.1,
+      "meanPostSlideError": 0.54
+    },
+    "stable_by_band": {
+      "0-10": {
+        "meanSSError": 0.0
+      },
+      "10-20": {
+        "meanSSError": 0.01
+      },
+      "20-30": {
+        "meanSSError": 0.0
+      },
+      "30-40": {
+        "meanSSError": 0.0
+      },
+      "40-50": {
+        "meanSSError": 0.01
+      }
+    }
+  }
+}
