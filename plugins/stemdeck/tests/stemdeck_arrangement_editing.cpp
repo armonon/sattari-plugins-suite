@@ -1,4 +1,5 @@
 #include "MainPluginEditor.h"
+#include "GainScale.h"
 
 #include <cmath>
 #include <iostream>
@@ -71,7 +72,7 @@ struct StemDeckArrangementTestAccess
         check (view.hasArrangement(), "valid saved clips restore an arrangement");
         check (view.getVisibleLanes() == 3,
                "visible lane count survives project restore");
-        check (std::abs (view.getLaneGainDb (2) - 6.0f) < 1.0e-6f,
+        check (std::abs (view.getLaneGainDb (2) - stemdeck::gainscale::kMaxDb) < 1.0e-6f,
                "damaged lane gain clamps to the supported range");
         check (view.isLaneMuted (2), "lane mute survives project restore");
         check (! view.isLoopEnabled(),
@@ -95,7 +96,7 @@ struct StemDeckArrangementTestAccess
         check (view.canUndo() && std::abs (view.getLaneGainDb (2) + 12.0f) < 1.0e-6f,
                "lane gain edits enter arranger undo history");
         view.undo();
-        check (std::abs (view.getLaneGainDb (2) - 6.0f) < 1.0e-6f,
+        check (std::abs (view.getLaneGainDb (2) - stemdeck::gainscale::kMaxDb) < 1.0e-6f,
                "undo restores lane gain");
         view.redo();
         check (std::abs (view.getLaneGainDb (2) + 12.0f) < 1.0e-6f,
