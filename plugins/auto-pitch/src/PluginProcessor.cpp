@@ -311,11 +311,6 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     lastTargetMidiForTransition = -1000;
     transitionBoost = 0.0;
     flexEngageState = 0.0;
-    gAttackWeight = gTransitionWeight = gVibratoWeight = gReleaseWeight = 0.0;
-    gSustainWeight = 1.0;
-    gPitchVelocity = gStabilityFrames = gOscillationEnergy = gPrevDetectedMidi = 0.0;
-    gHysteresisAltTarget = -1000;
-    gHysteresisAge       = 999.0;
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1225,48 +1220,21 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const bool classicMode = apvts.getRawParameterValue ("classicMode")->load() > 0.5f;
     const double transition = (double) apvts.getRawParameterValue ("transition")->load();
 
-    const double blockTimeSec = (double) numSamples / currentSampleRate;
-
     if (lastPitchFrame.voiced)
     {
         const int tgt = (int) std::llround (lastPitchFrame.targetMidi);
         if (tgt != lastTargetMidiForTransition)
         {
-            // Detect rapid alternation: the new target matches the target
-            // before the last change AND the last change was < 150 ms ago.
-            const bool isRapidAlternation = (tgt == gHysteresisAltTarget)
-                                         && (gHysteresisAge < 0.150);
-
-            // For Strategy G: also dampen when the CURRENT target was short-lived
-            // (< 150 ms of stability), which indicates a vibrato boundary crossing
-            // rather than a genuine note change. The IIR spike from transitionBoost=1.0
-            // on every 4Hz vibrato crossing drives gAttackWeight to 1.0, switching G's
-            // retune multiplier from 0.25x (sustain-slow) to 1.0x (attack-fast) on
-            // each crossing — producing 69c jumps where D (fixed 0.25x) shows 43c.
-            // Exclude the very first onset from silence (lastTarget == -1000) so
-            // the initial note attack still gets full snap.
-            const bool isVibratoOscillation =
-                (experimentStrategy == CorrectionStrategy::G_StateAdaptive)
-                && (lastTargetMidiForTransition != -1000)
-                && (gStabilityFrames < 0.150);
-
-            transitionBoost = (isRapidAlternation || isVibratoOscillation)
-                                  ? std::min (transitionBoost, 0.30)
-                                  : 1.0;
-            gHysteresisAltTarget        = lastTargetMidiForTransition;
-            gHysteresisAge              = 0.0;
+            transitionBoost = 1.0;                 // fresh note: snap fast
             lastTargetMidiForTransition = tgt;
-            if (! isRapidAlternation)
-                sessionTransientId.fetch_add (1);  // pulse for the cross-plugin bus
+            sessionTransientId.fetch_add (1);      // pulse for the cross-plugin bus
         }
     }
-    gHysteresisAge += blockTimeSec;
     // Decay the boost once per block (~time constant 60 ms).
-    transitionBoost *= std::exp (-blockTimeSec / 0.060);
-
-    // Strategy G: update state machine after transitionBoost is current.
-    if (experimentStrategy == CorrectionStrategy::G_StateAdaptive)
-        updateStrategyGState (lastPitchFrame, blockTimeSec);
+    {
+        const double blockTime = (double) numSamples / currentSampleRate;
+        transitionBoost *= std::exp (-blockTime / 0.060);
+    }
 
     // Sustain retune from the Style/Speed control; onset retune is much faster.
     const double sustainRetune = (double) styleRetuneCoefficient();

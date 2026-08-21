@@ -188,30 +188,6 @@ private:
     std::atomic<juce::int64> sessionTransientId { 0 };
     juce::int64              lastBusPublishMs = 0;   // per-instance bus publish throttle
 
-    // Diagnostic capture: keyConfidence written by correlateAutoKeyHistogram().
-    // Initialized to 0 so getDiagnosticSnapshot() is valid before autoKey runs.
-    double lastKeyConfidence = 0.0;
-
-    // --- Experiment strategy (bench only; never influences production UI) ------
-    CorrectionStrategy experimentStrategy { CorrectionStrategy::A_Baseline };
-
-    // --- Strategy G state machine (bench only) --------------------------------
-    double gAttackWeight     = 0.0;
-    double gTransitionWeight = 0.0;
-    double gSustainWeight    = 1.0;   // start in sustain
-    double gVibratoWeight    = 0.0;
-    double gReleaseWeight    = 0.0;
-    double gPitchVelocity    = 0.0;   // smoothed abs pitch slope (MIDI/sec)
-    double gStabilityFrames  = 0.0;   // seconds with same target
-    double gOscillationEnergy = 0.0;  // running vibrato energy proxy
-    double gPrevDetectedMidi = 0.0;
-    // transitionBoost hysteresis: prevents vibrato oscillating across a scale
-    // note boundary from repeatedly spiking the boost to 1.0. When the same
-    // two targets alternate within 150 ms, the boost is clamped to ≤ 0.30 so
-    // the ATTACK state does not dominate gAttackWeight on every crossing.
-    int    gHysteresisAltTarget = -1000; // target before lastTargetMidiForTransition
-    double gHysteresisAge       = 999.0; // seconds elapsed since last target change
-
     // Humanize: a slow, low-passed random walk that nudges the corrected pitch
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
