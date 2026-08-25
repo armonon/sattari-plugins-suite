@@ -112,12 +112,13 @@ private:
         const auto& f = g.getCurrentFont();
         float total = -tracking;
         for (int i = 0; i < text.length(); ++i)
-            total += f.getStringWidthFloat (text.substring (i, i + 1)) + tracking;
+            total += juce::GlyphArrangement::getStringWidth (
+                         f, text.substring (i, i + 1)) + tracking;
         float x = area.getCentreX() - total * 0.5f;
         for (int i = 0; i < text.length(); ++i)
         {
             const juce::String ch = text.substring (i, i + 1);
-            const float w = f.getStringWidthFloat (ch);
+            const float w = juce::GlyphArrangement::getStringWidth (f, ch);
             g.drawText (ch, juce::Rectangle<float> (x, area.getY(), w + 2.0f, area.getHeight()),
                         juce::Justification::centredLeft, false);
             x += w + tracking;

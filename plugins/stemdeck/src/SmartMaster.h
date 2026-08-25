@@ -55,7 +55,13 @@ public:
         if (n <= 0 || ch < 1)
             return;
 
-        amount = juce::jlimit (0.0f, 1.0f, amount);
+        amount = std::isfinite (amount) ? juce::jlimit (0.0f, 1.0f, amount) : 0.0f;
+
+        // A hostile hosted plug-in or an extreme automation transition must not
+        // poison this processor's recursive analysis/filter state indefinitely.
+        // Resetting these few scalar states is real-time safe.
+        if (! stateIsFinite())
+            reset();
 
         // This processor is called on every master block even while the feature
         // is disabled. Keep bypass genuinely free: the analysis below walks the
@@ -90,7 +96,9 @@ public:
             const float* R = ch > 1 ? buffer.getReadPointer (1) : L;
             for (int i = 0; i < n; ++i)
             {
-                const float mono = 0.5f * (L[i] + R[i]);
+                const float left  = std::isfinite (L[i]) ? juce::jlimit (-32.0f, 32.0f, L[i]) : 0.0f;
+                const float right = std::isfinite (R[i]) ? juce::jlimit (-32.0f, 32.0f, R[i]) : 0.0f;
+                const float mono = 0.5f * (left + right);
                 bandLpState[0] += lpC * (mono - bandLpState[0]);          // low band
                 bandHpState[0] += hpC * (mono - bandHpState[0]);          // (lp for subtraction)
                 const float lo = bandLpState[0];
@@ -154,8 +162,8 @@ public:
         float* R = ch > 1 ? buffer.getWritePointer (1) : nullptr;
         for (int i = 0; i < n; ++i)
         {
-            float l = L[i];
-            float r = R != nullptr ? R[i] : l;
+            float l = std::isfinite (L[i]) ? L[i] : 0.0f;
+            float r = R != nullptr && std::isfinite (R[i]) ? R[i] : l;
 
             eq.processSample (l, r, appliedLow, appliedMid, appliedHigh);
             l *= makeup;
@@ -175,8 +183,10 @@ public:
                 maxGr = juce::jmax (maxGr, grDb);
             }
 
-            L[i] = l * gain;
-            if (R != nullptr) R[i] = r * gain;
+            const float outL = l * gain;
+            const float outR = r * gain;
+            L[i] = std::isfinite (outL) ? outL : 0.0f;
+            if (R != nullptr) R[i] = std::isfinite (outR) ? outR : 0.0f;
         }
 
         gainReductionDb.store (maxGr, std::memory_order_relaxed);
@@ -186,6 +196,16 @@ public:
     float getGainReductionDb() const noexcept { return gainReductionDb.load (std::memory_order_relaxed); }
 
 private:
+    bool stateIsFinite() const noexcept
+    {
+        return std::isfinite (lowEnergy) && std::isfinite (midEnergy)
+            && std::isfinite (highEnergy) && std::isfinite (loudnessMs)
+            && std::isfinite (appliedLow) && std::isfinite (appliedMid)
+            && std::isfinite (appliedHigh) && std::isfinite (loudnessGainDb)
+            && std::isfinite (compEnvelope) && std::isfinite (kHpState[0])
+            && std::isfinite (bandLpState[0]) && std::isfinite (bandHpState[0]);
+    }
+
     float onePoleCoeff (float hz) const noexcept
     {
         return juce::jlimit (0.0001f, 0.9999f,

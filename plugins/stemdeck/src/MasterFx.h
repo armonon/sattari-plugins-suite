@@ -42,6 +42,11 @@ public:
         p.dryLevel   = 0.60f;
         p.freezeMode = 0.0f;
         reverb.setParameters (p);
+
+        // Hosts are allowed to call prepare repeatedly while changing sample
+        // rate and block size.  Do not carry a filter/reverb tail from the old
+        // format into the newly-sized delay network.
+        reset();
     }
 
     void reset()

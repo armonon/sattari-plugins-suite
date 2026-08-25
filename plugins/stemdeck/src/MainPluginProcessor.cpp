@@ -2316,20 +2316,41 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
 
 void MainPluginProcessor::applyLimiter (juce::AudioBuffer<float>& buffer, float ceilingDb)
 {
+    // This is the final safety boundary before meters, recorders and the host.
+    // Automation validators deliberately stress parameters across format changes;
+    // an invalid upstream sample must be contained here rather than infecting the
+    // recursive limiter envelope and every subsequent block.
+    ceilingDb = std::isfinite (ceilingDb) ? juce::jlimit (-24.0f, 0.0f, ceilingDb) : -0.1f;
     const float ceiling = juce::Decibels::decibelsToGain (ceilingDb);
+    if (! std::isfinite (limiterEnvelope) || limiterEnvelope < 0.0f || limiterEnvelope > 1.0f)
+        limiterEnvelope = 1.0f;
+
     float minEnv = 1.0f;   // deepest gain applied this block → peak gain reduction
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
         float peak = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            peak = juce::jmax (peak, std::abs (buffer.getSample (ch, i)));
+        {
+            float sample = buffer.getSample (ch, i);
+            if (! std::isfinite (sample))
+            {
+                sample = 0.0f;
+                buffer.setSample (ch, i, sample);
+            }
+            peak = juce::jmax (peak, std::abs (sample));
+        }
 
         const float targetGain = peak > ceiling ? ceiling / (peak + 1.0e-9f) : 1.0f;
         limiterEnvelope = targetGain < limiterEnvelope ? targetGain : limiterEnvelope + 0.002f * (1.0f - limiterEnvelope);
         minEnv = juce::jmin (minEnv, limiterEnvelope);
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.setSample (ch, i, juce::jlimit (-0.995f, 0.995f, buffer.getSample (ch, i) * limiterEnvelope));
+        {
+            const float limited = buffer.getSample (ch, i) * limiterEnvelope;
+            buffer.setSample (ch, i, std::isfinite (limited)
+                                           ? juce::jlimit (-ceiling, ceiling, limited)
+                                           : 0.0f);
+        }
     }
 
     // Peak gain reduction in dB (0 = none), smoothed toward 0 so the meter falls back.

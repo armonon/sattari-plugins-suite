@@ -83,7 +83,7 @@ public:
         std::function<void()>        onCycleQuantize;
         std::function<void()>        onToggleSlip;
         std::function<void()>        onOpenBeatGrid;
-        std::function<void(int)>     onToggleFx;    // 0..2
+        std::function<void(int)>     onToggleFx;    // 0 = echo, 1 = reverb
         std::function<void()>        onRequestFocus;
     };
     Callbacks callbacks;
@@ -113,7 +113,7 @@ private:
     {
         none, play, cue, loopHalve, loopNum, loopDouble,
         jumpBack, jumpNum, jumpFwd, sync, key, take, chevron,
-        stem0, stem1, stem2, stem3, quant, slip, grid, fxA, fxB, fxC
+        stem0, stem1, stem2, stem3, quant, slip, grid, fxA, fxB
     };
     Hit hitRegion (juce::Point<float>) const;
     juce::Rectangle<float> regionFor (Hit) const;

@@ -2,6 +2,24 @@
 
 Truth label: **validation plan / not sale-ready evidence**. Passing these gates would support a sale-candidate claim; this document itself does not make one.
 
+## Latest automated evidence (2026-08-24)
+
+- Release universal Standalone and VST3 binaries build for both arm64 and x86_64.
+- All 37 deterministic contracts pass, including neural beat/key smoke, stem
+  cancellation, arrangement editing, replay hash, real-time safety, PDC, recording
+  health, multi-instance and load-latency coverage.
+- The VST3 passes pluginval at strictness 5 across 44.1/48/96 kHz and
+  64/128/256/512/1024-sample blocks, including randomized automation and editor
+  automation. The master output now contains invalid-value containment so one
+  misbehaving hosted effect or automation transition cannot poison later blocks.
+- The neural alpha packaging path produces a self-contained, locally signed app
+  with the universal ONNX Runtime and isolated-plugin helper embedded; the bundle
+  passes deep signature, dependency and architecture validation.
+- The granular render and Rubber Band time/pitch benchmark contracts pass.
+
+These are engineering gates, not the remaining human listening, hardware/DAW,
+Developer ID, notarization or clean-machine installation evidence.
+
 ## Implemented in this spike
 
 - External stem-lane loading scaffold: each deck can load pre-separated `Full mix`, `Drums`, `Bass`, `Music`, and `Vocals` audio files that share one deck playhead/transport.
@@ -31,10 +49,11 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
   full visual beat-marker editor before commercial DJ-grade claims.
 - Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: trusted Sattari in-process graphs plus a dedicated helper process and shared-memory audio ring for untrusted effects) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
 - Hosted-plugin parameters now have stable event-stream addressing and deterministic
-  dispatch for the trusted graph. Third-party audio effects are process-isolated and
-  dry-bypassed if the helper exits; native editors, MIDI, complete state/automation,
-  more than one isolated effect per chain, automatic restart, and crash/hang/latency
-  soak matrices remain release blockers for unrestricted third-party hosting.
+  dispatch for the trusted graph. Third-party audio effects are process-isolated,
+  dry-bypassed if the helper exits, retried twice after a transient crash, and expose
+  a truthful click-free rack bypass. Native editors, MIDI, complete guest state and
+  parameter automation, more than one isolated effect per chain, and crash/hang/
+  latency soak matrices remain release blockers for unrestricted third-party hosting.
 - Editable arrangement replay now follows captured lane EQ/filter/reverb/echo and
   master gain/performance-FX/Smart-Master/limiter automation. A real third-party
   plugin replay/hash matrix and complete live-set stress replay are still required.

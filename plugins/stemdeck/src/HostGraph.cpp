@@ -910,7 +910,7 @@ void HostGraph::moveChainPlugin (Chain chain, int fromIndex, int toIndex)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr) return;
+    if (state.sandbox != nullptr) return; // one isolated insert cannot be reordered
     const int n = state.pluginNodes.size();
     if (! juce::isPositiveAndBelow (fromIndex, n) || ! juce::isPositiveAndBelow (toIndex, n)
         || fromIndex == toIndex)
@@ -924,7 +924,14 @@ void HostGraph::setChainPluginBypassed (Chain chain, int index, bool bypassed)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr) return;
+    // An isolated chain contains exactly one insert. Map its rack bypass to the
+    // chain's click-free wet/dry bypass so the visible control remains truthful.
+    if (state.sandbox != nullptr)
+    {
+        if (index == 0)
+            state.chainBypassed.store (bypassed, std::memory_order_release);
+        return;
+    }
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
     // Node-level bypass: the graph keeps the connections and passes audio through, so
     // this neither reallocates nor rebuilds — safe to toggle while audio is running.
@@ -936,7 +943,9 @@ bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr) return false;
+    if (state.sandbox != nullptr)
+        return index == 0
+            && state.chainBypassed.load (std::memory_order_acquire);
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return false;
     auto* node = state.pluginNodes[index].get();
     return node != nullptr && node->isBypassed();

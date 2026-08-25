@@ -50,7 +50,8 @@ inline void drawTracked (juce::Graphics& g, const juce::String& text, juce::Rect
     const auto& f = g.getCurrentFont();
     float total = -tracking;
     for (int i = 0; i < text.length(); ++i)
-        total += f.getStringWidthFloat (text.substring (i, i + 1)) + tracking;
+        total += juce::GlyphArrangement::getStringWidth (
+                     f, text.substring (i, i + 1)) + tracking;
 
     const auto a = area.toFloat();
     float x = just.testFlags (juce::Justification::left)  ? a.getX()
@@ -59,7 +60,7 @@ inline void drawTracked (juce::Graphics& g, const juce::String& text, juce::Rect
     for (int i = 0; i < text.length(); ++i)
     {
         const juce::String ch = text.substring (i, i + 1);
-        const float w = f.getStringWidthFloat (ch);
+        const float w = juce::GlyphArrangement::getStringWidth (f, ch);
         g.drawText (ch, juce::Rectangle<float> (x, a.getY(), w + 2.0f, a.getHeight()),
                     juce::Justification::centredLeft, false);
         x += w + tracking;

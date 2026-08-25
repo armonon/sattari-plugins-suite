@@ -425,9 +425,11 @@ private:
                                                                     : "ch " + juce::String (state.midiChannel));
 
         g.setFont (juce::FontOptions (T::tBody));
-        const int hintW = (int) std::ceil (g.getCurrentFont().getStringWidthFloat (hint));
+        const int hintW = juce::GlyphArrangement::getStringWidthInt (
+            g.getCurrentFont(), hint);
         g.setFont (juce::FontOptions (T::tSmall));
-        const int chipW = (int) std::ceil (g.getCurrentFont().getStringWidthFloat (cta)) + 20;
+        const int chipW = juce::GlyphArrangement::getStringWidthInt (
+            g.getCurrentFont(), cta) + 20;
 
         const int groupW = hintW + T::gap6 + chipW;
         auto group = row.withSizeKeepingCentre (juce::jmin (groupW, row.getWidth()), 22);

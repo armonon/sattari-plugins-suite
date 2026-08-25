@@ -222,6 +222,8 @@ private:
             float        followProbability = 1.0f;   // 0..1
             bool         locked        = false;      // prevent accidental drag
             int          sourceTake    = -1;         // >=0 when promoted from a take lane
+            bool         active        = true;       // Ableton-style clip activation
+            float        gainDb        = 0.0f;       // non-destructive region gain
 
             double lengthSeconds() const noexcept { return juce::jmax (0.0, trimEndSeconds - trimStartSeconds); }
             double timelineEndSeconds() const noexcept { return timelineStartSeconds + lengthSeconds(); }
@@ -279,6 +281,10 @@ private:
         void deleteClip (int laneIndex, int clipIndex);
         void deleteSelectedClip();
         void duplicateClip (int laneIndex, int clipIndex);
+        void duplicateSelectedClip();
+        void toggleSelectedClipActive();
+        void setClipActive (int laneIndex, int clipIndex, bool shouldBeActive);
+        void setClipGainDb (int laneIndex, int clipIndex, float gainDb);
         void setClipLabel (int laneIndex, int clipIndex, const juce::String& label);
         void setClipColour (int laneIndex, int clipIndex, juce::uint32 argb);
         void setClipLocked (int laneIndex, int clipIndex, bool shouldLock);
@@ -320,7 +326,7 @@ private:
             std::array<std::vector<MidiClipData>, numEditableLanes> allMidi;
             // Mix, loop and complete editable automation state ride along so every
             // audible arranger edit—not only clip geometry—round-trips through undo.
-            std::array<std::vector<std::pair<double, float>>, numLanes> allAutoPoints;
+            std::array<std::array<std::vector<std::pair<double, float>>, 7>, numLanes> allAutoPoints;
             std::array<bool, numLanes> allAutoVisible {};
             std::array<int, numLanes> allAutoTarget {};
             std::array<bool, numEditableLanes> allMuted {}, allSoloed {};
@@ -400,12 +406,28 @@ private:
         // v3 captures use a pre-fader/pre-insert source, so the performed trim/fader
         // curve is promoted here and can be perfected without double-processing.
         // Additional EQ/filter/insert automation will use the same render graph.
-        static constexpr int numAutoTargets = 1;
+        enum AutoTarget { volumeAuto, lowAuto, midAuto, highAuto,
+                          filterAuto, reverbAuto, echoAuto, numAutoTargets };
         struct EditAutomation
         {
             bool visible = false;
             int  target  = 0;
-            std::vector<std::pair<double, float>> points;   // (seconds, normalized 0..1)
+            // Curves are stored normalized so every target shares one predictable
+            // editor gesture. They are converted to engine units at playback time.
+            std::array<std::vector<std::pair<double, float>>, numAutoTargets> curves;
+            const auto& pointsForTarget (int index) const noexcept
+            {
+                return curves[(size_t) juce::jlimit (0, numAutoTargets - 1, index)];
+            }
+            auto& pointsForTarget (int index) noexcept
+            {
+                return curves[(size_t) juce::jlimit (0, numAutoTargets - 1, index)];
+            }
+            bool empty() const noexcept
+            {
+                for (const auto& curve : curves) if (! curve.empty()) return false;
+                return true;
+            }
         };
         void  setShowDemoBlocks (bool on) { showDemoBlocks = on; repaint(); }   // showcase placeholder clips
         bool  isAutomationVisible (int lane) const noexcept { return juce::isPositiveAndBelow (lane, numLanes) && editAuto[(size_t) lane].visible; }

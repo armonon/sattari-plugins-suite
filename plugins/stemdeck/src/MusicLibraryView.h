@@ -99,6 +99,8 @@ private:
     void rebuildView();
     void applyAnalysis (const juce::File& file, const TrackAnalysis& analysis, double lengthSeconds);
     void scanFolder (const juce::File& folder);
+    void importDiscoveredFiles (std::shared_ptr<juce::Array<juce::File>> files,
+                                int startIndex);
     bool addAudioFile (const juce::File& file);
     void enqueueAnalysis (const juce::File& file);
 
@@ -160,6 +162,7 @@ private:
 
     juce::ThreadPool analysisPool { 2 };
     std::atomic<int> analysesInFlight { 0 };
+    std::atomic<int> folderScansInFlight { 0 };
 
     juce::DynamicObject::Ptr cache;     // path -> {bpm,key,minor,conf,len,mod}
     std::atomic<bool> cacheDirty { false };

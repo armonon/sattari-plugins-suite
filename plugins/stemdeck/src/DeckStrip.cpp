@@ -708,7 +708,6 @@ void DeckStrip::mouseDown (const juce::MouseEvent& e)
         case Hit::grid:  if (callbacks.onOpenBeatGrid)  callbacks.onOpenBeatGrid(); break;
         case Hit::fxA:   if (callbacks.onToggleFx)      callbacks.onToggleFx (0); break;
         case Hit::fxB:   if (callbacks.onToggleFx)      callbacks.onToggleFx (1); break;
-        case Hit::fxC:   break;   // removed: had no audio routing
     }
     repaint();
 }

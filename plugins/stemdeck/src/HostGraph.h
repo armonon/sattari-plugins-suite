@@ -90,10 +90,8 @@ public:
     juce::Array<juce::PluginDescription> getKnownPlugins() const;
     juce::File getCacheFile() const;
 
-    // Compatibility entry point. Until an out-of-process helper host exists this
-    // deliberately refuses arbitrary third-party discovery and routes to the
-    // trusted-suite scanner instead; running unknown code inside the live audio
-    // process is not an acceptable failure mode on stage.
+    // Third-party discovery runs in the out-of-process helper. Trusted Sattari
+    // effects may still use the in-process graph for full editor/automation access.
     ScanResult scanDefaultLocations (int maxPluginsPerFormat = 64, bool recursive = true);
     // Scan ONLY the trusted Sattari suite.
     ScanResult scanSattariOnly();

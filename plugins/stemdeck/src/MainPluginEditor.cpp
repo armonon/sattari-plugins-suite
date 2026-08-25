@@ -1631,6 +1631,16 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
     }
     if (pianoRollButton.getToggleState())
     {
+        if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'D')
+        {
+            arrangementView.duplicateSelectedClip();
+            return true;
+        }
+        if (! key.getModifiers().isAnyModifierKeyDown() && key.getKeyCode() == '0')
+        {
+            arrangementView.toggleSelectedClipActive();
+            return true;
+        }
         if (key.getKeyCode() == juce::KeyPress::spaceKey)
         {
             toggleArrangementPlayback();
@@ -2654,9 +2664,11 @@ void MainPluginEditor::toggleArrangementPlayback()
         return;
     }
 
-    // Build clip specs from the editable deck lanes (the master lane is their sum,
-    // so we skip it to avoid doubling). Timeline position == the clip's recorded
-    // region, so the edited multi-clip arrangement plays back in place.
+    // Build clip specs from the editable source lanes. The printed master is normally
+    // skipped because it is their sum, but it becomes the authoritative fallback when
+    // no audible source clip survives (older captures and interrupted recordings can
+    // legitimately contain only the safety master). This prevents a valid-looking
+    // master-only take from playing silence.
     const auto& clips = arrangementView.getClips();
     std::vector<MainPluginProcessor::ArrangementClipSpec> specs;
     for (int lane = 0; lane < MainPluginProcessor::numDecks; ++lane)
@@ -2664,7 +2676,7 @@ void MainPluginEditor::toggleArrangementPlayback()
         if (! arrangementView.laneAudible (lane)) continue;   // honour per-lane mute/solo
         for (const auto& clip : clips[(size_t) lane])
         {
-            if (! clip.file.existsAsFile() || clip.durationSeconds <= 0.0) continue;
+            if (! clip.active || ! clip.file.existsAsFile() || clip.durationSeconds <= 0.0) continue;
             const double start = juce::jlimit (0.0, clip.durationSeconds, clip.trimStartSeconds);
             const double end   = juce::jlimit (start, clip.durationSeconds,
                                                clip.trimEndSeconds > 0.0 ? clip.trimEndSeconds : clip.durationSeconds);
@@ -2675,15 +2687,11 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.timelineStartSeconds = clip.timelineStartSeconds;   // free-positioned
             spec.sourceStartSeconds   = start;
             spec.lengthSeconds        = end - start;
-            spec.gain                 = arrangementView.laneGainLinear (lane);
+            spec.gain                 = arrangementView.laneGainLinear (lane)
+                                      * juce::Decibels::decibelsToGain (clip.gainDb);
             spec.fadeInSeconds        = clip.fadeInSeconds;
             spec.fadeOutSeconds       = clip.fadeOutSeconds;
             spec.lane                 = lane;
-            if (const auto* automation =
-                    arrangementView.editAutomationForLane (lane);
-                automation != nullptr && automation->target == 0
-                    && ! automation->points.empty())
-                spec.gainAutomation = automation->points;
             if (const auto* dsp =
                     arrangementView.capturedDspForLane (lane);
                 dsp != nullptr)
@@ -2695,8 +2703,76 @@ void MainPluginEditor::toggleArrangementPlayback()
                 spec.reverbAutomation = dsp->reverbMix;
                 spec.echoAutomation = dsp->echoMix;
             }
+            if (const auto* automation =
+                    arrangementView.editAutomationForLane (lane);
+                automation != nullptr)
+            {
+                auto convert = [] (const auto& source, auto mapValue)
+                {
+                    std::vector<std::pair<double, float>> result;
+                    result.reserve (source.size());
+                    for (const auto& [time, normalized] : source)
+                        result.emplace_back (time, mapValue (normalized));
+                    return result;
+                };
+                const auto identity = [] (float value) { return juce::jlimit (0.0f, 1.0f, value); };
+                const auto eqDb = [] (float value)
+                {
+                    return stemdeck::gainscale::normToBipolarDb (value, -24.0f, 24.0f);
+                };
+                const auto filter = [] (float value) { return juce::jmap (value, -1.0f, 1.0f); };
+                const auto& curves = automation->curves;
+                if (! curves[ArrangementRecorderView::volumeAuto].empty())
+                    spec.gainAutomation = convert (curves[ArrangementRecorderView::volumeAuto],
+                                                   stemdeck::gainscale::controlNormToLinear);
+                if (! curves[ArrangementRecorderView::lowAuto].empty())
+                    spec.lowAutomation = convert (curves[ArrangementRecorderView::lowAuto], eqDb);
+                if (! curves[ArrangementRecorderView::midAuto].empty())
+                    spec.midAutomation = convert (curves[ArrangementRecorderView::midAuto], eqDb);
+                if (! curves[ArrangementRecorderView::highAuto].empty())
+                    spec.highAutomation = convert (curves[ArrangementRecorderView::highAuto], eqDb);
+                if (! curves[ArrangementRecorderView::filterAuto].empty())
+                    spec.filterAutomation = convert (curves[ArrangementRecorderView::filterAuto], filter);
+                if (! curves[ArrangementRecorderView::reverbAuto].empty())
+                    spec.reverbAutomation = convert (curves[ArrangementRecorderView::reverbAuto], identity);
+                if (! curves[ArrangementRecorderView::echoAuto].empty())
+                    spec.echoAutomation = convert (curves[ArrangementRecorderView::echoAuto], identity);
+            }
             specs.push_back (spec);
         }
+    }
+
+    bool usingPrintedMaster = false;
+    if (specs.empty()
+        && arrangementView.laneAudible (ArrangementRecorderView::masterLane))
+    {
+        for (const auto& clip : clips[(size_t) ArrangementRecorderView::masterLane])
+        {
+            if (! clip.active || ! clip.file.existsAsFile()
+                || clip.durationSeconds <= 0.0)
+                continue;
+            const double start = juce::jlimit (
+                0.0, clip.durationSeconds, clip.trimStartSeconds);
+            const double end = juce::jlimit (
+                start, clip.durationSeconds,
+                clip.trimEndSeconds > 0.0
+                    ? clip.trimEndSeconds : clip.durationSeconds);
+            if (end - start < 0.02)
+                continue;
+            MainPluginProcessor::ArrangementClipSpec spec;
+            spec.file = clip.file;
+            spec.timelineStartSeconds = clip.timelineStartSeconds;
+            spec.sourceStartSeconds = start;
+            spec.lengthSeconds = end - start;
+            spec.gain = arrangementView.laneGainLinear (
+                            ArrangementRecorderView::masterLane)
+                      * juce::Decibels::decibelsToGain (clip.gainDb);
+            spec.fadeInSeconds = clip.fadeInSeconds;
+            spec.fadeOutSeconds = clip.fadeOutSeconds;
+            spec.lane = 0;
+            specs.push_back (std::move (spec));
+        }
+        usingPrintedMaster = ! specs.empty();
     }
 
     // Piano-roll MIDI notes play through the built-in synth on the same transport.
@@ -2738,14 +2814,19 @@ void MainPluginEditor::toggleArrangementPlayback()
     processorRef.setMetronomeBpm (midiBpm);
 
     MainPluginProcessor::ArrangementMasterAutomationSpec masterAutomation;
-    const auto& capturedMaster = arrangementView.capturedMasterAutomation();
-    masterAutomation.gainDb = capturedMaster.gainDb;
-    masterAutomation.fxX = capturedMaster.fxX;
-    masterAutomation.fxY = capturedMaster.fxY;
-    masterAutomation.smartAmount = capturedMaster.smartAmount;
-    masterAutomation.smartMode = capturedMaster.smartMode;
-    masterAutomation.smartOn = capturedMaster.smartOn;
-    masterAutomation.limiterCeilingDb = capturedMaster.limiterCeilingDb;
+    // The printed lane already contains the performed master processing. Reapplying
+    // those curves would colour it twice and can clip an otherwise safe recording.
+    if (! usingPrintedMaster)
+    {
+        const auto& capturedMaster = arrangementView.capturedMasterAutomation();
+        masterAutomation.gainDb = capturedMaster.gainDb;
+        masterAutomation.fxX = capturedMaster.fxX;
+        masterAutomation.fxY = capturedMaster.fxY;
+        masterAutomation.smartAmount = capturedMaster.smartAmount;
+        masterAutomation.smartMode = capturedMaster.smartMode;
+        masterAutomation.smartOn = capturedMaster.smartOn;
+        masterAutomation.limiterCeilingDb = capturedMaster.limiterCeilingDb;
+    }
     processorRef.buildAndStartArrangement (std::move (specs),
                                            juce::jmax (audioLenSec, midiLenSec),
                                            arrangementCursorSeconds,
@@ -6260,11 +6341,6 @@ void MainPluginEditor::configureDeckStrip (int i)
         if (auto* v = apvts.getRawParameterValue (id)) return v->load();
         return 0.0f;
     };
-    auto setBoolP = [&apvts] (const juce::String& id, bool on)
-    {
-        if (auto* bp = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (id)))
-            bp->setValueNotifyingHost (on ? 1.0f : 0.0f);
-    };
     auto secPerBeat = [this, i]
     {
         const float bpm = processorRef.getDeckActiveAnalysis (i).detectedBpm;
@@ -6443,9 +6519,8 @@ void MainPluginEditor::configureDeckStrip (int i)
     cb.onCycleQuantize = [this, i] { stripQuant[(size_t) i] = (stripQuant[(size_t) i] + 1) % 5; };
     cb.onToggleSlip    = [this, i] { processorRef.setDeckSlipEnabled (i, ! processorRef.isDeckSlipEnabled (i)); };
 
-    // FX sends: A = echo, B = reverb (real mix params). C is a UI-only placeholder
-    // for a third send rack (pending routing).
-    cb.onToggleFx = [this, i, prefix, getFloat, setFloat] (int which)
+    // The compact rack exposes only controls backed by audio: A = echo, B = reverb.
+    cb.onToggleFx = [prefix, getFloat, setFloat] (int which)
     {
         if (which == 0) setFloat (prefix + "EchoMix", getFloat (prefix + "EchoMix") > 0.02f ? 0.0f : 0.35f);
         else if (which == 1) setFloat (prefix + "RevMix", getFloat (prefix + "RevMix") > 0.02f ? 0.0f : 0.35f);

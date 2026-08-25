@@ -107,6 +107,26 @@ struct StemDeckArrangementTestAccess
         view.undo();
         check (view.isLaneMuted (2), "mute participates in arranger undo");
 
+        view.setClipGainDb (2, 0, 6.0f);
+        check (std::abs (view.getClips()[2][0].gainDb - 6.0f) < 1.0e-6f,
+               "individual audio regions have non-destructive gain");
+        view.setClipActive (2, 0, false);
+        check (! view.getClips()[2][0].active,
+               "individual audio regions can be deactivated");
+        view.undo();
+        check (view.getClips()[2][0].active
+                   && std::abs (view.getClips()[2][0].gainDb - 6.0f) < 1.0e-6f,
+               "clip activation participates in arranger undo");
+        view.redo();
+        check (! view.getClips()[2][0].active,
+               "redo restores clip activation");
+        const auto clipControlState = view.toState();
+        View clipControlRestored;
+        clipControlRestored.fromState (clipControlState);
+        check (! clipControlRestored.getClips()[2][0].active
+                   && std::abs (clipControlRestored.getClips()[2][0].gainDb - 6.0f) < 1.0e-6f,
+               "clip activation and gain survive project restore");
+
         view.deleteClip (2, 0);
         check (view.getClips()[2].empty(),
                "the final clip on a lane can be deleted");
@@ -159,11 +179,37 @@ struct StemDeckArrangementTestAccess
         check (replaceLeft && replaceRight,
                "Replace mode preserves both sides of a spanning clip");
 
+        // Professional automation editing keeps independent curves for every
+        // processor target, survives saves, and participates in global undo.
+        auto automationBefore = view.captureFullState();
+        auto& editable = view.editAuto[2];
+        editable.visible = true;
+        editable.target = View::echoAuto;
+        editable.pointsForTarget (View::volumeAuto) = { { 0.0, 0.5f }, { 4.0, 1.0f } };
+        editable.pointsForTarget (View::lowAuto) = { { 1.0, 0.25f } };
+        editable.pointsForTarget (View::echoAuto) = { { 2.0, 0.75f } };
+        view.commitEdit (std::move (automationBefore));
+        view.undo();
+        check (view.editAuto[2].empty(),
+               "undo restores the complete multi-target automation bank");
+        view.redo();
+        check (view.editAuto[2].pointsForTarget (View::volumeAuto).size() == 2
+                   && view.editAuto[2].pointsForTarget (View::lowAuto).size() == 1
+                   && view.editAuto[2].pointsForTarget (View::echoAuto).size() == 1,
+               "redo restores every automation target independently");
+
         const auto roundTrip = view.toState();
         check ((int) roundTrip.getProperty ("visibleLanes") == 3
                    && (bool) roundTrip.getProperty ("snapEnabled")
                    && std::abs ((double) roundTrip.getProperty ("snapBpm") - 128.0) < 1.0e-6,
                "arranger workspace settings persist with the project");
+        View restored;
+        restored.fromState (roundTrip);
+        check (restored.editAuto[2].target == View::echoAuto
+                   && restored.editAuto[2].pointsForTarget (View::volumeAuto).size() == 2
+                   && restored.editAuto[2].pointsForTarget (View::lowAuto).size() == 1
+                   && restored.editAuto[2].pointsForTarget (View::echoAuto).size() == 1,
+               "all automation curves survive a project save and restore");
 
         view.clearArrangement();
         check (! view.hasArrangement(), "clear leaves the arranger idle");

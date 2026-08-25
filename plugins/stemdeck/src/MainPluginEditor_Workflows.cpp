@@ -850,7 +850,7 @@ void MainPluginEditor::exportArrangementMixdown()
             arrangementView.laneGainLinear (lane);
         for (const auto& clip : lanes[(size_t) lane])
         {
-            if (! clip.file.existsAsFile()
+            if (! clip.active || ! clip.file.existsAsFile()
                 || clip.durationSeconds <= 0.0)
                 continue;
             const double start = juce::jlimit (
@@ -865,13 +865,9 @@ void MainPluginEditor::exportArrangementMixdown()
             MixdownClip mix {
                 clip.file, clip.timelineStartSeconds, start,
                 end - start, clip.fadeInSeconds,
-                clip.fadeOutSeconds, laneGain, {}
+                clip.fadeOutSeconds,
+                laneGain * juce::Decibels::decibelsToGain (clip.gainDb), {}
             };
-            if (const auto* automation =
-                    arrangementView.editAutomationForLane (lane);
-                automation != nullptr && automation->target == 0
-                    && ! automation->points.empty())
-                mix.gainAutomation = automation->points;
             if (const auto* dsp =
                     arrangementView.capturedDspForLane (lane);
                 dsp != nullptr)
@@ -883,8 +879,72 @@ void MainPluginEditor::exportArrangementMixdown()
                 mix.reverbAutomation = dsp->reverbMix;
                 mix.echoAutomation = dsp->echoMix;
             }
+            if (const auto* automation =
+                    arrangementView.editAutomationForLane (lane);
+                automation != nullptr)
+            {
+                auto convert = [] (const auto& source, auto mapValue)
+                {
+                    std::vector<std::pair<double, float>> result;
+                    result.reserve (source.size());
+                    for (const auto& [time, normalized] : source)
+                        result.emplace_back (time, mapValue (normalized));
+                    return result;
+                };
+                const auto identity = [] (float value) { return juce::jlimit (0.0f, 1.0f, value); };
+                const auto eqDb = [] (float value)
+                {
+                    return stemdeck::gainscale::normToBipolarDb (value, -24.0f, 24.0f);
+                };
+                const auto filter = [] (float value) { return juce::jmap (value, -1.0f, 1.0f); };
+                const auto& curves = automation->curves;
+                if (! curves[ArrangementRecorderView::volumeAuto].empty())
+                    mix.gainAutomation = convert (curves[ArrangementRecorderView::volumeAuto],
+                                                  stemdeck::gainscale::controlNormToLinear);
+                if (! curves[ArrangementRecorderView::lowAuto].empty())
+                    mix.lowAutomation = convert (curves[ArrangementRecorderView::lowAuto], eqDb);
+                if (! curves[ArrangementRecorderView::midAuto].empty())
+                    mix.midAutomation = convert (curves[ArrangementRecorderView::midAuto], eqDb);
+                if (! curves[ArrangementRecorderView::highAuto].empty())
+                    mix.highAutomation = convert (curves[ArrangementRecorderView::highAuto], eqDb);
+                if (! curves[ArrangementRecorderView::filterAuto].empty())
+                    mix.filterAutomation = convert (curves[ArrangementRecorderView::filterAuto], filter);
+                if (! curves[ArrangementRecorderView::reverbAuto].empty())
+                    mix.reverbAutomation = convert (curves[ArrangementRecorderView::reverbAuto], identity);
+                if (! curves[ArrangementRecorderView::echoAuto].empty())
+                    mix.echoAutomation = convert (curves[ArrangementRecorderView::echoAuto], identity);
+            }
             clips.push_back (std::move (mix));
         }
+    }
+
+    bool usingPrintedMaster = false;
+    if (clips.empty()
+        && arrangementView.laneAudible (
+            ArrangementRecorderView::masterLane))
+    {
+        const int lane = ArrangementRecorderView::masterLane;
+        const float laneGain = arrangementView.laneGainLinear (lane);
+        for (const auto& clip : lanes[(size_t) lane])
+        {
+            if (! clip.active || ! clip.file.existsAsFile()
+                || clip.durationSeconds <= 0.0)
+                continue;
+            const double start = juce::jlimit (
+                0.0, clip.durationSeconds, clip.trimStartSeconds);
+            const double end = juce::jlimit (
+                start, clip.durationSeconds,
+                clip.trimEndSeconds > 0.0
+                    ? clip.trimEndSeconds : clip.durationSeconds);
+            if (end - start <= 0.001)
+                continue;
+            clips.push_back ({
+                clip.file, clip.timelineStartSeconds, start,
+                end - start, clip.fadeInSeconds, clip.fadeOutSeconds,
+                laneGain * juce::Decibels::decibelsToGain (clip.gainDb), {}
+            });
+        }
+        usingPrintedMaster = ! clips.empty();
     }
 
     const double midiBpm = juce::jlimit (
@@ -929,23 +989,37 @@ void MainPluginEditor::exportArrangementMixdown()
             return parameter->load();
         return fallback;
     };
-    master.gainDb = value ("master", 0.0f);
-    master.fxX = value ("masterFxX", 0.5f);
-    master.fxY = value ("masterFxY", 0.0f);
-    master.smartOn = value ("smartMasterOn", 0.0f) > 0.5f;
-    master.smartMode = (int) std::round (
-        value ("smartMasterMode", 0.0f));
-    master.smartAmount = value ("smartMasterAmount", 0.0f);
-    master.limiterCeilingDb = value ("limiterCeiling", -1.0f);
-    const auto& performedMaster =
-        arrangementView.capturedMasterAutomation();
-    master.gainAutomation = performedMaster.gainDb;
-    master.fxXAutomation = performedMaster.fxX;
-    master.fxYAutomation = performedMaster.fxY;
-    master.smartAmountAutomation = performedMaster.smartAmount;
-    master.smartModeAutomation = performedMaster.smartMode;
-    master.smartOnAutomation = performedMaster.smartOn;
-    master.limiterAutomation = performedMaster.limiterCeilingDb;
+    if (! usingPrintedMaster)
+    {
+        master.gainDb = value ("master", 0.0f);
+        master.fxX = value ("masterFxX", 0.5f);
+        master.fxY = value ("masterFxY", 0.0f);
+        master.smartOn = value ("smartMasterOn", 0.0f) > 0.5f;
+        master.smartMode = (int) std::round (
+            value ("smartMasterMode", 0.0f));
+        master.smartAmount = value ("smartMasterAmount", 0.0f);
+        master.limiterCeilingDb = value ("limiterCeiling", -1.0f);
+        const auto& performedMaster =
+            arrangementView.capturedMasterAutomation();
+        master.gainAutomation = performedMaster.gainDb;
+        master.fxXAutomation = performedMaster.fxX;
+        master.fxYAutomation = performedMaster.fxY;
+        master.smartAmountAutomation = performedMaster.smartAmount;
+        master.smartModeAutomation = performedMaster.smartMode;
+        master.smartOnAutomation = performedMaster.smartOn;
+        master.limiterAutomation = performedMaster.limiterCeilingDb;
+    }
+    else
+    {
+        // The reference lane is already the finished live bus. Keep export neutral
+        // so its performed gain, Smart Master, FX and limiter are not applied twice.
+        master.gainDb = 0.0f;
+        master.fxX = 0.5f;
+        master.fxY = 0.0f;
+        master.smartOn = false;
+        master.smartAmount = 0.0f;
+        master.limiterCeilingDb = 0.0f;
+    }
 
     if (clips.empty() && midiNotes.empty())
     {

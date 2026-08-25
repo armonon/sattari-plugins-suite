@@ -324,12 +324,53 @@ void MusicLibraryView::removeSelectedCrate()
 
 void MusicLibraryView::scanFolder (const juce::File& folder)
 {
-    const auto files = folder.findChildFiles (juce::File::findFiles, true,
-                                              "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a;*.ogg");
-    for (const auto& file : files)
-        addAudioFile (file);
+    folderScansInFlight.fetch_add (1, std::memory_order_relaxed);
+    countLabel.setText ("Scanning " + folder.getFileName() + "...",
+                        juce::dontSendNotification);
+    juce::Component::SafePointer<MusicLibraryView> safe (this);
+    analysisPool.addJob ([safe, folder]
+    {
+        auto discovered = std::make_shared<juce::Array<juce::File>> (
+            folder.findChildFiles (
+                juce::File::findFiles, true,
+                "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.m4a;*.ogg"));
+        juce::MessageManager::callAsync ([safe, discovered]
+        {
+            if (auto* self = safe.getComponent())
+                self->importDiscoveredFiles (discovered, 0);
+        });
+    });
+}
 
+void MusicLibraryView::importDiscoveredFiles (
+    std::shared_ptr<juce::Array<juce::File>> files, int startIndex)
+{
+    if (files == nullptr)
+        return;
+
+    // Publish bounded batches so a 50,000-track drive never monopolises the message
+    // thread. Analysis jobs are queued by addAudioFile after each batch is visible.
+    constexpr int batchSize = 128;
+    const int end = juce::jmin (files->size(), startIndex + batchSize);
+    for (int index = startIndex; index < end; ++index)
+        addAudioFile (files->getReference (index));
     rebuildView();
+
+    if (end < files->size())
+    {
+        juce::Component::SafePointer<MusicLibraryView> safe (this);
+        juce::MessageManager::callAsync ([safe, files, end]
+        {
+            if (auto* self = safe.getComponent())
+                self->importDiscoveredFiles (files, end);
+        });
+        return;
+    }
+
+    folderScansInFlight.fetch_sub (1, std::memory_order_relaxed);
+    countLabel.setText (
+        "Library ready  •  " + juce::String (entries.size()) + " tracks",
+        juce::dontSendNotification);
 }
 
 void MusicLibraryView::addFiles (const juce::Array<juce::File>& files)
@@ -408,10 +449,55 @@ void MusicLibraryView::enqueueAnalysis (const juce::File& file)
         {
             const double sr = reader->sampleRate;
             lengthSeconds = (double) reader->lengthInSamples / sr;
-            const int n = (int) juce::jmin ((juce::int64) (sr * 90.0), reader->lengthInSamples);
-            juce::AudioBuffer<float> buf ((int) juce::jmax (1u, reader->numChannels), juce::jmax (1, n));
-            reader->read (&buf, 0, n, 0, true, true);
-            analysis = TrackAnalyzer::analyze (buf, sr);
+            const int channels = (int) juce::jmax (1u, reader->numChannels);
+            const juce::int64 ninetySeconds = (juce::int64) (sr * 90.0);
+            if (reader->lengthInSamples <= ninetySeconds)
+            {
+                const int n = (int) reader->lengthInSamples;
+                juce::AudioBuffer<float> buf (channels, juce::jmax (1, n));
+                reader->read (&buf, 0, n, 0, true, true);
+                analysis = TrackAnalyzer::analyze (buf, sr);
+            }
+            else
+            {
+                // Long tracks are sampled across their structure rather than only
+                // from the intro. Independent windows avoid inventing transients at
+                // concatenation boundaries; the median tempo rejects one ambient or
+                // breakdown window and the strongest key result wins.
+                constexpr double windowSeconds = 30.0;
+                constexpr std::array<double, 3> centres { 0.18, 0.50, 0.82 };
+                const int windowSamples = (int) std::round (sr * windowSeconds);
+                std::array<TrackAnalysis, centres.size()> windows;
+                std::vector<float> bpms;
+                float bestKeyConfidence = -1.0f;
+                for (size_t index = 0; index < centres.size(); ++index)
+                {
+                    const auto centre = (juce::int64) std::llround (
+                        centres[index] * (double) reader->lengthInSamples);
+                    const auto start = juce::jlimit<juce::int64> (
+                        0, reader->lengthInSamples - windowSamples,
+                        centre - windowSamples / 2);
+                    juce::AudioBuffer<float> buf (channels, windowSamples);
+                    reader->read (&buf, 0, windowSamples, start, true, true);
+                    windows[index] = TrackAnalyzer::analyze (buf, sr);
+                    if (windows[index].detectedBpm > 0.0f)
+                        bpms.push_back (windows[index].detectedBpm);
+                    if (windows[index].hasKey()
+                        && windows[index].keyConfidence > bestKeyConfidence)
+                    {
+                        analysis = windows[index];
+                        bestKeyConfidence = windows[index].keyConfidence;
+                    }
+                }
+                if (bestKeyConfidence < 0.0f)
+                    analysis = windows[1];
+                if (! bpms.empty())
+                {
+                    std::sort (bpms.begin(), bpms.end());
+                    analysis.detectedBpm = bpms[bpms.size() / 2];
+                }
+                analysis.durationSeconds = lengthSeconds;
+            }
         }
 
         juce::MessageManager::callAsync ([safe, file, analysis, lengthSeconds]
