@@ -72,14 +72,22 @@ inline void drawTracked (juce::Graphics& g, const juce::String& text, juce::Rect
 inline void fadeOverlay (juce::Component& c, bool show)
 {
     auto& anim = juce::Desktop::getInstance().getAnimator();
+    // A second navigation request can arrive before the previous 130 ms fade has
+    // completed. Cancel the old destination first; otherwise its completion can
+    // hide or resurrect a surface after the new layout has already taken ownership.
+    anim.cancelAnimation (&c, false);
     if (show)
     {
+        c.setVisible (true);
         c.setAlpha (0.0f);
         anim.fadeIn (&c, 160);
     }
-    else if (c.isVisible())
+    else
     {
-        anim.fadeOut (&c, 130);
+        // Primary workspaces are mutually exclusive. Keeping the outgoing view
+        // alive during a fade exposes it through the incoming toolbar's gaps.
+        c.setAlpha (1.0f);
+        c.setVisible (false);
     }
 }
 

@@ -136,6 +136,15 @@ int main (int argc, char** argv)
                                      : surface == "arranger" ? S::arranger
                                      : surface == "files"    ? S::files
                                                               : S::perform);
+            if (scenario == "surface-stress")
+            {
+                // Regression for opposing fade/layout callbacks: rapid real-world
+                // navigation must still end with one uncontested primary surface.
+                mpe->selectPrimarySurface (S::perform);
+                mpe->selectPrimarySurface (S::arranger);
+                mpe->selectPrimarySurface (S::perform);
+                mpe->selectPrimarySurface (S::arranger);
+            }
             if (surface == "focus" || surface == "focus-exit")
                 mpe->keyPressed (juce::KeyPress ('F'));
         }

@@ -5112,6 +5112,13 @@ void MainPluginEditor::drawNavIcon (juce::Graphics& g, int which, juce::Rectangl
 void MainPluginEditor::paint (juce::Graphics& g)
 {
     lookAndFeel.paintModernBackground (g, getLocalBounds());
+    // Parent-painted deck cards are not JUCE child components, so setVisible(false)
+    // cannot protect Replay from a stale rectangle published by an interrupted
+    // resize. Navigation state is the final authority over whether they may paint.
+    const bool paintPerformSurface = ! pianoRollButton.getToggleState()
+                                  && ! mixerButton.getToggleState()
+                                  && ! pianoRoll.isVisible()
+                                  && ! libraryVisible && ! browserVisible;
 
     // The shell is a real control surface, not a row of unrelated buttons.  A
     // single elevated rail holds navigation, transport, tempo and utilities so
@@ -5229,7 +5236,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // directly above, sync state lives in the project bar, and capture has a large
     // red control. Repeating all three as pills made this row read like another
     // dashboard instead of a calm performance hint.
-    if (! performanceCoachBounds.isEmpty())
+    if (paintPerformSurface && ! performanceCoachBounds.isEmpty())
     {
         const auto panel = performanceCoachBounds.toFloat();
         const auto accent = deckAccent (juce::jlimit (0, MainPluginProcessor::numDecks - 1,
@@ -5350,6 +5357,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        if (! paintPerformSurface) continue;
         auto deckBounds = deckPanelBounds[(size_t) i];
         if (deckBounds.isEmpty())
             continue;
@@ -5576,6 +5584,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        if (! paintPerformSurface) continue;
         const auto& controls = deckControls[(size_t) i];
         auto drawAbove = [&g] (const juce::String& text, const juce::Component& component)
         {
@@ -5610,6 +5619,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // labels DR/BA/MU/VO over the filter row, and F/S markers on the far left.
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        if (! paintPerformSurface) continue;
         auto& dc = deckControls[(size_t) i];
         if (dc.activeToolTab != DeckControls::TabFx) continue;
         auto box = deckStemFxBounds[(size_t) i];
@@ -5649,6 +5659,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // beside the fixed A/C↔B/D crossfader is intentionally retired.
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
     {
+        if (! paintPerformSurface) continue;
         const auto mb = deckMeterBounds[(size_t) d];
         if (mb.isEmpty()) continue;
         const auto r = mb.toFloat();
@@ -5685,7 +5696,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
     // Focused deck marker: a 1px accent edge along the top of its column. Focus is
     // shown by emphasis, not by resizing, so the four decks stay lined up.
-    if (! deckPanelBounds[(size_t) focusedDeck].isEmpty())
+    if (paintPerformSurface && ! deckPanelBounds[(size_t) focusedDeck].isEmpty())
     {
         const auto fb = deckPanelBounds[(size_t) focusedDeck].toFloat();
         g.setColour (deckAccent (focusedDeck).withAlpha (0.9f));
@@ -5695,6 +5706,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
     // ── Secondary deck monitors ───────────────────────────────────────────────
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
     {
+        if (! paintPerformSurface) continue;
         const auto sb = deckCollapsedBounds[(size_t) i];
         if (sb.isEmpty()) continue;
         const bool loaded = deckHasContent (i);
@@ -8527,10 +8539,14 @@ void MainPluginEditor::timerCallback()
     safeModeButton.setToggleState (processorRef.isPerformanceSafeMode(),
                                    juce::dontSendNotification);
     if (mixArrangeView.isVisible()) refreshMixArrangement();   // live mix-timeline
-    const bool deckUiVisible = std::any_of (
+    const bool performSurfaceActive = ! pianoRollButton.getToggleState()
+                                   && ! mixerButton.getToggleState()
+                                   && ! pianoRoll.isVisible()
+                                   && ! libraryVisible && ! browserVisible;
+    const bool deckUiVisible = performSurfaceActive && (std::any_of (
         deckPanelBounds.begin(), deckPanelBounds.end(), [] (const auto& bounds) { return ! bounds.isEmpty(); })
         || std::any_of (deckCollapsedBounds.begin(), deckCollapsedBounds.end(),
-                        [] (const auto& bounds) { return ! bounds.isEmpty(); });
+                        [] (const auto& bounds) { return ! bounds.isEmpty(); }));
     if (deckUiVisible)
         refreshDeckStrips();                                    // per-deck control strips
     bool relayout = false;
@@ -9045,6 +9061,12 @@ void MainPluginEditor::timerCallback()
             }
         }
     }
+
+    // Async deck loads, focus changes and width easing can request relayouts from
+    // the timer. Reassert the primary-surface invariant after all of them so no
+    // late callback can make a Perform child visible over Replay or Mixer.
+    if (! performSurfaceActive)
+        hidePerformSurface();
 }
 
 // ── Toolbox tabs (declutter) ──────────────────────────────────────────────────

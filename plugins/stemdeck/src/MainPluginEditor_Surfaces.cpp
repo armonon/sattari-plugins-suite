@@ -16,10 +16,19 @@ void MainPluginEditor::selectPrimarySurface (PrimarySurface surface)
         toggleFileBrowser();
     }
 
-    pianoRollButton.setToggleState (false, juce::dontSendNotification);
-    if (pianoRollButton.onClick) pianoRollButton.onClick();
-    mixerButton.setToggleState (false, juce::dontSendNotification);
-    if (mixerButton.onClick) mixerButton.onClick();
+    // Do not toggle the requested destination off and immediately back on. Apart
+    // from redundant layout passes, that created two opposing fade animations and
+    // intermittently restored the Perform deck rectangles over Replay's toolbar.
+    if (surface != PrimarySurface::arranger)
+    {
+        pianoRollButton.setToggleState (false, juce::dontSendNotification);
+        if (pianoRollButton.onClick) pianoRollButton.onClick();
+    }
+    if (surface != PrimarySurface::mixer)
+    {
+        mixerButton.setToggleState (false, juce::dontSendNotification);
+        if (mixerButton.onClick) mixerButton.onClick();
+    }
 
     switch (surface)
     {
