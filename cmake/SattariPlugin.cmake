@@ -31,7 +31,7 @@ get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE
 
 function(sattari_add_plugin)
     set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)
-    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION)
+    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ICON_BIG ICON_SMALL)
     set(multiValueArgs FORMATS SOURCES)
     cmake_parse_arguments(SAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -80,6 +80,14 @@ function(sattari_add_plugin)
         endif()
     endforeach()
 
+    set(_sattari_icon_args)
+    if(SAP_ICON_BIG)
+        list(APPEND _sattari_icon_args ICON_BIG "${SAP_ICON_BIG}")
+    endif()
+    if(SAP_ICON_SMALL)
+        list(APPEND _sattari_icon_args ICON_SMALL "${SAP_ICON_SMALL}")
+    endif()
+
     juce_add_plugin(${SAP_TARGET}
         COMPANY_NAME                "${SAP_COMPANY_NAME}"
         IS_SYNTH                    ${IS_SYNTH_VAL}
@@ -92,7 +100,8 @@ function(sattari_add_plugin)
         PLUGIN_CODE                 ${SAP_PLUGIN_CODE}
         FORMATS                     ${SAP_FORMATS}
         VERSION                     ${SAP_VERSION}
-        PRODUCT_NAME                "${SAP_PRODUCT_NAME}")
+        PRODUCT_NAME                "${SAP_PRODUCT_NAME}"
+        ${_sattari_icon_args})
 
     juce_generate_juce_header(${SAP_TARGET})
 

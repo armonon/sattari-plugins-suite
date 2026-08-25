@@ -98,6 +98,8 @@ sattari_add_plugin(
     SLUG stemdeck
     PRODUCT_NAME "Sattari StemDeck"
     PLUGIN_CODE Sd01
+    ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/assets/StemDeckIcon.png"
+    ICON_SMALL "${CMAKE_CURRENT_LIST_DIR}/assets/StemDeckIcon.png"
     FORMATS AU VST3 Standalone
     IS_SYNTH
     NEEDS_MIDI_INPUT
