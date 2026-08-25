@@ -63,13 +63,14 @@ static const char* reasonName (IntentReasonCode c)
 {
     switch (c)
     {
-        case IntentReasonCode::NEAREST_STABLE:          return "NEAREST_STABLE";
-        case IntentReasonCode::DIRECTIONAL_DESTINATION: return "DIRECTIONAL_DESTINATION";
-        case IntentReasonCode::PASSING_TONE:            return "PASSING_TONE";
-        case IntentReasonCode::SLIDE_DESTINATION:       return "SLIDE_DESTINATION";
-        case IntentReasonCode::STABILITY_ANCHOR:        return "STABILITY_ANCHOR";
-        case IntentReasonCode::VIBRATO_HOLD:            return "VIBRATO_HOLD";
-        default:                                         return "LOW_CONFIDENCE_FALLBACK";
+        case IntentReasonCode::NEAREST_STABLE:           return "NEAREST_STABLE";
+        case IntentReasonCode::DIRECTIONAL_DESTINATION:  return "DIRECTIONAL_DESTINATION";
+        case IntentReasonCode::PASSING_TONE:             return "PASSING_TONE";
+        case IntentReasonCode::SLIDE_DESTINATION:        return "SLIDE_DESTINATION";
+        case IntentReasonCode::STABILITY_ANCHOR:         return "STABILITY_ANCHOR";
+        case IntentReasonCode::VIBRATO_HOLD:             return "VIBRATO_HOLD";
+        case IntentReasonCode::SLIDE_DESTINATION_V2:     return "SLIDE_DESTINATION_V2";
+        default:                                          return "LOW_CONFIDENCE_FALLBACK";
     }
 }
 
@@ -225,6 +226,14 @@ int main (int argc, char** argv)
         obj->setProperty ("intentReasonName",juce::String (reasonName (is.reason)));
         obj->setProperty ("intentFallback",  is.fallback);
         obj->setProperty ("prodTarget",      is.prodTarget);
+        // Phase 3 — continuous motion estimator output
+        obj->setProperty ("motionMidiFloat",    is.lastMotion.midiFloat);
+        obj->setProperty ("motionVelMidi",      is.lastMotion.velocityMidiPerSec);
+        obj->setProperty ("motionVelCents",     is.lastMotion.velocityCentsPerSec);
+        obj->setProperty ("motionDir",          is.lastMotion.direction);
+        obj->setProperty ("motionConf",         is.lastMotion.confidence);
+        obj->setProperty ("motionAccel",        is.lastMotion.acceleration);
+        obj->setProperty ("motionIsVibrato",    is.lastMotion.isVibrato);
         framesVar.append (juce::var (obj.get()));
 
         ++blockIdx;

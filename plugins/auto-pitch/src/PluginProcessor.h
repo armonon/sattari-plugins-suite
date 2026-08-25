@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "ContinuousMotionEstimator.h"
+
 // ---------------------------------------------------------------------------
 // Intent Engine v2 — experimental targeting layer (shadow/active modes)
 // ---------------------------------------------------------------------------
@@ -22,13 +24,14 @@ enum class IntentMode : int
 
 enum class IntentReasonCode : int
 {
-    NEAREST_STABLE          = 0,
-    DIRECTIONAL_DESTINATION = 1,
-    PASSING_TONE            = 2,
-    SLIDE_DESTINATION       = 3,
-    STABILITY_ANCHOR        = 4,
-    VIBRATO_HOLD            = 5,
-    LOW_CONFIDENCE_FALLBACK = 6,
+    NEAREST_STABLE           = 0,
+    DIRECTIONAL_DESTINATION  = 1,
+    PASSING_TONE             = 2,
+    SLIDE_DESTINATION        = 3,
+    STABILITY_ANCHOR         = 4,
+    VIBRATO_HOLD             = 5,
+    LOW_CONFIDENCE_FALLBACK  = 6,
+    SLIDE_DESTINATION_V2     = 7,   // Phase 4 — continuous-motion estimator path
 };
 
 struct IntentV2State
@@ -61,6 +64,16 @@ struct IntentV2State
     bool   fallback       = false;
     int    targetChanges  = 0;
 
+    // Continuous motion estimator — drives SLIDE_DESTINATION_V2 tier.
+    ContinuousMotionEstimator motion;
+    ContinuousMotionEstimator::MotionFrame lastMotion;
+
+    // Intent v3 — MERGED 2026-08-25. Full RC regression passed:
+    // MotionBench 1.788 MIDI/sec, active audio 81.4% acc @ conf≥0.9, 0 octave errors,
+    // 0 crashes, 0 NaN/Inf, CoreContract PASS, AU/VST3 smoke PASS.
+    // Rollback: flip this flag to false and rebuild.
+    static constexpr bool kSlideDestinationV2Enabled = true;
+
     void reset()
     {
         histFill = histPos = 0;
@@ -73,6 +86,8 @@ struct IntentV2State
         intentConf = 0.0f;
         reason = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
         fallback = false; targetChanges = 0;
+        motion.reset();
+        lastMotion = {};
     }
 
     void pushPitch (double midi, double blockSec)

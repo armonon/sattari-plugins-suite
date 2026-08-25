@@ -1055,12 +1055,22 @@ SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
         s.v2Target  = -1;
         s.reason    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
         s.fallback  = false;
+        s.motion.reset();
+        s.lastMotion = {};
         return frame;
     }
 
     const double det  = frame.midi;
     const double conf = frame.confidence;
     s.pushPitch (det, blockTimeSec);
+
+    // Phase 1+2 — continuous motion path: push raw frequencyHz, not rounded midi.
+    // midiFloat = 69 + 12·log2(f/440) computed in double precision inside CME.
+    if (frame.frequencyHz > 0.0)
+        s.motion.push (frame.frequencyHz, blockTimeSec);
+    // Bench-validated defaults: FirstDerivative @ 20ms gave best overall RMSE
+    // (1.788 MIDI/sec) on the Phase 3 deterministic suite.
+    s.lastMotion = s.motion.analyse();
 
     // Nearest in-scale candidate to current detected pitch
     const int nearNote = nearestScaleMidi (det, rootIndex, scaleName);
@@ -1077,31 +1087,63 @@ SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
     float  iconf  = (float) (conf * 0.6);
     IntentReasonCode rsn = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
 
-    // 1. SLIDE_DESTINATION — disabled in v2 active.
+    // 1a. SLIDE_DESTINATION — disabled (integer-MIDI path).
     //
-    // Rationale: YIN detects pitch in discrete semitone steps, making velocity
-    // artificially ~20-30 MIDI/sec during any pitch transition (even ornamental falls
-    // and scoops that return to the source note). Extrapolation — both magnitude-based
-    // and direction-only — caused systematic FALL/SCOOP regressions in the active audio
-    // bench. The remaining tiers (STABILITY_ANCHOR, VIBRATO_HOLD, PASSING_TONE) correctly
-    // track pitch during transitions by following the detected pitch rather than
-    // predicting its destination. Re-enable only with a cleaner velocity source
-    // (e.g. sub-sample pitch interpolation or a longer smoothed derivative).
+    // Rationale: velocity derived from rounded MIDI produces ~20–30 MIDI/sec spikes
+    // during any pitch transition, causing systematic scoop/fall overshoot in the
+    // active audio bench.  The continuous-motion path (1b below) replaces this.
+
+    // 1b. SLIDE_DESTINATION_V2 — Phase 4: continuous-motion estimator.
     //
-    // The SLIDE_DESTINATION reason code is still emitted by the shadow Python engine for
-    // comparison, but the C++ active path does not use it.
-    if (false)  // SLIDE_DESTINATION disabled
+    // Gate: kSlideDestinationV2Enabled remains false until MotionBench validates
+    // velocity RMSE ≤ 2 MIDI/sec on the deterministic trajectory suite.
+    //
+    // When enabled, the estimator predicts the slide destination 80 ms ahead
+    // and snaps to the nearest in-scale note — giving the correction engine
+    // a trustworthy target before YIN fully converges.  All guards:
+    //   · MotionBench validated (compile-time flag)
+    //   · Not recognised as vibrato by the CME
+    //   · Consistent directional history (integer-path cross-check)
+    //   · Frame YIN confidence ≥ 0.60
+    //   · Motion estimator agreement ≥ 0.65
+    //   · Continuous velocity above slide threshold
+    //   · No sign reversal in recent history
+    //   · Destination is ≥ 1 semitone from current nearest and within ±4 semitones
+    [&]() {
+        if (! IntentV2State::kSlideDestinationV2Enabled) return;
+        if (s.lastMotion.isVibrato)  return;
+        if (! consistent)            return;
+        if (conf < 0.60)             return;
+        if (s.lastMotion.confidence < 0.65) return;
+        if (std::abs (s.lastMotion.velocityMidiPerSec) < 3.0) return;  // 3 MIDI/sec ≈ semitone/333ms
+        if (oscillating)             return;
+
+        constexpr double kExtrapolationSec = 0.080;
+        constexpr double kMaxSlideDistance = 4.0;
+        const double rawDest = s.lastMotion.midiFloat
+                               + s.lastMotion.velocityMidiPerSec * kExtrapolationSec;
+        const double bounded = juce::jlimit (det - kMaxSlideDistance,
+                                              det + kMaxSlideDistance,
+                                              rawDest);
+        const int snap = nearestScaleMidi (bounded, rootIndex, scaleName);
+        if (snap == nearNote || std::abs (snap - nearNote) < 1) return;
+
+        chosen = snap;
+        iconf  = (float) (s.lastMotion.confidence * 0.85);
+        rsn    = IntentReasonCode::SLIDE_DESTINATION_V2;
+    }();
+
+    // 2–5: run only if tier 1b did not fire.
+    if (rsn == IntentReasonCode::LOW_CONFIDENCE_FALLBACK)
     {
-        (void) dir; (void) consistent; (void) oscillating;
-    }
     // 2. Passing-tone suppressor: fast + short dwell + direction consistent + stable anchor known.
     // Directional escape guard: suppress stale-anchor hold when pitch is consistently moving
     // AWAY from stableTarget (e.g. ascending scale run starting from a previously-stable note).
-    else if (consistent
-             && dwellSec < IntentV2State::kPassDwell
-             && std::abs (svel) > 0.35
-             && s.stableTarget != -1000
-             && dir * (det - s.stableTarget) <= 0.5)  // pitch must not be departing the anchor
+    if (consistent
+        && dwellSec < IntentV2State::kPassDwell
+        && std::abs (svel) > 0.35
+        && s.stableTarget != -1000
+        && dir * (det - s.stableTarget) <= 0.5)  // pitch must not be departing the anchor
     {
         chosen = s.stableTarget;
         iconf  = 0.72f;
@@ -1156,6 +1198,7 @@ SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
             rsn    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
         }
     }
+    } // end tiers 2–5
 
     // Update stability counter
     if (chosen == s.stableTarget && std::abs (svel) < 0.8)
