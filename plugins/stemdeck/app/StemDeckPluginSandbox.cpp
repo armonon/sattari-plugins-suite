@@ -24,6 +24,21 @@ public:
     {
         const auto json = juce::JSON::parse (juce::String::fromUTF8 (
             (const char*) message.getData(), (int) message.getSize()));
+        if (json.getProperty ("command", {}).toString() == "state")
+        {
+            juce::MemoryBlock state;
+            {
+                const juce::ScopedLock lock (pluginLock);
+                if (plugin != nullptr) plugin->getStateInformation (state);
+            }
+            auto response = new juce::DynamicObject();
+            response->setProperty ("type", "state");
+            response->setProperty ("state", state.toBase64Encoding());
+            const auto encoded = juce::JSON::toString (juce::var (response)).toUTF8();
+            sendMessageToCoordinator ({ encoded.getAddress(),
+                                        (size_t) encoded.sizeInBytes() });
+            return;
+        }
         const auto file = juce::File (json.getProperty ("sharedFile", {}).toString());
         const auto pluginXmlText = json.getProperty ("plugin", {}).toString();
         const double sampleRate = (double) json.getProperty ("sampleRate", 44100.0);
@@ -38,6 +53,12 @@ public:
             plugin = formats.createPluginInstance (description, sampleRate, blockSize, error);
         if (plugin != nullptr)
         {
+            juce::MemoryBlock restoredState;
+            if (restoredState.fromBase64Encoding (
+                    json.getProperty ("state", {}).toString())
+                && restoredState.getSize() > 0)
+                plugin->setStateInformation (restoredState.getData(),
+                                             (int) restoredState.getSize());
             plugin->setPlayConfigDetails (channels, channels, sampleRate, blockSize);
             plugin->prepareToPlay (sampleRate, blockSize);
             mapping = std::make_unique<juce::MemoryMappedFile> (
@@ -88,7 +109,21 @@ private:
                     pointers[(size_t) ch] = slot.audio + (size_t) ch * stemdeck::sandbox::maxSamples;
                 juce::AudioBuffer<float> audio (pointers.data(), channels, samples);
                 midi.clear();
-                plugin->processBlock (audio, midi);
+                const int midiCount = juce::jlimit (
+                    0, stemdeck::sandbox::maxMidiEvents, (int) slot.midiCount);
+                for (int eventIndex = 0; eventIndex < midiCount; ++eventIndex)
+                {
+                    const auto& event = slot.midi[(size_t) eventIndex];
+                    if (event.size > 0
+                        && event.size <= stemdeck::sandbox::maxMidiBytes)
+                        midi.addEvent (event.data, (int) event.size,
+                                       juce::jlimit (0, samples - 1,
+                                                     (int) event.frame));
+                }
+                {
+                    const juce::ScopedLock lock (pluginLock);
+                    plugin->processBlock (audio, midi);
+                }
                 bool valid = true;
                 for (int ch = 0; ch < channels && valid; ++ch)
                     for (int i = 0; i < samples; ++i)
@@ -108,6 +143,7 @@ private:
 
     juce::AudioPluginFormatManager formats;
     std::unique_ptr<juce::AudioPluginInstance> plugin;
+    juce::CriticalSection pluginLock;
     std::unique_ptr<juce::MemoryMappedFile> mapping;
     stemdeck::sandbox::SharedAudio* shared = nullptr;
 };

@@ -4098,12 +4098,8 @@ juce::String MainPluginProcessor::getDeckTimePitchStatus (int deckIndex) const
                            : 0.0f;
 
     const auto audio = deckAt (deckIndex).getLoadedAudio();
-    const auto grid = BeatSyncEngine::makeGrid (getDeckAnalysis (deckIndex),
-                                                getFloatParam (deck + "Bpm"),
-                                                getFloatParam (deck + "BeatOffset"),
-                                                getFloatParam (deck + "Downbeat"),
-                                                BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
-                                                BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+    const auto grid = deckGridWithUserMarkers (deckIndex,
+                                                getDeckAnalysis (deckIndex));
     const auto plan = warpEngine.makePlan (sync.getSnapshot(), grid,
                                            audio ? audio->sourceSampleRate : currentSampleRate,
                                            audio ? (double) audio->numSourceSamples() : 0.0,
@@ -4122,12 +4118,7 @@ juce::String MainPluginProcessor::getDeckBeatSyncStatus (int deckIndex) const
     const auto audio = deckAt (deckIndex).getLoadedAudio();
     const auto analysis = audio ? audio->analysis : TrackAnalysis{};
     const auto deck = deckPrefix (deckIndex);
-    const auto grid = BeatSyncEngine::makeGrid (analysis,
-                                                getFloatParam (deck + "Bpm"),
-                                                getFloatParam (deck + "BeatOffset"),
-                                                getFloatParam (deck + "Downbeat"),
-                                                BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
-                                                BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+    const auto grid = deckGridWithUserMarkers (deckIndex, analysis);
     const auto transport = sync.getSnapshot();
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio ? audio->sourceSampleRate : currentSampleRate,
@@ -4157,12 +4148,7 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
 
     // Rebuild the SAME grid + plan the audio path uses so the readout matches reality.
     const auto deck = deckPrefix (deckIndex);
-    const auto grid = BeatSyncEngine::makeGrid (audio->analysis,
-                                                getFloatParam (deck + "Bpm"),
-                                                getFloatParam (deck + "BeatOffset"),
-                                                getFloatParam (deck + "Downbeat"),
-                                                BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
-                                                BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+    const auto grid = deckGridWithUserMarkers (deckIndex, audio->analysis);
     const auto transport = sync.getSnapshot();
     const auto plan = BeatSyncEngine::makePlaybackPlan (transport, grid,
                                                         audio->sourceSampleRate,
@@ -4178,13 +4164,17 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
     if (sourceBeatLen <= 1.0)
         return r;
 
-    // Where the grid says this beat should be (strict interpretation), vs where the
-    // deck's playhead actually is. Difference in beats, wrapped to the nearest beat.
+    // Compare the deck's playhead with the same warped source position used by the
+    // audio path.  Anchor/groove corrections must affect the telemetry as well as
+    // playback or the UI can report a false phase error after a manual grid edit.
     const double sourceLen = (double) audio->numSourceSamples();
     const double correctedBeat = transport.ppqPosition
                                + (double) grid.manualGridCorrectionBeats
                                - grid.downbeatPositionBeats;
-    const double idealSamples  = std::fmod (correctedBeat * sourceBeatLen, sourceLen);
+    const double strictSamples = std::fmod (correctedBeat * sourceBeatLen, sourceLen);
+    const double idealSamples  = plan.hasLockedSourcePosition
+                               ? plan.lockedSourcePositionSamples
+                               : strictSamples;
     const double actualSamples = deckAt (deckIndex).getPlayheadReferenceSamples();
 
     double errBeats = (actualSamples - idealSamples) / sourceBeatLen;
@@ -4198,7 +4188,26 @@ MainPluginProcessor::DeckSyncPhase MainPluginProcessor::getDeckSyncPhase (int de
     return r;
 }
 
-std::vector<double> MainPluginProcessor::getDeckBeatGridSeconds (int deckIndex) const
+BeatSyncEngine::TrackBeatGrid MainPluginProcessor::deckGridWithUserMarkers (
+    int deckIndex, const TrackAnalysis& analysis) const
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks))
+        return {};
+    const auto deck = deckPrefix (deckIndex);
+    auto grid = BeatSyncEngine::makeGrid (
+        analysis, getFloatParam (deck + "Bpm"),
+        getFloatParam (deck + "BeatOffset"),
+        getFloatParam (deck + "Downbeat"),
+        BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (
+            getFloatParam (deck + "TempoInterpretation"))),
+        BeatSyncEngine::syncModeFromChoice ((int) std::round (
+            getFloatParam (deck + "SyncMode"))));
+    BeatSyncEngine::applyUserWarpMarkers (grid, warpMarkersForGrid (deckIndex));
+    return grid;
+}
+
+std::vector<MainPluginProcessor::DeckBeatGridLine>
+MainPluginProcessor::getDeckBeatGridLines (int deckIndex) const
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks))
         return {};
@@ -4207,18 +4216,41 @@ std::vector<double> MainPluginProcessor::getDeckBeatGridSeconds (int deckIndex) 
     if (audio == nullptr || audio->sourceSampleRate <= 0.0)
         return {};
 
-    const auto deck = deckPrefix (deckIndex);
-    const auto grid = BeatSyncEngine::makeGrid (audio->analysis,
-                                                getFloatParam (deck + "Bpm"),
-                                                getFloatParam (deck + "BeatOffset"),
-                                                getFloatParam (deck + "Downbeat"),
-                                                BeatSyncEngine::tempoInterpretationFromChoice ((int) std::round (getFloatParam (deck + "TempoInterpretation"))),
-                                                BeatSyncEngine::syncModeFromChoice ((int) std::round (getFloatParam (deck + "SyncMode"))));
+    const auto grid = deckGridWithUserMarkers (deckIndex, audio->analysis);
+    std::vector<DeckBeatGridLine> lines;
+    lines.reserve (grid.warpMarkers.size());
+    for (const auto& marker : grid.warpMarkers)
+        if (! marker.transientAnchor)
+            lines.push_back ({ marker.sourceSample / audio->sourceSampleRate,
+                               marker.projectBeat, false });
+    std::sort (lines.begin(), lines.end(), [] (const auto& a, const auto& b)
+               { return a.sourceSeconds < b.sourceSeconds; });
 
+    if (! lines.empty())
+    {
+        const auto deck = deckPrefix (deckIndex);
+        const double bpm = juce::jmax (1.0f, grid.effectiveSourceBpm());
+        const double target = juce::jlimit (
+            0.0, getDeckTotalSeconds (deckIndex),
+            -(double) getFloatParam (deck + "Downbeat") * 60.0 / bpm);
+        int downbeatIndex = 0;
+        double nearest = std::numeric_limits<double>::infinity();
+        for (int i = 0; i < (int) lines.size(); ++i)
+            if (const double distance = std::abs (lines[(size_t) i].sourceSeconds - target);
+                distance < nearest)
+            { nearest = distance; downbeatIndex = i; }
+        const int meter = juce::jlimit (1, 12, audio->analysis.beatsPerBar);
+        for (int i = 0; i < (int) lines.size(); ++i)
+            lines[(size_t) i].downbeat = ((i - downbeatIndex) % meter) == 0;
+    }
+    return lines;
+}
+
+std::vector<double> MainPluginProcessor::getDeckBeatGridSeconds (int deckIndex) const
+{
     std::vector<double> seconds;
-    seconds.reserve (grid.beatGridSamples.size());
-    for (const auto s : grid.beatGridSamples)
-        seconds.push_back (s / audio->sourceSampleRate);
+    for (const auto& line : getDeckBeatGridLines (deckIndex))
+        seconds.push_back (line.sourceSeconds);
     return seconds;
 }
 
@@ -4257,7 +4289,7 @@ MainPluginProcessor::warpMarkersForGrid (int deckIndex) const
     for (const auto& marker : getDeckUserWarpMarkers (deckIndex))
         result.push_back ({ marker.projectBeat,
                             marker.sourceSeconds * bpm / 60.0,
-                            marker.sourceSeconds * sampleRate, true });
+                            marker.sourceSeconds * sampleRate, false });
     return result;
 }
 
@@ -4289,7 +4321,7 @@ int MainPluginProcessor::addDeckUserWarpMarker (int deckIndex,
     if (! root.isValid())
     {
         root = juce::ValueTree ("USER_WARP_MARKERS");
-        apvts.state.appendChild (root, nullptr);
+        apvts.state.appendChild (root, &beatGridUndo);
     }
     int id = 1;
     for (int i = 0; i < root.getNumChildren(); ++i)
@@ -4299,7 +4331,7 @@ int MainPluginProcessor::addDeckUserWarpMarker (int deckIndex,
     marker.setProperty ("deck", deckIndex, nullptr);
     marker.setProperty ("projectBeat", projectBeat, nullptr);
     marker.setProperty ("sourceSeconds", sourceSeconds, nullptr);
-    root.appendChild (marker, nullptr);
+    root.appendChild (marker, &beatGridUndo);
 
     // Editable markers define an anchor map; switch from strict mode so the map is
     // audibly active rather than merely decorative.
@@ -4321,8 +4353,31 @@ bool MainPluginProcessor::moveDeckUserWarpMarker (int deckIndex, int markerId,
         auto marker = root.getChild (i);
         if ((int) marker.getProperty ("deck", -1) != deckIndex
             || (int) marker.getProperty ("id", -1) != markerId) continue;
+        const auto audio = deckAt (deckIndex).getLoadedAudio();
+        const auto grid = audio != nullptr
+                        ? deckGridWithUserMarkers (deckIndex, audio->analysis)
+                        : BeatSyncEngine::TrackBeatGrid {};
+        const double projectBeat = marker.getProperty ("projectBeat", 0.0);
+        double minimum = 0.0;
+        double maximum = getDeckTotalSeconds (deckIndex);
+        constexpr double separationSeconds = 0.001;
+        for (const auto& candidate : grid.warpMarkers)
+        {
+            if (candidate.transientAnchor || audio == nullptr
+                || audio->sourceSampleRate <= 0.0)
+                continue;
+            const double seconds = candidate.sourceSample / audio->sourceSampleRate;
+            if (candidate.projectBeat < projectBeat - 0.01)
+                minimum = juce::jmax (minimum, seconds + separationSeconds);
+            else if (candidate.projectBeat > projectBeat + 0.01)
+            {
+                maximum = juce::jmin (maximum, seconds - separationSeconds);
+                break;
+            }
+        }
         marker.setProperty ("sourceSeconds", juce::jlimit (
-            0.0, getDeckTotalSeconds (deckIndex), sourceSeconds), nullptr);
+            juce::jmin (minimum, maximum), juce::jmax (minimum, maximum),
+            sourceSeconds), &beatGridUndo);
         warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
         gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
         triggerAsyncUpdate();
@@ -4339,7 +4394,7 @@ bool MainPluginProcessor::removeDeckUserWarpMarker (int deckIndex, int markerId)
         const auto marker = root.getChild (i);
         if ((int) marker.getProperty ("deck", -1) != deckIndex
             || (int) marker.getProperty ("id", -1) != markerId) continue;
-        root.removeChild (i, nullptr);
+        root.removeChild (i, &beatGridUndo);
         warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
         gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
         triggerAsyncUpdate();
@@ -4354,13 +4409,45 @@ void MainPluginProcessor::clearDeckUserWarpMarkers (int deckIndex)
     bool changed = false;
     for (int i = root.getNumChildren(); --i >= 0;)
         if ((int) root.getChild (i).getProperty ("deck", -1) == deckIndex)
-        { root.removeChild (i, nullptr); changed = true; }
+        { root.removeChild (i, &beatGridUndo); changed = true; }
     if (changed)
     {
         warpMarkerRevision[(size_t) deckIndex].fetch_add (1, std::memory_order_relaxed);
         gridPublishNeeded[(size_t) deckIndex].store (true, std::memory_order_release);
         triggerAsyncUpdate();
     }
+}
+
+void MainPluginProcessor::beginDeckBeatGridEdit (
+    int deckIndex, const juce::String& description)
+{
+    if (! juce::isPositiveAndBelow (deckIndex, numDecks)) return;
+    beatGridUndo.beginNewTransaction (
+        "Deck " + deckLabel (deckIndex) + " " + description);
+}
+
+void MainPluginProcessor::publishAllBeatGridEdits()
+{
+    for (int deck = 0; deck < kMaxChannels; ++deck)
+    {
+        warpMarkerRevision[(size_t) deck].fetch_add (1, std::memory_order_relaxed);
+        gridPublishNeeded[(size_t) deck].store (true, std::memory_order_release);
+    }
+    triggerAsyncUpdate();
+}
+
+bool MainPluginProcessor::undoDeckBeatGridEdit()
+{
+    if (! beatGridUndo.undo()) return false;
+    publishAllBeatGridEdits();
+    return true;
+}
+
+bool MainPluginProcessor::redoDeckBeatGridEdit()
+{
+    if (! beatGridUndo.redo()) return false;
+    publishAllBeatGridEdits();
+    return true;
 }
 
 juce::String MainPluginProcessor::getWarpEngineStatus() const
@@ -4741,6 +4828,7 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
     forceMomentaryParameterOff ("micMonitor");
 
     apvts.replaceState (tree);
+    beatGridUndo.clearUndoHistory();
     restoreChannelsFromState();
     hostGraph.restoreState (tree.getChildWithName ("HOST_GRAPH"));
     restoreFileAssignmentsFromState();

@@ -404,7 +404,15 @@ public:
     { return deckPeak[(size_t) juce::jlimit (0, numDecks - 1, deckIndex)][(size_t) juce::jlimit (0, 1, ch)].load (std::memory_order_relaxed); }
     float getMasterStemPeak (int stemIndex) const noexcept
     { return masterStemPeak[(size_t) juce::jlimit (0, 3, stemIndex)].load (std::memory_order_relaxed); }
-    // Beat-grid positions (source seconds) for drawing the grid on a deck waveform.
+    struct DeckBeatGridLine
+    {
+        double sourceSeconds = 0.0;
+        double projectBeat = 0.0;
+        bool downbeat = false;
+    };
+    // Corrected beat-grid positions for drawing and direct manipulation. These
+    // include user warp anchors and match the audio engine's Anchor Sync map.
+    std::vector<DeckBeatGridLine> getDeckBeatGridLines (int deckIndex) const;
     std::vector<double> getDeckBeatGridSeconds (int deckIndex) const;
     struct UserWarpMarker
     {
@@ -423,6 +431,11 @@ public:
     bool moveDeckUserWarpMarker (int deckIndex, int markerId, double sourceSeconds);
     bool removeDeckUserWarpMarker (int deckIndex, int markerId);
     void clearDeckUserWarpMarkers (int deckIndex);
+    void beginDeckBeatGridEdit (int deckIndex, const juce::String& description);
+    bool undoDeckBeatGridEdit();
+    bool redoDeckBeatGridEdit();
+    bool canUndoDeckBeatGridEdit() const { return beatGridUndo.canUndo(); }
+    bool canRedoDeckBeatGridEdit() const { return beatGridUndo.canRedo(); }
 
     // Smart mastering readouts for the MASTER OUTPUT panel.
     float getSmartMasterLufs() const noexcept { return smartMaster.getShortTermLufs(); }
@@ -807,8 +820,12 @@ private:
     // thread and atomically publishes them to TrackDeckBody.
     std::array<std::atomic<bool>, kMaxChannels> gridPublishNeeded {};
     std::array<std::atomic<int>, kMaxChannels> warpMarkerRevision {};
+    juce::UndoManager beatGridUndo;
     void cacheDeckParamIds();
     std::vector<BeatSyncEngine::WarpMarker> warpMarkersForGrid (int deckIndex) const;
+    BeatSyncEngine::TrackBeatGrid deckGridWithUserMarkers (
+        int deckIndex, const TrackAnalysis& analysis) const;
+    void publishAllBeatGridEdits();
 
     // Pad gains were read as getFloatParam("pad" + String(i+1) + "Gain") inside
     // processBlock — that heap-allocates juce::String temporaries on the audio

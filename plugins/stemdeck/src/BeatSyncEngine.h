@@ -72,6 +72,19 @@ public:
                                    TempoInterpretation interpretation,
                                    SyncMode syncMode);
 
+    // Merge user corrections into the analysed map. A user marker replaces the
+    // analysed marker at the same project beat, so every consumer (audio, UI,
+    // phase telemetry and export) can share one authoritative grid.
+    static void applyUserWarpMarkers (TrackBeatGrid& grid,
+                                      const std::vector<WarpMarker>& userMarkers);
+
+    // Public read-only mapping seam used by waveform/grid editors. This is the
+    // exact mapping used by Anchor Sync rather than a parallel UI approximation.
+    static double sourceSampleForProjectBeat (const TrackBeatGrid& grid,
+                                              double projectBeat,
+                                              double sourceBeatLengthSamples,
+                                              double sourceLengthSamples);
+
     static PlaybackPlan makePlaybackPlan (const TransportSync::Snapshot& transport,
                                           const TrackBeatGrid& grid,
                                           double referenceSampleRate,

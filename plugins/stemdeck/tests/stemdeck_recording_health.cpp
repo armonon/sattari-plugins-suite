@@ -98,13 +98,23 @@ int main()
         juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
     check (processor.getDeckPath (0) == master.getFullPathName(),
            "recorded take loads for warp editing");
+    processor.beginDeckBeatGridEdit (0, "add test marker");
     const int warpId = processor.addDeckUserWarpMarker (0, 0.03);
     check (warpId > 0 && processor.getDeckUserWarpMarkers (0).size() == 1,
            "multiple-marker warp map accepts a user anchor");
+    processor.beginDeckBeatGridEdit (0, "move test marker");
     check (processor.moveDeckUserWarpMarker (0, warpId, 0.05)
                && std::abs (processor.getDeckUserWarpMarkers (0).front().sourceSeconds
                             - 0.05) < 0.001,
            "warp anchor moves without changing its musical beat");
+    check (processor.undoDeckBeatGridEdit()
+               && std::abs (processor.getDeckUserWarpMarkers (0).front().sourceSeconds
+                            - 0.03) < 0.001,
+           "beat-grid edit undo restores the previous source transient");
+    check (processor.redoDeckBeatGridEdit()
+               && std::abs (processor.getDeckUserWarpMarkers (0).front().sourceSeconds
+                            - 0.05) < 0.001,
+           "beat-grid edit redo restores the corrected marker");
 
     juce::MemoryBlock stateWithWarp;
     processor.getStateInformation (stateWithWarp);

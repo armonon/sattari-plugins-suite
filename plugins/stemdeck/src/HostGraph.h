@@ -170,8 +170,11 @@ private:
         // over 64 samples so a lock miss cannot become a full-scale click.
         std::array<float, 16> lastOutputSample {};
         bool resumeFromDry = false;
-        std::unique_ptr<PluginSandboxClient> sandbox;
-        juce::PluginDescription sandboxDescription;
+        // One helper per untrusted insert: a crash only removes that effect and
+        // never takes the host or its sibling inserts with it.
+        std::vector<std::unique_ptr<PluginSandboxClient>> sandboxes;
+        std::vector<juce::PluginDescription> sandboxDescriptions;
+        std::vector<bool> sandboxBypassed; // guarded by graphLock
     };
 
     juce::AudioPluginFormat* findFormatByName (const juce::String& formatName) const;

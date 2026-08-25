@@ -435,18 +435,7 @@ public:
         pg->grid = BeatSyncEngine::makeGrid (analysis, bpm, beatOffset, downbeat,
                                              BeatSyncEngine::tempoInterpretationFromChoice (tempoInterp),
                                              BeatSyncEngine::syncModeFromChoice (syncMode));
-        for (const auto& marker : userMarkers)
-        {
-            pg->grid.warpMarkers.erase (std::remove_if (
-                pg->grid.warpMarkers.begin(), pg->grid.warpMarkers.end(),
-                [&marker] (const auto& existing)
-                { return std::abs (existing.projectBeat - marker.projectBeat) < 0.01; }),
-                pg->grid.warpMarkers.end());
-            pg->grid.warpMarkers.push_back (marker);
-        }
-        std::sort (pg->grid.warpMarkers.begin(), pg->grid.warpMarkers.end(),
-                   [] (const auto& a, const auto& b)
-                   { return a.projectBeat < b.projectBeat; });
+        BeatSyncEngine::applyUserWarpMarkers (pg->grid, userMarkers);
         std::atomic_store (&publishedGrid, std::shared_ptr<const PublishedGrid> (std::move (pg)));
     }
 

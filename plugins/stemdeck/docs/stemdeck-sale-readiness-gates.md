@@ -44,16 +44,22 @@ Developer ID, notarization or clean-machine installation evidence.
 - Automatic onset, beat, tempo-curve, meter, and downbeat analysis is implemented,
   with a DBN/Viterbi-style decoder when neural activations are available. Anchor and
   Groove Sync now warp against the detected variable-tempo grid instead of reducing
-  it to a fixed-BPM identity map. This still needs a licensed real-music corpus gate
-  (especially ambient intros, breakdowns, live drummers, and tempo changes) and a
-  full visual beat-marker editor before commercial DJ-grade claims.
+  it to a fixed-BPM identity map. The vertical waveform now exposes the authoritative
+  corrected grid directly: drag a beat line onto its transient, Option-click to set
+  the downbeat, use multiple non-crossing warp anchors, and undo/redo/reset edits.
+  Overview, detail, phase telemetry, persistence and audio share the same map. This
+  still needs a licensed real-music corpus gate (especially ambient intros,
+  breakdowns, live drummers, and tempo changes) before commercial DJ-grade claims.
 - Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: trusted Sattari in-process graphs plus a dedicated helper process and shared-memory audio ring for untrusted effects) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
 - Hosted-plugin parameters now have stable event-stream addressing and deterministic
   dispatch for the trusted graph. Third-party audio effects are process-isolated,
   dry-bypassed if the helper exits, retried twice after a transient crash, and expose
-  a truthful click-free rack bypass. Native editors, MIDI, complete guest state and
-  parameter automation, more than one isolated effect per chain, and crash/hang/
-  latency soak matrices remain release blockers for unrestricted third-party hosting.
+  a truthful click-free rack bypass. Isolated chains now support multiple independently
+  bypassable/reorderable helper processes, MIDI input, summed PDC latency, and periodic
+  guest-state snapshots used for project restore and crash restart. Native editors,
+  MIDI output, sample-accurate isolated parameter automation, mixed trusted/untrusted
+  inserts in one chain, and crash/hang/latency soak matrices remain release blockers
+  for unrestricted third-party hosting.
 - Editable arrangement replay now follows captured lane EQ/filter/reverb/echo and
   master gain/performance-FX/Smart-Master/limiter automation. A real third-party
   plugin replay/hash matrix and complete live-set stress replay are still required.

@@ -8,7 +8,8 @@
 // Coordinator-side endpoint for one isolated third-party audio effect. The audio
 // callback only touches a pre-mapped SPSC-ish ring and never waits for the worker.
 // A late/dead helper therefore yields the dry block instead of a stage dropout.
-class PluginSandboxClient final : private juce::ChildProcessCoordinator
+class PluginSandboxClient final : private juce::ChildProcessCoordinator,
+                                  private juce::Timer
 {
 public:
     using ReadyCallback = std::function<void (bool, juce::String)>;
@@ -19,13 +20,15 @@ public:
     void prepare (double sampleRate, int blockSize, int channels);
     bool launch (const juce::PluginDescription&, ReadyCallback);
     void stop();
-    void process (juce::AudioBuffer<float>&) noexcept;
+    void process (juce::AudioBuffer<float>&, const juce::MidiBuffer&) noexcept;
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
     bool hasCrashed() const noexcept { return crashed.load (std::memory_order_acquire); }
     int latencySamples() const noexcept { return preparedBlockSize; }
     juce::String pluginName() const;
     juce::String status() const;
+    void setStateSnapshot (const juce::MemoryBlock&);
+    juce::MemoryBlock getStateSnapshot() const;
 
     static juce::File locateHelperExecutable();
     static bool scanInHelper (juce::KnownPluginList&, juce::StringArray& messages,
@@ -35,6 +38,7 @@ private:
     bool launchInternal (const juce::PluginDescription&, ReadyCallback, bool recovery);
     void handleMessageFromWorker (const juce::MemoryBlock&) override;
     void handleConnectionLost() override;
+    void timerCallback() override;
     bool createSharedFile();
     juce::MemoryBlock makeConfiguration (const juce::PluginDescription&) const;
 
@@ -47,6 +51,7 @@ private:
     double preparedSampleRate = 44100.0;
     mutable juce::CriticalSection messageLock;
     juce::String loadedName, lastMessage;
+    juce::MemoryBlock latestState;
     ReadyCallback readyCallback;
     juce::PluginDescription lastDescription;
     int restartAttempts = 0;

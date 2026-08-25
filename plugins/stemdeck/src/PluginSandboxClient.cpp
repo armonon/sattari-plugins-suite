@@ -85,6 +85,11 @@ juce::MemoryBlock PluginSandboxClient::makeConfiguration (
     object->setProperty ("channels", preparedChannels);
     if (auto xml = description.createXml())
         object->setProperty ("plugin", xml->toString());
+    {
+        const juce::ScopedLock lock (messageLock);
+        if (latestState.getSize() > 0)
+            object->setProperty ("state", latestState.toBase64Encoding());
+    }
     const auto utf8 = juce::JSON::toString (juce::var (object), true).toUTF8();
     return { utf8.getAddress(), (size_t) utf8.sizeInBytes() };
 }
@@ -141,6 +146,7 @@ bool PluginSandboxClient::launchInternal (const juce::PluginDescription& descrip
 
 void PluginSandboxClient::stop()
 {
+    stopTimer();
     intentionalStop.store (true, std::memory_order_release);
     ready.store (false, std::memory_order_release);
     if (shared != nullptr)
@@ -152,7 +158,8 @@ void PluginSandboxClient::stop()
     intentionalStop.store (false, std::memory_order_release);
 }
 
-void PluginSandboxClient::process (juce::AudioBuffer<float>& audio) noexcept
+void PluginSandboxClient::process (juce::AudioBuffer<float>& audio,
+                                   const juce::MidiBuffer& midi) noexcept
 {
     if (! ready.load (std::memory_order_acquire) || shared == nullptr
         || audio.getNumSamples() > stemdeck::sandbox::maxSamples
@@ -170,6 +177,21 @@ void PluginSandboxClient::process (juce::AudioBuffer<float>& audio) noexcept
         slot.sequence = nextSequence.fetch_add (1, std::memory_order_relaxed);
         slot.channels = (std::uint32_t) audio.getNumChannels();
         slot.samples = (std::uint32_t) audio.getNumSamples();
+        slot.midiCount = 0;
+        for (const auto metadata : midi)
+        {
+            const auto message = metadata.getMessage();
+            const int size = message.getRawDataSize();
+            if (slot.midiCount >= stemdeck::sandbox::maxMidiEvents
+                || size <= 0 || size > stemdeck::sandbox::maxMidiBytes)
+                continue;
+            auto& event = slot.midi[slot.midiCount++];
+            event.frame = (std::uint16_t) juce::jlimit (
+                0, juce::jmax (0, audio.getNumSamples() - 1),
+                metadata.samplePosition);
+            event.size = (std::uint8_t) size;
+            std::memcpy (event.data, message.getRawData(), (size_t) size);
+        }
         for (int ch = 0; ch < audio.getNumChannels(); ++ch)
             juce::FloatVectorOperations::copy (
                 slot.audio + (size_t) ch * stemdeck::sandbox::maxSamples,
@@ -211,10 +233,20 @@ void PluginSandboxClient::handleMessageFromWorker (const juce::MemoryBlock& mess
     const auto text = juce::String::fromUTF8 ((const char*) message.getData(),
                                                (int) message.getSize());
     const auto response = juce::JSON::parse (text);
+    if (response.getProperty ("type", {}).toString() == "state")
+    {
+        juce::MemoryBlock snapshot;
+        snapshot.fromBase64Encoding (
+            response.getProperty ("state", {}).toString());
+        const juce::ScopedLock lock (messageLock);
+        latestState = std::move (snapshot);
+        return;
+    }
     const bool ok = (bool) response.getProperty ("ok", false);
     const auto messageText = response.getProperty ("message", {}).toString();
     { const juce::ScopedLock lock (messageLock); lastMessage = messageText; }
     ready.store (ok, std::memory_order_release);
+    if (ok) startTimer (1000);
     if (readyCallback)
     {
         auto pendingCallback = std::move (readyCallback);
@@ -222,6 +254,27 @@ void PluginSandboxClient::handleMessageFromWorker (const juce::MemoryBlock& mess
                                           messageText]() mutable
         { callbackToRun (ok, messageText); });
     }
+}
+
+void PluginSandboxClient::timerCallback()
+{
+    if (! isReady()) return;
+    auto request = new juce::DynamicObject();
+    request->setProperty ("command", "state");
+    const auto encoded = juce::JSON::toString (juce::var (request)).toUTF8();
+    sendMessageToWorker ({ encoded.getAddress(), (size_t) encoded.sizeInBytes() });
+}
+
+void PluginSandboxClient::setStateSnapshot (const juce::MemoryBlock& snapshot)
+{
+    const juce::ScopedLock lock (messageLock);
+    latestState = snapshot;
+}
+
+juce::MemoryBlock PluginSandboxClient::getStateSnapshot() const
+{
+    const juce::ScopedLock lock (messageLock);
+    return latestState;
 }
 
 void PluginSandboxClient::handleConnectionLost()

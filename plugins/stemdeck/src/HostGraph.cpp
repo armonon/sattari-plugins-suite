@@ -195,9 +195,9 @@ void HostGraph::prepare (double sampleRate, int blockSize, int channels)
         }
         {
             const juce::ScopedLock lock (chain.graphLock);
-            if (chain.sandbox != nullptr)
-                chain.sandbox->prepare (currentSampleRate, currentBlockSize,
-                                        currentChannels);
+            for (auto& sandbox : chain.sandboxes)
+                sandbox->prepare (currentSampleRate, currentBlockSize,
+                                  currentChannels);
         }
     }
 }
@@ -262,7 +262,7 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
 
     // Sandbox lifetime is protected by graphLock too. The audio callback still
     // never waits: a concurrent load/remove simply dry-bypasses this block.
-    if (state.sandbox != nullptr)
+    if (! state.sandboxes.empty())
     {
         if (audio.getNumChannels() > state.safetyBuffer.getNumChannels()
             || audio.getNumSamples() > state.safetyBuffer.getNumSamples())
@@ -270,7 +270,10 @@ void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce
         for (int channel = 0; channel < audio.getNumChannels(); ++channel)
             state.safetyBuffer.copyFrom (channel, 0, audio, channel, 0,
                                          audio.getNumSamples());
-        state.sandbox->process (audio);
+        for (size_t insert = 0; insert < state.sandboxes.size(); ++insert)
+            if (insert >= state.sandboxBypassed.size()
+                || ! state.sandboxBypassed[insert])
+                state.sandboxes[insert]->process (audio, midi);
         const float fromWet = state.smoothedChainMix;
         if (targetWet < 0.9999f || fromWet < 0.9999f)
             for (int channel = 0; channel < audio.getNumChannels(); ++channel)
@@ -410,8 +413,9 @@ juce::String HostGraph::getStatusSummary() const
         loaded += chain.pluginCountAtomic.load (std::memory_order_relaxed);
         faulted += chain.outputFaulted.load (std::memory_order_relaxed) ? 1 : 0;
         const juce::ScopedTryLock lock (chain.graphLock);
-        if (lock.isLocked() && chain.sandbox != nullptr
-            && chain.sandbox->hasCrashed()) ++faulted;
+        if (lock.isLocked())
+            for (const auto& sandbox : chain.sandboxes)
+                if (sandbox->hasCrashed()) ++faulted;
     }
     text += "; loaded chain plugins: " + juce::String (loaded);
     if (faulted > 0)
@@ -470,7 +474,7 @@ bool HostGraph::saveCache() const
 juce::ValueTree HostGraph::createState() const
 {
     juce::ValueTree root ("HOST_GRAPH");
-    root.setProperty ("version", 2, nullptr);
+    root.setProperty ("version", 3, nullptr);
     for (int chainIndex = 0; chainIndex < (int) Chain::count; ++chainIndex)
     {
         const auto chain = (Chain) chainIndex;
@@ -506,14 +510,23 @@ juce::ValueTree HostGraph::createState() const
                 "bypassed", node->isBypassed(), nullptr);
             root.appendChild (item, nullptr);
         }
-        if (state.sandbox != nullptr)
-            if (auto xml = state.sandboxDescription.createXml())
+        for (int insert = 0; insert < (int) state.sandboxes.size(); ++insert)
+            if (auto xml = state.sandboxDescriptions[(size_t) insert].createXml())
             {
                 juce::ValueTree item ("INSERT");
                 item.setProperty ("chain", chainIndex, nullptr);
-                item.setProperty ("order", 0, nullptr);
+                item.setProperty ("order", insert, nullptr);
                 item.setProperty ("description", xml->toString(), nullptr);
                 item.setProperty ("sandboxed", true, nullptr);
+                item.setProperty (
+                    "state",
+                    state.sandboxes[(size_t) insert]
+                        ->getStateSnapshot().toBase64Encoding(),
+                    nullptr);
+                item.setProperty ("bypassed",
+                                  insert < (int) state.sandboxBypassed.size()
+                                      && state.sandboxBypassed[(size_t) insert],
+                                  nullptr);
                 root.appendChild (item, nullptr);
             }
     }
@@ -570,12 +583,20 @@ juce::StringArray HostGraph::restoreState (
         {
             auto& chainState = stateFor ((Chain) chainIndex);
             const juce::ScopedLock lock (chainState.graphLock);
-            chainState.sandbox = std::make_unique<PluginSandboxClient>();
-            chainState.sandbox->prepare (currentSampleRate, currentBlockSize,
-                                         currentChannels);
-            chainState.sandboxDescription = description;
-            chainState.pluginCountAtomic.store (1, std::memory_order_relaxed);
-            chainState.sandbox->launch (description, {});
+            auto sandbox = std::make_unique<PluginSandboxClient>();
+            sandbox->prepare (currentSampleRate, currentBlockSize,
+                              currentChannels);
+            juce::MemoryBlock sandboxState;
+            if (sandboxState.fromBase64Encoding (
+                    item.getProperty ("state").toString()))
+                sandbox->setStateSnapshot (sandboxState);
+            sandbox->launch (description, {});
+            chainState.sandboxes.push_back (std::move (sandbox));
+            chainState.sandboxDescriptions.push_back (description);
+            chainState.sandboxBypassed.push_back (
+                (bool) item.getProperty ("bypassed", false));
+            chainState.pluginCountAtomic.store (
+                (int) chainState.sandboxes.size(), std::memory_order_relaxed);
             messages.add ("Restoring " + description.name
                           + " in isolated helper process");
             continue;
@@ -666,30 +687,57 @@ void HostGraph::loadPluginToChainAsync (Chain chain,
     {
         auto& state = stateFor (chain);
         const juce::ScopedLock lock (state.graphLock);
-        if (! state.pluginNodes.isEmpty() || state.sandbox != nullptr)
+        if (! state.pluginNodes.isEmpty())
         {
             if (callback) callback (false,
-                "Use an empty chain for an isolated third-party effect");
+                "Trusted and isolated effects cannot share one chain yet");
             return;
         }
-        state.sandbox = std::make_unique<PluginSandboxClient>();
-        state.sandbox->prepare (currentSampleRate, currentBlockSize,
-                                currentChannels);
-        state.sandboxDescription = description;
-        state.sandbox->launch (description,
+        auto sandbox = std::make_unique<PluginSandboxClient>();
+        sandbox->prepare (currentSampleRate, currentBlockSize,
+                          currentChannels);
+        auto* sandboxIdentity = sandbox.get();
+        state.sandboxes.push_back (std::move (sandbox));
+        state.sandboxDescriptions.push_back (description);
+        state.sandboxBypassed.push_back (false);
+        state.pluginCountAtomic.store ((int) state.sandboxes.size(),
+                                       std::memory_order_release);
+        sandboxIdentity->launch (description,
             [this, target = chain, alive = aliveFlag,
+             sandboxIdentity,
              completion = std::move (callback)]
             (bool ok, juce::String message) mutable
             {
                 if (! alive->load (std::memory_order_acquire)) return;
                 auto& targetState = stateFor (target);
                 const juce::ScopedLock targetLock (targetState.graphLock);
-                targetState.pluginCountAtomic.store (ok ? 1 : 0,
-                                                     std::memory_order_release);
-                if (! ok) targetState.sandbox.reset();
+                if (! ok)
+                    for (int index = (int) targetState.sandboxes.size(); --index >= 0;)
+                        if (targetState.sandboxes[(size_t) index].get() == sandboxIdentity)
+                        {
+                            targetState.sandboxes.erase (targetState.sandboxes.begin() + index);
+                            targetState.sandboxDescriptions.erase (
+                                targetState.sandboxDescriptions.begin() + index);
+                            targetState.sandboxBypassed.erase (
+                                targetState.sandboxBypassed.begin() + index);
+                            break;
+                        }
+                targetState.pluginCountAtomic.store (
+                    (int) targetState.sandboxes.size(),
+                    std::memory_order_release);
                 if (completion) completion (ok, message);
             });
         return;
+    }
+    {
+        auto& state = stateFor (chain);
+        const juce::ScopedLock lock (state.graphLock);
+        if (! state.sandboxes.empty())
+        {
+            if (callback) callback (false,
+                "Trusted and isolated effects cannot share one chain yet");
+            return;
+        }
     }
     if (isPluginQuarantined (description))
     {
@@ -766,9 +814,10 @@ void HostGraph::clearChain (Chain chain)
     auto& state = stateFor (chain);
     {
         const juce::ScopedLock lock (state.graphLock);
-        if (state.sandbox != nullptr) state.sandbox->stop();
-        state.sandbox.reset();
-        state.sandboxDescription = {};
+        for (auto& sandbox : state.sandboxes) sandbox->stop();
+        state.sandboxes.clear();
+        state.sandboxDescriptions.clear();
+        state.sandboxBypassed.clear();
     }
     initialiseGraph (state);
 }
@@ -872,8 +921,15 @@ int HostGraph::getChainLatencySamples (Chain chain) const
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr)
-        return state.sandbox->latencySamples();
+    if (! state.sandboxes.empty())
+    {
+        int latency = 0;
+        for (int insert = 0; insert < (int) state.sandboxes.size(); ++insert)
+            if (insert >= (int) state.sandboxBypassed.size()
+                || ! state.sandboxBypassed[(size_t) insert])
+                latency += state.sandboxes[(size_t) insert]->latencySamples();
+        return latency;
+    }
     if (! state.prepared || state.pluginNodes.isEmpty())
         return 0;
     // Serial chain: the graph reports the summed latency of its path.
@@ -889,9 +945,10 @@ juce::String HostGraph::getChainPluginName (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr)
-        return index == 0 ? state.sandbox->pluginName() + " (Isolated)"
-                          : juce::String();
+    if (! state.sandboxes.empty())
+        return juce::isPositiveAndBelow (index, (int) state.sandboxes.size())
+                   ? state.sandboxes[(size_t) index]->pluginName() + " (Isolated)"
+                   : juce::String();
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return {};
     if (auto* proc = state.pluginNodes[index]->getProcessor()) return proc->getName();
     return {};
@@ -901,7 +958,7 @@ juce::AudioProcessor* HostGraph::getChainPluginProcessor (Chain chain, int index
 {
     const auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr) return nullptr;
+    if (! state.sandboxes.empty()) return nullptr;
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return nullptr;
     return state.pluginNodes[index]->getProcessor();
 }
@@ -910,7 +967,22 @@ void HostGraph::moveChainPlugin (Chain chain, int fromIndex, int toIndex)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr) return; // one isolated insert cannot be reordered
+    if (! state.sandboxes.empty())
+    {
+        const int n = (int) state.sandboxes.size();
+        if (! juce::isPositiveAndBelow (fromIndex, n)
+            || ! juce::isPositiveAndBelow (toIndex, n)
+            || fromIndex == toIndex) return;
+        std::swap (state.sandboxes[(size_t) fromIndex],
+                   state.sandboxes[(size_t) toIndex]);
+        std::swap (state.sandboxDescriptions[(size_t) fromIndex],
+                   state.sandboxDescriptions[(size_t) toIndex]);
+        const bool fromBypassed = state.sandboxBypassed[(size_t) fromIndex];
+        state.sandboxBypassed[(size_t) fromIndex] =
+            state.sandboxBypassed[(size_t) toIndex];
+        state.sandboxBypassed[(size_t) toIndex] = fromBypassed;
+        return;
+    }
     const int n = state.pluginNodes.size();
     if (! juce::isPositiveAndBelow (fromIndex, n) || ! juce::isPositiveAndBelow (toIndex, n)
         || fromIndex == toIndex)
@@ -924,12 +996,10 @@ void HostGraph::setChainPluginBypassed (Chain chain, int index, bool bypassed)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    // An isolated chain contains exactly one insert. Map its rack bypass to the
-    // chain's click-free wet/dry bypass so the visible control remains truthful.
-    if (state.sandbox != nullptr)
+    if (! state.sandboxes.empty())
     {
-        if (index == 0)
-            state.chainBypassed.store (bypassed, std::memory_order_release);
+        if (juce::isPositiveAndBelow (index, (int) state.sandboxBypassed.size()))
+            state.sandboxBypassed[(size_t) index] = bypassed;
         return;
     }
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return;
@@ -943,9 +1013,9 @@ bool HostGraph::isChainPluginBypassed (Chain chain, int index) const
 {
     const auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr)
-        return index == 0
-            && state.chainBypassed.load (std::memory_order_acquire);
+    if (! state.sandboxes.empty())
+        return juce::isPositiveAndBelow (index, (int) state.sandboxBypassed.size())
+            && state.sandboxBypassed[(size_t) index];
     if (! juce::isPositiveAndBelow (index, state.pluginNodes.size())) return false;
     auto* node = state.pluginNodes[index].get();
     return node != nullptr && node->isBypassed();
@@ -1051,14 +1121,17 @@ void HostGraph::removeChainPlugin (Chain chain, int index)
 {
     auto& state = stateFor (chain);
     const juce::ScopedLock lock (state.graphLock);
-    if (state.sandbox != nullptr)
+    if (! state.sandboxes.empty())
     {
-        if (index == 0)
+        if (juce::isPositiveAndBelow (index, (int) state.sandboxes.size()))
         {
-            state.sandbox->stop();
-            state.sandbox.reset();
-            state.sandboxDescription = {};
-            state.pluginCountAtomic.store (0, std::memory_order_release);
+            state.sandboxes[(size_t) index]->stop();
+            state.sandboxes.erase (state.sandboxes.begin() + index);
+            state.sandboxDescriptions.erase (
+                state.sandboxDescriptions.begin() + index);
+            state.sandboxBypassed.erase (state.sandboxBypassed.begin() + index);
+            state.pluginCountAtomic.store ((int) state.sandboxes.size(),
+                                           std::memory_order_release);
         }
         return;
     }

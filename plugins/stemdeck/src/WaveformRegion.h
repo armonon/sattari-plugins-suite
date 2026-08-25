@@ -36,6 +36,7 @@ public:
     struct StructureRegion { float startNorm = 0.0f, endNorm = 0.0f; juce::String label; juce::Colour colour; };
     struct HotCue { float positionNorm = -1.0f; juce::Colour colour; int number = 0; };
     struct WarpMarkerView { int id = 0; float positionNorm = 0.0f; double projectBeat = 0.0; };
+    struct BeatLineView { float positionNorm = 0.0f; double projectBeat = 0.0; bool downbeat = false; };
 
     WaveformRegion()
     {
@@ -83,6 +84,11 @@ public:
                    || std::abs (markers[i].projectBeat - warpMarkers[i].projectBeat) > 0.00001;
         if (! changed) return;
         warpMarkers = std::move (markers);
+        repaint();
+    }
+    void setBeatGridLines (std::vector<BeatLineView> lines)
+    {
+        beatLines = std::move (lines);
         repaint();
     }
     void setLoopRegion (float startNorm, float endNorm, bool active)
@@ -146,12 +152,48 @@ public:
     std::function<void (const juce::StringArray&)> onFilesDropped;
     std::function<void (float)> onSeekNorm;   // overview click -> jump the playhead (0..1)
     std::function<void (float)> onSetDownbeatNorm; // Option-click overview -> grid anchor
-    std::function<int (float)> onAddWarpMarkerNorm; // Shift-click -> new fixed project beat
+    std::function<void()> onBeginWarpEdit;
+    // Drag a detailed beat line, or Shift-click the overview, to add an anchor.
+    std::function<int (float)> onAddWarpMarkerNorm;
     std::function<void (int, float)> onMoveWarpMarkerNorm;
     std::function<void (int)> onRemoveWarpMarker;
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (detailRect.contains (e.getPosition()))
+        {
+            float t0, t1; visibleWindow (t0, t1);
+            const float span = juce::jmax (0.0001f, t1 - t0);
+            int nearestBeat = -1;
+            float nearestPixels = 8.0f;
+            for (int index = 0; index < (int) beatLines.size(); ++index)
+            {
+                const auto& line = beatLines[(size_t) index];
+                if (line.positionNorm < t0 || line.positionNorm > t1) continue;
+                const float y = detailRect.getY()
+                              + (line.positionNorm - t0) / span * detailRect.getHeight();
+                const float distance = std::abs (y - (float) e.y);
+                if (distance < nearestPixels)
+                { nearestPixels = distance; nearestBeat = index; }
+            }
+            if (nearestBeat >= 0)
+            {
+                const auto norm = beatLines[(size_t) nearestBeat].positionNorm;
+                if (e.mods.isAltDown())
+                {
+                    if (onSetDownbeatNorm) onSetDownbeatNorm (norm);
+                    return;
+                }
+                if (! e.mods.isPopupMenu() && onAddWarpMarkerNorm)
+                {
+                    if (onBeginWarpEdit) onBeginWarpEdit();
+                    draggingWarpId = onAddWarpMarkerNorm (norm);
+                    draggingBeatLine = nearestBeat;
+                    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+                }
+            }
+            return;
+        }
         if (! overviewRect.contains (e.getPosition())) return;
         const float norm = juce::jlimit (0.0f, 1.0f,
             (float) (e.x - overviewRect.getX())
@@ -167,25 +209,44 @@ public:
         }
         if (nearest >= 0 && e.mods.isPopupMenu())
         {
+            if (onBeginWarpEdit) onBeginWarpEdit();
             if (onRemoveWarpMarker) onRemoveWarpMarker (nearest);
             return;
         }
         if (nearest >= 0)
         {
+            if (onBeginWarpEdit) onBeginWarpEdit();
             draggingWarpId = nearest;
             setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
             return;
         }
         if (e.mods.isShiftDown() && onAddWarpMarkerNorm)
+        {
+            if (onBeginWarpEdit) onBeginWarpEdit();
             draggingWarpId = onAddWarpMarkerNorm (norm);
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        if (draggingWarpId < 0 || overviewRect.isEmpty()) return;
-        const float norm = juce::jlimit (0.0f, 1.0f,
-            (float) (e.x - overviewRect.getX())
-                / (float) juce::jmax (1, overviewRect.getWidth()));
+        if (draggingWarpId < 0) return;
+        float norm = 0.0f;
+        if (draggingBeatLine >= 0 && ! detailRect.isEmpty())
+        {
+            float t0, t1; visibleWindow (t0, t1);
+            norm = juce::jlimit (0.0f, 1.0f,
+                t0 + (float) (e.y - detailRect.getY())
+                   / (float) juce::jmax (1, detailRect.getHeight()) * (t1 - t0));
+            if (juce::isPositiveAndBelow (draggingBeatLine, (int) beatLines.size()))
+                beatLines[(size_t) draggingBeatLine].positionNorm = norm;
+        }
+        else
+        {
+            if (overviewRect.isEmpty()) return;
+            norm = juce::jlimit (0.0f, 1.0f,
+                (float) (e.x - overviewRect.getX())
+                    / (float) juce::jmax (1, overviewRect.getWidth()));
+        }
         for (auto& marker : warpMarkers)
             if (marker.id == draggingWarpId) marker.positionNorm = norm;
         if (onMoveWarpMarkerNorm) onMoveWarpMarkerNorm (draggingWarpId, norm);
@@ -198,6 +259,7 @@ public:
         {
             mouseDrag (e);
             draggingWarpId = -1;
+            draggingBeatLine = -1;
             setMouseCursor (juce::MouseCursor::NormalCursor);
             return;
         }
@@ -276,6 +338,7 @@ public:
         b.removeFromTop (2);
         auto detail = b.reduced (4, 2);
         auto gutter = detail.removeFromLeft (24);
+        detailRect = detail;
         drawGutter (g, gutter);
 
         const int colGap = 4;
@@ -484,25 +547,58 @@ private:
 
     void drawGrid (juce::Graphics& g, juce::Rectangle<float> body, float t0, float t1, float alpha)
     {
+        if (! beatLines.empty())
+        {
+            for (const auto& line : beatLines)
+                if (line.positionNorm >= t0 && line.positionNorm <= t1)
+                {
+                    const float py = body.getY() + (line.positionNorm - t0)
+                                   / juce::jmax (0.0001f, t1 - t0) * body.getHeight();
+                    g.setColour ((line.downbeat ? tokens::c (tokens::deckA)
+                                                : tokens::c (tokens::borderSubtle))
+                                     .withAlpha (line.downbeat ? alpha * 2.6f : alpha));
+                    g.fillRect (body.getX(), py, body.getWidth(),
+                                line.downbeat ? 1.5f : 0.5f);
+                }
+            return;
+        }
+
+        // Analysis may still be loading. Keep a temporary even grid rather than
+        // showing an empty editor, then replace it with the corrected map.
         if (bpm <= 0 || totalSec <= 0) return;
         const double beatSec = 60.0 / bpm;
-        const double winSec  = (double) (t1 - t0) * totalSec;
-        if (winSec <= 0) return;
         const double startSec = (double) t0 * totalSec;
-        const double firstBeat = std::ceil (startSec / beatSec) * beatSec;
-        for (double t = firstBeat; t < startSec + winSec; t += beatSec)
+        const double winSec = (double) (t1 - t0) * totalSec;
+        for (double t = std::ceil (startSec / beatSec) * beatSec;
+             t < startSec + winSec; t += beatSec)
         {
-            const float rn = (float) ((t - startSec) / winSec);
-            const float py = body.getY() + rn * body.getHeight();
-            const bool bar = std::fmod (std::round (t / beatSec), 4.0) == 0.0;
-            g.setColour (stemdeck::tokens::c (stemdeck::tokens::borderSubtle).withAlpha (bar ? alpha * 2.0f : alpha));
-            g.fillRect (body.getX(), py, body.getWidth(), bar ? 1.0f : 0.5f);
+            const float py = body.getY() + (float) ((t - startSec) / winSec) * body.getHeight();
+            g.setColour (tokens::c (tokens::borderSubtle).withAlpha (alpha));
+            g.fillRect (body.getX(), py, body.getWidth(), 0.5f);
         }
     }
 
     void drawGutter (juce::Graphics& g, juce::Rectangle<int> gutter)
     {
         float t0, t1; visibleWindow (t0, t1);
+        if (! beatLines.empty())
+        {
+            int barNumber = 1;
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            for (const auto& line : beatLines)
+            {
+                if (! line.downbeat) continue;
+                if (line.positionNorm < t0) { ++barNumber; continue; }
+                if (line.positionNorm > t1) break;
+                const int y = gutter.getY() + 13 + (int) ((line.positionNorm - t0)
+                            / juce::jmax (0.0001f, t1 - t0) * (gutter.getHeight() - 13));
+                g.setColour (tokens::c (tokens::deckA));
+                g.drawText (juce::String (barNumber++), gutter.getX(), y - 6,
+                            gutter.getWidth() - 2, 12,
+                            juce::Justification::centredRight);
+            }
+            return;
+        }
         if (bpm <= 0 || totalSec <= 0) return;
         const double barSec  = (60.0 / bpm) * 4.0;
         const double startSec = (double) t0 * totalSec;
@@ -563,6 +659,7 @@ private:
     std::vector<KeyBand> keyBands;
     std::array<HotCue, 8> hotCues {};
     std::vector<WarpMarkerView> warpMarkers;
+    std::vector<BeatLineView> beatLines;
 
     float  playhead = 0.0f;
     float  loopStart = -1.0f, loopEnd = -1.0f;
@@ -572,7 +669,8 @@ private:
     ColourMode colourMode = ColourMode::stems;
     bool   dragOver = false;
     int    draggingWarpId = -1;
-    juce::Rectangle<int> toggleRect, overviewRect, zoomRect;
+    int    draggingBeatLine = -1;
+    juce::Rectangle<int> toggleRect, overviewRect, zoomRect, detailRect;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformRegion)
 };

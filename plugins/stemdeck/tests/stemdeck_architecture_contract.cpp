@@ -104,6 +104,22 @@ void expectWarpEngineContract()
         fail ("Strict Sync no longer follows the nominal fixed-BPM grid");
     if (std::abs (anchorAtAnalysedBeat.lockedSourcePositionSamples - 34000.0) > 1.0)
         fail ("Anchor Sync discarded the analysed variable-tempo beat position");
+
+    auto correctedGrid = variableAnchorGrid;
+    BeatSyncEngine::WarpMarker correction {
+        secondBeatProjectCoordinate, 0.0, 36000.0, false
+    };
+    BeatSyncEngine::applyUserWarpMarkers (correctedGrid, { correction });
+    const double correctedSample = BeatSyncEngine::sourceSampleForProjectBeat (
+        correctedGrid, secondBeatProjectCoordinate, 32000.0, 48000.0 * 16.0);
+    if (std::abs (correctedSample - 36000.0) > 1.0)
+        fail ("user beat-grid correction was not shared by the authoritative warp map");
+    int markersAtBeat = 0;
+    for (const auto& marker : correctedGrid.warpMarkers)
+        if (std::abs (marker.projectBeat - secondBeatProjectCoordinate) < 0.01)
+            ++markersAtBeat;
+    if (markersAtBeat != 1)
+        fail ("user correction did not replace the analysed marker at its project beat");
 }
 
 void expectPerformanceRecorderWritesEditableSourceArrangement()
@@ -271,7 +287,7 @@ void expectHostGraphNoPluginPassThroughIsSafe()
         fail ("HostGraph empty chain changed audio");
     const auto state = graph.createState();
     if (state.getType() != juce::Identifier ("HOST_GRAPH")
-        || (int) state.getProperty ("version", 0) != 2)
+        || (int) state.getProperty ("version", 0) != 3)
         fail ("HostGraph did not create a versioned rack state");
     graph.setChainMix (HostGraph::Chain::deckA, 0.37f);
     graph.setChainBypassed (HostGraph::Chain::deckA, true);

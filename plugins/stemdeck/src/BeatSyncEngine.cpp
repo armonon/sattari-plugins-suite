@@ -210,6 +210,40 @@ BeatSyncEngine::TrackBeatGrid BeatSyncEngine::makeGrid (const TrackAnalysis& ana
     return grid;
 }
 
+void BeatSyncEngine::applyUserWarpMarkers (
+    TrackBeatGrid& grid, const std::vector<WarpMarker>& userMarkers)
+{
+    for (const auto& marker : userMarkers)
+    {
+        if (! std::isfinite (marker.projectBeat)
+            || ! std::isfinite (marker.sourceSample)
+            || marker.sourceSample < 0.0)
+            continue;
+        grid.warpMarkers.erase (std::remove_if (
+            grid.warpMarkers.begin(), grid.warpMarkers.end(),
+            [&marker] (const auto& existing)
+            { return std::abs (existing.projectBeat - marker.projectBeat) < 0.01; }),
+            grid.warpMarkers.end());
+        grid.warpMarkers.push_back (marker);
+    }
+    std::sort (grid.warpMarkers.begin(), grid.warpMarkers.end(),
+               [] (const auto& a, const auto& b)
+               {
+                   if (std::abs (a.projectBeat - b.projectBeat) < 1.0e-6)
+                       return ! a.transientAnchor && b.transientAnchor;
+                   return a.projectBeat < b.projectBeat;
+               });
+}
+
+double BeatSyncEngine::sourceSampleForProjectBeat (
+    const TrackBeatGrid& grid, double projectBeat,
+    double sourceBeatLengthSamples, double sourceLengthSamples)
+{
+    return mapBeatThroughWarpMarkers (grid, projectBeat,
+                                      sourceBeatLengthSamples,
+                                      sourceLengthSamples, false);
+}
+
 double BeatSyncEngine::wrapPositive (double value, double length) noexcept
 {
     if (length <= 1.0 || ! std::isfinite (value))

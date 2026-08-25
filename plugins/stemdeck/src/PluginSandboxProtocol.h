@@ -7,10 +7,12 @@
 namespace stemdeck::sandbox
 {
 constexpr std::uint32_t magic = 0x53445342; // SDSB
-constexpr std::uint32_t version = 1;
+constexpr std::uint32_t version = 2;
 constexpr int maxChannels = 8;
 constexpr int maxSamples = 4096;
 constexpr int ringSlots = 3;
+constexpr int maxMidiEvents = 256;
+constexpr int maxMidiBytes = 16;
 
 enum SlotState : std::uint32_t { free = 0, inputReady = 1, outputReady = 2 };
 
@@ -20,6 +22,14 @@ struct alignas (64) AudioSlot
     std::uint32_t sequence = 0;
     std::uint32_t channels = 0;
     std::uint32_t samples = 0;
+    struct MidiEvent
+    {
+        std::uint16_t frame = 0;
+        std::uint8_t size = 0;
+        std::uint8_t data[maxMidiBytes] {};
+    };
+    std::uint32_t midiCount = 0;
+    MidiEvent midi[maxMidiEvents];
     float audio[(size_t) maxChannels * (size_t) maxSamples] {};
 };
 

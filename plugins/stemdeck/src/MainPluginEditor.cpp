@@ -364,6 +364,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                                   + " downbeat anchored from the waveform",
                                   juce::dontSendNotification);
         };
+        deckWaveRegions[(size_t) i]->onBeginWarpEdit = [this, i]
+        {
+            processorRef.beginDeckBeatGridEdit (i, "warp correction");
+        };
         deckWaveRegions[(size_t) i]->onAddWarpMarkerNorm = [this, i] (float norm)
         {
             const int id = processorRef.addDeckUserWarpMarker (
@@ -6432,6 +6436,11 @@ void MainPluginEditor::configureDeckStrip (int i)
         grid.addItem (8, "Add warp anchor at playhead");
         grid.addItem (9, "Clear user warp anchors",
                       ! processorRef.getDeckUserWarpMarkers (i).empty());
+        grid.addSeparator();
+        grid.addItem (10, "Undo beat-grid edit",
+                      processorRef.canUndoDeckBeatGridEdit());
+        grid.addItem (11, "Redo beat-grid edit",
+                      processorRef.canRedoDeckBeatGridEdit());
         grid.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (deckStrips[(size_t) i].get()),
             [safe = juce::Component::SafePointer<MainPluginEditor> (this), i, prefix, getFloat, setFloat]
             (int result)
@@ -6463,6 +6472,8 @@ void MainPluginEditor::configureDeckStrip (int i)
                 }
                 else if (result == 7)
                 {
+                    safe->processorRef.beginDeckBeatGridEdit (i, "reset beat grid");
+                    safe->processorRef.clearDeckUserWarpMarkers (i);
                     const auto analysis = safe->processorRef.getDeckActiveAnalysis (i);
                     if (analysis.detectedBpm > 1.0f)
                         setFloat (prefix + "Bpm", analysis.detectedBpm);
@@ -6478,10 +6489,20 @@ void MainPluginEditor::configureDeckStrip (int i)
                         choice->setValueNotifyingHost (0.0f);
                 }
                 else if (result == 8)
+                {
+                    safe->processorRef.beginDeckBeatGridEdit (i, "add warp anchor");
                     safe->processorRef.addDeckUserWarpMarker (
                         i, safe->processorRef.getDeckPlayheadSeconds (i));
+                }
                 else if (result == 9)
+                {
+                    safe->processorRef.beginDeckBeatGridEdit (i, "clear warp anchors");
                     safe->processorRef.clearDeckUserWarpMarkers (i);
+                }
+                else if (result == 10)
+                    safe->processorRef.undoDeckBeatGridEdit();
+                else if (result == 11)
+                    safe->processorRef.redoDeckBeatGridEdit();
             });
     };
 
@@ -8882,11 +8903,29 @@ void MainPluginEditor::timerCallback()
             const juce::String gridKey = deckPaths[(size_t) i]
                 + "|" + juce::String (pval ("Bpm"), 2)
                 + "|" + juce::String (pval ("BeatOffset"), 3)
-                + "|" + juce::String (pval ("Downbeat"), 3);
+                + "|" + juce::String (pval ("Downbeat"), 3)
+                + "|" + juce::String (processorRef.getDeckWarpMarkerRevision (i));
             if (gridKey != lastBeatGridKey[(size_t) i])
             {
                 lastBeatGridKey[(size_t) i] = gridKey;
-                wave->setBeatGridSeconds (processorRef.getDeckBeatGridSeconds (i));
+                const auto lines = processorRef.getDeckBeatGridLines (i);
+                std::vector<double> seconds;
+                seconds.reserve (lines.size());
+                std::vector<stemdeck::WaveformRegion::BeatLineView> regionLines;
+                regionLines.reserve (lines.size());
+                const double total = processorRef.getDeckTotalSeconds (i);
+                for (const auto& line : lines)
+                {
+                    seconds.push_back (line.sourceSeconds);
+                    if (total > 0.0)
+                        regionLines.push_back ({
+                            (float) juce::jlimit (0.0, 1.0,
+                                                 line.sourceSeconds / total),
+                            line.projectBeat, line.downbeat });
+                }
+                wave->setBeatGridSeconds (std::move (seconds));
+                if (auto* region = deckWaveRegions[(size_t) i].get())
+                    region->setBeatGridLines (std::move (regionLines));
             }
 
             // Locked (green grid) when this deck's tempo matches the sync master's
