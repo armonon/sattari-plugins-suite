@@ -51,12 +51,9 @@ int main()
         }
         step ("3c: BOTH PROCESSED OK");
 
-        // ── Does Tracktion contribute ANY audio? ─────────────────────────────
-        // Instance `a` owns the engine; `b` was refused it. Static analysis says the
-        // Edit is never populated (createSingleTrackEdit, no clip/track inserts) and
-        // usingTeMidi is never set true — but that is inference. Feed both identical
-        // input and compare: if the engine contributed anything, the outputs differ.
-        step ("5a: compare engine-owner vs engine-less output");
+        // Concurrent instances must remain sample-identical after the unused
+        // Tracktion scaffold was removed in favour of the internal scheduler.
+        step ("5a: compare concurrent instance output");
         juce::AudioBuffer<float> ba (2, 512), bb (2, 512);
         double maxDiff = 0.0;
         for (int blk = 0; blk < 64; ++blk)
@@ -75,15 +72,12 @@ int main()
                 for (int i = 0; i < 512; ++i)
                     maxDiff = juce::jmax (maxDiff, (double) std::abs (ba.getSample (ch, i) - bb.getSample (ch, i)));
         }
-        std::cout << "    max |withEngine - withoutEngine| = " << maxDiff << std::endl;
-        std::cout << (maxDiff == 0.0
-                        ? "    -> Tracktion contributes NOTHING to the mix"
-                        : "    -> Tracktion DOES contribute audio; it is load-bearing")
-                  << std::endl;
+        std::cout << "    max |instance A - instance B| = " << maxDiff << std::endl;
+        if (maxDiff != 0.0)
+            return 1;
     }
     step ("4: both destroyed");
 
     std::cout << "MULTIINSTANCE_OK" << std::endl;
-    std::cout.flush();
-    std::_Exit (0);
+    return 0;
 }

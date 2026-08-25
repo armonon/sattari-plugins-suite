@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <memory>
 
 namespace
 {
@@ -77,6 +78,16 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double dryErr = 0, peak = 0; bool nan = false;
+
+    // Hosted-editor lifecycle: construction calls setSize()/resized(), and hosts may
+    // transiently assign a tiny size while attaching the guest view. This caught the
+    // empty-knob-array crash that only appeared when Echo was opened inside StemDeck.
+    {
+        SattariEchoAudioProcessor processor;
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+        if (editor == nullptr) { std::printf ("  FAIL editor was not created\n"); ++fails; }
+        else { editor->setSize (1, 1); editor->setSize (700, 320); }
+    }
 
     // 1) mix=0 -> exact dry pass-through at unity output.
     render ([] (auto& a){ sp (a,"mix",0.0f); sp (a,"output",0.0f); sp (a,"feedback",0.5f); },

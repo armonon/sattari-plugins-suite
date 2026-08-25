@@ -141,15 +141,24 @@ StemProvider::StemProvider()
                 break;
             }
         }
-        // Also try `which demucs` via PATH
+        // Also search PATH directly. Spawning `which` from every processor
+        // constructor was surprisingly expensive in DAWs restoring several
+        // StemDeck instances and could block behind shell/process pressure. PATH is
+        // already authoritative here, and direct file probes are deterministic.
         if (separatorCommand.trim().isEmpty())
         {
-            juce::ChildProcess which;
-            if (which.start ({ "which", "demucs" }))
+            const auto pathValue = juce::SystemStats::getEnvironmentVariable ("PATH", {});
+            juce::StringArray pathEntries;
+            pathEntries.addTokens (pathValue, ":", "");
+            for (const auto& entry : pathEntries)
             {
-                const auto path = which.readAllProcessOutput().trim().upToFirstOccurrenceOf ("\n", false, false).trim();
-                if (path.isNotEmpty() && juce::File (path).existsAsFile())
-                    separatorCommand = path + modelArgs + " --out {output} {input}";
+                const auto executable = juce::File (entry.trim()).getChildFile ("demucs");
+                if (executable.existsAsFile())
+                {
+                    separatorCommand = executable.getFullPathName()
+                                     + modelArgs + " --out {output} {input}";
+                    break;
+                }
             }
         }
     }

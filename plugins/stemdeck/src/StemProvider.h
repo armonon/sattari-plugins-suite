@@ -120,7 +120,10 @@ private:
     juce::File neuralModelFile;
     juce::CriticalSection neuralLoadLock;
     bool neuralLoadAttempted = false;
-    juce::ThreadPool pool { 2 };
+    // Separation is deliberately serial. Two concurrent full-song neural/CLI jobs
+    // multiply model RAM and CPU exactly while the user is trying to perform; the
+    // playhead-first streaming path already provides the useful latency win.
+    juce::ThreadPool pool { 1 };
     juce::CriticalSection lifecycleLock;
     bool shuttingDown = false;
     mutable juce::CriticalSection statusLock;

@@ -221,13 +221,32 @@ struct NeuralStemEngine::Impl
     }
 };
 
-NeuralStemEngine::NeuralStemEngine() : impl (std::make_unique<Impl>()) {}
+// Keep the ONNX environment completely out of the ordinary launch path. Impl owns
+// Ort::Env, so constructing it here made every StemDeck processor instance pay the
+// runtime initialisation cost (and reserve ONNX resources) even when the performer
+// never requested stem separation. A DAW can create several processors while
+// probing/restoring a project, which multiplied that cost and made instance reloads
+// look hung on busy systems. StemProvider already promises lazy model loading; make
+// the engine honour that promise all the way down to Ort::Env construction.
+NeuralStemEngine::NeuralStemEngine() = default;
 NeuralStemEngine::~NeuralStemEngine() = default;
 
 bool NeuralStemEngine::isAvailable() const noexcept { return impl && impl->ready; }
 
 bool NeuralStemEngine::loadModel (const juce::File& modelFile, juce::String& message)
 {
+    if (impl == nullptr)
+    {
+        try
+        {
+            impl = std::make_unique<Impl>();
+        }
+        catch (const std::exception& e)
+        {
+            message = juce::String ("ONNX Runtime initialisation failed: ") + e.what();
+            return false;
+        }
+    }
     return impl->load (modelFile, message);
 }
 

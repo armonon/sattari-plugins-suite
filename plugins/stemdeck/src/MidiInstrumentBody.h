@@ -55,10 +55,9 @@ public:
     {
         const double sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         synth.prepare (sr, juce::jmax (1, blockSize));
-        // 4096, not 256: see the matching comment on teMidiScratch.ensureSize() in
-        // MainPluginProcessor.cpp — a dense MIDI block can outgrow 256 bytes and
-        // force addEvent() below to reallocate on the audio thread, silently
-        // invalidating this class's own "RT-safe" comment on processInto().
+        // A dense MIDI block can outgrow 256 bytes and force addEvent() below to
+        // reallocate on the audio thread, silently invalidating this class's own
+        // "RT-safe" comment on processInto().
         filtered.ensureSize (4096);
         eq.prepare (sr, 2);
         filter.prepare (sr);

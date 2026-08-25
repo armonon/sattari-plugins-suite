@@ -1,7 +1,6 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <tracktion_engine/tracktion_engine.h>
 #include <atomic>
 #include <bit>
 #include <map>
@@ -40,6 +39,7 @@
 
 class MainPluginProcessor final : public juce::AudioProcessor,
                                   private juce::AsyncUpdater,
+                                  private juce::Timer,
                                   private juce::AudioProcessorValueTreeState::Listener
 {
 public:
@@ -458,20 +458,6 @@ public:
     // Hardware MIDI controller mapping (learn + apply).
     MidiMappingManager& getMidiMapping() noexcept { return midiMapping; }
 
-    // Tracktion Engine access — message-thread safe after construction.
-    // Returns nullptr only if TE failed to initialise (should never happen).
-    // False when another StemDeck instance in this process owns the single Tracktion
-    // engine. The arrangement transport is unavailable; everything else works.
-    bool hasArrangementEngine() const noexcept { return teWrapper != nullptr; }
-    bool arrangementEngineTakenByOtherInstance() const noexcept { return teEngineUnavailable; }
-
-    tracktion::Edit*      getTeEdit()      noexcept { return teWrapper ? teWrapper->edit.get()      : nullptr; }
-    tracktion::Engine*    getTeEngine()    noexcept { return teWrapper ? &teWrapper->engine         : nullptr; }
-    tracktion::TransportControl* getTeTransport() noexcept
-    {
-        return teWrapper && teWrapper->edit ? &teWrapper->edit->getTransport() : nullptr;
-    }
-
     // Arrangement playback — plays the edited multi-clip arrangement back through
     // the master out via a sample-accurate, RT-safe scheduler.
     struct ArrangementClipSpec
@@ -483,7 +469,7 @@ public:
         float  gain = 1.0f;
         double fadeInSeconds  = 0.0;
         double fadeOutSeconds = 0.0;
-        int    lane = 0;   // which TE audio track (0..numDecks-1)
+        int    lane = 0;   // internal arrangement mixer lane
         // Post-capture volume correction, in absolute timeline seconds.
         std::vector<std::pair<double, float>> gainAutomation;
         std::vector<std::pair<double, float>> lowAutomation;
@@ -506,8 +492,9 @@ public:
         ArrangementMasterAutomationSpec masterAutomation = {});
     void stopArrangement();
     void setMidiNotes (const std::vector<MidiClipPlayer::SourceNote>& notes, double bpm);
-    // Real-time per-lane volume for TE arrangement tracks (0..numDecks-1).
-    void setTeArrangementLaneGain (int lane, float gainLinear);
+    // Real-time per-lane volume for the internal arrangement scheduler.
+    void setArrangementLaneGain (int lane, float gainLinear) noexcept
+    { arrangementPlayer.setLaneGain (lane, gainLinear); }
     void setMidiLaneGain (int lane, float gainLinear) noexcept { midiClipPlayer.setLaneGain (lane, gainLinear); }
     void setMetronomeEnabled (bool e) noexcept { metronome.setEnabled (e); }
     bool isMetronomeEnabled() const noexcept   { return metronome.isEnabled(); }
@@ -588,12 +575,9 @@ private:
     // Per-deck built-in FX (reverb + echo) now lives in DeckFX.h so a Channel /
     // TrackDeckBody can own one without depending on the whole processor.
 
-    // MIDI notes staged by setMidiNotes() and consumed inside buildAndStartArrangement()
-    // to populate the TE MIDI+4OSC synth tracks.  Message-thread only.
+    // MIDI notes staged by setMidiNotes() for the internal piano-roll synth.
     std::vector<MidiClipPlayer::SourceNote> pendingMidiNotes;
     double pendingMidiBpm = 120.0;
-    std::atomic<bool> usingTeMidi { false };   // processBlock: skip MidiClipPlayer when true
-    std::atomic<bool> teStopRequested { false }; // audio→message: defer TE transport stop (RT-safe)
 
     // audio→message: defer a MIDI-triggered Play toggle. processBlock() used to
     // call apvts.getParameter(deckPrefix(i) + "Play")->setValueNotifyingHost(...)
@@ -601,32 +585,30 @@ private:
     // followed by a blocking CriticalSection (setValueNotifyingHost synchronously
     // runs every parameter listener) on the audio thread, at a track-start
     // transition — the worst possible moment for a dropped block. One flag per
-    // deck, same RT-safe defer-to-message-thread pattern as teStopRequested above.
+    // deck, using the same audio-to-message-thread defer pattern.
     //
-    // CAVEAT shared with teStopRequested: serviceDeferredActions() is currently
-    // only called from MainPluginEditor::timerCallback(), so a mapped Play trigger
-    // is serviced within one UI-timer tick (~30Hz) of the editor being open, not
-    // instantly and not at all with the editor closed. That is an existing
-    // architectural property of this defer mechanism, not something new here — but
-    // if hardware-controller-only operation with the window closed is meant to
-    // work, this (and teStopRequested) need a processor-owned timer instead of an
-    // editor-owned one.
+    // The processor-owned timer services these even when the editor is closed. That
+    // matters in a DAW and for controller-only performance: mapped Play/Cue/Pad and
+    // arrangement auto-stop must not depend on a visible window existing.
     std::array<std::atomic<bool>, numDecks> deckPlayToggleRequested {};
     std::array<std::atomic<bool>, numDecks> deckCueRequested {};
     std::array<std::atomic<bool>, PadBank::numPads> padTriggerRequested {};
 
 public:
-    // Message thread: services deferred audio-thread requests (e.g. stopping the TE
-    // transport when the arrangement auto-stops). Called from the editor timer.
+    // Message thread: services deferred audio-thread controller requests.
     void serviceDeferredActions();
 private:
+    void timerCallback() override;
 
     juce::AudioProcessorValueTreeState apvts;
     RetrospectiveRecorder retrospectiveRecorder;
     juce::AudioFormatManager formatManager;
     // Owned explicitly so the destructor can destroy the worker threads while the
     // neural engines they invoke are still alive.
-    std::unique_ptr<juce::ThreadPool> loadPool { std::make_unique<juce::ThreadPool> (4) };
+    // Two workers are enough to keep decode + analysis responsive. Four per plugin
+    // instance multiplied idle threads in large DAW sessions, while neural refine is
+    // intentionally serialised below and gained no throughput from the extra pair.
+    std::unique_ptr<juce::ThreadPool> loadPool { std::make_unique<juce::ThreadPool> (2) };
 
     // Lock-free browser audition. Decoding happens on loadPool; the audio thread
     // only reads an immutable LoadedAudio and advances an atomic source position.
@@ -723,6 +705,7 @@ private:
     StemProvider stemProvider;
 
     double currentSampleRate = 44100.0;
+    int preparedBlockSize = 0;
     float limiterEnvelope = 1.0f;
 
     // Talkover ducking state (audio-thread + message-thread atomics)
@@ -763,11 +746,8 @@ private:
     juce::File lastIntentStreamFile;
     std::array<juce::File, kMaxChannels> lastDeckSourceTargets;
     std::array<juce::File, kMaxChannels> lastDeckPrintedTargets;
-    // Pre-allocated audio-thread scratch (sized in prepareToPlay) — avoids per-block
-    // heap allocation in the mic-capture and Tracktion-mix paths.
+    // Pre-allocated audio-thread scratch (sized in prepareToPlay) for mic capture.
     juce::AudioBuffer<float> micScratch;
-    juce::AudioBuffer<float> teScratch;
-    juce::MidiBuffer teMidiScratch;
 
     // Per-deck beat-grid cache. makeGrid copies two vectors + sorts, so rebuild it
     // only when its inputs change (audio reload or a grid-param edit) rather than
@@ -877,44 +857,9 @@ private:
     std::array<bool, 4> lastMasterStemMute { false, false, false, false };
     std::array<bool, 4> lastMasterStemSolo { false, false, false, false };
 
-    // ── Tracktion Engine wrapper ──────────────────────────────────────────────
-    struct PluginEngineBehaviour : public tracktion::EngineBehaviour
-    {
-        bool autoInitialiseDeviceManager() override { return false; }
-        bool addSystemAudioIODeviceTypes() override { return false; }
-    };
-
-    struct TeWrapper
-    {
-        TeWrapper()
-            : audioInterface (engine.getDeviceManager().getHostedAudioDeviceInterface())
-        {
-            jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
-            audioInterface.initialise ({});
-            edit->getTransport().ensureContextAllocated (true);
-        }
-
-        tracktion::Engine engine { JucePlugin_Name, nullptr, std::make_unique<PluginEngineBehaviour>() };
-        std::unique_ptr<tracktion::Edit> edit { tracktion::Edit::createSingleTrackEdit (engine) };
-        tracktion::HostedAudioDeviceInterface& audioInterface;
-        tracktion::ExternalPlayheadSynchroniser playheadSync { *edit };
-    };
-
     // Audio-thread mirror of the persisted deck<N>CfSide properties.
     std::array<std::atomic<int>, numDecks> cfSideCache {};
     std::unique_ptr<stemdeck::events::Dispatcher> eventDispatcher;
-
-    std::unique_ptr<TeWrapper> teWrapper;
-    // Tracktion Engine is one-per-process. This instance owns it, or it went without.
-    bool ownsTeEngine = false;
-    bool teEngineUnavailable = false;
-
-    static bool claimTeEngine() noexcept;
-    static void releaseTeEngine() noexcept;
-
-    void ensureTeWrapperOnMessageThread();
-    void prepareTeWrapper();
-    int  preparedBlockSize = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainPluginProcessor)
 };

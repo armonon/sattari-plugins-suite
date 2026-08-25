@@ -1360,14 +1360,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     mixerView.getPeak = [this] (int i) { return processorRef.getChannelActivity (i); };
     mixerView.getMasterPeak = [this] (int ch) { return processorRef.getMasterPeak (ch); };
     // Live lane mix: mute/solo/gain changes are applied to the running engine
-    // immediately (TE audio lanes + MIDI synth lanes), not just at the next
+    // immediately (audio lanes + MIDI synth lanes), not just at the next
     // schedule rebuild.
     arrangementView.onLaneMixChanged = [this]
     {
         for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
         {
             const float gain = arrangementView.laneAudible (lane) ? arrangementView.laneGainLinear (lane) : 0.0f;
-            processorRef.setTeArrangementLaneGain (lane, gain);
+            processorRef.setArrangementLaneGain (lane, gain);
             processorRef.setMidiLaneGain (lane, gain);
         }
     };
@@ -2698,6 +2698,17 @@ void MainPluginEditor::toggleArrangementPlayback()
         return;
     }
 
+    // Clip gain remains a non-destructive region property; lane gain/mute/solo is
+    // a separate live mixer layer so it can change during playback without rebuilding
+    // the disk-backed schedule.
+    for (int lane = 0; lane < ArrangementRecorderView::numEditableLanes; ++lane)
+    {
+        const float laneGain = arrangementView.laneAudible (lane)
+                                 ? arrangementView.laneGainLinear (lane) : 0.0f;
+        processorRef.setArrangementLaneGain (lane, laneGain);
+        processorRef.setMidiLaneGain (lane, laneGain);
+    }
+
     // Build clip specs from the editable source lanes. The printed master is normally
     // skipped because it is their sum, but it becomes the authoritative fallback when
     // no audible source clip survives (older captures and interrupted recordings can
@@ -2721,8 +2732,7 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.timelineStartSeconds = clip.timelineStartSeconds;   // free-positioned
             spec.sourceStartSeconds   = start;
             spec.lengthSeconds        = end - start;
-            spec.gain                 = arrangementView.laneGainLinear (lane)
-                                      * juce::Decibels::decibelsToGain (clip.gainDb);
+            spec.gain                 = juce::Decibels::decibelsToGain (clip.gainDb);
             spec.fadeInSeconds        = clip.fadeInSeconds;
             spec.fadeOutSeconds       = clip.fadeOutSeconds;
             spec.lane                 = lane;
@@ -2798,12 +2808,10 @@ void MainPluginEditor::toggleArrangementPlayback()
             spec.timelineStartSeconds = clip.timelineStartSeconds;
             spec.sourceStartSeconds = start;
             spec.lengthSeconds = end - start;
-            spec.gain = arrangementView.laneGainLinear (
-                            ArrangementRecorderView::masterLane)
-                      * juce::Decibels::decibelsToGain (clip.gainDb);
+            spec.gain = juce::Decibels::decibelsToGain (clip.gainDb);
             spec.fadeInSeconds = clip.fadeInSeconds;
             spec.fadeOutSeconds = clip.fadeOutSeconds;
-            spec.lane = 0;
+            spec.lane = ArrangementRecorderView::masterLane;
             specs.push_back (std::move (spec));
         }
         usingPrintedMaster = ! specs.empty();
@@ -8500,9 +8508,6 @@ void MainPluginEditor::timerCallback()
                 : "Performance protection cleared - full visual refresh restored",
             juce::dontSendNotification);
     }
-    // These requests originate on the audio thread and must be serviced even when
-    // the editor window is hidden/minimised.
-    processorRef.serviceDeferredActions();
     if ((autosaveTick++ % 150) == 0)
         scheduleRecoveryAutosave();
     if (processorRef.isIntentCaptureActive())

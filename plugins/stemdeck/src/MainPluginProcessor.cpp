@@ -272,10 +272,11 @@ MainPluginProcessor::MainPluginProcessor()
     // Optional trained beat model (beat_this). Absent -> DSP beat grid stands.
     neuralBeat.loadDefaultModel();
     buildMidiTargets();
-    // The Tracktion engine is created LAZILY — see ensureTeWrapperOnMessageThread.
-    // Nothing in the current build populates its Edit, so eagerly constructing it
-    // cost startup time and per-block CPU for silence, and was the sole reason a
-    // second plugin instance could not exist.
+    // Service audio-thread deferred controller actions independently of the editor.
+    // The former editor-owned call made Play/Cue/Pad mappings stop working as soon
+    // as a performer closed the plug-in window. 30 Hz keeps control latency below a
+    // visual frame while doing no DSP work here.
+    startTimerHz (30);
 }
 
 // ── Channel accessors ────────────────────────────────────────────────────────
@@ -1090,6 +1091,7 @@ void MainPluginProcessor::buildMidiTargets()
 
 MainPluginProcessor::~MainPluginProcessor()
 {
+    stopTimer();
     // Clear the alive flag BEFORE draining pools: any job that already posted its
     // completion closure will see false and skip touching this (soon-freed) processor.
     aliveFlag->store (false, std::memory_order_release);
@@ -1110,88 +1112,6 @@ MainPluginProcessor::~MainPluginProcessor()
         loadPool.reset();
     }
 
-    // Destroy the engine BEFORE releasing the claim, so a next instance constructing
-    // immediately after can never overlap with this one's teardown.
-    teWrapper.reset();
-    if (ownsTeEngine)
-    {
-        ownsTeEngine = false;
-        releaseTeEngine();
-    }
-}
-
-// Tracktion Engine is one-per-process: constructing a second while the first is alive
-// DEADLOCKS, so a DAW opening two StemDecks froze on the second. This claim makes the
-// engine exclusive — the first instance gets it, later ones run without it.
-//
-// That degradation is safe by construction: every teWrapper use in this file is
-// null-guarded, so a second instance keeps decks, mixer, stems and FX and only loses
-// the Tracktion-backed arrangement transport. Losing a feature beats hanging the host.
-//
-// The claim is released on destruction, so closing the first instance hands the engine
-// to the next one that asks (the sequential case, which already worked).
-static std::atomic<bool> gTeEngineClaimed { false };
-
-bool MainPluginProcessor::claimTeEngine() noexcept
-{
-    bool expected = false;
-    return gTeEngineClaimed.compare_exchange_strong (expected, true, std::memory_order_acq_rel);
-}
-
-void MainPluginProcessor::releaseTeEngine() noexcept
-{
-    gTeEngineClaimed.store (false, std::memory_order_release);
-}
-
-void MainPluginProcessor::prepareTeWrapper()
-{
-    if (teWrapper == nullptr || currentSampleRate <= 0.0 || preparedBlockSize <= 0)
-        return;
-    tracktion::HostedAudioDeviceInterface::Parameters teParams;
-    teParams.sampleRate     = currentSampleRate;
-    teParams.blockSize      = preparedBlockSize;
-    teParams.inputChannels  = getTotalNumInputChannels();
-    teParams.outputChannels = juce::jmax (2, getTotalNumOutputChannels());
-    teWrapper->audioInterface.initialise (teParams);
-    teWrapper->audioInterface.prepareToPlay (currentSampleRate, preparedBlockSize);
-}
-
-void MainPluginProcessor::ensureTeWrapperOnMessageThread()
-{
-    if (teWrapper != nullptr || teEngineUnavailable)
-        return;
-
-    if (! ownsTeEngine)
-    {
-        if (! claimTeEngine())
-        {
-            // Another instance already owns the engine. Do NOT construct a second.
-            teEngineUnavailable = true;
-            return;
-        }
-        ownsTeEngine = true;
-    }
-
-    auto create = [this]
-    {
-        if (teWrapper == nullptr)
-        {
-            teWrapper = std::make_unique<TeWrapper>();
-            prepareTeWrapper();   // created after prepareToPlay — prepare it now
-        }
-    };
-
-    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
-    {
-        create();
-    }
-    else
-    {
-        jassert (! juce::MessageManager::getInstance()->currentThreadHasLockedMessageManager());
-        juce::WaitableEvent done;
-        juce::MessageManager::callAsync ([&] { create(); done.signal(); });
-        done.wait (-1);
-    }
 }
 
 
@@ -1776,6 +1696,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
 void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
+    preparedBlockSize = samplesPerBlock;
     limiterEnvelope = 1.0f;
     // Internal live processing and all recorders target the main bus only. The
     // optional cue bus is monitoring-only and must never inflate deck buffers or
@@ -1798,14 +1719,6 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     for (auto& recorder : deckPrintedRecorders)
         recorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     micScratch.setSize (juce::jmax (outputChannels, getTotalNumInputChannels()), samplesPerBlock);
-    teScratch.setSize (juce::jmax (2, outputChannels), samplesPerBlock);
-    // 4096, not 256: a MidiBuffer that runs out of reserved capacity reallocates
-    // on whatever thread calls addEvent() next, which for this buffer is the audio
-    // thread. 256 bytes is a comfortable margin for a quiet block but not for a
-    // dense one (a chord dump, a CC automation burst, an all-notes-off flurry),
-    // and a silent reallocation is exactly the kind of RT violation nobody notices
-    // until it glitches during a real performance. Paid once here, message thread.
-    teMidiScratch.ensureSize (4096);
     warpEngine.prepare (sampleRate, samplesPerBlock, outputChannels);
     hostGraph.prepare (sampleRate, samplesPerBlock, outputChannels);
     masterFx.prepare (sampleRate, samplesPerBlock, outputChannels);
@@ -1814,11 +1727,6 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     arrangementPlayer.prepare (sampleRate, samplesPerBlock);
     midiClipPlayer.prepare (sampleRate, samplesPerBlock);
     metronome.prepare (sampleRate);
-    // Record the format so a lazily-created engine can be prepared correctly later;
-    // prepare it now only if it already exists.
-    preparedBlockSize = samplesPerBlock;
-    if (teWrapper != nullptr)
-        prepareTeWrapper();
     // (Per-deck scratch / RTSS / stem-FX / DeckFX now live inside each Channel's
     //  TrackDeckBody and are prepared by Channel::prepare above.)
 }
@@ -2182,10 +2090,9 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     {
         const juce::int64 arrPos = arrangementPlayer.getPositionSamples();
         arrangementPlayer.process (buffer);                          // audio clips + advance playhead
-        if (! usingTeMidi.load (std::memory_order_relaxed))
-            midiClipPlayer.process (buffer, arrPos, buffer.getNumSamples());
+        midiClipPlayer.process (buffer, arrPos, buffer.getNumSamples());
         metronome.process (buffer, arrPos, buffer.getNumSamples());  // beat click
-        if (arrangementPlayer.getPositionSamples() < arrPos && ! usingTeMidi.load (std::memory_order_relaxed))
+        if (arrangementPlayer.getPositionSamples() < arrPos)
             midiClipPlayer.allNotesOff();
     }
     else
@@ -2200,27 +2107,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         if (arrWasPlaying)
             midiClipPlayer.allNotesOff();
     }
-    // When arrangementPlayer auto-stops (reached end), mirror that to TE transport
-    if (arrWasPlaying && ! arrPlaying)
-    {
-        usingTeMidi.store (false, std::memory_order_relaxed);
-        if (teWrapper != nullptr)
-            teStopRequested.store (true, std::memory_order_relaxed);  // serviced on the message thread
-    }
     arrWasPlaying = arrPlaying;
-
-    // Tracktion Engine tracks (arrangement layer — additive to the main mix).
-    // Reuses pre-allocated scratch buffers — no per-block heap allocation.
-    if (teWrapper != nullptr)
-    {
-        teWrapper->playheadSync.synchronise (*this);
-        teMidiScratch.clear();
-        teScratch.setSize (buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
-        teScratch.clear();
-        teWrapper->audioInterface.processBlock (teScratch, teMidiScratch);
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            buffer.addFrom (ch, 0, teScratch, ch, 0, buffer.getNumSamples());
-    }
 
     // Built-in live-MIDI instrument: render a connected controller straight into the
     // mix (before master FX/limiter, so it's mastered with everything else). Works
@@ -3183,10 +3070,8 @@ void MainPluginProcessor::buildAndStartArrangement (
     const auto buildGeneration =
         arrangementBuildGeneration.fetch_add (1, std::memory_order_relaxed) + 1;
 
-    // Stop both transports before reconfiguring
+    // Stop playback before reconfiguring the immutable schedule.
     arrangementPlayer.stop();
-    if (teWrapper != nullptr)
-        teWrapper->edit->getTransport().stop (false, false);
 
     // Compute total arrangement length
     double totalLen = minLengthSeconds;
@@ -3214,7 +3099,7 @@ void MainPluginProcessor::buildAndStartArrangement (
     // route back into the plugin buffer — so a captured arrangement's playhead moved
     // while producing SILENCE. Loading the clip audio + building the schedule happens
     // on a worker thread (no file I/O on the audio or message thread); MIDI plays via
-    // the non-TE MidiClipPlayer (usingTeMidi = false).
+    // the internal MidiClipPlayer.
     struct ArrPayload
     {
         std::vector<ArrangementClipSpec> clips;
@@ -3268,6 +3153,7 @@ void MainPluginProcessor::buildAndStartArrangement (
             c.sourceStartSamples    = (juce::int64) std::llround (spec.sourceStartSeconds   * c.sourceSampleRate);
             c.timelineLengthSamples = (juce::int64) std::llround (spec.lengthSeconds         * payload->engineSr);
             c.gain                  = spec.gain;
+            c.lane                  = spec.lane;
             c.fadeInSamples         = (juce::int64) std::llround (spec.fadeInSeconds  * payload->engineSr);
             c.fadeOutSamples        = (juce::int64) std::llround (spec.fadeOutSeconds * payload->engineSr);
             c.gainAutomation.reserve (spec.gainAutomation.size());
@@ -3333,7 +3219,6 @@ void MainPluginProcessor::buildAndStartArrangement (
             if (! alive->load (std::memory_order_acquire)
                 || arrangementBuildGeneration.load (std::memory_order_relaxed) != buildGeneration)
                 return;
-            usingTeMidi.store (false, std::memory_order_relaxed);   // MIDI via MidiClipPlayer
             arrangementPlayer.setSchedule (sched);
             arrangementPlayer.setMasterAutomation (master);
             arrangementPlayer.setLengthSeconds (payload->totalLen);
@@ -3351,26 +3236,10 @@ void MainPluginProcessor::setMidiNotes (const std::vector<MidiClipPlayer::Source
     midiClipPlayer.setNotes (notes, bpm);   // keep non-TE path in sync
 }
 
-void MainPluginProcessor::setTeArrangementLaneGain (int lane, float gainLinear)
-{
-    const float dB = juce::Decibels::gainToDecibels (gainLinear);
-    juce::MessageManager::callAsync ([this, lane, dB, alive = aliveFlag] {
-        if (! alive->load (std::memory_order_acquire)) return;
-        if (teWrapper == nullptr) return;
-        auto tracks = tracktion::getAudioTracks (*teWrapper->edit);
-        if (juce::isPositiveAndBelow (lane, tracks.size()))
-            if (auto* vol = tracks[lane]->getVolumePlugin())
-                vol->setVolumeDb (dB);
-    });
-}
-
 void MainPluginProcessor::stopArrangement()
 {
     arrangementBuildGeneration.fetch_add (1, std::memory_order_relaxed);
-    usingTeMidi.store (false, std::memory_order_relaxed);
     arrangementPlayer.stop();
-    if (teWrapper != nullptr)
-        teWrapper->edit->getTransport().stop (false, false);
 }
 
 void MainPluginProcessor::serviceDeferredActions()
@@ -3379,12 +3248,6 @@ void MainPluginProcessor::serviceDeferredActions()
     std::erase_if (retiredLibraryPreviews,
                    [now] (const RetiredPreview& retired)
                    { return retired.releaseAfterMs <= now; });
-
-    // Message thread only. The audio thread requests a TE transport stop via an
-    // atomic (instead of allocating a callAsync closure in processBlock).
-    if (teStopRequested.exchange (false, std::memory_order_relaxed))
-        if (teWrapper != nullptr)
-            teWrapper->edit->getTransport().stop (false, false);
 
     // Message thread only. A MIDI-mapped Play trigger sets one of these on the
     // audio thread (see processBlock); the actual parameter string lookup and
@@ -3401,23 +3264,19 @@ void MainPluginProcessor::serviceDeferredActions()
             triggerPad (i);
 }
 
+void MainPluginProcessor::timerCallback()
+{
+    serviceDeferredActions();
+}
+
 void MainPluginProcessor::setArrangementPositionSeconds (double s)
 {
     arrangementPlayer.setPositionSeconds (s);
-    if (teWrapper != nullptr)
-        teWrapper->edit->getTransport().setPosition (tracktion::TimePosition::fromSeconds (s));
 }
 
 void MainPluginProcessor::setArrangementLoop (double startSec, double endSec, bool enabled)
 {
     arrangementPlayer.setLoop (startSec, endSec, enabled);
-    if (teWrapper != nullptr)
-    {
-        auto& transport = teWrapper->edit->getTransport();
-        transport.loopPoint1 = tracktion::TimePosition::fromSeconds (startSec);
-        transport.loopPoint2 = tracktion::TimePosition::fromSeconds (endSec);
-        transport.looping    = enabled;
-    }
 }
 
 // ── Slip mode + loop roll ────────────────────────────────────────────────────

@@ -98,6 +98,14 @@ if [[ "$uses_rubberband" == true || "$uses_samplerate" == true || "$uses_onnx" =
   binary_load_commands="$(otool -l "$binary")"
   grep -q '@executable_path/../Frameworks' <<<"$binary_load_commands" \
     || fail "binary uses @rpath dylibs but lacks @executable_path/../Frameworks rpath"
+  absolute_rpaths="$(awk '
+    /LC_RPATH/ { want=1; next }
+    want && / path / {
+      line=$0; sub(/^[[:space:]]*path /, "", line); sub(/ \(offset.*$/, "", line)
+      if (line ~ /^\//) print line
+      want=0
+    }' <<<"$binary_load_commands")"
+  [[ -z "$absolute_rpaths" ]] || fail "binary contains machine-local absolute rpath(s): $absolute_rpaths"
 fi
 
 check_bundled_dylib() {

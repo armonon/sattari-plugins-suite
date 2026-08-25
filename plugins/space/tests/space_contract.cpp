@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <memory>
 
 namespace
 {
@@ -63,6 +64,15 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     int fails = 0;
     double e1 = 0, e2 = 0, e3 = 0;
+
+    // Exercise the lifecycle used by StemDeck's hosted native editor. Construction
+    // and a transient tiny host size must be safe before normal layout resumes.
+    {
+        SattariSpaceAudioProcessor processor;
+        std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+        if (editor == nullptr) { std::printf ("  FAIL editor was not created\n"); ++fails; }
+        else { editor->setSize (1, 1); editor->setSize (700, 300); }
+    }
 
     // 1) Reverb tail well after the burst (0.6-1.0 s).
     auto rev = render ([] (auto& a){ sp (a,"revmix",0.7f); sp (a,"div",0.0f); sp (a,"delaymix",0.0f); }, 1.2, e1);

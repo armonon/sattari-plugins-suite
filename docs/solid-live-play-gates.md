@@ -210,13 +210,14 @@ What closing A4 requires, on real hardware:
   now refuses this for shipping configs (`SattariOnnx.cmake`) and warns locally. Fixing it
   is a decision: vendor a lower-floor onnxruntime, or accept a macOS 26 minimum for
   neural features.
-- **Tracktion Engine is dead weight.** Measured contribution to the mix: exactly zero
-  (`StemDeckMultiInstance`). Its Edit is never populated, `usingTeMidi` is never true, and
-  its accessors have no callers. It is now created lazily so it costs nothing, but whether
-  it stays as scaffolding for the arrangement editor or is removed is a product call.
-- **Multi-instance.** A second plugin instance used to deadlock the host (one Tracktion
-  engine per process). Guarded by an exclusive claim and pinned by `StemDeckMultiInstance`;
-  moot in practice now the engine is lazy.
+- **Tracktion dead weight — CLOSED 2026-08-25.** Its measured contribution was exactly
+  zero and its Edit was never populated. StemDeck now uses only its deterministic
+  `ArrangementPlayer`/`MidiClipPlayer`, and no longer compiles or links Tracktion into
+  the product or contract targets. This removes the one-engine-per-process lifecycle
+  hazard and a large unused dependency.
+- **Multi-instance.** The former Tracktion deadlock path is gone. Sequential and
+  concurrent processors plus prepared/rendering instances remain pinned by
+  `StemDeckMultiInstance`.
 
 ---
 

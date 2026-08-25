@@ -9,7 +9,7 @@
 // PDC, master chain — not an isolated component, and it churns the channel list
 // concurrently so the snapshot swap is under load while allocation is banned.
 //
-// Deliberately NOT armed during warm-up: JUCE and Tracktion lazily build buffers on
+// Deliberately NOT armed during warm-up: JUCE and the processors lazily build buffers on
 // the first few blocks, which is legitimate. The ban applies to steady state.
 #include "MainPluginProcessor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -29,7 +29,7 @@
 namespace rtcheck
 {
 // Thread-local so ONLY the thread pretending to be the audio thread is policed; the
-// message thread and Tracktion's background threads allocate freely and legitimately.
+// message and background threads allocate freely and legitimately.
 thread_local bool armed = false;
 std::atomic<int> violations { 0 };
 std::atomic<int> violationBytes { 0 };

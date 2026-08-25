@@ -206,6 +206,18 @@ private:
         // clips referencing the same file.
         struct LaneClip
         {
+            LaneClip() = default;
+            LaneClip (juce::File sourceFile, double sourceDuration,
+                      double trimStart, double trimEnd, double timelineStart,
+                      double fadeIn, double fadeOut, bool isSelected,
+                      juce::String displayLabel = {})
+                : file (std::move (sourceFile)), durationSeconds (sourceDuration),
+                  trimStartSeconds (trimStart), trimEndSeconds (trimEnd),
+                  timelineStartSeconds (timelineStart), fadeInSeconds (fadeIn),
+                  fadeOutSeconds (fadeOut), selected (isSelected),
+                  label (std::move (displayLabel))
+            {}
+
             juce::File file;
             double durationSeconds = 0.0;      // full source-file duration
             double trimStartSeconds = 0.0;     // source in-point

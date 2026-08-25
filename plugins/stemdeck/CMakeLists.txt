@@ -85,13 +85,12 @@ include(CTest)
 # standalone, so put them on the include path for every target in this directory.
 include_directories(${CMAKE_CURRENT_LIST_DIR}/../../core/include)
 
-# Tracktion Engine requires C++20
+# StemDeck uses C++20 for bit_cast and the lock-free graph/scheduler utilities.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariTracktionEngine.cmake)
 
 sattari_add_plugin(
     TARGET SattariStemDeck
@@ -149,7 +148,10 @@ target_compile_definitions(SattariStemDeck
         JUCE_PLUGINHOST_AU=1
         JUCE_PLUGINHOST_VST3=1
         JUCE_PLUGINHOST_LV2=0
-        JUCE_PLUGINHOST_VST=0)
+        JUCE_PLUGINHOST_VST=0
+        # Headless reliability contracts pump the message loop while async loads
+        # complete. This used to arrive accidentally through Tracktion.
+        JUCE_MODAL_LOOPS_PERMITTED=1)
 
 # Untrusted plug-ins never load into StemDeck's process. This companion executable
 # owns scanning, construction, and audio processing, communicating through a bounded
@@ -186,7 +188,10 @@ if(TARGET SattariStemDeck_Standalone)
 endif()
 
 sattari_enable_rubberband(SattariStemDeck SATTARI_STEMDECK_HAS_RUBBERBAND)
-sattari_enable_tracktion_engine(SattariStemDeck)
+# Arrangement playback, MIDI and clip editing now use StemDeck's internal
+# deterministic scheduler. The previous Tracktion Edit was never populated and
+# contributed exactly zero samples, yet pulled a large engine into every product
+# binary and made multi-instance lifecycle fragile.
 
 # Persistent analysis cache (AnalysisCache.cpp). SQLite ships with the OS on
 # macOS; on other platforms find or vendor it.
@@ -197,20 +202,21 @@ else()
     target_link_libraries(SattariStemDeck PRIVATE sqlite3)
 endif()
 
-# The EXCLUDE_FROM_ALL contract/benchmark executables below reuse SattariStemDeck's
-# generated JuceHeader.h, which #includes <tracktion_graph/...>. Link the Tracktion
-# module targets already created above (do NOT re-run sattari_enable_tracktion_engine
-# — juce_add_module would redefine the targets) so those headers resolve + link.
+# Kept as a compatibility shim for the contract declarations below. StemDeck's
+# generated JuceHeader and sources no longer expose Tracktion types, so these tests
+# deliberately require no Tracktion modules either.
 function(stemdeck_link_tracktion TARGET)
-    if(TARGET tracktion::tracktion_graph)
-        target_link_libraries(${TARGET} PRIVATE
-            tracktion::tracktion_graph
-            tracktion::tracktion_core
-            tracktion::tracktion_engine)
-        set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 20)
-        set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD_REQUIRED ON)
-        target_compile_definitions(${TARGET} PUBLIC TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=0)
-    endif()
+    set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD 20)
+    set_property(TARGET ${TARGET} PROPERTY CXX_STANDARD_REQUIRED ON)
+    # JuceHeader.h includes juce_audio_plugin_client directly. Tracktion used to
+    # expose JUCE's module root transitively; keep the contracts self-contained
+    # now that the unused engine is gone.
+    target_include_directories(${TARGET} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/../../third_party/JUCE/modules)
+    # JuceHeader.h also exposes GUI colours/initialisation used by a few compact
+    # smoke tests. Link the smallest existing umbrella target that supplies those
+    # symbols; CMake de-duplicates it for contracts already using audio_utils.
+    target_link_libraries(${TARGET} PRIVATE juce::juce_audio_utils juce::juce_dsp)
 endfunction()
 
 # ── Optional: on-device neural stem separation via ONNX Runtime ───────────────
@@ -229,7 +235,7 @@ endfunction()
 # deprecations), and turning them on wholesale would bury real findings in noise.
 # Fix those separately if desired, then extend this list.
 #
-# PRIVATE so JUCE and Tracktion headers are unaffected.
+# PRIVATE so third-party/JUCE headers are unaffected.
 set(STEMDECK_CORRECTNESS_WARNINGS
     -Werror=return-type            # falling off a non-void function is UB
     -Werror=uninitialized

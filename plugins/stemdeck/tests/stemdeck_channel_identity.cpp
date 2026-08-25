@@ -229,6 +229,32 @@ int main()
     check (masterLater.smartOn > 0.5f,
            "captured master toggle changes exactly at its event sample");
 
+    // Lane mixer gain is a separate atomic layer over immutable clip/automation
+    // data, so mute/solo/fader moves take effect during playback without rebuilding
+    // a long disk-backed schedule.
+    ArrangementPlayer::Clip liveGainClip;
+    liveGainClip.audio = rampSource;
+    liveGainClip.sourceSampleRate = 128.0;
+    liveGainClip.timelineLengthSamples = 127;
+    liveGainClip.lane = 3;
+    auto liveGainSchedule = std::make_shared<ArrangementPlayer::Schedule>();
+    liveGainSchedule->push_back (std::move (liveGainClip));
+    ArrangementPlayer liveGainArrangement;
+    liveGainArrangement.prepare (128.0, 16);
+    liveGainArrangement.setSchedule (liveGainSchedule);
+    liveGainArrangement.setLaneGain (3, 0.25f);
+    liveGainArrangement.start();
+    juce::AudioBuffer<float> liveGainOut (2, 16);
+    liveGainOut.clear();
+    liveGainArrangement.process (liveGainOut);
+    check (std::abs (liveGainOut.getSample (0, 8) - 0.25f) < 0.001f,
+           "arrangement lane fader changes audio without rebuilding the schedule");
+    liveGainArrangement.setLaneGain (3, 0.0f);
+    liveGainOut.clear();
+    liveGainArrangement.process (liveGainOut);
+    check (liveGainOut.getMagnitude (0, 16) < 1.0e-6f,
+           "arrangement lane mute takes effect on the next block");
+
     // A loop boundary may land anywhere inside the host buffer. Playback must
     // fill the remainder from loopStart immediately; wrapping only after the
     // block leaks audio beyond loopEnd and makes short arranger loops stumble.

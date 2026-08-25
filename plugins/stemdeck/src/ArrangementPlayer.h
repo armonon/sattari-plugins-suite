@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -28,6 +29,14 @@
 class ArrangementPlayer
 {
 public:
+    static constexpr int kMaxLanes = 9; // eight channels plus printed master
+
+    ArrangementPlayer()
+    {
+        for (auto& gain : laneGain)
+            gain.store (1.0f, std::memory_order_relaxed);
+    }
+
     struct Clip
     {
         std::shared_ptr<const juce::AudioBuffer<float>> audio;
@@ -40,6 +49,7 @@ public:
         juce::int64 timelineLengthSamples = 0;  // engine sample-rate
         juce::int64 effectTailSamples = 0;      // rendered silence through clip FX
         float       gain = 1.0f;
+        int         lane = 0;
         juce::int64 fadeInSamples  = 0;         // engine sample-rate
         juce::int64 fadeOutSamples = 0;         // engine sample-rate
         std::vector<std::pair<juce::int64, float>> gainAutomation;
@@ -149,6 +159,13 @@ public:
     }
     void stop()                        { playing.store (false, std::memory_order_release); }
     bool isPlaying() const noexcept    { return playing.load (std::memory_order_acquire); }
+
+    void setLaneGain (int lane, float gain) noexcept
+    {
+        if (juce::isPositiveAndBelow (lane, kMaxLanes))
+            laneGain[(size_t) lane].store (
+                juce::jlimit (0.0f, 3.0f, gain), std::memory_order_relaxed);
+    }
 
     void setPositionSeconds (double s)
     {
@@ -280,6 +297,9 @@ public:
                     }
 
                     float g = clip.gain;
+                    if (juce::isPositiveAndBelow (clip.lane, kMaxLanes))
+                        g *= laneGain[(size_t) clip.lane].load (
+                            std::memory_order_relaxed);
                     g *= automationGainAt (clip.gainAutomation, t);
                     if (clip.fadeInSamples > 0 && since < clip.fadeInSamples)
                         g *= (float) since / (float) clip.fadeInSamples;
@@ -353,6 +373,7 @@ public:
     }
 
 private:
+    std::array<std::atomic<float>, kMaxLanes> laneGain {};
     struct ReaderScope
     {
         explicit ReaderScope (std::atomic<uint32_t>& counterIn) noexcept

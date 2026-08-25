@@ -195,9 +195,5 @@ int main (int argc, char** argv)
 
     std::cout << (over == 0 ? "A3_PLAYABLE_OK" : "A3_PLAYABLE_OVER_BOUND") << std::endl;
 
-    // Tracktion keeps background threads that do not join on a plain return; the
-    // engine force-kills them and buffered stdout dies with the process. Flush and
-    // leave immediately, exactly as StemDeckEditorRender does.
-    std::cout.flush();
-    std::_Exit (over == 0 ? 0 : 1);
+    return over == 0 ? 0 : 1;
 }

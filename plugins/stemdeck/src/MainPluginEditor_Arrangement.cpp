@@ -1115,7 +1115,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         case Handle::FadeIn:    dragStartValue = clip.fadeInSeconds;        break;
         case Handle::FadeOut:   dragStartValue = clip.fadeOutSeconds;       break;
         case Handle::Body:      dragStartValue = clip.timelineStartSeconds; break;
-        default: dragStartValue = 0.0;
+        case Handle::None:      dragStartValue = 0.0;                       break;
     }
     dragStartPoint = e.getPosition();
     // Every clip-targeted handle snapshots for undo. Body drags can cross lanes, so
@@ -1312,7 +1312,7 @@ void MainPluginEditor::ArrangementRecorderView::mouseDrag (const juce::MouseEven
             readoutValue = clip.timelineStartSeconds;
             readoutLabel = "Move";
             break;
-        default: break;
+        case Handle::None: break;
     }
     const double beats = snapBpm > 0.0 ? readoutValue * snapBpm / 60.0 : 0.0;
     dragReadout = readoutLabel + ": " + juce::String (readoutValue, 3) + " s  (" + juce::String (beats, 2) + " beats)";
@@ -1409,11 +1409,12 @@ void MainPluginEditor::ArrangementRecorderView::mouseUp (const juce::MouseEvent&
         {
             const auto& before = beforeVec[(size_t) activeDrag.clip];
             const auto& after  = afterVec[(size_t) activeDrag.clip];
-            changed = before.trimStartSeconds     != after.trimStartSeconds
-                   || before.trimEndSeconds       != after.trimEndSeconds
-                   || before.timelineStartSeconds != after.timelineStartSeconds
-                   || before.fadeInSeconds        != after.fadeInSeconds
-                   || before.fadeOutSeconds       != after.fadeOutSeconds;
+            constexpr double editEpsilon = 1.0e-9;
+            changed = std::abs (before.trimStartSeconds - after.trimStartSeconds) > editEpsilon
+                   || std::abs (before.trimEndSeconds - after.trimEndSeconds) > editEpsilon
+                   || std::abs (before.timelineStartSeconds - after.timelineStartSeconds) > editEpsilon
+                   || std::abs (before.fadeInSeconds - after.fadeInSeconds) > editEpsilon
+                   || std::abs (before.fadeOutSeconds - after.fadeOutSeconds) > editEpsilon;
         }
         if (changed)
             commitEdit (std::move (pendingEditSnapshot));
@@ -3060,7 +3061,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     // Bar/beat grid is drawn per-lane (inside drawLane, over each lane's banding) so
     // it stays crisp instead of being washed out by the translucent lane fills.
 
-    auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& title, juce::Colour colour,
+    auto drawLane = [&] (juce::Rectangle<int> lane, const juce::String& laneTitle, juce::Colour colour,
                          juce::AudioThumbnail* thumb, const juce::File& file, int deckIndex)
     {
         juce::ignoreUnused (thumb, file);   // clips now resolve their own per-clip thumbnail
@@ -3091,7 +3092,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         auto laneTitleBox = topLine.reduced (6, 0);
         g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.96f : 0.42f));
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        g.drawText (title, laneTitleBox, juce::Justification::centredLeft, true);
+        g.drawText (laneTitle, laneTitleBox, juce::Justification::centredLeft, true);
 
         auto drawTag = [&] (juce::Rectangle<int> r, const char* tag, bool on, juce::Colour onCol)
         {
@@ -3695,8 +3696,8 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                 actions.removeFromLeft (gap);
                 inspectorAutomationRect = actions;
 
-                auto inspectorButton = [&] (juce::Rectangle<int> r, const char* text,
-                                             bool on, juce::Colour onColour)
+                auto drawInspectorButton = [&] (juce::Rectangle<int> r, const char* text,
+                                                 bool on, juce::Colour onColour)
                 {
                     g.setColour (on ? onColour.withAlpha (0.88f) : juce::Colour (0xff10161d));
                     g.fillRoundedRectangle (r.toFloat(), 4.0f);
@@ -3705,11 +3706,11 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                     g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
                     g.drawText (text, r, juce::Justification::centred);
                 };
-                inspectorButton (inspectorMuteRect, "MUTE", laneMuted[(size_t) selectedLane], juce::Colour (kDanger));
-                inspectorButton (inspectorSoloRect, "SOLO", laneSoloed[(size_t) selectedLane], juce::Colour (0xffffc342));
-                inspectorButton (inspectorAutomationRect, "AUTO",
-                                 selectedLane < numLanes && editAuto[(size_t) selectedLane].visible,
-                                 juce::Colour (kAccentViolet));
+                drawInspectorButton (inspectorMuteRect, "MUTE", laneMuted[(size_t) selectedLane], juce::Colour (kDanger));
+                drawInspectorButton (inspectorSoloRect, "SOLO", laneSoloed[(size_t) selectedLane], juce::Colour (0xffffc342));
+                drawInspectorButton (inspectorAutomationRect, "AUTO",
+                                     selectedLane < numLanes && editAuto[(size_t) selectedLane].visible,
+                                     juce::Colour (kAccentViolet));
 
                 panel.removeFromTop (14);
                 auto mixArea = panel.removeFromTop (210);

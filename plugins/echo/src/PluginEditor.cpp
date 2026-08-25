@@ -4,7 +4,6 @@ SattariEchoAudioProcessorEditor::SattariEchoAudioProcessorEditor (SattariEchoAud
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (700, 320);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Echo");
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Tempo-locked ping-pong delay");
@@ -42,6 +41,10 @@ SattariEchoAudioProcessorEditor::SattariEchoAudioProcessorEditor (SattariEchoAud
     addKnob ("mix", "MIX");
     addKnob ("output", "OUTPUT", " dB");
 
+    // setSize() synchronously calls resized(). It must happen after the OwnedArrays
+    // are populated; doing it at the top indexed knobs[0..7] while the arrays were
+    // still empty and crashed when StemDeck created this guest editor.
+    setSize (700, 320);
     startTimerHz (8);
 }
 
@@ -79,6 +82,8 @@ void SattariEchoAudioProcessorEditor::paint (juce::Graphics& g)
 
 void SattariEchoAudioProcessorEditor::resized()
 {
+    if (knobs.size() < 8 || caps.size() < 8)
+        return;
     // knobs index map (addKnob order):
     //   0 timems, 1 feedback, 2 tone, 3 diffusion, 4 width, 5 duck, 6 mix, 7 output
     auto b = getLocalBounds().reduced (16);

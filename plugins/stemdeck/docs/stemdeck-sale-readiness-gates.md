@@ -2,7 +2,7 @@
 
 Truth label: **validation plan / not sale-ready evidence**. Passing these gates would support a sale-candidate claim; this document itself does not make one.
 
-## Latest automated evidence (2026-08-24)
+## Latest automated evidence (2026-08-25)
 
 - Release universal Standalone and VST3 binaries build for both arm64 and x86_64.
 - All 37 deterministic contracts pass, including neural beat/key smoke, stem
@@ -16,6 +16,14 @@ Truth label: **validation plan / not sale-ready evidence**. Passing these gates 
   with the universal ONNX Runtime and isolated-plugin helper embedded; the bundle
   passes deep signature, dependency and architecture validation.
 - The granular render and Rubber Band time/pitch benchmark contracts pass.
+- The post-refactor focused gates pass: multi-instance (including concurrent
+  sample identity), channel/arrangement identity, async load replacement/clear,
+  neural beat, neural stem cancellation, Echo editor/DSP and Space editor/DSP.
+  The 5-second load probe became playable in 3.6 ms on the validation machine.
+- The installed AU passes Apple's complete `auval -v aumu Sd01 Satr` validation;
+  the installed VST3 passes pluginval strictness 5 across 44.1/48/96 kHz and
+  64/128/256/512/1024-sample blocks. The installed standalone, AU and VST3 are
+  ad-hoc signed and carry their own universal ONNX Runtime without absolute rpaths.
 
 These are engineering gates, not the remaining human listening, hardware/DAW,
 Developer ID, notarization or clean-machine installation evidence.
@@ -50,7 +58,7 @@ Developer ID, notarization or clean-machine installation evidence.
   Overview, detail, phase telemetry, persistence and audio share the same map. This
   still needs a licensed real-music corpus gate (especially ambient intros,
   breakdowns, live drummers, and tempo changes) before commercial DJ-grade claims.
-- Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: trusted Sattari in-process graphs plus a dedicated helper process and shared-memory audio ring for untrusted effects) with an in-app FX rack UI. NOT yet productized: some Sattari guest plugins (Echo, Space) crash in their own editor `resized()` when hosted, and hosted processing has had no real-song/DAW listening pass.
+- Plugin-host audio routing is now IMPLEMENTED (`HostGraph`: trusted Sattari in-process graphs plus a dedicated helper process and shared-memory audio ring for untrusted effects) with an in-app FX rack UI. Echo and Space's hosted-editor construction crash is fixed and protected by contracts that create and transiently resize each editor. Hosted processing still needs the real-song/DAW listening and third-party soak passes below.
 - Hosted-plugin parameters now have stable event-stream addressing and deterministic
   dispatch for the trusted graph. Third-party audio effects are process-isolated,
   dry-bypassed if the helper exits, retried twice after a transient crash, and expose
@@ -63,13 +71,16 @@ Developer ID, notarization or clean-machine installation evidence.
 - Editable arrangement replay now follows captured lane EQ/filter/reverb/echo and
   master gain/performance-FX/Smart-Master/limiter automation. A real third-party
   plugin replay/hash matrix and complete live-set stress replay are still required.
+- Live arrangement lane gain/mute/solo now rides an atomic mixer layer in the actual
+  `ArrangementPlayer`; it no longer calls the unused Tracktion scaffold and silently
+  does nothing. Tracktion has been removed from the product and contract linkage.
 - No manual DAW pass completed by this repo-only script.
 - No real listening pass completed by this repo-only script.
 - A responsive static product page now exists at `apps/stemdeck-web/index.html`.
   Deployment, analytics, privacy/EULA, payments, support operations, credentialed
   notarization, and a tested installer/update channel remain commercial gates.
 - The contract suite is comprehensive but expensive to build because excluded test
-  executables compile duplicate JUCE/Tracktion objects. Consolidate the contracts or
+  executables compile duplicate JUCE objects. Consolidate the contracts or
   share test-support libraries so the full release gate is practical on every change.
 
 ## Minimum DAW smoke matrix before sale-candidate language

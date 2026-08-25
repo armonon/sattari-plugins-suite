@@ -4,7 +4,6 @@ SattariSpaceAudioProcessorEditor::SattariSpaceAudioProcessorEditor (SattariSpace
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (700, 300);
 
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Space");
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Reverb + tempo-synced delay");
@@ -34,6 +33,10 @@ SattariSpaceAudioProcessorEditor::SattariSpaceAudioProcessorEditor (SattariSpace
     addKnob ("width", "WIDTH");
     addKnob ("output", "OUTPUT", " dB");
 
+    // setSize() synchronously calls resized(). Delay it until every knob/caption
+    // exists; the old constructor indexed empty OwnedArrays during hosted editor
+    // creation, which made Space crash inside its own resized() callback.
+    setSize (700, 300);
     startTimerHz (8);
 }
 
@@ -71,6 +74,8 @@ void SattariSpaceAudioProcessorEditor::paint (juce::Graphics& g)
 
 void SattariSpaceAudioProcessorEditor::resized()
 {
+    if (knobs.size() < 7 || caps.size() < 7)
+        return;
     auto b = getLocalBounds().reduced (16);
     auto top = b.removeFromTop (34);
     title.setBounds (top.removeFromLeft (400));

@@ -4,7 +4,7 @@ category: sattari
 area: audio-platform
 status: active
 created: 2026-06-17
-updated: 2026-08-09
+updated: 2026-08-25
 source: Platform strategy — Core once, StemDeck as the forcing flagship
 ---
 
@@ -28,8 +28,8 @@ proven asset." Verified against the repo:
 - **But pluginval@5 proves hygiene, not sound.** It checks no-crash, state save/restore,
   parameter automation, editor-while-processing, and allocation/thread behaviour — not
   whether the time-stretch or key detection sound good.
-- **StemDeck remains the least externally validated of the suite, but it is no longer
-  mostly scaffold.** It now has spectral-flux + DBN/Viterbi-style beat/downbeat
+- **StemDeck remains externally under-validated, but it is no longer mostly
+  scaffold.** It now has spectral-flux + DBN/Viterbi-style beat/downbeat
   analysis, variable-tempo Anchor/Groove Sync, optional neural beat/key refinement,
   native ONNX and Demucs separation paths, deterministic intent capture/replay, and
   an editable arrangement workspace. AU is now part of the declared build formats.
@@ -111,8 +111,9 @@ The defensible wedge is the **bridge neither parent fills**: DJ apps won't let y
 build on what you create; DAWs won't let you perform fluidly. StemDeck = perform a live
 stem remix, then refine it into a release. Two modes plus the bridge:
 
-- **Perform** (DJ half): four decks, stems on faders, beat-sync, live key, loops, cues,
-  pads, mic monitor. Mostly scaffolded.
+- **Perform** (DJ half): up to eight channels, four-deck-first mixing, vertical
+  waveforms, stems on faders, beat-sync, live key, loops, cues, pads, mic/input
+  monitoring, MIDI learn/feedback, targetable effect racks, and emergency bypass.
 - **Build** (Ableton half): captured clips you arrange, warp, trim, layer, light FX, export.
 - **Capture bridge** (the actual differentiator): hit record → loops, swaps, key shifts,
   takes land in Build as editable clips.
@@ -123,10 +124,10 @@ Phases — order matters because a DJ tool lives or dies on these:
    accurate live key, listenable time-stretch — validated on known-BPM/known-key material
    with the listening matrix already scoped in the gates doc. **True scope flag:** real DJ
    sync now has automatic onset/beat/downbeat analysis, variable-tempo warp markers,
-   per-deck sync enable, manual correction, and deterministic contracts. Remaining:
-   waveform-direct downbeat anchoring plus the licensed real-music/long-drift/controller
-   matrix. A full draggable multi-marker warp editor remains; no accuracy claim until
-   that corpus passes.
+   per-deck sync enable, waveform-direct downbeat anchoring, draggable non-crossing
+   multi-marker correction, undo/redo/reset, persistence, and deterministic contracts.
+   Remaining: the licensed real-music/long-drift/controller matrix. No accuracy claim
+   until that corpus passes.
 2. **Bundle separation properly — ENGINE + USER LIFECYCLE COMPLETE / DISTRIBUTION DECISION OPEN.** Native
    ONNX separation, visible progress/cancel, cache handoff, streaming preview, and
    Demucs fallback exist. Zero-setup shipping still requires a commercially cleared
@@ -136,10 +137,10 @@ Phases — order matters because a DJ tool lives or dies on these:
    lanes, 60-second retrospective master recovery, performance scenes, persisted
    alternate takes, and sample-identical fixed-block replay are enforced by contracts.
 4. **Build mode — FUNCTIONAL ALPHA.** Arrange/trim/fade/layer, automation, MIDI/piano
-   roll, lane DSP, master automation replay, portable sessions, and export exist.
-   Remaining product work is region-level comp splicing, long-session editing
-   performance, hosted-plugin replay certification, and real artist workflow
-   testing—not a greenfield DAW build.
+   roll, lane DSP, master automation replay, portable sessions, alternate takes,
+   region-level comp source replacement, and export exist. Remaining product work is
+   long-session editing performance, hosted-plugin replay certification, and real
+   artist workflow testing—not a greenfield DAW build.
 5. **Identity, packaging, launch — PARTIAL.** Lock the "perform → keep → build → release" story;
    one-click install + license (from Core); make the demo the marketing — live four-stem
    remix, stop, export a finished track in 30 seconds.
@@ -168,8 +169,9 @@ Done and paying forward: shared Core, unified editors, Hub/brand drift guard, CI
 shared packaging, StemDeck's perform/capture/build architecture, deterministic replay,
 and local alpha installers. The next concrete moves are no longer broad feature work:
 they are the **RubberBand + model-weight license decisions**, the licensed real-music
-accuracy/listening corpus, physical controller/interface testing, third-party plugin
-isolation, AU/VST3 DAW certification, and a credentialed notarized clean-machine release.
+accuracy/listening corpus, physical controller/interface testing, broad third-party
+plugin soak/certification (untrusted effects are already helper-process isolated),
+AU/VST3 DAW certification, and a credentialed notarized clean-machine release.
 
 ## Truth label
 

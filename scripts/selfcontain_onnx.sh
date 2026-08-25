@@ -11,12 +11,31 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 onnx="libonnxruntime.1.22.0.dylib"
 onnx_src="$repo_root/third_party/onnxruntime-osx-universal2-1.22.0/lib/$onnx"
 
-rpaths() { otool -l "$1" | awk '/LC_RPATH/{f=1} f&&/ path /{print $2; f=0}'; }
+rpaths() {
+  # Preserve spaces in paths (the repository is commonly named "StemDeck copy").
+  # `$2` truncated such paths and made the absolute-rpath cleanup a silent no-op.
+  otool -l "$1" | awk '
+    /LC_RPATH/ { want=1; next }
+    want && / path / {
+      line=$0
+      sub(/^[[:space:]]*path /, "", line)
+      sub(/ \(offset.*$/, "", line)
+      print line
+      want=0
+    }'
+}
 
 for bundle in "$@"; do
   [[ -d "$bundle" ]] || { echo "missing bundle: $bundle" >&2; exit 1; }
-  # Derive the binary name from Contents/MacOS (one executable per bundle).
-  binary="$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1)"
+  # Prefer the bundle's declared executable. Standalone StemDeck also contains
+  # the plugin-sandbox helper, so "first file in Contents/MacOS" can select the
+  # helper and incorrectly conclude that the app has no ONNX dependency.
+  executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+      "$bundle/Contents/Info.plist" 2>/dev/null || true)"
+  binary="${executable_name:+$bundle/Contents/MacOS/$executable_name}"
+  if [[ -z "$binary" || ! -f "$binary" ]]; then
+    binary="$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1)"
+  fi
   [[ -n "$binary" ]] || { echo "no binary in $bundle" >&2; exit 1; }
 
   if ! otool -L "$binary" | grep -q 'libonnxruntime'; then
