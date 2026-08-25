@@ -10,6 +10,152 @@
 #include <thread>
 #include <vector>
 
+// ---------------------------------------------------------------------------
+// Intent Engine v2 — experimental targeting layer (shadow/active modes)
+// ---------------------------------------------------------------------------
+enum class IntentMode : int
+{
+    PRODUCTION = 0,   // default — production targeting only
+    V2_SHADOW  = 1,   // run v2 in parallel, do NOT drive audio
+    V2_ACTIVE  = 2,   // v2 drives targetMidi when confident; Strategy G unchanged
+};
+
+enum class IntentReasonCode : int
+{
+    NEAREST_STABLE          = 0,
+    DIRECTIONAL_DESTINATION = 1,
+    PASSING_TONE            = 2,
+    SLIDE_DESTINATION       = 3,
+    STABILITY_ANCHOR        = 4,
+    VIBRATO_HOLD            = 5,
+    LOW_CONFIDENCE_FALLBACK = 6,
+};
+
+struct IntentV2State
+{
+    static constexpr int kHistLen       = 20;   // ~116ms @ 256/44100 — must exceed vibrato half-period (100ms @ 5 Hz)
+    static constexpr int kMaxDwell      = 32;
+    static constexpr double kSlideVel   = 0.6;  // MIDI/sec — sliding threshold
+    static constexpr double kPassDwell  = 0.18; // max seconds near a note = passing tone
+    static constexpr double kStabSec    = 0.10; // min seconds to anchor
+    static constexpr double kPersistSec = 0.12; // min stable seconds before switching
+
+    double pitchHist[kHistLen] {};
+    double velHist  [kHistLen] {};  // signed velocity (MIDI/sec) per pitch hop
+    int    histFill  = 0;
+    int    histPos   = 0;
+
+    int    stableTarget    = -1000;
+    double stableSec       = 0.0;
+    double lastVoicedPitch = -1.0;
+
+    struct DwellEntry { int note = -1; int frames = 0; };
+    DwellEntry dwellTable[kMaxDwell] {};
+    int dwellCount = 0;
+
+    // Per-block output — written audio thread, read by trace/log (bench only)
+    int    prodTarget     = -1;
+    int    v2Target       = -1;
+    float  intentConf     = 0.0f;
+    IntentReasonCode reason = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+    bool   fallback       = false;
+    int    targetChanges  = 0;
+
+    void reset()
+    {
+        histFill = histPos = 0;
+        stableTarget = -1000; stableSec = 0.0; lastVoicedPitch = -1.0;
+        dwellCount = 0;
+        for (auto& e : dwellTable) e = {};
+        for (auto& v : pitchHist) v = 0.0;
+        for (auto& v : velHist)   v = 0.0;
+        prodTarget = v2Target = -1;
+        intentConf = 0.0f;
+        reason = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+        fallback = false; targetChanges = 0;
+    }
+
+    void pushPitch (double midi, double blockSec)
+    {
+        // Store signed velocity (MIDI/sec) before updating pitch history
+        const double vel = (lastVoicedPitch >= 0.0 && blockSec > 0.0)
+                           ? (midi - lastVoicedPitch) / blockSec
+                           : 0.0;
+        pitchHist[histPos] = midi;
+        velHist  [histPos] = vel;
+        histPos = (histPos + 1) % kHistLen;
+        if (histFill < kHistLen) ++histFill;
+        lastVoicedPitch = midi;
+    }
+
+    double smoothedVelocity() const
+    {
+        if (histFill < 2) return 0.0;
+        // Average of stored per-hop velocity values
+        double sum = 0.0;
+        const int count = std::min (histFill, kHistLen);
+        for (int i = 0; i < count; ++i)
+            sum += velHist[(histPos - 1 - i + kHistLen * 2) % kHistLen];
+        return sum / count;
+    }
+
+    // Check if recent velocity signs are consistent (matches Python semantics)
+    // Threshold: 0.3 MIDI/sec — matches the Python is_directionally_consistent
+    bool directionConsistent (int frames = 6) const
+    {
+        const int n = std::min (frames, histFill);
+        if (n < 3) return false;
+        int pos = 0, neg = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double v = velHist[(histPos - 1 - i + kHistLen * 2) % kHistLen];
+            if (v >  0.3) ++pos;
+            if (v < -0.3) ++neg;
+        }
+        return (pos >= (int)(n * 0.6)) || (neg >= (int)(n * 0.6));
+    }
+
+    // True if the history window contains BOTH strongly-positive AND strongly-
+    // negative velocities anywhere within it.  Vibrato always has both once
+    // kHistLen > half_period_frames.  A true slide has only one sign.
+    bool hasSignReversal (int frames = kHistLen) const
+    {
+        const int n = std::min (frames, histFill);
+        if (n < 4) return false;
+        bool hasPos = false, hasNeg = false;
+        for (int i = 0; i < n; ++i)
+        {
+            const double v = velHist[(histPos - 1 - i + kHistLen * 2) % kHistLen];
+            if (v >  0.3) hasPos = true;
+            if (v < -0.3) hasNeg = true;
+        }
+        return hasPos && hasNeg;
+    }
+
+    double directionSign() const
+    {
+        const double sv = smoothedVelocity();
+        return sv > 0.0 ? 1.0 : (sv < 0.0 ? -1.0 : 0.0);
+    }
+
+    int getDwell (int note) const
+    {
+        for (int i = 0; i < dwellCount; ++i)
+            if (dwellTable[i].note == note) return dwellTable[i].frames;
+        return 0;
+    }
+
+    void incrementDwell (int note)
+    {
+        for (int i = 0; i < dwellCount; ++i)
+            if (dwellTable[i].note == note) { ++dwellTable[i].frames; return; }
+        if (dwellCount < kMaxDwell)
+            dwellTable[dwellCount++] = { note, 1 };
+    }
+
+    void resetDwell() { dwellCount = 0; for (auto& e : dwellTable) e = {}; }
+};
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
 #endif
@@ -49,6 +195,11 @@ public:
     juce::String getLastTraceSummary() const { return lastTraceSummary; }
     juce::String getLiveStatusSummary() const;
     juce::String getKeyDetectionTabSummary() const;
+
+    // Intent Engine v2 mode control (bench / DAW experimentation only)
+    void setIntentMode (IntentMode m) noexcept { intentMode.store ((int) m, std::memory_order_relaxed); }
+    IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
+    const IntentV2State& getIntentV2State() const noexcept { return intentState; }
 
     // --- Track Key Map -------------------------------------------------------
     //  Offline scan of an audio file -> timeline of (timeSec, rootIdx, scaleIdx)
@@ -180,6 +331,12 @@ private:
     // repeatedly spiking transitionBoost=1.0 on every crossing.
     int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
+
+    // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
+    std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION
+    IntentV2State    intentState;
+    PitchFrame applyIntentV2 (PitchFrame frame, int rootIndex,
+                               const juce::String& scaleName, double blockTimeSec);
 
     // Reported processing latency (Rubber Band start delay). Recomputed in
     // prepareToPlay so DAW delay-comp keeps things tight; Low Latency trims it.

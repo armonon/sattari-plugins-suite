@@ -313,6 +313,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     flexEngageState = 0.0;
     hysteresisAltTarget = -1000;
     hysteresisAge       = 999.0;
+    intentState.reset();
 }
 
 bool SattariAutoPitchAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -1030,6 +1031,182 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     return detected;
 }
 
+// ---------------------------------------------------------------------------
+// Intent Engine v2 — shadow / active experimental targeting
+// Strategy G correction dynamics (transitionBoost, hysteresis) are FROZEN.
+// This function may only override frame.targetMidi and frame.correctionCents.
+// ---------------------------------------------------------------------------
+SattariAutoPitchAudioProcessor::PitchFrame
+SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
+                                               int rootIndex,
+                                               const juce::String& scaleName,
+                                               double blockTimeSec)
+{
+    auto& s = intentState;
+    s.prodTarget = (int) std::llround (frame.targetMidi);
+
+    if (! frame.voiced)
+    {
+        // Unvoiced gap: reset history and dwell, keep stableTarget for persistence
+        s.histFill = s.histPos = 0;
+        s.resetDwell();
+        s.lastVoicedPitch = -1.0;
+        s.stableSec = 0.0;
+        s.v2Target  = -1;
+        s.reason    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+        s.fallback  = false;
+        return frame;
+    }
+
+    const double det  = frame.midi;
+    const double conf = frame.confidence;
+    s.pushPitch (det, blockTimeSec);
+
+    // Nearest in-scale candidate to current detected pitch
+    const int nearNote = nearestScaleMidi (det, rootIndex, scaleName);
+    s.incrementDwell (nearNote);
+
+    const double svel  = s.smoothedVelocity();
+    const bool   consistent = s.directionConsistent();
+    const bool   oscillating = s.hasSignReversal();   // vibrato guard
+    const double dir   = s.directionSign();
+    const double dwellSec = s.getDwell (nearNote) * blockTimeSec;
+
+    // ---- Decision tiers (mirrors Python v2 logic exactly) ----
+    int    chosen = s.prodTarget;
+    float  iconf  = (float) (conf * 0.6);
+    IntentReasonCode rsn = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+
+    // 1. SLIDE_DESTINATION — disabled in v2 active.
+    //
+    // Rationale: YIN detects pitch in discrete semitone steps, making velocity
+    // artificially ~20-30 MIDI/sec during any pitch transition (even ornamental falls
+    // and scoops that return to the source note). Extrapolation — both magnitude-based
+    // and direction-only — caused systematic FALL/SCOOP regressions in the active audio
+    // bench. The remaining tiers (STABILITY_ANCHOR, VIBRATO_HOLD, PASSING_TONE) correctly
+    // track pitch during transitions by following the detected pitch rather than
+    // predicting its destination. Re-enable only with a cleaner velocity source
+    // (e.g. sub-sample pitch interpolation or a longer smoothed derivative).
+    //
+    // The SLIDE_DESTINATION reason code is still emitted by the shadow Python engine for
+    // comparison, but the C++ active path does not use it.
+    if (false)  // SLIDE_DESTINATION disabled
+    {
+        (void) dir; (void) consistent; (void) oscillating;
+    }
+    // 2. Passing-tone suppressor: fast + short dwell + direction consistent + stable anchor known.
+    // Directional escape guard: suppress stale-anchor hold when pitch is consistently moving
+    // AWAY from stableTarget (e.g. ascending scale run starting from a previously-stable note).
+    else if (consistent
+             && dwellSec < IntentV2State::kPassDwell
+             && std::abs (svel) > 0.35
+             && s.stableTarget != -1000
+             && dir * (det - s.stableTarget) <= 0.5)  // pitch must not be departing the anchor
+    {
+        chosen = s.stableTarget;
+        iconf  = 0.72f;
+        rsn    = IntentReasonCode::PASSING_TONE;
+    }
+    // 3. Stability anchor
+    else if (s.stableSec >= IntentV2State::kStabSec
+             && conf >= 0.55
+             && std::abs (svel) < 0.5)
+    {
+        const int candidate = nearestScaleMidi (det, rootIndex, scaleName);
+        // Target persistence: resist switching while stable + slow motion
+        if (s.stableTarget != -1000
+            && s.stableTarget != candidate
+            && std::abs (svel) < 1.2
+            && s.stableSec < IntentV2State::kPersistSec * 3.0)
+        {
+            chosen = s.stableTarget;
+            iconf  = 0.80f;
+            rsn    = IntentReasonCode::VIBRATO_HOLD;
+        }
+        else
+        {
+            chosen = candidate;
+            s.stableTarget = candidate;
+            iconf  = (float) std::min (0.95, conf);
+            rsn    = IntentReasonCode::STABILITY_ANCHOR;
+        }
+    }
+    // 4. Known stable target + low velocity → hold
+    else if (s.stableTarget != -1000 && std::abs (svel) < 0.8)
+    {
+        chosen = s.stableTarget;
+        iconf  = (float) std::min (0.78, conf * 1.1);
+        rsn    = IntentReasonCode::VIBRATO_HOLD;
+    }
+    // 5. Nearest scale note — also seeds stableTarget so stability accumulates
+    else
+    {
+        chosen = nearNote;
+        iconf  = (float) (conf * 0.70);
+        if (iconf >= 0.50f)
+        {
+            rsn = IntentReasonCode::NEAREST_STABLE;
+            s.stableTarget = nearNote;   // seed so stableSec can build up
+        }
+        else
+        {
+            // Low confidence → fall back to production target
+            chosen = s.prodTarget;
+            iconf  = (float) (conf * 0.50);
+            rsn    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+        }
+    }
+
+    // Update stability counter
+    if (chosen == s.stableTarget && std::abs (svel) < 0.8)
+        s.stableSec += blockTimeSec;
+    else if (rsn != IntentReasonCode::PASSING_TONE && rsn != IntentReasonCode::VIBRATO_HOLD)
+        s.stableSec = 0.0;
+
+    s.lastVoicedPitch = det;
+    s.v2Target   = chosen;
+    s.intentConf = iconf;
+    s.reason     = rsn;
+
+    // CONFIDENCE SAFETY GATING
+    // HIGH (≥0.68): v2 may drive audio
+    // MEDIUM (≥0.50): require stability, vibrato-hold, or passing-tone evidence
+    // LOW (<0.50): fall back to production
+    constexpr float kHighConf   = 0.68f;
+    constexpr float kMedConf    = 0.50f;
+
+    const IntentMode mode = (IntentMode) intentMode.load (std::memory_order_relaxed);
+
+    bool driving = false;
+    if (mode == IntentMode::V2_ACTIVE)
+    {
+        if (iconf >= kHighConf)
+        {
+            driving = true;   // full v2 control
+        }
+        else if (iconf >= kMedConf
+                 && (rsn == IntentReasonCode::STABILITY_ANCHOR
+                     || rsn == IntentReasonCode::VIBRATO_HOLD
+                     || rsn == IntentReasonCode::PASSING_TONE))
+        {
+            driving = true;   // conservative v2 ok with medium confidence
+        }
+        // LOW confidence: driving stays false → production target used
+    }
+
+    s.fallback = (mode == IntentMode::V2_ACTIVE) && !driving;
+
+    if (driving)
+    {
+        if (chosen != (int) std::llround (frame.targetMidi))
+            ++s.targetChanges;
+        frame.targetMidi     = (double) chosen;
+        frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
+    }
+
+    return frame;
+}
+
 float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 {
     const auto style = currentStyleChoice();
@@ -1202,6 +1379,15 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             if (! sidechainSeenAudio)
                 updateAutoKeyHistogram (detected);
             lastPitchFrame = buildCorrectionFrame (detected);
+            // Intent Engine v2: override targetMidi when mode != PRODUCTION
+            if (intentMode.load (std::memory_order_relaxed) != 0)
+            {
+                const int root = currentCorrectionRootIndex();
+                const int sc   = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+                const auto sn  = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, sc)];
+                const double bts = (double) pitchHopSize / currentSampleRate;
+                lastPitchFrame = applyIntentV2 (lastPitchFrame, root, sn, bts);
+            }
             pitchSamplesUntilAnalysis = pitchHopSize;
         }
     }
