@@ -738,6 +738,7 @@ private:
     juce::Slider crossfader, masterBpm, master, masterFilter, limiter, micGain;
     juce::ComboBox transitionFrom, transitionTo;
     juce::ComboBox crossfaderCurve;                 // Smooth / Linear / Sharp / Reverse
+    juce::TextButton crossfaderCenter { "Center" };
     juce::TextButton crossfaderReverse { "Reverse" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "Tap" };

@@ -758,16 +758,17 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     // XY panel is retired. Master filtering now belongs in the visible FX rack.
     addChildComponent (masterFxPad);
     setupSlider (crossfader, false);
-    // A transition's raw 0..1 value is meaningless; the panel names its selected
-    // endpoints and double-click snaps to the middle of the handoff.
+    // A transition's raw 0..1 value is meaningless; the panel names both selected
+    // endpoints and reports their complete balance instead of an ambiguous single
+    // percentage (for example, "A 83 / C 17").
     crossfader.textFromValueFunction = [this] (double v) -> juce::String
     {
-        if (std::abs (v - 0.5) < 0.02) return "CENTER";
         const bool rev = crossfaderCurve.getSelectedId() == 4;
-        const bool fromSide = (v < 0.5) != rev;
-        const int pct = (int) std::round (std::abs (v - 0.5) * 200.0);
-        const auto endpoint = fromSide ? transitionFrom.getText() : transitionTo.getText();
-        return endpoint + " " + juce::String (pct) + "%";
+        const auto leftName  = rev ? transitionTo.getText() : transitionFrom.getText();
+        const auto rightName = rev ? transitionFrom.getText() : transitionTo.getText();
+        const int rightPct = (int) std::round (juce::jlimit (0.0, 1.0, v) * 100.0);
+        return leftName + " " + juce::String (100 - rightPct)
+             + " / " + rightName + " " + juce::String (rightPct);
     };
     crossfader.setDoubleClickReturnValue (true, 0.5);
     crossfader.updateText();
@@ -794,6 +795,35 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     crossfaderCurve.addItem ("Reverse", 4);
     crossfaderCurve.setTooltip ("Transition curve: Smooth, Linear, Sharp, or a reversed smooth handoff");
     addAndMakeVisible (crossfaderCurve);
+
+    setupButton (crossfaderCenter);
+    crossfaderCenter.getProperties().set ("buttonRole", "secondary");
+    crossfaderCenter.setTooltip ("Set an equal 50 / 50 blend. You can also double-click the fader.");
+    crossfaderCenter.onClick = [this]
+    {
+        crossfader.setValue (0.5, juce::sendNotificationSync);
+        crossfader.updateText();
+        repaint (xfPanelBounds);
+    };
+    addAndMakeVisible (crossfaderCenter);
+
+    auto refreshTransitionUi = [this]
+    {
+        const auto colourFor = [] (int selectedId)
+        {
+            return deckAccent (juce::jlimit (0, MainPluginProcessor::numDecks - 1,
+                                             selectedId - 1));
+        };
+        transitionFrom.setColour (juce::ComboBox::textColourId,
+                                  colourFor (transitionFrom.getSelectedId()));
+        transitionTo.setColour (juce::ComboBox::textColourId,
+                                colourFor (transitionTo.getSelectedId()));
+        crossfader.updateText();
+        repaint (xfPanelBounds);
+    };
+    transitionFrom.onChange = refreshTransitionUi;
+    transitionTo.onChange = refreshTransitionUi;
+    crossfaderCurve.onChange = refreshTransitionUi;
 
     setupButton (crossfaderReverse);
     crossfaderReverse.setClickingTogglesState (true);
@@ -5756,7 +5786,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         // SCOPE + MASTER FX + MASTER OUT and the FX rack self-draw. Frame the
         // two lightweight stage panels here.
         panelFrame (syncPanelBounds, "SYNC");
-        panelFrame (xfPanelBounds, "TRANSITION");
+        panelFrame (xfPanelBounds, "MIX");
 
         if (! xfPanelBounds.isEmpty())
         {
@@ -5764,15 +5794,11 @@ void MainPluginEditor::paint (juce::Graphics& g)
             const bool rev = crossfaderCurve.getSelectedId() == 4;
             const auto fromName = transitionFrom.getText().isNotEmpty() ? transitionFrom.getText() : "A";
             const auto toName = transitionTo.getText().isNotEmpty() ? transitionTo.getText() : "B";
-            juce::String mixReadout;
-            if (std::abs (v - 0.5) < 0.02)
-                mixReadout = "CENTER";
-            else
-            {
-                const bool fromSide = (v < 0.5) != rev;
-                mixReadout = (fromSide ? fromName + " " : toName + " ")
-                           + juce::String ((int) std::round (std::abs (v - 0.5) * 200.0)) + "%";
-            }
+            const auto leftName  = rev ? toName : fromName;
+            const auto rightName = rev ? fromName : toName;
+            const int rightPct = (int) std::round (juce::jlimit (0.0, 1.0, v) * 100.0);
+            const auto mixReadout = leftName + " " + juce::String (100 - rightPct)
+                                  + "  /  " + rightName + " " + juce::String (rightPct);
 
             g.setColour (juce::Colour (stemdeck::tokens::fgSecondary));
             g.setFont (stemdeck::tokens::numeric (10.0f, true));
@@ -5784,9 +5810,11 @@ void MainPluginEditor::paint (juce::Graphics& g)
             g.setColour (juce::Colour (stemdeck::tokens::fgMuted));
             g.setFont (juce::FontOptions (8.0f, juce::Font::bold)
                            .withKerningFactor (stemdeck::tokens::trackLabel));
-            g.drawText (rev ? toName : fromName, track.withHeight (11).translated (0, -9),
+            g.setColour (deckAccent ((rev ? transitionTo : transitionFrom).getSelectedId() - 1));
+            g.drawText (leftName, track.withHeight (11).translated (0, -9),
                         juce::Justification::centredLeft);
-            g.drawText (rev ? fromName : toName, track.withHeight (11).translated (0, -9),
+            g.setColour (deckAccent ((rev ? transitionFrom : transitionTo).getSelectedId() - 1));
+            g.drawText (rightName, track.withHeight (11).translated (0, -9),
                         juce::Justification::centredRight);
         }
     }
@@ -7734,7 +7762,7 @@ void MainPluginEditor::resized()
     area.removeFromTop (10);
 
     // ── Stage dock ────────────────────────────────────────────────────────────
-    // [TRANSITION] [FULL FX RACK] [MASTER STEMS + OUTPUT]
+    // [MIX] [FULL FX RACK] [MASTER STEMS + OUTPUT]
     // This is signal flow, left to right. The former fixed MASTER FX XY panel is
     // intentionally gone: master filtering is now an ordinary visible rack insert.
     juce::Component* mixExtras[] = { &micGain, &micMonitor, &liveMidiButton,
@@ -7783,28 +7811,34 @@ void MainPluginEditor::resized()
         syncKeyButton.setBounds (s.removeFromLeft (pw));
     }
 
-    // TRANSITION — explicit endpoints, curve, and one physical handoff gesture.
+    // MIX — one compact control hierarchy: assignments flank the physical fader;
+    // curve and the explicit 50/50 action sit in a small utility row below it.
     {
         crossfader.setVisible (true);
         transitionFrom.setVisible (true);
         transitionTo.setVisible (true);
         crossfaderCurve.setVisible (true);
+        crossfaderCenter.setVisible (true);
         crossfaderReverse.setVisible (false);   // legacy parameter only
         crossfaderReverse.setBounds ({});
 
-        auto liveMix = xfPanelBounds.reduced (10, 8);
-        liveMix.removeFromTop (15);   // painted title/value row
-        auto options = liveMix.removeFromBottom (24);
-        const int endpointW = juce::jmax (42, (options.getWidth() - 102 - 10) / 2);
-        transitionFrom.setBounds (options.removeFromLeft (endpointW));
-        options.removeFromLeft (5);
-        transitionTo.setBounds (options.removeFromLeft (endpointW));
-        options.removeFromLeft (5);
-        crossfaderCurve.setBounds (options);
+        auto liveMix = xfPanelBounds.reduced (9, 7);
+        liveMix.removeFromTop (16);   // painted title/value row
 
-        liveMix.removeFromBottom (6);
-        liveMix.reduce (8, 4);
-        crossfader.setBounds (liveMix);
+        auto faderRow = liveMix.removeFromTop (juce::jmin (38, liveMix.getHeight() * 55 / 100));
+        const int endpointW = juce::jlimit (46, 62, faderRow.getWidth() / 5);
+        transitionFrom.setBounds (faderRow.removeFromLeft (endpointW).reduced (0, 3));
+        faderRow.removeFromLeft (6);
+        transitionTo.setBounds (faderRow.removeFromRight (endpointW).reduced (0, 3));
+        faderRow.removeFromRight (6);
+        crossfader.setBounds (faderRow.reduced (0, 4));
+
+        liveMix.removeFromTop (4);
+        auto utilityRow = liveMix.removeFromTop (24);
+        const int centreW = juce::jlimit (54, 72, utilityRow.getWidth() * 27 / 100);
+        crossfaderCenter.setBounds (utilityRow.removeFromRight (centreW));
+        utilityRow.removeFromRight (5);
+        crossfaderCurve.setBounds (utilityRow);
         deckMeterBounds.fill ({});
     }
 
@@ -8128,7 +8162,7 @@ void MainPluginEditor::hidePerformSurface()
                                    (juce::Component*) &aiMasterMode, (juce::Component*) &aiMasterAmount,
                                    (juce::Component*) &crossfader, (juce::Component*) &transitionFrom,
                                    (juce::Component*) &transitionTo, (juce::Component*) &crossfaderCurve,
-                                   (juce::Component*) &crossfaderReverse,
+                                   (juce::Component*) &crossfaderCenter, (juce::Component*) &crossfaderReverse,
                                    (juce::Component*) &samplerLabel, (juce::Component*) &recordStatus })
         hide (*comp);
 
