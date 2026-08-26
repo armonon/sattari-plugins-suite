@@ -74,6 +74,11 @@ struct IntentV2State
     // Rollback: flip this flag to false and rebuild.
     static constexpr bool kSlideDestinationV2Enabled = true;
 
+    // Live Pitch mode — when true: block=128, OptionWindowShort RubberBand,
+    // SLIDE_DESTINATION_V2 suppressed (look-ahead extrapolation incompatible with ≤30ms budget).
+    // Default false: preserves frozen engine behavior identically.
+    static constexpr bool kLivePitchEnabled = false;
+
     void reset()
     {
         histFill = histPos = 0;

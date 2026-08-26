@@ -1111,6 +1111,7 @@ SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
     //   · Destination is ≥ 1 semitone from current nearest and within ±4 semitones
     [&]() {
         if (! IntentV2State::kSlideDestinationV2Enabled) return;
+        if (IntentV2State::kLivePitchEnabled)            return; // live pitch: suppress look-ahead
         if (s.lastMotion.isVibrato)  return;
         if (! consistent)            return;
         if (conf < 0.60)             return;
