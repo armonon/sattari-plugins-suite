@@ -200,7 +200,11 @@ int main()
     std::cout << "  keyTab=" << keyTabSummary << "\n";
     std::cout << "  changedEnergy=" << changedEnergy << "\n";
     std::cout << "  modes=Natural, Classic, Modern Rap, Robot, Big Harmony\n";
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    std::cout << "  engine=elastique\n";
+#elif SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    std::cout << "  engine=signalsmith\n";
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::cout << "  engine=rubberband\n";
 #else
     std::cout << "  engine=fallback-guide\n";
