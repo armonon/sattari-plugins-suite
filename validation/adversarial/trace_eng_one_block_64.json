@@ -1,0 +1,34 @@
+{
+  "frames": [
+    {
+      "blockIndex": 0,
+      "timeSec": 0.0,
+      "voiced": false,
+      "detectedMidi": -1,
+      "correctionCents": 0.0,
+      "confidence": 0.0,
+      "detectedRoot": 9,
+      "intentTarget": -1,
+      "intentConf": 0.0,
+      "intentReason": 6,
+      "intentReasonName": "LOW_CONFIDENCE_FALLBACK",
+      "intentFallback": false,
+      "prodTarget": -1,
+      "motionMidiFloat": 0.0,
+      "motionVelMidi": 0.0,
+      "motionVelCents": 0.0,
+      "motionDir": 0.0,
+      "motionConf": 0.0,
+      "motionAccel": 0.0,
+      "motionIsVibrato": false
+    }
+  ],
+  "inputFile": "/Users/agentsattari/code/sattari-worktrees/validation-adversarial-expansion/validation/adversarial/one_block_64.wav",
+  "key": "A",
+  "scale": "minor",
+  "amount": 0.819999992847443,
+  "speed": 0.699999988079071,
+  "intentMode": 2,
+  "sampleRate": 44100.0,
+  "blockSize": 256
+}
