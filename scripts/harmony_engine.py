@@ -83,8 +83,10 @@ def diatonic_target(melody_midi, interval_str, root_semitone, scale, prefer_abov
     base_octave = (melody_snapped - root_semitone) // 12
     target_midi = root_semitone + (base_octave + octave_shift) * 12 + target_semitone
 
-    # Keep in valid MIDI range
-    target_midi = max(0, min(127, target_midi))
+    # Return None when the diatonic target falls outside the MIDI range — the
+    # voice is simply silent rather than clamping to an out-of-scale value.
+    if target_midi < 0 or target_midi > 127:
+        return None
     return target_midi
 
 
