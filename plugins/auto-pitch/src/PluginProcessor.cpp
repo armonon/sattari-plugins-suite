@@ -807,6 +807,28 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     reportedLatencySamples = 0;
     setLatencySamples (0);
 
+#elif SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    {
+        const int numCh = juce::jmax (1, getTotalNumOutputChannels());
+        const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
+                            && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+
+        // Live mode: small window for low latency (~23ms total at 44100Hz).
+        // Standard mode: larger window for higher quality studio correction.
+        if (lowLat)
+            ssStretch.configure (numCh, 1024, 256);
+        else
+            ssStretch.configure (numCh, 4096, 1024);
+
+        ssStretch.reset();
+        ssOutput.setSize (numCh, preparedBlockSize);
+        ssInputPtrs.resize  ((size_t) numCh);
+        ssOutputPtrs.resize ((size_t) numCh);
+
+        reportedLatencySamples = ssStretch.inputLatency() + ssStretch.outputLatency();
+        setLatencySamples (reportedLatencySamples);
+    }
+
 #elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
@@ -1103,6 +1125,13 @@ void SattariAutoPitchAudioProcessor::releaseResources()
     elastiqueOutput.setSize (0, 0);
     elastiqueScratchIn.clear();
     elastiqueScratchOut.clear();
+#endif
+
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    ssStretch.reset();
+    ssOutput.setSize (0, 0);
+    ssInputPtrs.clear();
+    ssOutputPtrs.clear();
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
@@ -4521,7 +4550,22 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     }
     else
     {
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+        //  Print-engine chain, from main. Elastique is deliberately NOT in it: its
+        //  body is still a TODO, so routing audio there would silently produce a
+        //  gain-only pass-through on any machine that has the SDK. Signalsmith IS
+        //  a real implementation, so it takes precedence over Rubber Band when the
+        //  submodule is initialised.
+        //
+        //  MEASUREMENT WARNING. Every Gate figure on this branch — the 2,885-sample
+        //  latency, --nulltest at -inf, --wetalign, the golden fingerprint, and the
+        //  rendered listening package — was produced with RUBBER BAND. Initialising
+        //  third_party/signalsmith-stretch changes the print engine and invalidates
+        //  all of them at once, silently, because the fallback is by design quiet.
+        //  Re-measure and re-render the listening package in the same change that
+        //  turns it on. The submodule is empty here, so today this is Rubber Band.
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+        processWithSignalsmith (mainBuffer, engineScale, inputGain);
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
         processWithRubberBand (mainBuffer, engineScale, inputGain);
 #else
         processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
@@ -5449,6 +5493,53 @@ void SattariAutoPitchAudioProcessor::processWithElastique (juce::AudioBuffer<flo
 
     // Temporary passthrough until SDK is wired:
     juce::ignoreUnused (pitchScale);
+    buffer.applyGain (linearGain);
+#else
+    juce::ignoreUnused (buffer, pitchScale, linearGain);
+#endif
+}
+
+void SattariAutoPitchAudioProcessor::processWithSignalsmith (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
+{
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples  = buffer.getNumSamples();
+
+    // Pitch: setTransposeFactor accepts a linear ratio (2.0 = one octave up).
+    ssStretch.setTransposeFactor (static_cast<float> (pitchScale));
+
+    // Formant handling: preserving formants prevents chipmunk effect under large
+    // corrections. compensatePitch=true tells signalsmith to factor out the pitch
+    // multiplier automatically, so formants land at the intended target position.
+    const bool  formantPreserve   = apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
+    const float formantShiftSemis = apvts.getRawParameterValue ("formantShift")->load();
+    const float throat            = apvts.getRawParameterValue ("throat")->load();
+    const float shiftRatio        = std::pow (2.0f, formantShiftSemis / 12.0f);
+    const float combinedFormant   = throat * shiftRatio;
+
+    if (formantPreserve)
+        ssStretch.setFormantFactor (combinedFormant, /*compensatePitch=*/true);
+    else
+        ssStretch.setFormantFactor (1.0f, /*compensatePitch=*/false);
+
+    // Ensure output scratch buffer covers this block size.
+    if (ssOutput.getNumSamples() < numSamples || ssOutput.getNumChannels() < numChannels)
+        ssOutput.setSize (numChannels, numSamples, false, true, true);
+    ssOutput.clear();
+
+    // Build channel pointer arrays for the interleave-free signalsmith API.
+    ssInputPtrs.resize  ((size_t) numChannels);
+    ssOutputPtrs.resize ((size_t) numChannels);
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        ssInputPtrs  [(size_t) ch] = buffer.getReadPointer  (ch);
+        ssOutputPtrs [(size_t) ch] = ssOutput.getWritePointer (ch);
+    }
+
+    // signalsmith-stretch is a streaming processor: N in → N out (with registered latency).
+    ssStretch.process (ssInputPtrs, numSamples, ssOutputPtrs, numSamples);
+
+    buffer.makeCopyOf (ssOutput, /*avoidReallocating=*/true);
     buffer.applyGain (linearGain);
 #else
     juce::ignoreUnused (buffer, pitchScale, linearGain);

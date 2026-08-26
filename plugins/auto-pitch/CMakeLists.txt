@@ -41,6 +41,7 @@ if(SATTARI_AUTOPITCH_ENABLE_AAX)
     list(APPEND _sattari_formats AAX)
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariElastique.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariSignalsmith.cmake)
 
 sattari_add_plugin(
     TARGET SattariAutoPitch
@@ -72,6 +73,7 @@ target_link_libraries(SattariAutoPitch PRIVATE SattariAutoPitchModelData)
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)
 sattari_enable_elastique(SattariAutoPitch SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(SattariAutoPitch SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 
 add_executable(AutoPitchCoreContract
     EXCLUDE_FROM_ALL
@@ -107,6 +109,7 @@ target_link_libraries(AutoPitchCoreContract
 sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchCoreContract SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
@@ -144,6 +147,7 @@ target_link_libraries(AutoPitchRender
 sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchRender SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchRender SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchRender SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 
 # TWO benches, deliberately. Both sides of the merge defined a target called
 # AutoPitchBench from different sources, so neither is dropped:
@@ -195,6 +199,7 @@ target_link_libraries(AutoPitchBench
 sattari_enable_rubberband(AutoPitchBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchBench SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchBench SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 
 # The objective suite mirrors the bench's configuration exactly, so the two
 # measure the same engine rather than two differently-configured builds.
