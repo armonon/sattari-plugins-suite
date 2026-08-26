@@ -1,6 +1,7 @@
 #include "ArrangementBuilder.h"
 #include "HostGraph.h"
 #include "PerformanceRecorder.h"
+#include "PluginSandboxClient.h"
 #include "StemProvider.h"
 #include "WarpEngine.h"
 
@@ -8,6 +9,17 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+
+struct StemDeckPluginSandboxTestAccess
+{
+    static void simulateHelperCrash (PluginSandboxClient& client)
+    {
+        client.intentionalStop.store (false, std::memory_order_release);
+        client.ready.store (true, std::memory_order_release);
+        client.lastDescription = {};
+        client.handleConnectionLost();
+    }
+};
 
 namespace
 {
@@ -120,6 +132,24 @@ void expectWarpEngineContract()
             ++markersAtBeat;
     if (markersAtBeat != 1)
         fail ("user correction did not replace the analysed marker at its project beat");
+}
+
+void expectPluginHelperRecoveryContract()
+{
+    PluginSandboxClient client;
+    client.prepare (48000.0, 512, 2);
+    juce::AudioBuffer<float> dry (2, 32);
+    for (int ch = 0; ch < dry.getNumChannels(); ++ch)
+        for (int i = 0; i < dry.getNumSamples(); ++i)
+            dry.setSample (ch, i, (float) (i + 1) / 64.0f);
+    const auto before = dry.getSample (0, 11);
+    StemDeckPluginSandboxTestAccess::simulateHelperCrash (client);
+    juce::MidiBuffer midi;
+    client.process (dry, midi);
+    if (! client.hasCrashed() || client.isReady()
+        || std::abs (dry.getSample (0, 11) - before) > 1.0e-7f
+        || ! client.status().containsIgnoreCase ("dry-bypassed"))
+        fail ("crashed plugin helper did not fail dry with an explicit recovery state");
 }
 
 void expectPerformanceRecorderWritesEditableSourceArrangement()
@@ -354,6 +384,7 @@ int main()
     expectStemProviderOfflineCacheBoundary();
     expectStemProviderRunsConfiguredOfflineSeparator();
     expectHostGraphNoPluginPassThroughIsSafe();
+    expectPluginHelperRecoveryContract();
 
     std::cout << "StemDeck architecture contract ok\n"
               << "  warp_engine=ready\n"

@@ -5,6 +5,8 @@
 #include <memory>
 #include "PluginSandboxProtocol.h"
 
+struct StemDeckPluginSandboxTestAccess;
+
 // Coordinator-side endpoint for one isolated third-party audio effect. The audio
 // callback only touches a pre-mapped SPSC-ish ring and never waits for the worker.
 // A late/dead helper therefore yields the dry block instead of a stage dropout.
@@ -35,6 +37,7 @@ public:
                               int maxPluginsPerFormat, bool recursive);
 
 private:
+    friend struct StemDeckPluginSandboxTestAccess;
     bool launchInternal (const juce::PluginDescription&, ReadyCallback, bool recovery);
     void handleMessageFromWorker (const juce::MemoryBlock&) override;
     void handleConnectionLost() override;

@@ -118,13 +118,22 @@ jobs:
   stemdeck-dsp:
     name: StemDeck DSP accuracy (beat / key / automix / resampler)
     runs-on: macos-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install build tools
-        run: brew install ninja
+        run: brew install ninja ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: stemdeck-ccache-${{ runner.os }}-${{ hashFiles('plugins/stemdeck/**/*.cpp', 'plugins/stemdeck/**/*.h', 'plugins/stemdeck/CMakeLists.txt', 'third_party/JUCE/CMakeLists.txt') }}
+          restore-keys: |
+            stemdeck-ccache-${{ runner.os }}-
 
       # The neural engines are behind SATTARI_USE_ONNX, which was OFF everywhere —
       # so CI had never COMPILED NeuralBeatEngine's implementation, let alone run
@@ -158,6 +167,9 @@ jobs:
         run: >
           cmake -S plugins/stemdeck -B build/stemdeck -G Ninja
           -DCMAKE_BUILD_TYPE=Release -DSATTARI_USE_ONNX=ON
+          -DSTEMDECK_PRODUCT_LTO=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build + run registered StemDeck contracts
         run: |
@@ -173,6 +185,39 @@ jobs:
 
       - name: Build real-corpus gate
         run: cmake --build build/stemdeck --target StemDeckCorpusGate -j3
+
+      - name: Build and validate clean-machine product bundles
+        run: |
+          cmake --build build/stemdeck --target \
+            SattariStemDeck_Standalone SattariStemDeck_AU SattariStemDeck_VST3 -j3
+          release="build/stemdeck/SattariStemDeck_artefacts/Release"
+          for bundle in \
+            "$release/Standalone/Sattari StemDeck.app" \
+            "$release/AU/Sattari StemDeck.component" \
+            "$release/VST3/Sattari StemDeck.vst3"; do
+            scripts/selfcontain_onnx.sh "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
+          done
+          scripts/validate_stemdeck_app_bundle.sh \
+            "$release/Standalone/Sattari StemDeck.app"
+          mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
+          ditto "$release/AU/Sattari StemDeck.component" \
+            "$HOME/Library/Audio/Plug-Ins/Components/Sattari StemDeck.component"
+          auval -v aumu Sd01 Satr | tee build/stemdeck/auval.log
+          params="$(sed -n 's/.*# # # \([0-9][0-9]*\) Global Scope Parameters:.*/\1/p' build/stemdeck/auval.log | head -1)"
+          test -n "$params" && test "$params" -le 330
+          mkdir -p build/stemdeck/validated
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$release/Standalone/Sattari StemDeck.app" \
+            build/stemdeck/validated/Sattari-StemDeck-app.zip
+          shasum -a 256 build/stemdeck/validated/Sattari-StemDeck-app.zip \
+            > build/stemdeck/validated/Sattari-StemDeck-app.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StemDeck-clean-machine-bundle
+          path: build/stemdeck/validated/*
+          if-no-files-found: error
 
       # The corpus contains licensed/private full-length music and is therefore
       # supplied by repository infrastructure rather than committed. Once the

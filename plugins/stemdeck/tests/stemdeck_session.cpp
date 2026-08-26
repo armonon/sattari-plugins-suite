@@ -111,6 +111,17 @@ int main()
     {
         const auto empty = SessionModel::fromJSON ("not json {{{");
         check (empty.events.empty() && empty.masterTempo == 120.0, "malformed JSON yields a safe empty session");
+
+        const auto future = SessionModel::fromJSON (
+            R"({"schemaVersion":999,"sampleRate":96000,"masterTempo":170,"events":[{"id":1,"atBeat":1,"type":"param","paramId":"master","value":1}]})");
+        check (future.events.empty() && future.masterTempo == 120.0,
+               "future schema is rejected instead of being destructively downgraded");
+
+        const auto missing = SessionModel::fromJSON (
+            R"({"schemaVersion":2,"sampleRate":48000,"masterTempo":122,"tracks":[{"id":"lost","path":"/missing/session/audio.wav","contentHash":"abc","durationSec":180,"bpm":122,"downbeatSample":0,"keyPitchClass":0,"keyIsMinor":false}],"events":[],"regions":[]})");
+        check (missing.tracks.size() == 1
+                   && missing.tracks.front().path == "/missing/session/audio.wav",
+               "missing media identity survives load for relinking");
     }
 
     // ── Retroactive tempo lane (§5.4): re-times without touching event beats ────

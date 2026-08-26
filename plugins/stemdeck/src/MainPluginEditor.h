@@ -912,6 +912,7 @@ private:
     void setFocusMode (bool enabled);
     bool focusMode = false;
     bool cpuPressureMode = false;
+    int currentUiTimerHz = 10;
     int uiTimerTick = 0;
     // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
     // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button

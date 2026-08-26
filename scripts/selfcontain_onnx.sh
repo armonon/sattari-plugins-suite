@@ -49,9 +49,18 @@ for bundle in "$@"; do
   cp -f "$onnx_src" "$fw/$onnx"; chmod 755 "$fw/$onnx"
   install_name_tool -id "@rpath/$onnx" "$fw/$onnx"
 
-  # Self-contained rpath (idempotent) + drop any absolute (repo) rpaths.
-  rpaths "$binary" | grep -qx "@loader_path/../Frameworks" \
-    || install_name_tool -add_rpath "@loader_path/../Frameworks" "$binary"
+  # Self-contained rpath (idempotent) + drop any absolute (repo) rpaths. App
+  # executables use @executable_path; plug-ins use @loader_path because their
+  # code is loaded into an unrelated host executable.
+  desired_rpath="@loader_path/../Frameworks"
+  if [[ "$bundle" == *.app ]]; then
+    desired_rpath="@executable_path/../Frameworks"
+    if rpaths "$binary" | grep -qx "@loader_path/../Frameworks"; then
+      install_name_tool -delete_rpath "@loader_path/../Frameworks" "$binary"
+    fi
+  fi
+  rpaths "$binary" | grep -qx "$desired_rpath" \
+    || install_name_tool -add_rpath "$desired_rpath" "$binary"
   while IFS= read -r rp; do
     case "$rp" in /*) install_name_tool -delete_rpath "$rp" "$binary" 2>/dev/null || true ;; esac
   done < <(rpaths "$binary")

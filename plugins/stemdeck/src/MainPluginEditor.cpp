@@ -62,8 +62,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     thumbnailFormatManager.registerFormat (new juce::MP3AudioFormat(), true);
 #endif
 
+    setTitle ("StemDeck");
+    setDescription ("Perform, capture, arrange, and export a live set");
     setResizable (true, true);
-    setResizeLimits (1320, 820, 4200, 2600);
+    setResizeLimits (1024, 630, 4200, 2600);
     setSize (1680, 1000);
     setWantsKeyboardFocus (true);
     setMouseClickGrabsKeyboardFocus (true);
@@ -1586,6 +1588,36 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         addAndMakeVisible (pad.gain);
     }
 
+    // Resolve accessible names after every control has received its final text and
+    // tooltip. This covers icon buttons and dynamically-labelled controls that were
+    // configured before their visible caption was assigned.
+    std::function<void (juce::Component&)> labelAccessibleControls;
+    labelAccessibleControls = [&labelAccessibleControls] (juce::Component& parent)
+    {
+        for (int i = 0; i < parent.getNumChildComponents(); ++i)
+        {
+            auto& child = *parent.getChildComponent (i);
+            if (child.getTitle().isEmpty())
+            {
+                juce::String title = child.getName();
+                if (auto* button = dynamic_cast<juce::Button*> (&child))
+                    if (title.isEmpty()) title = button->getButtonText();
+                if (auto* combo = dynamic_cast<juce::ComboBox*> (&child))
+                    if (title.isEmpty()) title = combo->getTextWhenNothingSelected();
+                if (auto* tooltip = dynamic_cast<juce::TooltipClient*> (&child))
+                {
+                    const auto hint = tooltip->getTooltip().trim();
+                    if (title.isEmpty()) title = hint;
+                    if (child.getDescription().isEmpty() && hint.isNotEmpty())
+                        child.setDescription (hint);
+                }
+                if (title.isNotEmpty()) child.setTitle (title);
+            }
+            labelAccessibleControls (child);
+        }
+    };
+    labelAccessibleControls (*this);
+
     startTimerHz (10);   // responsive meters/playheads without repainting the full UI at video cadence
 
     juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
@@ -1748,7 +1780,7 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
 void MainPluginEditor::setupButton (juce::Button& button)
 {
     using namespace sattari::brand;
-    button.setWantsKeyboardFocus (false);
+    button.setWantsKeyboardFocus (true);
     button.setColour (juce::TextButton::buttonColourId,    juce::Colour (kPanelRaised));
     button.setColour (juce::TextButton::buttonOnColourId,  juce::Colour (kAccent).withAlpha (0.35f).withBrightness (0.55f));
     button.setColour (juce::TextButton::textColourOffId,   juce::Colour (kTextPrimary).withAlpha (0.9f));
@@ -1761,7 +1793,7 @@ void MainPluginEditor::setupButton (juce::Button& button)
 void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juce::String& suffix)
 {
     using namespace sattari::brand;
-    slider.setWantsKeyboardFocus (false);
+    slider.setWantsKeyboardFocus (true);
     slider.setSliderStyle (rotary ? juce::Slider::RotaryHorizontalVerticalDrag : juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
     slider.setNumDecimalPlacesToDisplay (1);   // clean, untruncated readouts
@@ -1966,7 +1998,7 @@ void MainPluginEditor::refreshChannelButtons()
 void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
 {
     using namespace sattari::brand;
-    comboBox.setWantsKeyboardFocus (false);
+    comboBox.setWantsKeyboardFocus (true);
     comboBox.setColour (juce::ComboBox::backgroundColourId,    juce::Colour (kPanelRaised));
     comboBox.setColour (juce::ComboBox::textColourId,          juce::Colour (kTextPrimary).withAlpha (0.92f));
     comboBox.setColour (juce::ComboBox::outlineColourId,       juce::Colour (kHairline));
@@ -1998,7 +2030,7 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
         button.setButtonText (compactStemNames[(size_t) s]);
         button.setTooltip (juce::String (compactStemNames[(size_t) s])
                            + " stem: click to mute/unmute");
-        button.setWantsKeyboardFocus (false);
+        button.setWantsKeyboardFocus (true);
     }
     setupButton (controls.play);
     controls.play.setLookAndFeel (&playIconLnF);   // triangle / pause icon, not a text toggle
@@ -4185,16 +4217,25 @@ MainPluginEditor::~MainPluginEditor()
                 prefix + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain", this);
     }
     if (fileBrowser != nullptr)
+    {
         fileBrowser->removeListener (this);
-    browserThread.stopThread (1500);
+        fileBrowser.reset();
+    }
+    // Deregister the contents client before stopping its TimeSliceThread. Asking
+    // the thread to stop while a directory scan remained registered could time
+    // out and force-kill it while it owned the client-list mutex; the subsequent
+    // DirectoryContentsList destructor then waited on that abandoned mutex.
+    if (browserThread.isThreadRunning())
+    {
+        browserContents.clear();
+        browserThread.stopThread (5000);
+    }
     for (auto& dc : deckControls) dc.play.setLookAndFeel (nullptr);   // drop icon LnF before it dies
     setLookAndFeel (nullptr);
 }
 
 void MainPluginEditor::setupFileBrowser()
 {
-    browserThread.startThread (juce::Thread::Priority::background);
-
     setupButton (toggleBrowserButton);
     toggleBrowserButton.setClickingTogglesState (true);
     toggleBrowserButton.onClick = [this] { toggleFileBrowser(); };
@@ -4261,7 +4302,7 @@ void MainPluginEditor::setupFileBrowser()
     addChildComponent (explorePluginList);
     rebuildExplorePluginList();
 
-    browserNavigateTo (juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    browserPathLabel.setText ("Open Files to browse audio", juce::dontSendNotification);
 }
 
 void MainPluginEditor::setupLibrary()
@@ -4396,6 +4437,11 @@ void MainPluginEditor::toggleLibrary()
 void MainPluginEditor::toggleFileBrowser()
 {
     browserVisible = toggleBrowserButton.getToggleState();
+    if (browserVisible && ! browserThread.isThreadRunning())
+    {
+        browserThread.startThread (juce::Thread::Priority::background);
+        browserNavigateTo (juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    }
     if (fileBrowser != nullptr)
         fileBrowser->setVisible (browserVisible);
     browserUpButton.setVisible (browserVisible);
@@ -8500,15 +8546,30 @@ void MainPluginEditor::timerCallback()
     if (underPressure != cpuPressureMode)
     {
         cpuPressureMode = underPressure;
-        // Protect the audio callback from window-server pressure as well as DSP.
-        // Eight visual frames per second keeps emergency controls responsive while
-        // cutting meter/waveform/string work almost in half; recover automatically.
-        startTimerHz (cpuPressureMode ? 5 : 10);
         recordStatus.setText (
             underPressure
                 ? "Performance protection - reducing visual refresh while CPU is high"
                 : "Performance protection cleared - full visual refresh restored",
             juce::dontSendNotification);
+    }
+    // An empty, stopped set has no meters or playheads to animate. Running this
+    // large software-rendered surface at live cadence in that state wasted a
+    // sizeable fraction of a core. Wake back to performance cadence immediately
+    // when audio, transport, recording, count-in, or Automix becomes active.
+    bool visualActivity = processorRef.isMasterRecording()
+                       || processorRef.isArrangementPlaying()
+                       || pendingRecordingStartMs > 0.0
+                       || automixRamping
+                       || juce::jmax (processorRef.getMasterPeak (0),
+                                      processorRef.getMasterPeak (1)) > 0.0015f;
+    for (int i = 0; ! visualActivity && i < MainPluginProcessor::numDecks; ++i)
+        visualActivity = processorRef.parameters()
+            .getRawParameterValue (deckPrefix (i) + "Play")->load() > 0.5f;
+    const int wantedTimerHz = underPressure ? 5 : (visualActivity ? 10 : 2);
+    if (wantedTimerHz != currentUiTimerHz)
+    {
+        currentUiTimerHz = wantedTimerHz;
+        startTimerHz (currentUiTimerHz);
     }
     if ((autosaveTick++ % 150) == 0)
         scheduleRecoveryAutosave();

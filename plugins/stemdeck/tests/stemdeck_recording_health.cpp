@@ -1,6 +1,8 @@
 #include "MainPluginProcessor.h"
+#include "MasterRecorder.h"
 #include "EventStream.h"
 #include "ArrangementComping.h"
+#include <cstdlib>
 #include <iostream>
 
 namespace
@@ -14,12 +16,42 @@ void check (bool ok, const juce::String& what)
 }
 }
 
-int main()
+int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
+
+    if (argc == 3 && juce::String (argv[1]) == "--crash-recording")
+    {
+        MasterRecorder recorder;
+        recorder.prepare (48000.0, 2, 512);
+        if (! recorder.beginRecording (juce::File (argv[2])))
+            return 70;
+        juce::AudioBuffer<float> block (2, 512);
+        block.clear();
+        block.applyGain (0.25f);
+        for (int i = 0; i < 96; ++i)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                for (int sample = 0; sample < block.getNumSamples(); ++sample)
+                    block.setSample (ch, sample, sample == 0 ? 0.25f : 0.0f);
+            recorder.captureBlock (block);
+        }
+        juce::Thread::sleep (1250); // allow the one-second crash-safe WAV checkpoint
+        std::_Exit (77);            // deliberately skip every destructor
+    }
+
     std::cout << "Recording health / intent-stream integration\n";
 
+    const auto constructorStart = juce::Time::getMillisecondCounterHiRes();
     MainPluginProcessor processor;
+    const auto constructorMs = juce::Time::getMillisecondCounterHiRes()
+                             - constructorStart;
+    check (processor.getParameters().size() <= 330,
+           "host exposes only reachable A-H deck parameters (<=330 total)");
+    check (constructorMs < 1500.0,
+           "processor construction remains below the 1.5s cold-start ceiling");
+    std::cout << "  info  processor construction " << constructorMs << " ms, "
+              << processor.getParameters().size() << " parameters\n";
     constexpr double sr = 48000.0;
     constexpr int block = 512;
     processor.prepareToPlay (sr, block);
@@ -28,6 +60,22 @@ int main()
                    .getNonexistentChildFile ("stemdeck-recording-health", {}, false);
     check (dir.createDirectory(), "temporary take directory created");
     const auto master = dir.getChildFile ("take.wav");
+
+    const auto crashedTake = dir.getChildFile ("force-quit.wav");
+    juce::ChildProcess crashedRecorder;
+    const juce::StringArray crashArgs {
+        juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+            .getFullPathName(), "--crash-recording", crashedTake.getFullPathName() };
+    const bool crashStarted = crashedRecorder.start (crashArgs);
+    const bool crashFinished = crashStarted
+                            && crashedRecorder.waitForProcessToFinish (5000);
+    juce::AudioFormatManager crashFormats;
+    crashFormats.registerBasicFormats();
+    auto crashedReader = std::unique_ptr<juce::AudioFormatReader> (
+        crashFormats.createReaderFor (crashedTake));
+    check (crashFinished && crashedRecorder.getExitCode() == 77
+               && crashedReader != nullptr && crashedReader->lengthInSamples > 0,
+           "force-quit leaves a checkpointed, readable WAV take");
 
     check (processor.beginMasterRecording (master), "recording starts");
     check (processor.isIntentCaptureActive(), "deterministic intent capture starts with recording");
@@ -92,6 +140,34 @@ int main()
     processor.stopMasterRecording();
     check (! processor.isIntentCaptureActive(), "intent capture stops with recording");
     check (processor.getRecordedSamples() == 12 * block, "elapsed sample clock is exact");
+
+    // A disappearing interface must be equivalent to a host stop/start: no stale
+    // rate-sized buffers and finite output after re-prepare.
+    processor.releaseResources();
+    processor.prepareToPlay (44100.0, 256);
+    juce::AudioBuffer<float> recoveredAudio (2, 256);
+    juce::MidiBuffer recoveredMidi;
+    processor.processBlock (recoveredAudio, recoveredMidi);
+    bool finiteAfterReconnect = true;
+    for (int ch = 0; ch < recoveredAudio.getNumChannels(); ++ch)
+        for (int sample = 0; sample < recoveredAudio.getNumSamples(); ++sample)
+            finiteAfterReconnect = finiteAfterReconnect
+                                  && std::isfinite (recoveredAudio.getSample (ch, sample));
+    check (finiteAfterReconnect,
+           "audio interface disconnect/reconnect resumes with finite output");
+
+    if (auto* masterParam = processor.parameters().getParameter ("master"))
+    {
+        const float beforeCorruptLoad = masterParam->getValue();
+        const std::array<unsigned char, 9> corruptState { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+        processor.setStateInformation (corruptState.data(), (int) corruptState.size());
+        check (std::abs (masterParam->getValue() - beforeCorruptLoad) < 0.0001f,
+               "corrupted processor state is rejected without replacing the live set");
+    }
+
+    processor.loadDeckFileAsync (7, juce::File ("/missing/session/audio.wav"));
+    check (processor.getDeckPath (7).isEmpty(),
+           "missing audio is ignored safely and remains available for project relink");
 
     processor.loadDeckFileAsync (0, master);
     for (int tries = 0; tries < 200 && processor.getDeckPath (0).isEmpty(); ++tries)

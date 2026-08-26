@@ -267,10 +267,10 @@ MainPluginProcessor::MainPluginProcessor()
     for (auto& pad : padLoadGeneration)
         pad.store (0, std::memory_order_relaxed);
     cacheDeckParamIds();
-    // Optional trained key model (shared with Auto-Pitch). Absent -> DSP key stands.
-    neuralKey.loadDefaultModel();
-    // Optional trained beat model (beat_this). Absent -> DSP beat grid stands.
-    neuralBeat.loadDefaultModel();
+    // Neural analysis models are intentionally not opened here. Hosts create
+    // processors while scanning and restoring projects; eagerly opening the large
+    // ONNX sessions charged every instance before any track requested analysis.
+    // The first analysis worker opens each model once instead.
     buildMidiTargets();
     // Service audio-thread deferred controller actions independently of the editor.
     // The former editor-owned call made Play/Cue/Pad mappings stop working as soon
@@ -1580,7 +1580,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
 
     // One parameter bank per channel slot. Banks 0-3 keep the historical deckA-D
     // ids, so existing host state and saved sessions load unchanged.
-    for (int i = 0; i < kMaxChannels; ++i)
+    // Only A-H can own a TrackDeckBody (addChannel rejects later slots). Full
+    // deck/stem banks for generic slots I-P exposed 288 unreachable host params.
+    for (int i = 0; i < numDecks; ++i)
     {
         const auto deck = deckPrefix (i);
         const auto label = deckLabel (i);
@@ -2535,6 +2537,8 @@ void MainPluginProcessor::analyseInto (TrackAnalysis& out, const juce::AudioBuff
         return;
     }
 
+    ensureNeuralAnalysisModelsLoaded();
+
     // Trained beat/downbeat model (beat_this) on top of the DSP grid. When the
     // model is installed its grid wins; without it the Ellis DP tracker stands.
     // Background thread — same additive, fallback-safe pattern as the key model.
@@ -2723,7 +2727,11 @@ void MainPluginProcessor::cancelDeckAiStems (int deckIndex)
 // measured DSP answer just because it exists.
 void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& file)
 {
-    if (! file.existsAsFile() || (! neuralBeat.isAvailable() && ! neuralKey.isAvailable()))
+    const bool modelInstalled =
+        (NeuralBeatEngine::isCompiledIn()
+         && NeuralBeatEngine::defaultModelFile().existsAsFile())
+        || NeuralKeyEngine::defaultModelFile().existsAsFile();
+    if (! file.existsAsFile() || ! modelInstalled)
         return;
 
     loadPool->addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
@@ -2739,6 +2747,7 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
         const std::unique_lock<std::mutex> neuralGate (neuralRefineMutex);
         if (! alive->load (std::memory_order_acquire))
             return juce::ThreadPoolJob::jobHasFinished;
+        ensureNeuralAnalysisModelsLoaded();
 
         auto audio = deckAt (deckIndex).getLoadedAudio();
         if (audio == nullptr || audio->path != file.getFullPathName())
@@ -2861,6 +2870,15 @@ void MainPluginProcessor::refineAnalysisAsync (int deckIndex, const juce::File& 
         deckAt (deckIndex).setRefinedAnalysis (refined);
         return juce::ThreadPoolJob::jobHasFinished;
     }));
+}
+
+void MainPluginProcessor::ensureNeuralAnalysisModelsLoaded()
+{
+    std::call_once (neuralAnalysisLoadOnce, [this]
+    {
+        neuralKey.loadDefaultModel();
+        neuralBeat.loadDefaultModel();
+    });
 }
 
 void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneIndex,
@@ -4333,7 +4351,12 @@ juce::String MainPluginProcessor::getStemProviderStatus() const
 // This is what decides whether an AI split runs on the neural net vs the DSP/CLI path.
 bool MainPluginProcessor::isNeuralStemAvailable() const
 {
-    return NeuralStemEngine::isCompiledIn() && NeuralStemEngine::defaultModelFile().existsAsFile();
+    std::call_once (neuralStemAvailabilityOnce, [this]
+    {
+        neuralStemModelAvailable = NeuralStemEngine::isCompiledIn()
+                                && NeuralStemEngine::defaultModelFile().existsAsFile();
+    });
+    return neuralStemModelAvailable;
 }
 
 juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) const
@@ -4342,6 +4365,8 @@ juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) cons
         return {};
 
     const auto path = getDeckPath (deckIndex);
+    if (path.isEmpty())
+        return "Drop audio to enable stems";
     const auto status = stemProvider.getStatusForSource (juce::File (path));
     juce::String text = status.headline;
     if (status.sourceFile.existsAsFile())

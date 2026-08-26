@@ -89,8 +89,23 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/../../core/include)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Product binaries retain JUCE's release LTO. The contract executables do not:
+# each one already links a large JUCE surface, and optimizing that same framework
+# dozens of times made the 37-contract gate take far longer than the product build.
+# Enable explicitly when profiling a contract executable itself.
+option(STEMDECK_TEST_LTO "Enable link-time optimisation for contract executables" OFF)
+set(STEMDECK_TEST_LTO_FLAGS)
+if(STEMDECK_TEST_LTO)
+    list(APPEND STEMDECK_TEST_LTO_FLAGS juce::juce_recommended_lto_flags)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
+
+# Keep whole-program LTO for tagged shipping builds, but allow the every-change
+# release gate to validate the exact O3 product without re-optimising the same
+# large SharedCode archive independently for AU, VST3, and Standalone.
+option(STEMDECK_PRODUCT_LTO "Enable whole-program LTO for StemDeck products" ON)
 
 sattari_add_plugin(
     TARGET SattariStemDeck
@@ -140,6 +155,16 @@ sattari_add_plugin(
         src/TransportSync.cpp
         src/WarpEngine.cpp
         src/WaveformDisplay.cpp)
+
+if(NOT STEMDECK_PRODUCT_LTO)
+    foreach(_sd_link_property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+        get_target_property(_sd_links SattariStemDeck ${_sd_link_property})
+        if(_sd_links)
+            list(REMOVE_ITEM _sd_links juce::juce_recommended_lto_flags)
+            set_property(TARGET SattariStemDeck PROPERTY ${_sd_link_property} "${_sd_links}")
+        endif()
+    endforeach()
+endif()
 
 # StemDeck additionally hosts plugins, so it needs the JUCE plugin-host flags
 # on top of the shared packaging defaults.
@@ -316,7 +341,7 @@ target_link_libraries(StemDeckGranularRenderContract
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        ${STEMDECK_TEST_LTO_FLAGS}
         juce::juce_recommended_warning_flags)
 
 add_executable(StemDeckTimePitchBenchmark
@@ -352,7 +377,7 @@ target_link_libraries(StemDeckTimePitchBenchmark
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        ${STEMDECK_TEST_LTO_FLAGS}
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(StemDeckTimePitchBenchmark SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -401,7 +426,7 @@ target_link_libraries(StemDeckArchitectureContract
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        ${STEMDECK_TEST_LTO_FLAGS}
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(StemDeckArchitectureContract SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -418,7 +443,7 @@ target_compile_definitions(StemDeckBeatDetectTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckBeatDetectTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckBeatDetectTest)
 
@@ -450,7 +475,7 @@ target_compile_definitions(StemDeckCorpusGate PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckCorpusGate
     PRIVATE juce::juce_audio_formats juce::juce_dsp
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 # Use the shared helper rather than hand-rolling the ONNX wiring — it also sets
 # SATTARI_HAS_ONNX, which the shared KeyNet header behind NeuralKeyEngine needs,
@@ -471,7 +496,7 @@ target_compile_definitions(StemDeckKeyDetectTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckKeyDetectTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckKeyDetectTest)
 
@@ -488,7 +513,7 @@ target_compile_definitions(StemDeckAutomixTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckAutomixTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckAutomixTest)
 
@@ -506,7 +531,7 @@ target_compile_definitions(StemDeckAnalysisCacheTest PUBLIC
 find_library(SQLITE3_LIB_TEST sqlite3)
 target_link_libraries(StemDeckAnalysisCacheTest
     PRIVATE juce::juce_audio_utils ${SQLITE3_LIB_TEST}
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckAnalysisCacheTest)
 
@@ -520,7 +545,7 @@ target_include_directories(StemDeckLongAudioTest PRIVATE
 target_compile_definitions(StemDeckLongAudioTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckLongAudioTest
     PRIVATE juce::juce_audio_formats
-    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
            juce::juce_recommended_warning_flags)
 
 # ── Session schema round-trip (capture format: regions, tempo re-time, JSON) ───
@@ -536,7 +561,7 @@ target_compile_definitions(StemDeckSessionTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckSessionTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckSessionTest)
 
@@ -554,7 +579,7 @@ target_compile_definitions(StemDeckCaptureTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckCaptureTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckCaptureTest)
 
@@ -572,7 +597,7 @@ target_compile_definitions(StemDeckRenderTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckRenderTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckRenderTest)
 
@@ -590,7 +615,7 @@ target_compile_definitions(StemDeckRendererTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckRendererTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckRendererTest)
 
@@ -608,7 +633,7 @@ target_compile_definitions(StemDeckExportTest PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckExportTest
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckExportTest)
 
@@ -622,7 +647,7 @@ target_include_directories(StemDeckLoudnessTest PRIVATE
 target_compile_definitions(StemDeckLoudnessTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckLoudnessTest
     PRIVATE juce::juce_audio_basics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 
 # ── Session demo (capture -> render -> export, writes playable files) ──────────
@@ -639,7 +664,7 @@ target_compile_definitions(StemDeckSessionDemo PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckSessionDemo
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckSessionDemo)
 
@@ -658,7 +683,7 @@ target_compile_definitions(StemDeckArrangeRender PUBLIC
     JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
 target_link_libraries(StemDeckArrangeRender
     PRIVATE juce::juce_audio_utils juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckArrangeRender)
 
@@ -671,7 +696,7 @@ target_include_directories(StemDeckStructureTest PRIVATE
 target_compile_definitions(StemDeckStructureTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckStructureTest
     PRIVATE juce::juce_audio_basics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 
 # ── StemDeck Arrange — standalone app to TRY the arrangement view on real tracks ─
@@ -692,7 +717,7 @@ target_compile_definitions(StemDeckArrangeApp PRIVATE
 target_link_libraries(StemDeckArrangeApp PRIVATE
     juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
     juce::juce_gui_extra juce::juce_graphics
-    juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Toolbar icon render (verify PLAY/REC/AUTO button styling via PNG) ──────────
 add_executable(StemDeckToolbarRender EXCLUDE_FROM_ALL tests/stemdeck_toolbar_render.cpp)
@@ -702,7 +727,7 @@ target_include_directories(StemDeckToolbarRender PRIVATE
 target_compile_definitions(StemDeckToolbarRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckToolbarRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Neural beat engine smoke test (does the model path RUN; not accuracy) ─────
 # Skips cleanly when ONNX is off or no model is installed, so it is safe in the
@@ -719,7 +744,7 @@ target_include_directories(StemDeckNeuralBeatSmoke PRIVATE
 target_compile_definitions(StemDeckNeuralBeatSmoke PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckNeuralBeatSmoke
     PRIVATE juce::juce_audio_formats juce::juce_dsp
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_enable_onnx(StemDeckNeuralBeatSmoke)
 stemdeck_link_tracktion(StemDeckNeuralBeatSmoke)
@@ -736,7 +761,7 @@ target_include_directories(StemDeckNeuralKeySmoke PRIVATE
 target_compile_definitions(StemDeckNeuralKeySmoke PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckNeuralKeySmoke
     PRIVATE juce::juce_audio_formats juce::juce_dsp
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_enable_onnx(StemDeckNeuralKeySmoke)
 stemdeck_link_tracktion(StemDeckNeuralKeySmoke)
@@ -751,7 +776,7 @@ target_include_directories(StemDeckLayout PRIVATE
 target_compile_definitions(StemDeckLayout PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckLayout
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Stem gain knob render (verify the 0/100/200 arc knob via PNG) ───────────────
 add_executable(StemDeckStemKnobRender EXCLUDE_FROM_ALL tests/stemdeck_stemknob_render.cpp)
@@ -761,7 +786,7 @@ target_include_directories(StemDeckStemKnobRender PRIVATE
 target_compile_definitions(StemDeckStemKnobRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckStemKnobRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Stem-scoped FX: per-stem plugin chains must re-sum phase-aligned ───────────
 add_executable(StemDeckStemFx EXCLUDE_FROM_ALL
@@ -781,7 +806,7 @@ target_include_directories(StemDeckStemFx PRIVATE
 target_compile_definitions(StemDeckStemFx PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckStemFx
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckStemFx)
 sattari_enable_rubberband(StemDeckStemFx SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -794,7 +819,7 @@ target_include_directories(StemDeckCamelotRender PRIVATE
 target_compile_definitions(StemDeckCamelotRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckCamelotRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Energy-arc arranger render (ScenePilot-style §arranger) ────────────────────
 add_executable(StemDeckEnergyArcRender EXCLUDE_FROM_ALL tests/stemdeck_energyarc_render.cpp)
@@ -804,7 +829,7 @@ target_include_directories(StemDeckEnergyArcRender PRIVATE
 target_compile_definitions(StemDeckEnergyArcRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckEnergyArcRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Key-lock cores (§6.2 key curve + correction plan) ──────────────────────────
 add_executable(StemDeckKeyLockTest EXCLUDE_FROM_ALL tests/stemdeck_keylock.cpp)
@@ -814,7 +839,7 @@ target_include_directories(StemDeckKeyLockTest PRIVATE
 target_compile_definitions(StemDeckKeyLockTest PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckKeyLockTest
     PRIVATE juce::juce_core juce::juce_audio_basics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Tempo panel render (verify §5 tempo map + retroactive lane via PNG) ─────────
 add_executable(StemDeckTempoRender EXCLUDE_FROM_ALL tests/stemdeck_tempo_render.cpp)
@@ -824,7 +849,7 @@ target_include_directories(StemDeckTempoRender PRIVATE
 target_compile_definitions(StemDeckTempoRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckTempoRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Waveform region render (verify the two-zone §2 layout via PNG) ──────────────
 add_executable(StemDeckWaveformRender EXCLUDE_FROM_ALL tests/stemdeck_waveform_render.cpp)
@@ -834,7 +859,7 @@ target_include_directories(StemDeckWaveformRender PRIVATE
 target_compile_definitions(StemDeckWaveformRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckWaveformRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Whole-editor render (the only PNG gate that shows the UI IN CONTEXT) ───────
 # Links the plugin's SharedCode so it instantiates the real processor + editor.
@@ -846,7 +871,7 @@ target_compile_definitions(StemDeckEditorRender PUBLIC
     JUCE_MODAL_LOOPS_PERMITTED=1)   # runDispatchLoopUntil, to settle async layout
 target_link_libraries(StemDeckEditorRender
     PRIVATE SattariStemDeck
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckEditorRender)
 sattari_enable_rubberband(StemDeckEditorRender SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -965,7 +990,7 @@ target_compile_definitions(StemDeckMultiInstance PUBLIC
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckMultiInstance
     PRIVATE SattariStemDeck
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckMultiInstance)
 sattari_enable_rubberband(StemDeckMultiInstance SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -980,7 +1005,7 @@ target_compile_definitions(StemDeckLoadLatency PUBLIC
     JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(StemDeckLoadLatency
     PRIVATE SattariStemDeck
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckLoadLatency)
 sattari_enable_rubberband(StemDeckLoadLatency SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -996,7 +1021,7 @@ target_include_directories(StemDeckDeckStripRender PRIVATE
 target_compile_definitions(StemDeckDeckStripRender PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckDeckStripRender
     PRIVATE juce::juce_gui_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS} juce::juce_recommended_warning_flags)
 
 # ── Resampler quality check (linear vs windowed-sinc interpolation) ────────────
 # Header-only (Interpolation.h) + juce_audio_basics; no engine deps.
@@ -1048,7 +1073,7 @@ target_include_directories(StemDeckSolo PRIVATE
 target_compile_definitions(StemDeckSolo PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckSolo
     PRIVATE juce::juce_audio_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckSolo)
 
@@ -1060,7 +1085,7 @@ target_include_directories(StemDeckMidiCapture PRIVATE
 target_compile_definitions(StemDeckMidiCapture PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckMidiCapture
     PRIVATE juce::juce_audio_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckMidiCapture)
 
@@ -1072,7 +1097,7 @@ target_include_directories(StemDeckPdc PRIVATE
 target_compile_definitions(StemDeckPdc PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckPdc
     PRIVATE juce::juce_audio_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckPdc)
 
@@ -1084,7 +1109,7 @@ target_include_directories(StemDeckChannelDropout PRIVATE
 target_compile_definitions(StemDeckChannelDropout PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckChannelDropout
     PRIVATE juce::juce_audio_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckChannelDropout)
 
@@ -1106,7 +1131,7 @@ target_include_directories(StemDeckTrackDeckBody PRIVATE
 target_compile_definitions(StemDeckTrackDeckBody PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckTrackDeckBody
     PRIVATE juce::juce_audio_utils
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckTrackDeckBody)
 sattari_enable_rubberband(StemDeckTrackDeckBody SATTARI_STEMDECK_HAS_RUBBERBAND)
@@ -1119,7 +1144,7 @@ target_include_directories(StemDeckChannelCompile PRIVATE
 target_compile_definitions(StemDeckChannelCompile PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckChannelCompile
     PRIVATE juce::juce_audio_basics juce::juce_graphics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckChannelCompile)   # JuceHeader.h pulls tracktion_graph
 
@@ -1133,7 +1158,7 @@ target_compile_definitions(StemDeckResamplerTest PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 target_link_libraries(StemDeckResamplerTest
     PRIVATE juce::juce_audio_basics
-    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_lto_flags
+    PUBLIC  juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 
 # ── Neural separation smoke test (real audio → 4 stems via ONNX Runtime) ───────
@@ -1172,7 +1197,7 @@ if(STEMDECK_ONNX_ENABLED)
             ${ONNXRUNTIME_LIB}
         PUBLIC
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 
     stemdeck_link_tracktion(StemDeckNeuralSmoke)
@@ -1218,7 +1243,7 @@ if(STEMDECK_ONNX_ENABLED)
             ${ONNXRUNTIME_LIB}
         PUBLIC
             juce::juce_recommended_config_flags
-            juce::juce_recommended_lto_flags
+            ${STEMDECK_TEST_LTO_FLAGS}
             juce::juce_recommended_warning_flags)
 
     stemdeck_link_tracktion(StemDeckStemCancelSmoke)

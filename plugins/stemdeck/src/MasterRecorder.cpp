@@ -180,6 +180,7 @@ juce::File MasterRecorder::getTargetFile() const
 
 void MasterRecorder::run()
 {
+    double lastCheckpointMs = juce::Time::getMillisecondCounterHiRes();
     auto drainOne = [this] () -> bool
     {
         auto* block = popQueue (pendingFifo, pendingQueue);
@@ -195,11 +196,26 @@ void MasterRecorder::run()
     };
 
     while (! threadShouldExit())
-        if (! drainOne())
+    {
+        const bool wroteBlock = drainOne();
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        // WavAudioFormatWriter normally finalises RIFF/data lengths only in its
+        // destructor. Checkpointing the header on the disk thread keeps an active
+        // take readable after a power loss or force-quit, with at most one second
+        // of uncheckpointed tail. No file I/O touches the audio callback.
+        if (writer != nullptr && now - lastCheckpointMs >= 1000.0)
+        {
+            writer->flush();
+            lastCheckpointMs = now;
+        }
+        if (! wroteBlock)
             wait (20);
+    }
 
     // Flush whatever remains after stop.
     while (drainOne()) {}
+    if (writer != nullptr)
+        writer->flush();
 }
 
 void MasterRecorder::closeWriter()

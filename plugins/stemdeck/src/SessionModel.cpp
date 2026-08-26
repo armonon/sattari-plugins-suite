@@ -188,6 +188,14 @@ SessionModel SessionModel::fromVar (const juce::var& v)
     SessionModel s;
     if (auto* root = v.getDynamicObject())
     {
+        const int fileVersion = root->hasProperty ("schemaVersion")
+                              ? (int) root->getProperty ("schemaVersion") : 1;
+        // An older build must never reinterpret a future schema and then save a
+        // damaged downgrade. Return the safe empty model; the project-level loader
+        // reports the newer-version error to the user before replacing live state.
+        if (fileVersion > kSchemaVersion)
+            return s;
+
         s.sampleRate  = (double) root->getProperty ("sampleRate");
         s.masterTempo = (double) root->getProperty ("masterTempo");
         s.createdMs   = (juce::int64) root->getProperty ("createdMs");
@@ -238,8 +246,6 @@ SessionModel SessionModel::fromVar (const juce::var& v)
         // v1 recorded stem gain in dB (0.0 == unity); v2 records linear percent
         // (0.0 == silence). Convert on load so an old session replays as performed
         // instead of muting every stem. Sessions with no schemaVersion are v1.
-        const int fileVersion = root->hasProperty ("schemaVersion")
-                              ? (int) root->getProperty ("schemaVersion") : 1;
         if (fileVersion < 2)
             for (auto& e : s.events)
                 if (e.type == EventType::param && isStemGainParamId (e.paramId))

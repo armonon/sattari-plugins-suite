@@ -243,6 +243,67 @@ struct StemDeckArrangementTestAccess
         view.redo();
         check (view.midiClipNotes (1, 0).size() == 2,
                "redo restores piano-roll note edits");
+
+        // Whole-project migration and compact/accessibility gates. These exercise
+        // the actual editor loader rather than only the nested arrangement state.
+        MainPluginProcessor processor;
+        processor.prepareToPlay (48000.0, 512);
+        MainPluginEditor editor (processor);
+        const auto currentProject = editor.makeProjectState();
+        check ((int) currentProject.getProperty ("projectVersion", 0)
+                   == MainPluginEditor::kProjectVersion,
+               "new projects stamp the current project schema");
+
+        juce::ValueTree legacyProject ("STEMDECK_PROJECT");
+        legacyProject.setProperty ("projectVersion", 1, nullptr);
+        legacyProject.appendChild (clipState(), nullptr);
+        editor.restoreProjectState (legacyProject, "v1 migration fixture");
+        check (editor.arrangementView.hasArrangement()
+                   && editor.arrangementView.getClips()[2].front().file
+                          .getFullPathName() == "/missing/arrangement-source.wav",
+               "v1 arrangement-only projects migrate while preserving missing media for relink");
+
+        const auto beforeFuture = editor.arrangementView.toState().toXmlString();
+        juce::ValueTree futureProject ("STEMDECK_PROJECT");
+        futureProject.setProperty ("projectVersion", 999, nullptr);
+        futureProject.appendChild (juce::ValueTree ("ARRANGEMENT"), nullptr);
+        editor.restoreProjectState (futureProject, "future migration fixture");
+        check (editor.arrangementView.toState().toXmlString() == beforeFuture
+                   && editor.recordStatus.getText().containsIgnoreCase ("newer StemDeck"),
+               "future project versions are rejected without mutating the open set");
+
+        juce::ValueTree damagedProject ("STEMDECK_PROJECT");
+        damagedProject.setProperty ("projectVersion", 2, nullptr);
+        damagedProject.setProperty ("processorState", "not valid base64", nullptr);
+        damagedProject.appendChild (clipState (1.0, 7.0, 3.0), nullptr);
+        editor.restoreProjectState (damagedProject, "damaged processor fixture");
+        check (editor.arrangementView.hasArrangement(),
+               "damaged processor payload cannot prevent safe arrangement recovery");
+
+        for (const auto surface : { MainPluginEditor::PrimarySurface::perform,
+                                    MainPluginEditor::PrimarySurface::library,
+                                    MainPluginEditor::PrimarySurface::mixer,
+                                    MainPluginEditor::PrimarySurface::arranger })
+        {
+            editor.setSize (1024, 630);
+            editor.selectPrimarySurface (surface);
+            editor.resized();
+            const auto image = editor.createComponentSnapshot (editor.getLocalBounds());
+            check (editor.getWidth() == 1024 && editor.getHeight() == 630
+                       && image.isValid() && image.getWidth() == 1024
+                       && image.getHeight() == 630,
+                   "each primary surface renders at the supported 1024x630 floor");
+        }
+
+        check (editor.getTitle().isNotEmpty()
+                   && editor.toggleLibraryButton.getTitle().isNotEmpty()
+                   && editor.navDecksButton.getTitle().isNotEmpty()
+                   && editor.pianoRollButton.getTitle().isNotEmpty(),
+               "app and primary navigation expose accessible names");
+        check (editor.toggleLibraryButton.getWantsKeyboardFocus()
+                   && editor.navDecksButton.getWantsKeyboardFocus()
+                   && editor.pianoRollButton.getWantsKeyboardFocus(),
+               "primary navigation is reachable without a pointing device");
     }
 };
 

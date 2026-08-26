@@ -48,9 +48,18 @@ if [[ "$use_onnx" == "ON" ]]; then
   echo "      Runtime's macOS floor. Set SATTARI_USE_ONNX=OFF to ship without them."
 fi
 
-cmake -S plugins/stemdeck -B "$build_dir" -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+cmake_args=(
+  -S plugins/stemdeck -B "$build_dir" -G Ninja
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
   "-DSATTARI_USE_ONNX=${use_onnx}"
+)
+if command -v ccache >/dev/null 2>&1; then
+  cmake_args+=(
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  )
+fi
+cmake "${cmake_args[@]}"
 cmake --build "$build_dir" --target \
   SattariStemDeck_Standalone SattariStemDeck_VST3 StemDeckContractSuite \
   -j "${JOBS:-4}"

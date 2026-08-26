@@ -791,6 +791,10 @@ private:
     // refinement stops a restored multi-deck set from multiplying that RAM/CPU
     // burst while the audio engine is trying to become performance-ready.
     std::mutex neuralRefineMutex;
+    std::once_flag neuralAnalysisLoadOnce;
+    mutable std::once_flag neuralStemAvailabilityOnce;
+    mutable bool neuralStemModelAvailable = false;
+    void ensureNeuralAnalysisModelsLoaded();
     // Persistent analysis cache — a re-load skips DSP + neural analysis.
     AnalysisCache analysisCache;
 

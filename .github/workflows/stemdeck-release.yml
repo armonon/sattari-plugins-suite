@@ -1,6 +1,8 @@
 name: StemDeck signed release
 
 on:
+  push:
+    tags: [ 'stemdeck-v*' ]
   workflow_dispatch:
     inputs:
       version:
@@ -15,6 +17,8 @@ concurrency:
 jobs:
   release:
     runs-on: macos-14
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     permissions:
       contents: read
     steps:
@@ -23,7 +27,14 @@ jobs:
           submodules: recursive
 
       - name: Install build tools
-        run: brew install ninja
+        run: brew install ninja ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: stemdeck-release-ccache-${{ runner.os }}-${{ hashFiles('plugins/stemdeck/**', 'cmake/**', 'third_party/JUCE/CMakeLists.txt') }}
+          restore-keys: |
+            stemdeck-release-ccache-${{ runner.os }}-
 
       - name: Import Developer ID certificates
         env:
@@ -53,15 +64,17 @@ jobs:
 
       - name: Build, test, sign, package, and notarize
         env:
-          STEMDECK_RELEASE_VERSION: ${{ inputs.version }}
+          REQUESTED_VERSION: ${{ inputs.version }}
           SATTARI_DEV_APP_ID: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           SATTARI_DEV_INSTALLER_ID: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER }}
           SATTARI_NOTARY_PROFILE: stemdeck-ci
-        run: scripts/release_stemdeck.sh build/releases
+        run: |
+          version="${REQUESTED_VERSION:-${GITHUB_REF_NAME#stemdeck-v}}"
+          STEMDECK_RELEASE_VERSION="$version" scripts/release_stemdeck.sh build/releases
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Sattari-StemDeck-${{ inputs.version }}
+          name: Sattari-StemDeck-${{ inputs.version || github.ref_name }}
           path: |
             build/releases/*.pkg
             build/releases/*.sha256
