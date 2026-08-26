@@ -141,25 +141,43 @@ target_link_libraries(AutoPitchRender
 sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchRender SATTARI_HAS_ONNX)
 
-# Objective vocal-tuning benchmark suite (correction accuracy, latency/PDC, THD,
-# CPU real-time factor, note-transition times, vibrato). Reported numbers, not pass/fail.
+# TWO benches, deliberately. Both sides of the merge defined a target called
+# AutoPitchBench from different sources, so neither is dropped:
+#
+#   AutoPitchBench          main's headless driver — takes real audio files and
+#                           writes corrected.wav + trace.json. The name is
+#                           hard-coded in scripts/vocalbench_run.py, so it keeps it.
+#   AutoPitchObjectiveBench the objective suite — correction accuracy, latency/PDC,
+#                           THD, CPU real-time factor, transitions, vibrato. Its
+#                           CLOCK_THREAD_CPUTIME_ID measurement is what withdrew a
+#                           false "Studio mode is too slow" blocker, so it survives
+#                           under its own name rather than being replaced.
 add_executable(AutoPitchBench
+    EXCLUDE_FROM_ALL
+        tools/autopitch_bench.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+add_dependencies(AutoPitchBench SattariAutoPitch)
+
+add_executable(AutoPitchObjectiveBench
     EXCLUDE_FROM_ALL
         tools/auto_pitch_bench.cpp
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
-add_dependencies(AutoPitchBench SattariAutoPitch)
+add_dependencies(AutoPitchObjectiveBench SattariAutoPitch)
 target_include_directories(AutoPitchBench
     PRIVATE
         src
         ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
+
 target_compile_definitions(AutoPitchBench
     PUBLIC
         JucePlugin_Build_Standalone=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
-        SATTARI_REPO_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
+        SATTARI_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
 target_link_libraries(AutoPitchBench
     PRIVATE
         SattariAutoPitchModelData
@@ -172,3 +190,47 @@ target_link_libraries(AutoPitchBench
         juce::juce_recommended_warning_flags)
 sattari_enable_rubberband(AutoPitchBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchBench SATTARI_HAS_ONNX)
+
+# The objective suite mirrors the bench's configuration exactly, so the two
+# measure the same engine rather than two differently-configured builds.
+target_compile_definitions(AutoPitchObjectiveBench
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        SATTARI_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+target_link_libraries(AutoPitchObjectiveBench
+    PRIVATE
+        SattariAutoPitchModelData
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+target_include_directories(AutoPitchObjectiveBench
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
+sattari_enable_rubberband(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(AutoPitchObjectiveBench SATTARI_HAS_ONNX)
+
+# Phase 3 — deterministic motion-estimator bench (pure C++17, no JUCE).
+# Tests all 5 estimators × 5 window sizes against synthetic trajectories.
+# Run: autopitch_motionbench [--window-ms W] [--estimator E]
+# Exit 0 ⟹ best RMSE ≤ 2 MIDI/sec ⟹ enable kSlideDestinationV2Enabled.
+add_executable(AutoPitchMotionBench
+    EXCLUDE_FROM_ALL
+        tools/autopitch_motionbench.cpp)
+
+target_include_directories(AutoPitchMotionBench
+    PRIVATE
+        src)
+
+target_compile_features(AutoPitchMotionBench PRIVATE cxx_std_17)
+
+target_compile_options(AutoPitchMotionBench PRIVATE
+    $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-O2 -Wall -Wextra>
+    $<$<CXX_COMPILER_ID:MSVC>:/O2 /W4>)

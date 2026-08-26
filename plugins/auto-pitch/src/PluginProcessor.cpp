@@ -1134,6 +1134,11 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     classicControlValid = false;
     flexEngageState = 0.0;
     vibratoCenterMidi = -1000.0;
+    // Vibrato-boundary hysteresis + Intent v2 state clear with everything else,
+    // or a stale bias survives a re-prepare.
+    hysteresisAltTarget = -1000;
+    hysteresisAge       = 999.0;
+    intentState.reset();
     // Synthetic vibrato generator: clear phase + onset ramp.
     addVibratoPhase = 0.0;
     addVibratoRampSamples = 0.0;
@@ -3441,6 +3446,225 @@ double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFram
     return juce::jlimit (0.0, 1.0, distance * detector * stability * keyTrust);
 }
 
+// ---------------------------------------------------------------------------
+// Intent Engine v2 — shadow / active experimental targeting
+// Strategy G correction dynamics (transitionBoost, hysteresis) are FROZEN.
+// This function may only override frame.targetMidi and frame.correctionCents.
+// ---------------------------------------------------------------------------
+SattariAutoPitchAudioProcessor::PitchFrame
+SattariAutoPitchAudioProcessor::applyIntentV2 (PitchFrame frame,
+                                               int rootIndex,
+                                               const juce::String& scaleName,
+                                               double blockTimeSec)
+{
+    auto& s = intentState;
+    s.prodTarget = (int) std::llround (frame.targetMidi);
+
+    if (! frame.voiced)
+    {
+        // Unvoiced gap: reset history and dwell, keep stableTarget for persistence
+        s.histFill = s.histPos = 0;
+        s.resetDwell();
+        s.lastVoicedPitch = -1.0;
+        s.stableSec = 0.0;
+        s.v2Target  = -1;
+        s.reason    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+        s.fallback  = false;
+        s.motion.reset();
+        s.lastMotion = {};
+        return frame;
+    }
+
+    const double det  = frame.midi;
+    const double conf = frame.confidence;
+    s.pushPitch (det, blockTimeSec);
+
+    // Phase 1+2 — continuous motion path: push raw frequencyHz, not rounded midi.
+    // midiFloat = 69 + 12·log2(f/440) computed in double precision inside CME.
+    if (frame.frequencyHz > 0.0)
+        s.motion.push (frame.frequencyHz, blockTimeSec);
+    // Bench-validated defaults: FirstDerivative @ 20ms gave best overall RMSE
+    // (1.788 MIDI/sec) on the Phase 3 deterministic suite.
+    s.lastMotion = s.motion.analyse();
+
+    // Nearest in-scale candidate to current detected pitch
+    const int nearNote = nearestScaleMidi (det, rootIndex, scaleName);
+    s.incrementDwell (nearNote);
+
+    const double svel  = s.smoothedVelocity();
+    const bool   consistent = s.directionConsistent();
+    const bool   oscillating = s.hasSignReversal();   // vibrato guard
+    const double dir   = s.directionSign();
+    const double dwellSec = s.getDwell (nearNote) * blockTimeSec;
+
+    // ---- Decision tiers (mirrors Python v2 logic exactly) ----
+    int    chosen = s.prodTarget;
+    float  iconf  = (float) (conf * 0.6);
+    IntentReasonCode rsn = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+
+    // 1a. SLIDE_DESTINATION — disabled (integer-MIDI path).
+    //
+    // Rationale: velocity derived from rounded MIDI produces ~20–30 MIDI/sec spikes
+    // during any pitch transition, causing systematic scoop/fall overshoot in the
+    // active audio bench.  The continuous-motion path (1b below) replaces this.
+
+    // 1b. SLIDE_DESTINATION_V2 — Phase 4: continuous-motion estimator.
+    //
+    // Gate: kSlideDestinationV2Enabled remains false until MotionBench validates
+    // velocity RMSE ≤ 2 MIDI/sec on the deterministic trajectory suite.
+    //
+    // When enabled, the estimator predicts the slide destination 80 ms ahead
+    // and snaps to the nearest in-scale note — giving the correction engine
+    // a trustworthy target before YIN fully converges.  All guards:
+    //   · MotionBench validated (compile-time flag)
+    //   · Not recognised as vibrato by the CME
+    //   · Consistent directional history (integer-path cross-check)
+    //   · Frame YIN confidence ≥ 0.60
+    //   · Motion estimator agreement ≥ 0.65
+    //   · Continuous velocity above slide threshold
+    //   · No sign reversal in recent history
+    //   · Destination is ≥ 1 semitone from current nearest and within ±4 semitones
+    [&]() {
+        if (! IntentV2State::kSlideDestinationV2Enabled) return;
+        if (s.lastMotion.isVibrato)  return;
+        if (! consistent)            return;
+        if (conf < 0.60)             return;
+        if (s.lastMotion.confidence < 0.65) return;
+        if (std::abs (s.lastMotion.velocityMidiPerSec) < 3.0) return;  // 3 MIDI/sec ≈ semitone/333ms
+        if (oscillating)             return;
+
+        constexpr double kExtrapolationSec = 0.080;
+        constexpr double kMaxSlideDistance = 4.0;
+        const double rawDest = s.lastMotion.midiFloat
+                               + s.lastMotion.velocityMidiPerSec * kExtrapolationSec;
+        const double bounded = juce::jlimit (det - kMaxSlideDistance,
+                                              det + kMaxSlideDistance,
+                                              rawDest);
+        const int snap = nearestScaleMidi (bounded, rootIndex, scaleName);
+        if (snap == nearNote || std::abs (snap - nearNote) < 1) return;
+
+        chosen = snap;
+        iconf  = (float) (s.lastMotion.confidence * 0.85);
+        rsn    = IntentReasonCode::SLIDE_DESTINATION_V2;
+    }();
+
+    // 2–5: run only if tier 1b did not fire.
+    if (rsn == IntentReasonCode::LOW_CONFIDENCE_FALLBACK)
+    {
+    // 2. Passing-tone suppressor: fast + short dwell + direction consistent + stable anchor known.
+    // Directional escape guard: suppress stale-anchor hold when pitch is consistently moving
+    // AWAY from stableTarget (e.g. ascending scale run starting from a previously-stable note).
+    if (consistent
+        && dwellSec < IntentV2State::kPassDwell
+        && std::abs (svel) > 0.35
+        && s.stableTarget != -1000
+        && dir * (det - s.stableTarget) <= 0.5)  // pitch must not be departing the anchor
+    {
+        chosen = s.stableTarget;
+        iconf  = 0.72f;
+        rsn    = IntentReasonCode::PASSING_TONE;
+    }
+    // 3. Stability anchor
+    else if (s.stableSec >= IntentV2State::kStabSec
+             && conf >= 0.55
+             && std::abs (svel) < 0.5)
+    {
+        const int candidate = nearestScaleMidi (det, rootIndex, scaleName);
+        // Target persistence: resist switching while stable + slow motion
+        if (s.stableTarget != -1000
+            && s.stableTarget != candidate
+            && std::abs (svel) < 1.2
+            && s.stableSec < IntentV2State::kPersistSec * 3.0)
+        {
+            chosen = s.stableTarget;
+            iconf  = 0.80f;
+            rsn    = IntentReasonCode::VIBRATO_HOLD;
+        }
+        else
+        {
+            chosen = candidate;
+            s.stableTarget = candidate;
+            iconf  = (float) std::min (0.95, conf);
+            rsn    = IntentReasonCode::STABILITY_ANCHOR;
+        }
+    }
+    // 4. Known stable target + low velocity → hold
+    else if (s.stableTarget != -1000 && std::abs (svel) < 0.8)
+    {
+        chosen = s.stableTarget;
+        iconf  = (float) std::min (0.78, conf * 1.1);
+        rsn    = IntentReasonCode::VIBRATO_HOLD;
+    }
+    // 5. Nearest scale note — also seeds stableTarget so stability accumulates
+    else
+    {
+        chosen = nearNote;
+        iconf  = (float) (conf * 0.70);
+        if (iconf >= 0.50f)
+        {
+            rsn = IntentReasonCode::NEAREST_STABLE;
+            s.stableTarget = nearNote;   // seed so stableSec can build up
+        }
+        else
+        {
+            // Low confidence → fall back to production target
+            chosen = s.prodTarget;
+            iconf  = (float) (conf * 0.50);
+            rsn    = IntentReasonCode::LOW_CONFIDENCE_FALLBACK;
+        }
+    }
+    } // end tiers 2–5
+
+    // Update stability counter
+    if (chosen == s.stableTarget && std::abs (svel) < 0.8)
+        s.stableSec += blockTimeSec;
+    else if (rsn != IntentReasonCode::PASSING_TONE && rsn != IntentReasonCode::VIBRATO_HOLD)
+        s.stableSec = 0.0;
+
+    s.lastVoicedPitch = det;
+    s.v2Target   = chosen;
+    s.intentConf = iconf;
+    s.reason     = rsn;
+
+    // CONFIDENCE SAFETY GATING
+    // HIGH (≥0.68): v2 may drive audio
+    // MEDIUM (≥0.50): require stability, vibrato-hold, or passing-tone evidence
+    // LOW (<0.50): fall back to production
+    constexpr float kHighConf   = 0.68f;
+    constexpr float kMedConf    = 0.50f;
+
+    const IntentMode mode = (IntentMode) intentMode.load (std::memory_order_relaxed);
+
+    bool driving = false;
+    if (mode == IntentMode::V2_ACTIVE)
+    {
+        if (iconf >= kHighConf)
+        {
+            driving = true;   // full v2 control
+        }
+        else if (iconf >= kMedConf
+                 && (rsn == IntentReasonCode::STABILITY_ANCHOR
+                     || rsn == IntentReasonCode::VIBRATO_HOLD
+                     || rsn == IntentReasonCode::PASSING_TONE))
+        {
+            driving = true;   // conservative v2 ok with medium confidence
+        }
+        // LOW confidence: driving stays false → production target used
+    }
+
+    s.fallback = (mode == IntentMode::V2_ACTIVE) && !driving;
+
+    if (driving)
+    {
+        if (chosen != (int) std::llround (frame.targetMidi))
+            ++s.targetChanges;
+        frame.targetMidi     = (double) chosen;
+        frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
+    }
+
+    return frame;
+}
+
 float SattariAutoPitchAudioProcessor::styleCorrectionStrength() const
 {
     return styleCorrectionStrengthFor (apvts.getRawParameterValue ("amount")->load());
@@ -3775,6 +3999,15 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 updateAutoKeyHistogram (detected);
             }
             lastPitchFrame = buildCorrectionFrame (detected);
+            // Intent Engine v2: override targetMidi when mode != PRODUCTION
+            if (intentMode.load (std::memory_order_relaxed) != 0)
+            {
+                const int root = currentCorrectionRootIndex();
+                const int sc   = juce::roundToInt (apvts.getRawParameterValue ("scale")->load());
+                const auto sn  = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, sc)];
+                const double bts = (double) pitchHopSize / currentSampleRate;
+                lastPitchFrame = applyIntentV2 (lastPitchFrame, root, sn, bts);
+            }
             pitchSamplesUntilAnalysis = pitchHopSize;
         }
     }
@@ -3881,23 +4114,35 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         ? lastPitchFrame.objectTransition : apvts.getRawParameterValue ("transition")->load());
 
     bool targetNoteChanged = false;
+    const double blockTimeSec = (double) numSamples / currentSampleRate;
     if (lastPitchFrame.voiced)
     {
         const int tgt = (int) std::llround (lastPitchFrame.targetMidi);
         if (tgt != lastTargetMidiForTransition)
         {
             targetNoteChanged = true;
-            transitionBoost = 1.0;                 // fresh note: snap fast
+            // Clamp the boost when the same two targets alternate rapidly
+            // (< 150 ms between changes). This prevents vibrato oscillating
+            // across a scale-note boundary from spiking transitionBoost=1.0
+            // on every crossing and producing audible stepping artifacts.
+            //
+            // This complements the intent gate's stability factor, which reads
+            // transitionBoost: with the spike clamped at the source, sustained
+            // motion is what remains, which is exactly what that factor wants.
+            const bool isRapidAlternation = (tgt == hysteresisAltTarget)
+                                         && (hysteresisAge < 0.150);
+            transitionBoost = isRapidAlternation ? std::min (transitionBoost, 0.30) : 1.0;
+            hysteresisAltTarget        = lastTargetMidiForTransition;
+            hysteresisAge              = 0.0;
             lastTargetMidiForTransition = tgt;
-            sessionTransientId.fetch_add (1);      // pulse for the cross-plugin bus
+            if (! isRapidAlternation)
+                sessionTransientId.fetch_add (1);  // pulse for the cross-plugin bus
             addVibratoRampSamples = 0.0;           // synthetic vibrato blooms afresh on each note
         }
     }
+    hysteresisAge += blockTimeSec;
     // Decay the boost once per block (~time constant 60 ms).
-    {
-        const double blockTime = (double) numSamples / currentSampleRate;
-        transitionBoost *= std::exp (-blockTime / 0.060);
-    }
+    transitionBoost *= std::exp (-blockTimeSec / 0.060);
 
     // --- Vibrato preservation -------------------------------------------------
     // Correct the note CENTRE to the scale, but re-inject a fraction of the
