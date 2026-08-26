@@ -1586,7 +1586,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         addAndMakeVisible (pad.gain);
     }
 
-    startTimerHz (15);   // smooth meters while leaving more headroom for live audio
+    startTimerHz (10);   // responsive meters/playheads without repainting the full UI at video cadence
 
     juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
     {
@@ -6605,10 +6605,12 @@ void MainPluginEditor::refreshDeckStrips()
     auto getFloat = [&apvts] (const juce::String& id) -> float
     { if (auto* v = apvts.getRawParameterValue (id)) return v->load(); return 0.0f; };
 
-    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+    const int visibleChannels = juce::jmin (processorRef.getNumChannels(),
+                                           MainPluginProcessor::numDecks);
+    for (int i = 0; i < visibleChannels; ++i)
     {
         auto* strip = deckStrips[(size_t) i].get();
-        if (strip == nullptr) continue;
+        if (strip == nullptr || ! strip->isShowing()) continue;
         const auto prefix = deckPrefix (i);
 
         stemdeck::DeckStrip::State s;
@@ -8501,7 +8503,7 @@ void MainPluginEditor::timerCallback()
         // Protect the audio callback from window-server pressure as well as DSP.
         // Eight visual frames per second keeps emergency controls responsive while
         // cutting meter/waveform/string work almost in half; recover automatically.
-        startTimerHz (cpuPressureMode ? 8 : 15);
+        startTimerHz (cpuPressureMode ? 5 : 10);
         recordStatus.setText (
             underPressure
                 ? "Performance protection - reducing visual refresh while CPU is high"
@@ -8699,7 +8701,7 @@ void MainPluginEditor::timerCallback()
     // The processor already limits the heavy FFT to roughly once per second.
     // Polling that scheduler at 4 Hz is ample and avoids repeated parameter/tree
     // walks on every 20 Hz visual frame while Live Key is disabled or idle.
-    if ((uiTimerTick % 5) == 0)
+    if ((uiTimerTick % 3) == 0)
         processorRef.refreshLiveKeyAnalysis();
     auto snapshot = processorRef.getTransportSnapshot();
     tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? u8 ("  \xe2\x96\xb6") : u8 ("  \xe2\x97\xbc")),
@@ -8780,14 +8782,15 @@ void MainPluginEditor::timerCallback()
     }
 
     // Meters live in the MASTER OUTPUT panel — refresh continuously.
-    if (! masterOutBounds.isEmpty())
+    if (! masterOutBounds.isEmpty() && mixerPanel.isShowing())
         repaint (masterOutBounds);
 
     // Feed the live master-output scope + refresh the console channel meters.
     mixerPanel.pushLevel (processorRef.getMasterPeak (0), processorRef.getMasterPeak (1));
-    for (const auto& mb : deckMeterBounds)
-        if (! mb.isEmpty())
-            repaint (mb);
+    if (deckUiVisible)
+        for (const auto& mb : deckMeterBounds)
+            if (! mb.isEmpty())
+                repaint (mb);
 
     // DECKS nav chip reads active when no overlay view is open.
     navDecksButton.setToggleState (! pianoRollButton.getToggleState()

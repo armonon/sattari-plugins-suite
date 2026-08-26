@@ -101,10 +101,12 @@ void DeckStrip::setState (const State& s)
     if (! changed)
         return;
 
-    const bool needRing = s.syncOn;
+    // A locked ring is a complete circle, so rotating it changes no pixels. Only
+    // animate while visibly drifting.
+    const bool needRing = s.syncOn && ! s.syncLocked;
     state = s;
     if (needRing && ! isTimerRunning())
-        startTimerHz (30);
+        startTimerHz (15);
     repaint();
 }
 
@@ -120,7 +122,7 @@ void DeckStrip::setExpanded (bool shouldExpand, bool animate)
         return;
     }
     if (! isTimerRunning())
-        startTimerHz (30);
+        startTimerHz (15);
 }
 
 int DeckStrip::currentHeight() const
@@ -149,10 +151,10 @@ void DeckStrip::timerCallback()
         keepGoing = true;
     }
 
-    // Phase ring: keep spinning while sync is engaged.
-    if (state.syncOn)
+    // Locked sync draws a complete circle, so only drifting sync needs motion.
+    if (state.syncOn && ! state.syncLocked)
     {
-        phaseSpin += dt * (state.syncLocked ? 0.6f : 1.6f);   // faster while drifting
+        phaseSpin += dt * 1.6f;
         if (phaseSpin > juce::MathConstants<float>::twoPi) phaseSpin -= juce::MathConstants<float>::twoPi;
         keepGoing = true;
     }

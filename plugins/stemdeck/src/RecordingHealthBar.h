@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <array>
+#include <cmath>
 #include <functional>
 #include "DesignTokens.h"
 
@@ -56,10 +57,41 @@ public:
 
     void setState (State next)
     {
+        auto differs = [] (double a, double b, double tolerance)
+        { return std::abs (a - b) > tolerance; };
+        bool changed = next.recording != state.recording
+                    || differs (next.elapsedSeconds, state.elapsedSeconds, 0.09)
+                    || differs (next.bpm, state.bpm, 0.01)
+                    || next.takeNumber != state.takeNumber
+                    || next.barNumber != state.barNumber
+                    || next.captureCoverage != state.captureCoverage
+                    || next.captureTarget != state.captureTarget
+                    || next.captureEvents != state.captureEvents
+                    || next.channelCount != state.channelCount
+                    || differs (next.integratedLufs, state.integratedLufs, 0.1)
+                    || differs (next.limiterGrDb, state.limiterGrDb, 0.1)
+                    || differs (next.peakDb, state.peakDb, 0.5)
+                    || next.diskMinutes != state.diskMinutes
+                    || differs (next.bufferMs, state.bufferMs, 0.01)
+                    || next.droppedBuffers != state.droppedBuffers
+                    || next.droppedEvents != state.droppedEvents
+                    || differs (next.cpuLoad, state.cpuLoad, 0.02)
+                    || next.midiLinked != state.midiLinked
+                    || next.countInBars != state.countInBars;
+        for (int i = 0; ! changed && i < next.channelCount; ++i)
+        {
+            const auto& a = next.channels[(size_t) i];
+            const auto& b = state.channels[(size_t) i];
+            changed = a.label != b.label || a.accent != b.accent
+                   || a.armed != b.armed || a.writing != b.writing;
+        }
+        const bool wasClipped = clipLatched;
         if (next.peakDb >= -0.1)
             clipLatched = true;
+        changed = changed || wasClipped != clipLatched;
         state = std::move (next);
-        repaint();
+        if (changed)
+            repaint();
     }
 
     const State& getState() const noexcept { return state; }
