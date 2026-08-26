@@ -571,6 +571,34 @@ def run_bench(bench: Path, manifest: dict, corpus_dir: Path,
         except Exception:
             pass
 
+    # Compute outputRms/outputPeak from rendered WAV — bench doesn't write these
+    # top-level fields, so we derive them here to avoid false nonSilentOutput=False.
+    out_peak = 0.0
+    out_rms  = 0.0
+    if out_wav.exists():
+        try:
+            import struct as _struct, wave as _wave
+            with _wave.open(str(out_wav), "r") as _wf:
+                _raw = _wf.readframes(_wf.getnframes())
+                _nc  = _wf.getnchannels()
+                _sw  = _wf.getsampwidth()
+            if _sw == 2:
+                _n = len(_raw) // 2
+                _s = _struct.unpack(f"<{_n}h", _raw)
+                _norm = [v / 32768.0 for v in _s]
+                out_peak = max(abs(v) for v in _norm) if _norm else 0.0
+                out_rms  = math.sqrt(sum(v*v for v in _norm) / len(_norm)) if _norm else 0.0
+        except Exception:
+            pass
+
+    # Derive voicedBlocks/totalBlocks/avgTraceCorrectionCents from trace frames
+    frames = trace.get("frames", [])
+    voiced_frames  = [f for f in frames if f.get("voiced")]
+    total_blocks   = trace.get("totalBlocks",  len(frames)) or len(frames)
+    voiced_blocks  = trace.get("voicedBlocks", len(voiced_frames)) or len(voiced_frames)
+    avg_corr       = (sum(abs(f.get("correctionCents", 0) or 0) for f in voiced_frames)
+                      / len(voiced_frames)) if voiced_frames else 0.0
+
     return {
         "testId":                  tid,
         "crash":                   False,
@@ -578,12 +606,12 @@ def run_bench(bench: Path, manifest: dict, corpus_dir: Path,
         "traceJson":               str(trace_j),
         "latencySamples":          trace.get("latencySamples", -1),
         "engine":                  trace.get("engine", "unknown"),
-        "avgTraceCorrectionCents": trace.get("avgTraceCorrectionCents", 0.0),
-        "voicedBlocks":            trace.get("voicedBlocks", 0),
-        "totalBlocks":             trace.get("totalBlocks", 1),
-        "outputPeak":              trace.get("outputPeak", 0.0),
-        "outputRms":               trace.get("outputRms", 0.0),
-        "frames":                  trace.get("frames", []),
+        "avgTraceCorrectionCents": trace.get("avgTraceCorrectionCents", avg_corr),
+        "voicedBlocks":            voiced_blocks,
+        "totalBlocks":             total_blocks,
+        "outputPeak":              trace.get("outputPeak", out_peak),
+        "outputRms":               trace.get("outputRms",  out_rms),
+        "frames":                  frames,
         "blockSize":               trace.get("blockSize", 512),
     }
 

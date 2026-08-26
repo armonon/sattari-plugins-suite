@@ -1,0 +1,3 @@
+CAUTION
+severe=0 moderate=120 benign=0 total=120
+max_jump_any=227.6¢

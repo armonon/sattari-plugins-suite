@@ -1,0 +1,35 @@
+{
+  "id": "RUN_up_350ms",
+  "category": "ascending_run_transient",
+  "description": "4-note ascending run A3\u2192B3\u2192C#4\u2192D4 at 350ms per slide. Known Intent v3 transient: SLIDE_DESTINATION_V2 fires at high CME velocity during run onset, overshoots target, PASSING_TONE tier recovers in \u22642 frames.",
+  "hard_thresholds": {
+    "max_jump_cents": 350.0,
+    "transient_ms_max": 35.0,
+    "recovery_ms_max": 50.0,
+    "crashes": 0,
+    "octave_errors": 0
+  },
+  "accepted_risk": "v3 max_jump=285\u00a2 vs prod 132\u00a2. Transient is ~22ms, self-resolving. Strategy G speed=0.70 may partially attenuate the requested correction. Perceptual impact TBD by transient proxy suite.",
+  "characterization": {
+    "trigger_time_sec": 0.7198,
+    "trigger_frame_idx": 62,
+    "trigger_jump_cents": 248.5,
+    "trigger_intent_reason": "SLIDE_DESTINATION_V2",
+    "trigger_intent_target": 62,
+    "trigger_detected_midi": 60,
+    "trigger_correction_cc": 200.0,
+    "trigger_cme_vel_midi": 28.88,
+    "trigger_cme_conf": 0.9894,
+    "trigger_extrap_horizon": 0.08,
+    "pre_frame_cc": -48.5,
+    "recovery_frames": 29,
+    "recovery_ms": 336.7,
+    "transient_frames": 1,
+    "transient_ms": 11.6,
+    "v3_max_jump_cents": 248.5,
+    "prod_max_jump_cents": 181.1,
+    "v3_p95_jump_cents": 236.5
+  },
+  "engine_commit": "d92093f",
+  "strategy_g_commit": "6c022cb"
+}
