@@ -180,6 +180,10 @@ struct IntentV2State
  #include <elastique3/IElastiqueV3.h>
 #endif
 
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+ #include "signalsmith-stretch/signalsmith-stretch.h"
+#endif
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
 #endif
@@ -315,8 +319,9 @@ private:
     float styleRetuneCoefficient() const;
     juce::String currentStyleChoice() const;
     double pitchScaleForFrame (const PitchFrame& frame) const;
-    void processWithElastique (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
-    void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processWithElastique   (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processWithSignalsmith (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    void processWithRubberBand  (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
 
@@ -421,12 +426,20 @@ private:
 
 #if SATTARI_AUTOPITCH_HAS_ELASTIQUE
     // zplane elastique v3 — primary low-latency pitch engine.
-    // Single instance handles all channels (interleaved internally).
     // TODO: replace void* with CElastiqueV3If* once SDK header is confirmed.
-    void* elastique = nullptr;          // CElastiqueV3If*
+    void* elastique = nullptr;
     juce::AudioBuffer<float> elastiqueOutput;
-    std::vector<std::vector<float>> elastiqueScratchIn;   // per-channel scratch
+    std::vector<std::vector<float>> elastiqueScratchIn;
     std::vector<std::vector<float>> elastiqueScratchOut;
+#endif
+
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    // signalsmith-stretch — MIT, secondary low-latency engine (active when
+    // elastique SDK is absent). Single instance manages all channels.
+    signalsmith::stretch::SignalsmithStretch<float> ssStretch;
+    juce::AudioBuffer<float> ssOutput;
+    std::vector<const float*> ssInputPtrs;
+    std::vector<float*>       ssOutputPtrs;
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
