@@ -176,6 +176,10 @@ struct IntentV2State
     void resetDwell() { dwellCount = 0; for (auto& e : dwellTable) e = {}; }
 };
 
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+ #include <elastique3/IElastiqueV3.h>
+#endif
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
 #endif
@@ -311,6 +315,7 @@ private:
     float styleRetuneCoefficient() const;
     juce::String currentStyleChoice() const;
     double pitchScaleForFrame (const PitchFrame& frame) const;
+    void processWithElastique (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
@@ -413,6 +418,16 @@ private:
     std::unique_ptr<std::thread> keyMapScanThread;
     void runKeyMapScan (juce::File audioFile);
     void applyKeyMapAtSeconds (double seconds);
+
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    // zplane elastique v3 — primary low-latency pitch engine.
+    // Single instance handles all channels (interleaved internally).
+    // TODO: replace void* with CElastiqueV3If* once SDK header is confirmed.
+    void* elastique = nullptr;          // CElastiqueV3If*
+    juce::AudioBuffer<float> elastiqueOutput;
+    std::vector<std::vector<float>> elastiqueScratchIn;   // per-channel scratch
+    std::vector<std::vector<float>> elastiqueScratchOut;
+#endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

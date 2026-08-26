@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariElastique.cmake)
 
 sattari_add_plugin(
     TARGET SattariAutoPitch
@@ -21,6 +22,7 @@ sattari_add_plugin(
         src/PluginEditor.cpp)
 
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_elastique(SattariAutoPitch SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 add_executable(AutoPitchCoreContract
     EXCLUDE_FROM_ALL
@@ -53,6 +55,7 @@ target_link_libraries(AutoPitchCoreContract
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_elastique(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
@@ -87,6 +90,7 @@ target_link_libraries(AutoPitchRender
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_elastique(AutoPitchRender SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # Headless bench driver — same production engine as the plugin, no UI.
 # Accepts real audio files and writes corrected.wav + trace.json.
@@ -122,6 +126,7 @@ target_link_libraries(AutoPitchBench
         juce::juce_recommended_warning_flags)
 
 sattari_enable_rubberband(AutoPitchBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_elastique(AutoPitchBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # Phase 3 — deterministic motion-estimator bench (pure C++17, no JUCE).
 # Tests all 5 estimators × 5 window sizes against synthetic trajectories.

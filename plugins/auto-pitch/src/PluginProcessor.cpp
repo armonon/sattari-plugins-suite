@@ -243,7 +243,33 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     polyAveragePitchScale = 1.0;
     polyLastNotes.fill (-1);
 
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    // --- zplane elastique v3 init -------------------------------------------
+    // TODO: replace stub with real API once SDK is in third_party/elastique/.
+    //
+    // Intended init (kV3mobile = lowest latency, tonal/vocal optimised):
+    //
+    //   if (elastique)
+    //       CElastiqueV3If::DestroyInstance (static_cast<CElastiqueV3If*> (elastique));
+    //   elastique = nullptr;
+    //   const int numCh = juce::jmax (1, getTotalNumOutputChannels());
+    //   CElastiqueV3If* eq = nullptr;
+    //   CElastiqueV3If::CreateInstance (eq, numCh, (float) currentSampleRate,
+    //                                   CElastiqueV3If::kV3mobile);
+    //   elastique = eq;
+    //   elastiqueOutput.setSize (numCh, preparedBlockSize);
+    //   elastiqueScratchIn.assign  (numCh, std::vector<float> (preparedBlockSize, 0.f));
+    //   elastiqueScratchOut.assign (numCh, std::vector<float> (preparedBlockSize, 0.f));
+    //
+    //   // elastique reports its own startup latency:
+    //   reportedLatencySamples = eq ? eq->GetFramesNeeded (preparedBlockSize) : 0;
+    //   setLatencySamples (reportedLatencySamples);
+
+    (void) preparedBlockSize;   // suppress unused until stub is filled in
+    reportedLatencySamples = 0;
+    setLatencySamples (0);
+
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
 
@@ -278,11 +304,20 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     setLatencySamples (reportedLatencySamples);
 #else
     reportedLatencySamples = 0;
-#endif
+    setLatencySamples (0);
+#endif  // SATTARI_AUTOPITCH_HAS_RUBBERBAND
 }
 
 void SattariAutoPitchAudioProcessor::releaseResources()
 {
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    // TODO: CElastiqueV3If::DestroyInstance (static_cast<CElastiqueV3If*> (elastique));
+    elastique = nullptr;
+    elastiqueOutput.setSize (0, 0);
+    elastiqueScratchIn.clear();
+    elastiqueScratchOut.clear();
+#endif
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     rubberBandOutput.setSize (0, 0);
@@ -1521,12 +1556,63 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     const float outputDb = apvts.getRawParameterValue ("outputGain")->load();
     const float linearGain = juce::Decibels::decibelsToGain (inputDb + outputDb);
 
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    processWithElastique (mainBuffer, smoothedPitchScale, linearGain);
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
     processWithRubberBand (mainBuffer, smoothedPitchScale, linearGain);
 #else
     processFallbackFormantGuide (mainBuffer, smoothedPitchScale, linearGain);
 #endif
     applyModeCharacter (mainBuffer);
+}
+
+void SattariAutoPitchAudioProcessor::processWithElastique (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
+{
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    // TODO: fill in once SDK is in third_party/elastique/.
+    //
+    // Intended implementation:
+    //
+    //   auto* eq = static_cast<CElastiqueV3If*> (elastique);
+    //   if (!eq) { buffer.applyGain (linearGain); return; }
+    //
+    //   const float semitones = 12.0f * std::log2f ((float) pitchScale);
+    //   eq->SetPitchModi (semitones);
+    //
+    //   const bool formantPreserve = apvts.getRawParameterValue ("formantPreserve")->load() > 0.5f;
+    //   eq->SetPreserveFormants (formantPreserve);
+    //
+    //   const int numCh  = buffer.getNumChannels();
+    //   const int numOut = buffer.getNumSamples();
+    //   const int numIn  = eq->GetFramesNeeded (numOut);
+    //
+    //   // Build per-channel pointer arrays for elastique's non-interleaved API
+    //   for (int ch = 0; ch < numCh; ++ch) {
+    //       auto& scrIn = elastiqueScratchIn[(size_t) ch];
+    //       scrIn.resize ((size_t) numIn, 0.f);
+    //       std::copy (buffer.getReadPointer (ch),
+    //                  buffer.getReadPointer (ch) + juce::jmin (numIn, numOut),
+    //                  scrIn.data());
+    //       elastiqueScratchOut[(size_t) ch].resize ((size_t) numOut, 0.f);
+    //   }
+    //   std::vector<float*> ppIn (numCh), ppOut (numCh);
+    //   for (int ch = 0; ch < numCh; ++ch) {
+    //       ppIn [(size_t) ch] = elastiqueScratchIn [(size_t) ch].data();
+    //       ppOut[(size_t) ch] = elastiqueScratchOut[(size_t) ch].data();
+    //   }
+    //   eq->ProcessData (ppIn.data(), numIn, ppOut.data(), numOut);
+    //
+    //   for (int ch = 0; ch < numCh; ++ch)
+    //       buffer.copyFrom (ch, 0, elastiqueScratchOut[(size_t) ch].data(), numOut);
+    //
+    //   buffer.applyGain (linearGain);
+
+    // Temporary passthrough until SDK is wired:
+    juce::ignoreUnused (pitchScale);
+    buffer.applyGain (linearGain);
+#else
+    juce::ignoreUnused (buffer, pitchScale, linearGain);
+#endif
 }
 
 void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain)
