@@ -94,6 +94,11 @@ struct IntentV2State
     // Rollback: flip this flag to false and rebuild.
     static constexpr bool kSlideDestinationV2Enabled = true;
 
+    // Live Pitch mode — when true: block=128, OptionWindowShort RubberBand,
+    // SLIDE_DESTINATION_V2 suppressed (look-ahead extrapolation incompatible with ≤30ms budget).
+    // Default false: preserves frozen engine behavior identically.
+    static constexpr bool kLivePitchEnabled = false;
+
     void reset()
     {
         histFill = histPos = 0;
@@ -190,6 +195,10 @@ struct IntentV2State
 
     void resetDwell() { dwellCount = 0; for (auto& e : dwellTable) e = {}; }
 };
+
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+ #include <elastique3/IElastiqueV3.h>
+#endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
@@ -559,6 +568,7 @@ private:
     double pitchScaleForFrame (const PitchFrame& frame) const;
     void processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
                                 bool straightTranspose = false);
+    void processWithElastique (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
     void applyGraphTimeCorrection (juce::AudioBuffer<float>& buffer, double hostTimeSeconds);
@@ -826,6 +836,16 @@ private:
     int graphTimeRingSize = 0, graphTimeWrite = 0;
     double graphTimeDelaySamples = 0.0;
     bool graphTimeWasActive = false;
+
+#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
+    // zplane elastique v3 — primary low-latency pitch engine.
+    // Single instance handles all channels (interleaved internally).
+    // TODO: replace void* with CElastiqueV3If* once SDK header is confirmed.
+    void* elastique = nullptr;          // CElastiqueV3If*
+    juce::AudioBuffer<float> elastiqueOutput;
+    std::vector<std::vector<float>> elastiqueScratchIn;   // per-channel scratch
+    std::vector<std::vector<float>> elastiqueScratchOut;
+#endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;

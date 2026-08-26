@@ -47,6 +47,7 @@ struct Args
     int    block       = 512;
     IntentMode intentMode = IntentMode::PRODUCTION;
     bool   smoke       = false;
+    bool   lowLatency  = false;   // --low-latency: sets lowLatency param → OptionWindowShort
     bool   valid       = false;
 };
 
@@ -118,7 +119,8 @@ static Args parseArgs (int argc, char** argv)
             else if (m == "v2_active") a.intentMode = IntentMode::V2_ACTIVE;
             else                       a.intentMode = IntentMode::PRODUCTION;
         }
-        else if (arg == "--smoke") { a.smoke = true; }
+        else if (arg == "--smoke")       { a.smoke = true; }
+        else if (arg == "--low-latency") { a.lowLatency = true; }
     }
 
     if (! a.inputWav.existsAsFile())
@@ -182,6 +184,7 @@ int main (int argc, char** argv)
     setParam (apvts, "transition",       0.5f);
     setParam (apvts, "throat",           1.0f);
     setParam (apvts, "humanize",         0.0f);
+    setParam (apvts, "lowLatency",       a.lowLatency ? 1.0f : 0.0f);
 
     proc.setIntentMode (a.intentMode);
     proc.prepareToPlay (sr, a.block);

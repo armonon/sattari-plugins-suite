@@ -40,6 +40,7 @@ if(SATTARI_AUTOPITCH_ENABLE_AAX)
     endif()
     list(APPEND _sattari_formats AAX)
 endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariElastique.cmake)
 
 sattari_add_plugin(
     TARGET SattariAutoPitch
@@ -70,6 +71,7 @@ target_link_libraries(SattariAutoPitch PRIVATE SattariAutoPitchModelData)
 
 sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)
+sattari_enable_elastique(SattariAutoPitch SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 add_executable(AutoPitchCoreContract
     EXCLUDE_FROM_ALL
@@ -104,6 +106,7 @@ target_link_libraries(AutoPitchCoreContract
 
 sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchCoreContract SATTARI_HAS_ONNX)
+sattari_enable_elastique(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
@@ -140,6 +143,7 @@ target_link_libraries(AutoPitchRender
 
 sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchRender SATTARI_HAS_ONNX)
+sattari_enable_elastique(AutoPitchRender SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # TWO benches, deliberately. Both sides of the merge defined a target called
 # AutoPitchBench from different sources, so neither is dropped:
@@ -190,6 +194,7 @@ target_link_libraries(AutoPitchBench
         juce::juce_recommended_warning_flags)
 sattari_enable_rubberband(AutoPitchBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchBench SATTARI_HAS_ONNX)
+sattari_enable_elastique(AutoPitchBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # The objective suite mirrors the bench's configuration exactly, so the two
 # measure the same engine rather than two differently-configured builds.
@@ -216,6 +221,8 @@ target_include_directories(AutoPitchObjectiveBench
         ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
 sattari_enable_rubberband(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchObjectiveBench SATTARI_HAS_ONNX)
+# Both benches get the same engine configuration, or they measure different builds.
+sattari_enable_elastique(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 
 # Phase 3 — deterministic motion-estimator bench (pure C++17, no JUCE).
 # Tests all 5 estimators × 5 window sizes against synthetic trajectories.
