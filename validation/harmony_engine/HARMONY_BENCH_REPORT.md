@@ -4,10 +4,10 @@
 
 | Config | Frames | Illegal | Chatter% | Accuracy% | Throughput |
 |--------|--------|---------|----------|-----------|------------|
-| 1-voice +3rd | 600 | 0 | 0.0% | 100.0% | 123040 fps |
-| 2-voice ±3rd | 600 | 0 | 0.0% | 100.0% | 67185 fps |
-| 4-voice ±3rd ±5th | 600 | 0 | 0.0% | 100.0% | 34073 fps |
-| 6-voice full | 600 | 0 | 0.0% | 100.0% | 23594 fps |
+| 1-voice +3rd | 600 | 0 | 0.0% | 100.0% | 111230 fps |
+| 2-voice ±3rd | 600 | 0 | 0.0% | 100.0% | 57942 fps |
+| 4-voice ±3rd ±5th | 600 | 0 | 0.0% | 100.0% | 29487 fps |
+| 6-voice full | 600 | 0 | 0.0% | 100.0% | 19459 fps |
 
 ## Cross-Key Consistency
 

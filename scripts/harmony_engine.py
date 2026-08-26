@@ -36,16 +36,10 @@ INTERVAL_DEGREES = {
 
 
 def build_scale_notes(root_midi, scale):
-    """Return all MIDI notes in the given key/scale within a ±3 octave range."""
-    semitones = SCALE_SEMITONES[scale]
+    """Return all MIDI notes in the given key/scale within MIDI 0-127."""
+    semitones = set(SCALE_SEMITONES[scale])
     root_pc = root_midi % 12
-    notes = set()
-    for octave in range(-3, 4):
-        for st in semitones:
-            n = root_pc + st + (4 + octave) * 12  # center around octave 4
-            if 0 <= n <= 127:
-                notes.add(n)
-    return sorted(notes)
+    return [n for n in range(128) if (n - root_pc) % 12 in semitones]
 
 
 def nearest_scale_note(midi, scale_notes):
