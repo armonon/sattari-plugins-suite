@@ -503,6 +503,11 @@ public:
         double retuneMilliseconds = 20.0;    // correction trajectory time constant
         double preserveVibrato = 0.75;       // 0=flatten residual, 1=retain it
         double noteHysteresisCents = 18.0;   // advantage required before note switch
+        //  Concert reference the integer MIDI grid is anchored to. The snap target
+        //  comes from nearestEnabledMidi() on this grid, so a hardcoded 440 pulled
+        //  an A=432 session 31.8 cents sharp - the plugin's own Reference Detune /
+        //  Follow Song Reference must reach the live planner too.
+        double referenceHz = 440.0;
     };
 
     void prepare (double sampleRate) noexcept
@@ -530,7 +535,8 @@ public:
             return 1.0;
         }
 
-        const double midi = 69.0 + 12.0 * std::log2 (pitch.frequencyHz / 440.0);
+        const double midi = 69.0 + 12.0 * std::log2 (
+            pitch.frequencyHz / (settings.referenceHz > 0.0 ? settings.referenceHz : 440.0));
         if (! voiced)
         {
             centreMidi = midi;

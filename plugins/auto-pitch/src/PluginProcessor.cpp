@@ -623,7 +623,16 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     {
         const auto offsetText = juce::SystemStats::getEnvironmentVariable (
             "SATTARI_AUTOPITCH_CLASSIC_CONTROL_MS", "-20");
-        classicControlOffsetSeconds = 0.001 * juce::jlimit (-60.0, 60.0, offsetText.getDoubleValue());
+        //  getDoubleValue() returns 0.0 for anything unparseable, which would have
+        //  silently DISABLED the lead compensation rather than falling back to it -
+        //  a typo in the override would look like a working build with the feature
+        //  quietly off. Require a genuine number; an explicit "0" still disables.
+        const auto trimmedOffset = offsetText.trim();
+        const bool parseable = trimmedOffset.containsOnly ("0123456789.eE+-")
+                            && trimmedOffset.isNotEmpty()
+                            && trimmedOffset.containsAnyOf ("0123456789");
+        const double offsetMs = parseable ? trimmedOffset.getDoubleValue() : -20.0;
+        classicControlOffsetSeconds = 0.001 * juce::jlimit (-60.0, 60.0, offsetMs);
     }
     graphTimeRingSize = juce::jmax (preparedBlockSize * 2, (int) std::ceil (currentSampleRate * 1.05) + preparedBlockSize);
     graphTimeRing.setSize (juce::jmax (1, getTotalNumOutputChannels()), graphTimeRingSize);
@@ -803,11 +812,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     //   reportedLatencySamples = eq ? eq->GetFramesNeeded (preparedBlockSize) : 0;
     //   setLatencySamples (reportedLatencySamples);
 
+    //  The stub is never dispatched (processBlock's print chain deliberately skips
+    //  it - see the MEASUREMENT WARNING there), so it must not publish a latency
+    //  either. The authoritative figure is computed once at the end of prepare from
+    //  the engine that actually runs; writing 0 here only ever shadowed it.
     (void) preparedBlockSize;   // suppress unused until stub is filled in
-    reportedLatencySamples = 0;
-    setLatencySamples (0);
 
-#elif SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+#endif
+
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
     {
         const int numCh = juce::jmax (1, getTotalNumOutputChannels());
         const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
@@ -825,11 +838,25 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         ssInputPtrs.resize  ((size_t) numCh);
         ssOutputPtrs.resize ((size_t) numCh);
 
-        reportedLatencySamples = ssStretch.inputLatency() + ssStretch.outputLatency();
-        setLatencySamples (reportedLatencySamples);
+        //  Record it for activeEngineLatencySamples(); do NOT publish here. The
+        //  end-of-prepare recompute (and handleAsyncUpdate on every engine-parameter
+        //  change) is the single authority, and it previously overwrote this correct
+        //  figure with a RubberBand-only calculation that returned 0 in a signalsmith
+        //  build - the host was told 0 while the wet path ran ~4096 samples late.
+        signalsmithLatencySamples = (int) (ssStretch.inputLatency() + ssStretch.outputLatency());
     }
 
-#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
+#endif
+
+//  RubberBand initialises WHENEVER it is compiled in, never as the `#elif` tail of
+//  an engine chain. Transpose-to-Key dispatches processWithRubberBand
+//  unconditionally under its own `#if SATTARI_AUTOPITCH_HAS_RUBBERBAND` - and that
+//  macro is set by CMake independently of the signalsmith one - so making this init
+//  exclusive left the stretcher vector empty in a signalsmith build. The xpose path
+//  then hit processWithRubberBand's empty-vector guard and returned dry: whole-mix
+//  transpose was a silent no-op, with a first-block heap allocation on the audio
+//  thread because rubberBandOutput was never sized either.
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     rubberBand.clear();
     const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
 
@@ -904,11 +931,12 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     //  Rubber Band figure would make the bypass 60 ms late in Live Mode — the exact
     //  class of latency-report mismatch that failed Gate 4 test A at 0.4.1.
     dryDelaySamples = liveModeActive() ? liveEngineLatencySamples()
-                                       : monoEngineLatencySamples();
+                                       : printEngineLatencySamples();
     //  Size for the LARGEST delay either engine can ask for, not the current one.
     //  Live Mode can be toggled while the transport rolls, and that must move a read
     //  pointer rather than resize a buffer on the audio thread.
-    dryDelayRingSize = juce::jmax (juce::jmax (monoEngineLatencySamples(),
+    dryDelayRingSize = juce::jmax (juce::jmax (juce::jmax (monoEngineLatencySamples(),
+                                                           printEngineLatencySamples()),
                                                liveEngineLatencySamples())
                                        + preparedBlockSize + 1,
                                    preparedBlockSize * 2 + 1);
@@ -987,11 +1015,23 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     const bool xposeOn   = apvts.getRawParameterValue ("xposeMode") != nullptr
                            && apvts.getRawParameterValue ("xposeMode")->load() > 0.5f;
     const int rbLat = monoEngineLatencySamples();
+    //  The PRINT engine is not always Rubber Band: processBlock's final branch is
+    //  `#if HAS_SIGNALSMITH -> signalsmith #elif HAS_RUBBERBAND -> rubberband`, and
+    //  in a signalsmith build every RubberBand-derived figure here is 0 (rbLatency
+    //  and rbCushion are only written by the RubberBand prepare block). Reporting
+    //  rbLat for that branch told the host 0 while the audio ran a full signalsmith
+    //  pipeline late.
+    const int printLat =
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+        signalsmithLatencySamples;
+#else
+        rbLat;
+#endif
     // Mirror processBlock's engine precedence EXACTLY, or the host is delay-compensated
     // for the wrong engine:
     //   Transpose-to-Key always runs Rubber Band, whatever else is on;
-    //   then Polyphonic (phase vocoder); otherwise the quality-locked Rubber Band path.
-    int engineLatency = rbLat;
+    //   then Polyphonic (phase vocoder); otherwise the print engine above.
+    int engineLatency = printLat;
     if (xposeOn)                 engineLatency = rbLat;
     else if (polyOn && corrOn)   engineLatency = pvInFifoLatency;
     else if (liveModeActive())   engineLatency = liveEngineLatencySamples();
@@ -1023,6 +1063,21 @@ int SattariAutoPitchAudioProcessor::liveEngineLatencySamples() const noexcept
     return liveEngines.empty() ? 0 : liveEngines.front().getLatencySamples();
 }
 
+//  Delay imposed by whichever engine the print chain actually dispatches to.
+//  The dry reference that Correction Off / Amount 0 returns has to sit at THIS
+//  delay: pinning it to the RubberBand figure in a signalsmith build left the
+//  bypass undelayed against a wet path a full pipeline late, so toggling
+//  correction jumped the vocal in time - the same class of mismatch that failed
+//  Gate 4 test A at 0.4.1.
+int SattariAutoPitchAudioProcessor::printEngineLatencySamples() const noexcept
+{
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+    return signalsmithLatencySamples;
+#else
+    return monoEngineLatencySamples();
+#endif
+}
+
 int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
 {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
@@ -1039,10 +1094,31 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // Preserve automation/session compatibility for the original 3-choice Scale
     // parameter. New UI selections write scaleMode immediately afterwards, while
     // old hosts/presets that only know Scale still select the expected base mode.
+    //
+    //  parameterChanged can be called from the AUDIO thread (host automation), and
+    //  setValueNotifyingHost sends a host notification and re-enters this listener -
+    //  neither is legal or RT-safe there. Record the wanted value and perform the
+    //  mirror on the message thread in handleAsyncUpdate(), the same deferral the
+    //  latency re-report below already relies on.
     if (parameterID == "scale")
-        if (auto* extended = apvts.getParameter ("scaleMode"))
-            extended->setValueNotifyingHost (extended->convertTo0to1 (
-                (float) juce::jlimit (0, 2, juce::roundToInt (newValue))));
+    {
+        const int wantScaleMode = juce::jlimit (0, 2, juce::roundToInt (newValue));
+        //  Deferring UNCONDITIONALLY would break every context that has no message
+        //  loop pumping - an offline/headless render sets `scale` and would never
+        //  see scaleMode mirrored, silently correcting to the wrong scale. Mirror
+        //  inline when we are already on the message thread (the UI and host-load
+        //  cases), and defer only when we might be on the audio thread.
+        if (juce::MessageManager::existsAndIsCurrentThread())
+        {
+            if (auto* extended = apvts.getParameter ("scaleMode"))
+                extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+        }
+        else
+        {
+            pendingScaleMirror.store (wantScaleMode, std::memory_order_release);
+            triggerAsyncUpdate();
+        }
+    }
 
     // Engine toggle: the reported latency must change to match the now-active
     // engine. setLatencySamples() -> updateHostDisplay() must run on the message
@@ -1071,12 +1147,15 @@ void SattariAutoPitchAudioProcessor::timerCallback()
         const float conf = fileKeyConf.load (std::memory_order_relaxed);
         if (conf >= kMinBusKeyConfidence)
         {
-            detectedAutoRoot = fileKeyRoot.load (std::memory_order_relaxed);
             const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
             const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
-            if (scaleName == "major" || scaleName == "minor")
-                detectedAutoScale = fileKeyMinor.load (std::memory_order_relaxed);
-            detectedAutoKeyConf.store (conf, std::memory_order_relaxed);
+            const bool modal = (scaleName == "major" || scaleName == "minor");
+            //  One publish, so the audio thread never observes this message-thread
+            //  update as a half-applied verdict.
+            publishDetectedAutoKey (fileKeyRoot.load (std::memory_order_relaxed),
+                                    modal ? fileKeyMinor.load (std::memory_order_relaxed)
+                                          : detectedAutoScale.load (std::memory_order_relaxed),
+                                    conf);
         }
     }
 
@@ -1087,6 +1166,16 @@ void SattariAutoPitchAudioProcessor::timerCallback()
 
 void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
 {
+    //  Apply a Scale -> scaleMode mirror requested from parameterChanged. Done here
+    //  because setValueNotifyingHost notifies the host and re-enters the listener,
+    //  neither of which may happen on the audio thread.
+    {
+        const int wantScaleMode = pendingScaleMirror.exchange (-1, std::memory_order_acquire);
+        if (wantScaleMode >= 0)
+            if (auto* extended = apvts.getParameter ("scaleMode"))
+                extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+    }
+
     // If the Low Latency floor changed, build a fresh PSOLA set on THIS (message)
     // thread and hand it to the audio thread to swap in — the allocation never touches
     // the audio thread, and the swap itself is an O(1) pointer exchange.
@@ -1184,7 +1273,21 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     pitchFusion.reset();
     smoothedPitchScale = 1.0;
     lastFedPitchScale = 1.0;
-    smoothedXposeScale = 1.0;
+    //  Seed the transpose ratio at the ALREADY-SELECTED transposition, not unity.
+    //  reset() is the host's transport-relocate / loop-wrap / bypass-off hook, and
+    //  the transpose branch glides from whatever this holds toward pow(2, semis/12)
+    //  over 60 ms - so resetting to 1.0 made every loop wrap and every playhead
+    //  move start with an audible octave swoop up to the setting the user had not
+    //  changed. Unlike smoothedPitchScale (where re-converging from unity is
+    //  correct, because correction should re-earn its target), the transpose ratio
+    //  is a static user setting with nothing to re-approach.
+    {
+        auto* xposeSemisParam = apvts.getRawParameterValue ("xposeSemis");
+        const int seedSemis = xposeSemisParam != nullptr
+            ? juce::jlimit (-12, 12, (int) std::round (xposeSemisParam->load()))
+            : 0;
+        smoothedXposeScale = std::pow (2.0, (double) seedSemis / 12.0);
+    }
     autoKeyHistogram.fill (0.0);
     detectedAutoRoot = 9;
     detectedAutoScale = 1;
@@ -1273,8 +1376,17 @@ void SattariAutoPitchAudioProcessor::publishUiFrame() noexcept
     frame.intentConfidence = intentConfidenceUi.load (std::memory_order_relaxed);
     frame.confidence = lastPitchFrame.confidence;
     frame.fedPitchScale = lastFedPitchScale;
-    frame.detectedRoot = detectedAutoRoot.load (std::memory_order_relaxed);
-    frame.detectedScale = detectedAutoScale.load (std::memory_order_relaxed);
+    //  Coherent snapshot: this is the single point at which the frame captures the
+    //  AutoKey verdict, and everything downstream (correction root/scale and the
+    //  cross-plugin bus publication) reads it from here. Two independent loads
+    //  could pair a root from one detector with a mode from another.
+    {
+        int snapRoot = 0, snapScale = 0;
+        float snapConf = 0.0f;
+        readDetectedAutoKey (snapRoot, snapScale, snapConf);
+        frame.detectedRoot  = snapRoot;
+        frame.detectedScale = snapScale;
+    }
     frame.voiced = lastPitchFrame.voiced;
     uiFrame.store (frame);
 }
@@ -1657,6 +1769,11 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
 
     int bestRoot = detectedAutoRoot;
+    //  Staged verdict: filled by whichever detector wins below, published as one
+    //  unit at the end. Seeded from the current values so a branch that only
+    //  decides part of the verdict does not invent the rest.
+    int   pendingScale = detectedAutoScale.load (std::memory_order_relaxed);
+    float pendingConf  = detectedAutoKeyConf.load (std::memory_order_relaxed);
 
     // The two absorbed Sattari Key detectors sit ABOVE the scale branch: they only
     // know major/minor, but their ROOT is the best root estimate for ANY scale, so
@@ -1677,22 +1794,20 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         if (fileKeyValid.load (std::memory_order_acquire)
             && fileKeyConf.load (std::memory_order_relaxed) >= kMinBusKeyConfidence)
         {
-            detectedAutoRoot = fileKeyRoot.load (std::memory_order_relaxed);
-            if (modal)
-                detectedAutoScale = fileKeyMinor.load (std::memory_order_relaxed);
-            detectedAutoKeyConf.store (fileKeyConf.load (std::memory_order_relaxed),
-                                       std::memory_order_relaxed);
+            publishDetectedAutoKey (fileKeyRoot.load (std::memory_order_relaxed),
+                                    modal ? fileKeyMinor.load (std::memory_order_relaxed)
+                                          : detectedAutoScale.load (std::memory_order_relaxed),
+                                    fileKeyConf.load (std::memory_order_relaxed));
             return;
         }
         if (skValid.load (std::memory_order_acquire)
             && skFrames.load (std::memory_order_relaxed) >= kSongKeyWarmFrames
             && skConf.load (std::memory_order_relaxed) >= kMinBusKeyConfidence)
         {
-            detectedAutoRoot = skRoot.load (std::memory_order_relaxed);
-            if (modal)
-                detectedAutoScale = skMinor.load (std::memory_order_relaxed);
-            detectedAutoKeyConf.store (skConf.load (std::memory_order_relaxed),
-                                       std::memory_order_relaxed);
+            publishDetectedAutoKey (skRoot.load (std::memory_order_relaxed),
+                                    modal ? skMinor.load (std::memory_order_relaxed)
+                                          : detectedAutoScale.load (std::memory_order_relaxed),
+                                    skConf.load (std::memory_order_relaxed));
             return;
         }
     }
@@ -1708,16 +1823,16 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         if (keyNetSpecPresent && akSpecValid.load (std::memory_order_acquire))
         {
             bestRoot = akSpecRoot.load (std::memory_order_relaxed);
-            detectedAutoScale = akSpecMinor.load (std::memory_order_relaxed);
+            pendingScale = akSpecMinor.load (std::memory_order_relaxed);
             //  A validated model inference is a real detection. The spectrogram
             //  model reports no margin of its own, so its validity flag stands in.
-            detectedAutoKeyConf.store (1.0f, std::memory_order_relaxed);
+            pendingConf = 1.0f;
         }
         else if (keyNetPresent && keyNetLiveValid.load (std::memory_order_acquire))
         {
             bestRoot = keyNetLiveRoot.load (std::memory_order_relaxed);
-            detectedAutoScale = keyNetLiveMinor.load (std::memory_order_relaxed);
-            detectedAutoKeyConf.store (1.0f, std::memory_order_relaxed);
+            pendingScale = keyNetLiveMinor.load (std::memory_order_relaxed);
+            pendingConf = 1.0f;
         }
         else
         {
@@ -1725,16 +1840,16 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
             if (kr.valid)
             {
                 bestRoot = kr.root;
-                detectedAutoScale = kr.minor ? 1 : 0;
+                pendingScale = kr.minor ? 1 : 0;
                 //  KEEP THE MARGIN. This is the line whose absence was the defect:
                 //  kr.confidence was computed on every call and thrown away, so a
                 //  histogram with no tonal information produced a key that looked
                 //  exactly like a confident one downstream.
-                detectedAutoKeyConf.store ((float) kr.confidence, std::memory_order_relaxed);
+                pendingConf = (float) kr.confidence;
             }
             else
             {
-                detectedAutoKeyConf.store (0.0f, std::memory_order_relaxed);
+                pendingConf = 0.0f;
             }
         }
     }
@@ -1761,13 +1876,42 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         //  uncalibrated, but it is at least a margin measured by THIS detector on
         //  THIS audio, and it goes to zero when the histogram stops caring.
         const double denom = std::abs (bestScore) + std::abs (secondScore);
-        detectedAutoKeyConf.store (denom > 1.0e-9
-                                       ? (float) juce::jlimit (0.0, 1.0, (bestScore - secondScore) / denom)
-                                       : 0.0f,
-                                   std::memory_order_relaxed);
+        pendingConf = denom > 1.0e-9
+                          ? (float) juce::jlimit (0.0, 1.0, (bestScore - secondScore) / denom)
+                          : 0.0f;
     }
 
-    detectedAutoRoot = bestRoot;
+    //  One publish for the whole verdict. Previously mode and confidence were
+    //  stored inside the branches while the root landed here, so every call left a
+    //  window in which the triple described no detector's actual answer.
+    publishDetectedAutoKey (bestRoot, pendingScale, pendingConf);
+}
+
+//  Publish the AutoKey verdict as ONE unit (see the generation counter's note).
+void SattariAutoPitchAudioProcessor::publishDetectedAutoKey (int root, int scale, float confidence) noexcept
+{
+    detectedAutoKeyGeneration.fetch_add (1, std::memory_order_release);   // -> odd: write in progress
+    detectedAutoRoot.store (juce::jlimit (0, 11, root), std::memory_order_relaxed);
+    detectedAutoScale.store (juce::jlimit (0, 2, scale), std::memory_order_relaxed);
+    detectedAutoKeyConf.store (confidence, std::memory_order_relaxed);
+    detectedAutoKeyGeneration.fetch_add (1, std::memory_order_release);   // -> even: consistent
+}
+
+void SattariAutoPitchAudioProcessor::readDetectedAutoKey (int& root, int& scale, float& confidence) const noexcept
+{
+    //  Bounded retry: this never blocks the audio thread, and a torn read simply
+    //  re-reads. After the bound we return the last values seen, which is still no
+    //  worse than the unsynchronised read this replaced.
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        const unsigned before = detectedAutoKeyGeneration.load (std::memory_order_acquire);
+        root       = detectedAutoRoot.load (std::memory_order_relaxed);
+        scale      = detectedAutoScale.load (std::memory_order_relaxed);
+        confidence = detectedAutoKeyConf.load (std::memory_order_relaxed);
+        const unsigned after = detectedAutoKeyGeneration.load (std::memory_order_acquire);
+        if (before == after && (before & 1u) == 0u)
+            return;
+    }
 }
 
 void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
@@ -2185,6 +2329,13 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     pvPeakRatio.assign (pvPeakBins.size(), 1.0f);
     pvPeakHarmRatio.assign (pvPeakBins.size(), 0.0f);
     const double hfGate = (double) apvts.getRawParameterValue ("polyHFGate")->load();
+    //  Tune to the SAME absolute grid as every other path in the plugin. This was
+    //  hardcoded to 440 while the monophonic path resolved midiFromHz against
+    //  currentReferenceHz(), so a session using Reference Detune (or Follow Song
+    //  Reference off the bus) had the poly engine snapping peaks to 440 while the
+    //  mono engine and the readout worked off the requested reference - toggling
+    //  Polyphonic shifted the absolute tuning of the track mid-session.
+    const double polyRefHz = currentReferenceHz();
     // Pitch-class mask for the harmony walk — same for every peak, so build it once.
     bool harmonyScaleMask[12] = {};
     if (polyHarmonyAmt > 0.0f)
@@ -2194,7 +2345,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     {
         const int fund = pvPeakFund[(size_t) pi];
         const double f = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) fund]]);
-        const double srcMidi = 69.0 + 12.0 * std::log2 (f / 440.0);
+        const double srcMidi = 69.0 + 12.0 * std::log2 (f / polyRefHz);
         int target = nearestScaleMidi (srcMidi, rootIndex, scaleName);   // honours chromatic
         if (! pcEnabled (target))
             for (int r = 1; r <= 12; ++r)
@@ -2202,7 +2353,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
                 if (pcEnabled (target - r)) { target = target - r; break; }
                 if (pcEnabled (target + r)) { target = target + r; break; }
             }
-        const double targetFreq = 440.0 * std::pow (2.0, ((double) target - 69.0) / 12.0);
+        const double targetFreq = polyRefHz * std::pow (2.0, ((double) target - 69.0) / 12.0);
         // Amount scales the correction in the log domain (1 = full snap, 0 = none).
         // Poly HF Focus: an "orphan" root (fund == pi — a peak that wasn't grouped as the
         // harmonic of any lower note) that sits high in the spectrum is almost never a real
@@ -2227,7 +2378,7 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
             // Two scale steps up, via the shared in-key walk (contract-tested); a chromatic
             // key falls back to a fixed major third.
             const int hm = sattari::dsp::scaleStepsAbove (target, harmonyScaleMask, 2, 4);
-            const double hFreq = 440.0 * std::pow (2.0, ((double) hm - 69.0) / 12.0);
+            const double hFreq = polyRefHz * std::pow (2.0, ((double) hm - 69.0) / 12.0);
             pvPeakHarmRatio[(size_t) pi] = (float) juce::jlimit (0.5, 4.0, hFreq / f);
         }
     }
@@ -3203,6 +3354,13 @@ bool SattariAutoPitchAudioProcessor::undoPitchEdit()
     pitchEditRedo.push_back (pitchEdits);
     pitchEdits = std::move (pitchEditUndo.back());
     pitchEditUndo.pop_back();
+    //  Restore the audio thread's allocation-free contract. The snapshots pushed
+    //  by pushPitchEditUndoLocked are COPIES, so their capacity is only their
+    //  element count; move-assigning one in discards the 4096-element buffer
+    //  prepareToPlay reserved, and the next capturePitchEditAtSeconds push_back
+    //  from processBlock would malloc + copy + free on the audio thread.
+    //  setStateInformation already re-reserves after its own move for this reason.
+    pitchEdits.reserve (4096);
     lastCapturedPitchEdit = -1;
     pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
     return true;
@@ -3215,6 +3373,13 @@ bool SattariAutoPitchAudioProcessor::redoPitchEdit()
     pitchEditUndo.push_back (pitchEdits);
     pitchEdits = std::move (pitchEditRedo.back());
     pitchEditRedo.pop_back();
+    //  Restore the audio thread's allocation-free contract. The snapshots pushed
+    //  by pushPitchEditUndoLocked are COPIES, so their capacity is only their
+    //  element count; move-assigning one in discards the 4096-element buffer
+    //  prepareToPlay reserved, and the next capturePitchEditAtSeconds push_back
+    //  from processBlock would malloc + copy + free on the audio thread.
+    //  setStateInformation already re-reserves after its own move for this reason.
+    pitchEdits.reserve (4096);
     lastCapturedPitchEdit = -1;
     pitchEditRevision.fetch_add (1, std::memory_order_relaxed);
     return true;
@@ -3873,11 +4038,19 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Low-latency toggle: swap in the message-thread-built PSOLA set (O(1), no alloc).
     // The old shifters stay in pendingPsola and are freed on the next message-thread
     // rebuild, so nothing is deallocated on the audio thread.
-    if (psolaSwapReady.exchange (false, std::memory_order_acquire))
+    //  The flag is also the OWNERSHIP token for pendingPsola: while it is set, the
+    //  audio thread owns that vector. Clearing it with exchange() up front released
+    //  ownership before the swap had happened, so handleAsyncUpdate could observe
+    //  (flag clear, psolaLiveLowLat not yet updated) and call preparePsolaInto on
+    //  pendingPsola while this thread was still swapping it - a data race on the
+    //  shifter vector. Read it here, and clear it only after the swap and the
+    //  psolaLiveLowLat publication are both complete.
+    if (psolaSwapReady.load (std::memory_order_acquire))
     {
         psola.swap (pendingPsola);
         for (auto& p : psola) p.reset();
         psolaLiveLowLat.store (pendingLowLat, std::memory_order_release);
+        psolaSwapReady.store (false, std::memory_order_release);
         // If the param moved again while this build was pending, request another rebuild
         // so the live shifter converges to the current Low Latency state.
         const bool wantLowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
@@ -3905,7 +4078,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // ever moves a read offset — no allocation on the audio thread.
     {
         const int wanted = liveModeActive() ? liveEngineLatencySamples()
-                                            : monoEngineLatencySamples();
+                                            : printEngineLatencySamples();
         if (wanted != dryDelaySamples && dryDelayRingSize > 0)
             dryDelaySamples = juce::jlimit (0, dryDelayRingSize - 1, wanted);
     }
@@ -4271,25 +4444,56 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // (5.1 ct against its 6.9 ct limit). -15 scores better on the vibrato clip
     // alone but FAILS that gate at 7.3, so it is rejected: tuning to the one clip
     // that exposed the bug would repeat the original error inverted.
+    //  BUFFER INDEPENDENCE. targetPitchScale is a pure function of lastPitchFrame
+    //  here (the vibrato-retention term, the intent gate and Flex-Tune are all
+    //  disabled for classic, and Humanize is applied later), and lastPitchFrame
+    //  only refreshes once per pitchHopSize = 256 samples. Dividing the cents
+    //  delta by the HOST BLOCK time therefore inflated the velocity by
+    //  hop/blockSize at any buffer below the hop: at 64 samples three blocks in
+    //  four saw delta = 0 and contributed no lead at all, while the fourth
+    //  saturated the +/-75 ct clamp - the compensation degenerated into a clipped
+    //  step once per hop, and the sweep above (measured at 512) did not describe
+    //  what a live-performance buffer produced. Measure the velocity across the
+    //  interval in which the frame actually moved, and hold the resulting lead
+    //  between frames so every block gets the same continuous lead.
     if (classicMode && lastPitchFrame.voiced)
     {
         const double rawCents = 1200.0 * std::log2 (juce::jmax (1.0e-6, targetPitchScale));
+        const double blockTime = (double) numSamples / juce::jmax (1.0, currentSampleRate);
+        classicControlElapsedSec += blockTime;
+
         if (classicControlValid && ! targetNoteChanged)
         {
-            const double blockTime = (double) numSamples / juce::jmax (1.0, currentSampleRate);
-            const double velocityCentsPerSec = (rawCents - classicControlPrevCents)
-                                             / juce::jmax (1.0e-6, blockTime);
-            const double leadCents = juce::jlimit (-75.0, 75.0,
-                                                    velocityCentsPerSec * classicControlOffsetSeconds);
-            targetPitchScale = std::pow (2.0, (rawCents + leadCents) / 1200.0);
+            //  A new analysis frame has landed only when the cents actually moved.
+            //  Recompute the lead then, over the true elapsed interval; otherwise
+            //  keep applying the lead already established for this glide.
+            if (std::abs (rawCents - classicControlPrevCents) > 1.0e-9)
+            {
+                const double velocityCentsPerSec = (rawCents - classicControlPrevCents)
+                                                 / juce::jmax (1.0e-6, classicControlElapsedSec);
+                classicControlLeadCents = juce::jlimit (-75.0, 75.0,
+                                                        velocityCentsPerSec * classicControlOffsetSeconds);
+                classicControlPrevCents = rawCents;
+                classicControlElapsedSec = 0.0;
+            }
+            targetPitchScale = std::pow (2.0, (rawCents + classicControlLeadCents) / 1200.0);
             targetPitchScale = juce::jlimit (0.5, 2.0, targetPitchScale);
         }
-        classicControlPrevCents = rawCents;
+        else
+        {
+            //  First voiced block, or a new target note: start the interval clean
+            //  so the first velocity is not measured against a stale timestamp.
+            classicControlPrevCents = rawCents;
+            classicControlElapsedSec = 0.0;
+            classicControlLeadCents = 0.0;
+        }
         classicControlValid = true;
     }
     else
     {
         classicControlValid = false;
+        classicControlElapsedSec = 0.0;
+        classicControlLeadCents = 0.0;
     }
 
     // Sustain retune from the Style/Speed control; onset retune is much faster.
@@ -4502,7 +4706,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         }
         else
         {
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+            //  Keep the engine that will actually resume warm - mirroring the print
+            //  chain below. Warming RubberBand in a signalsmith build primed the
+            //  wrong pipeline: ssStretch kept its stale pre-bypass tail, so
+            //  re-engaging correction replayed audio from before the bypass.
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+            processWithSignalsmith (mainBuffer, 1.0, inputGain);
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
             processWithRubberBand (mainBuffer, 1.0, inputGain);
 #else
             processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
@@ -4703,6 +4913,9 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
     if (nCh <= 0 || n <= 0) return;
 
     sattari::dsp::LiveCorrectionPlanner::Settings settings;
+    //  Same absolute grid as the print path and the readout (Reference Detune /
+    //  Follow Song Reference), not a hardcoded 440.
+    settings.referenceHz = currentReferenceHz();
 
     const int rootIndex  = currentCorrectionRootIndex();
     const int scaleIndex = effectiveScaleIndex();
@@ -4824,8 +5037,23 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
     const double combinedFormant = throat * shiftRatio;
     // 0.0 tells Rubber Band to auto-preserve (default). We send an explicit scale
     // whenever Throat or Formant Shift departs from neutral.
+    //  Rubber Band's formant scale is a PRE-SHIFT envelope warp that the pitch
+    //  resampler then multiplies - it is NOT an absolute target. R3Stretcher.cpp
+    //  substitutes `1.0 / m_pitchScale` when the scale is 0.0, and that substitution
+    //  is exactly what makes 0.0 mean "preserve" - so the net formant multiplier is
+    //  always formantScale * pitchScale. Passing combinedFormant raw therefore
+    //  rendered combinedFormant * pitchScale: the envelope swung note-by-note with
+    //  each note's correction ratio (a requested +7 st landing at +6.2 st on a note
+    //  80 cents sharp, +7.4 st on the next note 40 cents flat) - the very chipmunk
+    //  modulation Formant Preserve exists to remove, armed the moment Throat or
+    //  Formant Shift left neutral. Dividing by the ratio actually in use restores
+    //  the absolute target the UI promises, and matches what the signalsmith path
+    //  already gets from compensatePitch=true. Neutral still sends 0.0 so Rubber
+    //  Band's own auto-preserve stays on the untouched path.
     const bool neutralFormant = (std::abs (combinedFormant - 1.0) < 1.0e-4);
-    const double formantScale = neutralFormant ? 0.0 : combinedFormant;
+    const double formantScale = neutralFormant
+        ? 0.0
+        : combinedFormant / juce::jmax (1.0e-6, pitchScale);
 
     // If for any reason a channel has no stretcher, fall back to dry passthrough
     // for the whole block (keeps channels phase-locked; never mid-block spliced).
@@ -5033,7 +5261,15 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
         auto& base = harmonyScratch;
         const int baseChannels = buffer.getNumChannels();
         const auto numSamples = buffer.getNumSamples();
-        base.setSize (baseChannels, numSamples, false, false, true); // preallocated: no realloc
+        //  Preallocated in prepareToPlay. A host that exceeds its declared maximum
+        //  would make this setSize actually allocate on the audio thread, so grow
+        //  only when genuinely necessary and never shrink - the comment used to
+        //  claim "no realloc" unconditionally, which was true only while the host
+        //  honoured its own contract.
+        if (base.getNumChannels() < baseChannels || base.getNumSamples() < numSamples)
+            base.setSize (juce::jmax (base.getNumChannels(), baseChannels),
+                          juce::jmax (base.getNumSamples(), numSamples),
+                          false, false, true);
         for (int channel = 0; channel < baseChannels; ++channel)
             base.copyFrom (channel, 0, buffer, channel, 0, numSamples);
         const double centre = (double) (numSamples - 1) * 0.5;
@@ -5069,8 +5305,13 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
     const auto origin = currentKeyOrigin();
     const auto root = rootChoices[juce::jlimit (0, rootChoices.size() - 1, origin.root)];
     const auto scale = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, origin.scale)];
+    //  Name the engine that actually runs. Keyed on HAS_RUBBERBAND alone, this
+    //  read "Studio HQ" in a signalsmith build too - the readout asserting a
+    //  Rubber Band print path while signalsmith was doing the work.
     const juce::String engine =
-#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+#if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+        "Studio SS";
+#elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
         "Studio HQ";
 #else
         "Guide";
@@ -5279,6 +5520,18 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
     {
         const juce::ScopedLock l (keyMapLock);
         km.setProperty ("file", keyMapFileName, nullptr);
+        //  The segments alone are not the timeline. KeyMapTimeline::hasData()
+        //  requires durationSec > 0, and setPlayhead() no-ops without it, so a
+        //  restored session drew the "Scan a track" placeholder over a map that
+        //  demonstrably existed - and neither value could be regenerated, because
+        //  only the bare file NAME is stored, never a path to re-scan. 1024 peak
+        //  bins is ~5.5 KB base64: cheap enough to carry in the project.
+        km.setProperty ("dur", keyMapDurationSec, nullptr);
+        if (! keyMapWave.empty())
+            km.setProperty ("wave",
+                            juce::Base64::toBase64 (keyMapWave.data(),
+                                                    keyMapWave.size() * sizeof (float)),
+                            nullptr);
         for (const auto& e : keyMap)
         {
             juce::ValueTree seg ("Seg");
@@ -5376,9 +5629,25 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                 e.confidence = (float)  (double) seg.getProperty ("c", 0.0);
                 rebuilt.push_back (e);
             }
+            std::vector<float> restoredWave;
+            {
+                juce::MemoryOutputStream decoded;
+                const auto waveB64 = km.getProperty ("wave", "").toString();
+                if (waveB64.isNotEmpty() && juce::Base64::convertFromBase64 (decoded, waveB64))
+                {
+                    const size_t bytes = decoded.getDataSize();
+                    if (bytes > 0 && (bytes % sizeof (float)) == 0)
+                    {
+                        restoredWave.resize (bytes / sizeof (float));
+                        std::memcpy (restoredWave.data(), decoded.getData(), bytes);
+                    }
+                }
+            }
             const juce::ScopedLock l (keyMapLock);
             keyMap = std::move (rebuilt);
             keyMapFileName = km.getProperty ("file", "").toString();
+            keyMapDurationSec = (double) km.getProperty ("dur", 0.0);
+            keyMapWave = std::move (restoredWave);
             keyMapProgress.store (keyMap.empty() ? -1 : 100);
         }
 
@@ -5522,7 +5791,22 @@ void SattariAutoPitchAudioProcessor::processWithSignalsmith (juce::AudioBuffer<f
     else
         ssStretch.setFormantFactor (1.0f, /*compensatePitch=*/false);
 
-    // Ensure output scratch buffer covers this block size.
+    //  A host that exceeds the block size it declared at prepare must not make this
+    //  allocate on the audio thread. Split the block into chunks the prepared
+    //  scratch can hold and recurse - the same contract the Rubber Band path keeps
+    //  with its processQuantum. Sub-buffers alias `buffer`, so this stays
+    //  allocation-free even in the contract-violating case.
+    if (ssOutput.getNumSamples() > 0 && numSamples > ssOutput.getNumSamples())
+    {
+        const int quantum = ssOutput.getNumSamples();
+        for (int offset = 0; offset < numSamples; offset += quantum)
+        {
+            const int chunk = juce::jmin (quantum, numSamples - offset);
+            juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), numChannels, offset, chunk);
+            processWithSignalsmith (sub, pitchScale, linearGain);
+        }
+        return;
+    }
     if (ssOutput.getNumSamples() < numSamples || ssOutput.getNumChannels() < numChannels)
         ssOutput.setSize (numChannels, numSamples, false, true, true);
     ssOutput.clear();
@@ -5539,7 +5823,15 @@ void SattariAutoPitchAudioProcessor::processWithSignalsmith (juce::AudioBuffer<f
     // signalsmith-stretch is a streaming processor: N in → N out (with registered latency).
     ssStretch.process (ssInputPtrs, numSamples, ssOutputPtrs, numSamples);
 
-    buffer.makeCopyOf (ssOutput, /*avoidReallocating=*/true);
+    //  Copy back sample-for-sample. makeCopyOf resizes the destination to the
+    //  SOURCE's size, and ssOutput is sized for preparedBlockSize - so on any block
+    //  shorter than that it silently detached `buffer` from the host's memory
+    //  (reallocating it, since avoidReallocating only skips the realloc when the
+    //  existing allocation is large enough) and the host received its own untouched
+    //  input instead of the corrected audio. Copy exactly the samples this block
+    //  owns and leave the buffer's shape alone.
+    for (int ch = 0; ch < numChannels; ++ch)
+        buffer.copyFrom (ch, 0, ssOutput, ch, 0, numSamples);
     buffer.applyGain (linearGain);
 #else
     juce::ignoreUnused (buffer, pitchScale, linearGain);

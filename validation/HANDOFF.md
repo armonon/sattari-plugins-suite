@@ -64,7 +64,14 @@ GATE 5 RC review     BLOCKED    on user listening + manual hosts
 - 2,885 samples reported at 48 kHz; forced-unity R3 and tuned-onset group delay
   both land within 0.77 ms.
 - Controlled Hard-mode vibrato falls from 19.7 to 4.0 cents after measured
-  -30 ms moving-control compensation; a sustained belt reaches 2.3 cents median.
+  moving-control compensation; a sustained belt reaches 2.3 cents median.
+  **The offset is -20 ms, not -30** (recalibrated 2026-08-20 over a 6-clip
+  corpus after -30 made Hard correct LESS than Natural on heavy vibrato — see
+  `validation/auto-pitch/2026-08-20-classic-control-recalibration.md`). The
+  sweep behind that number was run at a 512-sample buffer only; the compensation
+  itself was buffer-dependent until 2026-08-27 and is now measured against the
+  analysis-hop interval instead of the host block
+  (`validation/auto-pitch/2026-08-27-review-fixes.md`).
 - Conservative YIN/CREPE fusion; CREPE validates or rescues YIN without smearing
   an agreeing YIN contour, and cannot independently steer AutoKey.
 - Auto Pitch's frozen internal fallback remains Aarden/chroma. Sattari Key now
@@ -78,7 +85,14 @@ GATE 5 RC review     BLOCKED    on user listening + manual hosts
   `currentCorrectionRootIndex()` / `effectiveScaleIndex()`, so Follow Song Key
   reaches it from Sattari Key over the session bus with no second code path —
   verified against two disagreeing keys on the real bus. The print path is
-  bit-identical (`--nulltest` still `-inf` at 2885, smoke and contract pass).
+  unchanged by Live Mode (smoke and contract pass, and `--nulltest` is still
+  `-inf` at 2885).
+  **`--nulltest` does not prove the print path is bit-identical, and this line
+  used to claim it did.** Since the delayed dry reference was added, Correction
+  Off and Amount 0 both return a sample-exact delay line, so that test nulls at
+  `-inf` regardless of what the CORRECTING path does — the harness says so in
+  its own output. The gates that can see the correcting path are the golden
+  fingerprint (`AutoPitchRender` with no arguments) and `--wetalign`.
   `AutoPitchRender --livetest`; record in
   `validation/auto-pitch/2026-08-17-live-mode-wired.md`. Still alpha: no
   listening evidence, no host testing, and no low-latency monitoring claim.

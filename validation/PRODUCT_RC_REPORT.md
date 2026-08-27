@@ -1,9 +1,11 @@
 # Auto Pitch — Product RC Campaign Report
 **Date:** 2026-08-25  
-**Engine freeze commit:** b939124  
-**Base commit (Intent v3 merge):** d92093f  
-**Strategy G commit:** 6c022cb  
-**Plugin version:** 0.1.4  
+**Engine freeze commit:** b939124 — **NOT PRESENT IN THIS REPOSITORY**  
+**Base commit (Intent v3 merge):** d92093f — **NOT PRESENT IN THIS REPOSITORY**  
+**Strategy G commit:** 6c022cb — **NOT PRESENT IN THIS REPOSITORY**  
+**Plugin version:** 0.1.4 — **STALE**: the tree declares 0.5.0
+(`plugins/auto-pitch/CMakeLists.txt`, `config/products.json`), and every other
+record in `validation/auto-pitch/` calls the candidate 0.5.0 RC3.  
 **Plugin ID:** aufx / Ap01 / Satr (com.Sattari.SattariAutoPitch)  
 **Formats:** AU (universal x86_64+arm64), VST3 (universal x86_64+arm64)
 
@@ -199,14 +201,51 @@ RUN_up_350ms
 PRODUCT RC HOLD — MANUAL HOST TESTING PENDING
 ```
 
-**Automated gates: ALL PASS**
+> ### CORRECTION — 2026-08-27
+>
+> **The "ALL PASS" line below was false when written and stayed false for two
+> days.** The default `AutoPitchRender` golden contract — the only gate in this
+> repository that can observe a change in the printed sound — was FAILING at
+> residual 0.173507 (print peak 0.4305 -> 0.2570, a 4.5 dB drop), and
+> `scripts/verify_all.sh` exited 1 with VERIFY FAILED. CI stayed green
+> throughout because CI runs only `--smoke` and `--hitracktest`, neither of
+> which could see it.
+>
+> This mattered because the only remaining condition this report placed on
+> shipping was the manual host matrix. Anyone who ran that matrix and passed it
+> would have shipped on the strength of a green automated net that was red.
+>
+> **Root cause of the drift (diagnosed 2026-08-27):** the golden was blessed at
+> `4512076` on a branch that had not yet absorbed `5438e30` "Fix Auto Pitch
+> distortion" (2026-08-06). That commit removed a Modern Rap edge enhancer whose
+> differentiator reset to zero at every block boundary, injecting a
+> discontinuity and an inflated peak on the first sample of every block. The
+> golden therefore encoded the *pre-fix* sound; the drift was an intended
+> quality improvement arriving by merge, not a regression. The golden has been
+> re-blessed against the corrected engine and now passes at residual 4.9e-7.
+>
+> **Also fixed so this cannot recur silently:** `--smoke` (which CI *does* run)
+> now carries a portable peak/RMS envelope check against the golden at 25%
+> tolerance. The strict 1e-4 fingerprint remains local-only for the documented
+> reason that Rubber Band output is not bit-portable — but a change large enough
+> to hear now fails in CI. The drop that hid here was 40% of peak.
+>
+> Full record: `validation/auto-pitch/2026-08-27-review-fixes.md`.
+
+**Automated gates: ALL PASS** *(see the correction above — this was not true when
+written; it is true as of 2026-08-27, after the re-bless and the fixes recorded
+in `validation/auto-pitch/2026-08-27-review-fixes.md`.)*
 
 **Blocker:** Phases 1, 8 require manual DAW launch (Ableton Live, Logic Pro, FL Studio).  
-No automated-gate failure detected. Once manual host matrix passes, status upgrades to:
+Once manual host matrix passes, status upgrades to:
 
 ```
 PRODUCT RC PASS
 ```
+
+**Do not upgrade this status on the strength of the line above alone.** Re-run
+`scripts/verify_all.sh` and confirm it exits 0 at the commit you intend to ship;
+that is the check this report failed to make.
 
 ---
 

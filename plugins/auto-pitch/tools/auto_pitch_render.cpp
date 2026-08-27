@@ -258,7 +258,16 @@ int main (int argc, char** argv)
     const bool xposetest= (argc > 1 && std::strcmp (argv[1], "--xposetest") == 0);
 
     const double sr = 48000.0;
-    const int    block = 512;
+    //  Every gate here ran at 512 and only 512, which is why a correction term that
+    //  divided by the HOST BLOCK time instead of the analysis-hop interval went
+    //  unseen: 512 happens to contain exactly two 256-sample hops, so the one
+    //  buffer size the suite tested was the one size at which the bug cancelled.
+    //  Override to re-run any mode at a live-performance buffer.
+    const int    block = [] {
+        const auto env = juce::SystemStats::getEnvironmentVariable (
+            "SATTARI_AUTOPITCH_RENDER_BLOCK", "512");
+        return juce::jlimit (16, 8192, env.getIntValue() > 0 ? env.getIntValue() : 512);
+    }();
     const double seconds = 4.0;
 
     // --followmap : does Follow Song Map actually DRIVE correction?
@@ -1716,7 +1725,8 @@ int main (int argc, char** argv)
         setParam (a, "amount", 1.0f); setParam (a, "speed", 0.97f); setParam (a, "enableCorrection", 1.0f);
         setParam (a, "classicMode", 1.0f); setParam (a, "vibrato", 0.0f);   // HARD
 
-        const int block = 512;
+        //  Shadowed the overridable outer `block`, so --diag could only ever be run
+        //  at the one buffer size the Classic velocity bug cancelled at.
         p.setNonRealtime (true);                               // offline -> synchronous CREPE
         p.setRateAndBufferSizeDetails (fsr, block); p.prepareToPlay (fsr, block);
         juce::AudioBuffer<float> work (2, block);
@@ -2361,6 +2371,40 @@ int main (int argc, char** argv)
                     lpk = std::max (lpk, std::fabs (lout.getSample (ch, i)));
             std::printf ("  loud-input peak=%.4f (ceiling must hold it <= 1.0)\n", lpk);
             if (lpk > 1.0f) { std::fprintf (stderr, "FAIL: hot input clips (peak %.4f > 1.0)\n", lpk); return 1; }
+        }
+
+        //  PORTABLE SOUND-ENVELOPE GATE.
+        //  The strict golden null-test (tol 1e-4) cannot run in CI: Rubber Band's
+        //  output is not bit-portable across platforms. That left NOTHING in CI
+        //  able to see a change in the printed sound - and a 4.5 dB drop in the
+        //  flagship's print peak duly sat un-caught while every CI job stayed
+        //  green. Peak and RMS against the golden at a loose tolerance are
+        //  portable (platform float differences are far below 1% on a
+        //  deterministic synthetic input) while still catching any change big
+        //  enough to hear: the drop that hid here was 40% of peak.
+        if (goldFile.existsAsFile())
+        {
+            const auto gold = sattari::harness::fingerprintFromText (goldFile.loadFileAsString());
+            constexpr double kEnvelopeTol = 0.25;   // 25% ~= 2 dB
+            auto within = [] (double now, double ref, double tol)
+            {
+                if (ref <= 1.0e-9) return true;              // nothing to compare against
+                return std::abs (now - ref) / ref <= tol;
+            };
+            const bool peakOk = within (fp.peak, gold.peak, kEnvelopeTol);
+            const bool rmsOk  = within (fp.rms,  gold.rms,  kEnvelopeTol);
+            std::printf ("  envelope vs golden: peak %.4f/%.4f %s, rms %.4f/%.4f %s (tol %.0f%%)\n",
+                         fp.peak, gold.peak, peakOk ? "ok" : "OUT",
+                         fp.rms,  gold.rms,  rmsOk  ? "ok" : "OUT",
+                         kEnvelopeTol * 100.0);
+            if (! peakOk || ! rmsOk)
+            {
+                std::fprintf (stderr,
+                    "FAIL: printed sound left the golden envelope. This is a CHANGE IN THE\n"
+                    "      SOUND, not float noise. Explain it, then re-bless deliberately\n"
+                    "      with --bless (see validation/auto-pitch/).\n");
+                return 1;
+            }
         }
 
         std::printf ("Auto Pitch render smoke ok\n");

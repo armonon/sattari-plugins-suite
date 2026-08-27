@@ -587,6 +587,9 @@ private:
     // message thread (setLatencySamples must never run on the audio thread).
     int  activeEngineLatencySamples() const;
     int  monoEngineLatencySamples() const noexcept;
+    //  Delay of whichever engine the print chain actually dispatches to
+    //  (signalsmith when compiled in, otherwise Rubber Band).
+    int  printEngineLatencySamples() const noexcept;
     //  Live Mode's delay is the epoch shifter's, not Rubber Band's. Reported
     //  through activeEngineLatencySamples() and used for the dry reference, so
     //  the bypass stays aligned with whichever engine is actually running.
@@ -656,6 +659,13 @@ private:
     //  kept in step with that default so the two can never disagree.
     double classicControlOffsetSeconds = -0.020;
     bool   classicControlValid = false;
+    //  Velocity is measured across the interval in which the pitch frame ACTUALLY
+    //  moved, not across one host block: targetPitchScale only refreshes once per
+    //  pitchHopSize, so dividing by the block time inflated the figure by
+    //  hop/blockSize at small buffers. The lead is held between frames so it stays
+    //  a continuous lead instead of a clamp-saturated spike once per hop.
+    double classicControlElapsedSec = 0.0;
+    double classicControlLeadCents  = 0.0;
 
     // Hysteresis: prevents vibrato oscillating across a scale-note boundary from
     // repeatedly spiking transitionBoost=1.0 on every crossing.
@@ -879,6 +889,25 @@ private:
     int  rbCushion   = 0;             // samples buffered before popping begins
     bool rbPrimed    = false;         // has the cushion filled yet?
     int  rbLatency   = 0;             // Rubber Band start delay (samples)
+    //  signalsmith-stretch's own registered pipeline delay, captured at configure
+    //  time. The print engine's latency has to be reportable without asking the
+    //  stretcher (activeEngineLatencySamples() is const and runs on the message
+    //  thread), and RubberBand's figures do not describe it.
+    int  signalsmithLatencySamples = 0;
+    //  Scale -> scaleMode mirror requested from parameterChanged (which may run on
+    //  the audio thread); -1 = nothing pending. Applied on the message thread.
+    std::atomic<int> pendingScaleMirror { -1 };
+    //  Root, mode and confidence are one VERDICT and must be published as one.
+    //  They are written from the message thread (timerCallback, on a dropped-file
+    //  result) and from the audio thread (correlateAutoKeyHistogram), and as three
+    //  independent stores a reader could pick up a root from one detector with the
+    //  mode from another - a pair no detector ever produced, on its way to the
+    //  cross-plugin bus. A generation counter makes the triple a seqlock: writers
+    //  bump to odd, store, bump to even; readers retry while it is odd or moved.
+    std::atomic<unsigned> detectedAutoKeyGeneration { 0 };
+    void publishDetectedAutoKey (int root, int scale, float confidence) noexcept;
+    //  Coherent snapshot of the triple above.
+    void readDetectedAutoKey (int& root, int& scale, float& confidence) const noexcept;
     double rubberBandEnginePitchScale = 1.0; // last ratio delivered on the fixed control grid
     int rubberBandAutomationHoldSamples = 0; // hysteresis: finish a moving-ratio glide on-grid
     void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);
