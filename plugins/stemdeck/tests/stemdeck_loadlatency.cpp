@@ -61,6 +61,89 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
 
+    // Field-diagnostic mode: replay the exact processor state embedded in a recovery
+    // project and verify the complete channel -> master path, not just DeckPlayer.
+    if (argc == 3 && juce::String (argv[1]) == "--state-audio")
+    {
+        const juce::File project (argv[2]);
+        const auto projectXml = juce::XmlDocument::parse (project);
+        juce::MemoryBlock state;
+        if (projectXml == nullptr
+            || ! state.fromBase64Encoding (projectXml->getStringAttribute ("processorState")))
+        {
+            std::cerr << "Could not decode project processor state\n";
+            return 2;
+        }
+
+        MainPluginProcessor proc;
+        proc.prepareToPlay (48000.0, 512);
+        proc.setStateInformation (state.getData(), (int) state.getSize());
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 10000.0;
+        while (proc.deckAt (0).getLoadedAudio() == nullptr
+               && juce::Time::getMillisecondCounterHiRes() < deadline)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+
+        if (auto* play = proc.parameters().getParameter ("deckAPlay"))
+            play->setValueNotifyingHost (1.0f);
+        juce::AudioBuffer<float> audio (2, 512);
+        juce::MidiBuffer midi;
+        float peak = 0.0f;
+        for (int block = 0; block < 400; ++block)
+        {
+            audio.clear();
+            proc.processBlock (audio, midi);
+            peak = juce::jmax (peak, audio.getMagnitude (0, audio.getNumSamples()));
+        }
+        juce::AudioBuffer<float> direct (2, 512);
+        direct.clear();
+        std::array<float, DeckPlayer::numStemLanes> unity;
+        unity.fill (1.0f);
+        std::array<float, DeckPlayer::numStemLanes> noPitch {};
+        proc.deckAt (0).process (direct, 0, direct.getNumSamples(), true,
+                                 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                                 TimePitchDecision {}, unity, noPitch,
+                                 BeatSyncEngine::PlaybackPlan {});
+        const float directPeak = direct.getMagnitude (0, direct.getNumSamples());
+        const auto* playValue = proc.parameters().getRawParameterValue ("deckAPlay");
+        const auto value = [&proc] (const char* id)
+        {
+            if (const auto* raw = proc.parameters().getRawParameterValue (id))
+                return raw->load();
+            return -999.0f;
+        };
+        std::cout << "state loaded=" << (proc.deckAt (0).getLoadedAudio() != nullptr)
+                  << " duration=" << proc.getDeckTotalSeconds (0)
+                  << " play=" << (playValue != nullptr ? playValue->load() : -1.0f)
+                  << " playhead=" << proc.getDeckPlayheadSeconds (0)
+                  << " type=" << (int) proc.getChannelType (0)
+                  << " muted=" << proc.isChannelMuted (0)
+                  << " soloed=" << proc.isChannelSoloed (0)
+                  << " deck peak=" << proc.getDeckPeak (0, 0)
+                  << " master peak=" << proc.getMasterPeak (0)
+                  << " output peak=" << peak
+                  << " vol=" << value ("deckAVolume")
+                  << " fader=" << value ("deckAFader")
+                  << " filter=" << value ("deckAFilter")
+                  << " full=" << value ("deckAStemFullGain")
+                  << " drums=" << value ("deckAStemDrumsGain")
+                  << " master=" << value ("masterGain")
+                  << " masterDrums=" << value ("masterStemDrumsGain")
+                  << " safe=" << value ("safePerformance") << '\n';
+        std::cout << "direct=" << directPeak
+                  << " keyLock=" << value ("deckAKeyLock")
+                  << " sync=" << value ("deckASync")
+                  << " hostSync=" << value ("hostSync")
+                  << " beatSync=" << value ("beatSync")
+                  << " pitch=" << value ("deckAPitch")
+                  << " low=" << value ("deckALow")
+                  << " mid=" << value ("deckAMid")
+                  << " high=" << value ("deckAHigh")
+                  << " stemFilt=" << value ("deckAStemDrumsFilt")
+                  << " stemSend=" << value ("deckAStemDrumsSend")
+                  << " master=" << value ("master") << '\n';
+        return peak > 1.0e-4f ? 0 : 1;
+    }
+
     std::vector<double> lengths;
     for (int i = 1; i < argc; ++i) lengths.push_back (juce::String (argv[i]).getDoubleValue());
     if (lengths.empty()) lengths = { 30.0, 120.0, 300.0 };
@@ -154,6 +237,21 @@ int main (int argc, char** argv)
         const auto fast = writeTestTrack (1.0, sr);
         MainPluginProcessor proc;
         proc.prepareToPlay (48000.0, 512);
+
+        // Replacing a separated source must not inherit its intentionally-muted
+        // full-mix lane. That state produced a moving playhead with silent output
+        // whenever the next song had no cached stems.
+        if (auto* fullGain = proc.parameters().getParameter ("deckAStemFullGain"))
+            fullGain->setValueNotifyingHost (fullGain->convertTo0to1 (0.0f));
+        proc.loadDeckFileAsync (0, fast);
+        const bool replacementAudible = std::abs (
+            proc.parameters().getRawParameterValue ("deckAStemFullGain")->load()
+                - stemdeck::stemgain::kUnity) < 0.01f;
+        if (! replacementAudible) ++over;
+        std::cout << "  replacement mix   "
+                  << (replacementAudible ? "[full mix audible]" : "[FULL MIX MUTED]")
+                  << std::endl;
+        proc.clearDeck (0);
 
         proc.loadDeckStemFileAsync (0, 1, fast);
         const auto stemDeadline = juce::Time::getMillisecondCounterHiRes() + 1000.0;

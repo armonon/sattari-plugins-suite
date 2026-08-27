@@ -244,6 +244,39 @@ struct StemDeckArrangementTestAccess
         check (view.midiClipNotes (1, 0).size() == 2,
                "redo restores piano-roll note edits");
 
+        // Library Up Next contract. Persistence is disabled so the test never
+        // touches a musician's real queue in Application Support.
+        juce::AudioFormatManager queueFormats;
+        queueFormats.registerBasicFormats();
+        MusicLibraryView queue (queueFormats, false);
+        const auto queueFixture = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getNonexistentChildFile ("stemdeck-up-next", {}, false);
+        queueFixture.createDirectory();
+        const auto firstSong = queueFixture.getChildFile ("First.wav");
+        const auto secondSong = queueFixture.getChildFile ("Second.wav");
+        firstSong.create();
+        secondSong.create();
+        check (queue.enqueueFile (firstSong) && queue.enqueueFile (secondSong)
+                   && queue.getQueueSize() == 2,
+               "library tracks enter an ordered Up Next queue");
+        check (queue.moveQueuedTrack (1, 0) && queue.getQueuedFile (0) == secondSong,
+               "Up Next tracks can be reordered deterministically");
+
+        bool shouldLoad = false;
+        queue.onLoadQueuedFile = [&] (const juce::File&, std::function<void(bool)> done)
+        {
+            done (shouldLoad);
+        };
+        check (queue.loadNextQueued() && queue.getQueueSize() == 2,
+               "cancelled deck replacement keeps the song in Up Next");
+        shouldLoad = true;
+        check (queue.loadNextQueued() && queue.getQueueSize() == 1
+                   && queue.getQueuedFile (0) == firstSong,
+               "successful deck loading advances Up Next exactly once");
+        check (queue.removeQueuedTrack (0) && queue.getQueueSize() == 0,
+               "queued tracks can be removed without loading them");
+        queueFixture.deleteRecursively();
+
         // Whole-project migration and compact/accessibility gates. These exercise
         // the actual editor loader rather than only the nested arrangement state.
         MainPluginProcessor processor;

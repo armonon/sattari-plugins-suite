@@ -128,6 +128,46 @@ void expectBeatSyncUsesPerDeckSourceBpmAndOffset()
         fail ("beat sync did not jump to the expected per-deck BPM beat-grid position: first=" + std::to_string (first));
 }
 
+void expectWaveformSeekPersistsWhileStoppedAndSynced()
+{
+    DeckPlayer deck;
+    deck.prepare (sampleRate, 512, 2);
+    deck.setLoadedAudio (makeRampAudio (4.0));
+
+    // A paused deck does not enter process(), so the public playhead itself must
+    // reflect the scrub immediately rather than waiting for an audio callback.
+    deck.seekToSamples (sampleRate * 1.5);
+    if (std::abs (deck.getPlayheadReferenceSamples() - sampleRate * 1.5) > 1.0)
+        fail ("paused waveform seek did not retain its requested position");
+
+    std::array<float, DeckPlayer::numStemLanes> gains {};
+    gains[(size_t) DeckPlayer::fullMixStem] = 1.0f;
+    const auto decision = TimePitchEngine::decide ({ 1.0f, 0.0f, false });
+
+    BeatSyncEngine::TrackBeatGrid grid;
+    grid.userBpm = 120.0f;
+    grid.syncMode = BeatSyncEngine::SyncMode::strict;
+
+    juce::AudioBuffer<float> first (2, 8), next (2, 8);
+    first.clear(); next.clear();
+    auto plan = BeatSyncEngine::makePlaybackPlan (
+        { 120.0, true, 1.0 }, grid, sampleRate, sampleRate * 4.0, true);
+    deck.process (first, 0, first.getNumSamples(), true, 0.0f, 1.0f,
+                  0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                  decision, gains, {}, plan);
+
+    // The 1.5-second seek should establish a +1.0-second phrase offset from the
+    // master-locked 0.5-second position. Advancing the master by 0.1 beat must
+    // advance from 1.5 seconds, not snap back near 0.55 seconds.
+    plan = BeatSyncEngine::makePlaybackPlan (
+        { 120.0, true, 1.1 }, grid, sampleRate, sampleRate * 4.0, true);
+    deck.process (next, 0, next.getNumSamples(), true, 0.0f, 1.0f,
+                  0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                  decision, gains, {}, plan);
+    if (next.getSample (0, 0) < 0.30f)
+        fail ("synced waveform seek snapped back to the host's old phrase position");
+}
+
 void expectBeatSyncModesAndTempoInterpretation()
 {
     TrackAnalysis analysis;
@@ -236,6 +276,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
     expectDecisionRouting();
     expectBeatSyncUsesPerDeckSourceBpmAndOffset();
+    expectWaveformSeekPersistsWhileStoppedAndSynced();
     expectBeatSyncModesAndTempoInterpretation();
     expectLiveKeyWindowAnalysis();
 

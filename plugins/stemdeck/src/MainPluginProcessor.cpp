@@ -420,10 +420,20 @@ void MainPluginProcessor::restoreChannelsFromState()
         for (int i = 0; i < kDefaultChannels; ++i)
             rebuilt.push_back (makeChannel (i, ChannelType::trackDeck));
 
+    // setStateInformation() may run after prepareToPlay(), but AudioProcessor's
+    // getBlockSize() is not guaranteed to mirror a direct prepareToPlay call (and
+    // some wrappers report zero while restoring state). Preparing rebuilt channels
+    // with that value produced one-sample scratch buffers: their RT guard then
+    // rejected every normal device block, leaving the transport UI running while
+    // the playhead and audio remained completely silent. Use the values captured
+    // by prepareToPlay, with a safe pre-prepare fallback.
+    const int restoreBlockSize = preparedBlockSize > 0 ? preparedBlockSize
+                                                       : juce::jmax (1, getBlockSize());
+    const int restoreOutputChannels = juce::jmax (1, getChannelCountOfBus (false, 0));
     for (auto& ch : rebuilt)
         ch->prepare (currentSampleRate > 0.0 ? currentSampleRate : 44100.0,
-                     juce::jmax (1, getBlockSize()),
-                     juce::jmax (1, getTotalNumOutputChannels()));
+                     restoreBlockSize,
+                     restoreOutputChannels);
 
     channels = std::move (rebuilt);
     publishChannels();
@@ -2639,6 +2649,18 @@ void MainPluginProcessor::loadDeckFileAsync (int deckIndex, const juce::File& fi
         deckAt (deckIndex).setStemAudio (lane, {});
         setStatePathProperty (deckStemPathProperty (deckIndex, lane), {});
     }
+
+    // A replacement song begins as a full-mix source. A previously separated song
+    // leaves StemFullGain at 0% by design; carrying that value into the replacement
+    // made the new deck's transport advance while producing absolute silence until
+    // the user found the hidden full-mix lane. Make every newly loaded song audible
+    // immediately. If cached stems are subsequently restored/generated,
+    // applyPremiumStemMix() will lower this lane again once all four are ready.
+    if (auto* fullGain = dynamic_cast<juce::AudioParameterFloat*> (
+            apvts.getParameter (deckPrefix (deckIndex) + "StemFullGain")))
+        fullGain->setValueNotifyingHost (
+            fullGain->convertTo0to1 (stemdeck::stemgain::kUnity));
+
     loadDeckStemFileAsync (deckIndex, DeckPlayer::fullMixStem, file,
                            allowNeuralRefinement);
 }
@@ -4488,10 +4510,29 @@ void MainPluginProcessor::restoreFileAssignmentsFromState()
             stemPaths[(size_t) lane] =
                 apvts.state.getProperty (deckStemPathProperty (i, lane)).toString();
 
+        bool hasRestorableCoreStems = true;
+        for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
+            hasRestorableCoreStems = hasRestorableCoreStems
+                                  && juce::File (stemPaths[(size_t) lane]).existsAsFile();
+
+        float savedFullMixGain = stemdeck::stemgain::kUnity;
+        if (auto* fullGain = dynamic_cast<juce::AudioParameterFloat*> (
+                apvts.getParameter (deckPrefix (i) + "StemFullGain")))
+            savedFullMixGain = fullGain->get();
+
         // Snapshot lane paths before starting the full-mix request: a deliberate
         // source replacement clears old stem assignments immediately.
         if (path.isNotEmpty())
             loadDeckFileAsync (i, juce::File (path), false);
+
+        // Preserve a deliberate full/stem blend only when every separated source
+        // can actually be restored. A stale 0% full lane with missing/no stem files
+        // is an invalid silent state, so the load-time unity recovery must win.
+        if (hasRestorableCoreStems)
+            if (auto* fullGain = dynamic_cast<juce::AudioParameterFloat*> (
+                    apvts.getParameter (deckPrefix (i) + "StemFullGain")))
+                fullGain->setValueNotifyingHost (
+                    fullGain->convertTo0to1 (savedFullMixGain));
 
         for (int lane = 1; lane < DeckPlayer::numStemLanes; ++lane)
         {
@@ -4665,6 +4706,30 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
         return;
 
     auto tree = juce::ValueTree::fromXml (*xml);
+
+    // Projects written before a parameter was introduced can contain either no
+    // PARAM node for it or an empty `<PARAM id="..."/>` placeholder. APVTS treats
+    // the latter as numeric zero during replaceState(), which is unsafe for values
+    // whose declared default is non-zero. In particular, the later-added master
+    // stem gains restored as 0%: a full-mix deck then entered real-time separation
+    // and re-summed four muted stems, producing a moving playhead and digital
+    // silence. Backfill every absent/valueless parameter from the current layout's
+    // declared default before applying version-specific migrations.
+    const auto defaults = apvts.copyState();
+    for (int i = 0; i < defaults.getNumChildren(); ++i)
+    {
+        const auto defaultNode = defaults.getChild (i);
+        if (! defaultNode.hasType ("PARAM") || ! defaultNode.hasProperty ("id"))
+            continue;
+
+        const auto id = defaultNode.getProperty ("id");
+        auto restoredNode = tree.getChildWithProperty ("id", id);
+        if (! restoredNode.isValid())
+            tree.appendChild (defaultNode.createCopy(), nullptr);
+        else if (! restoredNode.hasProperty ("value"))
+            restoredNode.setProperty ("value",
+                                      defaultNode.getProperty ("value"), nullptr);
+    }
 
     // ── Schema migration (ONE-WAY DOOR, see StemGain.h) ─────────────────────────
     // v1 stored stem gain in dB over [-60,+12] where 0.0 meant UNITY. v2 stores a

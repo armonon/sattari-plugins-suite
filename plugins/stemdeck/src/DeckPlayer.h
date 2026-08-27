@@ -159,6 +159,10 @@ private:
     std::atomic<int> timeStretchLatency { 0 };
     std::shared_ptr<const TrackAnalysis> refinedAnalysis;   // atomic_load/store only
     std::atomic<double> pendingSeekSamples    { -1.0 };
+    // A manual seek on a phase-locked deck establishes a new phrase offset from
+    // the master transport. Without this, the next audio block's strict sync plan
+    // overwrites the seek and the waveform visibly snaps back.
+    double              manualSyncOffsetSamples = 0.0; // audio thread only
     std::atomic<double> loopInRefSamples      { -1.0 };
     std::atomic<double> loopOutRefSamples     { -1.0 };
     std::atomic<bool>   loopActiveFlag        { false };

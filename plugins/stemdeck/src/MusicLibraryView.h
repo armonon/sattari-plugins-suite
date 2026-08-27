@@ -18,6 +18,7 @@
  */
 class MusicLibraryView final : public juce::Component,
                                public juce::FileDragAndDropTarget,
+                               public juce::DragAndDropTarget,
                                private juce::TableListBoxModel,
                                private juce::Timer
 {
@@ -33,10 +34,12 @@ public:
         double durationSeconds = 0.0;
     };
 
-    explicit MusicLibraryView (juce::AudioFormatManager& formatManager);
+    explicit MusicLibraryView (juce::AudioFormatManager& formatManager,
+                               bool persistQueue = true);
     ~MusicLibraryView() override;
 
     std::function<void(const juce::File&)> onLoadFile;
+    std::function<void(const juce::File&, std::function<void(bool)>)> onLoadQueuedFile;
     std::function<void(const std::array<juce::File, 4>&)> onLoadSet;   // confirmed set proposal → decks A-D
     std::function<void(const juce::File&)> onTogglePreview;
     std::function<void()> onStopPreview;
@@ -47,6 +50,17 @@ public:
     void addFolder (const juce::File& folder, bool persist = true);
     void addFiles (const juce::Array<juce::File>& files);
     void restorePersistedCrates();           // reload saved crates on launch
+
+    // The performance queue is intentionally owned by the library: it remains
+    // available while moving between surfaces and feeds the normal guarded deck
+    // loader instead of creating a second playback path.
+    bool enqueueFile (const juce::File& file);
+    bool loadNextQueued();
+    bool removeQueuedTrack (int index);
+    bool moveQueuedTrack (int fromIndex, int toIndex);
+    void clearQueue();
+    int getQueueSize() const noexcept { return (int) playQueue.size(); }
+    juce::File getQueuedFile (int index) const;
 
     // Generative set builder: parse BPM / key / mood from a free-text prompt and
     // rank the analyzed library by BPM proximity + Camelot harmony + mood bias.
@@ -66,6 +80,11 @@ public:
     void fileDragEnter (const juce::StringArray&, int, int) override;
     void fileDragExit (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
+    bool isInterestedInDragSource (const SourceDetails&) override;
+    void itemDragEnter (const SourceDetails&) override;
+    void itemDragMove (const SourceDetails&) override;
+    void itemDragExit (const SourceDetails&) override;
+    void itemDropped (const SourceDetails&) override;
 
 private:
     enum ColumnId { colIndex = 1, colTitle, colBpm, colKey, colLength, colStatus };
@@ -84,6 +103,18 @@ private:
         bool         favourite = false;
         int          rating = 0;
         juce::String tags;
+    };
+
+    struct QueueListModel final : public juce::ListBoxModel
+    {
+        explicit QueueListModel (MusicLibraryView& ownerIn) : owner (ownerIn) {}
+        int getNumRows() override;
+        void paintListBoxItem (int row, juce::Graphics&, int width, int height,
+                               bool selected) override;
+        void selectedRowsChanged (int lastRowSelected) override;
+        void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
+        juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override;
+        MusicLibraryView& owner;
     };
 
     // TableListBoxModel
@@ -117,6 +148,12 @@ private:
     void removeSelectedCrate();
     juce::File selectedFile() const;
     void toggleSelectedPreview();
+    void enqueueSelected();
+    void previewQueuedSelection();
+    void refreshQueueControls();
+    void markFileLoaded (const juce::File& file);
+    void loadQueue();
+    void saveQueue() const;
     void loadProposedSet();
     void refreshPreparationControls();
     void saveSelectedPreparationMetadata();
@@ -133,6 +170,7 @@ private:
     juce::TextButton    removeFolderButton { "Remove" };
     juce::TextButton    clearButton     { "Clean" };
     juce::TextButton    loadButton      { "Load Selected" };
+    juce::TextButton    queueButton     { "Queue Selected" };
     juce::TextButton    previewButton   { "Preview" };
     juce::TextButton    stopPreviewButton { "Stop" };
     juce::Slider        previewPosition;
@@ -145,11 +183,25 @@ private:
     juce::ComboBox      ratingBox;
     juce::TextEditor    tagsBox;
 
+    QueueListModel      queueListModel { *this };
+    juce::ListBox       queueList { "up-next", &queueListModel };
+    juce::Label         queueTitle;
+    juce::Label         queueCount;
+    juce::TextButton    queueDisclosureButton { "Show" };
+    juce::TextButton    loadNextButton { "Load Next" };
+    juce::TextButton    queuePreviewButton { "Preview" };
+    juce::TextButton    queueUpButton { "Up" };
+    juce::TextButton    queueDownButton { "Down" };
+    juce::TextButton    queueRemoveButton { "Remove" };
+    juce::TextButton    queueClearButton { "Clear" };
+
     juce::Rectangle<int> headerBounds;
     juce::Rectangle<int> tableBounds;
+    juce::Rectangle<int> queueBounds;
 
     std::vector<Entry> entries;
     std::vector<int>   view;            // filtered + sorted indices into entries
+    std::vector<juce::File> playQueue;
     juce::StringArray  crateFolders;
 
     juce::String filterText;
@@ -170,6 +222,11 @@ private:
     std::unique_ptr<juce::FileChooser> folderChooser;
     bool updatingPreviewUi = false;
     bool fileDragOver = false;
+    bool queueDragOver = false;
+    bool queueLoadPending = false;
+    bool queuePersistenceEnabled = true;
+    bool compactQueueLayout = false;
+    bool compactQueueExpanded = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MusicLibraryView)
 };

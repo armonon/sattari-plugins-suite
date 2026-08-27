@@ -25,8 +25,8 @@ const int kMajorCamelot[12] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };
 const int kMinorCamelot[12] = { 5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10 };
 }
 
-MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
-    : formatManager (fm)
+MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm, bool persistQueue)
+    : formatManager (fm), queuePersistenceEnabled (persistQueue)
 {
     using namespace stemdeck;
     cache = new juce::DynamicObject();
@@ -158,6 +158,11 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     };
     addAndMakeVisible (loadButton);
 
+    queueButton.setEnabled (false);
+    queueButton.setTooltip ("Add the selected track to Up Next without changing a deck");
+    queueButton.onClick = [this] { enqueueSelected(); };
+    addAndMakeVisible (queueButton);
+
     previewButton.setEnabled (false);
     previewButton.setTooltip ("Audition the selected track without loading a deck");
     previewButton.onClick = [this] { toggleSelectedPreview(); };
@@ -218,9 +223,66 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm)
     tagsBox.onFocusLost = [this] { saveSelectedPreparationMetadata(); };
     addAndMakeVisible (tagsBox);
 
+    queueTitle.setText ("UP NEXT", juce::dontSendNotification);
+    queueTitle.setFont (tokens::section (13.0f));
+    queueTitle.setColour (juce::Label::textColourId, tokens::c (tokens::fgPrimary));
+    queueTitle.setJustificationType (juce::Justification::centredLeft);
+    addAndMakeVisible (queueTitle);
+
+    queueCount.setFont (tokens::technical (9.0f, true));
+    queueCount.setColour (juce::Label::textColourId, tokens::c (tokens::deckA));
+    queueCount.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (queueCount);
+
+    queueDisclosureButton.setTooltip ("Show or hide the Up Next song queue");
+    queueDisclosureButton.onClick = [this]
+    {
+        compactQueueExpanded = ! compactQueueExpanded;
+        resized();
+        repaint();
+    };
+    addAndMakeVisible (queueDisclosureButton);
+
+    queueList.setRowHeight (38);
+    queueList.setColour (juce::ListBox::backgroundColourId, tokens::c (tokens::bgWell));
+    queueList.setColour (juce::ListBox::outlineColourId, tokens::c (tokens::borderSubtle));
+    queueList.setOutlineThickness (1);
+    queueList.setMultipleSelectionEnabled (false);
+    addAndMakeVisible (queueList);
+
+    loadNextButton.setTooltip ("Load the first Up Next track using normal deck-safety checks");
+    loadNextButton.onClick = [this] { loadNextQueued(); };
+    addAndMakeVisible (loadNextButton);
+    queuePreviewButton.setTooltip ("Audition the selected queued track");
+    queuePreviewButton.onClick = [this] { previewQueuedSelection(); };
+    addAndMakeVisible (queuePreviewButton);
+    queueUpButton.onClick = [this]
+    {
+        const int row = queueList.getSelectedRow();
+        if (moveQueuedTrack (row, row - 1)) queueList.selectRow (row - 1);
+    };
+    queueDownButton.onClick = [this]
+    {
+        const int row = queueList.getSelectedRow();
+        if (moveQueuedTrack (row, row + 1)) queueList.selectRow (row + 1);
+    };
+    queueRemoveButton.onClick = [this]
+    {
+        const int row = queueList.getSelectedRow();
+        if (removeQueuedTrack (row) && ! playQueue.empty())
+            queueList.selectRow (juce::jmin (row, (int) playQueue.size() - 1));
+    };
+    queueClearButton.onClick = [this] { clearQueue(); };
+    addAndMakeVisible (queueUpButton);
+    addAndMakeVisible (queueDownButton);
+    addAndMakeVisible (queueRemoveButton);
+    addAndMakeVisible (queueClearButton);
+
     refreshPreparationControls();
 
     loadCache();
+    loadQueue();
+    refreshQueueControls();
     startTimerHz (20);
 }
 
@@ -230,6 +292,250 @@ MusicLibraryView::~MusicLibraryView()
     analysisPool.removeAllJobs (true, 2000);
     if (cacheDirty.load())
         saveCacheSoon();
+}
+
+int MusicLibraryView::QueueListModel::getNumRows()
+{
+    return (int) owner.playQueue.size();
+}
+
+void MusicLibraryView::QueueListModel::paintListBoxItem (int row, juce::Graphics& g,
+                                                          int width, int height,
+                                                          bool selected)
+{
+    using namespace stemdeck;
+    if (! juce::isPositiveAndBelow (row, (int) owner.playQueue.size())) return;
+    const auto& file = owner.playQueue[(size_t) row];
+
+    if (selected)
+    {
+        g.setColour (tokens::c (tokens::selected).withAlpha (0.18f));
+        g.fillRect (0, 0, width, height);
+    }
+    else if (row % 2 != 0)
+    {
+        g.setColour (tokens::c (tokens::bgPanel2).withAlpha (0.35f));
+        g.fillRect (0, 0, width, height);
+    }
+
+    auto area = juce::Rectangle<int> (0, 0, width, height).reduced (7, 3);
+    auto number = area.removeFromLeft (26);
+    g.setColour (row == 0 ? tokens::c (tokens::deckA) : tokens::c (tokens::fgMuted));
+    g.setFont (tokens::technical (9.5f, true));
+    g.drawText (juce::String (row + 1), number, juce::Justification::centredLeft);
+
+    juce::String detail;
+    for (const auto& entry : owner.entries)
+        if (entry.file == file)
+        {
+            if (entry.bpm > 0.0f) detail << juce::String (entry.bpm, 1) << " BPM";
+            const auto key = owner.camelotCode (entry.keyPitchClass, entry.keyMinor);
+            if (key.isNotEmpty()) detail << (detail.isEmpty() ? "" : "  ") << key;
+            break;
+        }
+
+    g.setColour (file.existsAsFile() ? tokens::c (tokens::fgPrimary)
+                                     : tokens::c (tokens::meterHot));
+    g.setFont (tokens::technical (10.0f, true));
+    g.drawFittedText (file.getFileNameWithoutExtension(), area.removeFromTop (18),
+                      juce::Justification::centredLeft, 1);
+    g.setColour (tokens::c (tokens::fgMuted));
+    g.setFont (tokens::technical (8.5f));
+    g.drawText (file.existsAsFile() ? (detail.isNotEmpty() ? detail : "Ready to load") : "Missing file",
+                area, juce::Justification::centredLeft);
+}
+
+void MusicLibraryView::QueueListModel::selectedRowsChanged (int)
+{
+    owner.refreshQueueControls();
+}
+
+void MusicLibraryView::QueueListModel::listBoxItemDoubleClicked (int row,
+                                                                 const juce::MouseEvent&)
+{
+    if (juce::isPositiveAndBelow (row, (int) owner.playQueue.size()))
+    {
+        owner.queueList.selectRow (row);
+        owner.previewQueuedSelection();
+    }
+}
+
+juce::var MusicLibraryView::QueueListModel::getDragSourceDescription (
+    const juce::SparseSet<int>& rows)
+{
+    juce::Array<juce::File> files;
+    for (int i = 0; i < rows.size(); ++i)
+        if (juce::isPositiveAndBelow (rows[i], (int) owner.playQueue.size()))
+            files.add (owner.playQueue[(size_t) rows[i]]);
+    return files.isEmpty() ? juce::var() : stemdeck::drag::makeAudioFiles (files);
+}
+
+bool MusicLibraryView::enqueueFile (const juce::File& file)
+{
+    if (! stemdeck::drag::isSupportedAudioFile (file)) return false;
+    playQueue.push_back (file);
+    queueList.updateContent();
+    queueList.selectRow ((int) playQueue.size() - 1);
+    saveQueue();
+    refreshQueueControls();
+    repaint (queueBounds);
+    return true;
+}
+
+juce::File MusicLibraryView::getQueuedFile (int index) const
+{
+    return juce::isPositiveAndBelow (index, (int) playQueue.size())
+        ? playQueue[(size_t) index] : juce::File();
+}
+
+bool MusicLibraryView::loadNextQueued()
+{
+    if (queueLoadPending) return false;
+    while (! playQueue.empty() && ! playQueue.front().existsAsFile())
+        playQueue.erase (playQueue.begin());
+    if (playQueue.empty())
+    {
+        saveQueue();
+        queueList.updateContent();
+        refreshQueueControls();
+        return false;
+    }
+
+    const auto file = playQueue.front();
+    auto completion = [safe = juce::Component::SafePointer<MusicLibraryView> (this), file]
+                      (bool loaded)
+    {
+        if (safe == nullptr) return;
+        safe->queueLoadPending = false;
+        if (loaded && ! safe->playQueue.empty() && safe->playQueue.front() == file)
+        {
+            safe->markFileLoaded (file);
+            safe->playQueue.erase (safe->playQueue.begin());
+            safe->saveQueue();
+            safe->queueList.updateContent();
+            if (! safe->playQueue.empty()) safe->queueList.selectRow (0);
+        }
+        safe->refreshQueueControls();
+        safe->repaint (safe->queueBounds);
+    };
+
+    queueLoadPending = true;
+    refreshQueueControls();
+    if (onStopPreview) onStopPreview();
+    if (onLoadQueuedFile)
+        onLoadQueuedFile (file, std::move (completion));
+    else if (onLoadFile)
+    {
+        onLoadFile (file);
+        completion (true);
+    }
+    else
+        completion (false);
+    return true;
+}
+
+bool MusicLibraryView::removeQueuedTrack (int index)
+{
+    if (queueLoadPending || ! juce::isPositiveAndBelow (index, (int) playQueue.size())) return false;
+    playQueue.erase (playQueue.begin() + index);
+    saveQueue();
+    queueList.updateContent();
+    refreshQueueControls();
+    repaint (queueBounds);
+    return true;
+}
+
+bool MusicLibraryView::moveQueuedTrack (int fromIndex, int toIndex)
+{
+    if (queueLoadPending || ! juce::isPositiveAndBelow (fromIndex, (int) playQueue.size())
+        || ! juce::isPositiveAndBelow (toIndex, (int) playQueue.size()) || fromIndex == toIndex)
+        return false;
+    auto file = playQueue[(size_t) fromIndex];
+    playQueue.erase (playQueue.begin() + fromIndex);
+    playQueue.insert (playQueue.begin() + toIndex, std::move (file));
+    saveQueue();
+    queueList.updateContent();
+    refreshQueueControls();
+    return true;
+}
+
+void MusicLibraryView::clearQueue()
+{
+    if (queueLoadPending) return;
+    playQueue.clear();
+    queueList.deselectAllRows();
+    queueList.updateContent();
+    saveQueue();
+    refreshQueueControls();
+    repaint (queueBounds);
+}
+
+void MusicLibraryView::enqueueSelected()
+{
+    enqueueFile (selectedFile());
+}
+
+void MusicLibraryView::previewQueuedSelection()
+{
+    const auto file = getQueuedFile (queueList.getSelectedRow());
+    if (file.existsAsFile() && onTogglePreview) onTogglePreview (file);
+}
+
+void MusicLibraryView::refreshQueueControls()
+{
+    const int selected = queueList.getSelectedRow();
+    const bool valid = juce::isPositiveAndBelow (selected, (int) playQueue.size());
+    const bool canEdit = valid && ! queueLoadPending;
+    queueCount.setText (playQueue.empty() ? "QUEUE EMPTY"
+                                         : juce::String ((int) playQueue.size()) + " SONG"
+                                           + (playQueue.size() == 1 ? "" : "S"),
+                        juce::dontSendNotification);
+    loadNextButton.setButtonText (queueLoadPending ? "Loading..." : "Load Next");
+    loadNextButton.setEnabled (! playQueue.empty() && ! queueLoadPending);
+    queuePreviewButton.setEnabled (valid && getQueuedFile (selected).existsAsFile());
+    queueUpButton.setEnabled (canEdit && selected > 0);
+    queueDownButton.setEnabled (canEdit && selected + 1 < (int) playQueue.size());
+    queueRemoveButton.setEnabled (canEdit);
+    queueClearButton.setEnabled (! playQueue.empty() && ! queueLoadPending);
+}
+
+void MusicLibraryView::markFileLoaded (const juce::File& file)
+{
+    for (auto& entry : entries)
+        if (entry.file == file)
+        {
+            entry.lastLoadedMs = juce::Time::currentTimeMillis();
+            if (auto* object = cache->getProperty (file.getFullPathName()).getDynamicObject())
+                object->setProperty ("last", (double) entry.lastLoadedMs);
+            cacheDirty.store (true);
+            break;
+        }
+}
+
+void MusicLibraryView::loadQueue()
+{
+    if (! queuePersistenceEnabled) return;
+    const auto file = appDataDir().getChildFile ("library-queue.json");
+    if (! file.existsAsFile()) return;
+    const auto parsed = juce::JSON::parse (file);
+    if (auto* array = parsed.getArray())
+        for (const auto& item : *array)
+        {
+            const juce::File queued (item.toString());
+            if (stemdeck::drag::isSupportedAudioFile (queued))
+                playQueue.push_back (queued);
+        }
+    queueList.updateContent();
+    if (! playQueue.empty()) queueList.selectRow (0);
+}
+
+void MusicLibraryView::saveQueue() const
+{
+    if (! queuePersistenceEnabled) return;
+    juce::Array<juce::var> paths;
+    for (const auto& file : playQueue) paths.add (file.getFullPathName());
+    appDataDir().getChildFile ("library-queue.json")
+        .replaceWithText (juce::JSON::toString (juce::var (paths), true));
 }
 
 // ── Crates / scanning ─────────────────────────────────────────────────────────
@@ -1061,6 +1367,7 @@ void MusicLibraryView::selectedRowsChanged (int lastRowSelected)
     const bool valid = juce::isPositiveAndBelow (lastRowSelected, (int) view.size())
                     && entries[(size_t) view[(size_t) lastRowSelected]].file.existsAsFile();
     loadButton.setEnabled (valid);
+    queueButton.setEnabled (valid);
     previewButton.setEnabled (valid);
     refreshPreparationControls();
 }
@@ -1303,8 +1610,75 @@ void MusicLibraryView::resized()
     promptBox.setBounds (promptRow);
 
     area.removeFromTop (tokens::gap6);
+
+    // Keep Up Next continuously visible. Wide layouts use a proper right rail;
+    // compact layouts use a shallow bottom drawer so the track table remains usable.
+    compactQueueLayout = area.getHeight() < 500;
+    const bool showQueueContents = ! compactQueueLayout || compactQueueExpanded;
+    if (area.getWidth() >= 820)
+    {
+        queueBounds = area.removeFromRight (juce::jlimit (240, 292, area.getWidth() / 3));
+        area.removeFromRight (tokens::gap6);
+    }
+    else
+    {
+        const int queueHeight = showQueueContents
+            ? juce::jlimit (112, 168, area.getHeight() / 3) : 34;
+        queueBounds = area.removeFromBottom (queueHeight);
+        area.removeFromBottom (tokens::gap6);
+    }
+
+    auto queueArea = queueBounds.reduced (9);
+    auto queueHeader = queueArea.removeFromTop (24);
+    queueDisclosureButton.setVisible (compactQueueLayout);
+    if (compactQueueLayout)
+    {
+        queueDisclosureButton.setButtonText (compactQueueExpanded ? "Hide" : "Show");
+        queueDisclosureButton.setBounds (queueHeader.removeFromRight (46));
+        queueHeader.removeFromRight (tokens::gap3);
+    }
+    queueCount.setBounds (queueHeader.removeFromRight (88));
+    queueTitle.setBounds (queueHeader);
+    queueArea.removeFromTop (tokens::gap4);
+    queueList.setVisible (showQueueContents);
+    loadNextButton.setVisible (showQueueContents);
+    queuePreviewButton.setVisible (showQueueContents);
+    queueUpButton.setVisible (showQueueContents);
+    queueDownButton.setVisible (showQueueContents);
+    queueRemoveButton.setVisible (showQueueContents);
+    queueClearButton.setVisible (showQueueContents);
+    if (! showQueueContents)
+    {
+        queueList.setBounds ({});
+        loadNextButton.setBounds ({});
+        queuePreviewButton.setBounds ({});
+        queueUpButton.setBounds ({});
+        queueDownButton.setBounds ({});
+        queueRemoveButton.setBounds ({});
+        queueClearButton.setBounds ({});
+    }
+    else
+    {
+    auto queueActions = queueArea.removeFromBottom (60);
+    auto primaryQueueActions = queueActions.removeFromTop (28);
+    const int primaryWidth = (primaryQueueActions.getWidth() - tokens::gap3) / 2;
+    loadNextButton.setBounds (primaryQueueActions.removeFromLeft (primaryWidth));
+    primaryQueueActions.removeFromLeft (tokens::gap3);
+    queuePreviewButton.setBounds (primaryQueueActions);
+    queueActions.removeFromTop (tokens::gap3);
+    const int compactButton = juce::jmax (1, queueActions.getWidth() / 4);
+    queueUpButton.setBounds (queueActions.removeFromLeft (compactButton));
+    queueDownButton.setBounds (queueActions.removeFromLeft (compactButton));
+    queueRemoveButton.setBounds (queueActions.removeFromLeft (compactButton));
+    queueClearButton.setBounds (queueActions);
+    queueArea.removeFromBottom (tokens::gap4);
+    queueList.setBounds (queueArea);
+    }
+
     auto footer = area.removeFromBottom (32);
     loadButton.setBounds (footer.removeFromRight (126));
+    footer.removeFromRight (tokens::gap5);
+    queueButton.setBounds (footer.removeFromRight (118));
     footer.removeFromRight (tokens::gap5);
     countLabel.setBounds (footer);
     area.removeFromBottom (tokens::gap6);
@@ -1357,14 +1731,57 @@ void MusicLibraryView::fileDragExit (const juce::StringArray&)
     repaint();
 }
 
-void MusicLibraryView::filesDropped (const juce::StringArray& files, int, int)
+void MusicLibraryView::filesDropped (const juce::StringArray& files, int x, int y)
 {
     fileDragOver = false;
     juce::Array<juce::File> imported;
     for (const auto& path : files)
         imported.add (juce::File (path));
     addFiles (imported);
+    if (queueBounds.contains (x, y))
+        for (const auto& file : imported)
+            enqueueFile (file);
     repaint();
+}
+
+bool MusicLibraryView::isInterestedInDragSource (const SourceDetails& details)
+{
+    return ! stemdeck::drag::audioFiles (details.description).isEmpty();
+}
+
+void MusicLibraryView::itemDragEnter (const SourceDetails& details)
+{
+    queueDragOver = queueBounds.contains (details.localPosition);
+    repaint (queueBounds);
+}
+
+void MusicLibraryView::itemDragMove (const SourceDetails& details)
+{
+    const bool over = queueBounds.contains (details.localPosition);
+    if (queueDragOver != over)
+    {
+        queueDragOver = over;
+        repaint (queueBounds);
+    }
+}
+
+void MusicLibraryView::itemDragExit (const SourceDetails&)
+{
+    queueDragOver = false;
+    repaint (queueBounds);
+}
+
+void MusicLibraryView::itemDropped (const SourceDetails& details)
+{
+    queueDragOver = false;
+    const auto files = stemdeck::drag::audioFiles (details.description);
+    if (queueBounds.contains (details.localPosition))
+    {
+        addFiles (files);
+        for (const auto& file : files)
+            enqueueFile (file);
+    }
+    repaint (queueBounds);
 }
 
 void MusicLibraryView::paint (juce::Graphics& g)
@@ -1375,6 +1792,24 @@ void MusicLibraryView::paint (juce::Graphics& g)
     g.fillRoundedRectangle (panel, tokens::radiusPanel);
     g.setColour (tokens::c (tokens::borderSubtle));
     g.drawRoundedRectangle (panel.reduced (0.5f), tokens::radiusPanel, 1.0f);
+
+    if (! queueBounds.isEmpty())
+    {
+        g.setColour (tokens::c (tokens::bgPanel2));
+        g.fillRoundedRectangle (queueBounds.toFloat(), tokens::radiusWell);
+        g.setColour (queueDragOver ? tokens::c (tokens::deckA)
+                                  : tokens::c (tokens::borderSubtle));
+        g.drawRoundedRectangle (queueBounds.toFloat().reduced (0.5f), tokens::radiusWell,
+                                queueDragOver ? 2.0f : 1.0f);
+        if (playQueue.empty())
+        {
+            g.setColour (tokens::c (tokens::fgMuted));
+            g.setFont (tokens::technical (9.5f));
+            g.drawFittedText (queueDragOver ? "DROP TO ADD UP NEXT"
+                                           : "Queue tracks here for your next move",
+                              queueList.getBounds().reduced (14), juce::Justification::centred, 2);
+        }
+    }
 
     auto header = headerBounds;
     auto rail = header.removeFromLeft (3).reduced (0, 4);

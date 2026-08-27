@@ -61,6 +61,8 @@ void DeckPlayer::reset()
 {
     playheadSamples = 0.0;
     publicPlayheadSamples.store (0.0, std::memory_order_relaxed);
+    pendingSeekSamples.store (-1.0, std::memory_order_relaxed);
+    manualSyncOffsetSamples = 0.0;
     eq.reset();
     filter.reset();
 #if SATTARI_STEMDECK_HAS_RUBBERBAND
@@ -110,6 +112,8 @@ void DeckPlayer::seekStart()
 {
     playheadSamples = 0.0;
     publicPlayheadSamples.store (0.0, std::memory_order_relaxed);
+    pendingSeekSamples.store (-1.0, std::memory_order_relaxed);
+    manualSyncOffsetSamples = 0.0;
 #if SATTARI_STEMDECK_HAS_RUBBERBAND
     rubberBandSourceReadSamples = 0.0;
     resetRubberBand();
@@ -118,7 +122,12 @@ void DeckPlayer::seekStart()
 
 void DeckPlayer::seekToSamples (double referenceSamples)
 {
-    pendingSeekSamples.store (juce::jmax (0.0, referenceSamples), std::memory_order_relaxed);
+    const double target = juce::jmax (0.0, referenceSamples);
+    pendingSeekSamples.store (target, std::memory_order_release);
+    // Publish the requested position immediately. In the stopped state process()
+    // is intentionally not entered, but the waveform/timer must still retain the
+    // user's scrub position instead of repainting from the previous playhead.
+    publicPlayheadSamples.store (target, std::memory_order_release);
 }
 
 void DeckPlayer::setLoopRegion (double inSamples, double outSamples)
@@ -342,10 +351,15 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
     // the granular seek-consume block, so otherwise a hot-cue/beat jump would be
     // dropped and fire stale later. seekTarget is in reference samples.
     {
-        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
+        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_acq_rel);
         if (seekTarget >= 0.0)
         {
             rubberBandSourceReadSamples = wrapPosition (seekTarget, sourceLength);
+            playheadSamples = rubberBandSourceReadSamples;
+            manualSyncOffsetSamples = beatSyncPlan.syncEnabled
+                                   && beatSyncPlan.hasLockedSourcePosition
+                ? seekTarget - beatSyncPlan.lockedSourcePositionSamples
+                : 0.0;
             resetRubberBand();
             if (slipShadowSamples >= 0.0)
                 slipShadowSamples = seekTarget;
@@ -354,12 +368,22 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
 
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
     {
-        const double locked = wrapPosition (beatSyncPlan.lockedSourcePositionSamples, sourceLength);
-        const double delta = std::abs (locked - wrapPosition (rubberBandSourceReadSamples, sourceLength));
+        const double locked = wrapPosition (beatSyncPlan.lockedSourcePositionSamples
+                                             + manualSyncOffsetSamples,
+                                             sourceLength);
+        // The input cursor runs ahead by Rubber Band's read-ahead/latency. Comparing
+        // it with the audible transport position made strict Sync reset the stretcher
+        // on every block, so it could never finish priming and produced permanent
+        // silence. Compare the audible playhead instead and allow the stretcher's
+        // normal latency before treating the deck as genuinely out of phase.
+        const double audible = wrapPosition (playheadSamples, sourceLength);
+        const double delta = std::abs (locked - audible);
         const double wrappedDelta = juce::jmin (delta, sourceLength - delta);
-        if (wrappedDelta > referenceSampleRate * 0.05)
+        const double correctionThreshold = referenceSampleRate * 0.25;
+        if (wrappedDelta > correctionThreshold)
         {
             rubberBandSourceReadSamples = locked;
+            playheadSamples = locked;
             resetRubberBand();
         }
     }
@@ -444,7 +468,13 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
         }
     }
 
-    playheadSamples = wrapPosition (rubberBandSourceReadSamples, sourceLength);
+    // Track what listeners actually heard, not the read-ahead cursor. Besides making
+    // the waveform honest, this prevents sync from mistaking normal stretcher
+    // look-ahead for phase drift and continuously resetting the processor.
+    playheadSamples = wrapPosition (
+        playheadSamples + (double) framesRetrieved
+                        * referenceSampleRate / currentSampleRate * tempoRatio,
+        sourceLength);
     publicPlayheadSamples.store (playheadSamples, std::memory_order_relaxed);
     return true;
 }
@@ -541,10 +571,14 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
     // playhead runs in loop-output coordinates (source ≈ playhead × tempoRatio,
     // see the grain read below), so convert the same way line ~503 does.
     {
-        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
+        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_acq_rel);
         if (seekTarget >= 0.0)
         {
             playheadSamples = useGranularKeyLock ? seekTarget / tempoRatio : seekTarget;
+            manualSyncOffsetSamples = beatSyncPlan.syncEnabled
+                                   && beatSyncPlan.hasLockedSourcePosition
+                ? seekTarget - beatSyncPlan.lockedSourcePositionSamples
+                : 0.0;
             // A seek while slip is active resets the shadow to the new position
             if (slipShadowSamples >= 0.0)
                 slipShadowSamples = seekTarget;
@@ -553,7 +587,9 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
 
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
     {
-        const double sourceReferencePosition = wrapPosition (beatSyncPlan.lockedSourcePositionSamples, sourceLength);
+        const double sourceReferencePosition = wrapPosition (
+            beatSyncPlan.lockedSourcePositionSamples + manualSyncOffsetSamples,
+            sourceLength);
         playheadSamples = useGranularKeyLock ? sourceReferencePosition / tempoRatio : sourceReferencePosition;
     }
 

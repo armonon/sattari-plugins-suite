@@ -754,7 +754,8 @@ private:
     juce::TextButton crossfaderReverse { "Reverse" };   // hamster / reverse toggle
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "Tap" };
-    juce::TextButton masterDeckButton { "Master A" };
+    juce::TextButton masterDeckButton { "Tempo Lead A" };
+    juce::TextButton resetOutputButton { "Reset Output" };
     stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "Play All", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
     stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "Record",   juce::Colour (0xffff3b47) };   // header: arm/stop capturing
     stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "Auto Mix", juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
@@ -1004,7 +1005,8 @@ private:
     // Enable/disable the +CH / -CH buttons at the pool limits and show the count.
     void refreshChannelButtons();
     void openDeckChooser (int deckIndex);
-    void requestDeckLoad (int deckIndex, const juce::File& file);
+    void requestDeckLoad (int deckIndex, const juce::File& file,
+                          std::function<void(bool)> completion = {});
     void requestDeckStemLoad (int deckIndex, int stemLaneIndex, const juce::File& file);
     void requestDeckClear (int deckIndex);
     void requestChannelRemoval (int channelIndex);

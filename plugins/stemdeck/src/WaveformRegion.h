@@ -176,21 +176,35 @@ public:
                 if (distance < nearestPixels)
                 { nearestPixels = distance; nearestBeat = index; }
             }
-            if (nearestBeat >= 0)
+            if (nearestBeat >= 0 && e.mods.isAltDown())
             {
                 const auto norm = beatLines[(size_t) nearestBeat].positionNorm;
-                if (e.mods.isAltDown())
-                {
-                    if (onSetDownbeatNorm) onSetDownbeatNorm (norm);
-                    return;
-                }
-                if (! e.mods.isPopupMenu() && onAddWarpMarkerNorm)
-                {
-                    if (onBeginWarpEdit) onBeginWarpEdit();
-                    draggingWarpId = onAddWarpMarkerNorm (norm);
-                    draggingBeatLine = nearestBeat;
-                    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
-                }
+                if (onSetDownbeatNorm) onSetDownbeatNorm (norm);
+                return;
+            }
+            if (e.mods.isShiftDown() && ! e.mods.isPopupMenu() && onAddWarpMarkerNorm)
+            {
+                const float norm = nearestBeat >= 0
+                    ? beatLines[(size_t) nearestBeat].positionNorm
+                    : juce::jlimit (0.0f, 1.0f,
+                        t0 + (float) (e.y - detailRect.getY())
+                           / (float) juce::jmax (1, detailRect.getHeight()) * span);
+                if (onBeginWarpEdit) onBeginWarpEdit();
+                draggingWarpId = onAddWarpMarkerNorm (norm);
+                draggingBeatLine = nearestBeat;
+                setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+                return;
+            }
+            if (! e.mods.isPopupMenu() && onSeekNorm)
+            {
+                scrubbing = true;
+                scrubbingDetail = true;
+                const float norm = juce::jlimit (0.0f, 1.0f,
+                    t0 + (float) (e.y - detailRect.getY())
+                       / (float) juce::jmax (1, detailRect.getHeight()) * span);
+                setPlayheadNorm (norm);
+                onSeekNorm (norm);
+                setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
             }
             return;
         }
@@ -213,7 +227,7 @@ public:
             if (onRemoveWarpMarker) onRemoveWarpMarker (nearest);
             return;
         }
-        if (nearest >= 0)
+        if (nearest >= 0 && e.mods.isShiftDown())
         {
             if (onBeginWarpEdit) onBeginWarpEdit();
             draggingWarpId = nearest;
@@ -224,11 +238,40 @@ public:
         {
             if (onBeginWarpEdit) onBeginWarpEdit();
             draggingWarpId = onAddWarpMarkerNorm (norm);
+            return;
+        }
+        if (! e.mods.isPopupMenu() && onSeekNorm)
+        {
+            scrubbing = true;
+            scrubbingDetail = false;
+            setPlayheadNorm (norm);
+            onSeekNorm (norm);
+            setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
         }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
+        if (scrubbing)
+        {
+            float norm = 0.0f;
+            if (scrubbingDetail)
+            {
+                float t0, t1; visibleWindow (t0, t1);
+                norm = juce::jlimit (0.0f, 1.0f,
+                    t0 + (float) (e.y - detailRect.getY())
+                       / (float) juce::jmax (1, detailRect.getHeight()) * (t1 - t0));
+            }
+            else
+            {
+                norm = juce::jlimit (0.0f, 1.0f,
+                    (float) (e.x - overviewRect.getX())
+                        / (float) juce::jmax (1, overviewRect.getWidth()));
+            }
+            setPlayheadNorm (norm);
+            if (onSeekNorm) onSeekNorm (norm);
+            return;
+        }
         if (draggingWarpId < 0) return;
         float norm = 0.0f;
         if (draggingBeatLine >= 0 && ! detailRect.isEmpty())
@@ -255,6 +298,13 @@ public:
 
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (scrubbing)
+        {
+            mouseDrag (e);
+            scrubbing = false;
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
         if (draggingWarpId >= 0)
         {
             mouseDrag (e);
@@ -386,6 +436,13 @@ private:
         return p[(size_t) idx];
     }
 
+    static juce::String clockText (double seconds)
+    {
+        const int total = juce::jmax (0, (int) std::round (seconds));
+        return juce::String (total / 60) + ":"
+             + juce::String (total % 60).paddedLeft ('0', 2);
+    }
+
     void drawOverview (juce::Graphics& g, juce::Rectangle<float> r)
     {
         g.setColour (stemdeck::tokens::c (stemdeck::tokens::bgPanel2));
@@ -469,6 +526,18 @@ private:
             juce::Path flag;
             flag.addTriangle (x, r.getY(), x + 6.0f, r.getY(), x, r.getY() + 6.0f);
             g.fillPath (flag);
+        }
+
+        if (totalSec > 0.0)
+        {
+            const auto text = clockText ((double) playhead * totalSec)
+                            + " / " + clockText (totalSec);
+            auto timeBox = r.toNearestInt().removeFromRight (72).removeFromTop (12);
+            g.setColour (tokens::c (tokens::bgApp).withAlpha (0.78f));
+            g.fillRoundedRectangle (timeBox.toFloat(), 2.5f);
+            g.setColour (tokens::c (tokens::fgPrimary));
+            g.setFont (tokens::numeric (8.0f, true));
+            g.drawText (text, timeBox.reduced (3, 0), juce::Justification::centredRight);
         }
 
         // User warp anchors. Their project beat stays fixed while the diamond can
@@ -670,6 +739,8 @@ private:
     bool   dragOver = false;
     int    draggingWarpId = -1;
     int    draggingBeatLine = -1;
+    bool   scrubbing = false;
+    bool   scrubbingDetail = false;
     juce::Rectangle<int> toggleRect, overviewRect, zoomRect, detailRect;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformRegion)
