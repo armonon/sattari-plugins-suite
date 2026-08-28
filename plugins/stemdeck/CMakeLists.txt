@@ -76,19 +76,21 @@ endfunction()
 # ── Optional: on-device neural stem separation via ONNX Runtime ───────────────
 # Enables in-process, CoreML-accelerated neural demixing when ONNX Runtime is
 # present. The app still builds + runs (RTSS + demucs-CLI fallback) without it.
-find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
-          PATH_SUFFIXES onnxruntime
-          PATHS /opt/homebrew/include /usr/local/include)
-find_library(ONNXRUNTIME_LIB onnxruntime
-             PATHS /opt/homebrew/lib /usr/local/lib)
-if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIB)
-    message(STATUS "StemDeck: ONNX Runtime found — on-device neural separation ENABLED (${ONNXRUNTIME_LIB})")
-    target_include_directories(SattariStemDeck PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
-    target_link_libraries(SattariStemDeck PRIVATE ${ONNXRUNTIME_LIB})
-    target_compile_definitions(SattariStemDeck PRIVATE SATTARI_STEMDECK_HAS_ONNX=1)
-else()
-    message(STATUS "StemDeck: ONNX Runtime not found — neural separation uses demucs-CLI + RTSS fallback")
-endif()
+# Routed through the shared helper, like every other neural-enabled target in
+# the suite. This block used to do its own UNCONDITIONAL find_library over
+# /opt/homebrew/lib with no opt-in and no architecture check, so on any machine
+# with a Homebrew onnxruntime installed StemDeck silently linked it - and since
+# that formula is arm64-only while the suite builds universal (arm64;x86_64 via
+# SattariDeploymentTarget), the x86_64 slice failed to link with "Undefined
+# symbols for architecture x86_64". The plugin could not be built at all on such
+# a machine, for a feature that is off by default everywhere else.
+#
+# sattari_enable_onnx() is OFF unless -DSATTARI_USE_ONNX=ON and prefers
+# ONNXRUNTIME_ROOT (the bundled universal runtime) over system paths. Without it
+# StemDeck keeps its demucs-CLI + RTSS fallback, which is the path that actually
+# works today.
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
+sattari_enable_onnx(SattariStemDeck SATTARI_STEMDECK_HAS_ONNX)
 
 add_executable(StemDeckGranularRenderContract
     EXCLUDE_FROM_ALL
