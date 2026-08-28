@@ -37,7 +37,7 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     algorithm.setColour (juce::ComboBox::backgroundColourId, juce::Colour (sattari::brand::kPanelRaised));
     algorithm.setColour (juce::ComboBox::textColourId, juce::Colours::white);
     algoCaption.setText ("ALGORITHM", juce::dontSendNotification);
-    algoCaption.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    algoCaption.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     algoCaption.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     // The DTW (v2 alpha) path is experimental; the Algorithm selector is hidden
     // in the shipping UI so the plugin always runs the validated Bulk Shift (v1).
@@ -54,18 +54,18 @@ SattariAlignAudioProcessorEditor::SattariAlignAudioProcessorEditor (SattariAlign
     addAndMakeVisible (lock);
     addAndMakeVisible (bypass);
 
-    offsetReadout.setFont (juce::FontOptions (44.0f, juce::Font::plain));
+    offsetReadout.setFont (sattari::brand::fontOptions (44.0f, juce::Font::plain));
     offsetReadout.setJustificationType (juce::Justification::centred);
     offsetReadout.setColour (juce::Label::textColourId,
                               juce::Colour (sattari::brand::productAccent ("align")));
     addAndMakeVisible (offsetReadout);
 
-    confidenceLabel.setFont (juce::FontOptions (12.0f));
+    confidenceLabel.setFont (sattari::brand::fontOptions (12.0f));
     confidenceLabel.setJustificationType (juce::Justification::centred);
     confidenceLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (confidenceLabel);
 
-    guideStatus.setFont (juce::FontOptions (11.0f));
+    guideStatus.setFont (sattari::brand::fontOptions (11.0f));
     guideStatus.setJustificationType (juce::Justification::centredRight);
     guideStatus.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (guideStatus);
@@ -113,7 +113,7 @@ void SattariAlignAudioProcessorEditor::styleKnob (juce::Slider& s, bool feature)
 void SattariAlignAudioProcessorEditor::styleCaption (juce::Label& l, const juce::String& text)
 {
     l.setText (text, juce::dontSendNotification);
-    l.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    l.setFont (sattari::brand::fontOptions (10.0f, juce::Font::bold));
     l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     l.setJustificationType (juce::Justification::centred);
 }

@@ -1,127 +1,202 @@
 #include "PluginEditor.h"
 #include <sattari_audio_core/SattariMidiLearn.h>
 
-SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (SattariArpAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p),
+#include <cmath>
+
+SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
+    SattariArpAudioProcessor& p)
+    : AudioProcessorEditor (&p),
+      audioProcessor (p),
       presetManager (p.parameters(), "sattari-arp")
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (940, 540);
+    setResizable (true, true);
+    setResizeLimits (820, 640, 1440, 900);
+    setSize (1060, 660);
+    setTitle ("Sattari Arp");
+    setDescription ("Generative MIDI arpeggiator and performance workspace");
 
-    sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Arp");
-    addAndMakeVisible (title);
+    addAndMakeVisible (header);
 
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "MIDI arpeggiator: place before any synth to turn held notes into patterns");
-    addAndMakeVisible (subtitle);
-
-    setupCombo (userPresets);
-    userPresets.setTextWhenNothingSelected ("User presets...");
+    setupCombo (userPresets, "User presets");
+    userPresets.setTextWhenNothingSelected ("User presets");
     userPresets.onChange = [this]
     {
         const auto name = userPresets.getText();
-        if (name.isNotEmpty())
-            presetManager.loadUserPreset (name);
+        if (name.isNotEmpty()) presetManager.loadUserPreset (name);
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
     addAndMakeVisible (abRow);
-    addAndMakeVisible (midiLearnButton);
-    midiLearnButton.onClick = [this] {
-        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+
+    midiLearnButton.onClick = [this]
+    {
+        sattari::midi::showLearnPopup (
+            audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
     };
+    addAndMakeVisible (midiLearnButton);
     refreshUserPresets();
 
-    setupCombo (preset);
+    setupCombo (preset, "Factory presets");
     preset.addItemList (juce::StringArray {
-        "Classic 1/16 Up",
-        "Wide Octave Bounce",
-        "Trap 1/32 Repeat",
-        "R&B Chord Pulse",
-        "Random Sparkle",
-        "Slow Quarter Pulse" }, 1);
-    preset.setTextWhenNothingSelected ("Load preset...");
+        "Classic 1/16 Up", "Wide Octave Bounce", "Trap 1/32 Repeat",
+        "R&B Chord Pulse", "Random Sparkle", "Slow Quarter Pulse"
+    }, 1);
+    preset.setTextWhenNothingSelected ("Factory presets");
     preset.onChange = [this] { applyPreset (preset.getSelectedItemIndex()); };
 
-    // Populate the choice combos. ComboBoxAttachment maps item IDs (1-based) to
-    // each param's choice indices, so order MUST match the StringArrays in
-    // PluginProcessor.cpp. Without addItemList the boxes render blank/unusable.
-    setupCombo (rate);
-    rate.addItemList (juce::StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 1);
-    setupCombo (pattern);
-    pattern.addItemList (juce::StringArray { "Up", "Down", "Up-Down", "Down-Up", "As Played", "Random", "Chord Pulse" }, 1);
-    setupCombo (velocityMode);
+    setupFieldLabel (rateLabel, "Rate");
+    setupCombo (rate, "Rate");
+    rate.addItemList (juce::StringArray {
+        "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"
+    }, 1);
+    setupFieldLabel (patternLabel, "Pattern");
+    setupCombo (pattern, "Pattern");
+    pattern.addItemList (juce::StringArray {
+        "Up", "Down", "Up-Down", "Down-Up", "As Played", "Random", "Chord Pulse"
+    }, 1);
+    setupFieldLabel (velocityLabel, "Velocity");
+    setupCombo (velocityMode, "Velocity mode");
     velocityMode.addItemList (juce::StringArray { "Input", "Fixed", "Accent" }, 1);
-    setupCombo (scaleRoot);
-    scaleRoot.addItemList (juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 1);
-    setupCombo (scale);
-    scale.addItemList (juce::StringArray { "Off","Major","Minor","Penta Maj","Penta Min","Dorian","Mixolydian","Harm Minor" }, 1);
-    setupSlider (octaves);
-    setupSlider (ratchet);
-    setupSlider (gate, "%");
-    setupSlider (swing, "%");
-    setupSlider (fixedVelocity);
-    setupSlider (humanize);
-    setupSlider (transpose, " st");
 
-    latch.setButtonText ("Latch held notes");
-    latch.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
+    sattari::ui::KeyButton::Config keyConfig;
+    keyConfig.accentId = "sattari-arp";
+    keyConfig.showFollow = true;
+    keyConfig.showAutoKey = false;
+    keyConfig.rootNames = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    keyConfig.scaleNames = {
+        "Off", "Major", "Minor", "Penta Maj", "Penta Min",
+        "Dorian", "Mixolydian", "Harm Minor"
+    };
+    keyConfig.hint = "click to follow Compass or set a musical constraint";
+    keyButton.setConfig (keyConfig);
+    keyButton.onLinkFollow = [this] { setParameterValue ("followKey", 1.0f); };
+    keyButton.onManualKey = [this] (int root, int scale)
+    {
+        setParameterValue ("followKey", 0.0f);
+        setParameterValue ("scaleRoot", (float) root);
+        setParameterValue ("scale", (float) scale);
+    };
+    addAndMakeVisible (keyButton);
+
+    for (auto* macro : {
+            &octaves, &ratchet, &gate, &swing, &fixedVelocity, &humanize, &transpose })
+        addAndMakeVisible (*macro);
+
+    gate.slider().textFromValueFunction = [] (double value)
+    {
+        return juce::String ((int) std::round (value * 100.0)) + "%";
+    };
+    swing.slider().textFromValueFunction = [] (double value)
+    {
+        return juce::String ((int) std::round (value * 100.0)) + "%";
+    };
+
     addAndMakeVisible (latch);
-
-    inputThru.setButtonText ("Input thru");
-    inputThru.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (inputThru);
-
-    hostSync.setButtonText ("Host sync");
-    hostSync.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
     addAndMakeVisible (hostSync);
-
-    followKey.setButtonText ("Follow Song Key");
-    followKey.setColour (juce::ToggleButton::textColourId, juce::Colours::white);
-    addAndMakeVisible (followKey);
-
-    setupLabel (rateLabel, "Time");
-    setupLabel (patternLabel, "Pattern");
-    setupLabel (velocityLabel, "Velocity");
-    setupLabel (performanceLabel, "Performance");
-    setupLabel (scaleLabel, "Scale");
-
-    // Per-knob name captions (smaller than the section headers, centred).
-    for (auto* l : { &octavesLabel, &ratchetLabel, &gateLabel, &swingLabel,
-                     &fixedVelocityLabel, &humanizeLabel, &transposeLabel })
-        l->setJustificationType (juce::Justification::centred);
-    setupLabel (octavesLabel, "Octaves", 11.0f);
-    setupLabel (ratchetLabel, "Ratchet", 11.0f);
-    setupLabel (gateLabel, "Gate", 11.0f);
-    setupLabel (swingLabel, "Swing", 11.0f);
-    setupLabel (fixedVelocityLabel, "Fixed Vel", 11.0f);
-    setupLabel (humanizeLabel, "Humanize", 11.0f);
-    setupLabel (transposeLabel, "Transpose", 11.0f);
+    followSwing.setTitle ("Follow Compass groove");
+    followSwing.setDescription (
+        "Use the session swing published by Sattari Compass");
+    followEnergy.setTitle ("Follow Compass energy");
+    followEnergy.setDescription (
+        "Shape velocity and octave range from the published session energy");
+    addAndMakeVisible (followSwing);
+    addAndMakeVisible (followEnergy);
+    addAndMakeVisible (tempoMetric);
+    addAndMakeVisible (heldMetric);
+    addAndMakeVisible (compassMetric);
 
     auto& params = audioProcessor.parameters();
     rateAttach = std::make_unique<ComboAttachment> (params, "rate", rate);
     patternAttach = std::make_unique<ComboAttachment> (params, "pattern", pattern);
-    velocityModeAttach = std::make_unique<ComboAttachment> (params, "velocityMode", velocityMode);
-    scaleRootAttach = std::make_unique<ComboAttachment> (params, "scaleRoot", scaleRoot);
-    scaleAttach = std::make_unique<ComboAttachment> (params, "scale", scale);
-    octavesAttach = std::make_unique<SliderAttachment> (params, "octaves", octaves);
-    ratchetAttach = std::make_unique<SliderAttachment> (params, "ratchet", ratchet);
-    gateAttach = std::make_unique<SliderAttachment> (params, "gate", gate);
-    swingAttach = std::make_unique<SliderAttachment> (params, "swing", swing);
-    fixedVelocityAttach = std::make_unique<SliderAttachment> (params, "fixedVelocity", fixedVelocity);
-    humanizeAttach = std::make_unique<SliderAttachment> (params, "humanize", humanize);
-    transposeAttach = std::make_unique<SliderAttachment> (params, "transpose", transpose);
+    velocityModeAttach = std::make_unique<ComboAttachment> (
+        params, "velocityMode", velocityMode);
+    octavesAttach = std::make_unique<SliderAttachment> (
+        params, "octaves", octaves.slider());
+    ratchetAttach = std::make_unique<SliderAttachment> (
+        params, "ratchet", ratchet.slider());
+    gateAttach = std::make_unique<SliderAttachment> (
+        params, "gate", gate.slider());
+    swingAttach = std::make_unique<SliderAttachment> (
+        params, "swing", swing.slider());
+    fixedVelocityAttach = std::make_unique<SliderAttachment> (
+        params, "fixedVelocity", fixedVelocity.slider());
+    humanizeAttach = std::make_unique<SliderAttachment> (
+        params, "humanize", humanize.slider());
+    transposeAttach = std::make_unique<SliderAttachment> (
+        params, "transpose", transpose.slider());
     latchAttach = std::make_unique<ButtonAttachment> (params, "latch", latch);
-    inputThruAttach = std::make_unique<ButtonAttachment> (params, "inputThru", inputThru);
-    hostSyncAttach = std::make_unique<ButtonAttachment> (params, "hostSync", hostSync);
-    followKeyAttach = std::make_unique<ButtonAttachment> (params, "followKey", followKey);
+    inputThruAttach = std::make_unique<ButtonAttachment> (
+        params, "inputThru", inputThru);
+    hostSyncAttach = std::make_unique<ButtonAttachment> (
+        params, "hostSync", hostSync);
+    followSwingAttach = std::make_unique<ButtonAttachment> (
+        params, "followSwing", followSwing);
+    followEnergyAttach = std::make_unique<ButtonAttachment> (
+        params, "followEnergy", followEnergy);
 
-    gate.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
-    swing.textFromValueFunction = [] (double value) { return juce::String ((int) std::round (value * 100.0)) + "%"; };
+    startTimerHz (24);
+    timerCallback();
 }
 
 SattariArpAudioProcessorEditor::~SattariArpAudioProcessorEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void SattariArpAudioProcessorEditor::setupCombo (
+    juce::ComboBox& combo, const juce::String& title)
+{
+    combo.setTitle (title);
+    combo.setDescription ("Choose " + title.toLowerCase());
+    addAndMakeVisible (combo);
+}
+
+void SattariArpAudioProcessorEditor::setupFieldLabel (
+    juce::Label& label, const juce::String& text)
+{
+    sattari::studio::styleFieldLabel (label, text);
+    addAndMakeVisible (label);
+}
+
+void SattariArpAudioProcessorEditor::timerCallback()
+{
+    const auto key = audioProcessor.currentKeyState();
+    keyButton.setState (
+        key.following ? sattari::ui::KeyButton::Mode::Follow
+                      : sattari::ui::KeyButton::Mode::Manual,
+        key.root, key.scale);
+
+    uiState = audioProcessor.currentUiState();
+    const bool followsCompass =
+        uiState.followingSwing || uiState.followingEnergy;
+    header.setStatus (
+        followsCompass && uiState.compassLive
+            ? "COMPASS / "
+                + sattari::compass::sectionName (uiState.sectionId).toUpperCase()
+            : uiState.running ? "GENERATING" : "READY",
+        uiState.running || (followsCompass && uiState.compassLive));
+    tempoMetric.setValue (
+        juce::String (uiState.bpm, 1), hostSync.getToggleState() ? "BPM · host" : "BPM · free");
+    heldMetric.setValue (
+        juce::String (uiState.heldNotes),
+        uiState.running ? "pattern active" : "play a chord");
+    compassMetric.setValue (
+        uiState.compassLive
+            ? sattari::compass::sectionName (uiState.sectionId).toUpperCase()
+            : "LOCAL",
+        uiState.compassLive
+            ? juce::String ((int) std::round (uiState.sessionEnergy * 100.0f))
+                + "% energy / "
+                + juce::String ((int) std::round (uiState.sessionSwing * 100.0f))
+                + "% swing"
+            : "no session context");
+    swing.setEnabled (! uiState.followingSwing || ! uiState.compassLive);
+    repaint (sequenceArea);
 }
 
 void SattariArpAudioProcessorEditor::refreshUserPresets()
@@ -134,7 +209,8 @@ void SattariArpAudioProcessorEditor::refreshUserPresets()
 
 void SattariArpAudioProcessorEditor::saveCurrentAsUserPreset()
 {
-    const auto name = "User " + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    const auto name = "User "
+        + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
     if (presetManager.saveUserPreset (name))
     {
         refreshUserPresets();
@@ -142,34 +218,8 @@ void SattariArpAudioProcessorEditor::saveCurrentAsUserPreset()
     }
 }
 
-void SattariArpAudioProcessorEditor::setupSlider (juce::Slider& s, const juce::String& suffix)
-{
-    s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 76, 22);
-    s.setTextValueSuffix (suffix);
-    s.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
-    s.setColour (juce::Slider::thumbColourId, juce::Colours::white);
-    s.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
-    addAndMakeVisible (s);
-}
-
-void SattariArpAudioProcessorEditor::setupCombo (juce::ComboBox& c)
-{
-    c.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171821));
-    c.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    c.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
-    addAndMakeVisible (c);
-}
-
-void SattariArpAudioProcessorEditor::setupLabel (juce::Label& label, const juce::String& text, float size)
-{
-    label.setText (text, juce::dontSendNotification);
-    label.setFont (juce::FontOptions (size, juce::Font::bold));
-    label.setColour (juce::Label::textColourId, juce::Colour (0xffffc7a8));
-    addAndMakeVisible (label);
-}
-
-void SattariArpAudioProcessorEditor::setParameterValue (const juce::String& parameterID, float value)
+void SattariArpAudioProcessorEditor::setParameterValue (
+    const juce::String& parameterID, float value)
 {
     if (auto* parameter = audioProcessor.parameters().getParameter (parameterID))
     {
@@ -183,26 +233,19 @@ void SattariArpAudioProcessorEditor::applyPreset (int presetIndex)
 {
     struct Preset
     {
-        int rate;
-        int pattern;
-        int octaves;
-        float gate;
-        float swing;
-        int velocityMode;
-        int fixedVelocity;
-        int humanize;
-        int transpose;
-        bool latch;
-        bool inputThru;
+        int rate, pattern, octaves;
+        float gate, swing;
+        int velocityMode, fixedVelocity, humanize, transpose;
+        bool latch, inputThru;
     };
 
     static constexpr Preset presets[] = {
-        { 3, 0, 1, 0.72f, 0.00f, 0, 96, 0, 0, false, false }, // Classic 1/16 Up
-        { 3, 2, 3, 0.64f, 0.10f, 2, 96, 3, 0, false, false }, // Wide Octave Bounce
-        { 5, 0, 1, 0.48f, 0.00f, 1, 104, 2, -12, false, false }, // Trap 1/32 Repeat
-        { 1, 6, 1, 0.82f, 0.08f, 0, 96, 4, 0, true, false }, // R&B Chord Pulse
-        { 3, 5, 2, 0.58f, 0.00f, 0, 96, 8, 12, false, false }, // Random Sparkle
-        { 0, 6, 1, 0.90f, 0.00f, 1, 92, 0, 0, true, false }  // Slow Quarter Pulse
+        { 3, 0, 1, 0.72f, 0.00f, 0, 96, 0, 0, false, false },
+        { 3, 2, 3, 0.64f, 0.10f, 2, 96, 3, 0, false, false },
+        { 5, 0, 1, 0.48f, 0.00f, 1, 104, 2, -12, false, false },
+        { 1, 6, 1, 0.82f, 0.08f, 0, 96, 4, 0, true, false },
+        { 3, 5, 2, 0.58f, 0.00f, 0, 96, 8, 12, false, false },
+        { 0, 6, 1, 0.90f, 0.00f, 1, 92, 0, 0, true, false }
     };
 
     if (! juce::isPositiveAndBelow (presetIndex, (int) std::size (presets)))
@@ -224,71 +267,156 @@ void SattariArpAudioProcessorEditor::applyPreset (int presetIndex)
 
 void SattariArpAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+    sattari::studio::paintCanvas (g, getLocalBounds(), accent);
+    sattari::studio::paintSurface (g, workspaceArea.toFloat(), true);
+    sattari::studio::paintSurface (g, controlsArea.toFloat());
+    paintPatternWorkspace (g);
+    sattari::studio::paintSectionTitle (
+        g, controlsArea.reduced (16).removeFromTop (18),
+        "Performance shaping", "automation-ready macros");
+}
+
+void SattariArpAudioProcessorEditor::paintPatternWorkspace (juce::Graphics& g)
+{
+    auto titledSequence = sequenceArea;
+    sattari::studio::paintSectionTitle (
+        g, titledSequence.removeFromTop (22),
+        "Generated pattern", uiState.running ? "live sequence" : "preview");
+
+    auto grid = sequenceArea.withTrimmedTop (28).toFloat();
+    const int patternIndex = (int) audioProcessor.parameters()
+                                 .getRawParameterValue ("pattern")->load();
+    const float gateValue = audioProcessor.parameters()
+                                .getRawParameterValue ("gate")->load();
+    const int velocity = uiState.running
+        ? uiState.velocity
+        : (int) audioProcessor.parameters()
+              .getRawParameterValue ("fixedVelocity")->load();
+
+    constexpr int steps = 16;
+    const float gap = 5.0f;
+    const float width = (grid.getWidth() - gap * (steps - 1)) / (float) steps;
+    for (int step = 0; step < steps; ++step)
+    {
+        auto cell = grid.removeFromLeft (width);
+        if (step + 1 < steps) grid.removeFromLeft (gap);
+
+        const bool active = uiState.running && step == uiState.step;
+        g.setColour (active ? accent.withAlpha (0.24f)
+                            : sattari::studio::colour::surfaceHigh);
+        g.fillRoundedRectangle (cell, 7.0f);
+        g.setColour (active ? accent
+                            : sattari::studio::colour::separator);
+        g.drawRoundedRectangle (cell.reduced (0.5f), 7.0f, active ? 1.5f : 1.0f);
+
+        float phase = (float) (step % 8) / 7.0f;
+        if (patternIndex == 1) phase = 1.0f - phase;
+        else if (patternIndex == 2 || patternIndex == 3)
+        {
+            phase = step < 8 ? (float) step / 7.0f
+                             : (float) (15 - step) / 7.0f;
+            if (patternIndex == 3) phase = 1.0f - phase;
+        }
+        else if (patternIndex == 5)
+            phase = (float) ((step * 7 + 3) % 11) / 10.0f;
+        else if (patternIndex == 6)
+            phase = 0.55f;
+
+        auto inner = cell.reduced (5.0f);
+        const float noteHeight = 5.0f + phase * (inner.getHeight() * 0.56f);
+        auto note = juce::Rectangle<float> (
+            inner.getX(), inner.getBottom() - noteHeight,
+            inner.getWidth(), juce::jmax (4.0f, noteHeight * gateValue));
+        g.setColour (active ? accent
+                            : accent.withAlpha (0.42f + phase * 0.24f));
+        g.fillRoundedRectangle (note, 3.0f);
+
+        const float velocityHeight = juce::jlimit (
+            2.0f, 10.0f, (float) velocity / 127.0f * 10.0f);
+        g.setColour (sattari::studio::colour::text.withAlpha (active ? 0.9f : 0.28f));
+        g.fillRoundedRectangle (
+            inner.getX(), inner.getBottom() - velocityHeight,
+            inner.getWidth(), velocityHeight, 2.0f);
+
+        g.setColour (active ? accent : sattari::studio::colour::tertiary);
+        g.setFont (sattari::brand::fontOptions (8.5f, active ? juce::Font::bold : juce::Font::plain));
+        g.drawText (juce::String (step + 1),
+                    cell.withTrimmedBottom (cell.getHeight() - 16.0f).toNearestInt(),
+                    juce::Justification::centred, false);
+    }
 }
 
 void SattariArpAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (28);
-    title.setBounds (area.removeFromTop (38));
-    subtitle.setBounds (area.removeFromTop (26));
+    auto area = getLocalBounds().reduced ((int) sattari::studio::metric::outerMargin);
+    header.setBounds (area.removeFromTop (sattari::studio::metric::headerHeight));
 
-    auto presetRow = area.removeFromTop (34);
-    userPresets.setBounds (presetRow.removeFromLeft (200));
-    presetRow.removeFromLeft (10);
-    savePresetButton.setBounds (presetRow.removeFromLeft (120));
-    presetRow.removeFromLeft (8);
-    abRow.setBounds (presetRow.removeFromLeft (94));
-    presetRow.removeFromLeft (8);
-    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
+    auto command = area.removeFromTop (54);
+    // Every other control in this row is vertically centred at 34 px. The factory
+    // combo used to carry a "Factory" caption above it, which pushed it 16 px low
+    // and left it visibly out of line with its four neighbours — and it was the
+    // only labelled one, while its own placeholder already reads "Factory presets".
+    preset.setBounds (command.removeFromLeft (190).withSizeKeepingCentre (190, 34));
+    command.removeFromLeft (8);
+    userPresets.setBounds (command.removeFromLeft (170).withSizeKeepingCentre (170, 34));
+    command.removeFromLeft (8);
+    savePresetButton.setBounds (command.removeFromLeft (70).withSizeKeepingCentre (70, 34));
+    command.removeFromLeft (8);
+    abRow.setBounds (command.removeFromLeft (94).withSizeKeepingCentre (94, 34));
+    midiLearnButton.setBounds (command.removeFromRight (104).withSizeKeepingCentre (104, 34));
 
-    area.removeFromTop (12);
+    area.removeFromTop ((int) sattari::studio::metric::gap);
+    workspaceArea = area.removeFromTop (juce::jmax (230, (int) (area.getHeight() * 0.48f)));
+    area.removeFromTop ((int) sattari::studio::metric::gap);
+    controlsArea = area;
 
-    auto top = area.removeFromTop (40);
-    preset.setBounds (top.removeFromLeft (170));
-    top.removeFromLeft (12);
-    rate.setBounds (top.removeFromLeft (90));
-    top.removeFromLeft (12);
-    pattern.setBounds (top.removeFromLeft (130));
-    top.removeFromLeft (12);
-    velocityMode.setBounds (top.removeFromLeft (110));
+    auto workspace = workspaceArea.reduced (16);
+    auto right = workspace.removeFromRight (300);
+    workspace.removeFromRight (14);
+    sequenceArea = workspace;
+    keyArea = right.removeFromTop (90);
+    keyButton.setBounds (keyArea);
+    right.removeFromTop (6);
+    auto modeRow = right.removeFromTop (46);
+    const int fieldGap = 8;
+    auto rateCell = modeRow.removeFromLeft ((modeRow.getWidth() - fieldGap * 2) / 3);
+    modeRow.removeFromLeft (fieldGap);
+    auto patternCell = modeRow.removeFromLeft ((modeRow.getWidth() - fieldGap) / 2);
+    modeRow.removeFromLeft (fieldGap);
+    auto velocityCell = modeRow;
+    rateLabel.setBounds (rateCell.removeFromTop (16));
+    rate.setBounds (rateCell);
+    patternLabel.setBounds (patternCell.removeFromTop (16));
+    pattern.setBounds (patternCell);
+    velocityLabel.setBounds (velocityCell.removeFromTop (16));
+    velocityMode.setBounds (velocityCell);
 
-    area.removeFromTop (10);
-    auto scaleRow = area.removeFromTop (32);
-    scaleLabel.setBounds (scaleRow.removeFromLeft (52));
-    scaleRoot.setBounds (scaleRow.removeFromLeft (80));
-    scaleRow.removeFromLeft (10);
-    scale.setBounds (scaleRow.removeFromLeft (150));
-    scaleRow.removeFromLeft (20);
-    latch.setBounds (scaleRow.removeFromLeft (150));
-    inputThru.setBounds (scaleRow.removeFromLeft (120));
-    hostSync.setBounds (scaleRow.removeFromLeft (110));
-    followKey.setBounds (scaleRow.removeFromLeft (150));
+    right.removeFromTop (6);
+    auto metrics = right.removeFromTop (50);
+    const int metricGap = 6;
+    const int metricWidth = (metrics.getWidth() - metricGap * 2) / 3;
+    tempoMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    heldMetric.setBounds (metrics.removeFromLeft (metricWidth));
+    metrics.removeFromLeft (metricGap);
+    compassMetric.setBounds (metrics);
 
-    area.removeFromTop (18);
-    auto labelRow = area.removeFromTop (22);
-    rateLabel.setBounds (labelRow.removeFromLeft (200));
-    patternLabel.setBounds (labelRow.removeFromLeft (200));
-    velocityLabel.setBounds (labelRow.removeFromLeft (210));
-    performanceLabel.setBounds (labelRow);
+    auto controls = controlsArea.reduced (16);
+    controls.removeFromTop (28);
+    auto toggles = controls.removeFromBottom (30);
+    latch.setBounds (toggles.removeFromLeft (110));
+    inputThru.setBounds (toggles.removeFromLeft (130));
+    hostSync.setBounds (toggles.removeFromLeft (120));
+    followSwing.setBounds (toggles.removeFromLeft (142));
+    followEnergy.setBounds (toggles.removeFromLeft (142));
+    controls.removeFromBottom (8);
 
-    const int kw = 102;
-    // Per-knob caption strip directly above the knobs.
-    auto knobCaptions = area.removeFromTop (15);
-    octavesLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    ratchetLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    gateLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    swingLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    fixedVelocityLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    humanizeLabel.setBounds (knobCaptions.removeFromLeft (kw));
-    transposeLabel.setBounds (knobCaptions.removeFromLeft (kw));
-
-    auto row = area.removeFromTop (142);
-    octaves.setBounds (row.removeFromLeft (kw));
-    ratchet.setBounds (row.removeFromLeft (kw));
-    gate.setBounds (row.removeFromLeft (kw));
-    swing.setBounds (row.removeFromLeft (kw));
-    fixedVelocity.setBounds (row.removeFromLeft (kw));
-    humanize.setBounds (row.removeFromLeft (kw));
-    transpose.setBounds (row.removeFromLeft (kw));
+    const int macroGap = 6;
+    const int macroWidth = (controls.getWidth() - macroGap * 6) / 7;
+    for (auto* macro : {
+            &octaves, &ratchet, &gate, &swing, &fixedVelocity, &humanize, &transpose })
+    {
+        macro->setBounds (controls.removeFromLeft (macroWidth));
+        controls.removeFromLeft (macroGap);
+    }
 }

@@ -2,6 +2,24 @@
 
 ## Production commit: d92093f  |  Strategy G commit: 6c022cb
 
+> ### PROVENANCE WARNING — added 2026-08-27
+>
+> **Neither commit above exists in this repository** (`git cat-file -t` reports
+> both as unknown objects), so no row in the table below can be reproduced or
+> diffed against what ships. Treat every result here as unverifiable history,
+> not as evidence about the current tree.
+>
+> The `AutoPitchRender null-test` row in particular (`residual 4.9e-7`) became
+> FALSE at some point before 2026-08-27, when that gate was measured failing at
+> residual 0.173507 on the canonical build. The cause was a stale golden, not a
+> DSP regression — see the correction in `validation/PRODUCT_RC_REPORT.md` and
+> the full record in `validation/auto-pitch/2026-08-27-review-fixes.md`. After
+> re-blessing against the corrected engine the gate passes again, and 4.9e-7 is
+> once more the measured figure — but it was not continuously true, and this
+> document asserted it while it was false.
+>
+> A gate result is only meaningful next to a commit someone can check out.
+
 ---
 
 ## Gate Results

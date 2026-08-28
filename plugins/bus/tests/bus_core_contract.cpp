@@ -88,6 +88,7 @@ ChannelStats run (SattariBusAudioProcessor& proc, double sr, int block, int bloc
 
 int main()
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
     const double sr = 48000.0;
     const int block = 512;
     int fails = 0;

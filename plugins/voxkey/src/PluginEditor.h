@@ -5,6 +5,7 @@
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariKeyButton.h>
 #include "PluginProcessor.h"
 
 class VoxKeyOrb final : public juce::Component
@@ -36,6 +37,7 @@ private:
     void setupCombo (juce::ComboBox& combo);
     void setupLabel (juce::Label& label, const juce::String& text, float size = 13.0f);
     void setupToggle (juce::ToggleButton& button);
+    void setKeyParam (const juce::String& id, float value);   // set an APVTS param by real value
     void updateMeters();
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
@@ -55,16 +57,17 @@ private:
     juce::Label sensitivityLabel, smoothnessLabel, confidenceKnobLabel, octaveLabel,
                 holdLabel, releaseLabel, velocityLabel, bendRangeLabel;
     juce::Label modeLabel, keyLabel, scaleLabel;
-    juce::ComboBox mode, key, scale;
+    juce::ComboBox mode;
+    sattari::ui::KeyButton keyButton;   // one control: Follow Song Key / set key+scale by hand
     juce::Slider sensitivity, smoothness, confidence, octave, hold, release, velocity, pitchBendRange;
-    juce::ToggleButton pitchBend, glide, bypass, paraphonic, followKey;
+    juce::ToggleButton pitchBend, glide, bypass, paraphonic, neuralPitch;
     juce::TextButton panicButton { "Panic" };
     juce::TextButton midiLearnButton { "MIDI Learn..." };
     VoxKeyOrb orb;
 
-    std::unique_ptr<ComboAttachment> modeAttach, keyAttach, scaleAttach;
+    std::unique_ptr<ComboAttachment> modeAttach;
     std::unique_ptr<SliderAttachment> sensitivityAttach, smoothnessAttach, confidenceAttach, octaveAttach, holdAttach, releaseAttach, velocityAttach, pitchBendRangeAttach;
-    std::unique_ptr<ButtonAttachment> pitchBendAttach, glideAttach, bypassAttach, paraphonicAttach, followKeyAttach;
+    std::unique_ptr<ButtonAttachment> pitchBendAttach, glideAttach, bypassAttach, paraphonicAttach, neuralPitchAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariVoxKeyAudioProcessorEditor)
 };

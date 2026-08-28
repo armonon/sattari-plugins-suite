@@ -1,4 +1,5 @@
 #include "DeckPlayer.h"
+#include "Interpolation.h"
 
 juce::String DeckPlayer::stemLaneId (int laneIndex)
 {
@@ -115,6 +116,50 @@ void DeckPlayer::seekStart()
 #endif
 }
 
+void DeckPlayer::seekToSamples (double referenceSamples)
+{
+    pendingSeekSamples.store (juce::jmax (0.0, referenceSamples), std::memory_order_relaxed);
+}
+
+void DeckPlayer::setLoopRegion (double inSamples, double outSamples)
+{
+    loopInRefSamples.store  (juce::jmax (0.0, inSamples),  std::memory_order_relaxed);
+    loopOutRefSamples.store (juce::jmax (0.0, outSamples), std::memory_order_relaxed);
+}
+
+void DeckPlayer::clearLoopRegion()
+{
+    loopActiveFlag.store    (false, std::memory_order_relaxed);
+    loopInRefSamples.store  (-1.0, std::memory_order_relaxed);
+    loopOutRefSamples.store (-1.0, std::memory_order_relaxed);
+}
+
+void DeckPlayer::setLoopActive (bool active)
+{
+    loopActiveFlag.store (active, std::memory_order_relaxed);
+}
+
+void DeckPlayer::beginLoopRoll (double loopLengthSeconds) noexcept
+{
+    const double pos = publicPlayheadSamples.load (std::memory_order_relaxed);
+    // The loop region lives in reference (source) sample coordinates — same space
+    // as setDeckLoopSeconds — so the length must convert with the source SR, not
+    // the device SR, otherwise the roll is off-length when device SR != source SR.
+    auto audio = getLoadedAudio();
+    const double refSr = (audio != nullptr && audio->sourceSampleRate > 0.0) ? audio->sourceSampleRate
+                                                                             : currentSampleRate;
+    const double loopLenSamples = loopLengthSeconds * refSr;
+    setLoopRegion (pos, pos + loopLenSamples);
+    setLoopActive (true);
+    setSlipEnabled (true);
+}
+
+void DeckPlayer::endLoopRoll() noexcept
+{
+    setLoopActive (false);
+    setSlipEnabled (false);   // triggers snap-back to shadow position in process()
+}
+
 double DeckPlayer::getPlayheadReferenceSamples() const noexcept
 {
     return publicPlayheadSamples.load (std::memory_order_relaxed);
@@ -147,16 +192,11 @@ TrackAnalysis DeckPlayer::analyzeFullMixAroundPlayhead (double windowSeconds) co
 
 float DeckPlayer::readInterpolated (const juce::AudioBuffer<float>& audio, int channel, double position)
 {
-    const int numSamples = audio.getNumSamples();
-    if (numSamples <= 1)
-        return 0.0f;
-
-    const int c = juce::jlimit (0, audio.getNumChannels() - 1, channel);
-    const int i0 = juce::jlimit (0, numSamples - 1, (int) position);
-    const int i1 = juce::jmin (i0 + 1, numSamples - 1);
-    const float frac = (float) (position - (double) i0);
-    const auto* data = audio.getReadPointer (c);
-    return data[i0] + frac * (data[i1] - data[i0]);
+    // 16-tap Blackman-windowed sinc (see Interpolation.h): near-transparent
+    // sample-rate conversion and granular reads, and still bit-exact when the
+    // position lands on an integer sample (sinc(0) is a unit delta), so
+    // matched-rate no-stretch playback remains a pass-through.
+    return stemdeck::readSinc (audio, channel, position);
 }
 
 double DeckPlayer::wrapPosition (double position, double length)
@@ -282,6 +322,20 @@ bool DeckPlayer::renderWithRubberBand (juce::AudioBuffer<float>& destination,
     const double timeRatio = juce::jlimit (0.25, 4.0, 1.0 / tempoRatio);
     const double pitchRatio = juce::jlimit (0.25, 4.0, (double) timePitch.pitchRatio);
 
+    // Consume any pending user seek here too — the RubberBand path returns before
+    // the granular seek-consume block, so otherwise a hot-cue/beat jump would be
+    // dropped and fire stale later. seekTarget is in reference samples.
+    {
+        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
+        if (seekTarget >= 0.0)
+        {
+            rubberBandSourceReadSamples = wrapPosition (seekTarget, sourceLength);
+            resetRubberBand();
+            if (slipShadowSamples >= 0.0)
+                slipShadowSamples = seekTarget;
+        }
+    }
+
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
     {
         const double locked = wrapPosition (beatSyncPlan.lockedSourcePositionSamples, sourceLength);
@@ -378,6 +432,7 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                           float deckMixGain,
                           const TimePitchDecision& timePitch,
                           const std::array<float, numStemLanes>& stemLaneGains,
+                          const std::array<float, numStemLanes>& stemPitchSemitones,
                           const BeatSyncEngine::PlaybackPlan& beatSyncPlan)
 {
     std::array<std::shared_ptr<const LoadedAudio>, numStemLanes> laneAudio;
@@ -404,15 +459,26 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
 
     const double outputToReference = referenceSampleRate / currentSampleRate;
     const double resampleRatio = outputToReference * juce::jlimit (0.125f, 8.0f, timePitch.sourceRateMultiplier);
-    const bool useGranularKeyLock = timePitch.pitchPreservingActive;
     const double tempoRatio = juce::jlimit (0.25, 4.0, (double) timePitch.tempoRatio);
     const double pitchRatio = juce::jlimit (0.25, 4.0, (double) timePitch.pitchRatio);
+
+    // Independent per-stem pitch: each lane resamples at its own ratio. Any non-zero
+    // offset forces the pitch-preserving granular path (RubberBand can't split stems).
+    std::array<double, numStemLanes> lanePitchRatio;
+    bool anyStemPitch = false;
+    for (int lane = 0; lane < numStemLanes; ++lane)
+    {
+        const float semis = juce::jlimit (-12.0f, 12.0f, stemPitchSemitones[(size_t) lane]);
+        if (std::abs (semis) > 0.01f) anyStemPitch = true;
+        lanePitchRatio[(size_t) lane] = pitchRatio * std::pow (2.0, (double) semis / 12.0);
+    }
+    const bool useGranularKeyLock = timePitch.pitchPreservingActive || anyStemPitch;
     const double granularLoopLength = juce::jmax (1.0, sourceLength / tempoRatio);
     const double grainSize = juce::jlimit (512.0, 4096.0, 2048.0 * referenceSampleRate / 44100.0);
     const double grainHop = grainSize * 0.5;
 
 #if SATTARI_STEMDECK_HAS_RUBBERBAND
-    if (useGranularKeyLock && renderWithRubberBand (destination,
+    if (useGranularKeyLock && ! anyStemPitch && renderWithRubberBand (destination,
                                                     startSample,
                                                     numSamples,
                                                     linearGain,
@@ -429,17 +495,71 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
         return;
 #endif
 
+    // Consume any pending user seek (hot cue jump, beat jump, cue set).
+    // seekTarget is in reference (source) samples. Under granular key-lock the
+    // playhead runs in loop-output coordinates (source ≈ playhead × tempoRatio,
+    // see the grain read below), so convert the same way line ~503 does.
+    {
+        const double seekTarget = pendingSeekSamples.exchange (-1.0, std::memory_order_relaxed);
+        if (seekTarget >= 0.0)
+        {
+            playheadSamples = useGranularKeyLock ? seekTarget / tempoRatio : seekTarget;
+            // A seek while slip is active resets the shadow to the new position
+            if (slipShadowSamples >= 0.0)
+                slipShadowSamples = seekTarget;
+        }
+    }
+
     if (beatSyncPlan.syncEnabled && beatSyncPlan.hasLockedSourcePosition)
     {
         const double sourceReferencePosition = wrapPosition (beatSyncPlan.lockedSourcePositionSamples, sourceLength);
         playheadSamples = useGranularKeyLock ? sourceReferencePosition / tempoRatio : sourceReferencePosition;
     }
 
+    const double loopIn  = loopInRefSamples.load  (std::memory_order_relaxed);
+    const double loopOut = loopOutRefSamples.load  (std::memory_order_relaxed);
+    const bool   hasLoop = loopActiveFlag.load (std::memory_order_relaxed)
+                        && loopIn >= 0.0 && loopOut > loopIn + 64.0;
+
+    // Slip mode: shadow playhead advances at 1× real-time regardless of loop state.
+    // On slip-off, queue a seek to the shadow position so playback snaps back.
+    const bool slipNow = slipActive.load (std::memory_order_relaxed);
+    if (slipNow && ! slipWasActive)
+    {
+        // Slip just enabled — initialize shadow at current position (reference SR)
+        slipShadowSamples = playheadSamples;
+        slipWasActive = true;
+    }
+    else if (! slipNow && slipWasActive)
+    {
+        // Slip just disabled — snap main playhead to where we would have been
+        if (slipShadowSamples >= 0.0)
+            pendingSeekSamples.store (slipShadowSamples, std::memory_order_relaxed);
+        slipShadowSamples = -1.0;
+        slipWasActive = false;
+    }
+
     for (int i = 0; i < numSamples; ++i)
     {
-        const double loopLength = useGranularKeyLock ? granularLoopLength : sourceLength;
-        if (playheadSamples >= loopLength)
-            playheadSamples = wrapPosition (playheadSamples, loopLength);
+        // Advance shadow playhead at 1× speed (outputToReference = ref/output sample rate)
+        if (slipNow && slipShadowSamples >= 0.0)
+        {
+            slipShadowSamples += outputToReference;
+            if (slipShadowSamples >= sourceLength)
+                slipShadowSamples = wrapPosition (slipShadowSamples, sourceLength);
+        }
+
+        if (hasLoop && ! useGranularKeyLock)
+        {
+            if (playheadSamples >= loopOut)
+                playheadSamples = loopIn + std::fmod (playheadSamples - loopIn, loopOut - loopIn);
+        }
+        else
+        {
+            const double loopLength = useGranularKeyLock ? granularLoopLength : sourceLength;
+            if (playheadSamples >= loopLength)
+                playheadSamples = wrapPosition (playheadSamples, loopLength);
+        }
 
         float left = 0.0f;
         float right = 0.0f;
@@ -462,7 +582,6 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     continue;
 
                 weightSum += grainWeight;
-                const double sourceReferencePosition = wrapPosition (grainIndex * grainHop * tempoRatio + phase * pitchRatio, sourceLength);
 
                 for (int lane = 0; lane < numStemLanes; ++lane)
                 {
@@ -474,6 +593,9 @@ void DeckPlayer::process (juce::AudioBuffer<float>& destination,
                     if (laneGain <= 0.00001f)
                         continue;
 
+                    // Each lane reads at its own pitch ratio (independent stem pitch).
+                    const double sourceReferencePosition = wrapPosition (grainIndex * grainHop * tempoRatio
+                                                                         + phase * lanePitchRatio[(size_t) lane], sourceLength);
                     const double laneLength = (double) laneData->audio.getNumSamples();
                     const double lanePosition = wrapPosition (sourceReferencePosition * laneData->sourceSampleRate / referenceSampleRate, laneLength);
                     left += grainWeight * laneGain * readInterpolated (laneData->audio, 0, lanePosition);

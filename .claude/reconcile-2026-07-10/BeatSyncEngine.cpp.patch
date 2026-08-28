@@ -1,0 +1,22 @@
+diff --git a/plugins/stemdeck/src/BeatSyncEngine.cpp b/plugins/stemdeck/src/BeatSyncEngine.cpp
+index 35beba5..a608e5f 100644
+--- a/plugins/stemdeck/src/BeatSyncEngine.cpp
++++ b/plugins/stemdeck/src/BeatSyncEngine.cpp
+@@ -244,13 +244,13 @@ BeatSyncEngine::PlaybackPlan BeatSyncEngine::makePlaybackPlan (const TransportSy
+         case SyncMode::strict:    mode = "Strict Sync"; break;
+     }
+ 
+-    plan.statusLabel = mode + " • " + juce::String (plan.sourceBpm, 1) + "→" + juce::String (plan.masterBpm, 1) + " BPM • " + grid.interpretationLabel();
++    plan.statusLabel = mode + " | " + juce::String (plan.sourceBpm, 1) + "->" + juce::String (plan.masterBpm, 1) + " BPM | " + grid.interpretationLabel();
+     if (! plan.syncEnabled)
+-        plan.statusLabel += " • armed";
++        plan.statusLabel += " | armed";
+     else if (plan.hasLockedSourcePosition)
+-        plan.statusLabel += " • grid-locked";
++        plan.statusLabel += " | grid-locked";
+     else
+-        plan.statusLabel += " • tempo drift";
++        plan.statusLabel += " | tempo drift";
+ 
+     return plan;
+ }

@@ -1,0 +1,14 @@
+diff --git a/plugins/stemdeck/src/MainPluginProcessor.h b/plugins/stemdeck/src/MainPluginProcessor.h
+index 58620c3..489e95b 100644
+--- a/plugins/stemdeck/src/MainPluginProcessor.h
++++ b/plugins/stemdeck/src/MainPluginProcessor.h
+@@ -105,7 +105,9 @@ private:
+     void setStatePathProperty (const juce::Identifier& property, const juce::String& path);
+     void applyPremiumStemMix (int deckIndex);
+     float getFloatParam (const juce::String& id) const;
++    float getFloatParam (const char* id) const;
+     bool getBoolParam (const juce::String& id) const;
++    bool getBoolParam (const char* id) const;
+     TrackAnalysis getDeckLiveAnalysisFromAtomics (int deckIndex) const;
+     void applyLimiter (juce::AudioBuffer<float>& buffer, float ceilingDb);
+     void initialisePerformanceCaptureState();

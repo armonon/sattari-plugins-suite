@@ -71,7 +71,8 @@ public:
                                           const TrackBeatGrid& grid,
                                           double referenceSampleRate,
                                           double sourceLengthSamples,
-                                          bool globalBeatSyncEnabled);
+                                          bool globalBeatSyncEnabled,
+                                          bool wantStatus = true);   // false on the audio thread — skip String build
 
     static TempoInterpretation tempoInterpretationFromChoice (int choiceIndex) noexcept;
     static SyncMode syncModeFromChoice (int choiceIndex) noexcept;

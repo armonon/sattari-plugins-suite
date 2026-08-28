@@ -3,11 +3,10 @@
 // =============================================================================
 //  Sattari Audio Suite - shared LookAndFeel (ultra-modern minimal)
 // -----------------------------------------------------------------------------
-//  One flat, restrained, near-monochrome look for every plugin editor: a flat
-//  dark backdrop with a single hairline frame + a thin accent line, thin-ring
-//  rotaries with a small indicator (no chunky knob), flat combos/buttons, and
-//  switch-style toggles. One accent per product carries identity; everything
-//  else is neutral and spacious.
+//  One restrained visual language for every plugin editor: a dark instrument
+//  workspace with bright porcelain controls, spectrum value fills, sculpted
+//  rotaries, pill buttons, and switch-style toggles. Helvetica keeps the dense
+//  information layer calm while the controls provide tactile hierarchy.
 //
 //  All public method names are stable, so every editor inherits this look with
 //  no per-editor changes. Construct one per editor with the product accent,
@@ -16,6 +15,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SattariBranding.h"
+#include "SattariControlSurface.h"
+#include "SattariLogo.h"
 
 namespace sattari::ui
 {
@@ -26,8 +27,9 @@ public:
     explicit SattariLookAndFeel (juce::uint32 accentArgb = sattari::brand::kAccent)
         : accent (juce::Colour (accentArgb))
     {
+        setDefaultSansSerifTypefaceName ("Helvetica");
+
         const auto text     = juce::Colour (sattari::brand::kTextPrimary);
-        const auto muted     = juce::Colour (sattari::brand::kTextMuted);
         const auto panel     = juce::Colour (sattari::brand::kPanel);
         const auto raised    = juce::Colour (sattari::brand::kPanelRaised);
         const auto hairline   = juce::Colour (sattari::brand::kHairline);
@@ -36,14 +38,14 @@ public:
         setColour (juce::Slider::rotarySliderFillColourId, accent);
         setColour (juce::Slider::rotarySliderOutlineColourId, hairline);
         setColour (juce::Slider::thumbColourId, text);
-        setColour (juce::Slider::textBoxTextColourId, text);
-        setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
-        setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        setColour (juce::Slider::textBoxTextColourId, sattari::control::ink);
+        setColour (juce::Slider::textBoxBackgroundColourId, sattari::control::porcelainTop);
+        setColour (juce::Slider::textBoxOutlineColourId, sattari::control::porcelainEdge);
         setColour (juce::Label::textColourId, text);
         setColour (juce::ComboBox::backgroundColourId, raised);
-        setColour (juce::ComboBox::textColourId, text);
+        setColour (juce::ComboBox::textColourId, sattari::control::ink);
         setColour (juce::ComboBox::outlineColourId, hairline);
-        setColour (juce::ComboBox::arrowColourId, muted);
+        setColour (juce::ComboBox::arrowColourId, sattari::control::inkMuted);
         setColour (juce::PopupMenu::backgroundColourId, panel);
         setColour (juce::PopupMenu::textColourId, text);
         setColour (juce::PopupMenu::highlightedBackgroundColourId, accent.withAlpha (0.18f));
@@ -84,125 +86,179 @@ public:
                            float sliderPos, float startAngle, float endAngle,
                            juce::Slider& slider) override
     {
-        const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
-        const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
-        const auto centre = bounds.getCentre();
-        const auto angle  = startAngle + sliderPos * (endAngle - startAngle);
-        const auto lineW  = juce::jmax (2.0f, radius * 0.07f);
-        const auto arcR   = radius - lineW;
+        sattari::control::drawRotarySlider (
+            g, x, y, width, height, sliderPos, startAngle, endAngle,
+            slider.isEnabled(), slider.isMouseOverOrDragging(),
+            slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent);
+    }
 
-        // Recessed dial face: a soft dark disc inside the ring, like the Antares
-        // knob look. Only drawn for "feature" knobs (radius > 28) to keep dense
-        // multi-knob editors clean.
-        const bool feature = radius > 28.0f;
-        if (feature)
+    void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
+                           float sliderPos, float minSliderPos, float maxSliderPos,
+                           juce::Slider::SliderStyle style,
+                           juce::Slider& slider) override
+    {
+        juce::ignoreUnused (minSliderPos, maxSliderPos);
+        if (style == juce::Slider::LinearHorizontal
+            || style == juce::Slider::LinearVertical
+            || style == juce::Slider::LinearBar
+            || style == juce::Slider::LinearBarVertical)
         {
-            juce::ColourGradient dial (juce::Colour (sattari::brand::kPanelRaised), centre.x, centre.y - arcR * 0.4f,
-                                       juce::Colour (sattari::brand::kPanelDeep),   centre.x, centre.y + arcR * 0.6f, false);
-            g.setGradientFill (dial);
-            g.fillEllipse (juce::Rectangle<float> (arcR * 1.5f, arcR * 1.5f).withCentre (centre));
-            g.setColour (juce::Colour (sattari::brand::kHairline).withAlpha (0.7f));
-            g.drawEllipse (juce::Rectangle<float> (arcR * 1.5f, arcR * 1.5f).withCentre (centre), 1.0f);
+            sattari::control::drawLinearSlider (
+                g, x, y, width, height, sliderPos, style,
+                slider.isEnabled(), slider.isMouseOverOrDragging(),
+                slider.isMouseButtonDown(), slider.hasKeyboardFocus (true), accent);
+            return;
         }
 
-        // Track (full arc, hairline).
-        juce::Path track;
-        track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
-        g.setColour (juce::Colour (sattari::brand::kHairline));
-        g.strokePath (track, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-        // Accent arc: feature knobs get a soft outer glow halo, then the bright
-        // arc on top — the Antares "lit ring" look without going neon.
-        juce::Path arc;
-        arc.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
-        if (feature)
-        {
-            g.setColour (accent.withAlpha (0.18f));
-            g.strokePath (arc, juce::PathStrokeType (lineW * 2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-        g.setColour (accent);
-        g.strokePath (arc, juce::PathStrokeType (lineW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-        // Indicator: a small accent dot at the value position. Feature knobs also
-        // draw a short bright "pointer" line from the dial face to the dot.
-        const juce::Point<float> tip (centre.x + arcR * std::cos (angle - juce::MathConstants<float>::halfPi),
-                                      centre.y + arcR * std::sin (angle - juce::MathConstants<float>::halfPi));
-        if (feature)
-        {
-            const juce::Point<float> innerTip (centre.x + (arcR * 0.55f) * std::cos (angle - juce::MathConstants<float>::halfPi),
-                                               centre.y + (arcR * 0.55f) * std::sin (angle - juce::MathConstants<float>::halfPi));
-            g.setColour (juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.85f));
-            g.drawLine ({ innerTip, tip }, lineW * 0.9f);
-        }
-        g.setColour (juce::Colour (sattari::brand::kTextPrimary));
-        g.fillEllipse (juce::Rectangle<float> (lineW * 1.7f, lineW * 1.7f).withCentre (tip));
-        juce::ignoreUnused (slider);
+        juce::LookAndFeel_V4::drawLinearSlider (
+            g, x, y, width, height, sliderPos, minSliderPos, maxSliderPos, style, slider);
     }
 
     void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
-                       int, int, int, int, juce::ComboBox&) override
+                       int, int, int, int, juce::ComboBox& box) override
     {
-        auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
-        g.setColour (juce::Colour (sattari::brand::kPanelRaised));
-        g.fillRoundedRectangle (r, 7.0f);
-        g.setColour (isButtonDown ? accent.withAlpha (0.8f) : juce::Colour (sattari::brand::kHairline));
-        g.drawRoundedRectangle (r, 7.0f, 1.0f);
-
-        const float cx = (float) width - 16.0f, cy = (float) height * 0.5f;
-        juce::Path chev;
-        chev.startNewSubPath (cx - 4.0f, cy - 2.0f);
-        chev.lineTo (cx, cy + 2.5f);
-        chev.lineTo (cx + 4.0f, cy - 2.0f);
-        g.setColour (juce::Colour (sattari::brand::kTextMuted));
-        g.strokePath (chev, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        sattari::control::drawComboBox (
+            g, width, height, isButtonDown, box.hasKeyboardFocus (true), accent);
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&,
                                bool shouldDrawHighlighted, bool shouldDrawDown) override
     {
-        auto r = b.getLocalBounds().toFloat().reduced (0.5f);
-        auto fill = juce::Colour (sattari::brand::kPanelRaised);
-        if (shouldDrawDown)             fill = accent.withAlpha (0.20f);
-        else if (shouldDrawHighlighted) fill = fill.brighter (0.12f);
-        g.setColour (fill);
-        g.fillRoundedRectangle (r, 7.0f);
-        g.setColour ((shouldDrawDown || shouldDrawHighlighted) ? accent.withAlpha (0.85f)
-                                                               : juce::Colour (sattari::brand::kHairline));
-        g.drawRoundedRectangle (r, 7.0f, 1.0f);
+        sattari::control::drawButtonBackground (
+            g, b, shouldDrawHighlighted, shouldDrawDown, accent);
+    }
+
+    void drawButtonText (juce::Graphics& g, juce::TextButton& button,
+                         bool, bool) override
+    {
+        // A latched button is accent-filled, so its label has to invert with it.
+        const auto on = button.getToggleState();
+        g.setColour (! button.isEnabled()
+                         ? sattari::control::inkMuted.withAlpha (0.58f)
+                         : (on ? juce::Colours::white : sattari::control::ink));
+        g.setFont (sattari::brand::font (11.5f, juce::Font::bold));
+        g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (10, 2),
+                          juce::Justification::centred, 1);
     }
 
     // Modern switch instead of JUCE's default checkbox tick.
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& b,
                            bool shouldDrawHighlighted, bool shouldDrawDown) override
     {
-        juce::ignoreUnused (shouldDrawHighlighted, shouldDrawDown);
-        auto bounds = b.getLocalBounds().toFloat();
-        const float trackW = 34.0f, trackH = 18.0f;
-        juce::Rectangle<float> track (bounds.getX(), bounds.getCentreY() - trackH * 0.5f, trackW, trackH);
-        const bool on = b.getToggleState();
+        sattari::control::drawToggleButton (
+            g, b, shouldDrawHighlighted, shouldDrawDown, accent);
+    }
 
-        g.setColour (on ? accent.withAlpha (0.9f) : juce::Colour (sattari::brand::kPanelRaised));
-        g.fillRoundedRectangle (track, trackH * 0.5f);
-        if (! on)
-        {
-            g.setColour (juce::Colour (sattari::brand::kHairline));
-            g.drawRoundedRectangle (track, trackH * 0.5f, 1.0f);
-        }
+    int getDefaultScrollbarWidth() override { return 8; }
 
-        const float kd = trackH - 4.0f;
-        const float kx = on ? track.getRight() - kd - 2.0f : track.getX() + 2.0f;
-        g.setColour (juce::Colour (on ? sattari::brand::kBackground : sattari::brand::kTextMuted));
-        g.fillEllipse (kx, track.getY() + 2.0f, kd, kd);
+    void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y,
+                        int width, int height, bool vertical, int thumbStart,
+                        int thumbSize, bool hover, bool down) override
+    {
+        sattari::control::drawScrollbar (
+            g, x, y, width, height, vertical, thumbStart, thumbSize, hover, down);
+    }
 
-        auto textArea = bounds.withTrimmedLeft (trackW + 9.0f);
-        g.setColour (juce::Colour (on ? sattari::brand::kTextPrimary : sattari::brand::kTextMuted));
-        g.setFont (juce::FontOptions (sattari::brand::kLabelSize + 1.0f));
-        g.drawText (b.getButtonText(), textArea.toNearestInt(), juce::Justification::centredLeft, true);
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height,
+                                   juce::TextEditor&) override
+    {
+        sattari::control::fillTextEditorBackground (g, width, height);
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height,
+                                juce::TextEditor& editor) override
+    {
+        sattari::control::drawTextEditorOutline (
+            g, width, height, editor.isEnabled(),
+            editor.hasKeyboardFocus (true), editor.isReadOnly(), accent);
+    }
+
+    void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+    {
+        sattari::control::drawPopupMenuBackground (g, width, height);
+    }
+
+    void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
+                            bool separator, bool active, bool highlighted,
+                            bool ticked, bool hasSubMenu, const juce::String& text,
+                            const juce::String& shortcut, const juce::Drawable* icon,
+                            const juce::Colour* textColour) override
+    {
+        sattari::control::drawPopupMenuItem (
+            g, area, separator, active, highlighted, ticked, hasSubMenu,
+            text, shortcut, icon, textColour, getPopupMenuFont(), getTickShape (1.0f), accent);
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text,
+                      int width, int height) override
+    {
+        sattari::control::drawTooltip (g, text, width, height);
     }
 
     juce::Font getLabelFont (juce::Label& label) override
     {
-        return label.getFont();
+        const auto current = label.getFont();
+        return sattari::brand::font (current.getHeight(), current.getStyleFlags());
+    }
+
+    juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
+    {
+        return sattari::brand::font (
+            juce::jlimit (10.0f, 15.0f, (float) buttonHeight * 0.42f), juce::Font::bold);
+    }
+
+    juce::Font getComboBoxFont (juce::ComboBox& box) override
+    {
+        return sattari::brand::font (
+            juce::jlimit (10.0f, 14.0f, (float) box.getHeight() * 0.42f));
+    }
+
+    juce::Font getPopupMenuFont() override
+    {
+        return sattari::brand::font (13.0f);
+    }
+
+    juce::Font getSliderPopupFont (juce::Slider&) override
+    {
+        return sattari::brand::font (13.0f, juce::Font::bold);
+    }
+
+    void drawLabel (juce::Graphics& g, juce::Label& label) override
+    {
+        if (dynamic_cast<juce::Slider*> (label.getParentComponent()) != nullptr
+            && ! label.isBeingEdited())
+        {
+            auto bounds = label.getLocalBounds().toFloat().reduced (0.5f);
+            sattari::control::fillPorcelain (
+                g, bounds, juce::jmin (8.0f, bounds.getHeight() * 0.5f));
+            g.setColour (sattari::control::ink);
+            g.setFont (getLabelFont (label));
+            g.drawFittedText (label.getText(), label.getLocalBounds().reduced (5, 1),
+                              label.getJustificationType(), 1);
+            return;
+        }
+
+        if (! (bool) label.getProperties().getWithDefault (brandTitleProperty, false)
+            || label.isBeingEdited())
+        {
+            juce::LookAndFeel_V4::drawLabel (g, label);
+            return;
+        }
+
+        auto area = label.getLocalBounds().reduced (1, 1);
+        const int logoHeight = juce::jmin (26, juce::jmax (12, area.getHeight() - 2));
+        const int logoWidth = juce::roundToInt ((float) logoHeight * 3.693f);
+        auto logoArea = area.removeFromLeft (juce::jmin (logoWidth, area.getWidth()));
+        sattari::branding::drawLogo (g, logoArea.toFloat());
+
+        if (area.getWidth() <= 4)
+            return;
+
+        area.removeFromLeft (juce::jmin (9, area.getWidth()));
+        g.setColour (label.findColour (juce::Label::textColourId));
+        g.setFont (label.getFont());
+        g.drawFittedText (label.getText(), area,
+                          juce::Justification::centredLeft, 1, 0.78f);
     }
 
     // --- Convenience builders so editors stay short --------------------------
@@ -215,19 +271,23 @@ public:
 
     static void styleTitle (juce::Label& l, const juce::String& text)
     {
-        l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (sattari::brand::kTitleSize));   // regular weight = modern
+        l.setTitle (text);
+        l.setDescription (text + " audio plugin");
+        l.getProperties().set (brandTitleProperty, true);
+        l.setText (sattari::branding::compactProductName (text), juce::dontSendNotification);
+        l.setFont (sattari::brand::fontOptions (sattari::brand::kTitleSize));
         l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextPrimary));
     }
 
     static void styleSubtitle (juce::Label& l, const juce::String& text)
     {
         l.setText (text, juce::dontSendNotification);
-        l.setFont (juce::FontOptions (sattari::brand::kSubtitleSize));
+        l.setFont (sattari::brand::fontOptions (sattari::brand::kSubtitleSize));
         l.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     }
 
 private:
+    inline static const juce::Identifier brandTitleProperty { "sattariBrandTitle" };
     juce::Colour accent;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariLookAndFeel)

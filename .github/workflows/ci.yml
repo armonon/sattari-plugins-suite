@@ -11,6 +11,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  catalog:
+    name: Product catalog
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: matrix
+        name: Export generated focused matrix
+        # GITHUB_OUTPUT is one key=value per LINE, so the matrix must collapse to a
+        # single line. This previously used `tr -d '\\n'`, where the doubled
+        # backslash survives the YAML plain scalar and reaches tr as a literal
+        # backslash — so tr deleted every BACKSLASH and every letter "n" instead of
+        # newlines. "include" became "iclude", "plugin" became "plugi", and 45
+        # lines went into a file that allows one. jq -c is correct by construction
+        # and also fails the step outright if the generated matrix is not valid
+        # JSON, instead of silently exporting garbage.
+        run: echo "matrix=$(jq -c . config/ci-matrix.generated.json)" >> "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Fast, dependency-light gates. No JUCE / no submodules, so this finishes in
   # seconds and gives quick feedback on structure + cross-language consistency.
@@ -19,7 +38,7 @@ jobs:
     name: Checks (structure + brand sync + core contract)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Suite structure inventory
         run: python3 scripts/suite_gate_check.py
@@ -30,58 +49,174 @@ jobs:
       - name: Brand registry <-> Hub manifest sync
         run: python3 scripts/check_brand_registry_sync.py
 
-      - name: Build + run pure-C++ core contract
+      - name: Build + run pure-C++ core contracts
         run: |
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/pitch_detector_contract.cpp -o /tmp/pitch_detector_contract
+          /tmp/pitch_detector_contract
           g++ -std=c++17 -Icore/include -Wall -Wextra \
             core/tests/harmonic_core_contract.cpp -o /tmp/harmonic_core_contract
           /tmp/harmonic_core_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/key_detector_contract.cpp -o /tmp/key_detector_contract
+          /tmp/key_detector_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/chromagram_contract.cpp -o /tmp/chromagram_contract
+          /tmp/chromagram_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/scale_interval_contract.cpp -o /tmp/scale_interval_contract
+          /tmp/scale_interval_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/kweighting_contract.cpp -o /tmp/kweighting_contract
+          /tmp/kweighting_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/drum_kit_contract.cpp -o /tmp/drum_kit_contract
+          /tmp/drum_kit_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/drum_pads_contract.cpp -o /tmp/drum_pads_contract
+          /tmp/drum_pads_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/drum_looper_contract.cpp -o /tmp/drum_looper_contract
+          /tmp/drum_looper_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/beat_grid_contract.cpp -o /tmp/beat_grid_contract
+          /tmp/beat_grid_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/groove_contract.cpp -o /tmp/groove_contract
+          /tmp/groove_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/step_clock_contract.cpp -o /tmp/step_clock_contract
+          /tmp/step_clock_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/arrangement_contract.cpp -o /tmp/arrangement_contract
+          /tmp/arrangement_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/note_engine_contract.cpp -o /tmp/note_engine_contract
+          /tmp/note_engine_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/slice_table_contract.cpp -o /tmp/slice_table_contract
+          /tmp/slice_table_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/onset_curve_contract.cpp -o /tmp/onset_curve_contract
+          /tmp/onset_curve_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra -pthread \
+            core/tests/realtime_snapshot_contract.cpp -o /tmp/realtime_snapshot_contract
+          /tmp/realtime_snapshot_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/psola_shifter_contract.cpp -o /tmp/psola_shifter_contract
+          /tmp/psola_shifter_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/crepe_pitch_contract.cpp -o /tmp/crepe_pitch_contract
+          /tmp/crepe_pitch_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vox_analyzer_contract.cpp -o /tmp/vox_analyzer_contract
+          /tmp/vox_analyzer_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vox_synth_contract.cpp -o /tmp/vox_synth_contract
+          /tmp/vox_synth_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/formant_shifter_contract.cpp -o /tmp/formant_shifter_contract
+          /tmp/formant_shifter_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/vocoder_bank_contract.cpp -o /tmp/vocoder_bank_contract
+          /tmp/vocoder_bank_contract
+          g++ -std=c++17 -Icore/include -Wall -Wextra \
+            core/tests/harmonic_mask_contract.cpp -o /tmp/harmonic_mask_contract
+          /tmp/harmonic_mask_contract
 
   # ---------------------------------------------------------------------------
-  # Per-plugin build matrix on macOS: proves each plugin still configures and
-  # builds AU/VST3/Standalone, and runs the plugin's contract test where one
-  # exists. fail-fast: false so one broken plugin doesn't mask the others.
+  # Release-critical build matrix on macOS. This is deliberately a focused
+  # subset; the root job below checks that all products configure together.
+  # fail-fast: false so one broken plugin doesn't mask the others.
   # ---------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.plugin }}
-    runs-on: macos-latest
+    needs: catalog
+    runs-on: macos-14
+    timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { plugin: sub-conjurer }
-          - { plugin: bus,               test: SattariBusCoreContract }
-          - { plugin: side-chain-master, test: SideChainMasterCoreContract }
-          - { plugin: align,             test: SattariAlignCoreContract }
-          - { plugin: royal-chain,       test: RoyalChainColorAliasingContract }
-          - { plugin: sattari-arp,       test: SattariArpTimingContract }
-          - { plugin: voxkey,            test: VoxKeyCoreContract }
-          - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
-          - { plugin: stemdeck,          test: StemDeckArchitectureContract }
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.catalog.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive   # JUCE lives in third_party/JUCE
 
       - name: Install build tools
-        run: brew install ninja rubberband pkg-config
+        # Idempotent: the self-hosted Mac already has these, so only install if missing.
+        run: command -v ninja >/dev/null 2>&1 || brew install ninja
 
       - name: Configure
-        run: >
-          cmake -S plugins/${{ matrix.plugin }}
-          -B build/${{ matrix.plugin }}
-          -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          if [ "${{ matrix.plugin }}" = "auto-pitch" ]; then
+            ort_dir="$(./scripts/fetch_onnxruntime_macos.sh)"
+            # The script's stdout IS the return value, so anything else it
+            # prints becomes part of a compiler path. That is not hypothetical:
+            # curl, shasum and lipo all wrote to stdout on the cache-miss path,
+            # so a cold runner produced
+            #   '<tmp>/onnxruntime-1.22.0.tgz: OK/Users/runner/.../libonnxruntime.dylib'
+            # and the only symptom was ninja reporting a missing file 20 lines
+            # into a build. A warm cache hid it completely. Fail here instead.
+            if [ ! -d "$ort_dir" ]; then
+              echo "::error::fetch_onnxruntime_macos.sh must print ONLY the install dir; got: $ort_dir"
+              exit 1
+            fi
+            cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+              -DSATTARI_USE_ONNX=ON \
+              -DSATTARI_REQUIRE_ONNX=ON \
+              -DONNXRUNTIME_INCLUDE_DIR="$ort_dir/include" \
+              -DONNXRUNTIME_LIB="$ort_dir/lib/libonnxruntime.dylib"
+            grep -q -- '-DSATTARI_HAS_ONNX=1' build/${{ matrix.plugin }}/build.ninja
+          else
+            cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} \
+              -G Ninja -DCMAKE_BUILD_TYPE=Release
+          fi
 
       - name: Build plugin (AU/VST3/Standalone)
-        run: cmake --build build/${{ matrix.plugin }} --config Release -j3
+        run: cmake --build build/${{ matrix.plugin }} --config Release -j"$(sysctl -n hw.ncpu)"
+
+      - name: Embed and verify Auto Pitch neural runtime
+        if: ${{ matrix.plugin == 'auto-pitch' }}
+        run: |
+          release_dir="build/auto-pitch/SattariAutoPitch_artefacts/Release"
+          bundles=(
+            "$release_dir/AU/Sattari Auto Pitch.component"
+            "$release_dir/VST3/Sattari Auto Pitch.vst3"
+            "$release_dir/Standalone/Sattari Auto Pitch.app"
+          )
+          ./scripts/bundle_auto_pitch_runtime_deps.sh "${bundles[@]}"
+          for bundle in "${bundles[@]}"; do
+            ./scripts/verify_auto_pitch_bundle.sh "$bundle"
+          done
 
       - name: Build + run contract test
         if: ${{ matrix.test != '' }}
         run: |
-          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.test }} -j3
+          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.test }} -j"$(sysctl -n hw.ncpu)"
           bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.test }}' -perm +111 | head -n1)"
           if [ -z "$bin" ]; then echo "::error::contract test binary ${{ matrix.test }} not found"; exit 1; fi
           echo "Running $bin"
           "$bin"
+
+      - name: Render editor visual contract
+        if: ${{ matrix.uiRender == true }}
+        run: |
+          bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.test }}' -perm +111 | head -n1)"
+          image="$RUNNER_TEMP/${{ matrix.plugin }}-editor.png"
+          "$bin" --render-ui "$image"
+          test -s "$image"
+          file "$image" | grep -q 'PNG image data'
+          if [ "${{ matrix.test }}" = "AutoPitchCoreContract" ]; then
+            pro_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-pro.png"
+            min_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-min.png"
+            "$bin" --render-ui-pro "$pro_image"
+            "$bin" --render-ui-min "$min_image"
+            test -s "$pro_image" -a -s "$min_image"
+            file "$pro_image" "$min_image" | grep -q 'PNG image data'
+          fi
 
       # Render harness in --smoke mode: proves the real audio path produces
       # finite, non-silent output. A strict null-test against the golden runs
@@ -90,36 +225,81 @@ jobs:
       - name: Build + run render smoke
         if: ${{ matrix.render != '' }}
         run: |
-          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.render }} -j3
+          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.render }} -j"$(sysctl -n hw.ncpu)"
           bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.render }}' -perm +111 | head -n1)"
           if [ -z "$bin" ]; then echo "::error::render binary ${{ matrix.render }} not found"; exit 1; fi
           echo "Running $bin --smoke"
           "$bin" --smoke
+          # Auto Pitch only: self-contained High Tracking regression (no corpus needed).
+          # Proves the poly engine still follows a corrected note's overtones above 2.5 kHz
+          # into key — the +4.46 pt corpus win, locked so it can't silently regress.
+          if [ "${{ matrix.render }}" = "AutoPitchRender" ]; then
+            echo "Running $bin --hitracktest"
+            "$bin" --hitracktest
+          fi
+          # Harmony only: the per-voice Formant controls must actually DO something.
+          # They were exposed, automatable and shipped with non-zero defaults while
+          # silently inert for the plugin's whole life, because setFormantScale()
+          # forwards only to Rubber Band's R3 engine and Harmony ran R2. Nothing
+          # could see it: every other proof uses a sine, which has no spectral
+          # envelope to shift. This renders twice changing ONLY the Formant value —
+          # an inert control gives bit-identical output.
+          if [ "${{ matrix.render }}" = "HarmonyRender" ]; then
+            echo "Running $bin --formanttest"
+            "$bin" --formanttest
+          fi
 
   # ---------------------------------------------------------------------------
-  # Suite build from the repo root: compiles JUCE once and every plugin + core
-  # together, catching cross-target / shared-core breakage the matrix can miss.
+  # Root configure + complete non-StemDeck compilation. StemDeck has a separate
+  # heavyweight gate and is intentionally outside this suite program.
   # ---------------------------------------------------------------------------
   suite-build:
-    name: Build whole suite (root)
-    runs-on: macos-latest
+    name: Build complete non-StemDeck suite
+    runs-on: macos-14
+    timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Install build tools
-        run: brew install ninja rubberband pkg-config
+        # Idempotent: the self-hosted Mac already has these, so only install if missing.
+        run: command -v ninja >/dev/null 2>&1 || brew install ninja
 
-      - name: Configure suite
+      - name: Configure suite (all plugins together)
         run: cmake -S . -B build/all -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build suite
-        run: cmake --build build/all --config Release -j3
+      - name: Compile every configured product
+        run: cmake --build build/all -j"$(sysctl -n hw.ncpu)"
 
       - name: Cross-plugin session bus contract
         run: |
-          cmake --build build/all --target SattariCrossPluginBusContract -j3
+          cmake --build build/all --target SattariCrossPluginBusContract -j"$(sysctl -n hw.ncpu)"
           bin="$(find build/all -type f -name SattariCrossPluginBusContract -perm +111 | head -n1)"
           if [ -z "$bin" ]; then echo "::error::SattariCrossPluginBusContract not found"; exit 1; fi
           "$bin"
+
+  # Contract and editor-render targets are excluded from the default product
+  # graph. Building them after the 3,151-node product graph made this job exceed
+  # its 150-minute ceiling even though the product compile and bus contract had
+  # already passed. Keep the same coverage in a parallel clean build tree.
+  suite-contracts:
+    name: Complete contracts and Studio UI renders
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: command -v ninja >/dev/null 2>&1 || brew install ninja
+
+      - name: Configure contract tree
+        run: cmake -S . -B build/all -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Complete contract and render-smoke profile
+        run: ./scripts/verify_all.sh --smoke
+
+      - name: Render Studio editor contracts
+        run: ctest --test-dir build/all -L ui --output-on-failure

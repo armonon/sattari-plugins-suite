@@ -1,13 +1,15 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include <sattari_audio_core/SattariBranding.h>
-#include <sattari_audio_core/SattariLookAndFeel.h>
 #include <sattari_audio_core/SattariABRow.h>
+#include <sattari_audio_core/SattariBranding.h>
+#include <sattari_audio_core/SattariKeyButton.h>
 #include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariStudio.h>
 #include "PluginProcessor.h"
 
-class SattariArpAudioProcessorEditor final : public juce::AudioProcessorEditor
+class SattariArpAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                             private juce::Timer
 {
 public:
     explicit SattariArpAudioProcessorEditor (SattariArpAudioProcessor&);
@@ -21,34 +23,61 @@ private:
     using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    SattariArpAudioProcessor& audioProcessor;
-
-    // Shared suite UI + cross-plugin preset system.
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("sattari-arp") };
-    sattari::presets::SattariPresetManager presetManager;
-    sattari::ui::SattariABRow abRow { presetManager };
-
-    juce::Label title, subtitle, rateLabel, patternLabel, velocityLabel, performanceLabel, scaleLabel;
-    // Per-knob name captions (the knobs themselves were previously unnamed).
-    juce::Label octavesLabel, ratchetLabel, gateLabel, swingLabel,
-                fixedVelocityLabel, humanizeLabel, transposeLabel;
-    juce::ComboBox preset, rate, pattern, velocityMode, scaleRoot, scale, userPresets;
-    juce::TextButton savePresetButton { "Save Preset" };
-    juce::Slider octaves, ratchet, gate, swing, fixedVelocity, humanize, transpose;
-    juce::ToggleButton latch, inputThru, hostSync, followKey;
-    juce::TextButton midiLearnButton { "MIDI Learn..." };
-
-    std::unique_ptr<ComboAttachment> rateAttach, patternAttach, velocityModeAttach, scaleRootAttach, scaleAttach;
-    std::unique_ptr<SliderAttachment> octavesAttach, ratchetAttach, gateAttach, swingAttach, fixedVelocityAttach, humanizeAttach, transposeAttach;
-    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach, followKeyAttach;
-
-    void setupSlider (juce::Slider&, const juce::String& suffix = {});
-    void setupCombo (juce::ComboBox&);
-    void setupLabel (juce::Label&, const juce::String& text, float size = 14.0f);
+    void timerCallback() override;
+    void setupCombo (juce::ComboBox&, const juce::String&);
+    void setupFieldLabel (juce::Label&, const juce::String&);
     void applyPreset (int presetIndex);
     void setParameterValue (const juce::String& parameterID, float value);
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
+    void paintPatternWorkspace (juce::Graphics&);
+
+    SattariArpAudioProcessor& audioProcessor;
+    const juce::Colour accent {
+        sattari::brand::productAccent ("sattari-arp")
+    };
+    sattari::studio::LookAndFeel lookAndFeel {
+        sattari::brand::productAccent ("sattari-arp")
+    };
+    sattari::studio::Header header {
+        "Sattari Arp", "GENERATIVE MIDI PERFORMANCE", accent
+    };
+
+    sattari::presets::SattariPresetManager presetManager;
+    sattari::ui::SattariABRow abRow { presetManager };
+
+    juce::ComboBox preset, rate, pattern, velocityMode, userPresets;
+    juce::Label rateLabel, patternLabel, velocityLabel;
+    sattari::ui::KeyButton keyButton;
+    juce::TextButton savePresetButton { "Save" };
+    juce::TextButton midiLearnButton { "MIDI learn" };
+
+    sattari::studio::MacroControl octaves { "Octaves" };
+    sattari::studio::MacroControl ratchet { "Ratchet" };
+    sattari::studio::MacroControl gate { "Gate" };
+    sattari::studio::MacroControl swing { "Swing" };
+    sattari::studio::MacroControl fixedVelocity { "Velocity" };
+    sattari::studio::MacroControl humanize { "Humanize" };
+    sattari::studio::MacroControl transpose { "Transpose", " st" };
+
+    juce::ToggleButton latch { "Latch" };
+    juce::ToggleButton inputThru { "Input thru" };
+    juce::ToggleButton hostSync { "Host sync" };
+    juce::ToggleButton followSwing { "Follow groove" };
+    juce::ToggleButton followEnergy { "Follow energy" };
+    sattari::studio::MetricCard tempoMetric { "Tempo" };
+    sattari::studio::MetricCard heldMetric { "Held notes" };
+    sattari::studio::MetricCard compassMetric { "Compass" };
+
+    std::unique_ptr<ComboAttachment> rateAttach, patternAttach, velocityModeAttach;
+    std::unique_ptr<SliderAttachment> octavesAttach, ratchetAttach, gateAttach,
+                                      swingAttach, fixedVelocityAttach,
+                                      humanizeAttach, transposeAttach;
+    std::unique_ptr<ButtonAttachment> latchAttach, inputThruAttach, hostSyncAttach,
+                                      followSwingAttach, followEnergyAttach;
+
+    SattariArpAudioProcessor::UiState uiState;
+    juce::Rectangle<int> workspaceArea, sequenceArea, keyArea, controlsArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariArpAudioProcessorEditor)
 };

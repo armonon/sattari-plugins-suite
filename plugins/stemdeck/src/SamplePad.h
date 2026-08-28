@@ -18,6 +18,7 @@ public:
 private:
     std::shared_ptr<const DeckPlayer::LoadedAudio> loadedAudio;
     double currentSampleRate = 44100.0;
-    double playheadSamples = 0.0;
+    double playheadSamples = 0.0;                 // audio thread only
     std::atomic<bool> active { false };
+    std::atomic<bool> resetRequested { false };   // message → audio playhead reset
 };

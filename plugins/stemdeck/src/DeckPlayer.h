@@ -51,8 +51,27 @@ public:
     juce::String getPath() const;
     juce::String getStemPath (int laneIndex) const;
     void seekStart();
+    void seekToSamples (double referenceSamples);   // thread-safe — queued for next process()
     double getPlayheadReferenceSamples() const noexcept;
     TrackAnalysis analyzeFullMixAroundPlayhead (double windowSeconds) const;
+
+    // Loop region (reference-sample coordinates, same rate as playhead)
+    void setLoopRegion (double inSamples, double outSamples);
+    void clearLoopRegion();
+    void setLoopActive (bool active);
+    bool isLoopActive() const noexcept { return loopActiveFlag.load (std::memory_order_relaxed); }
+    double getLoopInSamples()  const noexcept { return loopInRefSamples.load  (std::memory_order_relaxed); }
+    double getLoopOutSamples() const noexcept { return loopOutRefSamples.load (std::memory_order_relaxed); }
+
+    // Slip mode: a "shadow" playhead advances at 1× real-time while the main
+    // playhead is free to loop/scratch. Disabling slip snaps back to the shadow.
+    void setSlipEnabled (bool on) noexcept  { slipActive.store (on, std::memory_order_relaxed); }
+    bool isSlipEnabled() const noexcept     { return slipActive.load (std::memory_order_relaxed); }
+
+    // Loop roll: arms a beat-quantized loop + enables slip so playback snaps
+    // back to the real position when the roll is released.
+    void beginLoopRoll (double loopLengthSeconds) noexcept;
+    void endLoopRoll()   noexcept;
 
     void process (juce::AudioBuffer<float>& destination,
                   int startSample,
@@ -67,6 +86,7 @@ public:
                   float deckMixGain,
                   const TimePitchDecision& timePitch,
                   const std::array<float, numStemLanes>& stemLaneGains,
+                  const std::array<float, numStemLanes>& stemPitchSemitones,   // independent per-stem pitch
                   const BeatSyncEngine::PlaybackPlan& beatSyncPlan);
 
 private:
@@ -103,6 +123,13 @@ private:
     double currentSampleRate = 44100.0;
     double playheadSamples = 0.0;
     std::atomic<double> publicPlayheadSamples { 0.0 };
+    std::atomic<double> pendingSeekSamples    { -1.0 };
+    std::atomic<double> loopInRefSamples      { -1.0 };
+    std::atomic<double> loopOutRefSamples     { -1.0 };
+    std::atomic<bool>   loopActiveFlag        { false };
+    std::atomic<bool>   slipActive            { false };   // slip mode enabled
+    double              slipShadowSamples     = -1.0;      // audio thread only; -1 = inactive
+    bool                slipWasActive         = false;     // audio thread only; tracks edge
     int channels = 2;
     int preparedMaxBlockSize = 512;
     EQProcessor eq;

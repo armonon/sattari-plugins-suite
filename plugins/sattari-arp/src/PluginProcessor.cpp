@@ -22,6 +22,35 @@ SattariArpAudioProcessor::SattariArpAudioProcessor()
     : AudioProcessor (BusesProperties()),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Presets shape the arp pattern/feel; Scale Root,
+// Scale and Follow Song Key are left untouched so the arp keeps the user's key.
+void SattariArpAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // rate:    0=1/4 1=1/8 2=1/8T 3=1/16 4=1/16T 5=1/32
+    // pattern: 0=Up 1=Down 2=Up-Down 3=Down-Up 4=As Played 5=Random 6=Chord Pulse
+    // velocityMode: 0=Input 1=Fixed 2=Accent   (swing range is 0..0.65)
+    presetBank.addFactoryPreset ("Classic Up",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.7f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Staccato Gate",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.35f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Triplet Roll",
+        PV{ {"rate", 2}, {"pattern", 2}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.6f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Swung Eighths",
+        PV{ {"rate", 1}, {"pattern", 4}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.75f}, {"swing", 0.5f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Octave Cascade",
+        PV{ {"rate", 3}, {"pattern", 1}, {"octaves", 4}, {"ratchet", 1}, {"gate", 0.85f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Ratchet Machine",
+        PV{ {"rate", 3}, {"pattern", 0}, {"octaves", 2}, {"ratchet", 3}, {"gate", 0.5f}, {"swing", 0.0f}, {"velocityMode", 0} });
+    presetBank.addFactoryPreset ("Random Motion",
+        PV{ {"rate", 3}, {"pattern", 5}, {"octaves", 2}, {"ratchet", 1}, {"gate", 0.65f}, {"swing", 0.0f}, {"velocityMode", 2}, {"humanize", 8} });
+    presetBank.addFactoryPreset ("Chord Pulse",
+        PV{ {"rate", 1}, {"pattern", 6}, {"octaves", 1}, {"ratchet", 1}, {"gate", 0.9f}, {"swing", 0.0f}, {"velocityMode", 0} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::createParameterLayout()
@@ -37,7 +66,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scaleRoot", "Scale Root",
         juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
     // Cross-plugin session bus: when on, the arp's scale root follows the song key
-    // published by Auto Pitch (or any Sattari publisher).
+    // published by Sattari Key (or any Sattari publisher). Default OFF so the manual
+    // Root menu is authoritative out of the box; the editor greys Root while Follow
+    // is engaged so the override is never silent.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Off", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
@@ -54,6 +85,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariArpAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterBool> ("inputThru", "Input Thru", false));
     params.push_back (std::make_unique<juce::AudioParameterBool> ("hostSync", "Host Sync", true));
 
+    // Cross-plugin session follows (Compass bus), appended at the END of the layout
+    // so existing parameter indices/automation stay stable. Both default OFF so
+    // the arp is bit-identical to previous versions until the user opts in.
+    //  * followSwing: the published session swing (0..1) is applied as classic
+    //    off-beat delay scaled to the arp's division — every 2nd step lands late
+    //    by up to ~2/3 of a step at swing = 1.
+    //  * followEnergy: the published arrangement energy (0..1) drives dynamics —
+    //    velocity scales by (0.5 + 0.5*energy), and above 0.75 the pattern range
+    //    gains +1 octave and the hits get an accent lift (audible chorus/drop).
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followSwing", "Follow Swing", false));
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("followEnergy", "Follow Energy", false));
+
     return { params.begin(), params.end() };
 }
 
@@ -63,6 +106,7 @@ void SattariArpAudioProcessor::prepareToPlay (double sampleRate, int)
     refreshHostTempo();
     resetSequence();
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
+    tempoReader.start();     // poll the tempo bus (fallback when the host has no tempo)
     outputNotes.clear();
     heldNotes.clear();
     wasPlayingNotes = false;
@@ -90,6 +134,8 @@ void SattariArpAudioProcessor::refreshHostTempo()
     const auto t = sattari::host::read (*this);
     if (t.hasHostBpm)
         currentBpm = t.bpm;
+    else if (auto s = tempoReader.current(); s.valid && s.bpm > 1.0)   // tempo-bus fallback
+        currentBpm = s.bpm;
 }
 
 void SattariArpAudioProcessor::resetSequence()
@@ -144,10 +190,29 @@ int SattariArpAudioProcessor::snapNoteToScale (int note) const
 {
     const int scaleIndex = (int) *apvts.getRawParameterValue ("scale");
     int root = (int) *apvts.getRawParameterValue ("scaleRoot");
+    int scale = scaleIndex;
     if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
         if (auto s = sessionReader.current(); s.valid)
+        {
             root = s.root;
-    return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scaleIndex);
+            scale = s.scale == 0 ? 1 : (s.scale == 1 ? 2 : 0);
+        }
+    return sattari::dsp::snapMidiToScale (note, root, (sattari::dsp::ScaleId) scale);
+}
+
+SattariArpAudioProcessor::KeyState SattariArpAudioProcessor::currentKeyState() const
+{
+    KeyState k;
+    k.scale = (int) *apvts.getRawParameterValue ("scale");
+    k.root  = (int) *apvts.getRawParameterValue ("scaleRoot");
+    k.following = apvts.getRawParameterValue ("followKey")->load() > 0.5f;
+    if (k.following)
+        if (auto s = sessionReader.current(); s.valid)
+        {
+            k.root = s.root;
+            k.scale = s.scale == 0 ? 1 : (s.scale == 1 ? 2 : 0);
+        }
+    return k;
 }
 
 double SattariArpAudioProcessor::getStepQuarterNotes() const
@@ -168,7 +233,11 @@ int SattariArpAudioProcessor::getNextStepSamples()
 {
     const double beatsPerSecond = currentBpm / 60.0;
     const double seconds = getStepQuarterNotes() / beatsPerSecond;
-    const float swing = *apvts.getRawParameterValue ("swing");
+    const auto session = sessionReader.current();
+    const float swing = sattari::compass::effectiveSwing (
+        *apvts.getRawParameterValue ("swing"),
+        apvts.getRawParameterValue ("followSwing")->load() > 0.5f,
+        session);
     const bool tripletRate = (int) *apvts.getRawParameterValue ("rate") == 2 || (int) *apvts.getRawParameterValue ("rate") == 4;
     const double swingFactor = (! tripletRate && swing > 0.0f) ? ((stepCounter % 2 == 0) ? (1.0 + swing) : (1.0 - swing)) : 1.0;
     return juce::jmax (1, (int) std::llround (seconds * swingFactor * currentSampleRate));
@@ -202,6 +271,20 @@ void SattariArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         renderArp (scratchOutput, cursor, buffer.getNumSamples() - cursor);
 
     midi.swapWith (scratchOutput);
+    const auto session = sessionReader.current();
+    uiState.store ({
+        stepCounter & 15,
+        currentStepVelocity,
+        (int) heldNotes.size(),
+        hasHeldNotes(),
+        currentBpm,
+        session.valid && session.hasSceneContext,
+        apvts.getRawParameterValue ("followSwing")->load() > 0.5f,
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        session.sectionId,
+        session.swing,
+        session.energy
+    });
 }
 
 void SattariArpAudioProcessor::handleInputMidi (const juce::MidiMessage& message, int samplePosition, juce::MidiBuffer& output)
@@ -343,7 +426,10 @@ void SattariArpAudioProcessor::buildSortedBaseNotes (std::vector<int>& out) cons
 void SattariArpAudioProcessor::buildStepNotes (std::vector<int>& out) const
 {
     buildSortedBaseNotes (baseNotesScratch);
-    const int octaves = (int) *apvts.getRawParameterValue ("octaves");
+    const int octaves = sattari::compass::effectiveOctaves (
+        (int) *apvts.getRawParameterValue ("octaves"),
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        sessionReader.current());
     const int transpose = (int) *apvts.getRawParameterValue ("transpose");
     out.clear();
 
@@ -408,7 +494,10 @@ int SattariArpAudioProcessor::chooseVelocity (int sourceVelocity)
     if (humanize > 0)
         velocity += random.nextInt (humanize * 2 + 1) - humanize;
 
-    return clampVelocity (velocity);
+    return sattari::compass::effectiveVelocity (
+        clampVelocity (velocity),
+        apvts.getRawParameterValue ("followEnergy")->load() > 0.5f,
+        sessionReader.current());
 }
 
 void SattariArpAudioProcessor::triggerStep (juce::MidiBuffer& output, int samplePosition)

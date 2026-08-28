@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the Auto Pitch trace-to-plugin UI state contract.
+"""Validate the Auto Pitch trace-to-plugin development contract.
 
 This is a structural handoff gate for the JUCE shell. It does not load audio,
 run pitch correction, or prove vocal quality.
@@ -24,11 +24,20 @@ NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 REQUIRED_PARAMETER_IDS = [
     "keyRoot",
     "scale",
+    "scaleMode",
     "style",
     "amount",
     "speed",
     "doNoHarm",
     "traceConfidence",
+    "referenceDetune",
+    "followReference",
+    "midiTarget",
+    "capturePitchEdits",
+    "usePitchEdits",
+    "addVibrato",
+    "vibratoRate",
+    "vibratoOnset",
 ]
 
 
@@ -107,7 +116,9 @@ def validate_source_contract() -> list[str]:
     for parameter_id in REQUIRED_PARAMETER_IDS:
         if f'"{parameter_id}"' not in source:
             errors.append(f"missing plugin parameter ID in source: {parameter_id}")
-    for token in ["applyTraceContractJson", "key_suggestion", "pitch_compass", "Load trace JSON from clipboard"]:
+    # Trace import remains a developer-only seam and is intentionally not laid
+    # out in the customer UI. Guard the plumbing, not obsolete button copy.
+    for token in ["applyTraceContractJson", "key_suggestion", "pitch_compass", "loadTraceButton"]:
         if token not in source:
             errors.append(f"missing trace-contract source token: {token}")
     return errors

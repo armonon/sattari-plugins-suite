@@ -9,6 +9,43 @@ RoyalChainAudioProcessor::RoyalChainAudioProcessor()
         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values. Only listed params are set; anything
+// omitted keeps its default. Each preset picks a vocal Style and dials the macro
+// chain; Tune Key / Sync-from-Auto-Pitch are left untouched so the key is the
+// user's (Tune stays subtle so no key bias is imposed).
+void RoyalChainAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+
+    // style: 0=Modern Rap 1=R&B 2=Pop 3=Persian/World Pop 4=Indie
+    //        5=Podcast/Spoken 6=Background 7=Hook 8=Demo Rescue 9=Live
+    presetBank.addFactoryPreset ("Modern Rap",
+        PV{ {"style", 0}, {"clean", 0.6f}, {"tune", 0.0f}, {"control", 0.65f}, {"tone", 0.5f},
+            {"air", 0.5f}, {"smooth", 0.4f}, {"glow", 0.3f}, {"width", 0.3f}, {"space", 0.2f}, {"royal", 0.55f} });
+    presetBank.addFactoryPreset ("R&B Silk",
+        PV{ {"style", 1}, {"clean", 0.55f}, {"tune", 0.0f}, {"control", 0.55f}, {"tone", 0.55f},
+            {"air", 0.55f}, {"smooth", 0.6f}, {"glow", 0.45f}, {"width", 0.4f}, {"space", 0.4f}, {"royal", 0.55f} });
+    presetBank.addFactoryPreset ("Pop Sheen",
+        PV{ {"style", 2}, {"clean", 0.6f}, {"tune", 0.0f}, {"control", 0.6f}, {"tone", 0.6f},
+            {"air", 0.65f}, {"smooth", 0.45f}, {"glow", 0.4f}, {"width", 0.45f}, {"space", 0.35f}, {"royal", 0.6f} });
+    presetBank.addFactoryPreset ("Persian / World Pop",
+        PV{ {"style", 3}, {"clean", 0.55f}, {"tune", 0.0f}, {"control", 0.55f}, {"tone", 0.55f},
+            {"air", 0.5f}, {"smooth", 0.5f}, {"glow", 0.4f}, {"width", 0.35f}, {"space", 0.45f}, {"royal", 0.55f} });
+    presetBank.addFactoryPreset ("Podcast Clean",
+        PV{ {"style", 5}, {"clean", 0.5f}, {"tune", 0.0f}, {"control", 0.5f}, {"tone", 0.45f},
+            {"air", 0.35f}, {"smooth", 0.35f}, {"glow", 0.15f}, {"width", 0.0f}, {"space", 0.0f}, {"royal", 0.3f} });
+    presetBank.addFactoryPreset ("Background Vox",
+        PV{ {"style", 6}, {"clean", 0.5f}, {"tune", 0.0f}, {"control", 0.5f}, {"tone", 0.45f},
+            {"air", 0.4f}, {"smooth", 0.5f}, {"glow", 0.3f}, {"width", 0.6f}, {"space", 0.5f}, {"royal", 0.4f} });
+    presetBank.addFactoryPreset ("Hook Lift",
+        PV{ {"style", 7}, {"clean", 0.6f}, {"tune", 0.0f}, {"control", 0.65f}, {"tone", 0.6f},
+            {"air", 0.7f}, {"smooth", 0.5f}, {"glow", 0.55f}, {"width", 0.55f}, {"space", 0.5f}, {"royal", 0.7f} });
+    presetBank.addFactoryPreset ("Demo Rescue",
+        PV{ {"style", 8}, {"clean", 0.7f}, {"tune", 0.0f}, {"control", 0.7f}, {"tone", 0.6f},
+            {"air", 0.5f}, {"smooth", 0.6f}, {"glow", 0.35f}, {"width", 0.3f}, {"space", 0.3f}, {"royal", 0.6f} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::createParameterLayout()

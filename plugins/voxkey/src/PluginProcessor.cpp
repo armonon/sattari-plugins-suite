@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <chrono>
 
 SattariVoxKeyAudioProcessor::SattariVoxKeyAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -8,6 +9,21 @@ SattariVoxKeyAudioProcessor::SattariVoxKeyAudioProcessor()
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     apvts.state.setProperty ("schema", "SattariVoxKey.v0.1.0", nullptr);
+    registerFactoryPresets();
+}
+
+// Factory presets: real parameter values (choice index, 0..1, ms, semitones, bool 0/1).
+// Only listed params are set; anything omitted keeps its default. Key params (key /
+// followKey) are intentionally left untouched so a preset never fights the song key.
+void SattariVoxKeyAudioProcessor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    presetBank.addFactoryPreset ("Lead Melody",         PV{ {"mode", 0}, {"scale", 2}, {"sensitivity", 0.65f}, {"smoothness", 0.50f}, {"confidence", 0.58f}, {"octave",  0}, {"hold",  60}, {"release", 140}, {"velocity", 0.72f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Bass Follow",         PV{ {"mode", 1}, {"scale", 2}, {"sensitivity", 0.60f}, {"smoothness", 0.60f}, {"confidence", 0.62f}, {"octave", -1}, {"hold",  80}, {"release", 180}, {"velocity", 0.70f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Drum Mouth",          PV{ {"mode", 3}, {"scale", 0}, {"sensitivity", 0.80f}, {"smoothness", 0.20f}, {"confidence", 0.65f}, {"octave",  0}, {"hold",  30}, {"release",  60}, {"velocity", 0.85f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Smooth Pad Layer",    PV{ {"mode", 4}, {"scale", 1}, {"sensitivity", 0.55f}, {"smoothness", 0.85f}, {"confidence", 0.50f}, {"octave",  0}, {"hold", 150}, {"release", 400}, {"velocity", 0.60f}, {"pitchBend", 0}, {"glide", 1} });
+    presetBank.addFactoryPreset ("Harmony Stack",       PV{ {"mode", 2}, {"scale", 1}, {"sensitivity", 0.62f}, {"smoothness", 0.55f}, {"confidence", 0.58f}, {"octave",  0}, {"hold",  80}, {"release", 160}, {"velocity", 0.72f}, {"pitchBend", 0}, {"glide", 0} });
+    presetBank.addFactoryPreset ("Expressive Glide Lead",PV{ {"mode", 0}, {"scale", 3}, {"sensitivity", 0.70f}, {"smoothness", 0.60f}, {"confidence", 0.55f}, {"octave",  0}, {"hold",  70}, {"release", 200}, {"velocity", 0.80f}, {"pitchBend", 1}, {"pitchBendRange", 2}, {"glide", 1} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor::createParameterLayout()
@@ -19,7 +35,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor:
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("key", "Key",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0));
     // Cross-plugin session bus: when on, the key follows the song key published
-    // by Auto Pitch (or any Sattari publisher), so voice->MIDI stays in key.
+    // by Sattari Key (or any Sattari publisher), so voice->MIDI stays in key.
+    // Default OFF so the manual Key menu is authoritative out of the box; Follow
+    // is an explicit opt-in and the editor greys the Key menu while it's active.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("followKey", "Follow Song Key", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale",
         juce::StringArray { "Chromatic", "Major", "Minor", "Pentatonic" }, 0));
@@ -42,7 +60,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariVoxKeyAudioProcessor:
     // harmonics. UI marks it 'alpha'.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("paraphonic", "Paraphonic (alpha)", false));
 
+    // Neural Pitch (CREPE): use the optional ONNX pitch model when present. Inert
+    // (falls back to YIN) unless a crepe.onnx is installed AND the build has ONNX.
+    params.push_back (std::make_unique<juce::AudioParameterBool> ("neuralPitch", "Neural Pitch", false));
+
     return { params.begin(), params.end() };
+}
+
+SattariVoxKeyAudioProcessor::~SattariVoxKeyAudioProcessor()
+{
+    crepeThreadRun.store (false);
+    if (crepeThread.joinable()) crepeThread.join();
+}
+
+void SattariVoxKeyAudioProcessor::crepeWorkerLoop()
+{
+    using namespace std::chrono_literals;
+    while (crepeThreadRun.load (std::memory_order_relaxed))
+    {
+        if (crepeModelPresent && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
+        {
+            const auto r = crepe.analyse (0.5f);
+            crepeResultHz.store (r.frequencyHz, std::memory_order_relaxed);
+            crepeResultConf.store (r.confidence, std::memory_order_relaxed);
+            crepeResultVoiced.store (r.voiced, std::memory_order_relaxed);
+        }
+        std::this_thread::sleep_for (12ms);
+    }
 }
 
 void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -52,6 +96,24 @@ void SattariVoxKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesP
     monoScratch.setSize (1, juce::jmax (1, samplesPerBlock), false, false, true);
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
     publishDisplayState ({});
+
+    // Optional CREPE model (shared with Auto Pitch): load from the conventional
+    // models folder; spin up the inference worker only when a model is present.
+    crepe.prepare (sampleRate);
+    crepeModelPresent = false;
+    {
+        auto modelFile = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                             .getChildFile ("Sattari Audio").getChildFile ("models").getChildFile ("crepe.onnx");
+        if (modelFile.existsAsFile())
+            crepeModelPresent = crepe.loadModel (modelFile.getFullPathName().toStdString());
+    }
+    crepeThreadRun.store (false);
+    if (crepeThread.joinable()) crepeThread.join();
+    if (crepeModelPresent)
+    {
+        crepeThreadRun.store (true);
+        crepeThread = std::thread ([this] { crepeWorkerLoop(); });
+    }
 
     // Paraphonic detector init (allocation-free after this).
     paraFft = std::make_unique<juce::dsp::FFT> (paraFftOrder);
@@ -184,10 +246,15 @@ VoxKeyVoiceMidiMapper::Settings SattariVoxKeyAudioProcessor::readSettings() cons
     VoxKeyVoiceMidiMapper::Settings s;
     s.mode = (VoxKeyVoiceMidiMapper::Mode) (int) *apvts.getRawParameterValue ("mode");
     s.keyRoot = (int) *apvts.getRawParameterValue ("key");
+    s.scale = (VoxKeyVoiceMidiMapper::Scale) (int) *apvts.getRawParameterValue ("scale");
     if (apvts.getRawParameterValue ("followKey")->load() > 0.5f)
         if (auto sess = sessionReader.current(); sess.valid)
+        {
             s.keyRoot = sess.root;
-    s.scale = (VoxKeyVoiceMidiMapper::Scale) (int) *apvts.getRawParameterValue ("scale");
+            if (sess.scale == 0) s.scale = VoxKeyVoiceMidiMapper::Scale::major;
+            else if (sess.scale == 1) s.scale = VoxKeyVoiceMidiMapper::Scale::minor;
+            else s.scale = VoxKeyVoiceMidiMapper::Scale::chromatic;
+        }
     s.octaveShift = (int) *apvts.getRawParameterValue ("octave");
     s.holdMs = *apvts.getRawParameterValue ("hold");
     s.releaseMs = *apvts.getRawParameterValue ("release");
@@ -257,11 +324,26 @@ void SattariVoxKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer
         return;
     }
 
-    const auto frame = pitchDetector.analyseBlock (mono,
-                                                   numSamples,
-                                                   *apvts.getRawParameterValue ("sensitivity"),
-                                                   *apvts.getRawParameterValue ("confidence"),
-                                                   *apvts.getRawParameterValue ("smoothness"));
+    auto frame = pitchDetector.analyseBlock (mono,
+                                             numSamples,
+                                             *apvts.getRawParameterValue ("sensitivity"),
+                                             *apvts.getRawParameterValue ("confidence"),
+                                             *apvts.getRawParameterValue ("smoothness"));
+
+    // Neural pitch: when a CREPE model is active, feed the ring (audio-thread
+    // cheap) and replace the YIN frame with the worker's more-accurate estimate.
+    // This is the big voice->MIDI accuracy win on breathy/noisy vocals.
+    if (crepeModelPresent && apvts.getRawParameterValue ("neuralPitch")->load() > 0.5f)
+    {
+        crepe.pushBlock (mono, numSamples);
+        const float chz = crepeResultHz.load (std::memory_order_relaxed);
+        if (crepeResultVoiced.load (std::memory_order_relaxed) && chz > 0.0f)
+        {
+            frame.frequencyHz = chz;
+            frame.confidence  = juce::jmax (frame.confidence, crepeResultConf.load (std::memory_order_relaxed));
+            frame.voiced      = true;
+        }
+    }
 
     midiMapper.processFrame (frame, readSettings(), midi, 0);
     publishDisplayState (midiMapper.getState());

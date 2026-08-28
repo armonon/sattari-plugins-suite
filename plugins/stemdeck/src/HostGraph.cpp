@@ -120,6 +120,9 @@ void HostGraph::release()
 {
     for (auto& chain : chains)
     {
+        // Serialise with processChain (audio thread) so it never reads prepared /
+        // pluginNodes mid-teardown.
+        const juce::ScopedLock lock (chain.graphLock);
         chain.graph.releaseResources();
         chain.graph.clear();
         chain.pluginNodes.clear();
@@ -132,11 +135,14 @@ void HostGraph::release()
 void HostGraph::processChain (Chain chain, juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
     auto& state = stateFor (chain);
-    if (! state.prepared || state.pluginNodes.isEmpty())
-        return;
 
+    // Read prepared/pluginNodes under the lock — the message thread mutates both
+    // (initialiseGraph, plugin load, release) while holding graphLock.
     const juce::ScopedTryLock lock (state.graphLock);
     if (! lock.isLocked())
+        return;
+
+    if (! state.prepared || state.pluginNodes.isEmpty())
         return;
 
     state.graph.processBlock (audio, midi);

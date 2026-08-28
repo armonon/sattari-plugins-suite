@@ -59,7 +59,7 @@ SattariBusAudioProcessorEditor::SattariBusAudioProcessorEditor (SattariBusAudioP
 
     grLabel.setJustificationType (juce::Justification::centredRight);
     grLabel.setColour (juce::Label::textColourId, lookAndFeel.getAccent());
-    grLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    grLabel.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
     addAndMakeVisible (grLabel);
 
     addKnob (inputTrim, "inputTrim", "TRIM", " dB");
@@ -96,7 +96,7 @@ void SattariBusAudioProcessorEditor::addKnob (Knob& k, const juce::String& param
     addAndMakeVisible (k.slider);
     k.label.setText (caption, juce::dontSendNotification);
     k.label.setJustificationType (juce::Justification::centred);
-    k.label.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    k.label.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     k.label.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (k.label);
     k.attachment = std::make_unique<SliderAttachment> (processor.parameters(), paramId, k.slider);

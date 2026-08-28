@@ -19,3 +19,35 @@ sattari_add_plugin(
     SOURCES
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
+
+# Functional contract: proves the synth tracks a low tone into a bounded,
+# non-silent sub-band signal, and stays quiet on silence (gate closes).
+add_executable(SubConjurerContract
+    EXCLUDE_FROM_ALL
+        tests/sub_conjurer_contract.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+
+add_dependencies(SubConjurerContract SubConjurer)
+
+target_include_directories(SubConjurerContract
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SubConjurer_artefacts/JuceLibraryCode)
+
+target_compile_definitions(SubConjurerContract
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JucePlugin_Name="Sub Conjurer"
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+target_link_libraries(SubConjurerContract
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)

@@ -4,13 +4,14 @@ void SamplePad::prepare (double sampleRate)
 {
     currentSampleRate = sampleRate;
     playheadSamples = 0.0;
+    resetRequested.store (false);
     active.store (false);
 }
 
 void SamplePad::setLoadedAudio (std::shared_ptr<const DeckPlayer::LoadedAudio> newAudio)
 {
     std::atomic_store (&loadedAudio, std::move (newAudio));
-    playheadSamples = 0.0;
+    resetRequested.store (true);   // audio thread rewinds the playhead
     active.store (false);
 }
 
@@ -27,7 +28,7 @@ juce::String SamplePad::getPath() const
 
 void SamplePad::trigger()
 {
-    playheadSamples = 0.0;
+    resetRequested.store (true);   // rewind happens on the audio thread
     active.store (true);
 }
 
@@ -38,6 +39,9 @@ void SamplePad::stop()
 
 void SamplePad::process (juce::AudioBuffer<float>& destination, int startSample, int numSamples, float gainDb)
 {
+    if (resetRequested.exchange (false))
+        playheadSamples = 0.0;
+
     if (! active.load())
         return;
 

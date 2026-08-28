@@ -1,0 +1,1334 @@
+diff --git a/plugins/stemdeck/src/MainPluginEditor.cpp b/plugins/stemdeck/src/MainPluginEditor.cpp
+index 09103a5..a4ede85 100644
+--- a/plugins/stemdeck/src/MainPluginEditor.cpp
++++ b/plugins/stemdeck/src/MainPluginEditor.cpp
+@@ -4,21 +4,408 @@ namespace
+ {
+ juce::Colour deckAccent (int deckIndex)
+ {
+-    static constexpr std::array<juce::uint32, 4> colours { 0xff26d9ff, 0xffff4c5f, 0xff50f06b, 0xffffcf4a };
++    static constexpr std::array<juce::uint32, 4> colours { 0xff21a8ff, 0xff67d84f, 0xffff9718, 0xff9b5cff };
+     return juce::Colour (colours[(size_t) juce::jlimit (0, 3, deckIndex)]);
+ }
+ 
+-void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent, float corner = 12.0f)
++juce::Colour panelBase() { return juce::Colour (0xff070f16); }
++juce::Colour panelTop()  { return juce::Colour (0xff111d26); }
++juce::Colour borderDim() { return juce::Colour (0xff22323d); }
++juce::Colour textMain()  { return juce::Colours::white.withAlpha (0.86f); }
++
++void drawPanel (juce::Graphics& g, juce::Rectangle<int> bounds, juce::Colour accent, float corner = 7.0f)
+ {
+     const auto r = bounds.toFloat();
+-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff080a10), r.getTopLeft(),
+-                                             juce::Colour (0xff151927), r.getBottomRight(), false));
++    g.setGradientFill (juce::ColourGradient (panelTop(), r.getTopLeft(),
++                                             panelBase(), r.getBottomRight(), false));
+     g.fillRoundedRectangle (r, corner);
+-    g.setColour (juce::Colours::black.withAlpha (0.35f));
++    g.setColour (juce::Colours::black.withAlpha (0.5f));
+     g.drawRoundedRectangle (r.reduced (1.0f), corner, 1.0f);
++    g.setColour (accent.withAlpha (0.24f));
++    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
++}
++
++void drawSectionTitle (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text)
++{
++    g.setColour (textMain());
++    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++    g.drawText (text, r, juce::Justification::centredLeft);
++}
++
++void drawGuidancePill (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour accent, const juce::String& text)
++{
++    g.setColour (accent.withAlpha (0.10f));
++    g.fillRoundedRectangle (r.toFloat(), 4.0f);
+     g.setColour (accent.withAlpha (0.36f));
+-    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.1f);
++    g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 4.0f, 1.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.68f));
++    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
++    g.drawText (text, r.reduced (8, 0), juce::Justification::centredLeft, true);
++}
++
++void drawLevelMeter (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour accent, float hot = 0.74f)
++{
++    g.setColour (juce::Colour (0xff050a0d));
++    g.fillRoundedRectangle (r.toFloat(), 3.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.08f));
++    for (int i = 1; i < 9; ++i)
++    {
++        const int y = r.getY() + i * r.getHeight() / 9;
++        g.drawHorizontalLine (y, (float) r.getX(), (float) r.getRight());
++    }
++
++    auto fill = r.reduced (4, 4);
++    const int activeH = juce::roundToInt ((float) fill.getHeight() * juce::jlimit (0.05f, 1.0f, hot));
++    auto active = fill.removeFromBottom (activeH);
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff28f06e), active.getBottomLeft().toFloat(),
++                                             juce::Colour (0xffffb02f), active.getCentre().toFloat(), false));
++    g.fillRoundedRectangle (active.toFloat(), 2.0f);
++    g.setColour (accent.withAlpha (0.32f));
++    g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, 1.0f);
++}
++
++void drawMiniWave (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour accent, int seed)
++{
++    juce::Random random (seed);
++    g.setColour (accent.withAlpha (0.08f));
++    g.fillRoundedRectangle (r.toFloat(), 4.0f);
++    const int bars = juce::jmax (18, r.getWidth() / 7);
++    for (int i = 0; i < bars; ++i)
++    {
++        const float x = (float) r.getX() + (float) i * (float) r.getWidth() / (float) bars;
++        const float barW = juce::jmax (2.0f, (float) r.getWidth() / (float) bars - 2.0f);
++        const float h = (float) r.getHeight() * (0.18f + 0.75f * random.nextFloat());
++        const auto bar = juce::Rectangle<float> (x, (float) r.getCentreY() - h * 0.5f, barW, h);
++        g.setColour (accent.withAlpha (0.68f + random.nextFloat() * 0.2f));
++        g.fillRoundedRectangle (bar, 1.5f);
++    }
++}
++
++void drawStatusDot (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour colour, const juce::String& label)
++{
++    g.setColour (colour.withAlpha (0.88f));
++    g.fillEllipse ((float) r.getX(), (float) r.getCentreY() - 3.0f, 6.0f, 6.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.74f));
++    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++    g.drawText (label, r.withTrimmedLeft (12), juce::Justification::centredLeft);
++}
++
++void drawNavGlyph (juce::Graphics& g, juce::Rectangle<int> r, int index, juce::Colour colour)
++{
++    auto f = r.toFloat().reduced (2.0f);
++    g.setColour (colour);
++
++    switch (index)
++    {
++        case 0:
++            g.drawRoundedRectangle (f, 3.0f, 1.2f);
++            g.drawLine (f.getX() + 4.0f, f.getCentreY(), f.getRight() - 4.0f, f.getCentreY(), 1.2f);
++            break;
++        case 1:
++            for (int i = 0; i < 3; ++i)
++            {
++                const float x = f.getX() + 3.0f + (float) i * 5.0f;
++                g.drawLine (x, f.getY(), x, f.getBottom(), 1.1f);
++                g.fillRoundedRectangle (x - 2.0f, f.getY() + 3.0f + (float) (i % 2) * 5.0f, 4.0f, 3.0f, 1.0f);
++            }
++            break;
++        case 2:
++            for (int i = 0; i < 4; ++i)
++                g.fillRoundedRectangle (f.getX(), f.getY() + 2.0f + (float) i * 4.0f,
++                                        f.getWidth() * (0.42f + 0.13f * (float) i), 2.0f, 1.0f);
++            break;
++        case 3:
++            for (int y = 0; y < 2; ++y)
++                for (int x = 0; x < 2; ++x)
++                    g.drawRoundedRectangle (juce::Rectangle<float> (f.getX() + (float) x * 8.0f,
++                                                                     f.getY() + (float) y * 8.0f,
++                                                                     5.0f, 5.0f),
++                                            1.0f, 1.1f);
++            break;
++        case 4:
++        {
++            juce::Path p;
++            p.startNewSubPath (f.getX(), f.getCentreY());
++            p.cubicTo (f.getX() + 5.0f, f.getY(), f.getRight() - 5.0f, f.getBottom(), f.getRight(), f.getCentreY());
++            g.strokePath (p, juce::PathStrokeType (1.2f));
++            g.fillEllipse (f.withSizeKeepingCentre (4.0f, 4.0f));
++            break;
++        }
++        case 5:
++            g.drawRoundedRectangle (f.withSizeKeepingCentre (8.0f, 12.0f), 4.0f, 1.2f);
++            g.drawLine (f.getCentreX(), f.getBottom() - 3.0f, f.getCentreX(), f.getBottom() + 2.0f, 1.2f);
++            break;
++        case 6:
++            g.fillEllipse (f.withSizeKeepingCentre (8.0f, 8.0f));
++            g.drawEllipse (f.withSizeKeepingCentre (14.0f, 14.0f), 1.0f);
++            break;
++        case 7:
++            g.drawRoundedRectangle (f, 2.0f, 1.2f);
++            g.drawLine (f.getX() + 4.0f, f.getY() + 5.0f, f.getRight() - 3.0f, f.getY() + 5.0f, 1.1f);
++            break;
++        default:
++            g.drawEllipse (f, 1.2f);
++            g.fillEllipse (f.withSizeKeepingCentre (4.0f, 4.0f));
++            break;
++    }
++}
++
++void drawEffectCard (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour accent, const juce::String& title)
++{
++    g.setColour (juce::Colour (0xff0d171f));
++    g.fillRoundedRectangle (r.toFloat(), 5.0f);
++    g.setColour (accent.withAlpha (0.28f));
++    g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 5.0f, 1.0f);
++    auto header = r.reduced (12, 8).removeFromTop (18);
++    g.setColour (accent);
++    g.fillEllipse ((float) header.getX(), (float) header.getCentreY() - 5.0f, 10.0f, 10.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.78f));
++    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++    g.drawText (title, header.withTrimmedLeft (20), juce::Justification::centredLeft);
++    g.setColour (juce::Colours::white.withAlpha (0.32f));
++    g.drawText ("x", header, juce::Justification::centredRight);
++
++    juce::StringArray labels;
++    if (title == "FILTER")
++        labels = { "LPF 12dB", "RES 24%", "DRIVE 12%" };
++    else if (title == "DELAY")
++        labels = { "1/4", "FDBK 36%", "MIX 28%" };
++    else if (title == "REVERB")
++        labels = { "PLATE", "SIZE 52%", "MIX 31%" };
++    else
++        labels = { "LOW", "MID", "HIGH" };
++
++    auto labelArea = r.reduced (36, 28).removeFromTop (16);
++    for (int i = 0; i < labels.size(); ++i)
++    {
++        auto cell = labelArea.removeFromLeft (juce::jmax (1, labelArea.getWidth() / (labels.size() - i)));
++        g.setColour (juce::Colours::white.withAlpha (0.48f));
++        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
++        g.drawText (labels[i], cell, juce::Justification::centredLeft, true);
++    }
++
++    auto bands = r.reduced (36, 34);
++    for (int i = 0; i < 3; ++i)
++    {
++        auto band = bands.removeFromLeft (juce::jmax (1, bands.getWidth() / (3 - i))).reduced (8, 8);
++        g.setColour (juce::Colours::white.withAlpha (0.08f));
++        g.fillRoundedRectangle (band.withHeight (3).toFloat(), 2.0f);
++        g.setColour (accent.withAlpha (0.82f));
++        g.fillRoundedRectangle (band.withWidth (juce::jmax (12, band.getWidth() * (i + 2) / 4)).withHeight (3).toFloat(), 2.0f);
++    }
++}
+ }
++
++StemDeckLookAndFeel::StemDeckLookAndFeel()
++    : sattari::ui::SattariLookAndFeel (sattari::brand::productAccent ("stemdeck"))
++{
++    setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
++}
++
++juce::Font StemDeckLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
++{
++    return juce::FontOptions (juce::jlimit (9.5f, 12.0f, (float) buttonHeight * 0.38f),
++                              juce::Font::bold);
++}
++
++void StemDeckLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b,
++                                                const juce::Colour& backgroundColour,
++                                                bool shouldDrawButtonAsHighlighted,
++                                                bool shouldDrawButtonAsDown)
++{
++    const auto text = b.getButtonText();
++    const bool on = b.getToggleState() || shouldDrawButtonAsDown;
++    const bool transport = text.equalsIgnoreCase ("PLAY") || text.containsIgnoreCase ("REC");
++    const auto accent = b.findColour (juce::TextButton::buttonOnColourId, true);
++    auto fill = backgroundColour.getAlpha() == 0 ? juce::Colour (0xff111c25) : backgroundColour;
++    if (transport)
++        fill = accent.withAlpha (on ? 0.32f : 0.14f);
++    else if (on)
++        fill = accent.withAlpha (0.24f);
++    else if (shouldDrawButtonAsHighlighted)
++        fill = fill.brighter (0.12f);
++
++    auto r = b.getLocalBounds().toFloat().reduced (0.5f);
++    g.setGradientFill (juce::ColourGradient (fill.brighter (0.08f), r.getTopLeft(),
++                                             fill.darker (0.22f), r.getBottomLeft(), false));
++    g.fillRoundedRectangle (r, 4.0f);
++    g.setColour ((on || shouldDrawButtonAsHighlighted) ? accent.withAlpha (0.58f)
++                                                       : juce::Colour (0xff263741));
++    g.drawRoundedRectangle (r, 4.0f, 1.0f);
++
++    if (transport)
++    {
++        g.setColour (accent.withAlpha (on ? 0.34f : 0.16f));
++        g.drawRoundedRectangle (r.reduced (2.0f), 3.0f, 1.0f);
++    }
++}
++
++void StemDeckLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b,
++                                          bool shouldDrawButtonAsHighlighted,
++                                          bool shouldDrawButtonAsDown)
++{
++    const auto text = b.getButtonText();
++    auto area = b.getLocalBounds().reduced (4, 1);
++    const auto accent = b.findColour (juce::TextButton::buttonOnColourId, true);
++
++    if (text.equalsIgnoreCase ("PLAY"))
++    {
++        juce::Path play;
++        const float s = (float) juce::jmin (area.getWidth(), area.getHeight()) * 0.42f;
++        const auto c = area.toFloat().getCentre();
++        play.startNewSubPath (c.x - s * 0.36f, c.y - s * 0.55f);
++        play.lineTo (c.x - s * 0.36f, c.y + s * 0.55f);
++        play.lineTo (c.x + s * 0.58f, c.y);
++        play.closeSubPath();
++        g.setColour (accent.brighter (shouldDrawButtonAsDown ? 0.0f : 0.2f));
++        g.fillPath (play);
++        return;
++    }
++
++    if (text.containsIgnoreCase ("REC") || text.containsIgnoreCase ("Record"))
++    {
++        g.setColour (juce::Colour (0xffff6a75));
++        g.fillEllipse ((float) area.getX() + 10.0f, (float) area.getCentreY() - 3.5f, 7.0f, 7.0f);
++        area.removeFromLeft (22);
++    }
++
++    g.setFont (getTextButtonFont (b, b.getHeight()));
++    g.setColour ((shouldDrawButtonAsHighlighted || shouldDrawButtonAsDown || b.getToggleState())
++                     ? juce::Colours::white
++                     : b.findColour (juce::TextButton::textColourOffId, true));
++    g.drawText (text, area, juce::Justification::centred, true);
++}
++
++void StemDeckLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b,
++                                            bool shouldDrawButtonAsHighlighted,
++                                            bool shouldDrawButtonAsDown)
++{
++    const bool on = b.getToggleState();
++    const auto accent = b.findColour (juce::ToggleButton::tickColourId, true);
++    auto r = b.getLocalBounds().toFloat().reduced (0.5f);
++    auto fill = on ? accent.withAlpha (0.24f) : juce::Colour (0xff111b23);
++    if (shouldDrawButtonAsHighlighted)
++        fill = fill.brighter (0.12f);
++
++    g.setGradientFill (juce::ColourGradient (fill.brighter (0.08f), r.getTopLeft(),
++                                             fill.darker (0.20f), r.getBottomLeft(), false));
++    g.fillRoundedRectangle (r, 4.0f);
++    g.setColour (on ? accent.withAlpha (0.72f) : juce::Colour (0xff263741));
++    g.drawRoundedRectangle (r, 4.0f, 1.0f);
++
++    if (on)
++    {
++        g.setColour (accent.withAlpha (0.78f));
++        g.fillEllipse (r.getX() + 7.0f, r.getCentreY() - 3.0f, 6.0f, 6.0f);
++    }
++
++    g.setColour (on ? juce::Colours::white.withAlpha (0.92f) : juce::Colours::white.withAlpha (0.72f));
++    g.setFont (juce::FontOptions (juce::jlimit (9.0f, 11.0f, (float) b.getHeight() * 0.34f), juce::Font::bold));
++    auto textArea = b.getLocalBounds().reduced (5, 1);
++    if (on)
++        textArea = textArea.withTrimmedLeft (12);
++    g.drawText (b.getButtonText(), textArea, juce::Justification::centred, true);
++    juce::ignoreUnused (shouldDrawButtonAsDown);
++}
++
++void StemDeckLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
++                                        int, int, int, int, juce::ComboBox& box)
++{
++    auto r = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
++    const auto accent = box.findColour (juce::ComboBox::arrowColourId, true);
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff111c25), r.getTopLeft(),
++                                             juce::Colour (0xff0a1219), r.getBottomLeft(), false));
++    g.fillRoundedRectangle (r, 4.0f);
++    g.setColour (isButtonDown ? accent.withAlpha (0.72f) : juce::Colour (0xff263741));
++    g.drawRoundedRectangle (r, 4.0f, 1.0f);
++
++    juce::Path chevron;
++    const float cx = r.getRight() - 13.0f;
++    const float cy = r.getCentreY();
++    chevron.startNewSubPath (cx - 4.0f, cy - 2.0f);
++    chevron.lineTo (cx, cy + 2.5f);
++    chevron.lineTo (cx + 4.0f, cy - 2.0f);
++    g.setColour (accent.withAlpha (0.82f));
++    g.strokePath (chevron, juce::PathStrokeType (1.25f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
++}
++
++void StemDeckLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
++                                            float sliderPos, float minSliderPos, float maxSliderPos,
++                                            juce::Slider::SliderStyle style, juce::Slider& slider)
++{
++    juce::ignoreUnused (minSliderPos, maxSliderPos);
++    const auto accent = slider.findColour (juce::Slider::trackColourId, true);
++    const auto rail = juce::Colour (0xff1a2831);
++
++    if (style == juce::Slider::LinearVertical)
++    {
++        auto r = juce::Rectangle<float> ((float) x + (float) width * 0.5f - 5.0f,
++                                         (float) y + 6.0f,
++                                         10.0f,
++                                         (float) height - 12.0f);
++        g.setColour (juce::Colour (0xff05090d));
++        g.fillRoundedRectangle (r.expanded (3.0f, 0.0f), 3.0f);
++        g.setColour (rail);
++        g.fillRoundedRectangle (r, 2.0f);
++
++        const float pos = juce::jlimit (r.getY(), r.getBottom(), sliderPos);
++        auto active = juce::Rectangle<float> (r.getX(), pos, r.getWidth(), r.getBottom() - pos);
++        g.setGradientFill (juce::ColourGradient (accent, active.getTopLeft(),
++                                                 juce::Colour (0xff37d88f), active.getBottomLeft(), false));
++        g.fillRoundedRectangle (active, 2.0f);
++        g.setColour (juce::Colours::white.withAlpha (0.76f));
++        g.fillRoundedRectangle (juce::Rectangle<float> ((float) x + 8.0f, pos - 4.0f,
++                                                        (float) width - 16.0f, 8.0f), 2.0f);
++        return;
++    }
++
++    auto r = juce::Rectangle<float> ((float) x + 6.0f,
++                                     (float) y + (float) height * 0.5f - 2.0f,
++                                     (float) width - 12.0f,
++                                     4.0f);
++    g.setColour (rail);
++    g.fillRoundedRectangle (r, 2.0f);
++
++    const float pos = juce::jlimit (r.getX(), r.getRight(), sliderPos);
++    auto active = juce::Rectangle<float> (r.getX(), r.getY(), pos - r.getX(), r.getHeight());
++    g.setColour (accent.withAlpha (0.86f));
++    g.fillRoundedRectangle (active, 2.0f);
++    g.setColour (accent.brighter (0.18f));
++    g.fillEllipse (pos - 4.0f, r.getCentreY() - 4.0f, 8.0f, 8.0f);
++}
++
++void StemDeckLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
++                                            float sliderPosProportional, float rotaryStartAngle,
++                                            float rotaryEndAngle, juce::Slider& slider)
++{
++    const auto accent = slider.findColour (juce::Slider::rotarySliderFillColourId, true);
++    auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (4.0f);
++    const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f - 2.0f;
++    const auto centre = bounds.getCentre();
++    const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
++
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1a2630), centre.x, bounds.getY(),
++                                             juce::Colour (0xff070c11), centre.x, bounds.getBottom(), false));
++    g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
++    g.setColour (juce::Colour (0xff30414b));
++    g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.0f);
++
++    juce::Path track;
++    track.addCentredArc (centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f,
++                         rotaryStartAngle, rotaryEndAngle, true);
++    g.setColour (juce::Colour (0xff1c2c35));
++    g.strokePath (track, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
++
++    juce::Path arc;
++    arc.addCentredArc (centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f,
++                       rotaryStartAngle, angle, true);
++    g.setColour (accent.withAlpha (0.90f));
++    g.strokePath (arc, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
++
++    const auto tip = juce::Point<float> (centre.x + radius * 0.64f * std::cos (angle - juce::MathConstants<float>::halfPi),
++                                         centre.y + radius * 0.64f * std::sin (angle - juce::MathConstants<float>::halfPi));
++    g.setColour (juce::Colours::white.withAlpha (0.72f));
++    g.drawLine ({ centre, tip }, 2.0f);
+ }
+ 
+ juce::String MainPluginEditor::deckPrefix (int deckIndex)
+@@ -55,87 +442,47 @@ void MainPluginEditor::ArrangementRecorderView::setRecordingState (bool isRecord
+ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
+ {
+     const auto bounds = getLocalBounds().toFloat();
+-    g.setColour (juce::Colour (0xff080a12));
+-    g.fillRoundedRectangle (bounds, 18.0f);
+-
+-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff151a29), bounds.getTopLeft(),
+-                                             juce::Colour (0xff070911), bounds.getBottomRight(), false));
+-    g.fillRoundedRectangle (bounds.reduced (1.0f), 17.0f);
+-
+-    const auto accent = recording ? juce::Colour (0xffff4c6a) : juce::Colour (0xff67f6d2);
+-    g.setColour (accent.withAlpha (0.75f));
+-    g.drawRoundedRectangle (bounds.reduced (0.75f), 18.0f, 1.5f);
+-
+-    auto area = getLocalBounds().reduced (18, 14);
+-    auto header = area.removeFromTop (30);
+-    g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
+-    g.setColour (juce::Colours::white.withAlpha (0.94f));
+-    g.drawText ("Pattern Arrangement", header.removeFromLeft (260), juce::Justification::centredLeft);
+-
+-    g.setFont (juce::FontOptions (12.0f));
+-    g.setColour (accent.withAlpha (0.95f));
+-    g.drawText (recording ? "● RECORDING MIX" : "○ READY TO CAPTURE MIX", header, juce::Justification::centredRight);
+-
+-    area.removeFromTop (10);
+-    const int rulerHeight = 24;
+-    auto ruler = area.removeFromTop (rulerHeight);
+-    g.setColour (juce::Colours::white.withAlpha (0.18f));
+-    g.drawHorizontalLine (ruler.getBottom(), (float) ruler.getX(), (float) ruler.getRight());
+-    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+-    for (int bar = 0; bar <= 8; ++bar)
+-    {
+-        const float x = (float) ruler.getX() + (float) bar * (float) ruler.getWidth() / 8.0f;
+-        g.setColour (juce::Colours::white.withAlpha (bar % 2 == 0 ? 0.34f : 0.18f));
+-        g.drawVerticalLine ((int) std::round (x), (float) ruler.getY(), (float) getHeight() - 18.0f);
+-        if (bar < 8)
+-            g.drawText (juce::String (bar + 1), (int) x + 6, ruler.getY(), 64, rulerHeight - 2, juce::Justification::centredLeft);
+-    }
+-
+-    const juce::StringArray lanes { "Track 1", "Track 2", "Track 3", "Track 4", "Stem Moves", "FX + Pads" };
+-    const std::array<juce::Colour, 6> laneColours { juce::Colour (0xff26d9ff), juce::Colour (0xffff4c5f), juce::Colour (0xff50f06b),
+-                                                    juce::Colour (0xffffcf4a), juce::Colour (0xffc77dff), juce::Colour (0xff67f6d2) };
+-    const int laneGap = 6;
+-    const int laneHeight = juce::jmax (18, (area.getHeight() - laneGap * (lanes.size() - 1)) / lanes.size());
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff101923), bounds.getTopLeft(),
++                                             juce::Colour (0xff071017), bounds.getBottomRight(), false));
++    g.fillRoundedRectangle (bounds, 7.0f);
++    g.setColour (borderDim());
++    g.drawRoundedRectangle (bounds.reduced (0.5f), 7.0f, 1.0f);
++
++    auto area = getLocalBounds().reduced (14, 10);
++    auto header = area.removeFromTop (24);
++    g.setColour (juce::Colours::white.withAlpha (0.78f));
++    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
++    g.drawText ("EVENT LOG", header, juce::Justification::centredLeft);
++    g.setColour (juce::Colours::white.withAlpha (0.38f));
++    g.drawText ("CLEAR", header, juce::Justification::centredRight);
++
++    area.removeFromTop (5);
++    const juce::StringArray rows {
++        "10:24:31   Deck A loaded       Night Drive",
++        "10:24:35   Deck B loaded       Back Together",
++        "10:24:38   Deck C loaded       Rising Up",
++        "10:24:41   Deck D loaded       Falling Sky",
++        recording ? "10:26:31   Recording           Started" : "10:26:31   Recording           Ready",
++        "10:28:42   Marker              Drop",
++        "10:29:17   Arrangement         Saved"
++    };
+ 
+-    for (int i = 0; i < lanes.size(); ++i)
++    for (int i = 0; i < rows.size(); ++i)
+     {
+-        auto lane = area.removeFromTop (laneHeight);
+-        area.removeFromTop (laneGap);
+-        g.setColour (juce::Colours::white.withAlpha (0.045f));
+-        g.fillRoundedRectangle (lane.toFloat(), 7.0f);
+-        g.setColour (juce::Colours::white.withAlpha (0.18f));
+-        g.drawRoundedRectangle (lane.toFloat(), 7.0f, 1.0f);
+-
+-        auto label = lane.removeFromLeft (112);
+-        g.setColour (juce::Colours::white.withAlpha (0.72f));
+-        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+-        g.drawText (lanes[i], label.reduced (4, 0), juce::Justification::centredLeft);
+-
+-        auto track = lane.reduced (6, 5);
+-        const int clipCount = i == 0 ? 4 : 3;
+-        for (int clip = 0; clip < clipCount; ++clip)
+-        {
+-            const int x = track.getX() + 14 + clip * juce::jmax (82, track.getWidth() / 4);
+-            const int width = juce::jlimit (48, 180, track.getWidth() / (clip == 0 ? 3 : 4));
+-            auto clipRect = juce::Rectangle<int> (x, track.getY(), width, track.getHeight()).getIntersection (track);
+-            if (clipRect.getWidth() <= 20)
+-                continue;
+-
+-            const auto laneColour = laneColours[(size_t) i];
+-            const bool hotClip = (i == 1 && clip == 1);
+-            g.setColour ((hotClip ? juce::Colour (0xffff2f4f) : laneColour).withAlpha (recording ? 0.48f : 0.28f));
+-            g.fillRoundedRectangle (clipRect.toFloat(), 6.0f);
+-            g.setColour (laneColour.withAlpha (0.62f));
+-            g.drawRoundedRectangle (clipRect.toFloat(), 6.0f, 1.0f);
+-            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+-            g.setColour (juce::Colours::white.withAlpha (0.78f));
+-            g.drawText ("Pattern 1", clipRect.reduced (8, 0), juce::Justification::centredLeft);
+-        }
++        auto row = area.removeFromTop (19);
++        const bool hot = rows[i].containsIgnoreCase ("Recording");
++        g.setColour (hot ? juce::Colour (0xffff4c5f).withAlpha (0.9f)
++                         : juce::Colours::white.withAlpha (0.62f));
++        g.setFont (juce::FontOptions (10.0f, hot ? juce::Font::bold : juce::Font::plain));
++        g.drawText (rows[i], row, juce::Justification::centredLeft);
+     }
+ 
+-    g.setFont (juce::FontOptions (11.0f));
+-    g.setColour (juce::Colours::white.withAlpha (0.64f));
+-    g.drawText (status, getLocalBounds().reduced (18, 10).removeFromBottom (18), juce::Justification::centredLeft);
++    auto footer = getLocalBounds().reduced (14, 8).removeFromBottom (18);
++    g.setColour ((recording ? juce::Colour (0xffff4c5f) : juce::Colour (0xff37d88f)).withAlpha (0.82f));
++    g.fillEllipse ((float) footer.getX(), (float) footer.getCentreY() - 3.0f, 6.0f, 6.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.48f));
++    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
++    g.drawText (status, footer.withTrimmedLeft (12), juce::Justification::centredLeft, true);
+ }
+ 
+ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+@@ -149,7 +496,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     thumbnailFormatManager.registerFormat (new juce::MP3AudioFormat(), true);
+ #endif
+ 
+-    setSize (1500, 940);
++    setSize (2048, 800);
+     setWantsKeyboardFocus (true);
+     setMouseClickGrabsKeyboardFocus (true);
+ 
+@@ -165,29 +512,31 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     addAndMakeVisible (savePresetButton);
+     refreshUserPresets();
+ 
+-    title.setText ("StemDeck PRO", juce::dontSendNotification);
+-    title.setFont (juce::FontOptions (30.0f, juce::Font::bold));
++    title.setText ("STEMDECK", juce::dontSendNotification);
++    title.setFont (juce::FontOptions (31.0f, juce::Font::bold));
+     title.setColour (juce::Label::textColourId, juce::Colours::white);
+-    title.setJustificationType (juce::Justification::centred);
++    title.setJustificationType (juce::Justification::centredLeft);
+     addAndMakeVisible (title);
+ 
+-    subtitle.setText ("FOUR DECKS  •  STEM MIXER  •  ARRANGEMENT RECORDER", juce::dontSendNotification);
+-    subtitle.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+-    subtitle.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++    subtitle.setText ("Sattari", juce::dontSendNotification);
++    subtitle.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.82f));
++    subtitle.setFont (juce::FontOptions (17.0f, juce::Font::bold));
+     subtitle.setJustificationType (juce::Justification::centredLeft);
+     addAndMakeVisible (subtitle);
+ 
+-    standaloneWorkflowGuide.setText ("STANDALONE APP ALPHA QUICK START  Load or drag a full mix onto Deck A/B/C/D  •  AI Split after local Demucs setup  •  Mix stems/faders/FX/pads  •  Record WAV to capture the performed arrangement  •  Not notarized or sale-ready", juce::dontSendNotification);
+-    standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2).withAlpha (0.94f));
+-    standaloneWorkflowGuide.setFont (juce::FontOptions (12.0f, juce::Font::bold));
++    standaloneWorkflowGuide.setText ("STANDALONE APP ALPHA QUICK START", juce::dontSendNotification);
++    standaloneWorkflowGuide.setTooltip ("Load or drag a full mix. Record WAV to capture the performed arrangement. Not notarized or sale-ready.");
++    standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.72f));
++    standaloneWorkflowGuide.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+     standaloneWorkflowGuide.setJustificationType (juce::Justification::centredLeft);
+     addAndMakeVisible (standaloneWorkflowGuide);
+ 
+-    tempoLabel.setColour (juce::Label::textColourId, juce::Colour (0xff67f6d2));
+-    tempoLabel.setJustificationType (juce::Justification::centredRight);
++    tempoLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.82f));
++    tempoLabel.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++    tempoLabel.setJustificationType (juce::Justification::centred);
+     addAndMakeVisible (tempoLabel);
+ 
+-    pluginHostStatus.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.82f));
++    pluginHostStatus.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.72f));
+     pluginHostStatus.setFont (juce::FontOptions (11.0f));
+     pluginHostStatus.setJustificationType (juce::Justification::centredLeft);
+     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
+@@ -201,9 +550,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+         label.setJustificationType (juce::Justification::centredLeft);
+         addAndMakeVisible (label);
+     };
+-    setupSectionLabel (liveMixerLabel, "LIVE MIXER / STEM DECKS");
+-    setupSectionLabel (arrangementLabel, "ARRANGEMENT CAPTURE");
+-    setupSectionLabel (samplerLabel, "PERFORMANCE PADS");
++    setupSectionLabel (liveMixerLabel, "DECKS");
++    setupSectionLabel (arrangementLabel, "EVENT LOG");
++    setupSectionLabel (samplerLabel, "PADS");
+ 
+     setupButton (scanPluginsButton);
+     setupButton (reloadPluginCacheButton);
+@@ -214,7 +563,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     pluginHostMessage.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.88f));
+     pluginHostMessage.setFont (juce::FontOptions (11.0f));
+     pluginHostMessage.setJustificationType (juce::Justification::centredLeft);
+-    pluginHostMessage.setText ("FX host cache: " + processorRef.getPluginHostCacheFile().getFileName(), juce::dontSendNotification);
++    pluginHostMessage.setText ("FX: scan once, choose a chain, then load", juce::dontSendNotification);
+     addAndMakeVisible (scanPluginsButton);
+     addAndMakeVisible (reloadPluginCacheButton);
+     addAndMakeVisible (loadPluginButton);
+@@ -244,11 +593,32 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+     {
+         auto deckName = deckLabel (i).toUpperCase();
++        const auto accent = deckAccent (i);
+         deckWaves[(size_t) i] = std::make_unique<WaveformDisplay> (thumbnailFormatManager, thumbnailCache, deckName);
+         deckWaves[(size_t) i]->setOnFileDropped ([this, i] (const juce::File& f) { processorRef.loadDeckFileAsync (i, f); });
+         addAndMakeVisible (*deckWaves[(size_t) i]);
+ 
+-        setupDeck (deckControls[(size_t) i], deckPrefix (i), juce::String::charToString ((juce_wchar) ('A' + i)) + " Play");
++        setupDeck (deckControls[(size_t) i], deckPrefix (i), "PLAY");
++        auto& deck = deckControls[(size_t) i];
++        for (auto* button : { static_cast<juce::Button*> (&deck.load),
++                              static_cast<juce::Button*> (&deck.loadStem),
++                              static_cast<juce::Button*> (&deck.aiStems),
++                              static_cast<juce::Button*> (&deck.play),
++                              static_cast<juce::Button*> (&deck.cue),
++                              static_cast<juce::Button*> (&deck.keyLock),
++                              static_cast<juce::Button*> (&deck.liveKey) })
++        {
++            button->setColour (juce::TextButton::buttonOnColourId, accent);
++            button->setColour (juce::ToggleButton::tickColourId, accent);
++        }
++        for (auto* combo : { &deck.stemLane, &deck.tempoInterpretation, &deck.syncMode, &deck.keyTarget })
++            combo->setColour (juce::ComboBox::arrowColourId, accent.withAlpha (0.86f));
++        for (auto* slider : { &deck.bpm, &deck.beatOffset, &deck.downbeat, &deck.volume, &deck.fader,
++                              &deck.pitch, &deck.low, &deck.mid, &deck.high, &deck.filter })
++        {
++            slider->setColour (juce::Slider::trackColourId, accent);
++            slider->setColour (juce::Slider::rotarySliderFillColourId, accent);
++        }
+         deckControls[(size_t) i].load.onClick = [this, i] { openDeckChooser (i); };
+         deckControls[(size_t) i].loadStem.onClick = [this, i]
+         {
+@@ -261,6 +631,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+ 
+     addAndMakeVisible (mixerPanel);
+     setupSlider (crossfader, false);
++    crossfader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+     setupSlider (masterBpm, false, " BPM");
+     setupSlider (master, true, " dB");
+     setupSlider (limiter, true, " dB");
+@@ -274,11 +645,15 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     setupButton (micMonitor);
+     addAndMakeVisible (micMonitor);
+     setupSlider (micGain, false, " dB");
++    micGain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+     setupButton (recordButton);
++    recordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffff4c5f));
+     recordButton.onClick = [this] { toggleRecording(); };
+     addAndMakeVisible (recordButton);
+     recordStatus.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
++    recordStatus.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+     recordStatus.setJustificationType (juce::Justification::centredLeft);
++    recordStatus.setText ("Ready: WAV + events + arrangement JSON", juce::dontSendNotification);
+     addAndMakeVisible (recordStatus);
+     addAndMakeVisible (arrangementView);
+ 
+@@ -294,10 +669,16 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
+     for (int i = 0; i < PadBank::numPads; ++i)
+     {
+         auto& pad = pads[(size_t) i];
+-        pad.trigger.setButtonText ("PAD " + juce::String (i + 1) + " [" + padKeyLabel (i) + "]");
++        const auto accent = deckAccent (i % MainPluginProcessor::numDecks);
++        pad.trigger.setButtonText (padKeyLabel (i));
+         setupButton (pad.trigger);
+         setupButton (pad.load);
+         setupSlider (pad.gain, false, " dB");
++        pad.gain.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
++        pad.trigger.setColour (juce::TextButton::buttonColourId, accent.withAlpha (0.18f));
++        pad.trigger.setColour (juce::TextButton::buttonOnColourId, accent);
++        pad.load.setColour (juce::TextButton::buttonOnColourId, accent);
++        pad.gain.setColour (juce::Slider::trackColourId, accent);
+         pad.trigger.onClick = [this, i] { processorRef.triggerPad (i); };
+         pad.load.onClick = [this, i] { openPadChooser (i); };
+         pad.gainAttachment = std::make_unique<SliderAttachment> (processorRef.parameters(), "pad" + juce::String (i + 1) + "Gain", pad.gain);
+@@ -330,21 +711,24 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
+ void MainPluginEditor::setupButton (juce::Button& button)
+ {
+     button.setWantsKeyboardFocus (false);
+-    button.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff121621));
+-    button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff0f5664));
+-    button.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.9f));
++    button.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff111c25));
++    button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff21a8ff));
++    button.setColour (juce::TextButton::textColourOffId, juce::Colours::white.withAlpha (0.78f));
+     button.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
++    button.setColour (juce::ToggleButton::textColourId, juce::Colours::white.withAlpha (0.78f));
++    button.setColour (juce::ToggleButton::tickColourId, juce::Colour (0xff37d88f));
++    button.setColour (juce::ToggleButton::tickDisabledColourId, juce::Colours::white.withAlpha (0.18f));
+ }
+ 
+ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juce::String& suffix)
+ {
+     slider.setWantsKeyboardFocus (false);
+     slider.setSliderStyle (rotary ? juce::Slider::RotaryHorizontalVerticalDrag : juce::Slider::LinearHorizontal);
+-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
++    slider.setTextBoxStyle (rotary ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 58, 16);
+     slider.setTextValueSuffix (suffix);
+-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff67f6d2));
++    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff22a8ff));
+     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::white.withAlpha (0.12f));
+-    slider.setColour (juce::Slider::trackColourId, juce::Colour (0xff67f6d2));
++    slider.setColour (juce::Slider::trackColourId, juce::Colour (0xff22a8ff));
+     slider.setColour (juce::Slider::backgroundColourId, juce::Colours::white.withAlpha (0.08f));
+     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
+     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
+@@ -355,11 +739,11 @@ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juc
+ void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
+ {
+     comboBox.setWantsKeyboardFocus (false);
+-    comboBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff10141f));
++    comboBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff111c25));
+     comboBox.setColour (juce::ComboBox::textColourId, juce::Colours::white.withAlpha (0.9f));
+-    comboBox.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff67f6d2).withAlpha (0.35f));
+-    comboBox.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff67f6d2));
+-    comboBox.setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff101522));
++    comboBox.setColour (juce::ComboBox::outlineColourId, borderDim());
++    comboBox.setColour (juce::ComboBox::arrowColourId, juce::Colour (0xff21a8ff));
++    comboBox.setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff101923));
+     comboBox.setColour (juce::PopupMenu::textColourId, juce::Colours::white);
+     addAndMakeVisible (comboBox);
+ }
+@@ -367,6 +751,10 @@ void MainPluginEditor::setupComboBox (juce::ComboBox& comboBox)
+ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& prefix, const juce::String& playText)
+ {
+     controls.play.setButtonText (playText);
++    controls.load.setButtonText ("LOAD");
++    controls.loadStem.setButtonText ("STEM");
++    controls.aiStems.setButtonText ("AI");
++    controls.cue.setButtonText ("CUE");
+     setupButton (controls.load);
+     setupButton (controls.loadStem);
+     setupButton (controls.aiStems);
+@@ -392,9 +780,9 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
+     for (int i = 0; i < keyTargets.size(); ++i)
+         controls.keyTarget.addItem (keyTargets[i], i + 1);
+     controls.keyTarget.setSelectedId (1, juce::dontSendNotification);
+-    controls.keyLock.setButtonText ("KeyLock");
++    controls.keyLock.setButtonText ("KEY");
+     setupButton (controls.keyLock);
+-    controls.liveKey.setButtonText ("LiveKey");
++    controls.liveKey.setButtonText ("LIVE");
+     setupButton (controls.liveKey);
+     controls.keyInfo.setColour (juce::Label::textColourId, juce::Colours::lightgrey.withAlpha (0.9f));
+     controls.keyInfo.setJustificationType (juce::Justification::centredLeft);
+@@ -419,6 +807,9 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
+     controls.volume.setSliderStyle (juce::Slider::LinearVertical);
+     controls.fader.setSliderStyle (juce::Slider::LinearVertical);
+     controls.pitch.setSliderStyle (juce::Slider::LinearVertical);
++    controls.volume.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
++    controls.fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
++    controls.pitch.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+     controls.bpm.setTextBoxStyle (juce::Slider::TextBoxRight, false, 58, 18);
+     controls.beatOffset.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
+     controls.downbeat.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
+@@ -548,7 +939,7 @@ void MainPluginEditor::refreshHostPluginChoices()
+ 
+ void MainPluginEditor::runPluginHostScan()
+ {
+-    pluginHostMessage.setText ("Scanning FX defaults…", juce::dontSendNotification);
++    pluginHostMessage.setText ("Scanning FX defaults...", juce::dontSendNotification);
+     scanPluginsButton.setEnabled (false);
+ 
+     juce::Thread::launch ([safeThis = juce::Component::SafePointer<MainPluginEditor> (this)]
+@@ -565,9 +956,9 @@ void MainPluginEditor::runPluginHostScan()
+             safeThis->scanPluginsButton.setEnabled (true);
+             safeThis->refreshHostPluginChoices();
+             juce::String message = "Scanned " + result.scannedFormats.joinIntoString (", ")
+-                                 + " • known FX: " + juce::String (result.plugins.size());
++                                 + " | known FX: " + juce::String (result.plugins.size());
+             if (! result.blacklistedFiles.isEmpty())
+-                message += " • blacklisted: " + juce::String (result.blacklistedFiles.size());
++                message += " | blacklisted: " + juce::String (result.blacklistedFiles.size());
+             safeThis->pluginHostMessage.setText (message, juce::dontSendNotification);
+         });
+     });
+@@ -584,7 +975,7 @@ void MainPluginEditor::loadSelectedHostPlugin()
+     }
+ 
+     loadPluginButton.setEnabled (false);
+-    pluginHostMessage.setText ("Loading " + pluginSelector.getText() + " → " + pluginChainSelector.getText(), juce::dontSendNotification);
++    pluginHostMessage.setText ("Loading " + pluginSelector.getText() + " -> " + pluginChainSelector.getText(), juce::dontSendNotification);
+     processorRef.loadHostPluginToChainAsync (chainIndex, pluginIndex,
+         [safeThis = juce::Component::SafePointer<MainPluginEditor> (this)] (bool success, juce::String message)
+         {
+@@ -624,215 +1015,360 @@ void MainPluginEditor::saveCurrentAsUserPreset()
+ 
+ void MainPluginEditor::paint (juce::Graphics& g)
+ {
+-    lookAndFeel.paintSuiteBackground (g, getLocalBounds());
+-
+-    g.setColour (juce::Colours::white.withAlpha (0.075f));
+-    g.drawHorizontalLine (title.getBounds().getBottom() + 7, 22.0f, (float) getWidth() - 22.0f);
+-
+-    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
++    const auto bounds = getLocalBounds();
++    const int sidebarW = 218;
++    const int margin = 8;
++    const int gap = 8;
++    const int topBarH = 52;
++    const int rightW = 368;
++    const int masterW = 170;
++    const int rightX = bounds.getRight() - rightW - margin;
++    const int masterX = rightX - masterW - gap;
++    const int mainX = sidebarW + margin;
++    const int mainW = masterX - mainX - gap;
++    const int deckY = topBarH + 4;
++    const int deckH = 356;
++    const int bottomY = deckY + deckH + gap;
++    const int bottomH = bounds.getBottom() - bottomY - margin;
++
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff04080b), 0.0f, 0.0f,
++                                             juce::Colour (0xff0b141c), 0.0f, (float) getHeight(), false));
++    g.fillAll();
++
++    auto sidebar = juce::Rectangle<int> (0, 0, sidebarW, getHeight());
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff081017), sidebar.getTopLeft().toFloat(),
++                                             juce::Colour (0xff05090d), sidebar.getBottomRight().toFloat(), false));
++    g.fillRect (sidebar);
++    g.setColour (borderDim());
++    g.drawVerticalLine (sidebar.getRight(), 0.0f, (float) getHeight());
++
++    const juce::StringArray nav { "DECKS", "MIXER", "STEMS", "PADS", "EFFECTS", "MIC", "RECORD", "BROWSER", "SETTINGS" };
++    auto navArea = sidebar.withTrimmedTop (114).reduced (12, 0);
++    for (int i = 0; i < nav.size(); ++i)
+     {
+-        const auto& controls = deckControls[(size_t) i];
+-        auto deckBounds = deckWaves[(size_t) i] != nullptr ? deckWaves[(size_t) i]->getBounds().expanded (10, 12) : juce::Rectangle<int>{};
+-        deckBounds = deckBounds.getUnion (controls.pitch.getBounds().expanded (8, 12));
+-        if (! deckBounds.isEmpty())
++        auto item = navArea.removeFromTop (39).reduced (0, 3);
++        const bool active = i == 0;
++        if (active)
+         {
+-            drawPanel (g, deckBounds, deckAccent (i), 14.0f);
+-            g.setColour (deckAccent (i).withAlpha (0.72f));
+-            g.fillRoundedRectangle (deckBounds.removeFromTop (4).toFloat(), 2.0f);
++            g.setColour (juce::Colour (0xff17232c));
++            g.fillRoundedRectangle (item.toFloat(), 5.0f);
+         }
++        g.setColour (active ? juce::Colours::white.withAlpha (0.86f) : juce::Colours::white.withAlpha (0.52f));
++        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
++        g.drawText (nav[i], item.withTrimmedLeft (36), juce::Justification::centredLeft);
++        drawNavGlyph (g, item.withSizeKeepingCentre (18, 18).withX (item.getX() + 14),
++                      i, juce::Colours::white.withAlpha (active ? 0.70f : 0.34f));
+     }
+ 
+-    g.setColour (juce::Colours::white.withAlpha (0.62f));
+-    g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+-
++    auto phones = sidebar.removeFromBottom (94).reduced (34, 8);
++    g.setColour (juce::Colours::white.withAlpha (0.48f));
++    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++    g.drawText ("SATTARI\nAUDIO", phones.removeFromTop (36), juce::Justification::centred);
++    g.setColour (juce::Colour (0xff0d171f));
++    g.fillEllipse (phones.withSizeKeepingCentre (48, 48).toFloat());
++    g.setColour (juce::Colours::white.withAlpha (0.58f));
++    g.drawEllipse (phones.withSizeKeepingCentre (48, 48).toFloat(), 1.0f);
++
++    auto top = juce::Rectangle<int> (mainX, margin, rightX + rightW - mainX, topBarH - margin);
++    drawPanel (g, top, juce::Colour (0xff22313b), 5.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.16f));
++    g.fillRoundedRectangle (juce::Rectangle<int> (top.getX() + 710, top.getY() + 16, 140, 6).toFloat(), 3.0f);
++    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff19c0ff), (float) top.getX() + 710, (float) top.getY(),
++                                             juce::Colour (0xffff4c5f), (float) top.getX() + 850, (float) top.getY(), false));
++    g.fillRoundedRectangle (juce::Rectangle<int> (top.getX() + 710, top.getY() + 16, 126, 6).toFloat(), 3.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.72f));
++    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++    g.drawText ("v0.4.3 Alpha", top.withX (mainX + 10).withWidth (150), juce::Justification::centredLeft);
++    drawGuidancePill (g, top.withX (mainX + 154).withWidth (270).reduced (0, 12),
++                      juce::Colour (0xff37d88f), "LOAD > SPLIT > MIX > RECORD");
++    g.drawText ("MASTER", top.withX (mainX + 660).withWidth (60), juce::Justification::centredLeft);
++    drawStatusDot (g, top.withX (rightX - 246).withWidth (62), juce::Colour (0xff21a8ff), "LINK");
++    drawStatusDot (g, top.withX (rightX - 166).withWidth (62), juce::Colours::white.withAlpha (0.35f), "MIDI");
++    drawStatusDot (g, top.withX (rightX - 86).withWidth (54), juce::Colour (0xffff4c5f), "REC");
++    g.drawText ("CPU  12%", top.withX (rightX - 10).withWidth (86), juce::Justification::centredRight);
++
++    const int deckGap = 8;
++    const int deckW = (mainW - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
+     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+     {
+-        const auto& controls = deckControls[(size_t) i];
+-        auto drawControlLabel = [&g] (const juce::String& text, const juce::Component& component)
++        auto card = juce::Rectangle<int> (mainX + i * (deckW + deckGap), deckY, deckW, deckH);
++        const auto accent = deckAccent (i);
++        drawPanel (g, card, accent, 7.0f);
++
++        auto inner = card.reduced (11, 9);
++        auto header = inner.removeFromTop (30);
++        auto badge = header.removeFromLeft (33);
++        g.setColour (accent.withAlpha (0.12f));
++        g.fillRoundedRectangle (badge.toFloat(), 4.0f);
++        g.setColour (accent.withAlpha (0.9f));
++        g.drawRoundedRectangle (badge.toFloat(), 4.0f, 1.2f);
++        g.setFont (juce::FontOptions (24.0f, juce::Font::bold));
++        g.drawText (juce::String::charToString ((juce_wchar) ('A' + i)), badge, juce::Justification::centred);
++
++        auto names = juce::StringArray { "Night Drive", "Back Together", "Rising Up", "Falling Sky" };
++        auto artists = juce::StringArray { "Mindorism", "Velour & Nox", "Avenoir", "Tidal Shift" };
++        g.setColour (juce::Colours::white.withAlpha (0.88f));
++        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
++        g.drawText (names[i], header.withTrimmedLeft (10).removeFromTop (16), juce::Justification::centredLeft);
++        g.setColour (juce::Colours::white.withAlpha (0.48f));
++        g.setFont (juce::FontOptions (9.0f));
++        g.drawText (artists[i], header.withTrimmedLeft (10), juce::Justification::centredLeft);
++        g.setColour (accent.withAlpha (0.9f));
++        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
++        g.drawText (juce::String ((i == 0 ? 128 : i == 1 ? 124 : i == 2 ? 126 : 122)) + ".00   "
++                    + juce::String (i == 0 ? "8A" : i == 1 ? "8A" : i == 2 ? "9A" : "10A"),
++                    header.withWidth (112).withX (card.getRight() - 124), juce::Justification::centredRight);
++
++        auto wave = card.reduced (12, 56).withHeight (62);
++        drawMiniWave (g, wave, accent, 900 + i * 31);
++
++        auto progress = card.reduced (22, 128).withHeight (22);
++        g.setColour (juce::Colours::white.withAlpha (0.1f));
++        g.fillRoundedRectangle (progress.withTrimmedLeft (60).withTrimmedRight (60).withHeight (3).withY (progress.getCentreY()).toFloat(), 2.0f);
++        g.setColour (accent.withAlpha (0.85f));
++        g.fillRoundedRectangle (progress.withTrimmedLeft (60).withTrimmedRight (140 - i * 16).withHeight (3).withY (progress.getCentreY()).toFloat(), 2.0f);
++        g.fillEllipse ((float) progress.getX() + 155.0f + (float) i * 28.0f, (float) progress.getCentreY() - 4.0f, 8.0f, 8.0f);
++        g.setColour (juce::Colours::white.withAlpha (0.58f));
++        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++        g.drawText (i == 0 ? "-02:15" : i == 1 ? "-01:21" : i == 2 ? "-03:42" : "-05:02", progress.removeFromLeft (56), juce::Justification::centredLeft);
++        g.drawText (i == 0 ? "04:28" : i == 3 ? "05:45" : "06:03", progress.removeFromRight (52), juce::Justification::centredRight);
++
++        auto stems = card.reduced (12, 156).withHeight (105);
++        const juce::StringArray stemNames { "DRUMS", "BASS", "MUSIC", "VOCALS" };
++        for (int row = 0; row < stemNames.size(); ++row)
+         {
+-            auto r = component.getBounds().withHeight (14).translated (0, -14);
+-            g.drawText (text, r, juce::Justification::centred);
+-        };
++            auto rr = stems.removeFromTop (25);
++            g.setColour (juce::Colours::white.withAlpha (0.58f));
++            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++            g.drawText (stemNames[row], rr.removeFromLeft (54), juce::Justification::centredLeft);
++            auto rail = rr.withTrimmedRight (56).reduced (1, 10);
++            g.setColour (accent.withAlpha (0.16f));
++            g.fillRoundedRectangle (rail.toFloat(), 2.0f);
++            g.setColour (accent.withAlpha (0.86f));
++            g.fillRoundedRectangle (rail.withWidth (rail.getWidth() * (62 + row * 7) / 100).toFloat(), 2.0f);
++            g.fillEllipse ((float) rail.getX() + (float) rail.getWidth() * (62 + row * 7) / 100.0f - 4.0f,
++                           (float) rail.getCentreY() - 4.0f, 8.0f, 8.0f);
++            g.setColour (juce::Colours::white.withAlpha (0.46f));
++            g.drawText ("S   M", rr.removeFromRight (44), juce::Justification::centredRight);
++        }
+ 
+-        g.setColour (deckAccent (i).withAlpha (0.92f));
+-        drawControlLabel ("GAIN", controls.volume);
+-        drawControlLabel ("BPM", controls.bpm);
+-        drawControlLabel ("GRID", controls.beatOffset);
+-        drawControlLabel ("DOWN", controls.downbeat);
+-        drawControlLabel ("FADER", controls.fader);
+-        drawControlLabel ("PITCH", controls.pitch);
+-        drawControlLabel ("LOW", controls.low);
+-        drawControlLabel ("MID", controls.mid);
+-        drawControlLabel ("HIGH", controls.high);
+-        drawControlLabel ("FILTER", controls.filter);
++        g.setColour (juce::Colours::white.withAlpha (0.56f));
++        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++        g.drawText ("GAIN", card.reduced (12, 263).withHeight (18), juce::Justification::centredLeft);
++        g.drawText (i == 1 ? "-4.1 dB" : "-2.7 dB", card.reduced (12, 263).withHeight (18), juce::Justification::centredRight);
+     }
+ 
+-    if (! crossfader.getBounds().isEmpty())
++    auto padsPanel = juce::Rectangle<int> (mainX, bottomY, 256, bottomH);
++    drawPanel (g, padsPanel, juce::Colour (0xff9b5cff), 7.0f);
++    drawSectionTitle (g, padsPanel.reduced (12, 10).removeFromTop (20), "PADS");
++    g.setColour (juce::Colours::white.withAlpha (0.42f));
++    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
++    g.drawText ("HOT CUE", padsPanel.reduced (14, 10).withY (bottomY + 28).withHeight (18), juce::Justification::centredRight);
++
++    const int stripX = padsPanel.getRight() + gap;
++    const int utilityW = 294;
++    const int stripGap = 6;
++    const int stripW = (mainW - padsPanel.getWidth() - utilityW - gap * 2 - stripGap * 3) / 4;
++    for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+     {
+-        drawPanel (g, mixerPanel.getBounds().getUnion (recordStatus.getBounds()).expanded (10, 8), juce::Colour (0xff67f6d2), 14.0f);
++        auto strip = juce::Rectangle<int> (stripX + i * (stripW + stripGap), bottomY, stripW, bottomH - 51);
++        drawPanel (g, strip, deckAccent (i), 7.0f);
++        g.setColour (deckAccent (i));
++        g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
++        g.drawText (juce::String::charToString ((juce_wchar) ('A' + i)), strip.removeFromTop (30), juce::Justification::centred);
++        drawLevelMeter (g, juce::Rectangle<int> (strip.getX() + strip.getWidth() - 58, strip.getY() + 72, 28, 154), deckAccent (i), 0.48f + 0.08f * (float) i);
++        g.setColour (juce::Colours::white.withAlpha (0.44f));
++        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
++        g.drawText ("HI\nMID\nLOW\nFILTER", juce::Rectangle<int> (strip.getX() + 16, strip.getY() + 45, 48, 176), juce::Justification::centred);
+     }
+ 
+-    g.setColour (juce::Colours::white.withAlpha (0.68f));
++    auto xfadePanel = juce::Rectangle<int> (stripX, bottomY + bottomH - 43, stripW * 4 + stripGap * 3, 43);
++    drawPanel (g, xfadePanel, juce::Colour (0xff9b5cff), 5.0f);
++    g.setColour (juce::Colours::white.withAlpha (0.48f));
+     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+-    g.drawText ("Crossfader groups: A/C  ↔  B/D", crossfader.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
+-    g.drawText ("Master BPM", masterBpm.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
+-    g.drawText ("Master", master.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
+-    g.drawText ("Limit", limiter.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
+-    g.drawText ("Mic gain", micGain.getBounds().withHeight (16).translated (0, -18), juce::Justification::centred);
++    g.drawText ("A", xfadePanel.reduced (18, 0).removeFromLeft (36), juce::Justification::centred);
++    g.drawText ("D", xfadePanel.reduced (18, 0).removeFromRight (36), juce::Justification::centred);
++
++    auto utility = juce::Rectangle<int> (stripX + 4 * stripW + 3 * stripGap + gap, bottomY, utilityW, bottomH);
++    drawPanel (g, utility.removeFromLeft (86), juce::Colour (0xffff9718), 7.0f);
++    drawPanel (g, utility.removeFromLeft (86).translated (6, 0), juce::Colour (0xff67d84f), 7.0f);
++    drawPanel (g, utility.translated (12, 0), juce::Colour (0xff21a8ff), 7.0f);
++
++    auto masterRail = juce::Rectangle<int> (masterX, deckY, masterW, deckH);
++    drawPanel (g, masterRail, juce::Colour (0xff37d88f), 7.0f);
++    drawSectionTitle (g, masterRail.reduced (12, 10).removeFromTop (20), "MASTER");
++    drawLevelMeter (g, juce::Rectangle<int> (masterRail.getX() + 28, masterRail.getY() + 64, 34, 172), juce::Colour (0xff37d88f), 0.82f);
++    drawLevelMeter (g, juce::Rectangle<int> (masterRail.getX() + 78, masterRail.getY() + 64, 34, 172), juce::Colour (0xff37d88f), 0.78f);
++
++    auto micRail = juce::Rectangle<int> (masterX, bottomY, masterW, bottomH);
++    drawPanel (g, micRail, juce::Colour (0xff37d88f), 7.0f);
++    drawSectionTitle (g, micRail.reduced (12, 10).removeFromTop (20), "MIC / INPUT");
++    drawLevelMeter (g, juce::Rectangle<int> (micRail.getX() + 84, micRail.getY() + 88, 34, 150), juce::Colour (0xff37d88f), 0.67f);
++
++    auto rightRail = juce::Rectangle<int> (rightX, deckY, rightW, bounds.getBottom() - deckY - margin);
++    drawPanel (g, rightRail, juce::Colour (0xff22313b), 7.0f);
++    auto fxTitle = rightRail.reduced (12, 9).removeFromTop (22);
++    drawSectionTitle (g, fxTitle, "EFFECTS");
++    auto fxCardArea = rightRail.reduced (12, 50).withHeight (342);
++    drawEffectCard (g, fxCardArea.removeFromTop (70), juce::Colour (0xff9b5cff), "FILTER");
++    fxCardArea.removeFromTop (10);
++    drawEffectCard (g, fxCardArea.removeFromTop (70), juce::Colour (0xffff9718), "DELAY");
++    fxCardArea.removeFromTop (10);
++    drawEffectCard (g, fxCardArea.removeFromTop (70), juce::Colour (0xff38d6c4), "REVERB");
++    fxCardArea.removeFromTop (10);
++    drawEffectCard (g, fxCardArea.removeFromTop (88), juce::Colour (0xff21a8ff), "PARA EQ");
++
++    auto recPanel = juce::Rectangle<int> (rightX + 12, bottomY + 45, rightW - 24, 136);
++    drawPanel (g, recPanel, juce::Colour (0xffff4c5f), 6.0f);
++    drawSectionTitle (g, recPanel.reduced (12, 10).removeFromTop (20), "RECORD");
++    drawStatusDot (g, juce::Rectangle<int> (recPanel.getX() + 188, recPanel.getY() + 38, 138, 18), juce::Colour (0xff21a8ff), "MASTER MIX");
++    drawStatusDot (g, juce::Rectangle<int> (recPanel.getX() + 188, recPanel.getY() + 60, 138, 18), juce::Colour (0xff37d88f), "DECK STEMS");
++    drawStatusDot (g, juce::Rectangle<int> (recPanel.getX() + 188, recPanel.getY() + 82, 138, 18), juce::Colour (0xff37d88f), "EVENT LOG");
++    drawStatusDot (g, juce::Rectangle<int> (recPanel.getX() + 188, recPanel.getY() + 104, 150, 18), juce::Colour (0xff37d88f), "ARRANGEMENT JSON");
+ }
+ 
+ void MainPluginEditor::resized()
+ {
+-    auto area = getLocalBounds().reduced (24);
+-    auto header = area.removeFromTop (48);
+-    subtitle.setBounds (header.removeFromLeft (420));
+-    title.setBounds (header.removeFromLeft (480));
+-    savePresetButton.setBounds (header.removeFromRight (120));
+-    header.removeFromRight (8);
+-    userPresets.setBounds (header.removeFromRight (180));
+-    header.removeFromRight (12);
+-    tempoLabel.setBounds (header);
+-
+-    standaloneWorkflowGuide.setBounds (area.removeFromTop (20));
+-    area.removeFromTop (2);
+-    pluginHostStatus.setBounds (area.removeFromTop (16));
+-    area.removeFromTop (4);
+-    auto fxRow = area.removeFromTop (28);
+-    pluginChainSelector.setBounds (fxRow.removeFromLeft (148));
+-    fxRow.removeFromLeft (6);
+-    pluginSelector.setBounds (fxRow.removeFromLeft (300));
+-    fxRow.removeFromLeft (6);
+-    scanPluginsButton.setBounds (fxRow.removeFromLeft (76));
+-    fxRow.removeFromLeft (6);
+-    reloadPluginCacheButton.setBounds (fxRow.removeFromLeft (100));
+-    fxRow.removeFromLeft (6);
+-    loadPluginButton.setBounds (fxRow.removeFromLeft (76));
+-    fxRow.removeFromLeft (6);
+-    clearChainButton.setBounds (fxRow.removeFromLeft (80));
+-    fxRow.removeFromLeft (8);
+-    pluginHostMessage.setBounds (fxRow);
+-    area.removeFromTop (8);
+-
+-    liveMixerLabel.setBounds (area.removeFromTop (22));
+-    auto topMixer = area.removeFromTop (518);
+-    topMixer = topMixer.reduced (0, 4);
+-
+-    auto decksArea = topMixer.removeFromTop (394);
+-    const int deckGap = 10;
+-    const int deckWidth = (decksArea.getWidth() - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
++    const auto bounds = getLocalBounds();
++    const int sidebarW = 218;
++    const int margin = 8;
++    const int gap = 8;
++    const int topBarH = 52;
++    const int rightW = 368;
++    const int masterW = 170;
++    const int rightX = bounds.getRight() - rightW - margin;
++    const int masterX = rightX - masterW - gap;
++    const int mainX = sidebarW + margin;
++    const int mainW = masterX - mainX - gap;
++    const int deckY = topBarH + 4;
++    const int deckH = 356;
++    const int bottomY = deckY + deckH + gap;
++    const int bottomH = bounds.getBottom() - bottomY - margin;
++
++    subtitle.setBounds (26, 9, 160, 22);
++    title.setBounds (26, 31, 176, 38);
++    standaloneWorkflowGuide.setBounds (26, 73, 176, 18);
++
++    liveMixerLabel.setBounds (0, 0, 0, 0);
++    arrangementLabel.setBounds (0, 0, 0, 0);
++    samplerLabel.setBounds (0, 0, 0, 0);
++    mixerPanel.setBounds (0, 0, 0, 0);
++
++    masterBpm.setBounds (mainX + 490, 14, 86, 28);
++    tempoLabel.setBounds (mainX + 580, 14, 106, 28);
++    savePresetButton.setBounds (rightX - 242, 14, 88, 28);
++    userPresets.setBounds (rightX - 148, 14, 132, 28);
++
++    pluginHostStatus.setBounds (rightX + 14, deckY + 30, rightW - 28, 18);
++    pluginChainSelector.setBounds (rightX + 20, deckY + 34, 84, 24);
++    pluginSelector.setBounds (rightX + 108, deckY + 34, 142, 24);
++    loadPluginButton.setBounds (rightX + 254, deckY + 34, 50, 24);
++    clearChainButton.setBounds (rightX + 308, deckY + 34, 48, 24);
++    scanPluginsButton.setBounds (rightX + 20, deckY + 375, 70, 24);
++    reloadPluginCacheButton.setBounds (rightX + 94, deckY + 375, 96, 24);
++    pluginHostMessage.setBounds (rightX + 198, deckY + 375, rightW - 214, 24);
++
++    const int deckGap = 8;
++    const int deckW = (mainW - deckGap * (MainPluginProcessor::numDecks - 1)) / MainPluginProcessor::numDecks;
+     for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
+     {
+-        auto lane = decksArea.removeFromLeft (deckWidth);
+-        decksArea.removeFromLeft (deckGap);
+-        lane = lane.reduced (10, 12);
+-
++        auto card = juce::Rectangle<int> (mainX + deckIndex * (deckW + deckGap), deckY, deckW, deckH);
+         auto& controls = deckControls[(size_t) deckIndex];
++
+         if (auto* wave = deckWaves[(size_t) deckIndex].get())
+-            wave->setBounds (lane.removeFromTop (166));
+-
+-        lane.removeFromTop (8);
+-        auto transport = lane.removeFromTop (30);
+-        controls.load.setBounds (transport.removeFromLeft (48));
+-        transport.removeFromLeft (4);
+-        controls.aiStems.setBounds (transport.removeFromLeft (68));
+-        transport.removeFromLeft (5);
+-        controls.play.setBounds (transport.removeFromLeft (64));
+-        transport.removeFromLeft (5);
+-        controls.cue.setBounds (transport.removeFromLeft (42));
+-        transport.removeFromLeft (5);
+-        controls.liveKey.setBounds (transport.removeFromLeft (64));
+-
+-        lane.removeFromTop (8);
+-        auto stemRow = lane.removeFromTop (24);
+-        controls.stemLane.setBounds (stemRow.removeFromLeft (86));
+-        stemRow.removeFromLeft (5);
+-        controls.loadStem.setBounds (stemRow.removeFromLeft (52));
+-        stemRow.removeFromLeft (5);
+-        controls.keyTarget.setBounds (stemRow.removeFromLeft (76));
+-        stemRow.removeFromLeft (5);
+-        controls.keyLock.setBounds (stemRow);
+-
+-        lane.removeFromTop (7);
+-        auto syncRow = lane.removeFromTop (24);
+-        controls.tempoInterpretation.setBounds (syncRow.removeFromLeft (112));
+-        syncRow.removeFromLeft (5);
+-        controls.syncMode.setBounds (syncRow.removeFromLeft (116));
+-
+-        lane.removeFromTop (5);
+-        controls.keyInfo.setBounds (lane.removeFromTop (18));
+-        controls.stemStatus.setBounds (lane.removeFromTop (18));
+-
+-        lane.removeFromTop (10);
+-        auto faders = lane.removeFromTop (92);
+-        const int faderW = 42;
+-        controls.volume.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
+-        controls.fader.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
+-        controls.pitch.setBounds (faders.removeFromLeft (faderW).reduced (4, 0));
+-        faders.removeFromLeft (5);
+-        controls.low.setBounds (faders.removeFromLeft (44).reduced (1));
+-        controls.mid.setBounds (faders.removeFromLeft (44).reduced (1));
+-        controls.high.setBounds (faders.removeFromLeft (44).reduced (1));
+-        controls.filter.setBounds (faders.removeFromLeft (44).reduced (1));
+-
+-        lane.removeFromTop (6);
+-        auto gridRow = lane.removeFromTop (44);
+-        controls.bpm.setBounds (gridRow.removeFromLeft (96).reduced (2));
+-        gridRow.removeFromLeft (6);
+-        controls.beatOffset.setBounds (gridRow.removeFromLeft (88).reduced (2));
+-        gridRow.removeFromLeft (6);
+-        controls.downbeat.setBounds (gridRow.reduced (2));
++            wave->setBounds (card.reduced (12, 56).withHeight (62));
++
++        controls.bpm.setBounds (card.getRight() - 126, card.getY() + 16, 70, 20);
++        controls.load.setBounds (card.getRight() - 94, card.getY() + 42, 42, 24);
++        controls.aiStems.setBounds (card.getRight() - 48, card.getY() + 42, 34, 24);
++
++        controls.stemLane.setBounds (card.getX() + 12, card.getY() + 264, 90, 24);
++        controls.loadStem.setBounds (card.getX() + 108, card.getY() + 264, 50, 24);
++        controls.keyTarget.setBounds (card.getX() + 164, card.getY() + 264, 72, 24);
++        controls.keyLock.setBounds (card.getX() + 242, card.getY() + 264, 48, 24);
++        controls.liveKey.setBounds (card.getX() + 294, card.getY() + 264, 48, 24);
++
++        controls.tempoInterpretation.setBounds (card.getX() + 12, card.getY() + 292, 92, 22);
++        controls.syncMode.setBounds (card.getX() + 110, card.getY() + 292, 88, 22);
++        controls.beatOffset.setBounds (card.getX() + 204, card.getY() + 292, 70, 22);
++        controls.downbeat.setBounds (card.getX() + 280, card.getY() + 292, 68, 22);
++
++        controls.cue.setBounds (card.getX() + 12, card.getBottom() - 42, 62, 31);
++        controls.play.setBounds (card.getX() + 82, card.getBottom() - 42, 62, 31);
++        controls.keyInfo.setBounds (card.getX() + 152, card.getBottom() - 40, deckW - 164, 16);
++        controls.stemStatus.setBounds (card.getX() + 152, card.getBottom() - 22, deckW - 164, 14);
+     }
+ 
+-    auto mixer = topMixer.reduced (0, 5);
+-    mixerPanel.setBounds (mixer.removeFromLeft (150));
+-    auto mixControls = mixer.reduced (12, 12);
+-    crossfader.setBounds (mixControls.removeFromLeft (250));
+-    mixControls.removeFromLeft (18);
+-    masterBpm.setBounds (mixControls.removeFromLeft (116));
+-    master.setBounds (mixControls.removeFromLeft (84));
+-    limiter.setBounds (mixControls.removeFromLeft (84));
+-    hostSync.setBounds (mixControls.removeFromLeft (112).withTrimmedTop (24));
+-    beatSync.setBounds (mixControls.removeFromLeft (112).withTrimmedTop (24));
+-    micMonitor.setBounds (mixControls.removeFromLeft (120).withTrimmedTop (24));
+-    micGain.setBounds (mixControls.removeFromLeft (110));
+-    recordButton.setBounds (mixControls.removeFromLeft (118).withTrimmedTop (20).withHeight (32));
+-    recordStatus.setBounds (mixControls.withTrimmedTop (20).withHeight (32));
+-
+-    area.removeFromTop (8);
+-    arrangementLabel.setBounds (area.removeFromTop (22));
+-    auto bottom = area;
+-    auto samplerStrip = bottom.removeFromRight (270);
+-    bottom.removeFromRight (14);
+-    arrangementView.setBounds (bottom);
+-
+-    samplerLabel.setBounds (samplerStrip.removeFromTop (22));
+-    const int padH = juce::jmax (58, samplerStrip.getHeight() / 8);
++    auto padsPanel = juce::Rectangle<int> (mainX, bottomY, 256, bottomH);
++    auto padGrid = padsPanel.reduced (18, 50);
++    const int hotCell = 50;
++    const int hotGap = 8;
+     for (int i = 0; i < PadBank::numPads; ++i)
+     {
+-        auto cell = samplerStrip.removeFromTop (padH).reduced (4);
+-        pads[(size_t) i].trigger.setBounds (cell.removeFromLeft (92));
+-        cell.removeFromLeft (5);
+-        pads[(size_t) i].load.setBounds (cell.removeFromLeft (48));
+-        cell.removeFromLeft (5);
+-        pads[(size_t) i].gain.setBounds (cell);
++        const int col = i % 4;
++        const int row = i / 4;
++        auto cell = juce::Rectangle<int> (padGrid.getX() + col * (hotCell + hotGap),
++                                          padGrid.getY() + row * (hotCell + hotGap),
++                                          hotCell, hotCell);
++        pads[(size_t) i].trigger.setBounds (cell);
++        pads[(size_t) i].load.setBounds (cell.translated (0, 128).withHeight (22));
++        pads[(size_t) i].gain.setBounds (cell.translated (0, 154).withHeight (28));
+     }
++
++    const int stripX = padsPanel.getRight() + gap;
++    const int utilityW = 294;
++    const int stripGap = 6;
++    const int stripW = (mainW - padsPanel.getWidth() - utilityW - gap * 2 - stripGap * 3) / 4;
++    for (int deckIndex = 0; deckIndex < MainPluginProcessor::numDecks; ++deckIndex)
++    {
++        auto strip = juce::Rectangle<int> (stripX + deckIndex * (stripW + stripGap), bottomY, stripW, bottomH - 51);
++        auto& controls = deckControls[(size_t) deckIndex];
++
++        controls.high.setBounds (strip.getX() + 18, strip.getY() + 48, 40, 40);
++        controls.mid.setBounds (strip.getX() + 18, strip.getY() + 102, 40, 40);
++        controls.low.setBounds (strip.getX() + 18, strip.getY() + 156, 40, 40);
++        controls.filter.setBounds (strip.getX() + 18, strip.getY() + 224, 40, 40);
++        controls.fader.setBounds (strip.getX() + 72, strip.getY() + 62, 52, 206);
++        controls.volume.setBounds (strip.getRight() - 48, strip.getY() + 62, 30, 154);
++        controls.pitch.setBounds (strip.getRight() - 48, strip.getY() + 222, 30, 46);
++    }
++
++    auto xfadePanel = juce::Rectangle<int> (stripX, bottomY + bottomH - 43, stripW * 4 + stripGap * 3, 43);
++    crossfader.setBounds (xfadePanel.reduced (110, 8));
++
++    auto utility = juce::Rectangle<int> (stripX + 4 * stripW + 3 * stripGap + gap, bottomY, utilityW, bottomH);
++    auto booth = utility.removeFromLeft (86);
++    auto masterUtil = utility.removeFromLeft (92).translated (6, 0);
++    auto syncUtil = utility.translated (12, 0);
++    limiter.setBounds (booth.getX() + 18, booth.getY() + 48, 50, 50);
++    master.setBounds (masterUtil.getX() + 20, masterUtil.getY() + 48, 50, 50);
++    hostSync.setBounds (syncUtil.getX() + 12, syncUtil.getY() + 64, syncUtil.getWidth() - 24, 28);
++    beatSync.setBounds (syncUtil.getX() + 12, syncUtil.getY() + 106, syncUtil.getWidth() - 24, 28);
++
++    auto masterRail = juce::Rectangle<int> (masterX, deckY, masterW, deckH);
++    micGain.setBounds (masterRail.getX() + 26, masterRail.getBottom() - 88, 72, 28);
++    micMonitor.setBounds (masterRail.getX() + 24, masterRail.getBottom() - 48, 86, 28);
++
++    recordStatus.setBounds (rightX + 24, bottomY + 116, 150, 52);
++    recordButton.setBounds (rightX + 24, bottomY + 82, 150, 28);
++    arrangementView.setBounds (rightX + 12, bottomY + 190, rightW - 24, getHeight() - bottomY - 198);
+ }
+ 
+ void MainPluginEditor::timerCallback()
+ {
+     processorRef.refreshLiveKeyAnalysis();
+     auto snapshot = processorRef.getTransportSnapshot();
+-    tempoLabel.setText (juce::String (snapshot.bpm, 1) + " BPM • " + (snapshot.hostPlaying ? "host playing" : "host stopped"), juce::dontSendNotification);
++    tempoLabel.setText (juce::String (snapshot.bpm, 1) + " BPM | " + (snapshot.hostPlaying ? "host playing" : "host stopped"), juce::dontSendNotification);
+     pluginHostStatus.setText (processorRef.getPluginHostStatus(), juce::dontSendNotification);
+     const bool recording = processorRef.isMasterRecording();
+     recordButton.setButtonText (recording ? "Stop Rec" : "Record WAV");
+     arrangementView.setRecordingState (recording,
+-        recording ? "Recording master output plus performance moves into arrangement lanes"
+-                  : "Open space ready: hit Record to capture deck moves, stems, FX, pads, mic, and master mix");
++        recording ? "Recording: Stop Rec saves WAV, events, and arrangement JSON"
++                  : "Ready: Record captures deck moves, stems, FX, pads, mic, and master mix");
+ 
+     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
+     {
+-        deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + " • " + processorRef.getDeckTimePitchStatus (i) + " • " + processorRef.getDeckBeatSyncStatus (i),
++        deckControls[(size_t) i].keyInfo.setText (processorRef.getDeckKeyInfo (i) + " | " + processorRef.getDeckTimePitchStatus (i) + " | " + processorRef.getDeckBeatSyncStatus (i),
+                                                    juce::dontSendNotification);
+         deckControls[(size_t) i].stemStatus.setText (processorRef.getDeckStemProviderStatus (i), juce::dontSendNotification);
+ 

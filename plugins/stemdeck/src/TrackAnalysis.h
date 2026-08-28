@@ -9,8 +9,12 @@ struct TrackAnalysis
     float rmsDb = -100.0f;
     float detectedBpm = 0.0f;
     double downbeatSample = 0.0;
+    int    beatsPerBar = 4;                                   // detected meter (3 or 4)
     std::vector<double> beatGridSamples;
     std::vector<double> transientAnchorSamples;
+    // Tempo curve: (samplePosition, localBpm) for tracks that speed up / slow down.
+    // Flat for constant-tempo material. detectedBpm is its median.
+    std::vector<std::pair<double, float>> tempoCurve;
     int keyPitchClass = -1;
     bool keyIsMinor = false;
     float keyConfidence = 0.0f;

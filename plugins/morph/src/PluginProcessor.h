@@ -1,0 +1,101 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include <sattari_audio_core/SattariAudioCore.h>
+#include <sattari_audio_core/SattariPitchDetector.h>
+#include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/SattariFormantShifter.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariScaleInterval.h>
+#include <atomic>
+
+// =============================================================================
+//  Sattari Morph — pitch + formant character in one row of knobs.
+// -----------------------------------------------------------------------------
+//  The "different person" box (a key-aware Little AlterBoy). Pitch and Formant
+//  shift independently (Formant = perceived body/gender), plus Drive and Mix.
+//  Mode does the differentiating work:
+//    Shift    — straight pitch/formant, no correction.
+//    Quantize — snap the pitch to the SESSION-BUS key (which AlterBoy can't do).
+//    Robot    — lock output to one note, monotone (the T-Pain effect).
+//  Two in-key extras sit after the transform, both off by default:
+//    Harmony Voice — a dry parallel voice an octave/fifth/diatonic-3rd away, in key.
+//    Key Echo      — a feedback delay fed that same harmony, so the REPEATS are in
+//                    key (a diatonic delay, not the clean delay that Space provides).
+//  Both harmonise the CURRENT input, so PSOLA always runs on a valid period, and both
+//  take their interval from the shared contract-tested walk (SattariScaleInterval.h).
+//  Reuses the shared YIN tracker, TD-PSOLA shifter, and cepstral formant warp.
+//  The dry path is delayed to match the wet latency so Mix never comb-filters.
+// =============================================================================
+class SattariMorphAudioProcessor final : public juce::AudioProcessor
+{
+public:
+    SattariMorphAudioProcessor();
+    ~SattariMorphAudioProcessor() override = default;
+
+    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void releaseResources() override {}
+    // Transport relocate / loop: flush every streaming buffer (dry-latency delay, the
+    // Key Echo feedback line, and all three PSOLA/formant units) so a jump never replays
+    // the previous position's echo tail. Allocation-free, so it is safe to call live.
+    void reset() override;
+    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
+
+    const juce::String getName() const override { return "Sattari Morph"; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    bool isMidiEffect() const override { return false; }
+    double getTailLengthSeconds() const override { return 0.0; }
+
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int) override;
+    const juce::String getProgramName (int) override;
+    void changeProgramName (int, const juce::String&) override {}
+
+    void getStateInformation (juce::MemoryBlock& destData) override;
+    void setStateInformation (const void* data, int sizeInBytes) override;
+
+    juce::AudioProcessorValueTreeState& parameters() { return apvts; }
+
+private:
+    juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+    void pullBusScale();
+    void registerFactoryPresets();
+    // In-key echo interval as a pitch ratio: Unison/8ve up/8ve down/Fifth, or a
+    // scale-aware major/minor third off the current note when a session key is present.
+    float echoHarmonyRatio (int mode, bool voiced, float freqHz) const;
+
+    juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank;
+    int currentProgram = 0;
+
+    sattari::dsp::PitchDetector  pitch_;
+    sattari::dsp::PsolaShifter   psola_;
+    sattari::dsp::FormantShifter formant_;
+
+    std::vector<float> dryMono_, wet_, dryDelay_;
+    int   dryPos_ = 0, totalLatency_ = 0, hopCount_ = 0;
+    double sr_ = 48000.0, lastPeriod_ = 240.0;
+    float lastScale_ = 1.0f;
+
+    // Key Echo: a second PSOLA instance harmonises the current input in key; that
+    // harmony feeds a feedback delay so the repeats are pitched (a diatonic delay).
+    sattari::dsp::PsolaShifter echoShifter_;
+    std::vector<float> echoBuf_, echoHarm_, out_;
+    int   echoPos_ = 0, maxEchoDelay_ = 0;
+
+    // Harmony voice: a second PSOLA instance adds a dry in-key parallel voice.
+    sattari::dsp::PsolaShifter harmShifter_;
+    std::vector<float> harmScratch_;
+
+    std::array<bool, 12> busScale_ { };
+    juce::int64 lastBusPollMs_ = 0;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariMorphAudioProcessor)
+};

@@ -30,8 +30,8 @@ include_guard(GLOBAL)
 get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 function(sattari_add_plugin)
-    set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)
-    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION)
+    set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
+    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ARA_SDK_PATH AAX_SDK_PATH)
     set(multiValueArgs FORMATS SOURCES)
     cmake_parse_arguments(SAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -70,9 +70,52 @@ function(sattari_add_plugin)
     if(NOT TARGET SattariAudioCore)
         add_subdirectory("${SATTARI_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/core")
     endif()
+    if(NOT TARGET SattariBrandAssets)
+        juce_add_binary_data(SattariBrandAssets
+            HEADER_NAME SattariBrandAssets.h
+            NAMESPACE SattariBrandAssetsData
+            SOURCES
+                "${SATTARI_REPO_ROOT}/assets/branding/sattari-logo-white.png")
+        target_sources(SattariBrandAssets
+            PRIVATE
+                "${SATTARI_REPO_ROOT}/core/src/SattariLogo.cpp")
+        target_include_directories(SattariBrandAssets
+            PRIVATE
+                "${SATTARI_REPO_ROOT}/core/include"
+                "${SATTARI_REPO_ROOT}/third_party/JUCE/modules"
+                "${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_SattariBrandAssets/JuceLibraryCode")
+        target_compile_definitions(SattariBrandAssets
+            PRIVATE
+                JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+                JUCE_MODULE_AVAILABLE_juce_core=1
+                JUCE_MODULE_AVAILABLE_juce_events=1
+                JUCE_MODULE_AVAILABLE_juce_graphics=1
+                $<$<CONFIG:Debug>:DEBUG=1>
+                $<$<CONFIG:Debug>:_DEBUG=1>
+                $<$<NOT:$<CONFIG:Debug>>:NDEBUG=1>)
+        target_compile_features(SattariBrandAssets PUBLIC cxx_std_17)
+        target_link_libraries(SattariAudioCore INTERFACE SattariBrandAssets)
+    endif()
+
+    if(SAP_IS_ARA_EFFECT)
+        if(NOT SAP_ARA_SDK_PATH)
+            message(FATAL_ERROR "sattari_add_plugin(${SAP_TARGET}): ARA_SDK_PATH is required for IS_ARA_EFFECT")
+        endif()
+        if(NOT TARGET juce_ara_sdk)
+            juce_set_ara_sdk_path("${SAP_ARA_SDK_PATH}")
+        endif()
+    endif()
+    if("AAX" IN_LIST SAP_FORMATS)
+        if(NOT SAP_AAX_SDK_PATH)
+            message(FATAL_ERROR "sattari_add_plugin(${SAP_TARGET}): AAX_SDK_PATH is required for AAX format")
+        endif()
+        if(NOT TARGET juce_aax_sdk)
+            juce_set_aax_sdk_path("${SAP_AAX_SDK_PATH}")
+        endif()
+    endif()
 
     # Option flags -> TRUE/FALSE for juce_add_plugin.
-    foreach(flag IN ITEMS IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS)
+    foreach(flag IN ITEMS IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
         if(SAP_${flag})
             set(${flag}_VAL TRUE)
         else()
@@ -87,6 +130,7 @@ function(sattari_add_plugin)
         NEEDS_MIDI_OUTPUT           ${NEEDS_MIDI_OUTPUT_VAL}
         IS_MIDI_EFFECT              ${IS_MIDI_EFFECT_VAL}
         EDITOR_WANTS_KEYBOARD_FOCUS ${EDITOR_WANTS_KEYBOARD_FOCUS_VAL}
+        IS_ARA_EFFECT               ${IS_ARA_EFFECT_VAL}
         COPY_PLUGIN_AFTER_BUILD     TRUE
         PLUGIN_MANUFACTURER_CODE    ${SAP_MANUFACTURER_CODE}
         PLUGIN_CODE                 ${SAP_PLUGIN_CODE}
@@ -96,17 +140,27 @@ function(sattari_add_plugin)
 
     juce_generate_juce_header(${SAP_TARGET})
 
+    # JUCE ad-hoc signs AU/VST3 bundles during its copy-after-build step, but a
+    # raw macOS Standalone target can remain unsigned. That made a clean build
+    # fail the suite's own `codesign --verify --deep --strict` gate even though
+    # the later packaging script repaired its copy. Sign the source artifact so
+    # package-time validation and every downstream packager see the same valid
+    # bundle. Public releases still replace this ad-hoc identity with Developer
+    # ID before notarization.
+    if(APPLE AND "Standalone" IN_LIST SAP_FORMATS)
+        add_custom_command(TARGET ${SAP_TARGET}_Standalone POST_BUILD
+            COMMAND /usr/bin/codesign --force --deep --sign -
+                "$<TARGET_BUNDLE_DIR:${SAP_TARGET}_Standalone>"
+            COMMENT "Ad-hoc signing ${SAP_PRODUCT_NAME} Standalone bundle")
+    endif()
+
     target_sources(${SAP_TARGET} PRIVATE ${SAP_SOURCES})
 
     target_compile_definitions(${SAP_TARGET}
         PUBLIC
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
-            JUCE_VST3_CAN_REPLACE_VST2=0
-            # The suite ships under GPLv3 (see LICENSING.md), which exempts it from
-            # JUCE's free-tier splash-screen requirement. Do NOT set this under a
-            # JUCE "Personal" (non-GPL) licence.
-            JUCE_DISPLAY_SPLASH_SCREEN=0)
+            JUCE_VST3_CAN_REPLACE_VST2=0)
 
     target_link_libraries(${SAP_TARGET}
         PRIVATE

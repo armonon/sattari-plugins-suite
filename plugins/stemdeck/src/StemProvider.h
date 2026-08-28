@@ -5,6 +5,7 @@
 #include <map>
 #include "DeckPlayer.h"
 #include "RoadmapAdapters.h"
+#include "NeuralStemEngine.h"
 
 // Offline-first AI stem provider. It never separates in processBlock: requests run
 // on a ThreadPool, results are cached on disk, and decks atomically swap buffers
@@ -62,11 +63,18 @@ public:
     Status getStatusForSource (const juce::File& sourceFile) const;
     static bool runSeparatorCommand (const juce::String& command, const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
 
+    // On-device neural separation (ONNX Runtime). Writes the 4 core-stem WAVs into
+    // cacheDirectory. Preferred over the CLI when a model is loaded. Returns false
+    // (with message) so callers fall back to the demucs CLI.
+    bool runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
+    bool neuralAvailable() const { return neuralEngine.isAvailable(); }
+
 private:
     class StemJob;
 
     juce::File cacheRoot;
     juce::String separatorCommand;
+    NeuralStemEngine neuralEngine;
     juce::ThreadPool pool { 2 };
     mutable juce::CriticalSection statusLock;
     std::map<juce::String, Status> statusByHash;

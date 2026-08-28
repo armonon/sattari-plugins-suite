@@ -57,9 +57,19 @@ void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
+    if (numSamples > maxBlock)
+    {
+        for (int start = 0; start < numSamples; start += maxBlock)
+        {
+            const int count = juce::jmin (maxBlock, numSamples - start);
+            juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
+                                            numChannels, start, count);
+            process (chunk, tuneAmount, keyRoot, scale);
+        }
+        return;
+    }
+
     // Mono sum into the shared detector's ring (always, so detection stays live).
-    if ((int) monoScratch.size() < numSamples)
-        monoScratch.assign ((size_t) numSamples, 0.0f);
     for (int i = 0; i < numSamples; ++i)
     {
         float mono = 0.0f;
@@ -107,8 +117,6 @@ void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
     }
 
     const int useChannels = juce::jmin (numChannels, (int) stretchers.size());
-    rbOut.setSize (juce::jmax (rbOut.getNumChannels(), useChannels), numSamples, false, false, true);
-
     for (int ch = 0; ch < useChannels; ++ch)
     {
         auto& stretcher = *stretchers[(size_t) ch];
