@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "RoyalChainProcessor.h"
 #include "VocalCrownCompass.h"
@@ -26,10 +27,12 @@ private:
     // Shared suite UI + cross-plugin preset system.
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("royal-chain") };
     sattari::presets::SattariPresetManager presetManager;
+    sattari::ui::SattariABRow abRow { presetManager };
 
     juce::Label title, subtitle, inputMeterLabel, outputMeterLabel;
     juce::ComboBox presetBox, styleBox, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
     juce::Slider inputSlider, outputSlider;
     juce::Slider cleanSlider, tuneSlider, controlSlider, toneSlider, airSlider, smoothSlider, glowSlider, widthSlider, spaceSlider, royalSlider;
     VocalCrownCompass compass;

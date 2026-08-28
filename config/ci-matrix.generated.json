@@ -1,0 +1,62 @@
+{
+  "include": [
+    {
+      "plugin": "auto-pitch",
+      "test": "AutoPitchCoreContract",
+      "render": "AutoPitchRender",
+      "uiRender": true
+    },
+    {
+      "plugin": "song-key",
+      "test": "SattariSongKeyEstimatorContract",
+      "render": "SongKeyRender"
+    },
+    {
+      "plugin": "voxsynth",
+      "test": "VoxSynthMpeContract"
+    },
+    {
+      "plugin": "mix",
+      "test": "SattariMixProductContract",
+      "uiRender": true
+    },
+    {
+      "plugin": "create",
+      "test": "SattariCreateProductContract",
+      "uiRender": true
+    },
+    {
+      "plugin": "vocal",
+      "test": "SattariVocalProductContract",
+      "uiRender": true
+    },
+    {
+      "plugin": "stack",
+      "test": "SattariStackLayerContract"
+    },
+    {
+      "plugin": "sub-conjurer",
+      "test": "SubConjurerContract",
+      "uiRender": true
+    },
+    {
+      "plugin": "harmony",
+      "test": "HarmonyCoreContract",
+      "render": "HarmonyRender"
+    },
+    {
+      "plugin": "rhythm-genie",
+      "test": "RhythmGenieTimingContract"
+    },
+    {
+      "plugin": "sattari-arp",
+      "test": "SattariArpTimingContract",
+      "uiRender": true
+    },
+    {
+      "plugin": "brain",
+      "test": "BrainContract",
+      "uiRender": true
+    }
+  ]
+}

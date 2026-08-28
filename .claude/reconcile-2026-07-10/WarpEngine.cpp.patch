@@ -1,0 +1,27 @@
+diff --git a/plugins/stemdeck/src/WarpEngine.cpp b/plugins/stemdeck/src/WarpEngine.cpp
+index c51ee1b..def6034 100644
+--- a/plugins/stemdeck/src/WarpEngine.cpp
++++ b/plugins/stemdeck/src/WarpEngine.cpp
+@@ -89,7 +89,7 @@ juce::String WarpEngine::getStatusSummary() const
+     juce::String text = backendInfo.name;
+     text += backendInfo.available ? " ready" : " unavailable";
+     if (backendInfo.notes.isNotEmpty())
+-        text += " — " + backendInfo.notes;
++        text += " - " + backendInfo.notes;
+     return text;
+ }
+ 
+@@ -125,9 +125,9 @@ WarpEngine::Plan WarpEngine::makePlan (const TransportSync::Snapshot& transport,
+     plan.backend = getSelectedBackend();
+ 
+     plan.statusLabel = "Warp: " + plan.beatSync.statusLabel
+-                     + " • tempo x" + juce::String (plan.timePitch.tempoRatio, 3)
+-                     + " • pitch " + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
+-                     + " • " + plan.timePitch.statusLabel
+-                     + " • backend: " + plan.backend.name;
++                     + " | tempo x" + juce::String (plan.timePitch.tempoRatio, 3)
++                     + " | pitch " + (plan.deck.pitchSemitones >= 0.0f ? "+" : "") + juce::String (plan.deck.pitchSemitones, 2) + " st"
++                     + " | " + plan.timePitch.statusLabel
++                     + " | backend: " + plan.backend.name;
+     return plan;
+ }

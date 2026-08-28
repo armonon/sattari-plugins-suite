@@ -1,6 +1,11 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariCompassContext.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariRealtime.h>
 #include <vector>
 
 class SattariArpAudioProcessor final : public juce::AudioProcessor
@@ -10,7 +15,7 @@ public:
     ~SattariArpAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); tempoReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -24,10 +29,13 @@ public:
     bool isMidiEffect() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -44,6 +52,7 @@ private:
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
 
     void renderArp (juce::MidiBuffer& output, int startSample, int numSamples);
     void handleInputMidi (const juce::MidiMessage& message, int samplePosition, juce::MidiBuffer& output);
@@ -65,7 +74,37 @@ private:
     void resetSequence();
     bool hasHeldNotes() const { return ! heldNotes.empty(); }
 
+public:
+    // Effective key for the editor's KeyButton: the scale + root actually in use
+    // (root comes from the bus when Follow Song Key is on and a session is live).
+    struct KeyState { bool following = false; int root = 0; int scale = 0; };
+    KeyState currentKeyState() const;
+
+    struct UiState
+    {
+        int step = 0;
+        int velocity = 0;
+        int heldNotes = 0;
+        bool running = false;
+        double bpm = 120.0;
+        bool compassLive = false;
+        bool followingSwing = false;
+        bool followingEnergy = false;
+        int sectionId = 0;
+        float sessionSwing = 0.0f;
+        float sessionEnergy = 0.0f;
+    };
+    UiState currentUiState() const noexcept { return uiState.load(); }
+private:
+
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "sattari-arp" };   // after apvts
+    int currentProgram = 0;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
+    sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
+    sattari::xplugin::TempoReader   tempoReader;     // tempo-bus fallback when the host has no tempo
 
     double currentSampleRate = 44100.0;
     double currentBpm = 120.0;
@@ -95,6 +134,7 @@ private:
     juce::MidiBuffer scratchOutput;            // reused output buffer (avoids per-block MidiBuffer alloc)
 
     juce::Random random;
+    sattari::rt::AtomicSnapshot<UiState> uiState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariArpAudioProcessor)
 };

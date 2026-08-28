@@ -21,7 +21,12 @@ public:
 
     void prepare (double sampleRate, int maxBlockSize);
     void reset();
-    void process (juce::AudioBuffer<float>& buffer, float tuneAmount);
+    // Pitch correction with optional key/scale awareness. With ScaleId::ChromaticOff
+    // the snap is to the nearest equal-tempered semitone (the previous behaviour);
+    // other scales snap to the nearest in-key tone (root 0=C..11=B).
+    void process (juce::AudioBuffer<float>& buffer, float tuneAmount,
+                  int keyRoot = 0,
+                  sattari::dsp::ScaleId scale = sattari::dsp::ScaleId::ChromaticOff);
     float getConfidence() const { return confidence; }
 
 private:

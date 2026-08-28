@@ -1,4 +1,5 @@
 #include "RoyalChainEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include "MacroController.h"
 
 RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioProcessor& p)
@@ -12,7 +13,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     sattari::ui::SattariLookAndFeel::styleTitle (title, "Sattari Royal Chain");
     addAndMakeVisible (title);
 
-    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "From raw vocal to royal vocal - Royal Chain Lite internal scaffold");
+    sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Nine-stage vocal chain with one-knob macros and Vocal Crown Compass");
     addAndMakeVisible (subtitle);
 
     setupCombo (userPresets);
@@ -25,6 +26,11 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
+    };
     refreshUserPresets();
 
     setupCombo (presetBox);
@@ -35,10 +41,17 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     presetBox.onChange = [this] { applyPreset (presetBox.getSelectedItemIndex()); };
 
     setupCombo (styleBox);
+    // Populate the style combo. ComboBoxAttachment maps item IDs (1-based) to the
+    // param's choice indices, so the order MUST match the "style" StringArray in
+    // RoyalChainProcessor.cpp. Without addItemList the box renders blank.
+    styleBox.addItemList (juce::StringArray {
+        "Modern Rap", "R&B", "Pop", "Persian/World Pop", "Indie",
+        "Podcast/Spoken", "Background", "Hook", "Demo Rescue", "Live" }, 1);
+    styleBox.setTextWhenNothingSelected ("Vocal style...");
     styleAttachment = std::make_unique<ComboAttachment> (processor.parameters(), "style", styleBox);
 
     inputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (0xff62f5c8));
-    outputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd8b45a));
+    outputMeterLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     inputMeterLabel.setJustificationType (juce::Justification::centredRight);
     outputMeterLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (inputMeterLabel);
@@ -47,7 +60,7 @@ RoyalChainAudioProcessorEditor::RoyalChainAudioProcessorEditor (RoyalChainAudioP
     setupSlider (inputSlider, "Input", " dB");
     setupSlider (outputSlider, "Output", " dB");
     setupSlider (cleanSlider, "Clean");
-    setupSlider (tuneSlider, "Tune*");
+    setupSlider (tuneSlider, "Tune");
     setupSlider (controlSlider, "Control");
     setupSlider (toneSlider, "Tone");
     setupSlider (airSlider, "Air");
@@ -105,7 +118,7 @@ void RoyalChainAudioProcessorEditor::setupSlider (juce::Slider& slider, const ju
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 22);
     slider.setTextValueSuffix (suffix);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xffd8b45a));
+    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff34394d));
     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
@@ -117,7 +130,7 @@ void RoyalChainAudioProcessorEditor::setupCombo (juce::ComboBox& combo)
 {
     combo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171927));
     combo.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xffd8b45a));
+    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (combo);
 }
 
@@ -173,27 +186,50 @@ void RoyalChainAudioProcessorEditor::timerCallback()
 void RoyalChainAudioProcessorEditor::drawChainFlow (juce::Graphics& g, juce::Rectangle<int> area)
 {
     static const char* names[] = { "Clean", "Tune", "Control", "Tone", "De-Ess", "Color", "Width", "Space", "Finish" };
-    const int gap = 6;
-    const int blockW = (area.getWidth() - gap * 8) / 9;
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    const auto accent = juce::Colour (sattari::brand::kAccent);
+    const int  gap    = 14;                       // room for the connectors
+    const int  blockW = (area.getWidth() - gap * 8) / 9;
+    g.setFont (sattari::brand::fontOptions (11.5f, juce::Font::bold));
 
+    juce::Rectangle<float> prev;
     for (int i = 0; i < 9; ++i)
     {
-        auto block = area.removeFromLeft (blockW);
-        g.setColour (i == 1 ? juce::Colour (0xff3b3145) : juce::Colour (0xff1c2232));
-        g.fillRoundedRectangle (block.toFloat(), 8.0f);
-        g.setColour (i == 1 ? juce::Colour (0xffa78bfa) : juce::Colour (0xffd8b45a));
-        g.drawRoundedRectangle (block.toFloat(), 8.0f, 1.0f);
-        g.setColour (juce::Colours::white);
-        g.drawText (names[i], block, juce::Justification::centred);
-        area.removeFromLeft (gap);
+        auto block = area.removeFromLeft (blockW).toFloat();
+
+        // Connector: a hairline + a small chevron flowing into this stage, so the
+        // strip reads as left-to-right signal flow rather than nine loose chips.
+        if (i > 0)
+        {
+            const float y  = block.getCentreY();
+            const float x0 = prev.getRight();
+            const float x1 = block.getX();
+            g.setColour (accent.withAlpha (0.30f));
+            g.drawLine (x0, y, x1, y, 1.0f);
+            juce::Path chev;
+            chev.startNewSubPath (x1 - 4.0f, y - 3.0f);
+            chev.lineTo (x1, y);
+            chev.lineTo (x1 - 4.0f, y + 3.0f);
+            g.strokePath (chev, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        const bool isTune = (i == 1);             // the hero stage of this chain
+        g.setColour (isTune ? accent.withAlpha (0.16f) : juce::Colour (sattari::brand::kPanelRaised));
+        g.fillRoundedRectangle (block, 8.0f);
+        g.setColour (isTune ? accent.withAlpha (0.85f) : juce::Colour (sattari::brand::kHairline));
+        g.drawRoundedRectangle (block, 8.0f, 1.0f);
+        g.setColour (isTune ? accent : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.9f));
+        g.drawText (names[i], block.toNearestInt(), juce::Justification::centred);
+
+        prev = block;
     }
 }
 
 void RoyalChainAudioProcessorEditor::drawSliderLabel (juce::Graphics& g, const juce::Slider& slider)
 {
-    g.setColour (slider.getName() == "Tune*" ? juce::Colour (0xffa78bfa) : juce::Colours::white.withAlpha (0.88f));
-    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    const bool isTune = (slider.getName() == "Tune");
+    g.setColour (isTune ? juce::Colour (sattari::brand::kAccent)
+                        : juce::Colour (sattari::brand::kTextPrimary).withAlpha (0.88f));
+    g.setFont (sattari::brand::fontOptions (12.0f, juce::Font::bold));
     auto b = slider.getBounds();
     g.drawText (slider.getName(), b.withHeight (18).translated (0, -14), juce::Justification::centred);
 }
@@ -228,6 +264,10 @@ void RoyalChainAudioProcessorEditor::resized()
     userPresets.setBounds (presetRow.removeFromLeft (200));
     presetRow.removeFromLeft (10);
     savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
     area.removeFromTop (10);
 
     auto center = area.removeFromTop (230);

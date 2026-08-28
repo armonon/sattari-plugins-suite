@@ -29,17 +29,20 @@ namespace sattari::brand
 // --- Core suite palette (ARGB) ----------------------------------------------
 // Derived from the established Sub Conjurer / Auto Pitch editor look so existing
 // builds stay visually consistent while gaining a shared system.
-// Modern, near-monochrome cool-dark base. Flat surfaces, hairline separators,
-// one accent per product. Deliberately minimal: no gradients, no glow.
-inline constexpr std::uint32_t kBackground   = 0xff0c0d11; // app/plugin backdrop (flat)
-inline constexpr std::uint32_t kPanel        = 0xff14161b; // primary surface
-inline constexpr std::uint32_t kPanelRaised  = 0xff1c1f26; // combos / inset fields
-inline constexpr std::uint32_t kPanelDeep    = 0xff0e0f13; // subtle low surface
-inline constexpr std::uint32_t kPanelViolet  = 0xff14161b; // (legacy gradient stop; now flat)
-inline constexpr std::uint32_t kHairline     = 0xff272a31; // 1px separators / knob tracks
+// Modern, near-monochrome cool-dark base. Hairline separators and one accent
+// per product keep the workspace quiet beneath the suite's porcelain controls.
+inline constexpr std::uint32_t kBackground   = 0xff1c1d21; // app/plugin backdrop (flat)
+inline constexpr std::uint32_t kPanel        = 0xff26272c; // primary surface
+inline constexpr std::uint32_t kPanelRaised  = 0xff2e3036; // combos / inset fields
+inline constexpr std::uint32_t kPanelDeep    = 0xff191a1e; // subtle low surface
+inline constexpr std::uint32_t kPanelViolet  = 0xff26272c; // (legacy gradient stop; now flat)
+inline constexpr std::uint32_t kHairline     = 0xff3a3d45; // 1px separators / knob tracks
 
 inline constexpr std::uint32_t kAccent       = 0xff62f5c8; // signature mint (default)
 inline constexpr std::uint32_t kAccentViolet = 0xff9b7bff; // secondary highlight
+inline constexpr std::uint32_t kAccentAmber  = 0xfff5a24b; // sampler / slicing lane
+inline constexpr std::uint32_t kAccentBlue   = 0xff68a7ff; // session / analysis
+inline constexpr std::uint32_t kAccentCrimson = 0xffe8384f; // performance / transport
 inline constexpr std::uint32_t kTextPrimary  = 0xffeef1f6;
 inline constexpr std::uint32_t kTextMuted     = 0xff8b93a1;
 inline constexpr std::uint32_t kTextFaint     = 0xff555c69;
@@ -69,20 +72,72 @@ struct Product
 
 inline const std::vector<Product>& products()
 {
+    // Unified suite identity: every product uses the Sattari Auto Pitch mint
+    // accent so the whole suite reads as one family ("everything looks like the
+    // Auto Pitch plugin"). The shared LookAndFeel already unifies background,
+    // shapes and layout; this unifies colour too. (Per-product accents are kept
+    // as a single constant here so it stays trivial to re-diversify later.)
     static const std::vector<Product> registry {
-        // Accents track each plugin's established editor colour so the shared
-        // LookAndFeel unifies form (shapes, background, layout) without recolouring
-        // any plugin's identity. Tweak freely - every editor reads from here.
-        { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     0xff62f5c8 }, // mint
-        { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    0xff7cffd4 }, // mint
-        { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       0xff26d9ff }, // cyan
-        { "sub-conjurer",      "Sub Conjurer",        "Low-end",          0xff62f5c8 }, // mint
-        { "side-chain-master", "Side Chain Master",   "Dynamics",         0xff7cffd8 }, // mint
-        { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      0xffd8b45a }, // gold
-        { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  0xffff6b35 }, // orange
-        { "bus",               "Sattari Bus",         "Bus / mix",        0xff9b7bff }, // violet
+        #include <sattari_audio_core/SattariProductCatalog.generated.inc>
     };
     return registry;
+
+#if 0
+    // Historical hand-maintained registry retained temporarily as migration
+    // context. config/products.json now owns these fields.
+    static const std::vector<Product> historicalRegistry {
+        { "auto-pitch",        "Sattari Auto Pitch",  "Vocal tuning",     kAccent },
+        { "song-key",          "Sattari Key",         "Key detection",    kAccent },
+        { "voxkey",            "Sattari VoxKey",      "Voice-to-MIDI",    kAccent },
+        { "voxsynth",          "Sattari VoxSynth",    "Voice instrument", kAccent },
+        { "morph",             "Sattari Morph",       "Voice character",  kAccentViolet },
+        { "mix",               "Sattari Mix",         "Mix rack",         kAccent },
+        { "create",            "Sattari Create",      "Creative FX rack", kAccentViolet },
+        { "vocal",             "Sattari Vocal",       "Vocal rack",       kAccent },
+        { "stack",             "Sattari Stack",       "Instrument rack",  kAccentAmber },
+        { "stemdeck",          "Sattari StemDeck",    "DJ / remix",       kAccent },
+        { "sub-conjurer",      "Sub Conjurer",        "Low-end",          kAccent },
+        { "side-chain-master", "Side Chain Master",   "Dynamics",         kAccent },
+        { "royal-chain",       "Sattari Royal Chain", "Vocal chain",      kAccent },
+        { "harmony",           "Sattari Harmony",     "Vocal harmony",    kAccent },
+        { "maqam",             "Sattari Maqam",       "Microtonal tuning",kAccent },
+        { "vocal-master",      "Sattari Vocal Master","Vocal master",     kAccent },
+        { "rhythm-genie",      "Sattari Rhythm Genie","MIDI / drums",     kAccent },
+        { "chop",              "Sattari Chop",        "Slicing sampler",  kAccentAmber },
+        { "sattari-arp",       "Sattari Arp",         "MIDI / creative",  kAccent },
+        { "bus",               "Sattari Bus",         "Bus / mix",        kAccent },
+        { "align",             "Sattari Align",       "Timing alignment", kAccent },
+        { "warp",              "Sattari Warp",        "Creative vocal FX",kAccentViolet },
+        { "tuner",             "Sattari Tuner",       "Tuning",           kAccent },
+        { "double",            "Sattari Double",      "Vocal doubler",    kAccent },
+        { "deess",             "Sattari De-Ess",      "Dynamics",         kAccent },
+        { "face",              "Sattari Face",        "Creative vocal FX",kAccentViolet },
+        { "transient",         "Sattari Transient",   "Dynamics",         kAccent },
+        { "meter",             "Sattari Meter",       "Metering",         kAccent },
+        { "scaler",            "Sattari Scaler",      "MIDI / creative",  kAccent },
+        { "eq",                "Sattari EQ",          "EQ",               kAccent },
+        { "space",             "Sattari Space",       "Reverb / delay",   kAccentViolet },
+        { "clean",             "Sattari Clean",       "Restoration",      kAccent },
+        { "comp",              "Sattari Comp",        "Dynamics",         kAccent },
+        { "peak",              "Sattari Peak",        "Mastering",        kAccent },
+        { "vocoder",           "Sattari Vocoder",     "Creative vocal FX",kAccentViolet },
+        { "shimmer",           "Sattari Shimmer",     "Reverb / delay",   kAccentViolet },
+        { "echo",              "Sattari Echo",        "Reverb / delay",   kAccentViolet },
+        { "heat",              "Sattari Heat",        "Saturation",       kAccent },
+        { "multiband",         "Sattari Multiband",   "Dynamics",         kAccent },
+        { "gate",              "Sattari Gate",        "Dynamics",         kAccent },
+        { "riser",             "Sattari Riser",       "Creative FX",      kAccentViolet },
+        { "pulse",             "Sattari Pulse",       "Creative FX",      kAccentViolet },
+        { "eightoheight",      "Sattari 808",         "Low-end",          kAccent },
+        { "imager",            "Sattari Image",       "Stereo / imaging", kAccent },
+        { "warble",            "Sattari Warble",      "Lo-fi / tape",     kAccentViolet },
+        { "scope",             "Sattari Scope",       "Analysis",         kAccent },
+        { "granulator",        "Sattari Granulator",  "Granular instrument", kAccent },
+        { "brain",             "Sattari Brain",       "Session brain",    kAccent },
+        { "glass-choir",       "Sattari Glass Choir", "Creative vocal FX", kAccentViolet },
+    };
+    return historicalRegistry;
+#endif
 }
 
 inline std::uint32_t productAccent (const std::string& id)
@@ -104,6 +159,16 @@ inline std::string productName (const std::string& id)
 #if SATTARI_HAS_JUCE_GRAPHICS
 inline juce::Colour colour (std::uint32_t argb) { return juce::Colour (argb); }
 inline juce::Colour accentFor (const std::string& id) { return juce::Colour (productAccent (id)); }
+
+inline juce::FontOptions fontOptions (float height, int styleFlags = juce::Font::plain)
+{
+    return juce::FontOptions ("Helvetica", height, styleFlags);
+}
+
+inline juce::Font font (float height, int styleFlags = juce::Font::plain)
+{
+    return juce::Font (fontOptions (height, styleFlags));
+}
 #endif
 
 } // namespace sattari::brand

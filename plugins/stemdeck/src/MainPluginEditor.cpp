@@ -2476,8 +2476,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     subtitle.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (subtitle);
 
+    // Standalone onboarding rail. The alpha/quick-start wording is a TRUTH LABEL, not
+    // decoration: StemDeck is not notarized and not sale-ready, and the UI has to keep
+    // saying so. scripts/validate_sources.sh gates on these phrases being visible here —
+    // if the honesty text ever needs to change, change the gate deliberately too.
     standaloneWorkflowGuide.setText (
-        u8 ("RECORD captures master + 4 deck WAVs + automation \xe2\x80\xa2 Reload bounces back into decks for post-set tweaks"),
+        u8 ("STANDALONE APP ALPHA QUICK START \xe2\x80\xa2 Load or drag a full mix onto Deck A/B/C/D "
+            "\xe2\x80\xa2 Record WAV to capture the performed arrangement \xe2\x80\xa2 Reload bounces "
+            "back into decks for post-set tweaks \xe2\x80\xa2 Not notarized or sale-ready"),
         juce::dontSendNotification);
     standaloneWorkflowGuide.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent).withAlpha (0.85f));
     standaloneWorkflowGuide.setFont (juce::FontOptions (11.5f, juce::Font::bold));

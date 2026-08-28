@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 namespace { const juce::StringArray modeChoices { "Clean", "Glue", "Console", "Tape" }; }
 
@@ -41,16 +42,24 @@ SattariBusAudioProcessorEditor::SattariBusAudioProcessorEditor (SattariBusAudioP
     addAndMakeVisible (savePresetButton);
     refreshUserPresets();
 
+    addAndMakeVisible (abRow);
+
     mute.setButtonText ("Mute");
     bypass.setButtonText ("Bypass");
+    msMode.setButtonText ("M/S");
     addAndMakeVisible (mute);
     addAndMakeVisible (bypass);
+    addAndMakeVisible (msMode);
     muteAttach   = std::make_unique<ButtonAttachment> (p.parameters(), "mute", mute);
     bypassAttach = std::make_unique<ButtonAttachment> (p.parameters(), "bypass", bypass);
+    msModeAttach = std::make_unique<ButtonAttachment> (p.parameters(), "msMode", msMode);
+
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] { showMidiLearnPopup(); };
 
     grLabel.setJustificationType (juce::Justification::centredRight);
     grLabel.setColour (juce::Label::textColourId, lookAndFeel.getAccent());
-    grLabel.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    grLabel.setFont (sattari::brand::fontOptions (13.0f, juce::Font::bold));
     addAndMakeVisible (grLabel);
 
     addKnob (inputTrim, "inputTrim", "TRIM", " dB");
@@ -87,7 +96,7 @@ void SattariBusAudioProcessorEditor::addKnob (Knob& k, const juce::String& param
     addAndMakeVisible (k.slider);
     k.label.setText (caption, juce::dontSendNotification);
     k.label.setJustificationType (juce::Justification::centred);
-    k.label.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    k.label.setFont (sattari::brand::fontOptions (11.0f, juce::Font::bold));
     k.label.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     addAndMakeVisible (k.label);
     k.attachment = std::make_unique<SliderAttachment> (processor.parameters(), paramId, k.slider);
@@ -145,6 +154,11 @@ void SattariBusAudioProcessorEditor::paint (juce::Graphics& g)
     lookAndFeel.paintSuiteBackground (g, getLocalBounds());
 }
 
+void SattariBusAudioProcessorEditor::showMidiLearnPopup()
+{
+    sattari::midi::showLearnPopup (processor.midiLearn, midiLearnButton, processor.parameters());
+}
+
 void SattariBusAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced (24);
@@ -155,7 +169,9 @@ void SattariBusAudioProcessorEditor::resized()
     auto presetRow = area.removeFromTop (34);
     factoryPresets.setBounds (presetRow.removeFromLeft (175));
     presetRow.removeFromLeft (8);
-    userPresets.setBounds (presetRow.removeFromLeft (160));
+    userPresets.setBounds (presetRow.removeFromLeft (140));
+    presetRow.removeFromLeft (6);
+    abRow.setBounds (presetRow.removeFromLeft (94));
     presetRow.removeFromLeft (8);
     savePresetButton.setBounds (presetRow.removeFromLeft (110));
     grLabel.setBounds (presetRow.removeFromRight (110));
@@ -166,6 +182,9 @@ void SattariBusAudioProcessorEditor::resized()
     modeRow.removeFromLeft (16);
     mute.setBounds (modeRow.removeFromLeft (90));
     bypass.setBounds (modeRow.removeFromLeft (100));
+    msMode.setBounds (modeRow.removeFromLeft (80));
+    modeRow.removeFromLeft (8);
+    midiLearnButton.setBounds (modeRow.removeFromLeft (120));
 
     area.removeFromTop (12);
 

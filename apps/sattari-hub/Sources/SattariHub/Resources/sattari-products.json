@@ -1,242 +1,1741 @@
 {
   "schemaVersion": 1,
   "suiteName": "Sattari Audio Suite",
-  "suiteVersion": "0.1.5-autopitch-real-correction-feed",
-  "truthLabel": "internal alpha hub manifest with bundled Rubber Band real-correction Auto Pitch; not sale-ready; not notarized",
-  "defaultUpdateChannel": "project-radar-internal-alpha",
+  "suiteVersion": "0.2.0-alpha",
+  "truthLabel": "Internal development suite. Products are not public, notarized, or sale-ready unless an evidence-backed release record says otherwise.",
+  "defaultUpdateChannel": "internal-alpha",
+  "updateFeedURL": null,
+  "updateFeedSHA256": null,
+  "suite": [
+    {
+      "id": "compass",
+      "name": "Sattari Compass",
+      "verb": "knows",
+      "accent": "blue",
+      "tier": "free",
+      "tagline": "The session authority. Detects key, chord, reference, energy and musical onsets, reads host tempo, and publishes the context you approve.",
+      "primary": "brain"
+    },
+    {
+      "id": "auto-pitch",
+      "name": "Sattari Auto Pitch",
+      "verb": "tunes",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.",
+      "primary": "auto-pitch"
+    },
+    {
+      "id": "instruments",
+      "name": "Sattari Instruments",
+      "verb": "makes",
+      "accent": "amber",
+      "tier": "paid",
+      "tagline": "Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.",
+      "primary": "stack"
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "verb": "sings",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "An eight-slot vocal finishing rack for cleanup, dynamics, tone, doubling and space.",
+      "primary": "vocal"
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "verb": "controls",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.",
+      "primary": "mix"
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "verb": "transforms",
+      "accent": "violet",
+      "tier": "paid",
+      "tagline": "Musical effects that can follow approved key and tempo context from Compass.",
+      "primary": "create"
+    }
+  ],
   "products": [
     {
       "id": "auto-pitch",
       "name": "Sattari Auto Pitch",
       "category": "Vocal tuning",
       "accent": "#62f5c8",
-      "version": "0.1.4-alpha+bundled-rubberband",
-      "status": "real-correction-ready",
-      "description": "Realtime Auto Pitch alpha with bundled Rubber Band pitch engine for actual correction on Macs without Homebrew.",
+      "description": "Sattari Auto Pitch \u2014 Vocal tuning.",
       "formats": [
         "AU",
         "VST3",
         "Standalone"
       ],
+      "status": "validation",
+      "lifecycle": "validation",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "auto-pitch",
+      "suiteRole": "primary",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/AU/Sattari Auto Pitch.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/AU/Sattari Auto Pitch.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/VST3/Sattari Auto Pitch.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/VST3/Sattari Auto Pitch.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/auto-pitch-bundled-rubberband/SattariAutoPitch_artefacts/Release/Standalone/Sattari Auto Pitch.app",
-          "installSubpath": "Applications/Sattari Auto Pitch.app"
+          "installSubpath": "Applications/Sattari Auto Pitch.app",
+          "relativeSourcePath": "build/all/plugins/auto-pitch/SattariAutoPitch_artefacts/Release/Standalone/Sattari Auto Pitch.app"
         }
+      ]
+    },
+    {
+      "id": "song-key",
+      "name": "Sattari Key",
+      "category": "Key detection",
+      "accent": "#62f5c8",
+      "description": "Sattari Key \u2014 Key detection.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
       ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-auto-pitch-payload-v0.1.4-real-correction.tar.gz"
+      "status": "validation",
+      "lifecycle": "validation",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Key.component",
+          "relativeSourcePath": "build/all/plugins/song-key/SattariSongKey_artefacts/Release/AU/Sattari Key.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Key.vst3",
+          "relativeSourcePath": "build/all/plugins/song-key/SattariSongKey_artefacts/Release/VST3/Sattari Key.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Key.app",
+          "relativeSourcePath": "build/all/plugins/song-key/SattariSongKey_artefacts/Release/Standalone/Sattari Key.app"
+        }
+      ]
     },
     {
       "id": "voxkey",
       "name": "Sattari VoxKey",
       "category": "Voice-to-MIDI",
-      "accent": "#7cffd4",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "Realtime vocal audio to MIDI plugin for Ableton/DAWs.",
+      "accent": "#62f5c8",
+      "description": "Sattari VoxKey \u2014 Voice-to-MIDI.",
       "formats": [
         "AU",
-        "VST3"
+        "VST3",
+        "Standalone"
       ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/voxkey/SattariVoxKey_artefacts/Release/AU/Sattari VoxKey.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari VoxKey.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari VoxKey.component",
+          "relativeSourcePath": "build/all/plugins/voxkey/SattariVoxKey_artefacts/Release/AU/Sattari VoxKey.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/voxkey/SattariVoxKey_artefacts/Release/VST3/Sattari VoxKey.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari VoxKey.vst3"
-        }
-      ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
-    },
-    {
-      "id": "stemdeck",
-      "name": "Sattari StemDeck",
-      "category": "Remix / stem performance",
-      "accent": "#26d9ff",
-      "version": "0.4.0-alpha+standalone-app",
-      "status": "standalone-app-alpha",
-      "description": "Standalone Mac DJ app alpha with split live mixer and arrangement recorder workspace.",
-      "formats": [
-        "Standalone App"
-      ],
-      "bundles": [
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari VoxKey.vst3",
+          "relativeSourcePath": "build/all/plugins/voxkey/SattariVoxKey_artefacts/Release/VST3/Sattari VoxKey.vst3"
+        },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/stemdeck-app/SattariStemDeck_artefacts/Release/Standalone/Sattari StemDeck.app",
-          "installSubpath": "Applications/Sattari StemDeck.app"
+          "installSubpath": "Applications/Sattari VoxKey.app",
+          "relativeSourcePath": "build/all/plugins/voxkey/SattariVoxKey_artefacts/Release/Standalone/Sattari VoxKey.app"
         }
+      ]
+    },
+    {
+      "id": "voxsynth",
+      "name": "Sattari VoxSynth",
+      "category": "Voice instrument",
+      "accent": "#62f5c8",
+      "description": "Sattari VoxSynth \u2014 Voice instrument.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
       ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/stemdeck-app-alpha-v0.4.0-standalone-app.tar.gz"
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari VoxSynth.component",
+          "relativeSourcePath": "build/all/plugins/voxsynth/SattariVoxSynth_artefacts/Release/AU/Sattari VoxSynth.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari VoxSynth.vst3",
+          "relativeSourcePath": "build/all/plugins/voxsynth/SattariVoxSynth_artefacts/Release/VST3/Sattari VoxSynth.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari VoxSynth.app",
+          "relativeSourcePath": "build/all/plugins/voxsynth/SattariVoxSynth_artefacts/Release/Standalone/Sattari VoxSynth.app"
+        }
+      ]
+    },
+    {
+      "id": "morph",
+      "name": "Sattari Morph",
+      "category": "Voice character",
+      "accent": "#9b7bff",
+      "description": "Sattari Morph \u2014 Voice character.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Morph.component",
+          "relativeSourcePath": "build/all/plugins/morph/SattariMorph_artefacts/Release/AU/Sattari Morph.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Morph.vst3",
+          "relativeSourcePath": "build/all/plugins/morph/SattariMorph_artefacts/Release/VST3/Sattari Morph.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Morph.app",
+          "relativeSourcePath": "build/all/plugins/morph/SattariMorph_artefacts/Release/Standalone/Sattari Morph.app"
+        }
+      ]
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "category": "Mix rack",
+      "accent": "#62f5c8",
+      "description": "Sattari Mix \u2014 Mix rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "primary",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Mix.component",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/AU/Sattari Mix.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Mix.vst3",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Mix.app",
+          "relativeSourcePath": "build/all/plugins/mix/SattariMix_artefacts/Release/Standalone/Sattari Mix.app"
+        }
+      ]
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "category": "Creative FX rack",
+      "accent": "#9b7bff",
+      "description": "Sattari Create \u2014 Creative FX rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "primary",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Create.component",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/AU/Sattari Create.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Create.vst3",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/VST3/Sattari Create.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Create.app",
+          "relativeSourcePath": "build/all/plugins/create/SattariCreate_artefacts/Release/Standalone/Sattari Create.app"
+        }
+      ]
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "category": "Vocal rack",
+      "accent": "#62f5c8",
+      "description": "Sattari Vocal \u2014 Vocal rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "primary",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Vocal.component",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/AU/Sattari Vocal.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocal.vst3",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/VST3/Sattari Vocal.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Vocal.app",
+          "relativeSourcePath": "build/all/plugins/vocal/SattariVocal_artefacts/Release/Standalone/Sattari Vocal.app"
+        }
+      ]
+    },
+    {
+      "id": "stack",
+      "name": "Sattari Stack",
+      "category": "Instrument rack",
+      "accent": "#f5a24b",
+      "description": "Sattari Stack \u2014 Instrument rack.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "primary",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Stack.component",
+          "relativeSourcePath": "build/all/plugins/stack/SattariStack_artefacts/Release/AU/Sattari Stack.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Stack.vst3",
+          "relativeSourcePath": "build/all/plugins/stack/SattariStack_artefacts/Release/VST3/Sattari Stack.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Stack.app",
+          "relativeSourcePath": "build/all/plugins/stack/SattariStack_artefacts/Release/Standalone/Sattari Stack.app"
+        }
+      ]
     },
     {
       "id": "sub-conjurer",
       "name": "Sub Conjurer",
-      "category": "Low-end utility",
+      "category": "Low-end",
       "accent": "#62f5c8",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "Low-end/sub helper internal plugin build.",
+      "description": "Sub Conjurer \u2014 Low-end.",
       "formats": [
         "AU",
         "VST3",
         "Standalone"
       ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/AU/Sub Conjurer.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sub Conjurer.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sub Conjurer.component",
+          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/AU/Sub Conjurer.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/VST3/Sub Conjurer.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sub Conjurer.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sub Conjurer.vst3",
+          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/VST3/Sub Conjurer.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/Standalone/Sub Conjurer.app",
-          "installSubpath": "Applications/Sub Conjurer.app"
+          "installSubpath": "Applications/Sub Conjurer.app",
+          "relativeSourcePath": "build/all/plugins/sub-conjurer/SubConjurer_artefacts/Release/Standalone/Sub Conjurer.app"
         }
-      ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+      ]
     },
     {
       "id": "side-chain-master",
       "name": "Side Chain Master",
-      "category": "Mix utility",
-      "accent": "#7cffd8",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "Side-chain utility internal plugin build.",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Side Chain Master \u2014 Dynamics.",
       "formats": [
         "AU",
         "VST3",
         "Standalone"
       ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/AU/Side Chain Master.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Side Chain Master.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Side Chain Master.component",
+          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/AU/Side Chain Master.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/VST3/Side Chain Master.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Side Chain Master.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Side Chain Master.vst3",
+          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/VST3/Side Chain Master.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/Standalone/Side Chain Master.app",
-          "installSubpath": "Applications/Side Chain Master.app"
+          "installSubpath": "Applications/Side Chain Master.app",
+          "relativeSourcePath": "build/all/plugins/side-chain-master/SideChainMaster_artefacts/Release/Standalone/Side Chain Master.app"
         }
-      ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+      ]
     },
     {
       "id": "royal-chain",
       "name": "Sattari Royal Chain",
       "category": "Vocal chain",
-      "accent": "#d8b45a",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "Vocal-chain concept/internal plugin build.",
+      "accent": "#62f5c8",
+      "description": "Sattari Royal Chain \u2014 Vocal chain.",
       "formats": [
         "AU",
         "VST3",
         "Standalone"
       ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/AU/Sattari Royal Chain.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Royal Chain.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Royal Chain.component",
+          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/AU/Sattari Royal Chain.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/VST3/Sattari Royal Chain.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Royal Chain.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Royal Chain.vst3",
+          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/VST3/Sattari Royal Chain.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/Standalone/Sattari Royal Chain.app",
-          "installSubpath": "Applications/Sattari Royal Chain.app"
+          "installSubpath": "Applications/Sattari Royal Chain.app",
+          "relativeSourcePath": "build/all/plugins/royal-chain/SattariRoyalChain_artefacts/Release/Standalone/Sattari Royal Chain.app"
         }
+      ]
+    },
+    {
+      "id": "harmony",
+      "name": "Sattari Harmony",
+      "category": "Vocal harmony",
+      "accent": "#62f5c8",
+      "description": "Sattari Harmony \u2014 Vocal harmony.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
       ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Harmony.component",
+          "relativeSourcePath": "build/all/plugins/harmony/SattariHarmony_artefacts/Release/AU/Sattari Harmony.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Harmony.vst3",
+          "relativeSourcePath": "build/all/plugins/harmony/SattariHarmony_artefacts/Release/VST3/Sattari Harmony.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Harmony.app",
+          "relativeSourcePath": "build/all/plugins/harmony/SattariHarmony_artefacts/Release/Standalone/Sattari Harmony.app"
+        }
+      ]
+    },
+    {
+      "id": "maqam",
+      "name": "Sattari Maqam",
+      "category": "Microtonal tuning",
+      "accent": "#62f5c8",
+      "description": "Sattari Maqam \u2014 Microtonal tuning.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "auto-pitch",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Maqam.component",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/AU/Sattari Maqam.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Maqam.vst3",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/VST3/Sattari Maqam.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Maqam.app",
+          "relativeSourcePath": "build/all/plugins/maqam/SattariMaqam_artefacts/Release/Standalone/Sattari Maqam.app"
+        }
+      ]
+    },
+    {
+      "id": "vocal-master",
+      "name": "Sattari Vocal Master",
+      "category": "Vocal master",
+      "accent": "#62f5c8",
+      "description": "Sattari Vocal Master \u2014 Vocal master.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Vocal Master.component",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/AU/Sattari Vocal Master.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocal Master.vst3",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/VST3/Sattari Vocal Master.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Vocal Master.app",
+          "relativeSourcePath": "build/all/plugins/vocal-master/SattariVocalMaster_artefacts/Release/Standalone/Sattari Vocal Master.app"
+        }
+      ]
+    },
+    {
+      "id": "rhythm-genie",
+      "name": "Sattari Rhythm Genie",
+      "category": "MIDI / drums",
+      "accent": "#62f5c8",
+      "description": "Sattari Rhythm Genie \u2014 MIDI / drums.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Rhythm Genie.component",
+          "relativeSourcePath": "build/all/plugins/rhythm-genie/SattariRhythmGenie_artefacts/Release/AU/Sattari Rhythm Genie.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Rhythm Genie.vst3",
+          "relativeSourcePath": "build/all/plugins/rhythm-genie/SattariRhythmGenie_artefacts/Release/VST3/Sattari Rhythm Genie.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Rhythm Genie.app",
+          "relativeSourcePath": "build/all/plugins/rhythm-genie/SattariRhythmGenie_artefacts/Release/Standalone/Sattari Rhythm Genie.app"
+        }
+      ]
+    },
+    {
+      "id": "chop",
+      "name": "Sattari Chop",
+      "category": "Slicing sampler",
+      "accent": "#f5a24b",
+      "description": "Sattari Chop \u2014 Slicing sampler.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Chop.component",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/AU/Sattari Chop.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Chop.vst3",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/VST3/Sattari Chop.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Chop.app",
+          "relativeSourcePath": "build/all/plugins/chop/SattariChop_artefacts/Release/Standalone/Sattari Chop.app"
+        }
+      ]
     },
     {
       "id": "sattari-arp",
       "name": "Sattari Arp",
-      "category": "MIDI generator",
-      "accent": "#ff6b35",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "MIDI arpeggiator/generator internal plugin build.",
+      "category": "MIDI / creative",
+      "accent": "#9b7bff",
+      "description": "Sattari Arp \u2014 MIDI / creative.",
       "formats": [
         "AU",
         "VST3"
       ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/AU/Sattari Arp.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Arp.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Arp.component",
+          "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/AU/Sattari Arp.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/VST3/Sattari Arp.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Arp.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Arp.vst3",
+          "relativeSourcePath": "build/all/plugins/sattari-arp/SattariArp_artefacts/Release/VST3/Sattari Arp.vst3"
         }
-      ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+      ]
     },
     {
       "id": "bus",
       "name": "Sattari Bus",
       "category": "Bus / mix",
-      "accent": "#9b7bff",
-      "version": "0.1.0-alpha",
-      "status": "internal-alpha",
-      "description": "Bus/aux channel strip: glue compressor, 3-band tone, drive, width, pan, parallel mix, and output ceiling.",
+      "accent": "#62f5c8",
+      "description": "Sattari Bus \u2014 Bus / mix.",
       "formats": [
         "AU",
         "VST3",
         "Standalone"
       ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
       "bundles": [
         {
           "kind": "AU",
-          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/AU/Sattari Bus.component",
-          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Bus.component"
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Bus.component",
+          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/AU/Sattari Bus.component"
         },
         {
           "kind": "VST3",
-          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/VST3/Sattari Bus.vst3",
-          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Bus.vst3"
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Bus.vst3",
+          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/VST3/Sattari Bus.vst3"
         },
         {
           "kind": "Standalone",
-          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/Standalone/Sattari Bus.app",
-          "installSubpath": "Applications/Sattari Bus.app"
+          "installSubpath": "Applications/Sattari Bus.app",
+          "relativeSourcePath": "build/all/plugins/bus/SattariBus_artefacts/Release/Standalone/Sattari Bus.app"
         }
+      ]
+    },
+    {
+      "id": "align",
+      "name": "Sattari Align",
+      "category": "Timing alignment",
+      "accent": "#62f5c8",
+      "description": "Sattari Align \u2014 Timing alignment.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
       ],
-      "updateArchiveURL": "https://armonnasiri.netlify.app/downloads/sattari-audio-plugin-payloads-v0.1.0.tar.gz"
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Align.component",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/AU/Sattari Align.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Align.vst3",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/VST3/Sattari Align.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Align.app",
+          "relativeSourcePath": "build/all/plugins/align/SattariAlign_artefacts/Release/Standalone/Sattari Align.app"
+        }
+      ]
+    },
+    {
+      "id": "warp",
+      "name": "Sattari Warp",
+      "category": "Creative vocal FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Warp \u2014 Creative vocal FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Warp.component",
+          "relativeSourcePath": "build/all/plugins/warp/SattariWarp_artefacts/Release/AU/Sattari Warp.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Warp.vst3",
+          "relativeSourcePath": "build/all/plugins/warp/SattariWarp_artefacts/Release/VST3/Sattari Warp.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Warp.app",
+          "relativeSourcePath": "build/all/plugins/warp/SattariWarp_artefacts/Release/Standalone/Sattari Warp.app"
+        }
+      ]
+    },
+    {
+      "id": "tuner",
+      "name": "Sattari Tuner",
+      "category": "Tuning",
+      "accent": "#62f5c8",
+      "description": "Sattari Tuner \u2014 Tuning.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Tuner.component",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/AU/Sattari Tuner.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Tuner.vst3",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/VST3/Sattari Tuner.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Tuner.app",
+          "relativeSourcePath": "build/all/plugins/tuner/SattariTuner_artefacts/Release/Standalone/Sattari Tuner.app"
+        }
+      ]
+    },
+    {
+      "id": "double",
+      "name": "Sattari Double",
+      "category": "Vocal doubler",
+      "accent": "#62f5c8",
+      "description": "Sattari Double \u2014 Vocal doubler.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Double.component",
+          "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/AU/Sattari Double.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Double.vst3",
+          "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/VST3/Sattari Double.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Double.app",
+          "relativeSourcePath": "build/all/plugins/double/SattariDouble_artefacts/Release/Standalone/Sattari Double.app"
+        }
+      ]
+    },
+    {
+      "id": "deess",
+      "name": "Sattari De-Ess",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Sattari De-Ess \u2014 Dynamics.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari De-Ess.component",
+          "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/AU/Sattari De-Ess.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari De-Ess.vst3",
+          "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/VST3/Sattari De-Ess.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari De-Ess.app",
+          "relativeSourcePath": "build/all/plugins/deess/SattariDeEss_artefacts/Release/Standalone/Sattari De-Ess.app"
+        }
+      ]
+    },
+    {
+      "id": "face",
+      "name": "Sattari Face",
+      "category": "Creative vocal FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Face \u2014 Creative vocal FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Face.component",
+          "relativeSourcePath": "build/all/plugins/face/SattariFace_artefacts/Release/AU/Sattari Face.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Face.vst3",
+          "relativeSourcePath": "build/all/plugins/face/SattariFace_artefacts/Release/VST3/Sattari Face.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Face.app",
+          "relativeSourcePath": "build/all/plugins/face/SattariFace_artefacts/Release/Standalone/Sattari Face.app"
+        }
+      ]
+    },
+    {
+      "id": "transient",
+      "name": "Sattari Transient",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Sattari Transient \u2014 Dynamics.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Transient.component",
+          "relativeSourcePath": "build/all/plugins/transient/SattariTransient_artefacts/Release/AU/Sattari Transient.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Transient.vst3",
+          "relativeSourcePath": "build/all/plugins/transient/SattariTransient_artefacts/Release/VST3/Sattari Transient.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Transient.app",
+          "relativeSourcePath": "build/all/plugins/transient/SattariTransient_artefacts/Release/Standalone/Sattari Transient.app"
+        }
+      ]
+    },
+    {
+      "id": "meter",
+      "name": "Sattari Meter",
+      "category": "Metering",
+      "accent": "#62f5c8",
+      "description": "Sattari Meter \u2014 Metering.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Meter.component",
+          "relativeSourcePath": "build/all/plugins/meter/SattariMeter_artefacts/Release/AU/Sattari Meter.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Meter.vst3",
+          "relativeSourcePath": "build/all/plugins/meter/SattariMeter_artefacts/Release/VST3/Sattari Meter.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Meter.app",
+          "relativeSourcePath": "build/all/plugins/meter/SattariMeter_artefacts/Release/Standalone/Sattari Meter.app"
+        }
+      ]
+    },
+    {
+      "id": "scaler",
+      "name": "Sattari Scaler",
+      "category": "MIDI / creative",
+      "accent": "#62f5c8",
+      "description": "Sattari Scaler \u2014 MIDI / creative.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Scaler.component",
+          "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/AU/Sattari Scaler.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Scaler.vst3",
+          "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/VST3/Sattari Scaler.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Scaler.app",
+          "relativeSourcePath": "build/all/plugins/scaler/SattariScaler_artefacts/Release/Standalone/Sattari Scaler.app"
+        }
+      ]
+    },
+    {
+      "id": "eq",
+      "name": "Sattari EQ",
+      "category": "EQ",
+      "accent": "#62f5c8",
+      "description": "Sattari EQ \u2014 EQ.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari EQ.component",
+          "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/AU/Sattari EQ.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari EQ.vst3",
+          "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/VST3/Sattari EQ.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari EQ.app",
+          "relativeSourcePath": "build/all/plugins/eq/SattariEQ_artefacts/Release/Standalone/Sattari EQ.app"
+        }
+      ]
+    },
+    {
+      "id": "space",
+      "name": "Sattari Space",
+      "category": "Reverb / delay",
+      "accent": "#9b7bff",
+      "description": "Sattari Space \u2014 Reverb / delay.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Space.component",
+          "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/AU/Sattari Space.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Space.vst3",
+          "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/VST3/Sattari Space.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Space.app",
+          "relativeSourcePath": "build/all/plugins/space/SattariSpace_artefacts/Release/Standalone/Sattari Space.app"
+        }
+      ]
+    },
+    {
+      "id": "clean",
+      "name": "Sattari Clean",
+      "category": "Restoration",
+      "accent": "#62f5c8",
+      "description": "Sattari Clean \u2014 Restoration.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Clean.component",
+          "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/AU/Sattari Clean.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Clean.vst3",
+          "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/VST3/Sattari Clean.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Clean.app",
+          "relativeSourcePath": "build/all/plugins/clean/SattariClean_artefacts/Release/Standalone/Sattari Clean.app"
+        }
+      ]
+    },
+    {
+      "id": "comp",
+      "name": "Sattari Comp",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Sattari Comp \u2014 Dynamics.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Comp.component",
+          "relativeSourcePath": "build/all/plugins/comp/SattariComp_artefacts/Release/AU/Sattari Comp.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Comp.vst3",
+          "relativeSourcePath": "build/all/plugins/comp/SattariComp_artefacts/Release/VST3/Sattari Comp.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Comp.app",
+          "relativeSourcePath": "build/all/plugins/comp/SattariComp_artefacts/Release/Standalone/Sattari Comp.app"
+        }
+      ]
+    },
+    {
+      "id": "peak",
+      "name": "Sattari Peak",
+      "category": "Mastering",
+      "accent": "#62f5c8",
+      "description": "Sattari Peak \u2014 Mastering.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Peak.component",
+          "relativeSourcePath": "build/all/plugins/peak/SattariPeak_artefacts/Release/AU/Sattari Peak.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Peak.vst3",
+          "relativeSourcePath": "build/all/plugins/peak/SattariPeak_artefacts/Release/VST3/Sattari Peak.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Peak.app",
+          "relativeSourcePath": "build/all/plugins/peak/SattariPeak_artefacts/Release/Standalone/Sattari Peak.app"
+        }
+      ]
+    },
+    {
+      "id": "vocoder",
+      "name": "Sattari Vocoder",
+      "category": "Creative vocal FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Vocoder \u2014 Creative vocal FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Vocoder.component",
+          "relativeSourcePath": "build/all/plugins/vocoder/SattariVocoder_artefacts/Release/AU/Sattari Vocoder.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Vocoder.vst3",
+          "relativeSourcePath": "build/all/plugins/vocoder/SattariVocoder_artefacts/Release/VST3/Sattari Vocoder.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Vocoder.app",
+          "relativeSourcePath": "build/all/plugins/vocoder/SattariVocoder_artefacts/Release/Standalone/Sattari Vocoder.app"
+        }
+      ]
+    },
+    {
+      "id": "shimmer",
+      "name": "Sattari Shimmer",
+      "category": "Reverb / delay",
+      "accent": "#9b7bff",
+      "description": "Sattari Shimmer \u2014 Reverb / delay.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Shimmer.component",
+          "relativeSourcePath": "build/all/plugins/shimmer/SattariShimmer_artefacts/Release/AU/Sattari Shimmer.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Shimmer.vst3",
+          "relativeSourcePath": "build/all/plugins/shimmer/SattariShimmer_artefacts/Release/VST3/Sattari Shimmer.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Shimmer.app",
+          "relativeSourcePath": "build/all/plugins/shimmer/SattariShimmer_artefacts/Release/Standalone/Sattari Shimmer.app"
+        }
+      ]
+    },
+    {
+      "id": "echo",
+      "name": "Sattari Echo",
+      "category": "Reverb / delay",
+      "accent": "#9b7bff",
+      "description": "Sattari Echo \u2014 Reverb / delay.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Echo.component",
+          "relativeSourcePath": "build/all/plugins/echo/SattariEcho_artefacts/Release/AU/Sattari Echo.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Echo.vst3",
+          "relativeSourcePath": "build/all/plugins/echo/SattariEcho_artefacts/Release/VST3/Sattari Echo.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Echo.app",
+          "relativeSourcePath": "build/all/plugins/echo/SattariEcho_artefacts/Release/Standalone/Sattari Echo.app"
+        }
+      ]
+    },
+    {
+      "id": "heat",
+      "name": "Sattari Heat",
+      "category": "Saturation",
+      "accent": "#62f5c8",
+      "description": "Sattari Heat \u2014 Saturation.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Heat.component",
+          "relativeSourcePath": "build/all/plugins/heat/SattariHeat_artefacts/Release/AU/Sattari Heat.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Heat.vst3",
+          "relativeSourcePath": "build/all/plugins/heat/SattariHeat_artefacts/Release/VST3/Sattari Heat.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Heat.app",
+          "relativeSourcePath": "build/all/plugins/heat/SattariHeat_artefacts/Release/Standalone/Sattari Heat.app"
+        }
+      ]
+    },
+    {
+      "id": "multiband",
+      "name": "Sattari Multiband",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Sattari Multiband \u2014 Dynamics.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Multiband.component",
+          "relativeSourcePath": "build/all/plugins/multiband/SattariMultiband_artefacts/Release/AU/Sattari Multiband.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Multiband.vst3",
+          "relativeSourcePath": "build/all/plugins/multiband/SattariMultiband_artefacts/Release/VST3/Sattari Multiband.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Multiband.app",
+          "relativeSourcePath": "build/all/plugins/multiband/SattariMultiband_artefacts/Release/Standalone/Sattari Multiband.app"
+        }
+      ]
+    },
+    {
+      "id": "gate",
+      "name": "Sattari Gate",
+      "category": "Dynamics",
+      "accent": "#62f5c8",
+      "description": "Sattari Gate \u2014 Dynamics.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Gate.component",
+          "relativeSourcePath": "build/all/plugins/gate/SattariGate_artefacts/Release/AU/Sattari Gate.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Gate.vst3",
+          "relativeSourcePath": "build/all/plugins/gate/SattariGate_artefacts/Release/VST3/Sattari Gate.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Gate.app",
+          "relativeSourcePath": "build/all/plugins/gate/SattariGate_artefacts/Release/Standalone/Sattari Gate.app"
+        }
+      ]
+    },
+    {
+      "id": "riser",
+      "name": "Sattari Riser",
+      "category": "Creative FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Riser \u2014 Creative FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Riser.component",
+          "relativeSourcePath": "build/all/plugins/riser/SattariRiser_artefacts/Release/AU/Sattari Riser.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Riser.vst3",
+          "relativeSourcePath": "build/all/plugins/riser/SattariRiser_artefacts/Release/VST3/Sattari Riser.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Riser.app",
+          "relativeSourcePath": "build/all/plugins/riser/SattariRiser_artefacts/Release/Standalone/Sattari Riser.app"
+        }
+      ]
+    },
+    {
+      "id": "pulse",
+      "name": "Sattari Pulse",
+      "category": "Creative FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Pulse \u2014 Creative FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Pulse.component",
+          "relativeSourcePath": "build/all/plugins/pulse/SattariPulse_artefacts/Release/AU/Sattari Pulse.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Pulse.vst3",
+          "relativeSourcePath": "build/all/plugins/pulse/SattariPulse_artefacts/Release/VST3/Sattari Pulse.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Pulse.app",
+          "relativeSourcePath": "build/all/plugins/pulse/SattariPulse_artefacts/Release/Standalone/Sattari Pulse.app"
+        }
+      ]
+    },
+    {
+      "id": "eightoheight",
+      "name": "Sattari 808",
+      "category": "Low-end",
+      "accent": "#62f5c8",
+      "description": "Sattari 808 \u2014 Low-end.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari 808.component",
+          "relativeSourcePath": "build/all/plugins/eightoheight/Sattari808_artefacts/Release/AU/Sattari 808.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari 808.vst3",
+          "relativeSourcePath": "build/all/plugins/eightoheight/Sattari808_artefacts/Release/VST3/Sattari 808.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari 808.app",
+          "relativeSourcePath": "build/all/plugins/eightoheight/Sattari808_artefacts/Release/Standalone/Sattari 808.app"
+        }
+      ]
+    },
+    {
+      "id": "imager",
+      "name": "Sattari Image",
+      "category": "Stereo / imaging",
+      "accent": "#62f5c8",
+      "description": "Sattari Image \u2014 Stereo / imaging.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "mix",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Image.component",
+          "relativeSourcePath": "build/all/plugins/imager/SattariImage_artefacts/Release/AU/Sattari Image.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Image.vst3",
+          "relativeSourcePath": "build/all/plugins/imager/SattariImage_artefacts/Release/VST3/Sattari Image.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Image.app",
+          "relativeSourcePath": "build/all/plugins/imager/SattariImage_artefacts/Release/Standalone/Sattari Image.app"
+        }
+      ]
+    },
+    {
+      "id": "warble",
+      "name": "Sattari Warble",
+      "category": "Lo-fi / tape",
+      "accent": "#9b7bff",
+      "description": "Sattari Warble \u2014 Lo-fi / tape.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "create",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Warble.component",
+          "relativeSourcePath": "build/all/plugins/warble/SattariWarble_artefacts/Release/AU/Sattari Warble.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Warble.vst3",
+          "relativeSourcePath": "build/all/plugins/warble/SattariWarble_artefacts/Release/VST3/Sattari Warble.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Warble.app",
+          "relativeSourcePath": "build/all/plugins/warble/SattariWarble_artefacts/Release/Standalone/Sattari Warble.app"
+        }
+      ]
+    },
+    {
+      "id": "scope",
+      "name": "Sattari Scope",
+      "category": "Analysis",
+      "accent": "#62f5c8",
+      "description": "Sattari Scope \u2014 Analysis.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Scope.component",
+          "relativeSourcePath": "build/all/plugins/scope/SattariScope_artefacts/Release/AU/Sattari Scope.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Scope.vst3",
+          "relativeSourcePath": "build/all/plugins/scope/SattariScope_artefacts/Release/VST3/Sattari Scope.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Scope.app",
+          "relativeSourcePath": "build/all/plugins/scope/SattariScope_artefacts/Release/Standalone/Sattari Scope.app"
+        }
+      ]
+    },
+    {
+      "id": "granulator",
+      "name": "Sattari Granulator",
+      "category": "Granular instrument",
+      "accent": "#62f5c8",
+      "description": "Sattari Granulator \u2014 Granular instrument.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "instruments",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Granulator.component",
+          "relativeSourcePath": "build/all/plugins/granulator/SattariGranulator_artefacts/Release/AU/Sattari Granulator.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Granulator.vst3",
+          "relativeSourcePath": "build/all/plugins/granulator/SattariGranulator_artefacts/Release/VST3/Sattari Granulator.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Granulator.app",
+          "relativeSourcePath": "build/all/plugins/granulator/SattariGranulator_artefacts/Release/Standalone/Sattari Granulator.app"
+        }
+      ]
+    },
+    {
+      "id": "brain",
+      "name": "Sattari Compass",
+      "category": "Session conductor",
+      "accent": "#68a7ff",
+      "description": "Sattari Compass \u2014 Session conductor.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "alpha",
+      "lifecycle": "alpha",
+      "shippingProfile": "alpha",
+      "version": "0.2.0-alpha",
+      "suite": "compass",
+      "suiteRole": "primary",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Compass.component",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/AU/Sattari Compass.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Compass.vst3",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/VST3/Sattari Compass.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Compass.app",
+          "relativeSourcePath": "build/all/plugins/brain/SattariBrain_artefacts/Release/Standalone/Sattari Compass.app"
+        }
+      ]
+    },
+    {
+      "id": "glass-choir",
+      "name": "Sattari Glass Choir",
+      "category": "Creative vocal FX",
+      "accent": "#9b7bff",
+      "description": "Sattari Glass Choir \u2014 Creative vocal FX.",
+      "formats": [
+        "AU",
+        "VST3",
+        "Standalone"
+      ],
+      "status": "experimental",
+      "lifecycle": "experimental",
+      "shippingProfile": null,
+      "version": "0.2.0-alpha",
+      "suite": "vocal",
+      "suiteRole": "component",
+      "bundles": [
+        {
+          "kind": "AU",
+          "installSubpath": "Library/Audio/Plug-Ins/Components/Sattari Glass Choir.component",
+          "relativeSourcePath": "build/all/plugins/glass-choir/SattariGlassChoir_artefacts/Release/AU/Sattari Glass Choir.component"
+        },
+        {
+          "kind": "VST3",
+          "installSubpath": "Library/Audio/Plug-Ins/VST3/Sattari Glass Choir.vst3",
+          "relativeSourcePath": "build/all/plugins/glass-choir/SattariGlassChoir_artefacts/Release/VST3/Sattari Glass Choir.vst3"
+        },
+        {
+          "kind": "Standalone",
+          "installSubpath": "Applications/Sattari Glass Choir.app",
+          "relativeSourcePath": "build/all/plugins/glass-choir/SattariGlassChoir_artefacts/Release/Standalone/Sattari Glass Choir.app"
+        }
+      ]
     }
-  ],
-  "updateFeedURL": "https://armonnasiri.netlify.app/downloads/sattari-hub-feed.json"
+  ]
 }

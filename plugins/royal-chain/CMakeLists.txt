@@ -32,3 +32,33 @@ sattari_add_plugin(
 # Tune module shares the suite's Rubber Band realtime engine (GPL — see BUILD.md;
 # a closed-source paid release needs the commercial licence, same as Auto Pitch).
 sattari_enable_rubberband(SattariRoyalChain SATTARI_ROYALCHAIN_HAS_RUBBERBAND)
+
+# Color anti-aliasing contract: ADAA tanh aliases less than naive per-sample tanh.
+add_executable(RoyalChainColorAliasingContract
+    EXCLUDE_FROM_ALL
+        tests/color_aliasing_contract.cpp
+        src/ColorModule.cpp)
+
+add_dependencies(RoyalChainColorAliasingContract SattariRoyalChain)
+
+target_include_directories(RoyalChainColorAliasingContract
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariRoyalChain_artefacts/JuceLibraryCode)
+
+target_compile_definitions(RoyalChainColorAliasingContract
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+target_link_libraries(RoyalChainColorAliasingContract
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)

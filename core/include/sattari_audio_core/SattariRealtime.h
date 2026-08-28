@@ -15,7 +15,10 @@
 //     operation several Sattari plugins do by hand.
 // =============================================================================
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cstring>
 #include <cstdint>
 #include <type_traits>
 
@@ -39,34 +42,70 @@ class AtomicSnapshot
 public:
     static_assert (std::is_trivially_copyable<T>::value,
                    "AtomicSnapshot<T> requires a trivially-copyable T");
+    static_assert (std::atomic<std::uint32_t>::is_always_lock_free,
+                   "AtomicSnapshot<T> requires lock-free 32-bit atomics");
 
-    AtomicSnapshot() = default;
+    AtomicSnapshot()
+    {
+        const T initial {};
+        store (initial);
+    }
 
     // Call from the audio thread only (single producer).
     void store (const T& fresh) noexcept
     {
-        sequence.fetch_add (1, std::memory_order_release); // -> odd: write in progress
-        value = fresh;
-        sequence.fetch_add (1, std::memory_order_release); // -> even: write complete
+        std::array<unsigned char, sizeof (T)> bytes {};
+        std::memcpy (bytes.data(), &fresh, sizeof (T));
+
+        // Use one global order for the generation and payload words. A weaker
+        // ordering permits another core to observe a new payload word before it
+        // observes the odd "write in progress" generation.
+        sequence.fetch_add (1, std::memory_order_seq_cst); // -> odd: write in progress
+        for (std::size_t i = 0; i < wordCount; ++i)
+        {
+            const std::size_t offset = i * sizeof (std::uint32_t);
+            const std::size_t count = std::min (sizeof (std::uint32_t), sizeof (T) - offset);
+            std::uint32_t word = 0;
+            std::memcpy (&word, bytes.data() + offset, count);
+            words[i].store (word, std::memory_order_seq_cst);
+        }
+        sequence.fetch_add (1, std::memory_order_seq_cst); // -> even: write complete
     }
 
     // Call from any reader thread (e.g. the editor timer).
     T load() const noexcept
     {
-        T out;
-        std::uint32_t before, after;
-        do
+        std::array<unsigned char, sizeof (T)> bytes {};
+        for (;;)
         {
-            before = sequence.load (std::memory_order_acquire);
-            out    = value;
-            after  = sequence.load (std::memory_order_acquire);
-        } while ((before & 1u) != 0u || before != after);
+            const std::uint32_t before = sequence.load (std::memory_order_seq_cst);
+            if ((before & 1u) != 0u)
+                continue;
+
+            for (std::size_t i = 0; i < wordCount; ++i)
+            {
+                const std::size_t offset = i * sizeof (std::uint32_t);
+                const std::size_t count = std::min (sizeof (std::uint32_t), sizeof (T) - offset);
+                const std::uint32_t word = words[i].load (std::memory_order_seq_cst);
+                std::memcpy (bytes.data() + offset, &word, count);
+            }
+
+            const std::uint32_t after = sequence.load (std::memory_order_seq_cst);
+            if (before == after)
+                break;
+        }
+
+        T out;
+        std::memcpy (&out, bytes.data(), sizeof (T));
         return out;
     }
 
 private:
+    static constexpr std::size_t wordCount =
+        (sizeof (T) + sizeof (std::uint32_t) - 1) / sizeof (std::uint32_t);
+
     std::atomic<std::uint32_t> sequence { 0 };
-    T value {};
+    std::array<std::atomic<std::uint32_t>, wordCount> words;
 };
 
 #if SATTARI_HAS_JUCE_AUDIO

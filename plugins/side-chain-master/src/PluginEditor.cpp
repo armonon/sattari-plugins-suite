@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include <sattari_audio_core/SattariMidiLearn.h>
 
 SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideChainMasterAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p),
@@ -13,6 +14,16 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     sattari::ui::SattariLookAndFeel::styleSubtitle (subtitle, "Clean external ducking with musical internal fallback");
     addAndMakeVisible (subtitle);
 
+    registerFactoryPresets();
+    factoryPresets.setTextWhenNothingSelected ("Factory presets...");
+    factoryPresets.addItemList (presetManager.factoryPresetNames(), 1);
+    factoryPresets.onChange = [this]
+    {
+        const int idx = factoryPresets.getSelectedItemIndex();
+        if (idx >= 0) presetManager.loadFactoryPreset (idx);
+    };
+    addAndMakeVisible (factoryPresets);
+
     userPresets.setTextWhenNothingSelected ("User presets...");
     userPresets.onChange = [this]
     {
@@ -23,9 +34,14 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     addAndMakeVisible (userPresets);
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
+    addAndMakeVisible (abRow);
     refreshUserPresets();
 
     setupCombo (mode, modeLabel, "Mode");
+    // Populate the mode combo (ComboBoxAttachment maps 1-based item IDs to the
+    // param's choice indices; order matches the "mode" StringArray in the
+    // processor). Without this the box renders blank.
+    mode.addItemList (juce::StringArray { "Clean", "Pump", "Tight", "Smooth", "Creative" }, 1);
     setupSlider (threshold, thresholdLabel, "Threshold");
     setupSlider (ratio, ratioLabel, "Ratio");
     setupSlider (attack, attackLabel, "Attack");
@@ -50,8 +66,8 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
 
     grLabel.setText ("GR 0.0 dB", juce::dontSendNotification);
     grLabel.setJustificationType (juce::Justification::centred);
-    grLabel.setFont (juce::FontOptions (18.0f, juce::Font::bold));
-    grLabel.setColour (juce::Label::textColourId, juce::Colour (0xff7cffd8));
+    grLabel.setFont (sattari::brand::fontOptions (18.0f, juce::Font::bold));
+    grLabel.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (grLabel);
 
     sidechainStatus.setText ("Sidechain: internal detector", juce::dontSendNotification);
@@ -76,6 +92,11 @@ SideChainMasterAudioProcessorEditor::SideChainMasterAudioProcessorEditor (SideCh
     listenAttach = std::make_unique<ButtonAttachment> (params, "listen", listen);
     syncDuckAttach = std::make_unique<ButtonAttachment> (params, "syncDuck", syncDuck);
 
+    addAndMakeVisible (midiLearnButton);
+    midiLearnButton.onClick = [this] {
+        sattari::midi::showLearnPopup (audioProcessor.midiLearn, midiLearnButton, audioProcessor.parameters());
+    };
+
     startTimerHz (30);
 }
 
@@ -83,6 +104,33 @@ SideChainMasterAudioProcessorEditor::~SideChainMasterAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void SideChainMasterAudioProcessorEditor::registerFactoryPresets()
+{
+    using PV = sattari::presets::SattariPresetManager::PresetValues;
+    // Mode indices: 0 Clean, 1 Pump, 2 Tight, 3 Smooth, 4 Creative.
+    presetManager.addFactoryPreset ("EDM Pump", PV {
+        {"mode",1},{"threshold",-22},{"ratio",6},{"attack",2},{"release",140},
+        {"depth",16},{"makeup",0},{"mix",100},{"sidechainHpf",90},{"external",1} });
+    presetManager.addFactoryPreset ("Subtle Tighten", PV {
+        {"mode",0},{"threshold",-30},{"ratio",3},{"attack",10},{"release",240},
+        {"depth",6},{"makeup",0},{"mix",80},{"sidechainHpf",60},{"external",1} });
+    presetManager.addFactoryPreset ("Punch Through", PV {
+        {"mode",2},{"threshold",-18},{"ratio",8},{"attack",1},{"release",80},
+        {"depth",14},{"makeup",1},{"mix",100},{"sidechainHpf",100},{"external",1} });
+    presetManager.addFactoryPreset ("Vocal Duck", PV {
+        {"mode",3},{"threshold",-26},{"ratio",4},{"attack",15},{"release",300},
+        {"depth",8},{"makeup",0},{"mix",100},{"sidechainHpf",120},{"external",1} });
+    presetManager.addFactoryPreset ("Tempo Sync 1/4", PV {
+        {"mode",1},{"depth",18},{"makeup",0},{"mix",100},{"syncDuck",1},
+        {"syncRate",2},{"syncCurve",1.0f} });
+    presetManager.addFactoryPreset ("Tempo Sync 1/8", PV {
+        {"mode",1},{"depth",14},{"makeup",0},{"mix",100},{"syncDuck",1},
+        {"syncRate",3},{"syncCurve",0.7f} });
+    presetManager.addFactoryPreset ("Master Glue", PV {
+        {"mode",3},{"threshold",-32},{"ratio",2},{"attack",30},{"release",400},
+        {"depth",4},{"makeup",0},{"mix",100},{"sidechainHpf",40},{"external",0} });
 }
 
 void SideChainMasterAudioProcessorEditor::refreshUserPresets()
@@ -107,7 +155,7 @@ void SideChainMasterAudioProcessorEditor::setupSlider (juce::Slider& slider, juc
 {
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 78, 22);
-    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (0xff7cffd8));
+    slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (sattari::brand::kAccent));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (0xff202637));
     slider.setColour (juce::Slider::thumbColourId, juce::Colours::white);
     slider.setColour (juce::Slider::textBoxTextColourId, juce::Colours::white);
@@ -124,7 +172,7 @@ void SideChainMasterAudioProcessorEditor::setupCombo (juce::ComboBox& combo, juc
 {
     combo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff171b27));
     combo.setColour (juce::ComboBox::textColourId, juce::Colours::white);
-    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff7cffd8));
+    combo.setColour (juce::ComboBox::outlineColourId, juce::Colour (sattari::brand::kAccent));
     addAndMakeVisible (combo);
 
     label.setText (text, juce::dontSendNotification);
@@ -185,9 +233,15 @@ void SideChainMasterAudioProcessorEditor::resized()
 
     area.removeFromTop (10);
     auto presetRow = area.removeFromTop (34);
-    userPresets.setBounds (presetRow.removeFromLeft (200));
+    factoryPresets.setBounds (presetRow.removeFromLeft (180));
     presetRow.removeFromLeft (10);
-    savePresetButton.setBounds (presetRow.removeFromLeft (120));
+    userPresets.setBounds (presetRow.removeFromLeft (180));
+    presetRow.removeFromLeft (10);
+    savePresetButton.setBounds (presetRow.removeFromLeft (110));
+    presetRow.removeFromLeft (8);
+    abRow.setBounds (presetRow.removeFromLeft (94));
+    presetRow.removeFromLeft (8);
+    midiLearnButton.setBounds (presetRow.removeFromLeft (120));
 
     area.removeFromTop (12);
     auto modeRow = area.removeFromTop (52);

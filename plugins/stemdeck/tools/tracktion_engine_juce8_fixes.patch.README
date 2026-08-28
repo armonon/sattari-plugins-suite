@@ -1,0 +1,12 @@
+tracktion_engine v3.2 (the pinned submodule commit) predates some JUCE 8
+AudioFormat API changes. This patch fixes `createWriterFor`'s signature
+(unique_ptr return + AudioFormatWriterOptions) and a few related call sites
+so it compiles against the vendored JUCE 8.0.12.
+
+Apply inside the submodule after checkout:
+    cd third_party/tracktion_engine
+    git apply ../../plugins/stemdeck/tools/tracktion_engine_juce8_fixes.patch
+
+This previously existed only as uncommitted local edits inside one worktree's
+submodule checkout (nowhere in git history) — saved here so a fresh clone /
+worktree can reproduce a working build.

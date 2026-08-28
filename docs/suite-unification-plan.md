@@ -2,13 +2,18 @@
 type: operating-standard
 category: sattari
 area: audio-plugins
-status: active
+status: superseded
 created: 2026-06-16
-updated: 2026-06-16
+updated: 2026-08-09
 source: Suite unification pass — shared core + realtime/DSP upgrades
 ---
 
 # Sattari Audio Suite — Unification & Upgrade Plan
+
+> Historical plan. The seven-plugin model was superseded on 2026-08-09 by the
+> six-product suite in `docs/six-product-suite.md` and `config/products.json`.
+> StemDeck is outside the current suite scope. Keep this file only as the record
+> of the shared-core and realtime-safety work that led to the current platform.
 
 Goal: take the seven separate plugins from "each one works and passes `auval`" to **one
 cohesive, powerful suite** — a shared identity, a shared preset system, one realtime-safety

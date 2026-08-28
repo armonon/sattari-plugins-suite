@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "truth_label": "internal validation only; source audio is not shipped or published",
+  "audio_policy": "Only owned, cleared, or public-domain real vocals. Audio lives outside git; these are absolute paths on the operator's machine.",
+  "provenance_note": "Supplied by the repository owner on 2026-08-10 as cleared test vocals. Converted from 64 kbps mono AAC to 24-bit 48 kHz WAV with afconvert; the WAV copies also live outside git. Clips prefixed vs- come from VocalSet under CC BY 4.0; see each clip's license and attribution fields.",
+  "defaults": {
+    "styles": [
+      "natural",
+      "hard"
+    ],
+    "render_engines": [
+      "psola-lite",
+      "granular"
+    ]
+  },
+  "coverage_requirements": [
+    "rap",
+    "melismatic",
+    "soft_singing",
+    "belting",
+    "vibrato",
+    "male_vocal",
+    "female_vocal",
+    "noisy_vocal",
+    "fast_note_transitions"
+  ],
+  "minimum_real_clip_count": 5,
+  "tagging_policy": "Every vocal_tag below is backed by a measurement recorded in measured_characteristics. Tags that could not be established from the signal were NOT applied, even where they are likely, because every later result is conditioned on these labels.",
+  "clips": [
+    {
+      "clip_id": "slay-demons",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/slay-demons.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, mid register, dense rhythmic delivery",
+      "voice_range": "measured f0 p5-p95 120-183 Hz; median 166 Hz (MIDI 52.1, ~E3)",
+      "vocal_tags": [
+        "rap",
+        "fast_note_transitions"
+      ],
+      "measured_characteristics": {
+        "duration_s": 81.2,
+        "sample_rate": 48000,
+        "peak_dbfs": -0.1,
+        "rms_dbfs": -16.5,
+        "voiced_fraction": 0.34,
+        "pyin_median_confidence": 0.28,
+        "f0_median_hz": 165.8,
+        "spectral_f0_hz": 172,
+        "note_changes_per_voiced_s": 6.37,
+        "longest_sustain_s": 0.89,
+        "vibrato_band_ratio": 0.13,
+        "noise_floor_db": -56.0,
+        "dynamic_gap_db": 45.4
+      },
+      "tag_justification": {
+        "rap": "6.37 pitch changes per voiced second with a 0.89 s longest sustain and only 34% voiced content \u2014 dense, consonant-heavy delivery rather than sustained singing.",
+        "fast_note_transitions": "same measurement; this is the transition-speed stress case."
+      },
+      "tags_deliberately_not_applied": {
+        "male_vocal": "f0 median 166 Hz sits in the overlap between male and female registers. Gender is not determinable from f0 alone and was not assumed.",
+        "vibrato": "13% of pitch-modulation energy in the 4-8 Hz band, with a 0.89 s longest sustain \u2014 too little sustained material to call this a vibrato case."
+      }
+    },
+    {
+      "clip_id": "guidos-pizza",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/guidos-pizza.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, band-limited/degraded capture",
+      "voice_range": "harmonic comb at 176 / 352 / 527 Hz gives f0 ~176 Hz; pyin could NOT track this clip",
+      "vocal_tags": [
+        "noisy_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 20.5,
+        "sample_rate": 48000,
+        "peak_dbfs": -0.5,
+        "rms_dbfs": -17.5,
+        "voiced_fraction": 0.81,
+        "pyin_median_confidence": 0.01,
+        "f0_spectral_hz": 176,
+        "pyin_f0_median_hz": null,
+        "passband_20db_hz": [
+          135,
+          1072
+        ],
+        "energy_below_100hz_pct": 0.2,
+        "energy_300_4000hz_pct": 91.1,
+        "longest_sustain_s": 2.4,
+        "vibrato_band_ratio": 0.34,
+        "noise_floor_db": -52.4,
+        "dynamic_gap_db": 40.2
+      },
+      "tag_justification": {
+        "noisy_vocal": "Degraded capture: -20 dB passband only 135-1072 Hz, essentially no energy above 4 kHz, 64 kbps source. This is the tracker-hostile case."
+      },
+      "known_hazard": "pyin FAILS on this clip. With a 55 Hz floor it reported 58.9 Hz, exactly f0/3; at 90 Hz it reported 88 Hz, exactly f0/2; at 120 Hz it pins to 120. Median voiced confidence is 0.01 while voiced_flag claims 81%. The true f0 is ~176 Hz from an unambiguous harmonic comb. Any Auto Pitch result on this clip must be read against a pitch tracker that may be making the same sub-harmonic error.",
+      "tags_deliberately_not_applied": {
+        "soft_singing": "Whether this is sung or spoken was not established from the signal.",
+        "vibrato": "34% of modulation energy sits in the 4-8 Hz band, but it was measured on a pitch curve the tracker could not resolve, so the number is not trustworthy."
+      }
+    },
+    {
+      "clip_id": "dickey-prairie",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/dickey-prairie.wav",
+      "permission_status": "owned",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": false,
+      "singer_profile": "single performer, sustained melodic singing, quiet capture",
+      "voice_range": "measured f0 p5-p95 209-551 Hz; median 317 Hz (MIDI 63.3, ~Eb4); 16.8 semitone range",
+      "vocal_tags": [
+        "soft_singing",
+        "noisy_vocal",
+        "female_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 26.0,
+        "sample_rate": 48000,
+        "peak_dbfs": -29.8,
+        "rms_dbfs": -45.9,
+        "voiced_fraction": 0.62,
+        "pyin_median_confidence": 0.48,
+        "f0_median_hz": 316.7,
+        "f0_p05_hz": 208.9,
+        "f0_p95_hz": 551.4,
+        "range_semitones": 16.8,
+        "note_changes_per_voiced_s": 3.33,
+        "longest_sustain_s": 1.6,
+        "vibrato_band_ratio": 0.19,
+        "noise_floor_db": -62.4,
+        "dynamic_gap_db": 20.8,
+        "passband_20db_hz": [
+          275,
+          832
+        ]
+      },
+      "tag_justification": {
+        "soft_singing": "1.60 s longest sustain and 3.33 pitch changes per voiced second \u2014 sustained melodic phrasing, not rap; RMS -45.9 dBFS is a quiet, unforced delivery.",
+        "noisy_vocal": "Signal-to-floor gap is only 20.8 dB, against 45.4 and 40.2 dB on the other two clips. Peak sits 29.8 dB below full scale, so any processing works on a low-level signal.",
+        "female_vocal": "CONFIRMED by the repository owner, 2026-08-10. Consistent with the measurement that prompted the question: a 317 Hz median sustained over 26 s sits above the adult male modal range. The tag was held out of vocal_tags until confirmed rather than inferred from register."
+      },
+      "cross_check_note": "The average-spectrum harmonic-comb check that exposed the guidos-pizza sub-harmonic error is inconclusive here BY DESIGN: this clip spans 16.8 semitones, so averaging the spectrum over the file smears several different notes together. Peaks at 275/316/352/416/551/627 Hz do not form one comb because they are not one note. pyin at confidence 0.48 is the better estimate for this clip.",
+      "ground_truth": {
+        "key": "G# major",
+        "source": "stated by the repository owner, 2026-08-10",
+        "note": "This is the first ground-truth key label in the corpus. AutoKey reported C# major at 0% confidence via its Adaptive fallback; the independent Krumhansl-Schmuckler cross-check reported G# major and was correct."
+      },
+      "tags_deliberately_not_applied": {
+        "vibrato": "19% of pitch-modulation energy falls in the 4-8 Hz band over 1.60 s sustains. Present but modest; not claimed without a clearer signal."
+      }
+    },
+    {
+      "clip_id": "vs-belt-m6",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-belt-m6.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/male6/scales/belt/m6_scales_belt_u.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "m6, baritone per the VocalSet readme; belted scales on the vowel 'u'",
+      "voice_range": "measured f0 p5-p95 140-305 Hz; median 209 Hz (MIDI 56.1, ~G#3)",
+      "vocal_tags": [
+        "belting",
+        "male_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 13.8,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -13.8,
+        "rms_dbfs": -28.6,
+        "voiced_fraction": 0.93,
+        "pyin_median_confidence": 0.69,
+        "f0_median_hz": 208.8,
+        "f0_p05_hz": 140.1,
+        "f0_p95_hz": 304.8,
+        "range_semitones": 13.5,
+        "note_changes_per_voiced_s": 1.01,
+        "longest_sustain_s": 12.86,
+        "vibrato_band_ratio": 0.23,
+        "input_cents_to_scale_median": 41.4
+      },
+      "tag_justification": {
+        "belting": "Dataset technique label, CORROBORATED: a baritone reaching 305 Hz (D#4) at p95 is high for the voice type, which is what belting is. 93% voiced with a 12.86 s continuous run \u2014 sustained, not phrased.",
+        "male_vocal": "VocalSet readme documents m6 as a baritone. This is the first gender tag in the corpus backed by a stated voice type rather than inferred from f0."
+      },
+      "evaluation_metric": "cents-to-scale is valid here (tonal, sustained). Also watch formant stability: belting is where a tuner is most likely to audibly alter timbre.",
+      "known_hazard": "dynamic_gap_db is only 13.1, but that is NOT noise \u2014 the clip is 93% voiced, so the quietest decile is quiet SINGING, not silence. The gap metric measures dynamic range here, not SNR, and this clip is therefore NOT tagged noisy_vocal."
+    },
+    {
+      "clip_id": "vs-vibrato-f5",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-vibrato-f5.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/female5/excerpts/vibrato/f5_caro_vibrato.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "f5, mezzo-soprano per the VocalSet readme; 'Caro Mio Ben' excerpt sung with vibrato",
+      "voice_range": "measured f0 p5-p95 265-561 Hz; median 374 Hz (MIDI 66.2, ~F#4)",
+      "vocal_tags": [
+        "vibrato",
+        "female_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 48.1,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -10.9,
+        "rms_dbfs": -29.3,
+        "voiced_fraction": 0.86,
+        "pyin_median_confidence": 0.62,
+        "f0_median_hz": 374.1,
+        "f0_p05_hz": 264.5,
+        "f0_p95_hz": 560.6,
+        "range_semitones": 13.0,
+        "note_changes_per_voiced_s": 12.1,
+        "longest_sustain_s": 3.95,
+        "vibrato_band_ratio": 0.59,
+        "dynamic_gap_db": 42.7,
+        "input_cents_to_scale_median": 31.2
+      },
+      "tag_justification": {
+        "vibrato": "59% of pitch-modulation energy in the 4-8 Hz band \u2014 the highest in the corpus by a wide margin (others: 0.13, 0.19, 0.23, 0.24, 0.34). The dataset label and the measurement agree.",
+        "female_vocal": "VocalSet readme documents f5 as a mezzo-soprano."
+      },
+      "evaluation_metric": "CENTS-TO-SCALE IS INVALID FOR THIS CLIP. Measured: input 31.2 ct, Natural 28.4 (9% 'tighter'), Hard 27.7 (11%). Those numbers look like failure and are not: the pitch is deliberately oscillating past the target and Natural mode preserves that by design. The valid measure here is whether the vibrato CENTRE moves to the target while rate and depth survive \u2014 which is not yet implemented.",
+      "known_hazard": "note_changes_per_voiced_s reads 12.10, the highest in the corpus, but that is the vibrato itself crossing the 50-cent threshold repeatedly, not note changes. The metric cannot separate modulation from articulation."
+    },
+    {
+      "clip_id": "vs-melisma-m3",
+      "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-melisma-m3.wav",
+      "permission_status": "public-domain",
+      "license": "CC BY 4.0",
+      "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
+      "upstream_path": "FULL/male3/arpeggios/fast_piano/arps_c_fast_piano.wav",
+      "cleared_for_internal_eval": true,
+      "public_release_allowed": true,
+      "singer_profile": "m3, tenor per the VocalSet readme; fast arpeggios at piano dynamic on a single vowel",
+      "voice_range": "measured f0 p5-p95 123-251 Hz; median 158 Hz (MIDI 51.3, ~D#3)",
+      "vocal_tags": [
+        "melismatic",
+        "male_vocal"
+      ],
+      "measured_characteristics": {
+        "duration_s": 28.7,
+        "sample_rate": 44100,
+        "pyin_fmin_hz": 65,
+        "peak_dbfs": -24.5,
+        "rms_dbfs": -44.0,
+        "voiced_fraction": 0.55,
+        "pyin_median_confidence": 0.32,
+        "f0_median_hz": 158.2,
+        "f0_p05_hz": 122.7,
+        "f0_p95_hz": 251.1,
+        "range_semitones": 12.4,
+        "note_changes_per_voiced_s": 8.16,
+        "longest_sustain_s": 2.54,
+        "vibrato_band_ratio": 0.24,
+        "dynamic_gap_db": 43.0,
+        "input_cents_to_scale_median": 25.2
+      },
+      "tag_justification": {
+        "melismatic": "MANY NOTES ON ONE SYLLABLE, WHICH IS WHAT MELISMA IS: fast arpeggios sung on a single sustained vowel, 8.16 pitch changes per voiced second. Distinguished from rap by TONALITY \u2014 this clip sits 25.2 cents from the nearest scale tone against slay-demons' 46.5, and ~50 is what a distribution with no tonal targets produces by construction. Fast movement BETWEEN real notes, not fast movement with no notes.",
+        "male_vocal": "VocalSet readme documents m3 as a tenor."
+      },
+      "evaluation_metric": "cents-to-scale is valid (tonal). The distinct risk here is note-transition behaviour: lag, overshoot, and snapping to a transient rather than to the note.",
+      "known_hazard": "Upstream filename 'arps_c_fast_piano.wav' carries no singer prefix; the FOLDER (FULL/male3) is treated as authoritative. VocalSet contains at least one folder/filename mismatch (FULL/male8/excerpts/vibrato/m9_caro_vibrato.wav), so this was checked rather than assumed."
+    }
+  ],
+  "coverage_vocabulary_change": {
+    "date": "2026-08-10",
+    "change": "rnb -> melismatic",
+    "authorised_by": "repository owner",
+    "reason": "No CC BY or CC0 source of genre-labelled R&B solo vocal could be found. ccMixter's 5,974 a cappellas carry no licence filter and the featured examples are CC BY-NC 3.0, which is the wrong licence for validating a commercial product. VocalSet is CC BY 4.0 but technique-labelled, not genre-labelled. Rather than apply a genre tag the data cannot support, the requirement now names the signal property the tag stood for.",
+    "not_a_relaxation": "The tag must still be satisfied by real material with the property measured, not asserted."
+  }
+}

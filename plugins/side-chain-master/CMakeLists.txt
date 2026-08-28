@@ -16,3 +16,35 @@ sattari_add_plugin(
     SOURCES
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
+
+# Ducking contract: external sidechain attenuates the main output.
+add_executable(SideChainMasterCoreContract
+    EXCLUDE_FROM_ALL
+        tests/side_chain_core_contract.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+
+add_dependencies(SideChainMasterCoreContract SideChainMaster)
+
+target_include_directories(SideChainMasterCoreContract
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SideChainMaster_artefacts/JuceLibraryCode)
+
+target_compile_definitions(SideChainMasterCoreContract
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JucePlugin_Name="Side Chain Master"
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+target_link_libraries(SideChainMasterCoreContract
+    PRIVATE
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)

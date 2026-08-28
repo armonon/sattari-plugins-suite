@@ -3,10 +3,12 @@
 // =============================================================================
 //  Sattari Audio Suite — shared monophonic pitch detector
 // -----------------------------------------------------------------------------
-//  One autocorrelation-based fundamental tracker for the whole suite, replacing
-//  the near-identical copies that lived in Sub Conjurer, Royal Chain (Tune), and
+//  One YIN-based fundamental tracker for the whole suite, replacing the
+//  near-identical copies that lived in Sub Conjurer, Royal Chain (Tune), and
 //  others. Intentionally pure-std (no JUCE) so it is unit-testable on its own and
-//  cheap to include anywhere.
+//  cheap to include anywhere. (Upgraded from normalised autocorrelation to YIN /
+//  cumulative-mean-normalised difference for robust tracking of noisy material;
+//  this is real YIN, not the offline pYIN HMM and not CREPE.)
 //
 //  Usage (per voice/channel that needs pitch):
 //     sattari::dsp::PitchDetector det;
@@ -129,7 +131,7 @@ public:
     struct Result
     {
         float frequencyHz = 0.0f;
-        float confidence  = 0.0f;   // normalised autocorrelation peak [0, 1]
+        float confidence  = 0.0f;   // periodicity = 1 - YIN aperiodicity [0, 1]
         float rms         = 0.0f;
         bool  voiced      = false;  // true when confident + above the noise floor
     };
@@ -189,37 +191,58 @@ public:
         if (maxLag <= minLag)
             return r;
 
-        float best = 0.0f;
-        for (int lag = minLag; lag <= maxLag; ++lag)
+        // YIN (de Cheveigne & Kawahara 2002): cumulative-mean-normalised
+        // difference function. This tracks weakly-pitched / noisy material far
+        // better than normalised autocorrelation - the CMNDF divides out
+        // amplitude and the zero-lag bias that makes autocorrelation octave-jump.
+        // `scores` holds d'(tau). Honest scope: real YIN, not the offline pYIN
+        // HMM and not CREPE.
+        scores[0] = 1.0f;
+        double runningSum = 0.0;
+        for (int tau = 1; tau <= maxLag; ++tau)
         {
-            float corr = 0.0f, e1 = 0.0f, e2 = 0.0f;
-            const int limit = len - lag;
+            double d = 0.0;
+            const int limit = len - tau;
             for (int i = 0; i < limit; ++i)
             {
-                const float a = work[(size_t) i];
-                const float b = work[(size_t) (i + lag)];
-                corr += a * b; e1 += a * a; e2 += b * b;
+                const double diff = (double) work[(size_t) i] - (double) work[(size_t) (i + tau)];
+                d += diff * diff;
             }
-            const float score = corr / (std::sqrt (e1 * e2) + 1.0e-9f);
-            scores[(size_t) lag] = score;
-            if (score > best) best = score;
+            runningSum += d;
+            scores[(size_t) tau] = (float) ((runningSum > 0.0) ? (d * (double) tau / runningSum) : 1.0);
         }
 
-        if (best < confidenceThreshold)
+        // Absolute threshold: take the FIRST dip below threshold, stepped to its
+        // local minimum - the shortest qualifying period, which defeats
+        // sub-harmonic / octave-down errors by construction.
+        constexpr float yinThreshold = 0.15f;
+        int bestLag = -1;
+        for (int tau = minLag; tau < maxLag; ++tau)
         {
-            r.confidence = best;
+            if (scores[(size_t) tau] < yinThreshold)
+            {
+                while (tau + 1 < maxLag && scores[(size_t) (tau + 1)] < scores[(size_t) tau])
+                    ++tau;
+                bestLag = tau;
+                break;
+            }
+        }
+        // No dip cleared the threshold: global CMNDF minimum (lower confidence).
+        if (bestLag < 0)
+        {
+            float mn = 2.0f;
+            for (int tau = minLag; tau <= maxLag; ++tau)
+                if (scores[(size_t) tau] < mn) { mn = scores[(size_t) tau]; bestLag = tau; }
+        }
+        if (bestLag < minLag) bestLag = minLag;
+
+        // Periodicity = 1 - aperiodicity (the CMNDF value at the dip).
+        const float periodicity = std::min (1.0f, std::max (0.0f, 1.0f - scores[(size_t) bestLag]));
+        if (periodicity < confidenceThreshold)
+        {
+            r.confidence = periodicity;
             return r;
         }
-
-        // Pick the SHORTEST lag within a margin of the peak. A pure tone's
-        // autocorrelation peaks at every multiple of its period, and a longer
-        // (sub-harmonic) lag can score marginally higher than the true fundamental
-        // lag from phase rounding — choosing the shortest qualifying lag fixes the
-        // octave-down error.
-        const float acceptance = best * 0.92f;
-        int bestLag = minLag;
-        for (int lag = minLag; lag <= maxLag; ++lag)
-            if (scores[(size_t) lag] >= acceptance) { bestLag = lag; break; }
 
         // Parabolic interpolation around the chosen lag for sub-sample accuracy.
         double refinedLag = bestLag;
@@ -233,7 +256,7 @@ public:
                 refinedLag += 0.5 * (double) (s0 - s2) / (double) denom;
         }
 
-        r.confidence = best;
+        r.confidence = periodicity;
         r.frequencyHz = (float) (sr / refinedLag);
         r.voiced = true;
         return r;

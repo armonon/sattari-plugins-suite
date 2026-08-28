@@ -1,6 +1,9 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
+#include <sattari_audio_core/SattariPresetManager.h>
 #include "CleanModule.h"
 #include "TuneModule.h"
 #include "ControlModule.h"
@@ -19,7 +22,7 @@ public:
     ~RoyalChainAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -27,15 +30,18 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // MIDI Learn
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.75; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -53,10 +59,16 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
     void updateMeter (std::atomic<float>& meter, float target);
     float measurePeak (const juce::AudioBuffer<float>& buffer) const;
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "royal-chain" };   // after apvts
+    int currentProgram = 0;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
 
     CleanModule cleanModule;
     TuneModule tuneModule;
@@ -69,6 +81,11 @@ private:
     FinishModule finishModule;
 
     double currentSampleRate = 44100.0;
+
+    // Cross-plugin "Sync Key from Auto Pitch": realtime-safe reader (background
+    // poll thread + lock-free snapshot; no file I/O on the audio thread).
+    sattari::xplugin::SessionReader sessionReader;
+
     std::atomic<float> inputMeter { 0.0f };
     std::atomic<float> outputMeter { 0.0f };
     std::atomic<float> tuneConfidence { 0.0f };

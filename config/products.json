@@ -1,0 +1,704 @@
+{
+  "schemaVersion": 1,
+  "suiteVersion": "0.2.0-alpha",
+  "truthLabel": "Internal development suite. Products are not public, notarized, or sale-ready unless an evidence-backed release record says otherwise.",
+  "defaultUpdateChannel": "internal-alpha",
+  "suite": [
+    {
+      "id": "compass",
+      "name": "Sattari Compass",
+      "verb": "knows",
+      "accent": "blue",
+      "tier": "free",
+      "tagline": "The session authority. Detects key, chord, reference, energy and musical onsets, reads host tempo, and publishes the context you approve.",
+      "primary": "brain"
+    },
+    {
+      "id": "auto-pitch",
+      "name": "Sattari Auto Pitch",
+      "verb": "tunes",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Realtime vocal and instrument tuning, plus a dedicated microtonal Maqam engine.",
+      "primary": "auto-pitch"
+    },
+    {
+      "id": "instruments",
+      "name": "Sattari Instruments",
+      "verb": "makes",
+      "accent": "amber",
+      "tier": "paid",
+      "tagline": "Everything that makes material: MIDI generation, voice-to-MIDI, and playable instruments.",
+      "primary": "stack"
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "verb": "sings",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "An eight-slot vocal finishing rack for cleanup, dynamics, tone, doubling and space.",
+      "primary": "vocal"
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "verb": "controls",
+      "accent": "mint",
+      "tier": "paid",
+      "tagline": "Dynamics, tone and metering. Deliberately steady: a compressor should not change behaviour when the key does.",
+      "primary": "mix"
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "verb": "transforms",
+      "accent": "violet",
+      "tier": "paid",
+      "tagline": "Musical effects that can follow approved key and tempo context from Compass.",
+      "primary": "create"
+    }
+  ],
+  "products": [
+    {
+      "id": "auto-pitch",
+      "name": "Sattari Auto Pitch",
+      "category": "Vocal tuning",
+      "accent": "mint",
+      "lifecycle": "validation",
+      "role": "effect",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "AutoPitchCoreContract",
+        "render": "AutoPitchRender",
+        "uiRender": true
+      },
+      "suite": "auto-pitch",
+      "suiteRole": "primary",
+      "candidateVersion": "0.5.0",
+      "lifecycleEvidence": "validation/auto-pitch/2026-08-16-rc3-fast-correction-hardening.md",
+      "lifecycleFrozenRevision": null,
+      "previousFrozenRevision": "7fef544a6d49"
+    },
+    {
+      "id": "song-key",
+      "name": "Sattari Key",
+      "category": "Key detection",
+      "accent": "mint",
+      "lifecycle": "validation",
+      "role": "session",
+      "shippingProfile": null,
+      "webVisible": true,
+      "ci": {
+        "test": "SattariSongKeyEstimatorContract",
+        "render": "SongKeyRender"
+      },
+      "suite": "compass",
+      "suiteRole": "component",
+      "candidateVersion": "0.3.0",
+      "lifecycleEvidence": "validation/song-key/2026-08-16-full-song-and-live-analysis.md"
+    },
+    {
+      "id": "voxkey",
+      "name": "Sattari VoxKey",
+      "category": "Voice-to-MIDI",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "utility",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "voxsynth",
+      "name": "Sattari VoxSynth",
+      "category": "Voice instrument",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "instrument",
+      "shippingProfile": null,
+      "webVisible": true,
+      "ci": {
+        "test": "VoxSynthMpeContract"
+      },
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "morph",
+      "name": "Sattari Morph",
+      "category": "Voice character",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "category": "Mix rack",
+      "accent": "mint",
+      "lifecycle": "alpha",
+      "role": "rack",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SattariMixProductContract",
+        "uiRender": true
+      },
+      "suite": "mix",
+      "suiteRole": "primary"
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "category": "Creative FX rack",
+      "accent": "violet",
+      "lifecycle": "alpha",
+      "role": "rack",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SattariCreateProductContract",
+        "uiRender": true
+      },
+      "suite": "create",
+      "suiteRole": "primary"
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "category": "Vocal rack",
+      "accent": "mint",
+      "lifecycle": "alpha",
+      "role": "rack",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SattariVocalProductContract",
+        "uiRender": true
+      },
+      "suite": "vocal",
+      "suiteRole": "primary"
+    },
+    {
+      "id": "stack",
+      "name": "Sattari Stack",
+      "category": "Instrument rack",
+      "accent": "amber",
+      "lifecycle": "alpha",
+      "role": "rack",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SattariStackLayerContract"
+      },
+      "suite": "instruments",
+      "suiteRole": "primary"
+    },
+    {
+      "id": "stemdeck",
+      "name": "Sattari StemDeck",
+      "category": "DJ / remix",
+      "accent": "mint",
+      "lifecycle": "excluded",
+      "role": "application",
+      "shippingProfile": null,
+      "webVisible": false,
+      "suite": null,
+      "suiteRole": null
+    },
+    {
+      "id": "sub-conjurer",
+      "name": "Sub Conjurer",
+      "category": "Low-end",
+      "accent": "mint",
+      "lifecycle": "alpha",
+      "role": "effect",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SubConjurerContract",
+        "uiRender": true
+      },
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "side-chain-master",
+      "name": "Side Chain Master",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "royal-chain",
+      "name": "Sattari Royal Chain",
+      "category": "Vocal chain",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    },
+    {
+      "id": "harmony",
+      "name": "Sattari Harmony",
+      "category": "Vocal harmony",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component",
+      "ci": {
+        "test": "HarmonyCoreContract",
+        "render": "HarmonyRender"
+      }
+    },
+    {
+      "id": "maqam",
+      "name": "Sattari Maqam",
+      "category": "Microtonal tuning",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "auto-pitch",
+      "suiteRole": "component"
+    },
+    {
+      "id": "vocal-master",
+      "name": "Sattari Vocal Master",
+      "category": "Vocal master",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    },
+    {
+      "id": "rhythm-genie",
+      "name": "Sattari Rhythm Genie",
+      "category": "MIDI / drums",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "instrument",
+      "shippingProfile": null,
+      "webVisible": true,
+      "ci": {
+        "test": "RhythmGenieTimingContract"
+      },
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "chop",
+      "name": "Sattari Chop",
+      "category": "Slicing sampler",
+      "accent": "amber",
+      "lifecycle": "experimental",
+      "role": "instrument",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "sattari-arp",
+      "name": "Sattari Arp",
+      "category": "MIDI / creative",
+      "accent": "violet",
+      "lifecycle": "alpha",
+      "role": "midi",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "SattariArpTimingContract",
+        "uiRender": true
+      },
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "bus",
+      "name": "Sattari Bus",
+      "category": "Bus / mix",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "align",
+      "name": "Sattari Align",
+      "category": "Timing alignment",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "warp",
+      "name": "Sattari Warp",
+      "category": "Creative vocal FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "tuner",
+      "name": "Sattari Tuner",
+      "category": "Tuning",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "utility",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "compass",
+      "suiteRole": "component"
+    },
+    {
+      "id": "double",
+      "name": "Sattari Double",
+      "category": "Vocal doubler",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    },
+    {
+      "id": "deess",
+      "name": "Sattari De-Ess",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    },
+    {
+      "id": "face",
+      "name": "Sattari Face",
+      "category": "Creative vocal FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    },
+    {
+      "id": "transient",
+      "name": "Sattari Transient",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "meter",
+      "name": "Sattari Meter",
+      "category": "Metering",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "utility",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "scaler",
+      "name": "Sattari Scaler",
+      "category": "MIDI / creative",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "midi",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "eq",
+      "name": "Sattari EQ",
+      "category": "EQ",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "space",
+      "name": "Sattari Space",
+      "category": "Reverb / delay",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "clean",
+      "name": "Sattari Clean",
+      "category": "Restoration",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "comp",
+      "name": "Sattari Comp",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "peak",
+      "name": "Sattari Peak",
+      "category": "Mastering",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "vocoder",
+      "name": "Sattari Vocoder",
+      "category": "Creative vocal FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "shimmer",
+      "name": "Sattari Shimmer",
+      "category": "Reverb / delay",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "echo",
+      "name": "Sattari Echo",
+      "category": "Reverb / delay",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "heat",
+      "name": "Sattari Heat",
+      "category": "Saturation",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "multiband",
+      "name": "Sattari Multiband",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "gate",
+      "name": "Sattari Gate",
+      "category": "Dynamics",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "riser",
+      "name": "Sattari Riser",
+      "category": "Creative FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "pulse",
+      "name": "Sattari Pulse",
+      "category": "Creative FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "eightoheight",
+      "name": "Sattari 808",
+      "category": "Low-end",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "instrument",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "imager",
+      "name": "Sattari Image",
+      "category": "Stereo / imaging",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "mix",
+      "suiteRole": "component"
+    },
+    {
+      "id": "warble",
+      "name": "Sattari Warble",
+      "category": "Lo-fi / tape",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "create",
+      "suiteRole": "component"
+    },
+    {
+      "id": "scope",
+      "name": "Sattari Scope",
+      "category": "Analysis",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "utility",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "compass",
+      "suiteRole": "component"
+    },
+    {
+      "id": "granulator",
+      "name": "Sattari Granulator",
+      "category": "Granular instrument",
+      "accent": "mint",
+      "lifecycle": "experimental",
+      "role": "instrument",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "instruments",
+      "suiteRole": "component"
+    },
+    {
+      "id": "brain",
+      "name": "Sattari Compass",
+      "category": "Session conductor",
+      "accent": "blue",
+      "lifecycle": "alpha",
+      "role": "session",
+      "shippingProfile": "alpha",
+      "webVisible": true,
+      "ci": {
+        "test": "BrainContract",
+        "uiRender": true
+      },
+      "suite": "compass",
+      "suiteRole": "primary"
+    },
+    {
+      "id": "glass-choir",
+      "name": "Sattari Glass Choir",
+      "category": "Creative vocal FX",
+      "accent": "violet",
+      "lifecycle": "experimental",
+      "role": "effect",
+      "shippingProfile": null,
+      "webVisible": true,
+      "suite": "vocal",
+      "suiteRole": "component"
+    }
+  ]
+}

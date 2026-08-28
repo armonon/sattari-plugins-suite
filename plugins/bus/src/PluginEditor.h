@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
@@ -43,9 +44,12 @@ private:
     juce::Label title, subtitle, grLabel;
     juce::ComboBox mode, factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
-    juce::ToggleButton mute, bypass;
+    sattari::ui::SattariABRow abRow { presetManager };
+    juce::ToggleButton mute, bypass, msMode;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
+    void showMidiLearnPopup();
     std::unique_ptr<ComboAttachment> modeAttach;
-    std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach;
+    std::unique_ptr<ButtonAttachment> muteAttach, bypassAttach, msModeAttach;
 
     // 17 channel-strip knobs.
     Knob inputTrim, hpf, lpf, low, mid, high, threshold, ratio, attack, release,

@@ -38,6 +38,16 @@ for needle in [
 ]:
     if needle not in ui_source:
         raise SystemExit(f'StemDeck standalone onboarding rail missing {needle!r}')
+
+# SattariModule::link() builds the suite's allocation-free parameter cache.
+# Module process paths must never reconstruct prefixed juce::Strings and query
+# APVTS dynamically; that defeats the cache and can allocate on the audio thread.
+for module in Path('core/include/sattari_audio_core/modules').glob('*Module.h'):
+    source = module.read_text()
+    if 'getRawParameterValue (pfx +' in source:
+        raise SystemExit(f'{module}: processing-time prefixed APVTS lookup bypasses parameter cache')
+    if 'void link (' in source:
+        raise SystemExit(f'{module}: override linkModule(), not the cache-owning link() entry point')
 print('source layout ok')
 PY
 fi

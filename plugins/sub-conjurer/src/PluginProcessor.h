@@ -1,8 +1,12 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariEnvelopeFollower.h>
+#include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
+#include <sattari_audio_core/SattariPresetManager.h>
+#include <sattari_audio_core/SattariRealtime.h>
 
 class SubConjurerAudioProcessor final : public juce::AudioProcessor
 {
@@ -11,7 +15,7 @@ public:
     ~SubConjurerAudioProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { sessionReader.stop(); }
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -25,10 +29,13 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override { return juce::jmax (1, presetBank.numFactoryPresets()); }
+    int getCurrentProgram() override { return currentProgram; }
+    void setCurrentProgram (int i) override
+    {
+        if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
+    }
+    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -36,13 +43,31 @@ public:
 
     juce::AudioProcessorValueTreeState& parameters() { return apvts; }
 
+    struct UiState
+    {
+        float frequencyHz = 55.0f;
+        float envelope = 0.0f;
+        float limiterGain = 1.0f;
+        float inputPeak = 0.0f;
+        float outputPeak = 0.0f;
+        bool followingKey = false;
+    };
+    UiState currentUiState() const noexcept { return uiState.load(); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void registerFactoryPresets();
 
     float midiNoteToHz (int note) const;
     int noteNameToMidi (int index) const;
 
     juce::AudioProcessorValueTreeState apvts;
+    sattari::presets::SattariPresetManager presetBank { apvts, "sub-conjurer" };   // after apvts
+    int currentProgram = 0;
+public:
+    sattari::midi::SattariMidiLearn midiLearn { apvts };
+private:
+    sattari::xplugin::SessionReader sessionReader;   // cross-plugin "Follow Song Key"
 
     double currentSampleRate = 44100.0;
     float oscillatorPhase = 0.0f;
@@ -58,6 +83,7 @@ private:
     int analysisHop = 512;
     int analysisAccumulator = 0;
     float limiterRecoveryCoeff = 0.001f;
+    sattari::rt::AtomicSnapshot<UiState> uiState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubConjurerAudioProcessor)
 };

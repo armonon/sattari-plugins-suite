@@ -4,6 +4,7 @@
 #include <array>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariLookAndFeel.h>
+#include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "PluginProcessor.h"
 
@@ -27,19 +28,22 @@ private:
     void timerCallback() override;
     void refreshUserPresets();
     void saveCurrentAsUserPreset();
+    void registerFactoryPresets();
 
     SideChainMasterAudioProcessor& audioProcessor;
 
     // Shared suite UI + cross-plugin preset system.
     sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("side-chain-master") };
     sattari::presets::SattariPresetManager presetManager;
-    juce::ComboBox userPresets;
+    sattari::ui::SattariABRow abRow { presetManager };
+    juce::ComboBox factoryPresets, userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
 
     juce::Label title, subtitle, grLabel, sidechainStatus;
     juce::ComboBox mode, syncRate;
     juce::Slider threshold, ratio, attack, release, depth, makeup, mix, sidechainHpf, lookahead, syncCurve;
     juce::ToggleButton external, listen, syncDuck;
+    juce::TextButton midiLearnButton { "MIDI Learn..." };
 
     juce::Label modeLabel, thresholdLabel, ratioLabel, attackLabel, releaseLabel, depthLabel, makeupLabel, mixLabel, hpfLabel,
                 lookaheadLabel, syncCurveLabel, syncRateLabel;
