@@ -203,9 +203,27 @@ jobs:
           mkdir -p "$HOME/Library/Audio/Plug-Ins/Components"
           ditto "$release/AU/Sattari StemDeck.component" \
             "$HOME/Library/Audio/Plug-Ins/Components/Sattari StemDeck.component"
-          auval -v aumu Sd01 Satr | tee build/stemdeck/auval.log
+          # NOT `auval ... | tee`: GitHub's default shell is `bash -e {0}` with no
+          # pipefail, so the pipe discarded auval's exit status entirely. And
+          # `test -n "$p" && test "$p" -le 330` cannot fail the step either — set -e is
+          # documented not to fire on a non-final command in an && list, so an auval run
+          # that died before printing the parameter line left $params empty and the step
+          # passed GREEN. Verified: `bash -e -c 'p=""; test -n "$p" && test "$p" -le 330'`
+          # exits 0. Redirect instead of piping, and assert the verdict explicitly.
+          set -o pipefail
+          auval -v aumu Sd01 Satr > build/stemdeck/auval.log 2>&1 || {
+            echo "::error::auval exited non-zero"; tail -40 build/stemdeck/auval.log; exit 1; }
+          grep -q 'AU VALIDATION SUCCEEDED' build/stemdeck/auval.log || {
+            echo "::error::auval did not report AU VALIDATION SUCCEEDED"
+            tail -40 build/stemdeck/auval.log; exit 1; }
           params="$(sed -n 's/.*# # # \([0-9][0-9]*\) Global Scope Parameters:.*/\1/p' build/stemdeck/auval.log | head -1)"
-          test -n "$params" && test "$params" -le 330
+          if [ -z "$params" ]; then
+            echo "::error::could not read the AU parameter count from auval output"; exit 1
+          fi
+          if [ "$params" -gt 330 ]; then
+            echo "::error::AU parameter budget exceeded: $params (limit 330)"; exit 1
+          fi
+          echo "AU parameters: $params (limit 330)"
           mkdir -p build/stemdeck/validated
           ditto -c -k --sequesterRsrc --keepParent \
             "$release/Standalone/Sattari StemDeck.app" \
