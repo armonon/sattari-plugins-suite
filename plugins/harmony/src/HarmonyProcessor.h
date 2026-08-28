@@ -25,13 +25,15 @@
 //  that already know the song's key. Per voice: interval, level, pan, formant
 //  character. Global: blend, stereo spread, humanise, output.
 // =============================================================================
-class SattariHarmonyAudioProcessor final : public juce::AudioProcessor
+class SattariHarmonyAudioProcessor final : public juce::AudioProcessor,
+                                           private juce::AudioProcessorValueTreeState::Listener,
+                                           private juce::AsyncUpdater
 {
 public:
     static constexpr int kNumVoices = 4;
 
     SattariHarmonyAudioProcessor();
-    ~SattariHarmonyAudioProcessor() override = default;
+    ~SattariHarmonyAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -122,6 +124,15 @@ private:
     juce::AudioBuffer<float> harmonyAccum;   // stereo sum of all voices
     juce::dsp::DelayLine<float> dryDelay { 1 << 16 };  // aligns dry to the shifters' latency
     int reportedLatency = 0;
+
+    // "Low Latency" used to be sampled once inside prepareToPlay and never again — there
+    // was no parameter listener anywhere in this class — so toggling it in the UI did
+    // nothing until the host happened to re-prepare the plugin. The user saw a switch that
+    // changed no latency and no sound. Rebuilding a RubberBandStretcher allocates, so the
+    // work is marshalled to the message thread rather than done in processBlock.
+    void parameterChanged (const juce::String& parameterID, float newValue) override;
+    void handleAsyncUpdate() override;
+    void rebuildStretchers();
 
     std::atomic<float> inputMeter { 0.0f }, outputMeter { 0.0f };
 

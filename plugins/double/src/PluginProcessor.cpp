@@ -65,6 +65,16 @@ void SattariDoubleAudioProcessor::prepareToPlay (double sr, int samplesPerBlock)
         v.driftPos = v.driftTarget = 0.0;
         v.driftCountdown = 0;
     }
+
+    // Declare the PSOLA delay to the host. This plugin never called setLatencySamples, so
+    // it reported 0 while every wet voice came out ceil(sr/minHz * 2) + 1 samples late —
+    // 1471 samples (33.4 ms) at 44.1 kHz with the 60 Hz floor used above. Undeclared
+    // latency is not a subtle defect in a doubler: the whole point is a near-unison layer
+    // against the dry, so on any parallel bus the host aligned nothing and the double sat a
+    // third of a beat behind the lead at 120 BPM.
+    //
+    // Every voice prepares identically, so voice 0's figure is the whole plugin's.
+    setLatencySamples (voices.empty() ? 0 : voices.front().psola.getLatencySamples());
 }
 
 bool SattariDoubleAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

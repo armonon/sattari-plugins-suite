@@ -90,12 +90,21 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
 }
 
 // ---- ctor -------------------------------------------------------------------
+SattariHarmonyAudioProcessor::~SattariHarmonyAudioProcessor()
+{
+    // Order matters: stop new triggers, then drop any queued one, before the stretchers
+    // this would rebuild are destroyed.
+    apvts.removeParameterListener ("lowLatency", this);
+    cancelPendingUpdate();
+}
+
 SattariHarmonyAudioProcessor::SattariHarmonyAudioProcessor()
     : juce::AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    apvts.addParameterListener ("lowLatency", this);
     for (int v = 0; v < kNumVoices; ++v)
     {
         snapVoiceMidi[v].store (-1);
@@ -132,30 +141,53 @@ void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samples
     juce::dsp::ProcessSpec spec { currentSampleRate, (juce::uint32) preparedBlockSize, 2 };
     dryDelay.prepare (spec);
 
+    rebuildStretchers();
+
+    sessionReader.start();
+}
+
+// Builds the pitch engines for the current "Low Latency" setting and republishes the
+// resulting latency. Called from prepareToPlay and, when the user flips the switch, from
+// handleAsyncUpdate on the message thread. Allocates — never call this from processBlock.
+void SattariHarmonyAudioProcessor::rebuildStretchers()
+{
     int startDelay = 0;
 #if SATTARI_HARMONY_HAS_RUBBERBAND
-    const bool lowLat = param ("lowLatency") > 0.5f;
-    const auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
-                    | RubberBand::RubberBandStretcher::OptionTransientsMixed
-                    | RubberBand::RubberBandStretcher::OptionDetectorSoft
-                    | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
-                              : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
-    for (int v = 0; v < kNumVoices; ++v)
+    if (currentSampleRate > 0.0 && preparedBlockSize > 0)
     {
-        stretchers[v] = std::make_unique<RubberBand::RubberBandStretcher> (
-            currentSampleRate, 1, opts, 1.0, 1.0);
-        stretchers[v]->setMaxProcessSize ((size_t) preparedBlockSize);
-        stretchers[v]->setPitchScale (1.0);
+        const bool lowLat = param ("lowLatency") > 0.5f;
+        const auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
+                        | RubberBand::RubberBandStretcher::OptionTransientsMixed
+                        | RubberBand::RubberBandStretcher::OptionDetectorSoft
+                        | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
+                                  : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
+        for (int v = 0; v < kNumVoices; ++v)
+        {
+            stretchers[v] = std::make_unique<RubberBand::RubberBandStretcher> (
+                currentSampleRate, 1, opts, 1.0, 1.0);
+            stretchers[v]->setMaxProcessSize ((size_t) preparedBlockSize);
+            stretchers[v]->setPitchScale (1.0);
+        }
+        startDelay = (int) stretchers[0]->getStartDelay();
     }
-    startDelay = (int) stretchers[0]->getStartDelay();
 #endif
 
     reportedLatency = startDelay;
     dryDelay.setMaximumDelayInSamples (juce::jmax (1, startDelay + 1));
     dryDelay.setDelay ((float) startDelay);
     setLatencySamples (reportedLatency);
+}
 
-    sessionReader.start();
+void SattariHarmonyAudioProcessor::parameterChanged (const juce::String& parameterID, float)
+{
+    // Hosts may call this from the audio thread; do no work here beyond the trigger.
+    if (parameterID == "lowLatency")
+        triggerAsyncUpdate();
+}
+
+void SattariHarmonyAudioProcessor::handleAsyncUpdate()
+{
+    rebuildStretchers();
 }
 
 void SattariHarmonyAudioProcessor::releaseResources()
