@@ -100,9 +100,19 @@ recovers most of it — 26.7 ms, only +5.3 ms over the old R2 figure, at
 essentially R2's CPU. The dry path tracks it automatically
 (`dryDelay.setDelay(startDelay)`), so the mix stays aligned in every mode.
 
-**The `lowLatency` default is unchanged (off).** Doubling latency by default is
-worth a deliberate decision, not a side effect of this fix; flagged rather than
-taken.
+**`lowLatency` now defaults ON** (changed deliberately, on request, after the
+measurement above). A harmoniser is played, so 26.7 ms is the better default
+than 42.7 ms, and it costs essentially nothing in CPU. The trade is a shorter
+analysis window (`OptionWindowShort` in place of `OptionPitchHighQuality`),
+which costs some smoothness on long sustained notes — turn Low Latency off for
+print/mixdown work if that matters. Sessions saved before this restore whatever
+value they stored, so no existing project changes behaviour.
+
+Net effect for a new instance: **21.3 ms (old R2) → 26.7 ms**, +5.3 ms, with the
+Formant controls working for the first time.
+
+Gates re-run with the new default: contract OK, 5th proof ok, smoke ok
+(peak 0.556), `--formanttest` ok (49.20% difference, centroid +1012.4 Hz).
 
 ## Now covered in CI
 

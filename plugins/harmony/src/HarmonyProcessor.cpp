@@ -67,7 +67,15 @@ APVTS::ParameterLayout SattariHarmonyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "followKey", 1 }, "Follow Song Key", false));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "root",  1 }, "Root",  rootChoices(),  0));
     p.push_back (std::make_unique<ChoiceP> (juce::ParameterID { "scale", 1 }, "Scale", scaleChoices(), 0));
-    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "lowLatency", 1 }, "Low Latency", false));
+    //  ON by default. Moving the voices to R3 (so the Formant controls exist at
+    //  all) doubled standard-mode latency to 2048 smp / 42.7 ms; Low Latency runs
+    //  1280 smp / 26.7 ms, only +5.3 ms over the old R2 figure, at essentially the
+    //  same CPU (5.9x vs 6.1x realtime at the default 3 voices). A harmoniser is
+    //  played, so the shorter window is the better default here - the trade is a
+    //  shorter analysis window (OptionWindowShort in place of PitchHighQuality),
+    //  which costs some smoothness on long sustains. Sessions saved before this
+    //  restore whatever they stored, so no existing project changes.
+    p.push_back (std::make_unique<BoolP>   (juce::ParameterID { "lowLatency", 1 }, "Low Latency", true));
 
     // Per-voice. Defaults keep the out-of-box behaviour a 3-part choir (v1+2+3 on);
     // voices 5-8 are the Pro extension — present but off until dialled in.
