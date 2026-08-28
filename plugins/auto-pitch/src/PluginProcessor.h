@@ -7,6 +7,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariMidiLearn.h>
 #include <sattari_audio_core/SattariPsolaShifter.h>
+#include <sattari_audio_core/SattariPeriodShifter.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariKeyNet.h>
 #include <sattari_audio_core/SattariHpcpChroma.h>
@@ -264,7 +265,13 @@ private:
     // Which engine ran last block (liveEngine || lowLatency). processBlock compares
     // against this to detect a runtime engine swap and flush/prime both paths so
     // the switch has no ~28 ms dropout, stale-FIFO replay, or phase-click.
-    bool lastUseLiveEngine = false;
+    // Which mono engine ran last block. Was a bool (useLiveEngine = liveEngine ||
+    // lowLatency), which stopped distinguishing the two the moment Low Latency became a
+    // DIFFERENT engine rather than PSOLA at a different floor: toggling straight from
+    // Live Engine to Low Latency left the flag true, so the flush never fired and the
+    // incoming engine spliced onto the outgoing one's stale pipeline.
+    enum class MonoEngine { rubberBand = 0, psola, periodShifter };
+    MonoEngine lastMonoEngine = MonoEngine::rubberBand;
 
     // Cross-plugin session bus: host tempo + a transient pulse counter, cached
     // on the audio thread and published off it (editor timer). Lets other
@@ -423,6 +430,12 @@ private:
     std::atomic<bool> psolaLiveLowLat { false };            // low-latency state of the LIVE shifter (set by the audio thread on swap)
     bool pendingLowLat = false;                             // low-latency target the pendingPsola set was built for
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+
+    // Low Latency now runs the period-synchronous shifter (64 samples) rather than PSOLA
+    // at a raised floor (680). See processWithPeriodShifter for why the control changed
+    // engine rather than the plugin gaining a fourth one.
+    void processWithPeriodShifter (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
+    std::vector<sattari::dsp::PeriodShifter> periodShifter;
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
     // When a crepe.onnx model is present and "Neural Pitch" is on, its estimate

@@ -200,6 +200,77 @@ int main()
         }
     }
 
+    // ---- Low Latency must actually be low latency -----------------------------
+    //
+    // This control's documentation promised a "near-zero-latency monitor path" while
+    // selecting PSOLA at a raised floor: 680 samples, 15.4 ms. It now selects
+    // PeriodShifter at a fixed 64. Pin the reported figure so the claim cannot quietly
+    // regress to the PSOLA path, and pin the ladder so Live Engine stays the mid tier.
+    {
+        setParameter (processor.parameters(), "lowLatency", 0.0f);
+        setParameter (processor.parameters(), "liveEngine", 0.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+        const int printLatency = processor.getLatencySamples();
+
+        setParameter (processor.parameters(), "liveEngine", 1.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+        const int psolaLatency = processor.getLatencySamples();
+
+        setParameter (processor.parameters(), "lowLatency", 1.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+        const int trackingLatency = processor.getLatencySamples();
+
+        std::cout << "  engine ladder: print=" << printLatency
+                  << "  live=" << psolaLatency
+                  << "  lowLatency=" << trackingLatency << " samples\n";
+
+        // 150 is the bar that separates Auto-Tune's family (112 published) from PSOLA's
+        // (680). If Low Latency ever lands above it the competitive claim is void.
+        if (trackingLatency <= 0 || trackingLatency > 150)
+        {
+            std::cerr << "Low Latency is not low latency: " << trackingLatency
+                      << " samples (expected <= 150; PSOLA at a raised floor was 680)\n";
+            return 1;
+        }
+        if (! (trackingLatency < psolaLatency && psolaLatency < printLatency))
+        {
+            std::cerr << "engine ladder is out of order: lowLatency=" << trackingLatency
+                      << " live=" << psolaLatency << " print=" << printLatency << "\n";
+            return 1;
+        }
+
+        // And it must still correct: a fast engine that does nothing would pass above.
+        const int blockSize = 512;
+        juce::AudioBuffer<float> block (2, blockSize);
+        juce::MidiBuffer midi;
+        double phase = 0.0, energy = 0.0;
+        const double inc = 2.0 * juce::MathConstants<double>::pi * 233.0 / 48000.0;  // ~30 cents sharp of A#3
+        for (int b = 0; b < 40; ++b)
+        {
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float v = (float) (0.5 * std::sin (phase) + 0.25 * std::sin (2.0 * phase));
+                phase += inc;
+                block.setSample (0, i, v);
+                block.setSample (1, i, v);
+            }
+            processor.processBlock (block, midi);
+            if (b > 20)
+                for (int i = 0; i < blockSize; ++i)
+                    energy += std::abs ((double) block.getSample (0, i));
+        }
+        if (! (energy > 1.0))
+        {
+            std::cerr << "Low Latency engine produced no output (energy=" << energy << ")\n";
+            return 1;
+        }
+        std::cout << "  lowLatency output energy=" << energy << "\n";
+
+        setParameter (processor.parameters(), "lowLatency", 0.0f);
+        setParameter (processor.parameters(), "liveEngine", 0.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (40);
+    }
+
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     // ---- Throat / Formant Shift must actually alter the signal -----------------
     //

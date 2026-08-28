@@ -245,13 +245,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             "Bass Voice", "Baritone", "Tenor", "Alto / Tenor", "Alto", "Soprano",
             "Instrument: Bass", "Instrument: Mid", "Instrument: High"
         }, 4));
-    // Low Latency: engage the near-zero-latency monitor path. It shares the Live
-    // Engine's streaming PSOLA shifter — turning it ON swaps the Rubber Band print
-    // engine for PSOLA at runtime so monitoring latency drops immediately, and the
-    // reported latency (prepareToPlay) tracks the active engine. (It is effectively
-    // an alias for Live Engine's low-latency path; kept as its own control because
-    // the editor exposes both. See processBlock's engine select + prepareToPlay's
-    // reported-latency block.)
+    // Low Latency: the tracking path, and now genuinely near-zero. It runs
+    // PeriodShifter — the period-synchronous engine from the (expired) Auto-Tune
+    // patent — at a FIXED 64 samples, 1.45 ms at 44.1 kHz, independent of the pitch
+    // floor. It used to be an alias for Live Engine's PSOLA at a raised 130 Hz floor,
+    // which cost 680 samples (15.4 ms): the comment here promised a "near-zero-latency
+    // monitor path" that the engine behind it could not deliver, because PSOLA needs two
+    // periods in hand and its latency is therefore ceil(sr/minHz * 2) + 1.
+    //
+    // The three mono engines now form an explicit quality/latency ladder rather than
+    // hiding two of them behind one boolean:
+    //     Low Latency    PeriodShifter     64 samples    tracking
+    //     Live Engine    TD-PSOLA        1261 samples    monitoring
+    //     (neither)      Rubber Band     2048 samples    print
+    // Whole-period repeat/delete is cruder than PSOLA on wide shifts — that is the 1997
+    // trade, and it is why this is the tracking engine and not the print one.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("lowLatency", "Low Latency", false));
 
     // Live Engine (PSOLA): swap the Rubber Band phase vocoder for a streaming
@@ -377,6 +385,18 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const bool lowLatOn = apvts.getRawParameterValue ("lowLatency") != nullptr
                            && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
         preparePsolaInto (psola, lowLatOn);
+        {
+            // The period shifter tracks the full voiced range: unlike PSOLA its latency
+            // does not depend on the low-Hz floor, so there is nothing to buy by raising
+            // it and a low floor keeps male fundamentals inside the search.
+            double srcMinHz = minVoiceHz, srcMaxHz = maxVoiceHz;
+            voicedRangeHzForSource (srcMinHz, srcMaxHz);
+            const int numCh = juce::jmax (1, getTotalNumOutputChannels());
+            periodShifter.assign ((size_t) numCh, sattari::dsp::PeriodShifter());
+            for (auto& ps : periodShifter)
+                ps.prepare (currentSampleRate, juce::jmax (50.0, srcMinHz),
+                            juce::jmax (1000.0, srcMaxHz));
+        }
         psolaLiveLowLat.store (lowLatOn, std::memory_order_relaxed);
         psolaSwapReady.store (false, std::memory_order_relaxed);
     }
@@ -520,10 +540,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // Seed the engine-swap detector with the engine that will run first, so the
     // first processBlock after prepare doesn't spuriously flush both paths (they
     // are already freshly primed here).
-    lastUseLiveEngine = (apvts.getRawParameterValue ("liveEngine") != nullptr
-                         && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f)
-                     || (apvts.getRawParameterValue ("lowLatency") != nullptr
-                         && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f);
+    {
+        const bool seedLowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
+                             && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
+        const bool seedLive   = apvts.getRawParameterValue ("liveEngine") != nullptr
+                             && apvts.getRawParameterValue ("liveEngine")->load() > 0.5f;
+        lastMonoEngine = seedLowLat ? MonoEngine::periodShifter
+                       : seedLive   ? MonoEngine::psola
+                                    : MonoEngine::rubberBand;
+    }
     // Seed the transpose seam too (siblings above are seeded), so a project restored
     // with Transpose already ON doesn't fire a spurious engine flush on the first block.
     lastXposeActive = (apvts.getRawParameterValue ("xposeMode") != nullptr
@@ -582,12 +607,16 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
         return pvInFifoLatency;
     // Analytic (not psola.front()) so a Low Latency toggle reports the new value at
     // once, even in the 1-block window before the freshly-built shifter is swapped in.
-    const int psolaLatency = psolaLatencyFor (lowLatOn);
+    // Low Latency runs the period shifter, whose delay is a fixed constant independent
+    // of the pitch floor; Live Engine runs PSOLA, whose delay is ceil(sr/minHz * 2) + 1.
+    if (lowLatOn)
+        return periodShifter.empty() ? 0 : periodShifter.front().getLatencySamples();
+    const int psolaLatency = psolaLatencyFor (false);
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
-    return (lowLatOn || liveEngOn) ? psolaLatency : (rbLatency + rbCushion);
+    return liveEngOn ? psolaLatency : (rbLatency + rbCushion);
 #else
     // No Rubber Band: the formant-guide fallback is block-local (~0 latency).
-    return (lowLatOn || liveEngOn) ? psolaLatency : 0;
+    return liveEngOn ? psolaLatency : 0;
 #endif
 }
 
@@ -1932,6 +1961,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     {
         psola.swap (pendingPsola);
         for (auto& p : psola) p.reset();
+        for (auto& p : periodShifter) p.reset();
         psolaLiveLowLat.store (pendingLowLat, std::memory_order_release);
         // If the param moved again while this build was pending, request another rebuild
         // so the live shifter converges to the current Low Latency state.
@@ -2358,14 +2388,18 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // discontinuity (an audible ~28 ms dropout / click). Resetting both makes the
     // incoming engine re-prime cleanly from silence (its reported start-up latency)
     // and guarantees the outgoing engine is empty for its next turn. Allocation-free.
-    if (useLiveEngine != lastUseLiveEngine)
+    const MonoEngine activeMonoEngine = lowLatency ? MonoEngine::periodShifter
+                                      : liveEngine ? MonoEngine::psola
+                                                   : MonoEngine::rubberBand;
+    if (activeMonoEngine != lastMonoEngine)
     {
         for (auto& p : psola) p.reset();
+        for (auto& p : periodShifter) p.reset();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
         for (auto& s : rubberBand) if (s != nullptr) s->reset();
         resetRbFifo();
 #endif
-        lastUseLiveEngine = useLiveEngine;
+        lastMonoEngine = activeMonoEngine;
     }
 
     // Poly is a third engine (the phase vocoder). Toggling it in/out flushes the
@@ -2376,6 +2410,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     {
         resetPolyVocoder();
         for (auto& p : psola) p.reset();
+        for (auto& p : periodShifter) p.reset();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
         for (auto& s : rubberBand) if (s != nullptr) s->reset();
         resetRbFifo();
@@ -2389,6 +2424,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     if (xposeActive != lastXposeActive)
     {
         for (auto& p : psola) p.reset();
+        for (auto& p : periodShifter) p.reset();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
         for (auto& s : rubberBand) if (s != nullptr) s->reset();
         resetRbFifo();
@@ -2420,6 +2456,16 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // Real polyphonic: every spectral peak is retuned independently to its
         // nearest enabled in-scale tone. Replaces the mono single-ratio engine.
         processPolyphonicRetune (mainBuffer, inputGain);
+    }
+    else if (lowLatency)
+    {
+        // Low Latency means the LOWEST latency we have, which is now the period-
+        // synchronous shifter at 64 samples rather than PSOLA at a raised floor (680).
+        // The control's own documentation has always promised a "near-zero-latency
+        // monitor path"; at 15.4 ms it never delivered one. Live Engine still selects
+        // PSOLA, so the quality/latency ladder is explicit rather than hidden inside one
+        // boolean: Low Latency (64) -> Live Engine (1261) -> Rubber Band print (2048).
+        processWithPeriodShifter (mainBuffer, engineScale, inputGain);
     }
     else if (useLiveEngine)
     {
@@ -2468,6 +2514,25 @@ void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>&
         // In-place is safe: process() reads the whole input block into its ring
         // before writing any output.
         psola[(size_t) ch].process (d, d, n, pitchScale, period);
+    }
+    buffer.applyGain (linearGain);
+}
+
+void SattariAutoPitchAudioProcessor::processWithPeriodShifter (juce::AudioBuffer<float>& buffer,
+                                                               double pitchScale, float linearGain)
+{
+    // The tracking engine. Unlike processWithPsola this needs no period argument — the
+    // shifter runs its own continuously-updated tracker, which is precisely why its
+    // latency (64 samples) is not a function of the low-frequency floor. Handing it our
+    // block-rate pitch estimate instead would reintroduce the analysis delay we removed.
+    const int nCh = buffer.getNumChannels();
+    const int n   = buffer.getNumSamples();
+    for (int ch = 0; ch < nCh; ++ch)
+    {
+        if (ch >= (int) periodShifter.size()) break;
+        float* d = buffer.getWritePointer (ch);
+        // In-place is safe: each sample is written to the ring before it is read back.
+        periodShifter[(size_t) ch].process (d, d, n, pitchScale);
     }
     buffer.applyGain (linearGain);
 }
