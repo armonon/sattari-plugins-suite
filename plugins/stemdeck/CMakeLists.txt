@@ -905,6 +905,23 @@ stemdeck_link_tracktion(StemDeckReplayHash)
 sattari_enable_rubberband(StemDeckReplayHash SATTARI_STEMDECK_HAS_RUBBERBAND)
 stemdeck_enable_onnx(StemDeckReplayHash)
 
+# The processor must publish its master clock into the dispatcher, so captured events
+# carry TIME and not just order. Drives the production record path only — deliberately
+# never calls setClockSamples itself, which is how the original bug hid behind
+# StemDeckReplayHash (the only caller driving that clock was the test).
+add_executable(StemDeckIntentClock EXCLUDE_FROM_ALL tests/stemdeck_intent_clock.cpp)
+target_include_directories(StemDeckIntentClock PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckIntentClock PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_MODAL_LOOPS_PERMITTED=1)
+target_link_libraries(StemDeckIntentClock
+    PRIVATE SattariStemDeck
+    PUBLIC  juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+stemdeck_link_tracktion(StemDeckIntentClock)
+sattari_enable_rubberband(StemDeckIntentClock SATTARI_STEMDECK_HAS_RUBBERBAND)
+stemdeck_enable_onnx(StemDeckIntentClock)
+
 # Recording button -> deterministic intent stream + health telemetry contract.
 add_executable(StemDeckRecordingHealth EXCLUDE_FROM_ALL tests/stemdeck_recording_health.cpp)
 target_include_directories(StemDeckRecordingHealth PRIVATE
@@ -1274,6 +1291,7 @@ if(BUILD_TESTING)
         StemDeckStemFx
         StemDeckKeyLockTest
         StemDeckReplayHash
+        StemDeckIntentClock
         StemDeckRecordingHealth
         StemDeckChannelIdentity
         StemDeckDispatch

@@ -1871,6 +1871,20 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         syncSnapshot.ppqPosition = currentSampleRate > 0.0 ? ((double) transportSampleCounter / currentSampleRate) * (double) masterBpm / 60.0 : 0.0;
     }
     const int64_t blockRecordingStart = recordingSampleCounter.load (std::memory_order_relaxed);
+    // Publish the master clock to the intent dispatcher so events::Event::atSample is a
+    // real timeline position rather than 0. Dispatcher::setClockSamples had NO production
+    // caller until this line: every captured event was stamped atSample=0, so the
+    // -intent.sdev stream recorded order but not time — the arrangement view had nothing
+    // to place events against and tempo re-export had nothing to re-time. StemDeckReplayHash
+    // passed regardless because the test drove setClockSamples itself, which is exactly the
+    // "gate certifies a path the product never takes" failure in CLAUDE.md §7.
+    //
+    // blockRecordingStart (not transportSampleCounter) is the correct clock: it is the same
+    // origin midiCapture and the performance-capture lanes already stamp against, and it is
+    // reset to 0 at record start. Message-thread dispatches read the most recent block start,
+    // which is the block they landed in. Store is relaxed and atomic — RT-safe.
+    if (eventDispatcher != nullptr)
+        eventDispatcher->setClockSamples (blockRecordingStart);
     updatePerformanceCaptureState (blockRecordingStart, syncSnapshot);
     const bool safePerformance = performanceSafeMode.load (std::memory_order_acquire);
 
