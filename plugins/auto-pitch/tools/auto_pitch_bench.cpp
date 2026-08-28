@@ -248,9 +248,34 @@ int onsetIndex (const juce::AudioBuffer<float>& buf, int ch, double thresh)
     return -1;
 }
 
+// Verdict counters. This used to be a pure string formatter, which is why the tool
+// measured cents, THD, RTF and latency honesty properly and then returned 0 no matter
+// what any of them said — every PASS/WARN/FAIL was cosmetic and only NaN/Inf/clipping
+// (gHardFail) could fail the run. Nothing invoked it either, so a regression in any
+// measured dimension was invisible. Now each verdict is recorded, and --gate turns a
+// FAIL into a non-zero exit so CI can hold the line.
+int gVerdictPass = 0, gVerdictWarn = 0, gVerdictFail = 0;
+
 const char* verdict (bool pass, bool warn)
 {
-    return pass ? "PASS" : (warn ? "WARN" : "FAIL");
+    if (pass)      { ++gVerdictPass; return "PASS"; }
+    if (warn)      { ++gVerdictWarn; return "WARN"; }
+    ++gVerdictFail; return "FAIL";
+}
+
+// Wall-clock verdicts. Same string, but deliberately OUTSIDE the gate: these measure the
+// machine, not the code. Measured on one host minutes apart, identical binary and input:
+// RTF 0.181 on an idle box, 1.362 under concurrent builds — a 7.5x spread that crosses
+// both thresholds. A shared CI runner is exactly that contended environment, so gating on
+// this buys a flaky red build and teaches everyone to ignore the gate. The numbers are
+// still printed, and they are still the right numbers to watch on a quiet machine.
+int gAdvisoryPass = 0, gAdvisoryWarn = 0, gAdvisoryFail = 0;
+
+const char* verdictWallClock (bool pass, bool warn)
+{
+    if (pass)      { ++gAdvisoryPass; return "PASS"; }
+    if (warn)      { ++gAdvisoryWarn; return "WARN"; }
+    ++gAdvisoryFail; return "FAIL";
 }
 
 // Settled output pitch (median MIDI) over the tail.
@@ -494,7 +519,7 @@ void runCpu()
         const double p95   = perBlockMs[(size_t) (0.95 * (double) perBlockMs.size())];
         const double mean  = totalMs / (double) nBlocks;
         const double rtf   = (totalMs / 1000.0) / audioSec;
-        const char*  v = verdict (rtf < 0.5, rtf < 1.0);
+        const char*  v = verdictWallClock (rtf < 0.5, rtf < 1.0);
         std::printf ("  %-22s RTF=%.3f  (headroom %5.1fx)   mean=%.3f ms/blk   p95=%.3f ms   [%s]\n",
                      label, rtf, rtf > 1.0e-9 ? 1.0 / rtf : 0.0, mean, p95, v);
     };
@@ -767,7 +792,16 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
-    const std::string sec = (argc > 1) ? argv[1] : "all";
+    // --gate makes measured regressions fail the build. Default stays advisory so local
+    // exploration is unchanged: run a section, read the numbers, no exit-code drama.
+    bool gate = false;
+    std::string sec = "all";
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--gate") gate = true;
+        else if (! arg.empty() && arg[0] != '-') sec = arg;
+    }
     const bool all = (sec == "all");
 
     std::printf ("=================================================================\n");
@@ -790,7 +824,23 @@ int main (int argc, char** argv)
                  verdict (gSafety.allFinite && gSafety.maxPeak <= 1.0f, false));
     std::printf ("=================================================================\n");
 
+    std::printf ("  verdicts: %d PASS   %d WARN   %d FAIL%s\n",
+                 gVerdictPass, gVerdictWarn, gVerdictFail,
+                 gate ? "   (gated)" : "   (advisory — pass --gate to enforce)");
+    std::printf ("  wall-clock (never gated, machine-dependent): %d PASS   %d WARN   %d FAIL\n",
+                 gAdvisoryPass, gAdvisoryWarn, gAdvisoryFail);
+    std::printf ("=================================================================\n");
+
     if (gHardFail > 0)
         std::fprintf (stderr, "HARD FAILURE: %d NaN/Inf/over-full-scale violation(s)\n", gHardFail);
-    return gHardFail > 0 ? 1 : 0;
+
+    // WARN is deliberately not fatal. Two are outstanding and both are genuine but not
+    // blocking: Rubber Band under-reports its latency by ~241 samples (5.0 ms), and the
+    // vibrato-preservation check wants ON > 1.5x OFF while correction itself adds wobble
+    // to the measurement. Gating on WARN today would either wire in a red build or
+    // pressure someone into loosening a threshold, which is how gates die.
+    if (gate && gVerdictFail > 0)
+        std::fprintf (stderr, "GATE FAILURE: %d measured threshold(s) in FAIL\n", gVerdictFail);
+
+    return (gHardFail > 0 || (gate && gVerdictFail > 0)) ? 1 : 0;
 }

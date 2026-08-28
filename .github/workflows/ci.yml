@@ -61,7 +61,7 @@ jobs:
           - { plugin: royal-chain,       test: RoyalChainColorAliasingContract }
           - { plugin: sattari-arp,       test: SattariArpTimingContract }
           - { plugin: voxkey,            test: VoxKeyCoreContract }
-          - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender }
+          - { plugin: auto-pitch,        test: AutoPitchCoreContract, render: AutoPitchRender, bench: AutoPitchBench }
           - { plugin: stemdeck,          test: StemDeckArchitectureContract }
           - { plugin: harmony,           test: HarmonyCoreContract, render: HarmonyRender }
           - { plugin: maqam,             test: MaqamCoreContract, render: MaqamRender }
@@ -106,6 +106,29 @@ jobs:
           if [ -z "$bin" ]; then echo "::error::render binary ${{ matrix.render }} not found"; exit 1; fi
           echo "Running $bin --smoke"
           "$bin" --smoke
+
+      # Objective quality gate. This tool measured correction accuracy in cents, THD,
+      # real-time factor and reported-vs-measured latency all along — and then returned 0
+      # regardless, because its PASS/WARN/FAIL verdicts were a string formatter with no
+      # side effect. Nothing invoked it either, so a regression in any measured dimension
+      # was invisible to CI. --gate makes a FAIL a non-zero exit.
+      #
+      # WARN is not fatal, deliberately. Two are outstanding and both are real but not
+      # blocking: Rubber Band under-reports its latency by ~241 samples (5.0 ms), and the
+      # vibrato-preservation check wants ON > 1.5x OFF while correction adds wobble to the
+      # measurement itself. Wiring the gate in red, or loosening thresholds to make it
+      # green, are both ways of killing a gate on the day it is born.
+      #
+      # Baseline at the time of wiring: 17 PASS / 2 WARN / 0 FAIL.
+      - name: Build + run objective benchmark (gated)
+        if: ${{ matrix.bench != '' }}
+        run: |
+          set -o pipefail
+          cmake --build build/${{ matrix.plugin }} --target ${{ matrix.bench }} -j3
+          bin="$(find build/${{ matrix.plugin }} -type f -name '${{ matrix.bench }}' -perm +111 | head -n1)"
+          if [ -z "$bin" ]; then echo "::error::benchmark binary ${{ matrix.bench }} not found"; exit 1; fi
+          echo "Running $bin --gate"
+          "$bin" --gate
 
   # ---------------------------------------------------------------------------
   # StemDeck DSP accuracy gates. These assert real numeric behaviour against
