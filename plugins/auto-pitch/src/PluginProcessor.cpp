@@ -136,6 +136,10 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
     // the mono engines — listen so a toggle refreshes the host delay-comp figure.
     apvts.addParameterListener ("polyphonic", this);
+    // Formant controls select the Rubber Band engine (R3 can shift formants, R2 cannot),
+    // which changes reported latency — so they need the same deferred rebuild path.
+    apvts.addParameterListener ("throat", this);
+    apvts.addParameterListener ("formantShift", this);
 }
 
 SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
@@ -473,14 +477,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
               | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
               | RubberBand::RubberBandStretcher::OptionPitchHighQuality;
 
-    for (int channel = 0; channel < numChannels; ++channel)
-    {
-        auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
-            currentSampleRate, 1, opts, 1.0, 1.0);
-        stretcher->setMaxProcessSize ((size_t) preparedBlockSize);
-        stretcher->setPitchScale (1.0);
-        rubberBand.push_back (std::move (stretcher));
-    }
+    // Engine choice is deferred to buildRubberBandInto(): R3 only when a formant
+    // control is engaged, because setFormantScale() is a no-op on R2.
+    rbBaseOptions = opts;
+    buildRubberBandInto (rubberBand, formantControlsEngaged());
+    rbLiveFiner.store (formantControlsEngaged(), std::memory_order_release);
     // rubberBandOutput doubles as the per-iteration drain chunk buffer, so give
     // it headroom for one full block of Rubber Band output at a time.
     rubberBandOutput.setSize (numChannels, preparedBlockSize);
@@ -590,6 +591,42 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
 #endif
 }
 
+bool SattariAutoPitchAudioProcessor::formantControlsEngaged() const
+{
+    // Neutral means "the user has not asked for formant movement": Throat at 1.0 and
+    // Formant Shift at 0 semitones. Only then is R2's cheaper start delay free.
+    const auto* throatParam  = apvts.getRawParameterValue ("throat");
+    const auto* formantParam = apvts.getRawParameterValue ("formantShift");
+    const float throat  = throatParam  != nullptr ? throatParam->load()  : 1.0f;
+    const float formant = formantParam != nullptr ? formantParam->load() : 0.0f;
+    return std::abs (throat - 1.0f) > 1.0e-4f || std::abs (formant) > 1.0e-4f;
+}
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+void SattariAutoPitchAudioProcessor::buildRubberBandInto (
+    std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>>& dest, bool finer) const
+{
+    // OptionEngineFiner selects R3. Its setFormantScale() is real; R2's is
+    // `if (m_r3) ...` and therefore a silent no-op, which is why the Throat control did
+    // nothing before this. R3 costs about double the start delay, so we only pay it when
+    // a formant control is off neutral.
+    const int opts = rbBaseOptions
+                   | (finer ? (int) RubberBand::RubberBandStretcher::OptionEngineFiner
+                            : (int) RubberBand::RubberBandStretcher::OptionEngineFaster);
+    const int numChannels = juce::jmax (1, getTotalNumOutputChannels());
+    dest.clear();
+    dest.reserve ((size_t) numChannels);
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
+            currentSampleRate, 1, (RubberBand::RubberBandStretcher::Options) opts, 1.0, 1.0);
+        stretcher->setMaxProcessSize ((size_t) preparedBlockSize);
+        stretcher->setPitchScale (1.0);
+        dest.push_back (std::move (stretcher));
+    }
+}
+#endif
+
 void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float)
 {
     // Engine toggle: the reported latency must change to match the now-active
@@ -597,7 +634,8 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // thread, and parameterChanged may be called from the audio thread (host
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
-    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic")
+    if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "polyphonic"
+        || parameterID == "throat" || parameterID == "formantShift")
         triggerAsyncUpdate();
 }
 
@@ -620,6 +658,22 @@ void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
         pendingLowLat = lowLatOn;
         psolaSwapReady.store (true, std::memory_order_release);
     }
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    // Same shape as the PSOLA swap above: build off the audio thread, hand over an
+    // O(1) exchange. Compare against the LIVE engine (set by the audio thread on swap),
+    // not a message-thread flag, so a fast in/out/in on Throat cannot strand the wrong set.
+    const bool wantFiner = formantControlsEngaged();
+    if (wantFiner != rbLiveFiner.load (std::memory_order_acquire)
+        && ! rbSwapReady.load (std::memory_order_acquire))
+    {
+        buildRubberBandInto (pendingRubberBand, wantFiner);
+        pendingFiner = wantFiner;
+        pendingRbLatency = pendingRubberBand.empty()
+                         ? 0 : (int) pendingRubberBand.front()->getStartDelay();
+        rbSwapReady.store (true, std::memory_order_release);
+    }
+#endif
 
     reportedLatencySamples = activeEngineLatencySamples();
     setLatencySamples (reportedLatencySamples);
@@ -1886,6 +1940,24 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         if (wantLowLat != pendingLowLat)
             triggerAsyncUpdate();
     }
+
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    // Formant-engine swap (R2 <-> R3), same contract as the PSOLA swap above: O(1)
+    // exchange, no allocation, and the outgoing stretchers are freed later on the message
+    // thread. The FIFO is reset because the two engines have different start delays, so
+    // whatever is buffered belongs to the old pipeline and would splice a discontinuity
+    // onto the first block of the new one.
+    if (rbSwapReady.exchange (false, std::memory_order_acquire))
+    {
+        rubberBand.swap (pendingRubberBand);
+        rbLatency  = pendingRbLatency;
+        rbCushion  = juce::jmax (preparedBlockSize, rbLatency);
+        resetRbFifo();
+        rbLiveFiner.store (pendingFiner, std::memory_order_release);
+        // Re-report: the two engines do not share a start delay, and the host must be told.
+        triggerAsyncUpdate();
+    }
+#endif
 
     const int numSamples = buffer.getNumSamples();
     if (numSamples <= 0)

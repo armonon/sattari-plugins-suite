@@ -200,6 +200,109 @@ int main()
         }
     }
 
+#if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    // ---- Throat / Formant Shift must actually alter the signal -----------------
+    //
+    // These two controls were completely inert. Rubber Band's setFormantScale is
+    // `if (m_r3) m_r3->setFormantScale(scale);` and Auto Pitch built the R2 engine, so
+    // every call was silently discarded — in all three modes, and the same for Harmony.
+    // Nothing here asserted on formants, so a knob documented in our own source as
+    // "Antares' Throat Length analogue" shipped doing nothing at all.
+    //
+    // Engaging a formant control now selects R3, which changes the reported latency. Both
+    // facts are checked: the latency move proves the engine really swapped, and the
+    // spectral change proves the swap reached the audio.
+    {
+        auto renderTone = [&processor] (float throatValue, float formantSemis,
+                                        juce::AudioBuffer<float>& out)
+        {
+            setParameter (processor.parameters(), "throat", throatValue);
+            setParameter (processor.parameters(), "formantShift", formantSemis);
+            // The engine swap is built on the message thread and exchanged by the audio
+            // thread, so pump the message loop then run enough blocks for it to land and
+            // for the new pipeline to fill past its start delay.
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+
+            const int blockSize = 512;
+            juce::AudioBuffer<float> block (2, blockSize);
+            out.setSize (2, blockSize * 24);
+            out.clear();
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            const double inc = 2.0 * juce::MathConstants<double>::pi * 160.0 / 48000.0;
+            for (int b = 0; b < 24; ++b)
+            {
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    // A tone with strong harmonics: formant scaling is only visible on a
+                    // spectrum that has something above the fundamental to move.
+                    const float v = (float) (0.5 * std::sin (phase)
+                                           + 0.3 * std::sin (2.0 * phase)
+                                           + 0.2 * std::sin (3.0 * phase)
+                                           + 0.1 * std::sin (5.0 * phase));
+                    phase += inc;
+                    block.setSample (0, i, v);
+                    block.setSample (1, i, v);
+                }
+                processor.processBlock (block, midi);
+                for (int ch = 0; ch < 2; ++ch)
+                    out.copyFrom (ch, b * blockSize, block, ch, 0, blockSize);
+            }
+            // The swap itself happens inside processBlock and re-triggers the async
+            // update, so the new latency is only published after another turn of the
+            // message loop. Pump again before the caller reads getLatencySamples().
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+        };
+
+        // Zero-crossing rate is a cheap, robust proxy for spectral centroid: raising the
+        // formants moves energy upward and the rate rises. Avoids pulling in an FFT.
+        auto crossingRate = [] (const juce::AudioBuffer<float>& b)
+        {
+            int crossings = 0, counted = 0;
+            const float* d = b.getReadPointer (0);
+            // Skip the first half: it contains the pipeline start-delay transient.
+            for (int i = b.getNumSamples() / 2 + 1; i < b.getNumSamples(); ++i)
+            {
+                if ((d[i - 1] <= 0.0f) != (d[i] <= 0.0f)) ++crossings;
+                ++counted;
+            }
+            return counted > 0 ? (double) crossings / (double) counted : 0.0;
+        };
+
+        juce::AudioBuffer<float> neutral, shifted;
+        renderTone (1.0f, 0.0f, neutral);
+        const int neutralLatency = processor.getLatencySamples();
+
+        renderTone (1.0f, 7.0f, shifted);      // +7 semitones of formant shift
+        const int shiftedLatency = processor.getLatencySamples();
+
+        if (shiftedLatency <= neutralLatency)
+        {
+            std::cerr << "formant engagement did not switch engine: latency "
+                      << neutralLatency << " -> " << shiftedLatency
+                      << " (expected an increase; R3 costs about double R2)\n";
+            return 1;
+        }
+
+        const double neutralRate = crossingRate (neutral);
+        const double shiftedRate = crossingRate (shifted);
+        if (! (shiftedRate > neutralRate * 1.02))
+        {
+            std::cerr << "Formant Shift did not change the spectrum: zero-crossing rate "
+                      << neutralRate << " -> " << shiftedRate
+                      << " (a dead control leaves this identical)\n";
+            return 1;
+        }
+
+        std::cout << "  formant: latency " << neutralLatency << " -> " << shiftedLatency
+                  << " samples, zcr " << neutralRate << " -> " << shiftedRate << "\n";
+
+        setParameter (processor.parameters(), "throat", 1.0f);
+        setParameter (processor.parameters(), "formantShift", 0.0f);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
+    }
+#endif
+
     std::cout << "Auto Pitch core contract ok\n";
     std::cout << "  status=" << status << "\n";
     std::cout << "  keyTab=" << keyTabSummary << "\n";

@@ -369,6 +369,29 @@ private:
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> rubberBand;
+
+    // Formant control requires Rubber Band's R3 ("Finer") engine. R2 accepts
+    // setFormantScale() and silently discards it — the implementation is
+    // `if (m_r3) m_r3->setFormantScale(scale);` — so with R2 the Throat knob and the
+    // +/-12 semitone Formant Shift did NOTHING, in every mode. R3 costs 2x the start
+    // delay (4096 vs 2048 samples at 44.1k), so it is selected only when a formant
+    // control actually leaves neutral: the default print path keeps R2's latency, and a
+    // user who reaches for Throat gets a working control and an honestly re-reported
+    // figure. Same trade Antares makes — their Classic mode is ~37 samples precisely
+    // because it disables Throat, Formant and Transpose.
+    //
+    // Swapped with the same message-thread-build / audio-thread-exchange pattern as the
+    // PSOLA set below; constructing a stretcher allocates and must never happen in
+    // processBlock.
+    std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> pendingRubberBand;
+    int  rbBaseOptions = 0;                    // shared option word; engine bit added per build
+    std::atomic<bool> rbSwapReady { false };   // pendingRubberBand is ready to swap in
+    std::atomic<bool> rbLiveFiner { false };   // engine of the LIVE set (audio thread sets on swap)
+    bool pendingFiner = false;                 // engine the pending set was built for
+    int  pendingRbLatency = 0;                 // start delay of the pending set
+    void buildRubberBandInto (std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>>& dest,
+                              bool finer) const;
+    bool formantControlsEngaged() const;
     juce::AudioBuffer<float> rubberBandOutput;
     std::vector<float> rubberBandScratch;
 

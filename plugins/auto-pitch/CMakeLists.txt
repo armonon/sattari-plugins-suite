@@ -42,6 +42,10 @@ target_compile_definitions(AutoPitchCoreContract
         JucePlugin_Build_Standalone=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        # The formant contract needs to pump the message loop: the Rubber Band engine
+        # swap is built asynchronously on the message thread, so without draining it the
+        # test would assert against the pre-swap engine and pass for the wrong reason.
+        JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_VST3_CAN_REPLACE_VST2=0)
 
 target_link_libraries(AutoPitchCoreContract
