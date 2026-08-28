@@ -115,9 +115,14 @@ private:
     float leadHzSmoothed = 0.0f;
     double voicedGain = 0.0;
 
-    std::array<double, kNumVoices> smoothedRatio   { { 1.0, 1.0, 1.0, 1.0 } };
-    std::array<double, kNumVoices> humanizeCents   { { 0.0, 0.0, 0.0, 0.0 } };
-    std::array<double, kNumVoices> humanizeTarget  { { 0.0, 0.0, 0.0, 0.0 } };
+    //  These initialisers were written when kNumVoices was 4 and were never
+    //  widened with it: four values for an eight-element array leaves voices 5-8
+    //  value-initialised, so smoothedRatio[4..7] started at 0.0 - a pitch ratio of
+    //  zero - rather than unity. prepareToPlay's fill() currently masks it, which
+    //  is the only reason it has never been heard. Say the intended value once.
+    std::array<double, kNumVoices> smoothedRatio   { };
+    std::array<double, kNumVoices> humanizeCents   { };
+    std::array<double, kNumVoices> humanizeTarget  { };
     juce::Random humanizeRng;
 
     // Choir doubler: a modulated (chorus) Haas copy of each voice, panned opposite.

@@ -160,7 +160,7 @@ void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samples
     voicedLive = false;
     voicedGain = 0.0;
     leadHzSmoothed = 0.0f;
-    smoothedRatio.fill (1.0);
+    smoothedRatio.fill (1.0);   // unity, for all kNumVoices - see the header note   // unity, for all kNumVoices - see the header note
     humanizeCents.fill (0.0);
     humanizeTarget.fill (0.0);
 
@@ -179,9 +179,23 @@ void SattariHarmonyAudioProcessor::prepareToPlay (double sampleRate, int samples
     int startDelay = 0;
 #if SATTARI_HARMONY_HAS_RUBBERBAND
     const bool lowLat = param ("lowLatency") > 0.5f;
+    //  R3/Finer is required, not merely preferred: setFormantScale() forwards ONLY
+    //  to R3 (RubberBandStretcher.cpp:129-132 is `if (m_r3) m_r3->setFormantScale`),
+    //  so on the default R2 engine all eight per-voice Formant controls were
+    //  exposed, automatable, shipped with non-zero defaults - and silently did
+    //  nothing. setFormantOption still worked, so formants were preserved; the
+    //  shift amount was simply dropped. R3 is also what Auto Pitch settled on for
+    //  vocal material, for the same reason.
+    //
+    //  PitchHighConsistency matters here specifically because every voice's ratio
+    //  GLIDES (smoothedRatio is a one-pole toward the target). Without it R3 emits
+    //  a phase discontinuity on each ratio move, which on a gliding harmony voice
+    //  is a click per block rather than a one-off.
     const auto opts = RubberBand::RubberBandStretcher::OptionProcessRealTime
+                    | RubberBand::RubberBandStretcher::OptionEngineFiner
                     | RubberBand::RubberBandStretcher::OptionTransientsMixed
                     | RubberBand::RubberBandStretcher::OptionDetectorSoft
+                    | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
                     | (lowLat ? RubberBand::RubberBandStretcher::OptionWindowShort
                               : RubberBand::RubberBandStretcher::OptionPitchHighQuality);
     for (int v = 0; v < kNumVoices; ++v)
@@ -408,11 +422,26 @@ void SattariHarmonyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         auto* st = stretchers[(size_t) v].get();
         if (st == nullptr) continue;
 
+        //  Rubber Band's formant scale is a PRE-SHIFT envelope warp that the pitch
+        //  resampler then multiplies, not an absolute target: R3Stretcher.cpp:1499
+        //  substitutes `1.0 / m_pitchScale` when the scale is 0.0, and that
+        //  substitution is what makes 0.0 mean "preserve". The net formant
+        //  multiplier is therefore always formantScale * pitchScale, so the
+        //  requested shift has to be divided by the ratio actually in use.
+        //
+        //  This matters far more here than in Auto Pitch, because a harmony voice's
+        //  ratio is a musical INTERVAL, not a correction nudge. Uncompensated, a
+        //  voice a 5th up (ratio 1.4983) would have rendered its default -1.0 st
+        //  formant as +6.0 st - the entire interval added on top of the request,
+        //  seven semitones of chipmunk on every voice with a non-zero default.
+        const double voiceRatio = juce::jlimit (0.25, 4.0, smoothedRatio[(size_t) v]);
         const double formantSemis = (double) param (kVoiceFormantIds[(size_t) v]);
-        const double formantScale = std::abs (formantSemis) < 1.0e-3 ? 0.0 : std::pow (2.0, formantSemis / 12.0);
+        const double formantScale = std::abs (formantSemis) < 1.0e-3
+            ? 0.0                                             // let R3 auto-preserve
+            : std::pow (2.0, formantSemis / 12.0) / voiceRatio;
         st->setFormantOption (RubberBand::RubberBandStretcher::OptionFormantPreserved);
         st->setFormantScale (formantScale);
-        st->setPitchScale (juce::jlimit (0.25, 4.0, smoothedRatio[(size_t) v]));
+        st->setPitchScale (voiceRatio);
 
         voiceBuffer.clear (0, 0, numSamples);
         const float* in = monoScratch.data();

@@ -8,6 +8,7 @@
     },
     {
       "plugin": "song-key",
+      "test": "SattariSongKeyEstimatorContract",
       "render": "SongKeyRender"
     },
     {
@@ -37,6 +38,11 @@
       "plugin": "sub-conjurer",
       "test": "SubConjurerContract",
       "uiRender": true
+    },
+    {
+      "plugin": "harmony",
+      "test": "HarmonyCoreContract",
+      "render": "HarmonyRender"
     },
     {
       "plugin": "rhythm-genie",

@@ -237,6 +237,17 @@ jobs:
             echo "Running $bin --hitracktest"
             "$bin" --hitracktest
           fi
+          # Harmony only: the per-voice Formant controls must actually DO something.
+          # They were exposed, automatable and shipped with non-zero defaults while
+          # silently inert for the plugin's whole life, because setFormantScale()
+          # forwards only to Rubber Band's R3 engine and Harmony ran R2. Nothing
+          # could see it: every other proof uses a sine, which has no spectral
+          # envelope to shift. This renders twice changing ONLY the Formant value —
+          # an inert control gives bit-identical output.
+          if [ "${{ matrix.render }}" = "HarmonyRender" ]; then
+            echo "Running $bin --formanttest"
+            "$bin" --formanttest
+          fi
 
   # ---------------------------------------------------------------------------
   # Root configure + complete non-StemDeck compilation. StemDeck has a separate

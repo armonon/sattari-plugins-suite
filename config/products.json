@@ -263,7 +263,11 @@
       "shippingProfile": null,
       "webVisible": true,
       "suite": "vocal",
-      "suiteRole": "component"
+      "suiteRole": "component",
+      "ci": {
+        "test": "HarmonyCoreContract",
+        "render": "HarmonyRender"
+      }
     },
     {
       "id": "maqam",
