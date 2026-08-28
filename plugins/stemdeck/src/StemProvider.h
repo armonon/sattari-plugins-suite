@@ -67,14 +67,26 @@ public:
     // cacheDirectory. Preferred over the CLI when a model is loaded. Returns false
     // (with message) so callers fall back to the demucs CLI.
     bool runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message);
-    bool neuralAvailable() const { return neuralEngine.isAvailable(); }
+
+    // "Usable", not "resident": true when the build has ONNX and a model file is on
+    // disk. The model itself is loaded lazily (see ensureNeuralModelLoaded) because
+    // an ONNX session for the ~350 MB model costs ~2 GB of RSS, which we refuse to
+    // pay at launch for users who never press AI Split.
+    bool neuralAvailable() const;
 
 private:
     class StemJob;
 
+    // Loads the ONNX session on first use. Runs on the separation pool (2 threads),
+    // so the load is serialised by neuralLoadLock. Returns false with a message when
+    // the model can't be loaded, letting the caller fall back to the demucs CLI.
+    bool ensureNeuralModelLoaded (juce::String& message);
+
     juce::File cacheRoot;
     juce::String separatorCommand;
     NeuralStemEngine neuralEngine;
+    juce::CriticalSection neuralLoadLock;
+    bool neuralLoadAttempted = false;   // guarded by neuralLoadLock
     juce::ThreadPool pool { 2 };
     mutable juce::CriticalSection statusLock;
     std::map<juce::String, Status> statusByHash;

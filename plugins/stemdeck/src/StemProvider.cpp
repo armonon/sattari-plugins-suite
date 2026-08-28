@@ -125,17 +125,48 @@ StemProvider::StemProvider()
         }
     }
 
-    // On-device neural model (ONNX/CoreML), if the build has ONNX support and a
-    // model file is present. When loaded, it is preferred over the demucs CLI.
-    if (NeuralStemEngine::isCompiledIn())
+    // NOTE: the on-device neural model is deliberately NOT loaded here. Creating the
+    // ONNX session for the ~350 MB model costs roughly 2 GB of resident memory, and
+    // loading it in this constructor meant every launch paid that price even if the
+    // user never ran AI Split. It is now loaded on first separation — see
+    // ensureNeuralModelLoaded().
+}
+
+bool StemProvider::neuralAvailable() const
+{
+    // Usable if the session is already up, or if a model file is sitting on disk
+    // ready to be loaded on demand.
+    return neuralEngine.isAvailable()
+        || (NeuralStemEngine::isCompiledIn() && NeuralStemEngine::defaultModelFile().existsAsFile());
+}
+
+bool StemProvider::ensureNeuralModelLoaded (juce::String& message)
+{
+    if (neuralEngine.isAvailable())
+        return true;
+    if (! NeuralStemEngine::isCompiledIn())
     {
-        const auto modelFile = NeuralStemEngine::defaultModelFile();
-        if (modelFile.existsAsFile())
-        {
-            juce::String msg;
-            neuralEngine.loadModel (modelFile, msg);
-        }
+        message = "built without ONNX Runtime";
+        return false;
     }
+
+    const juce::ScopedLock sl (neuralLoadLock);
+    if (neuralEngine.isAvailable())      // another pool thread won the race
+        return true;
+    if (neuralLoadAttempted)             // already failed once — don't retry per track
+    {
+        message = "neural model failed to load";
+        return false;
+    }
+    neuralLoadAttempted = true;
+
+    const auto modelFile = NeuralStemEngine::defaultModelFile();
+    if (! modelFile.existsAsFile())
+    {
+        message = "neural model not found: " + modelFile.getFullPathName();
+        return false;
+    }
+    return neuralEngine.loadModel (modelFile, message);
 }
 
 StemProvider::~StemProvider()
@@ -145,7 +176,8 @@ StemProvider::~StemProvider()
 
 bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce::File& cacheDirectory, juce::String& message)
 {
-    if (! neuralEngine.isAvailable()) { message = "neural model not loaded"; return false; }
+    // First AI Split of the session pays the model-load cost here, on the pool thread.
+    if (! ensureNeuralModelLoaded (message)) return false;
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
