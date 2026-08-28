@@ -285,7 +285,7 @@ schema itself is only the first few days.
 2. **Analysis pinning (§6.2) — COMPLETE** — `contentHash` + `analysisVersion` on `trackLoad`, and
    persist the refined analysis into the session. Do this EARLY: it is the item most
    likely to invalidate assumptions, and the hardest to retrofit.
-3. **Dispatch inversion — COMPLETE FOR 58/58 PARAM IDS** — control call sites emit
+3. **Dispatch inversion — COMPLETE FOR 66/66 PARAM IDS** — control call sites emit
    events instead. The bulk of the work. Incremental: one control group at a time, with
    the old path removed as each lands.
 4. **Render-state authority — ACCEPTED VIA THE SINGLE APPLIER** — `applyEvent()` is

@@ -109,6 +109,20 @@ enum class ParamId : std::uint16_t
     count
 };
 
+// The size of this vocabulary is quoted in four places outside the code: the public site
+// (apps/stemdeck-web/index.html), docs/event-stream-schema.md, docs/solid-live-play-gates.md
+// and plugins/stemdeck/README.md. All four had drifted — the site advertised 58/58 to
+// customers and the README said 29, while the enum held 66 — because nothing tied the
+// number to the enum. stemdeck_dispatch.cpp could not catch it either: it asserts
+// convertedParamCount() == (int) ParamId::count, which is a tautology.
+//
+// This is the tie. Adding a ParamId is correct and expected (the vocabulary is append-only)
+// — but it must be a deliberate act that updates the count everywhere it is published.
+static_assert (static_cast<int> (ParamId::count) == 66,
+               "ParamId::count changed. Update the four published counts before bumping this: "
+               "apps/stemdeck-web/index.html, docs/event-stream-schema.md, "
+               "docs/solid-live-play-gates.md, plugins/stemdeck/README.md.");
+
 enum class TransportAction : std::uint8_t
 {
     play = 0, stop, cue, cueRelease, seek, loopOn, loopOff, beatJump,

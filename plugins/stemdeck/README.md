@@ -69,7 +69,7 @@ The app now surfaces the app-first workflow directly in the header so an alpha t
 - Recording preflight for audio-device readiness and storage, plus high-CPU visual-refresh protection.
 - Export Center with project/recording/media/storage preflight and portable session packages containing project state, source manifest, diagnostics, and available captures.
 - Session-level undo/redo for channel add/remove and destructive clears, alongside the existing arrangement edit history.
-- Hosted plug-in parameter capture/replay using persistent parameter IDs; all 29 event parameters now route through deterministic dispatch without adding audio-thread locks or allocation.
+- Hosted plug-in parameter capture/replay using persistent parameter IDs; all 66 event parameters now route through deterministic dispatch without adding audio-thread locks or allocation.
 - Third-party audio effects can be discovered and instantiated in the dedicated `StemDeckPluginSandbox` helper. A fixed shared-memory ring keeps the audio callback non-blocking and dry-bypasses a late or crashed helper; unexpected helper exits receive two bounded background restart attempts.
 - Editable per-deck warp anchors: Shift-click the overview to add, drag a diamond to move it, and right-click to remove it. User anchors are stored in project state and participate in Anchor/Groove sync.
 - Region-level take comping in Arrange: razor-split the desired region, right-click it, then choose `Comp this region from take`; the source splice, short safety fades, label, and take provenance are undoable and persist with the arrangement.

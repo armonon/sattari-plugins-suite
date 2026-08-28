@@ -55,7 +55,7 @@ Phase 4's intent is satisfied through one mutation authority: live gestures and
 replay both enter `applyEvent()`, while APVTS remains the host-automation/state
 mirror consumed by DSP. A second parallel render-state store was rejected because
 it would create another divergence surface without improving the passing fresh-
-processor hash. Phase 3 is 58/58 ParamIds: hosted-plugin parameters use a persistent parameter-ID hash,
+processor hash. Phase 3 is 66/66 ParamIds: hosted-plugin parameters use a persistent parameter-ID hash,
 with their positional parameter index retained only as a compatibility fallback.
 `StemDeckDispatch` enforces that every `ParamId`, including `insertParam`, is owned
 by the deterministic dispatcher. This closes the addressing gap, but it does not
