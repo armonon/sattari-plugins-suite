@@ -75,6 +75,15 @@ target_link_libraries(SattariAudioCorePsolaContract
     PRIVATE
         SattariAudioCore)
 
+# Period-synchronous low-latency shifter (the Auto-Tune-class tracking path). The
+# latency assertion in here is a competitive gate, not a print — see the file header.
+add_executable(SattariAudioCorePeriodShifterContract
+    tests/period_shifter_contract.cpp)
+
+target_link_libraries(SattariAudioCorePeriodShifterContract
+    PRIVATE
+        SattariAudioCore)
+
 # CREPE salience-decode contract (pure-std; ONNX inference itself is optional and
 # not exercised here — this locks the bin<->Hz mapping + weighted-average decode).
 add_executable(SattariAudioCoreCrepeContract
