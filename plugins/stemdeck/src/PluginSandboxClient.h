@@ -47,7 +47,19 @@ private:
 
     juce::File sharedFile;
     std::unique_ptr<juce::MemoryMappedFile> mapping;
-    stemdeck::sandbox::SharedAudio* shared = nullptr;
+
+    // Atomic, and paired with processActive below, because stop() unmaps this memory from
+    // the message thread while the audio thread may be inside process() using it. Every
+    // stop() except the crash-recovery relaunch happens under HostGraph's graphLock (which
+    // processChain also takes), but launchInternal(..., recovery=true) calls stop() with no
+    // lock held and PluginSandboxClient cannot take graphLock. Unmapping under a live
+    // reader is a SIGBUS in the audio callback, on the crash path — the hardest place to
+    // reproduce. See stop() for the handshake.
+    std::atomic<stemdeck::sandbox::SharedAudio*> shared { nullptr };
+
+    // Set while the audio thread is inside process(). stop() clears `shared` first, then
+    // waits for this to fall before unmapping, so no reader can be holding the mapping.
+    std::atomic<bool> processActive { false };
     std::atomic<bool> ready { false }, crashed { false };
     std::atomic<std::uint32_t> nextSequence { 1 };
     int preparedBlockSize = 512, preparedChannels = 2;

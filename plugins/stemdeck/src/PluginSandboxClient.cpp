@@ -26,11 +26,11 @@ void PluginSandboxClient::prepare (double sampleRate, int blockSize, int channel
     preparedSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     preparedBlockSize = juce::jlimit (1, stemdeck::sandbox::maxSamples, blockSize);
     preparedChannels = juce::jlimit (1, stemdeck::sandbox::maxChannels, channels);
-    if (shared != nullptr)
+    if (auto* sharedNow = shared.load (std::memory_order_acquire))
     {
-        shared->sampleRate = preparedSampleRate;
-        shared->blockSize = (std::uint32_t) preparedBlockSize;
-        shared->channels = (std::uint32_t) preparedChannels;
+        sharedNow->sampleRate = preparedSampleRate;
+        sharedNow->blockSize = (std::uint32_t) preparedBlockSize;
+        sharedNow->channels = (std::uint32_t) preparedChannels;
     }
 }
 
@@ -70,7 +70,8 @@ bool PluginSandboxClient::createSharedFile()
         || mapping->getSize() < sizeof (stemdeck::sandbox::SharedAudio))
         return false;
     std::memset (mapping->getData(), 0, sizeof (stemdeck::sandbox::SharedAudio));
-    shared = new (mapping->getData()) stemdeck::sandbox::SharedAudio();
+    shared.store (new (mapping->getData()) stemdeck::sandbox::SharedAudio(),
+                  std::memory_order_release);
     prepare (preparedSampleRate, preparedBlockSize, preparedChannels);
     return true;
 }
@@ -149,10 +150,28 @@ void PluginSandboxClient::stop()
     stopTimer();
     intentionalStop.store (true, std::memory_order_release);
     ready.store (false, std::memory_order_release);
-    if (shared != nullptr)
-        stemdeck::sandbox::atomic (shared->shutdown).store (1, std::memory_order_release);
+    if (auto* sharedNow = shared.load (std::memory_order_acquire))
+        stemdeck::sandbox::atomic (sharedNow->shutdown).store (1, std::memory_order_release);
     killWorkerProcess();
-    shared = nullptr;
+
+    // Retire the pointer FIRST so no new process() call can enter, then wait for any
+    // reader already inside to leave before the mapping is destroyed. Without this the
+    // crash-recovery relaunch (launchInternal with recovery=true, which runs stop()
+    // outside HostGraph's graphLock) can munmap the pages while the audio thread is
+    // mid-loop over shared->slots — SIGBUS in the audio callback.
+    //
+    // The wait is on the message thread and bounded: a reader is inside for at most one
+    // audio block. The cap means a pathological stall leaks the mapping rather than
+    // hanging the UI, which is the right way round.
+    shared.store (nullptr, std::memory_order_release);
+    for (int spins = 0; processActive.load (std::memory_order_acquire) && spins < 200; ++spins)
+        juce::Thread::sleep (1);
+    if (processActive.load (std::memory_order_acquire))
+    {
+        // Deliberately leak rather than unmap under a live reader.
+        jassertfalse;
+        (void) mapping.release();
+    }
     mapping.reset();
     if (sharedFile.existsAsFile()) sharedFile.deleteFile();
     intentionalStop.store (false, std::memory_order_release);
@@ -161,7 +180,20 @@ void PluginSandboxClient::stop()
 void PluginSandboxClient::process (juce::AudioBuffer<float>& audio,
                                    const juce::MidiBuffer& midi) noexcept
 {
-    if (! ready.load (std::memory_order_acquire) || shared == nullptr
+    // Mark the mapping in use BEFORE reading the pointer. Ordering matters: if the flag
+    // were set after the null check, stop() could observe processActive == false in the
+    // window between the check and the first dereference and unmap underneath us. Pure
+    // atomic stores — no allocation, no lock, RT-safe.
+    struct ActiveGuard
+    {
+        std::atomic<bool>& flag;
+        explicit ActiveGuard (std::atomic<bool>& f) noexcept : flag (f)
+        { flag.store (true, std::memory_order_release); }
+        ~ActiveGuard() noexcept { flag.store (false, std::memory_order_release); }
+    } activeGuard { processActive };
+
+    auto* const sharedNow = shared.load (std::memory_order_acquire);
+    if (! ready.load (std::memory_order_acquire) || sharedNow == nullptr
         || audio.getNumSamples() > stemdeck::sandbox::maxSamples
         || audio.getNumChannels() > stemdeck::sandbox::maxChannels)
         return;
@@ -169,7 +201,7 @@ void PluginSandboxClient::process (juce::AudioBuffer<float>& audio,
     // Publish the current DRY input before consuming an older result. Reversing
     // these operations would accidentally feed the previous wet block back into
     // the plug-in and create an unintended feedback loop.
-    for (auto& slot : shared->slots)
+    for (auto& slot : sharedNow->slots)
     {
         if (stemdeck::sandbox::atomic (slot.state).load (std::memory_order_acquire)
             != stemdeck::sandbox::free)
@@ -202,12 +234,12 @@ void PluginSandboxClient::process (juce::AudioBuffer<float>& audio,
     }
 
     stemdeck::sandbox::AudioSlot* newest = nullptr;
-    for (auto& slot : shared->slots)
+    for (auto& slot : sharedNow->slots)
         if (stemdeck::sandbox::atomic (slot.state).load (std::memory_order_acquire)
                 == stemdeck::sandbox::outputReady
             && (newest == nullptr || slot.sequence > newest->sequence))
             newest = &slot;
-    for (auto& slot : shared->slots)
+    for (auto& slot : sharedNow->slots)
         if (&slot != newest
             && stemdeck::sandbox::atomic (slot.state).load (std::memory_order_acquire)
                    == stemdeck::sandbox::outputReady)
@@ -246,7 +278,24 @@ void PluginSandboxClient::handleMessageFromWorker (const juce::MemoryBlock& mess
     const auto messageText = response.getProperty ("message", {}).toString();
     { const juce::ScopedLock lock (messageLock); lastMessage = messageText; }
     ready.store (ok, std::memory_order_release);
-    if (ok) startTimer (1000);
+    // startTimer must not be called from here. ChildProcessCoordinator::Connection is
+    // constructed with callbacksOnMessageThread == false, so handleMessageFromWorker runs
+    // on the InterprocessConnection reader thread, while stop() calls stopTimer() on the
+    // message thread. juce::Timer's timerPeriodMs and positionInQueue are plain non-atomic
+    // members: concurrent start/stop can index the global TimerThread queue at a stale
+    // position (a dangling Timer* callback in release builds, where the jassert is gone),
+    // or leave the timer registered after stop() returned, firing on a half-destroyed
+    // object. Marshal onto the message thread, guarded by the same aliveFlag token the
+    // restart path already uses.
+    if (ok)
+    {
+        const auto life = aliveFlag;
+        juce::MessageManager::callAsync ([this, life]
+        {
+            if (! life->load (std::memory_order_acquire)) return;
+            startTimer (1000);
+        });
+    }
     if (readyCallback)
     {
         auto pendingCallback = std::move (readyCallback);
@@ -342,10 +391,55 @@ bool PluginSandboxClient::scanInHelper (juce::KnownPluginList& destination,
     juce::ChildProcess process;
     if (! process.start (args, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
         return false;
-    const bool finished = process.waitForProcessToFinish (120000);
+    // Was: waitForProcessToFinish(120000) followed unconditionally by
+    // readAllProcessOutput(). Two ways that hangs the host forever, and this project has
+    // already shipped this exact failure once (CLAUDE.md hard rules: "a ThreadPool job
+    // that never calls shouldExit() is not interruptible, and removeAllJobs(true, -1)
+    // will wait for it forever ... a potential 45-minute host freeze on quit"):
+    //
+    //   1. waitForProcessToFinish returns false on timeout WITHOUT killing the child, and
+    //      readAllProcessOutput() then loops until the pipe closes — on a still-running
+    //      child that never returns. One third-party plugin that hangs its scan is enough.
+    //   2. Nothing polled shouldExit(), so quitting could not interrupt the wait.
+    //
+    // Poll instead: honour the deadline, honour job cancellation, and always kill the
+    // child before reading, so the read is guaranteed to terminate.
+    constexpr int kScanTimeoutMs = 120000;
+    constexpr int kPollMs = 100;
+    auto* job = juce::ThreadPoolJob::getCurrentThreadPoolJob();
+    const auto deadline = juce::Time::getMillisecondCounter() + (juce::uint32) kScanTimeoutMs;
+    bool finished = false;
+    bool cancelled = false;
+    while (process.isRunning())
+    {
+        if (job != nullptr && job->shouldExit()) { cancelled = true; break; }
+        if (juce::Time::getMillisecondCounter() >= deadline) break;
+        juce::Thread::sleep (kPollMs);
+    }
+    finished = ! process.isRunning();
+
+    if (! finished)
+    {
+        // Kill BEFORE reading. A live child means readAllProcessOutput never returns.
+        process.kill();
+        for (int i = 0; i < 20 && process.isRunning(); ++i)
+            juce::Thread::sleep (25);
+    }
+
     const auto output = process.readAllProcessOutput().trim();
     if (output.isNotEmpty()) messages.add (output);
-    if (! finished || process.getExitCode() != 0 || ! result.existsAsFile())
+    if (cancelled)
+    {
+        messages.add ("Third-party plugin scan cancelled");
+        return false;
+    }
+    if (! finished)
+    {
+        messages.add ("Third-party plugin scan timed out after "
+                      + juce::String (kScanTimeoutMs / 1000) + "s and was terminated");
+        return false;
+    }
+    if (process.getExitCode() != 0 || ! result.existsAsFile())
         return false;
     if (auto xml = juce::XmlDocument::parse (result))
         destination.recreateFromXml (*xml);
