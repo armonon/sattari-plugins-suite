@@ -161,13 +161,14 @@ struct BeatGridDecoder
         if (terminalFrame < 0)
             return result;
 
+        // The per-state periods along the path are deliberately NOT collected. They were,
+        // and the only consumer was the confidence term below, which compared them against
+        // intervals they had themselves produced — see the note there.
         std::vector<int> reverseFrames;
-        std::vector<int> reversePeriods;
         int frame = terminalFrame, period = terminalPeriod;
         while (frame >= 0 && period >= minPeriod && period <= maxPeriod)
         {
             reverseFrames.push_back (frame);
-            reversePeriods.push_back (period);
             const int previousPeriod = (int) previousPeriods[index (frame, period)];
             if (previousPeriod < 0)
                 break;
@@ -175,7 +176,6 @@ struct BeatGridDecoder
             period = previousPeriod;
         }
         std::reverse (reverseFrames.begin(), reverseFrames.end());
-        std::reverse (reversePeriods.begin(), reversePeriods.end());
         if (reverseFrames.size() < 4)
             return result;
 
@@ -195,12 +195,37 @@ struct BeatGridDecoder
         const double medianPeriod = (double) intervals[intervals.size() / 2];
         result.bpm = medianPeriod > 0.0 ? 60.0 * framesPerSecond / medianPeriod : 0.0;
 
+        // Regularity must be measured against something the BACKTRACK DID NOT PRODUCE.
+        //
+        // This previously compared each interval to reversePeriods[i]. But the backtrack
+        // builds frames by `frame -= period` using exactly those periods, so
+        // frames[i] - frames[i-1] == reversePeriods[i] holds identically, by construction:
+        // timingError was always 0.0 and regularity always exactly 1.0. Confidence then
+        // collapsed to the evidence term alone — how strong the activations were at the
+        // frames the path chose — which is self-fulfilling, because the path maximises that
+        // very quantity. Measured effect: structureless random activations scored 0.67
+        // against kNeuralBeatConfidenceFloor = 0.35, and a wrong-tempo irregular grid scored
+        // HIGHER (0.98) than a correct but quiet one (0.77). The gate protecting the DSP
+        // grid from a bad neural override was close to inoperative, and inverted.
+        //
+        // The median interval is an independent reference: it comes from the decoded frames
+        // as a population, not from the per-state period that placed any individual beat. A
+        // grid with gradual tempo drift still scores high (small per-interval deviations,
+        // which the tempo-state path is designed to permit); a grid whose spacing wanders
+        // does not.
+        //
+        // KNOWN TRADE-OFF: a single global median penalises a track with a LARGE deliberate
+        // tempo change (say 128 -> 140 at a drop), because both halves deviate from the
+        // one median. The accelerando case in StemDeckBeatGridDecoderTest still passes, so
+        // ordinary drift is fine, but a local/windowed median would handle sectioned tempo
+        // better. Not done here: choosing the window is a calibration decision, and per
+        // CLAUDE.md §11 that is not judgeable on synthetic input — it needs the real-music
+        // corpus (§10 item 4).
         double timingError = 0.0;
         for (size_t i = 1; i < result.frames.size(); ++i)
         {
-            const double expected = (double) reversePeriods[i];
-            timingError += std::abs ((double) (result.frames[i] - result.frames[i - 1]) - expected)
-                         / std::max (1.0, expected);
+            const double actual = (double) (result.frames[i] - result.frames[i - 1]);
+            timingError += std::abs (actual - medianPeriod) / std::max (1.0, medianPeriod);
         }
         const double regularity = 1.0 / (1.0 + timingError / (double) intervals.size());
         const double evidence = selectedStrength / (double) result.frames.size();
