@@ -61,6 +61,41 @@ juce::String deckNameFor (int deckIndex)
 {
     return "Deck " + juce::String::charToString ((juce_wchar) ('A' + juce::jlimit (0, MainPluginProcessor::numDecks - 1, deckIndex)));
 }
+
+// Crossfader response law. Returns { A/C-bus gain, B/D-bus gain } for a fader
+// position in [0,1], shaped by `curve` (0 Smooth, 1 Linear, 2 Sharp, 3 Cut).
+// `reverse` (hamster) flips the fader sense so the two busses trade ends.
+inline std::pair<float, float> crossfaderBusGains (float x, int curve, bool reverse) noexcept
+{
+    x = juce::jlimit (0.0f, 1.0f, x);
+    if (reverse)
+        x = 1.0f - x;
+
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    switch (juce::jlimit (0, 3, curve))
+    {
+        case 1:   // Linear — constant-sum; gentle -6 dB dip through the centre.
+            return { 1.0f - x, x };
+
+        case 2:   // Sharp — equal-power on a centre-steepened position warp.
+        {
+            const float d  = x - 0.5f;                                   // -0.5..0.5
+            const float w  = std::copysign (std::pow (std::abs (d) * 2.0f, 0.45f), d);
+            const float xs = juce::jlimit (0.0f, 1.0f, 0.5f + 0.5f * w); // steeper near centre
+            return { std::cos (xs * halfPi), std::sin (xs * halfPi) };
+        }
+
+        case 3:   // Cut / transform — each side full except in a narrow edge band.
+        {
+            const float band = 0.10f;
+            return { juce::jlimit (0.0f, 1.0f, (1.0f - x) / band),
+                     juce::jlimit (0.0f, 1.0f, x / band) };
+        }
+
+        default:  // Smooth — classic equal-power blend.
+            return { std::cos (x * halfPi), std::sin (x * halfPi) };
+    }
+}
 }
 
 MainPluginProcessor::MainPluginProcessor()
@@ -80,8 +115,15 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
     }
     cacheDeckParamIds();
+    for (int i = 0; i < PadBank::numPads; ++i)
+        padGainIds[(size_t) i] = "pad" + juce::String (i + 1) + "Gain";
+    for (int i = 0; i < numDecks; ++i)
+        gridActiveSlot[(size_t) i].store (0, std::memory_order_relaxed);
+    refreshCfSideCache();
+    rebuildBeatGridsIfNeeded();   // seed slot 0 so the first blocks have a valid grid
     buildMidiTargets();
     ensureTeWrapperOnMessageThread();
+    startTimerHz (20);            // message-thread housekeeping (grids + cf-side mirror)
 }
 
 void MainPluginProcessor::cacheDeckParamIds()
@@ -147,7 +189,76 @@ void MainPluginProcessor::buildMidiTargets()
 
 MainPluginProcessor::~MainPluginProcessor()
 {
+    stopTimer();
     loadPool.removeAllJobs (true, 1500);
+}
+
+// ── Message-thread housekeeping ──────────────────────────────────────────────
+// Everything here exists so processBlock doesn't have to do it: rebuilding a beat
+// grid allocates and sorts, and reading the cf-side out of the ValueTree both
+// allocates and races the message thread.
+void MainPluginProcessor::timerCallback()
+{
+    refreshCfSideCache();
+    rebuildBeatGridsIfNeeded();
+    drainRetiredAudio();
+}
+
+void MainPluginProcessor::retireAudio (std::shared_ptr<const DeckPlayer::LoadedAudio> outgoing)
+{
+    if (outgoing == nullptr)
+        return;
+    const juce::ScopedLock sl (retiredAudioLock);
+    retiredAudioNew.push_back (std::move (outgoing));
+}
+
+void MainPluginProcessor::drainRetiredAudio()
+{
+    // Two-generation hand-off: anything retired this tick lands in "new", moves to
+    // "old" next tick, and is destroyed the tick after — guaranteeing at least one
+    // full timer period of keep-alive before the memory is released.
+    std::vector<std::shared_ptr<const DeckPlayer::LoadedAudio>> toRelease;
+    {
+        const juce::ScopedLock sl (retiredAudioLock);
+        toRelease.swap (retiredAudioOld);
+        retiredAudioOld.swap (retiredAudioNew);
+    }
+    // toRelease destructs here — on the message thread, outside the lock.
+}
+
+void MainPluginProcessor::refreshCfSideCache()
+{
+    for (int i = 0; i < numDecks; ++i)
+        cfSideCache[(size_t) i].store (getDeckCfSide (i), std::memory_order_relaxed);
+}
+
+void MainPluginProcessor::rebuildBeatGridsIfNeeded()
+{
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto& ids = deckIds[(size_t) i];
+        const auto deckAudio = decks[(size_t) i].getLoadedAudio();
+
+        const float bpm      = getFloatParam (ids.bpm);
+        const float beatOff  = getFloatParam (ids.beatOffset);
+        const float downbeat = getFloatParam (ids.downbeat);
+        const int   interp   = (int) std::round (getFloatParam (ids.tempoInterp));
+        const int   syncMode = (int) std::round (getFloatParam (ids.syncMode));
+
+        const GridCacheKey key { deckAudio.get(), bpm, beatOff, downbeat, interp, syncMode };
+        if (! (key != cachedGridKey[(size_t) i]))
+            continue;   // unchanged — nothing to publish
+
+        // Build into the slot the audio thread is NOT reading, then flip.
+        const int active = gridActiveSlot[(size_t) i].load (std::memory_order_relaxed);
+        const int back   = 1 - active;
+        gridBuffers[(size_t) i][(size_t) back] =
+            BeatSyncEngine::makeGrid (getDeckAnalysis (i), bpm, beatOff, downbeat,
+                                      BeatSyncEngine::tempoInterpretationFromChoice (interp),
+                                      BeatSyncEngine::syncModeFromChoice (syncMode));
+        gridActiveSlot[(size_t) i].store (back, std::memory_order_release);
+        cachedGridKey[(size_t) i] = key;
+    }
 }
 
 void MainPluginProcessor::ensureTeWrapperOnMessageThread()
@@ -249,6 +360,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout MainPluginProcessor::createP
     }
 
     params.push_back (floatParam ("crossfader", "Crossfader", 0.0f, 1.0f, 0.5f));
+    // Crossfader response: 0 Smooth (equal-power, long blends) · 1 Linear (constant-sum) ·
+    // 2 Sharp (fast crossover) · 3 Cut (scratch/transform — near-instant near either edge).
+    params.push_back (choiceParam ("crossfaderCurve", "Crossfader Curve",
+                                   { "Smooth", "Linear", "Sharp", "Cut" }, 0));
+    // Hamster / reverse: swaps the fader sense so A/C and B/D trade ends.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID ("crossfaderReverse", 1), "Crossfader Reverse", false));
     params.push_back (floatParam ("masterBpm", "Global Master BPM", 40.0f, 240.0f, 120.0f, " BPM"));
     params.push_back (floatParam ("master", "Master", -60.0f, 6.0f, 0.0f, "dB"));
     params.push_back (floatParam ("limiterCeiling", "Limiter Ceiling", -12.0f, -0.1f, -1.0f, "dB"));
@@ -408,7 +525,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const float masterBpm = juce::jlimit (40.0f, 240.0f, getFloatParam ("masterBpm"));
     bool anyDeckPlaying = false;
     for (int i = 0; i < numDecks; ++i)
-        anyDeckPlaying = anyDeckPlaying || getBoolParam (deckPrefix (i) + "Play");
+        anyDeckPlaying = anyDeckPlaying || getBoolParam (deckIds[(size_t) i].play);   // pre-cached id: no RT alloc
     if (! syncSnapshot.hostPlaying)
     {
         syncSnapshot.bpm = masterBpm;
@@ -419,34 +536,27 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     updatePerformanceCaptureState (blockRecordingStart, syncSnapshot);
 
     const float crossfader = getFloatParam ("crossfader");
-    const float leftBusGain = std::cos (crossfader * juce::MathConstants<float>::halfPi);
-    const float rightBusGain = std::sin (crossfader * juce::MathConstants<float>::halfPi);
+    const int   xfCurve    = (int) std::round (getFloatParam ("crossfaderCurve"));
+    const bool  xfReverse  = getBoolParam ("crossfaderReverse");
+    const auto  xfGains    = crossfaderBusGains (crossfader, xfCurve, xfReverse);
+    const float leftBusGain  = xfGains.first;    // A/C bus
+    const float rightBusGain = xfGains.second;   // B/D bus
 
     for (int i = 0; i < numDecks; ++i)
     {
         const auto& ids = deckIds[(size_t) i];   // pre-concatenated param ids (no RT alloc)
-        const int cfSide = getDeckCfSide (i);   // 0=A(left), 1=Center, 2=B(right)
+        // Atomic mirror of the ValueTree property — reading the tree here would both
+        // allocate a juce::String and race the message thread that mutates it.
+        const int cfSide = cfSideCache[(size_t) i].load (std::memory_order_relaxed);   // 0=A(left), 1=Center, 2=B(right)
         const float deckMixGain = (cfSide == 0) ? leftBusGain
                                 : (cfSide == 2) ? rightBusGain
                                 : 1.0f;   // Center: unaffected by crossfader
         const auto deckAudio = decks[(size_t) i].getLoadedAudio();
 
-        // Rebuild the beat grid only when its inputs change — makeGrid copies two
-        // vectors and sorts, which must not run every block on the audio thread.
-        const float deckBpm      = getFloatParam (ids.bpm);
-        const float deckBeatOff  = getFloatParam (ids.beatOffset);
-        const float deckDownbeat = getFloatParam (ids.downbeat);
-        const int   deckInterp   = (int) std::round (getFloatParam (ids.tempoInterp));
-        const int   deckSyncMode = (int) std::round (getFloatParam (ids.syncMode));
-        const GridCacheKey gridKey { deckAudio.get(), deckBpm, deckBeatOff, deckDownbeat, deckInterp, deckSyncMode };
-        if (gridKey != cachedGridKey[(size_t) i])
-        {
-            cachedBeatGrid[(size_t) i] = BeatSyncEngine::makeGrid (getDeckAnalysis (i), deckBpm, deckBeatOff, deckDownbeat,
-                                                                   BeatSyncEngine::tempoInterpretationFromChoice (deckInterp),
-                                                                   BeatSyncEngine::syncModeFromChoice (deckSyncMode));
-            cachedGridKey[(size_t) i] = gridKey;
-        }
-        const auto& beatGrid = cachedBeatGrid[(size_t) i];
+        // Beat grid is built on the message thread (rebuildBeatGridsIfNeeded) and
+        // published via an atomic slot index. Here we only take a const reference to
+        // the active slot — no copy, no allocation, no sort, no free.
+        const auto& beatGrid = gridBuffers[(size_t) i][(size_t) gridActiveSlot[(size_t) i].load (std::memory_order_acquire)];
         const bool hostTempoSync = getBoolParam ("hostSync") && syncSnapshot.bpm > 1.0;
 
         // Harmonic-match key: read the two scalars directly instead of copying the
@@ -629,7 +739,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     std::array<float, PadBank::numPads> padGains {};
     for (int i = 0; i < PadBank::numPads; ++i)
-        padGains[(size_t) i] = getFloatParam ("pad" + juce::String (i + 1) + "Gain");
+        padGains[(size_t) i] = getFloatParam (padGainIds[(size_t) i]);   // pre-cached id: no RT alloc
     padBank.process (buffer, 0, buffer.getNumSamples(), padGains);
 
     // Arrangement + piano-roll MIDI share one transport (the arrangement playhead),
@@ -647,6 +757,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     }
     else
     {
+        // Click still runs while DJing (no arrangement playing) — it previously only
+        // sounded during arrangement playback, so the Click button did nothing during
+        // a normal deck set. Drive it off the free-running transport counter.
+        if (anyDeckPlaying)
+            metronome.process (buffer, transportSampleCounter, buffer.getNumSamples());
+
         arrangementPlayer.process (buffer);                          // no-op while stopped
         if (arrWasPlaying)
             midiClipPlayer.allNotesOff();
@@ -794,6 +910,10 @@ void MainPluginProcessor::clearDeck (int deckIndex)
 {
     if (! juce::isPositiveAndBelow (deckIndex, numDecks))
         return;
+    // Park every lane's buffer before reset() drops the deck's references, so the
+    // audio thread can't end up performing the free().
+    for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
+        retireAudio (decks[(size_t) deckIndex].getStemAudio (lane));
     decks[(size_t) deckIndex].reset();
     setStatePathProperty (deckPathProperty (deckIndex), {});
     for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
@@ -837,6 +957,8 @@ void MainPluginProcessor::loadDeckStemFileAsync (int deckIndex, int stemLaneInde
     {
         if (! audio)
             return;
+        // Park the outgoing buffer so the audio thread can't be the one to free it.
+        retireAudio (decks[(size_t) deckIndex].getStemAudio (stemLaneIndex));
         decks[(size_t) deckIndex].setStemAudio (stemLaneIndex, audio);
         if (stemLaneIndex == DeckPlayer::fullMixStem)
         {
@@ -1280,7 +1402,13 @@ void MainPluginProcessor::clearOutroStart (int d) { setOutroStart (d, -1.0); }
 void MainPluginProcessor::setDeckCfSide (int d, int side)
 {
     if (juce::isPositiveAndBelow (d, numDecks))
-        apvts.state.setProperty (deckPrefix (d) + "CfSide", juce::jlimit (0, 2, side), nullptr);
+    {
+        const int clamped = juce::jlimit (0, 2, side);
+        apvts.state.setProperty (deckPrefix (d) + "CfSide", clamped, nullptr);
+        // Mirror immediately so automix transitions apply on the next block rather
+        // than waiting for the 20 Hz housekeeping timer.
+        cfSideCache[(size_t) d].store (clamped, std::memory_order_relaxed);
+    }
 }
 
 int MainPluginProcessor::getDeckCfSide (int d) const
@@ -1678,6 +1806,11 @@ juce::String MainPluginProcessor::getDeckStemProviderStatus (int deckIndex) cons
         return {};
 
     const auto path = getDeckPath (deckIndex);
+    // Empty deck: answer without touching the filesystem at all. getStatusForSource
+    // would otherwise stat a non-existent file on every poll, for every empty deck.
+    if (path.isEmpty())
+        return "Load a full mix to enable AI stems";
+
     const auto status = stemProvider.getStatusForSource (juce::File (path));
     juce::String text = status.headline;
     if (status.sourceFile.existsAsFile())
@@ -1800,6 +1933,7 @@ void MainPluginProcessor::setStateInformation (const void* data, int sizeInBytes
         apvts.replaceState (juce::ValueTree::fromXml (*xml));
         restoreFileAssignmentsFromState();
         midiMapping.deserialize (apvts.state.getProperty ("midiMap").toString());
+        refreshCfSideCache();   // the restored tree carries new cf-side assignments
     }
 }
 

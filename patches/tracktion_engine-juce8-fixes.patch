@@ -1,0 +1,176 @@
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.cpp b/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.cpp
+index 6bc51b3..8bf03ed 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.cpp
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.cpp
+@@ -224,27 +224,28 @@ juce::AudioFormatReader* FFmpegEncoderAudioFormat::createReaderFor (juce::InputS
+     return nullptr;
+ }
+ 
+-juce::AudioFormatWriter* FFmpegEncoderAudioFormat::createWriterFor (juce::OutputStream* streamToWriteTo,
+-                                                                    double sampleRateToUse,
+-                                                                    unsigned int numberOfChannels,
+-                                                                    int bitsPerSample,
+-                                                                    const juce::StringPairArray& metadataValues,
+-                                                                    int qualityOptionIndex)
++std::unique_ptr<juce::AudioFormatWriter> FFmpegEncoderAudioFormat::createWriterFor (
++    std::unique_ptr<juce::OutputStream>& streamToWriteTo,
++    const juce::AudioFormatWriterOptions& options)
+ {
+     if (streamToWriteTo == nullptr)
+         return nullptr;
+-    
++
+     int vbr = 4;
+     int cbr = 0;
+-    
+-    const juce::String qual (getQualityOptions() [qualityOptionIndex]);
+-
++    const juce::String qual (getQualityOptions() [options.getQualityOptionIndex()]);
+     if (qual.contains ("VBR"))
+         vbr = qual.retainCharacters ("0123456789").getIntValue();
+     else
+         cbr = qual.getIntValue();
+-    
+-    return new Writer (streamToWriteTo, getFormatName(), ffmpegExe, vbr, cbr, sampleRateToUse, numberOfChannels, bitsPerSample, metadataValues);
++
++    auto* raw = streamToWriteTo.release();
++    juce::StringPairArray meta;
++    for (auto& [k, v] : options.getMetadataValues()) meta.set (k, v);
++    return std::unique_ptr<juce::AudioFormatWriter> (
++        new Writer (raw, getFormatName(), ffmpegExe, vbr, cbr,
++                    options.getSampleRate(), (unsigned int) options.getNumChannels(),
++                    options.getBitsPerSample(), meta));
+ }
+ 
+ #endif
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.h b/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.h
+index af09ae0..f989d75 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.h
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_FFmpegEncoderAudioFormat.h
+@@ -32,9 +32,8 @@ public:
+     
+     juce::AudioFormatReader* createReaderFor (juce::InputStream*, bool deleteStreamIfOpeningFails);
+ 
+-    juce::AudioFormatWriter* createWriterFor (juce::OutputStream*, double sampleRateToUse,
+-                                              unsigned int numberOfChannels, int bitsPerSample,
+-                                              const juce::StringPairArray& metadataValues, int qualityOptionIndex);
++    std::unique_ptr<juce::AudioFormatWriter> createWriterFor (std::unique_ptr<juce::OutputStream>& streamToWriteTo,
++                                                              const juce::AudioFormatWriterOptions& options) override;
+ 
+     using AudioFormat::createWriterFor;
+     
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.cpp b/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.cpp
+index 2106b1b..4e152a0 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.cpp
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.cpp
+@@ -327,14 +327,14 @@ juce::MemoryMappedAudioFormatReader* FloatAudioFormat::createMemoryMappedReader
+     return {};
+ }
+ 
+-juce::AudioFormatWriter* FloatAudioFormat::createWriterFor (juce::OutputStream* out,
+-                                                            double sampleRate,
+-                                                            unsigned int numChannels,
+-                                                            int /*bitsPerSample*/,
+-                                                            const juce::StringPairArray& /*metadataValues*/,
+-                                                            int /*qualityOptionIndex*/)
++std::unique_ptr<juce::AudioFormatWriter> FloatAudioFormat::createWriterFor (
++    std::unique_ptr<juce::OutputStream>& streamToWriteTo,
++    const juce::AudioFormatWriterOptions& options)
+ {
+-    return new FloatAudioFormatWriter (out, sampleRate, numChannels);
++    auto* raw = streamToWriteTo.release();
++    return std::unique_ptr<juce::AudioFormatWriter> (
++        new FloatAudioFormatWriter (raw, options.getSampleRate(),
++                                    (unsigned int) options.getNumChannels()));
+ }
+ 
+ }} // namespace tracktion { inline namespace engine
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.h b/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.h
+index 240a3bf..17a6b39 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.h
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_FloatAudioFileFormat.h
+@@ -37,10 +37,8 @@ public:
+     juce::MemoryMappedAudioFormatReader* createMemoryMappedReader (const juce::File&) override;
+ 
+     using juce::AudioFormat::createWriterFor;
+-    juce::AudioFormatWriter* createWriterFor (juce::OutputStream*, double sampleRate,
+-                                              unsigned int numChannels, int bitsPerSample,
+-                                              const juce::StringPairArray& metadataValues,
+-                                              int qualityOptionIndex) override;
++    std::unique_ptr<juce::AudioFormatWriter> createWriterFor (std::unique_ptr<juce::OutputStream>& streamToWriteTo,
++                                                              const juce::AudioFormatWriterOptions& options) override;
+ };
+ 
+ }} // namespace tracktion { inline namespace engine
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.cpp b/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.cpp
+index 996b566..fcf7067 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.cpp
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.cpp
+@@ -258,9 +258,10 @@ juce::AudioFormatReader* RexAudioFormat::createReaderFor (juce::InputStream* sou
+     return {};
+ }
+ 
+-juce::AudioFormatWriter* RexAudioFormat::createWriterFor (juce::OutputStream*, double, unsigned int, int, const juce::StringPairArray&, int)
++std::unique_ptr<juce::AudioFormatWriter> RexAudioFormat::createWriterFor (
++    std::unique_ptr<juce::OutputStream>&, const juce::AudioFormatWriterOptions&)
+ {
+-    return {};
++    return {};   // REX is read-only
+ }
+ 
+ juce::String RexAudioFormat::getErrorLoadingDLL()
+diff --git a/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.h b/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.h
+index 1f01000..0d33afc 100644
+--- a/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.h
++++ b/modules/tracktion_engine/audio_files/formats/tracktion_RexFileFormat.h
+@@ -27,9 +27,8 @@ public:
+     bool isCompressed() override    { return true; }
+ 
+     juce::AudioFormatReader* createReaderFor (juce::InputStream*, bool deleteStreamIfOpeningFails) override;
+-    juce::AudioFormatWriter* createWriterFor (juce::OutputStream*, double sampleRateToUse,
+-                                              unsigned int numberOfChannels, int bitsPerSample,
+-                                              const juce::StringPairArray& metadataValues, int qualityOptionIndex) override;
++    std::unique_ptr<juce::AudioFormatWriter> createWriterFor (std::unique_ptr<juce::OutputStream>& streamToWriteTo,
++                                                              const juce::AudioFormatWriterOptions& options) override;
+ 
+     static const char* const rexTempo;
+     static const char* const rexDenominator;
+diff --git a/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp b/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
+index d23d7b2..89ae52d 100644
+--- a/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
++++ b/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
+@@ -958,7 +958,7 @@ void ExternalPlugin::trackPropertiesChanged()
+ 
+         if (auto t = getOwnerTrack(); t != nullptr)
+             if (auto pi = getAudioPluginInstance())
+-                pi->updateTrackProperties ({ t->getName(), t->getColour() });
++                pi->updateTrackProperties ({ t->getName(), (juce::uint32) t->getColour().getARGB() });
+     });
+ }
+ 
+diff --git a/modules/tracktion_engine/plugins/tracktion_PluginManager.cpp b/modules/tracktion_engine/plugins/tracktion_PluginManager.cpp
+index 65f7a7f..0484a0f 100644
+--- a/modules/tracktion_engine/plugins/tracktion_PluginManager.cpp
++++ b/modules/tracktion_engine/plugins/tracktion_PluginManager.cpp
+@@ -70,7 +70,7 @@ void PluginManager::initialise()
+    #endif
+ 
+     initialised = true;
+-    pluginFormatManager.addDefaultFormats();
++    juce::addDefaultFormatsToManager (pluginFormatManager);
+ 
+     if (auto patchFormat = createCmajorPatchPluginFormat (engine))
+         pluginFormatManager.addFormat (patchFormat.release());
+diff --git a/modules/tracktion_engine/plugins/tracktion_PluginScanHelpers.h b/modules/tracktion_engine/plugins/tracktion_PluginScanHelpers.h
+index 34b5bd6..daa2e88 100644
+--- a/modules/tracktion_engine/plugins/tracktion_PluginScanHelpers.h
++++ b/modules/tracktion_engine/plugins/tracktion_PluginScanHelpers.h
+@@ -178,7 +178,7 @@ struct PluginScanChildProcess  : public juce::ChildProcessWorker,
+ {
+     PluginScanChildProcess()
+     {
+-        pluginFormatManager.addDefaultFormats();
++        juce::addDefaultFormatsToManager (pluginFormatManager);
+     }
+ 
+     void handleConnectionMade() override {}

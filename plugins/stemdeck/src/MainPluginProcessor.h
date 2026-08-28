@@ -20,7 +20,8 @@
 #include "SmartMaster.h"
 #include "AutomixEngine.h"
 
-class MainPluginProcessor final : public juce::AudioProcessor
+class MainPluginProcessor final : public juce::AudioProcessor,
+                                  private juce::Timer
 {
 public:
     static constexpr int numDecks = 4;
@@ -390,9 +391,13 @@ private:
     juce::AudioBuffer<float> teScratch;
     juce::MidiBuffer teMidiScratch;
 
-    // Per-deck beat-grid cache. makeGrid copies two vectors + sorts, so rebuild it
-    // only when its inputs change (audio reload or a grid-param edit) rather than
-    // every audio block. Audio-thread only.
+    // Per-deck beat grid. makeGrid copies two vectors and sorts, so it must never run
+    // on the audio thread — dragging a BPM/grid knob changes the key every block and
+    // would allocate + sort in processBlock. Instead the message-thread timer rebuilds
+    // into the inactive slot of a double buffer and flips an atomic index; the audio
+    // thread only ever takes a const reference to the active slot (no copy, no alloc,
+    // no free). Two slots are sufficient because the timer cadence (50 ms) is far
+    // longer than one audio block, so two flips cannot straddle a single read.
     struct GridCacheKey
     {
         const void* analysisId = nullptr;
@@ -404,8 +409,33 @@ private:
                 || downbeat != o.downbeat || interp != o.interp || syncMode != o.syncMode;
         }
     };
-    std::array<BeatSyncEngine::TrackBeatGrid, numDecks> cachedBeatGrid;
-    std::array<GridCacheKey, numDecks> cachedGridKey;
+    std::array<std::array<BeatSyncEngine::TrackBeatGrid, 2>, numDecks> gridBuffers;
+    std::array<std::atomic<int>, numDecks> gridActiveSlot;   // audio thread reads this
+    std::array<GridCacheKey, numDecks> cachedGridKey;        // message thread only
+    void rebuildBeatGridsIfNeeded();                         // message thread
+
+    // Crossfader-assign side per deck, mirrored out of the APVTS ValueTree into a
+    // plain atomic. processBlock must not read the ValueTree: that both allocates a
+    // juce::String for the property name and races the message thread, which mutates
+    // the same tree (hot cues, deck paths, cf-side writes).
+    std::array<std::atomic<int>, numDecks> cfSideCache;
+    void refreshCfSideCache();
+
+    // Pre-concatenated pad-gain ids — "pad" + String(i) + "Gain" allocated ~24 times
+    // per block otherwise.
+    std::array<juce::String, PadBank::numPads> padGainIds;
+
+    // Deferred reclaim of retired audio buffers. processBlock takes shared_ptr copies
+    // of the loaded audio; if the loader drops the last other reference in that window,
+    // the AUDIO thread runs the destructor and frees multi-megabyte buffers — an
+    // unbounded operation exactly while a track is being loaded onto a playing deck.
+    // Outgoing buffers are parked here and released two housekeeping ticks (~100 ms)
+    // later, on the message thread, by which time the audio thread has long since
+    // re-read the new pointer.
+    juce::CriticalSection retiredAudioLock;
+    std::vector<std::shared_ptr<const DeckPlayer::LoadedAudio>> retiredAudioNew, retiredAudioOld;
+    void retireAudio (std::shared_ptr<const DeckPlayer::LoadedAudio> outgoing);
+    void drainRetiredAudio();
 
     // Pre-concatenated APVTS parameter ids per deck. "deck + \"...\"" heap-allocates
     // a juce::String; caching keeps processBlock's per-deck reads allocation-free.
@@ -417,6 +447,10 @@ private:
     };
     std::array<DeckParamIds, numDecks> deckIds;
     void cacheDeckParamIds();
+
+    // Message-thread housekeeping: rebuilds beat grids and mirrors the cf-side cache
+    // so processBlock never has to. Runs at 20 Hz.
+    void timerCallback() override;
 
     struct DeckPerformanceState
     {
