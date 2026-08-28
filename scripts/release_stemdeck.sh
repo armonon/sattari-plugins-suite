@@ -90,8 +90,31 @@ sign_bundle() {
 }
 
 /usr/bin/xattr -cr "$app" "$vst3" || true
+
+# Embed libonnxruntime and rewrite @rpath BEFORE Developer ID signing.
+#
+# This script builds with SATTARI_USE_ONNX=ON by default (see above), the vendored dylib's
+# install name is @rpath/libonnxruntime.<ver>.dylib, and NOTHING in CMake copies it into a
+# bundle. selfcontain_onnx.sh is the only thing that embeds the runtime and fixes the rpath
+# — and until now only run_stemdeck_release_gate.sh and CI called it, never this script. The
+# result was a signed, notarized, stapled installer whose only rpath pointed at the build
+# machine's gitignored third_party/onnxruntime-*/lib, so the shipped app failed at dyld load
+# on every machine except the one that built it.
+#
+# Order matters: selfcontain_onnx.sh ad-hoc signs what it rewrites, so it must run before
+# sign_bundle or the ad-hoc signature would replace the Developer ID one.
+"$repo_root/scripts/selfcontain_onnx.sh" "$app"
+"$repo_root/scripts/selfcontain_onnx.sh" "$vst3"
+
 sign_bundle "$app"
 sign_bundle "$vst3"
+
+# Validate the real shipping artifact, after signing, so the check sees exactly what the
+# customer installs: no absolute /opt/homebrew links, @rpath dylibs actually present in
+# Contents/Frameworks, and the @executable_path/../Frameworks rpath in place. The alpha
+# packager has always done this; the release path never did.
+EXPECTED_STEMDECK_APP_VERSION="$version" \
+  "$repo_root/scripts/validate_stemdeck_app_bundle.sh" "$app"
 
 stage="$(mktemp -d "${TMPDIR:-/tmp}/stemdeck-release.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
