@@ -779,10 +779,11 @@ int main (int argc, char** argv)
         return fails > 0 ? 1 : 0;
     }
 
-    // --live-alpha-file <in.wav> <out.wav> [natural|hard] : render the isolated,
-    // not-shipping Sattari Live core for private real-vocal evaluation. Output is
-    // latency-trimmed back to the source duration. This path cannot be selected by
-    // a plugin parameter; promotion requires the corpus and listening gates.
+    // --live-alpha-file <in.wav> <out.wav> [natural|hard] : render the Sattari Live
+    // core used by the plugin's Extended Range profile for private real-vocal
+    // evaluation. Output is latency-trimmed back to the source duration. This
+    // harness bypasses the plugin wrapper, so host qualification and human
+    // listening remain separate gates.
     if (argc > 1 && std::strcmp (argv[1], "--live-alpha-file") == 0)
     {
         if (argc < 4)

@@ -231,7 +231,7 @@ truth_label: internal DAW/listening candidate; not notarized; not sale-ready
 minimum_macos: 13.3
 architectures: arm64,x86_64
 formats: AU,VST3,Standalone
-models_included: no
+models_included: crepe.onnx embedded (MIT); optional key models not included
 created_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 source_commit: $source_commit
 source_repository: $source_remote

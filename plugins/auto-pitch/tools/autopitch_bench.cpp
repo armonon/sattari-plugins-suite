@@ -71,7 +71,8 @@ static const char* reasonName (IntentReasonCode c)
         case IntentReasonCode::STABILITY_ANCHOR:         return "STABILITY_ANCHOR";
         case IntentReasonCode::VIBRATO_HOLD:             return "VIBRATO_HOLD";
         case IntentReasonCode::SLIDE_DESTINATION_V2:     return "SLIDE_DESTINATION_V2";
-        default:                                          return "LOW_CONFIDENCE_FALLBACK";
+        case IntentReasonCode::LOW_CONFIDENCE_FALLBACK:  return "LOW_CONFIDENCE_FALLBACK";
+        default:                                          return "UNKNOWN";
     }
 }
 
@@ -265,11 +266,16 @@ int main (int argc, char** argv)
     {
         a.outputWav.getParentDirectory().createDirectory();
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (
-            wav.createWriterFor (
-                new juce::FileOutputStream (a.outputWav), sr, (unsigned) nch, 16, {}, 0));
-        if (writer)
-            writer->writeFromAudioSampleBuffer (outBuf, 0, tot);
+        std::unique_ptr<juce::OutputStream> stream (a.outputWav.createOutputStream());
+        if (stream != nullptr)
+        {
+            const auto options = juce::AudioFormatWriterOptions {}
+                                     .withSampleRate (sr)
+                                     .withNumChannels (nch)
+                                     .withBitsPerSample (16);
+            if (auto writer = wav.createWriterFor (stream, options))
+                writer->writeFromAudioSampleBuffer (outBuf, 0, tot);
+        }
     }
 
     // --- Write trace JSON ---
