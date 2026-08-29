@@ -109,7 +109,7 @@ fi
 
 targets=()
 for entry in "${CONTRACTS[@]}"; do targets+=("${entry%%|*}"); done
-targets+=("AutoPitchRender")
+targets+=("AutoPitchRender" "AutoPitchObjectiveBench")
 
 echo "== building ${#targets[@]} targets =="
 if ! cmake --build "$BUILD" -j --target "${targets[@]}" >/tmp/verify_all_build.log 2>&1; then
@@ -142,6 +142,10 @@ run "AutoPitchRender(gainstage)" "$RENDER" --gainstage
 # Poly High Tracking: a corrected note's overtones above 2.5 kHz must follow it into
 # key (self-contained; the +4.46 pt corpus win, locked against silent regression).
 run "AutoPitchRender(hitrack)" "$RENDER" --hitracktest
+
+# Objective scorecard is a real gate: every qualified row that prints FAIL must
+# return non-zero. Unsupported stress points remain visible as OUTSIDE.
+run "AutoPitchObjectiveBench" "$BUILD/plugins/auto-pitch/AutoPitchObjectiveBench"
 
 echo "-------------------------------------------"
 echo "  $pass passed, $fail failed"

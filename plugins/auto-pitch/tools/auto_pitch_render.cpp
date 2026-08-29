@@ -616,10 +616,8 @@ int main (int argc, char** argv)
         }
 
         // --- 2 + 3. Live Mode latency and correction -------------------------
-        int liveLat = 0;
         {
             auto [liveOut, lat] = renderWith (true, false, 0, 100.0f);
-            liveLat = lat;
             const double c = centsOf (liveOut, lat);
             std::printf ("  2. Live Mode latency  : %d samples (%.2f ms)\n",
                          lat, 1000.0 * lat / sr);
@@ -923,9 +921,11 @@ int main (int argc, char** argv)
             keySummary = p.getKeyDetectionTabSummary();
             return std::make_pair (o, p.currentKeyOrigin());
         };
-        auto [out, origin]  = runCfg (false);
-        auto [outH, originH] = runCfg (true);
-        (void) originH;
+        auto normalRun = runCfg (false);
+        auto hardRun = runCfg (true);
+        auto out = std::move (normalRun.first);
+        const auto origin = normalRun.second;
+        auto outH = std::move (hardRun.first);
         const juce::File outHF = outF.getParentDirectory().getChildFile (outF.getFileNameWithoutExtension() + "_hard.wav");
         sattari::harness::writeWav (outF, out, fsr);
         sattari::harness::writeWav (outHF, outH, fsr);
@@ -1481,7 +1481,7 @@ int main (int argc, char** argv)
             juce::File f (juce::String::fromUTF8 (argv[ai]));
             std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
             if (rd == nullptr) { std::fprintf (stderr, "FAIL: cannot read %s\n", argv[ai]); return 2; }
-            if (fsr == 0) fsr = rd->sampleRate;
+            if (fsr <= 0.0) fsr = rd->sampleRate;
             juce::AudioBuffer<float> b ((int) juce::jmax (1u, rd->numChannels), (int) rd->lengthInSamples);
             rd->read (&b, 0, (int) rd->lengthInSamples, 0, true, true);
             nCh  = std::max (nCh, b.getNumChannels());

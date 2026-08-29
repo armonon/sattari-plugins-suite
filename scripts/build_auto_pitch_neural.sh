@@ -14,6 +14,7 @@ mkdir -p "$validation_dir"
 cmake -S "$repo_root/plugins/auto-pitch" -B "$build_dir" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+  -DSATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND \
   -DSATTARI_USE_ONNX=ON \
   -DSATTARI_REQUIRE_ONNX=ON \
   -DONNXRUNTIME_INCLUDE_DIR="$ort_dir/include" \
@@ -25,12 +26,13 @@ grep -q -- '-DSATTARI_HAS_ONNX=1' "$build_dir/build.ninja" || {
 }
 
 cmake --build "$build_dir" --config Release -j"$jobs"
-cmake --build "$build_dir" --target AutoPitchCoreContract AutoPitchRender AutoPitchBench -j"$jobs"
+cmake --build "$build_dir" --target AutoPitchCoreContract AutoPitchRender AutoPitchBench AutoPitchObjectiveBench -j"$jobs"
 
 contract_bin="$(find "$build_dir" -type f -name AutoPitchCoreContract -perm +111 | head -n1)"
 render_bin="$(find "$build_dir" -type f -name AutoPitchRender -perm +111 | head -n1)"
 bench_bin="$(find "$build_dir" -type f -name AutoPitchBench -perm +111 | head -n1)"
-[[ -n "$contract_bin" && -n "$render_bin" && -n "$bench_bin" ]] || {
+objective_bin="$(find "$build_dir" -type f -name AutoPitchObjectiveBench -perm +111 | head -n1)"
+[[ -n "$contract_bin" && -n "$render_bin" && -n "$bench_bin" && -n "$objective_bin" ]] || {
   echo "Auto Pitch validation binaries were not produced" >&2
   exit 1
 }
@@ -43,7 +45,7 @@ bench_bin="$(find "$build_dir" -type f -name AutoPitchBench -perm +111 | head -n
 "$render_bin" --vibtest
 "$render_bin" --polytest
 "$render_bin" --xposetest
-"$bench_bin" | tee "$validation_dir/objective-benchmark.txt"
+"$objective_bin" | tee "$validation_dir/objective-benchmark.txt"
 
 bundled_model_dir="$repo_root/plugins/auto-pitch/models"
 "$repo_root/scripts/verify_auto_pitch_models.py" \

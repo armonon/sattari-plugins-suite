@@ -67,6 +67,19 @@ bool clickButtonNamed (juce::Component& parent, const juce::String& name)
     }
     return false;
 }
+
+bool headerHasVisibleContent (juce::Component& editor)
+{
+    const auto headerBounds = juce::Rectangle<int> (0, 0, editor.getWidth(),
+                                                     juce::jmin (76, editor.getHeight()));
+    const auto image = editor.createComponentSnapshot (headerBounds, true);
+    int brightPixels = 0;
+    for (int y = 0; y < image.getHeight(); y += 2)
+        for (int x = 0; x < image.getWidth(); x += 2)
+            if (image.getPixelAt (x, y).getPerceivedBrightness() > 0.48f)
+                ++brightPixels;
+    return brightPixels >= 80;
+}
 }
 
 int main (int argc, char** argv)
@@ -107,6 +120,11 @@ int main (int argc, char** argv)
                 ok = clickButtonNamed (*editor, "HARMONY");
             if (editWs)
                 ok = clickButtonNamed (*editor, "EDIT");
+            if (ok && ! headerHasVisibleContent (*editor))
+            {
+                std::fprintf (stderr, "FAIL render: persistent header is blank\n");
+                ok = false;
+            }
             if (ok)
                 ok = sattari::test::renderComponentToPng (*editor, destination);
         }
@@ -133,7 +151,7 @@ int main (int argc, char** argv)
     const juce::StringArray parityParameters {
         "scaleMode", "referenceDetune", "followReference", "midiTarget",
         "capturePitchEdits", "usePitchEdits", "graphTimeCorrection",
-        "addVibrato", "vibratoRate", "vibratoOnset"
+        "addVibrato", "vibratoRate", "vibratoOnset", "liveProfile"
     };
     for (const auto& id : parityParameters)
         if (apvts.getParameter (id) == nullptr)
@@ -183,6 +201,7 @@ int main (int argc, char** argv)
             || apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f
             || apvts.getRawParameterValue ("xposeMode")->load() > 0.5f
             || apvts.getRawParameterValue ("polyphonic")->load() > 0.5f
+            || apvts.getRawParameterValue ("liveMode")->load() > 0.5f
             || apvts.getRawParameterValue ("addVibrato")->load() > 0.01f
             || std::abs (apvts.getRawParameterValue ("amount")->load() - 0.86f) > 0.001f)
         {
@@ -278,6 +297,80 @@ int main (int argc, char** argv)
         }
         processor.clearPitchEdits();
         std::cout << "  graphObjectEditing=PASS (split/join/delete, object controls, undo/redo)\n";
+    }
+
+    {
+        // Live graph edits must retain their exact octave-aware target instead of
+        // being collapsed back to a pitch-class mask. This is the causal planner
+        // contract used by processWithLiveEngine for per-object note overrides.
+        sattari::dsp::LiveCorrectionPlanner planner;
+        planner.prepare (48000.0);
+        sattari::dsp::LivePitchTracker::Result pitch;
+        pitch.frequencyHz = 220.0; // A3 / MIDI 57
+        pitch.confidence = 1.0f;
+        pitch.rms = 0.2f;
+        pitch.voiced = true;
+        sattari::dsp::LiveCorrectionPlanner::Settings settings;
+        settings.forcedTargetMidi = 58;
+        settings.retuneMilliseconds = 1.5;
+        settings.transitionAmount = 1.0;
+        planner.update (pitch, 512, settings);
+        if (planner.getTargetMidi() != 58
+            || std::abs (planner.getCorrectionCents() - 100.0) > 1.0)
+        {
+            std::cerr << "live graph target was not applied exactly\n";
+            return 1;
+        }
+        settings.forcedTargetMidi = -1;
+        planner.update (pitch, 512, settings);
+        if (planner.getTargetMidi() != 57)
+        {
+            std::cerr << "live planner did not release an explicit graph target\n";
+            return 1;
+        }
+
+        // The neural/fused guidance hook must be musically active, not a CPU-only
+        // switch. One block is intentionally shorter than the causal tracker's
+        // acquisition window, so only the supplied guide can establish A4.
+        sattari::dsp::LivePitchEngine guided;
+        guided.prepare (48000.0, 512, 128.0, 1100.0);
+        std::array<float, 512> in {}, out {};
+        for (size_t i = 0; i < in.size(); ++i)
+            in[i] = 0.2f * std::sin ((float) (juce::MathConstants<double>::twoPi
+                                 * 445.0 * (double) i / 48000.0));
+        sattari::dsp::LivePitchTracker::Result guide;
+        guide.frequencyHz = 445.0;
+        guide.periodSamples = 48000.0 / guide.frequencyHz;
+        guide.confidence = 0.98f;
+        guide.rms = 0.14f;
+        guide.voiced = true;
+        guided.processCorrected (in.data(), out.data(), (int) in.size(), settings, &guide);
+        if (guided.getTargetMidi() != 69
+            || std::abs (guided.getPitchResult().frequencyHz - 445.0) > 0.01)
+        {
+            std::cerr << "fused pitch guidance did not reach the live planner\n";
+            return 1;
+        }
+        std::cout << "  liveGraphTarget=PASS (exact target + release + fused guidance)\n";
+    }
+
+    {
+        SattariAutoPitchAudioProcessor ultra;
+        setParameter (ultra.parameters(), "liveMode", 1.0f);
+        setParameter (ultra.parameters(), "liveProfile", 0.0f);
+        ultra.prepareToPlay (48000.0, 512);
+        SattariAutoPitchAudioProcessor extended;
+        setParameter (extended.parameters(), "liveMode", 1.0f);
+        setParameter (extended.parameters(), "liveProfile", 1.0f);
+        extended.prepareToPlay (48000.0, 512);
+        if (ultra.getLatencySamples() != 571 || extended.getLatencySamples() != 1037)
+        {
+            std::cerr << "live profile latency contract changed: ultra="
+                      << ultra.getLatencySamples() << " extended="
+                      << extended.getLatencySamples() << "\n";
+            return 1;
+        }
+        std::cout << "  liveProfiles=PASS (Ultra 571 smp, Range 1037 smp @ 48 kHz)\n";
     }
 
     {
@@ -539,14 +632,14 @@ int main (int argc, char** argv)
             static const int deg[7] = { 0, 2, 4, 5, 7, 9, 11 };
             static const int seq[] = { 0,2,4,2,0, 4,5,4,2,0, 0,2,4,4,2,0, 4,2,0,0 };
             float* d = tonal.getWritePointer (0);
-            double phase = 0.0;
+            double melodyPhase = 0.0;
             const int noteLen = (int) (48000 * 0.26);
             for (int i = 0; i < tonal.getNumSamples(); ++i)
             {
                 const int midi = 60 + deg[seq[(i / noteLen) % 20]];
                 const double hz = 440.0 * std::pow (2.0, (midi - 69) / 12.0);
-                d[i] = 0.4f * (float) std::sin (phase);
-                phase += 2.0 * juce::MathConstants<double>::pi * hz / 48000.0;
+                d[i] = 0.4f * (float) std::sin (melodyPhase);
+                melodyPhase += 2.0 * juce::MathConstants<double>::pi * hz / 48000.0;
             }
         }
 
@@ -592,9 +685,7 @@ int main (int argc, char** argv)
     std::cout << "  keyTab=" << keyTabSummary << "\n";
     std::cout << "  changedEnergy=" << changedEnergy << "\n";
     std::cout << "  modes=Natural, Classic, Modern Rap, Robot, Big Harmony\n";
-#if SATTARI_AUTOPITCH_HAS_ELASTIQUE
-    std::cout << "  engine=elastique\n";
-#elif SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+#if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
     std::cout << "  engine=signalsmith\n";
 #elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
     std::cout << "  engine=rubberband\n";

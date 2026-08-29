@@ -73,8 +73,9 @@ inline const char* chordQualityName (ChordQuality q) noexcept
         case ChordQuality::maj7:  return "maj7";
         case ChordQuality::min7:  return "m7";
         case ChordQuality::dom7:  return "7";
-        default:                  return "";
+        case ChordQuality::count: return "";
     }
+    return "";
 }
 
 struct ChordResult

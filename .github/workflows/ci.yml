@@ -165,6 +165,7 @@ jobs:
             cmake -S plugins/${{ matrix.plugin }} -B build/${{ matrix.plugin }} -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+              -DSATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND \
               -DSATTARI_USE_ONNX=ON \
               -DSATTARI_REQUIRE_ONNX=ON \
               -DONNXRUNTIME_INCLUDE_DIR="$ort_dir/include" \
@@ -212,11 +213,27 @@ jobs:
           if [ "${{ matrix.test }}" = "AutoPitchCoreContract" ]; then
             pro_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-pro.png"
             min_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-min.png"
+            key_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-key.png"
+            edit_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-edit.png"
+            harmony_image="$RUNNER_TEMP/${{ matrix.plugin }}-editor-harmony-preview.png"
             "$bin" --render-ui-pro "$pro_image"
             "$bin" --render-ui-min "$min_image"
-            test -s "$pro_image" -a -s "$min_image"
-            file "$pro_image" "$min_image" | grep -q 'PNG image data'
+            "$bin" --render-ui-key "$key_image"
+            "$bin" --render-ui-edit "$edit_image"
+            "$bin" --render-ui-harmony "$harmony_image"
+            test -s "$pro_image" -a -s "$min_image" -a -s "$key_image" \
+              -a -s "$edit_image" -a -s "$harmony_image"
+            file "$pro_image" "$min_image" "$key_image" "$edit_image" "$harmony_image" \
+              | grep -q 'PNG image data'
           fi
+
+      - name: Run Auto Pitch objective quality gate
+        if: ${{ matrix.plugin == 'auto-pitch' }}
+        run: |
+          cmake --build build/auto-pitch --target AutoPitchObjectiveBench -j"$(sysctl -n hw.ncpu)"
+          bin="$(find build/auto-pitch -type f -name AutoPitchObjectiveBench -perm +111 | head -n1)"
+          if [ -z "$bin" ]; then echo "::error::AutoPitchObjectiveBench not found"; exit 1; fi
+          "$bin"
 
       # Render harness in --smoke mode: proves the real audio path produces
       # finite, non-silent output. A strict null-test against the golden runs

@@ -25,12 +25,22 @@
 #include <array>
 #include <atomic>
 #include <complex>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
 
 #include "ContinuousMotionEstimator.h"
+
+#ifndef SATTARI_AUTOPITCH_PRINT_SIGNALSMITH
+ #define SATTARI_AUTOPITCH_PRINT_SIGNALSMITH 0
+#endif
+
+#if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && ! SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+ #error "SIGNALSMITH print engine selected without signalsmith-stretch support"
+#endif
 
 // ---------------------------------------------------------------------------
 // Intent Engine v2 — experimental targeting layer (shadow/active modes)
@@ -533,6 +543,7 @@ private:
         float objectHumanize = -1.0f, objectVibrato = -1.0f;
         float objectFormantSemitones = -100.0f, objectGainDb = 0.0f;
         bool objectActive = false;
+        bool objectEnabled = true;
         bool voiced = false;
     };
 
@@ -595,6 +606,9 @@ private:
     //  the bypass stays aligned with whichever engine is actually running.
     int  liveEngineLatencySamples() const noexcept;
     bool liveModeActive() const noexcept;
+    bool ultraLiveProfileActive() const noexcept;
+    std::vector<sattari::dsp::LivePitchEngine>& activeLiveEngines() noexcept;
+    const std::vector<sattari::dsp::LivePitchEngine>& activeLiveEngines() const noexcept;
     // PSOLA prep helpers. Low-latency vocal mode raises the min-Hz floor so PSOLA's
     // fixed ~2-period latency shrinks (33 ms -> ~15 ms) at the cost of not tracking
     // fundamentals below the floor. preparePsolaInto builds a fresh shifter set (may
@@ -635,14 +649,25 @@ private:
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
     bool   lastXposeActive    = false; // Transpose mode ran last block (flush engines on toggle)
     std::array<double, 12> autoKeyHistogram {};
-    std::atomic<int> detectedAutoRoot { 9 };
-    std::atomic<int> detectedAutoScale { 1 };   // AutoKey auto-detected mode: 0=major, 1=minor
-    //  The key detector's own margin, previously computed and discarded. Plain
-    //  relaxed float store from the audio thread: lock-free, no allocation.
-    std::atomic<float> detectedAutoKeyConf { 0.0f };
+    // Live Mode may be called with 64..2048-sample host blocks. Decimate its
+    // AutoKey observations onto the same pitch-hop clock as Studio so histogram
+    // decay and key confidence do not change with a DAW's buffer size.
+    int liveAutoKeySamplesUntilAnalysis = 0;
+    // Root, mode and confidence form one verdict. There are two publishers (the
+    // audio-thread detector and message-thread dropped-file path), so a seqlock is
+    // not sufficient: two writers can overlap and expose an apparently stable,
+    // torn value. Pack the complete verdict into one lock-free atomic instead.
+    static_assert (std::atomic<std::uint64_t>::is_always_lock_free,
+                   "Auto Key verdict must remain lock-free on the audio thread");
+    std::atomic<std::uint64_t> detectedAutoKeyVerdict { 0x19u }; // A minor, confidence 0
+    void publishDetectedAutoKey (int root, int scale, float confidence) noexcept;
+    void readDetectedAutoKey (int& root, int& scale, float& confidence) const noexcept;
     //  True when the last publish attempt was withheld for low confidence, so the
     //  UI can say the bus is deliberately empty instead of appearing broken.
     std::atomic<bool>  busKeySuppressed { false };
+    // Scale -> scaleMode mirror requested from parameterChanged (which may run on
+    // the audio thread); -1 = nothing pending. Applied on the message thread.
+    std::atomic<int> pendingScaleMirror { -1 };
 
     // --- Note-transition retune modeling (Antares-class "feel") --------------
     // When the correction target jumps to a new note, transitionBoost spikes to
@@ -839,6 +864,11 @@ private:
     bool pitchEditGestureChanged = false;
     int lastCapturedPitchEdit = -1;
     double lastCapturedEndSec = -1.0;
+    // Audio-thread-only fallback for the brief interval in which the editor owns
+    // pitchEditLock. It prevents an edit gesture from dropping correction for a
+    // host block merely because the GUI is updating the note vector.
+    mutable PitchEditEntry cachedAppliedPitchEdit;
+    mutable bool cachedAppliedPitchEditValid = false;
     void pushPitchEditUndoLocked();
     void markPitchEditChangedLocked();
     void capturePitchEditAtSeconds (double seconds, double blockDuration, const PitchFrame& frame);
@@ -868,6 +898,7 @@ private:
     juce::AudioBuffer<float> ssOutput;
     std::vector<const float*> ssInputPtrs;
     std::vector<float*>       ssOutputPtrs;
+    int signalsmithLatencySamples = 0;
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
@@ -889,25 +920,6 @@ private:
     int  rbCushion   = 0;             // samples buffered before popping begins
     bool rbPrimed    = false;         // has the cushion filled yet?
     int  rbLatency   = 0;             // Rubber Band start delay (samples)
-    //  signalsmith-stretch's own registered pipeline delay, captured at configure
-    //  time. The print engine's latency has to be reportable without asking the
-    //  stretcher (activeEngineLatencySamples() is const and runs on the message
-    //  thread), and RubberBand's figures do not describe it.
-    int  signalsmithLatencySamples = 0;
-    //  Scale -> scaleMode mirror requested from parameterChanged (which may run on
-    //  the audio thread); -1 = nothing pending. Applied on the message thread.
-    std::atomic<int> pendingScaleMirror { -1 };
-    //  Root, mode and confidence are one VERDICT and must be published as one.
-    //  They are written from the message thread (timerCallback, on a dropped-file
-    //  result) and from the audio thread (correlateAutoKeyHistogram), and as three
-    //  independent stores a reader could pick up a root from one detector with the
-    //  mode from another - a pair no detector ever produced, on its way to the
-    //  cross-plugin bus. A generation counter makes the triple a seqlock: writers
-    //  bump to odd, store, bump to even; readers retry while it is odd or moved.
-    std::atomic<unsigned> detectedAutoKeyGeneration { 0 };
-    void publishDetectedAutoKey (int root, int scale, float confidence) noexcept;
-    //  Coherent snapshot of the triple above.
-    void readDetectedAutoKey (int& root, int& scale, float& confidence) const noexcept;
     double rubberBandEnginePitchScale = 1.0; // last ratio delivered on the fixed control grid
     int rubberBandAutomationHoldSamples = 0; // hysteresis: finish a moving-ratio glide on-grid
     void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);
@@ -918,11 +930,14 @@ private:
     // Near-zero-latency, formant-preserving pitch shift for tracking/monitoring.
     // Rubber Band stays the default "print" engine (higher fidelity, more
     // latency); the "Live Engine" toggle swaps to PSOLA per channel.
-    //  Live Mode: one engine per channel. Only channel 0 plans the correction;
-    //  the others are driven with ITS pitch scale so a stereo source cannot
-    //  drift apart into a wandering image.
+    // Live Mode has two fully-prepared banks so profile changes never allocate on
+    // the audio thread. Ultra covers C3+ at <12 ms / 48 kHz; Extended preserves
+    // the qualified 70 Hz floor at ~22 ms. Only channel 0 plans the correction;
+    // the others follow its pitch scale so stereo cannot drift apart.
     std::vector<sattari::dsp::LivePitchEngine> liveEngines;
+    std::vector<sattari::dsp::LivePitchEngine> liveExtendedEngines;
     bool lastLiveModeActive = false;
+    int lastLiveProfile = 0;
 
     std::vector<sattari::dsp::PsolaShifter> psola;
     std::vector<sattari::dsp::PsolaShifter> pendingPsola;     // message-thread-built, audio-thread-swapped (low-latency toggle)
@@ -930,7 +945,8 @@ private:
     std::atomic<bool> psolaLiveLowLat { false };            // low-latency state of the LIVE shifter (set by the audio thread on swap)
     bool pendingLowLat = false;                             // low-latency target the pendingPsola set was built for
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
-    void processWithLiveEngine (juce::AudioBuffer<float>& buffer, float linearGain);
+    void processWithLiveEngine (juce::AudioBuffer<float>& buffer, float linearGain,
+                                double pitchOffsetCents);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
     // When "Neural Pitch" is on, CREPE is conservatively fused with YIN: agreeing

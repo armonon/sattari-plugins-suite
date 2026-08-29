@@ -9,6 +9,46 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariRubberBand.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariOnnx.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariSignalsmith.cmake)
+
+# Keep the released print engine deterministic.  Previously simply initialising
+# the optional Signalsmith submodule changed the DSP selected by the same source
+# revision, so local builds and recursive-submodule CI builds did not render the
+# same audio.  Rubber Band is the qualified 0.5.0 engine; Signalsmith remains an
+# explicit experimental choice which must be requalified before release.
+set(SATTARI_AUTOPITCH_PRINT_ENGINE "RUBBERBAND" CACHE STRING
+    "Auto Pitch print engine: RUBBERBAND (qualified) or SIGNALSMITH (experimental)")
+set_property(CACHE SATTARI_AUTOPITCH_PRINT_ENGINE PROPERTY STRINGS RUBBERBAND SIGNALSMITH)
+string(TOUPPER "${SATTARI_AUTOPITCH_PRINT_ENGINE}" _sattari_auto_pitch_print_engine)
+if(NOT _sattari_auto_pitch_print_engine STREQUAL "RUBBERBAND"
+   AND NOT _sattari_auto_pitch_print_engine STREQUAL "SIGNALSMITH")
+    message(FATAL_ERROR
+        "Invalid SATTARI_AUTOPITCH_PRINT_ENGINE='${SATTARI_AUTOPITCH_PRINT_ENGINE}'. "
+        "Choose RUBBERBAND or SIGNALSMITH.")
+endif()
+
+if(_sattari_auto_pitch_print_engine STREQUAL "RUBBERBAND")
+    if(NOT SATTARI_USE_RUBBERBAND
+       OR NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../third_party/rubberband/single/RubberBandSingle.cpp")
+        message(FATAL_ERROR
+            "Auto Pitch is pinned to RUBBERBAND, but the qualified engine is unavailable. "
+            "Enable SATTARI_USE_RUBBERBAND and initialise third_party/rubberband.")
+    endif()
+    set(_sattari_auto_pitch_print_signalsmith 0)
+else()
+    if(NOT SATTARI_USE_SIGNALSMITH
+       OR NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../third_party/signalsmith-stretch/signalsmith-stretch.h")
+        message(FATAL_ERROR
+            "Auto Pitch is pinned to SIGNALSMITH, but the experimental engine is unavailable. "
+            "Enable SATTARI_USE_SIGNALSMITH and initialise third_party/signalsmith-stretch.")
+    endif()
+    set(_sattari_auto_pitch_print_signalsmith 1)
+endif()
+
+function(sattari_configure_auto_pitch_print_engine target)
+    target_compile_definitions(${target} PRIVATE
+        SATTARI_AUTOPITCH_PRINT_SIGNALSMITH=${_sattari_auto_pitch_print_signalsmith})
+endfunction()
 
 set(SATTARI_AUTOPITCH_ARA_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../third_party/ARA_SDK"
     CACHE PATH "Path to the ARA SDK 2.2 checkout")
@@ -41,7 +81,6 @@ if(SATTARI_AUTOPITCH_ENABLE_AAX)
     list(APPEND _sattari_formats AAX)
 endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariElastique.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariSignalsmith.cmake)
 
 sattari_add_plugin(
     TARGET SattariAutoPitch
@@ -74,6 +113,7 @@ sattari_enable_rubberband(SattariAutoPitch SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(SattariAutoPitch SATTARI_HAS_ONNX)
 sattari_enable_elastique(SattariAutoPitch SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(SattariAutoPitch SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(SattariAutoPitch)
 
 add_executable(AutoPitchCoreContract
     EXCLUDE_FROM_ALL
@@ -110,6 +150,7 @@ sattari_enable_rubberband(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_RUBBERBAND
 sattari_enable_onnx(AutoPitchCoreContract SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchCoreContract)
 
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
@@ -148,6 +189,7 @@ sattari_enable_rubberband(AutoPitchRender SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchRender SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchRender SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(AutoPitchRender SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchRender)
 
 # TWO benches, deliberately. Both sides of the merge defined a target called
 # AutoPitchBench from different sources, so neither is dropped:
@@ -200,6 +242,7 @@ sattari_enable_rubberband(AutoPitchBench SATTARI_AUTOPITCH_HAS_RUBBERBAND)
 sattari_enable_onnx(AutoPitchBench SATTARI_HAS_ONNX)
 sattari_enable_elastique(AutoPitchBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(AutoPitchBench SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchBench)
 
 # The objective suite mirrors the bench's configuration exactly, so the two
 # measure the same engine rather than two differently-configured builds.
@@ -228,6 +271,8 @@ sattari_enable_rubberband(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_RUBBERBA
 sattari_enable_onnx(AutoPitchObjectiveBench SATTARI_HAS_ONNX)
 # Both benches get the same engine configuration, or they measure different builds.
 sattari_enable_elastique(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchObjectiveBench SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchObjectiveBench)
 
 # Phase 3 — deterministic motion-estimator bench (pure C++17, no JUCE).
 # Tests all 5 estimators × 5 window sizes against synthetic trajectories.

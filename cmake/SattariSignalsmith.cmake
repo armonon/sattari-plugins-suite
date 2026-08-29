@@ -11,9 +11,9 @@
 #    include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariSignalsmith.cmake)
 #    sattari_enable_signalsmith(MyTarget MY_HAS_SIGNALSMITH_DEFINE)
 #  -> sets define=1 and links, or =0 with a warning when the submodule is
-#     absent, so the tree falls through to RubberBand.
+#     absent. Individual products explicitly select which linked engine is used.
 #
-#  Engine priority in the plugin: elastique > signalsmith > RubberBand > fallback
+#  Auto Pitch engine selection: SATTARI_AUTOPITCH_PRINT_ENGINE in its CMake file.
 #  License: MIT — free for commercial use, no royalties.
 # =============================================================================
 

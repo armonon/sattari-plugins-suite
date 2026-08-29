@@ -267,6 +267,8 @@ private:
     //  components survive as layout bands so no child is reparented.
     juce::TextButton liveModeButton { "LIVE" };    // the low-latency engine, at last in the UI
     std::unique_ptr<ButtonAttachment> liveModeAttachment;
+    juce::ComboBox liveProfile;
+    std::unique_ptr<ComboAttachment> liveProfileAttachment;
     juce::Label latencyReadout;                    // reported delay of the ACTIVE engine
     juce::TextButton advancedToggle { "ADVANCED" };
     juce::Label songStatusLabel;                   // drop-analysis progress / verdict

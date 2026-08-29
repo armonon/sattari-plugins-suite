@@ -6,10 +6,10 @@
 // glide time, vibrato depth, and a peak/finite safety audit. Where it matters each
 // legacy Live/Low-Latency automation is also probed to prove the Studio quality lock.
 //
-// Every threshold is documented inline; a one-word PASS/WARN is printed against it,
-// but the raw number is always shown so you can judge for yourself. Only a genuine
-// hard failure (NaN / Inf / peak > 0 dBFS) returns non-zero — the accuracy and CPU
-// numbers are reported, never hard-failed, because this is a measurement tool.
+// Every threshold is documented inline and the raw number is always shown. Any
+// printed FAIL in the qualified envelope returns non-zero; WARN remains advisory.
+// Unsupported sample-rate/buffer combinations are labelled OUTSIDE rather than
+// quietly turning an informational stress probe into a release claim.
 //
 // Usage:
 //   auto_pitch_bench                 # run every section
@@ -36,8 +36,8 @@
 namespace
 {
 // ---- global audit state ----------------------------------------------------
-// Aggregated across every render in this invocation. gHardFail is the ONLY thing
-// that makes the tool return non-zero (NaN/Inf or a peak past full scale).
+// Aggregated across every render in this invocation. Safety violations and any
+// threshold FAIL both make the tool return non-zero.
 struct SafetyAudit
 {
     bool  allFinite = true;
@@ -47,6 +47,7 @@ struct SafetyAudit
 };
 SafetyAudit gSafety;
 int gHardFail = 0;
+int gQualityFail = 0;
 
 void setParam (juce::AudioProcessorValueTreeState& apvts, const juce::String& id, float value)
 {
@@ -92,7 +93,8 @@ juce::AudioBuffer<float> makeTone (double sr, double seconds, double hz, float a
 
 // Two held notes, phase-continuous at the boundary (no splice click): hz1 for the
 // first t1 seconds, then hz2 for t2 seconds. Used for the note-transition glide.
-juce::AudioBuffer<float> makeStep (double sr, double t1, double t2, double hz1, double hz2, float amp = 0.4f)
+[[maybe_unused]] juce::AudioBuffer<float> makeStep (double sr, double t1, double t2,
+                                                    double hz1, double hz2, float amp = 0.4f)
 {
     const int n1 = (int) std::round (sr * t1);
     const int n2 = (int) std::round (sr * t2);
@@ -128,7 +130,8 @@ void makeVibratoTone (juce::AudioBuffer<float>& buf, double sr, double seconds,
 
 // A chord: sum of N sustained sine notes (each a frequency in `hz`). Used to probe
 // the polyphonic tuner — every note can be detuned independently by the caller.
-juce::AudioBuffer<float> makeChord (double sr, double seconds, const std::vector<double>& hz, float amp = 0.32f)
+[[maybe_unused]] juce::AudioBuffer<float> makeChord (double sr, double seconds,
+                                                     const std::vector<double>& hz, float amp = 0.32f)
 {
     const int n = (int) std::round (sr * seconds);
     juce::AudioBuffer<float> buf (1, n);
@@ -234,7 +237,7 @@ double toneMag (const juce::AudioBuffer<float>& buf, double sr, double freq)
 
 // First sample where a 32-sample moving-average of |x| crosses `thresh` — a robust
 // onset detector used for the latency measurement.
-int onsetIndex (const juce::AudioBuffer<float>& buf, int ch, double thresh)
+[[maybe_unused]] int onsetIndex (const juce::AudioBuffer<float>& buf, int ch, double thresh)
 {
     const int n = buf.getNumSamples();
     const int win = 32;
@@ -251,6 +254,8 @@ int onsetIndex (const juce::AudioBuffer<float>& buf, int ch, double thresh)
 
 const char* verdict (bool pass, bool warn)
 {
+    if (! pass && ! warn)
+        ++gQualityFail;
     return pass ? "PASS" : (warn ? "WARN" : "FAIL");
 }
 
@@ -276,12 +281,15 @@ const int    kBlock = 512;
 void runAccuracy()
 {
     std::printf ("\n== 1. CORRECTION ACCURACY  (|cents error to nearest scale tone|) ==\n");
-    const int notes[]   = { 48, 52, 55, 60, 64, 67, 72 };   // C3 E3 G3 C4 E4 G4 C5 (all in C major)
+    const std::vector<int> standardNotes { 48, 52, 55, 60, 64, 67, 72 }; // C3..C5
+    const std::vector<int> extendedNotes { 40, 43, 45, 48, 52, 55, 60, 64, 67, 72 }; // E2..C5
     const double det[]  = { 30.0, -30.0, 50.0, -45.0 };     // input detune in cents
 
-    for (int engine = 0; engine < 2; ++engine)
+    for (int engine = 0; engine < 3; ++engine)
     {
-        const bool live = (engine == 1);
+        const bool live = engine > 0;
+        const bool extended = engine == 2;
+        const auto& notes = extended ? extendedNotes : standardNotes;
         double sumErr = 0.0, maxErr = 0.0; int cases = 0;
         for (int m : notes)
             for (double dc : det)
@@ -298,7 +306,8 @@ void runAccuracy()
                 setParam (a, "amount", 1.0f);           setParam (a, "speed", 0.9f);
                 setParam (a, "enableCorrection", 1.0f); setParam (a, "doNoHarm", 0.0f);
                 setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
-                setParam (a, "vibrato", 0.0f);          setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+                setParam (a, "vibrato", 0.0f);          setParam (a, "liveMode", live ? 1.0f : 0.0f);
+                setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
                 // Neural Pitch defaults ON, and its detections arrive from a BACKGROUND
                 // worker whose timing relative to the audio blocks is not reproducible.
                 // Leaving it on made this measurement swing 3.8-5.6 ct mean (max 17-48)
@@ -325,10 +334,13 @@ void runAccuracy()
                 const double err  = std::fabs (outMidi - (double) tgt) * 100.0;
                 sumErr += err; maxErr = std::max (maxErr, err); ++cases;
             }
+        const int expectedCases = (int) notes.size() * 4;
+        const bool complete = cases == expectedCases;
         const double mean = cases > 0 ? sumErr / (double) cases : 999.0;
-        const char*  v = verdict (mean < 5.0, mean < 15.0);
+        const char* v = verdict (complete && mean < 5.0, complete && mean < 15.0);
         std::printf ("  %-12s mean=%6.2f ct   max=%6.2f ct   (n=%d)   [%s]\n",
-                     live ? "Studio lock" : "Rubber Band", mean, maxErr, cases, v);
+                     ! live ? "Studio HQ" : extended ? "Live Range" : "Live Ultra",
+                     mean, maxErr, cases, v);
     }
     std::printf ("  thresholds: mean < 5 ct PASS, < 15 ct WARN\n");
 }
@@ -374,18 +386,22 @@ void runLatency()
     // disabled so this measures the engine's fixed group delay—the quantity a host
     // can compensate—without content-dependent pitch-automation smearing.
     // All legacy choices must remain on the same latency while PSOLA is quality-locked.
-    for (int engine = 0; engine < 3; ++engine)
+    for (int engine = 0; engine < 5; ++engine)
     {
-        const bool live   = (engine >= 1);
+        const bool legacyLive = (engine == 1 || engine == 2);
         const bool lowLat = (engine == 2);
+        const bool liveMode = engine >= 3;
+        const bool extended = engine == 4;
         SattariAutoPitchAudioProcessor p;
         auto& a = p.parameters();
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);   // A major (440 in scale)
         setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
         setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);
         setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 0.0f);
-        setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+        setParam (a, "liveEngine", legacyLive ? 1.0f : 0.0f);
         setParam (a, "lowLatency", lowLat ? 1.0f : 0.0f);
+        setParam (a, "liveMode", liveMode ? 1.0f : 0.0f);
+        setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
         const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
         auditSafety (out, "latency");
 
@@ -395,10 +411,21 @@ void runLatency()
         const double repMs  = 1000.0 * (double) reported / kSr;
         const double measMs = 1000.0 * (double) measured / kSr;
         const double diffMs = std::fabs (repMs - measMs);
-        const char*  label  = engine == 0 ? "Rubber Band" : engine == 1 ? "Studio lock" : "LowLat lock";
+        const char* label = engine == 0 ? "Studio HQ"
+                          : engine == 1 ? "Legacy lock"
+                          : engine == 2 ? "LowLat lock"
+                          : engine == 3 ? "Live Ultra"
+                                        : "Live Range";
         const bool honest = (measured >= 0 && diffMs <= 3.0);
         std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
                      label, reported, repMs, measured, measMs, diffMs, verdict (honest, measured >= 0));
+        if (engine == 3)
+        {
+            const int limit = (int) std::floor (0.012 * kSr);
+            std::printf ("  %-12s target <=%4d smp (12.00 ms)   actual=%4d smp   [%s]\n",
+                         "Ultra gate", limit, reported,
+                         verdict (reported <= limit, false));
+        }
     }
 
     // The bypass rows above prove the host contract but no longer traverse the
@@ -480,22 +507,23 @@ void runArtifacts()
     std::printf ("\n== 3. ARTIFACTS / THD  (harmonic-2..8 distortion + aliasing proxy) ==\n");
     const double f0 = 440.0;
 
-    auto thdOf = [&] (const juce::AudioBuffer<float>& b) {
-        const double fund = toneMag (b, kSr, f0);
+    auto thdOf = [&] (const juce::AudioBuffer<float>& b, double fundamental) {
+        const double fund = toneMag (b, kSr, fundamental);
         double hp = 0.0;
-        for (int k = 2; k <= 8; ++k) { const double m = toneMag (b, kSr, f0 * (double) k); hp += m * m; }
+        for (int k = 2; k <= 8; ++k) { const double m = toneMag (b, kSr, fundamental * (double) k); hp += m * m; }
         return fund > 1.0e-12 ? std::sqrt (hp) / fund : 0.0;
     };
-    auto aliasOf = [&] (const juce::AudioBuffer<float>& b) {
-        const double fund = toneMag (b, kSr, f0);
+    auto aliasOf = [&] (const juce::AudioBuffer<float>& b, double fundamental) {
+        const double fund = toneMag (b, kSr, fundamental);
         double ap = 0.0;
-        for (double k : { 2.5, 3.5, 4.5, 5.5 }) { const double m = toneMag (b, kSr, f0 * k); ap += m * m; }
+        for (double k : { 2.5, 3.5, 4.5, 5.5 }) { const double m = toneMag (b, kSr, fundamental * k); ap += m * m; }
         return fund > 1.0e-12 ? std::sqrt (ap) / fund : 0.0;
     };
 
-    for (int engine = 0; engine < 2; ++engine)
+    for (int engine = 0; engine < 3; ++engine)
     {
-        const bool live = (engine == 1);
+        const bool live = engine > 0;
+        const bool extended = engine == 2;
         auto render = [&] (double inHz) {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
@@ -503,21 +531,37 @@ void runArtifacts()
             setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
             setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);   // Natural: no saturation colour
             setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
-            setParam (a, "doNoHarm", 0.0f);         setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+            setParam (a, "doNoHarm", 0.0f);         setParam (a, "liveMode", live ? 1.0f : 0.0f);
+            setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
             const auto out = sattari::harness::renderThrough (p, makeTone (kSr, 2.0, inHz), kSr, kBlock);
             auditSafety (out, "thd");
             return out;
         };
         const auto clean = render (f0);
         const auto det   = render (f0 * std::pow (2.0, 30.0 / 1200.0));   // +30 ct, correction active
-        const double thdClean = thdOf (clean) * 100.0;
-        const double thdDet   = thdOf (det)   * 100.0;
-        const double alias    = aliasOf (clean) * 100.0;
-        const char*  v = verdict (thdClean < 3.0, thdClean < 8.0);
+        const double thdClean = thdOf (clean, f0) * 100.0;
+        const double thdDet   = thdOf (det, f0)   * 100.0;
+        const double alias    = aliasOf (clean, f0) * 100.0;
+        const double worstThd = std::max (thdClean, thdDet);
+        const char* v = verdict (worstThd < 3.0, worstThd < 8.0);
         std::printf ("  %-12s THD in-tune=%5.2f%%   THD corrected=%5.2f%%   alias=%5.2f%%   [%s]\n",
-                     live ? "Studio lock" : "Rubber Band", thdClean, thdDet, alias, v);
+                     ! live ? "Studio HQ" : extended ? "Live Range" : "Live Ultra",
+                     thdClean, thdDet, alias, v);
+
+        if (extended)
+        {
+            const double lowF0 = sattari::dsp::midiToHz (40.0f); // E2, inside A major
+            const auto lowClean = render (lowF0);
+            const auto lowDet = render (lowF0 * std::pow (2.0, 30.0 / 1200.0));
+            const double lowCleanThd = thdOf (lowClean, lowF0) * 100.0;
+            const double lowDetThd = thdOf (lowDet, lowF0) * 100.0;
+            const double lowWorst = std::max (lowCleanThd, lowDetThd);
+            std::printf ("  %-12s THD in-tune=%5.2f%%   THD corrected=%5.2f%%   E2 low-band   [%s]\n",
+                         "Range E2", lowCleanThd, lowDetThd,
+                         verdict (lowWorst < 3.0, lowWorst < 8.0));
+        }
     }
-    std::printf ("  threshold: in-tune THD < 3%% PASS, < 8%% WARN\n");
+    std::printf ("  threshold: worst in-tune/corrected THD < 3%% PASS, < 8%% WARN\n");
 }
 
 // ============================================================================
@@ -534,33 +578,31 @@ void runCpu()
 {
     std::printf ("\n== 4. CPU / REAL-TIME FACTOR  (2000 x 512-sample blocks @ 48k) ==\n");
     const int   nBlocks   = 2000;
-    const double audioSec = (double) (nBlocks * kBlock) / kSr;
     //  Matrix state: the run lambda below honours these so one implementation
     //  serves both the headline figures and the sample-rate/buffer sweep.
     double mSr = kSr; int mBlock = kBlock;
 
-    auto probe = [] (bool tone) { juce::ignoreUnused (tone); };
-    juce::ignoreUnused (probe);
-
-    auto run = [&] (const char* label, bool live, bool neural) {
-        const double kSr = mSr; const int kBlock = mBlock;
-        const double audioSec = (double) (nBlocks * kBlock) / kSr;
+    auto run = [&] (const char* label, bool live, bool extended, bool neural, bool qualified) {
+        const double sr = mSr;
+        const int blockSize = mBlock;
+        const double audioSec = (double) (nBlocks * blockSize) / sr;
         SattariAutoPitchAudioProcessor p;
         auto& a = p.parameters();
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);
         setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
         setParam (a, "style", 0.0f);            setParam (a, "amount", 1.0f);
         setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
-        setParam (a, "liveEngine", live ? 1.0f : 0.0f);
+        setParam (a, "liveMode", live ? 1.0f : 0.0f);
+        setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
         setParam (a, "neuralPitch", neural ? 1.0f : 0.0f);
-        p.setRateAndBufferSizeDetails (kSr, kBlock);
-        p.prepareToPlay (kSr, kBlock);
+        p.setRateAndBufferSizeDetails (sr, blockSize);
+        p.prepareToPlay (sr, blockSize);
 
         // Fixed A4 stimulus block (regenerated once).
-        juce::AudioBuffer<float> src (2, kBlock);
-        { double ph = 0.0; for (int i = 0; i < kBlock; ++i) { const float s = 0.4f * (float) std::sin (ph); src.setSample (0, i, s); src.setSample (1, i, s); ph += 2.0 * M_PI * 440.0 / kSr; } }
+        juce::AudioBuffer<float> src (2, blockSize);
+        { double ph = 0.0; for (int i = 0; i < blockSize; ++i) { const float s = 0.4f * (float) std::sin (ph); src.setSample (0, i, s); src.setSample (1, i, s); ph += 2.0 * M_PI * 440.0 / sr; } }
 
-        juce::AudioBuffer<float> work (2, kBlock);
+        juce::AudioBuffer<float> work (2, blockSize);
         std::vector<double> perBlockMs;  perBlockMs.reserve ((size_t) nBlocks);
         std::vector<double> perBlockCpu; perBlockCpu.reserve ((size_t) nBlocks);
         double totalMs = 0.0;
@@ -610,11 +652,13 @@ void runCpu()
         const double rtf   = (totalMs / 1000.0) / audioSec;
         //  The verdict follows CPU time. Real-time capability is a property of
         //  how much work the block does, and the budget is the block duration.
-        const double budgetMs = 1000.0 * (double) kBlock / kSr;
-        const char*  v = verdict (cpuP95 < budgetMs * 0.5, cpuP95 < budgetMs);
+        const double budgetMs = 1000.0 * (double) blockSize / sr;
+        const char* v = qualified
+                      ? verdict (cpuP95 < budgetMs * 0.5, cpuP95 < budgetMs)
+                      : "OUTSIDE";
         if (label[0] == '\0')
             std::printf ("  %8.0f %7d %8.2f ms %8.3f ms %8.1fx %s\n",
-                         kSr, kBlock, budgetMs, cpuP95,
+                         sr, blockSize, budgetMs, cpuP95,
                          cpuP95 > 1.0e-9 ? budgetMs / cpuP95 : 0.0, v);
         else
             std::printf ("  %-22s RTF=%.3f  mean=%.3f ms/blk   wall p95=%.3f p99=%.3f   "
@@ -626,25 +670,27 @@ void runCpu()
     bool neuralPresent = false;
     { SattariAutoPitchAudioProcessor q; q.prepareToPlay (kSr, kBlock); neuralPresent = q.neuralModelPresent(); }
 
-    run ("Rubber Band", false, false);
-    run ("Studio lock", true, false);
-    if (neuralPresent) run ("Studio + Neural Pitch", true, true);
+    run ("Studio HQ", false, false, false, true);
+    run ("Live Ultra", true, false, false, true);
+    run ("Live Extended", true, true, false, true);
+    if (neuralPresent) run ("Ultra + Neural Pitch", true, false, true, true);
     std::printf ("  neural model (crepe.onnx) present: %s\n", neuralPresent ? "yes" : "no");
     std::printf ("  verdict follows CPU p95 against the block budget, not wall time\n");
 
     //  SAMPLE-RATE / BUFFER MATRIX. Real-time capability is not one number: the
     //  budget shrinks with the buffer (128 samples at 48k is 2.67 ms) while
     //  per-block overhead does not shrink with it, so small buffers are where a
-    //  plugin actually fails. Studio lock is swept because it was the engine the
-    //  2026-08-09 scorecard flagged.
-    std::printf ("\n  -- Studio lock across sample rate x buffer --\n");
+    // plugin actually fails. Live Mode is swept because it is the product's
+    // supported low-latency path. 96 kHz remains an explicit stress probe and is
+    // outside the current qualified Live envelope (44.1/48 kHz).
+    std::printf ("\n  -- Live Mode across sample rate x buffer --\n");
     std::printf ("  %8s %7s %10s %10s %9s %s\n",
                  "rate", "buffer", "budget", "CPU p95", "headroom", "verdict");
     for (double sr : { 44100.0, 48000.0, 96000.0 })
         for (int blk : { 64, 128, 256, 512, 1024 })
         {
             mSr = sr; mBlock = blk;
-            run ("", true, false);
+            run ("", true, false, false, sr <= 48000.0);
         }
     mSr = kSr; mBlock = kBlock;
 }
@@ -788,7 +834,7 @@ void runVibrato()
         setParam (a, "vocalRange", 0.0f);       setParam (a, "followSongKey", 0.0f);
         setParam (a, "style", 2.0f);            setParam (a, "amount", 1.0f);
         setParam (a, "speed", 0.95f);           setParam (a, "enableCorrection", 1.0f);
-        setParam (a, "vibrato", 0.0f);          setParam (a, "liveEngine", 1.0f);
+        setParam (a, "vibrato", 0.0f);          setParam (a, "liveMode", 1.0f);
         setParam (a, "addVibrato", 50.0f);      setParam (a, "vibratoRate", 5.5f);
         setParam (a, "vibratoOnset", 300.0f);
         const auto out = sattari::harness::renderThrough (p, tone, kSr, kBlock);
@@ -919,6 +965,15 @@ int main (int argc, char** argv)
 
     const std::string sec = (argc > 1) ? argv[1] : "all";
     const bool all = (sec == "all");
+    const bool validSection = all || sec == "accuracy" || sec == "latency"
+        || sec == "artifacts" || sec == "thd" || sec == "cpu"
+        || sec == "transition" || sec == "vibrato"
+        || sec == "polyphonic" || sec == "poly" || sec == "safety";
+    if (! validSection)
+    {
+        std::fprintf (stderr, "Unknown benchmark section: %s\n", sec.c_str());
+        return 2;
+    }
 
     std::printf ("=================================================================\n");
     std::printf ("  Sattari Auto Pitch — OBJECTIVE benchmark  (48 kHz, block 512)\n");
@@ -942,5 +997,7 @@ int main (int argc, char** argv)
 
     if (gHardFail > 0)
         std::fprintf (stderr, "HARD FAILURE: %d NaN/Inf/over-full-scale violation(s)\n", gHardFail);
-    return gHardFail > 0 ? 1 : 0;
+    if (gQualityFail > 0)
+        std::fprintf (stderr, "QUALITY FAILURE: %d qualified threshold failure(s)\n", gQualityFail);
+    return (gHardFail + gQualityFail) > 0 ? 1 : 0;
 }

@@ -129,10 +129,14 @@ inline bool writeWav (const juce::File& file, const juce::AudioBuffer<float>& bu
     juce::WavAudioFormat fmt;
     std::unique_ptr<juce::FileOutputStream> stream (file.createOutputStream());
     if (stream == nullptr) return false;
+    const auto options = juce::AudioFormatWriterOptions {}
+        .withSampleRate (sr)
+        .withNumChannels (buf.getNumChannels())
+        .withBitsPerSample (24);
+    std::unique_ptr<juce::OutputStream> output (stream.release());
     std::unique_ptr<juce::AudioFormatWriter> writer (
-        fmt.createWriterFor (stream.get(), sr, (unsigned int) buf.getNumChannels(), 24, {}, 0));
+        fmt.createWriterFor (output, options));
     if (writer == nullptr) return false;
-    stream.release();   // writer owns it now
     return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
 }
 

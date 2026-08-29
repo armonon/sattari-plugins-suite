@@ -50,8 +50,8 @@ feature-by-feature implementation and remaining external SDK gates.
 The 0.5.0 RC3 path reports 2,885 samples at 48 kHz (60.10 ms). The delayed-dry
 path nulls at negative infinity with zero alignment error; forced-unity R3 and
 a genuinely corrected onset land 0.77 ms either side of the centred host report.
-Mean steady-note correction error is 0.01 cents. A measured -30 ms moving-control
-offset on Classic mode suppresses a controlled 5.5 Hz vibrato from 19.7 to 4.0
+Mean steady-note correction error is 0.01 cents. A measured -20 ms moving-control
+offset on Classic mode suppresses a controlled 5.5 Hz vibrato from 19.7 to 5.1
 cents without changing steady correction or fresh note transitions. R3/Finer is
 still a print-quality engine: begin testing at 48 kHz / 512 samples; 64/128-sample
 and 96 kHz sessions remain outside the approved envelope.
@@ -59,11 +59,25 @@ and 96 kHz sessions remain outside the approved envelope.
 Adaptive 128-sample ratio interpolation keeps note-transition timing within
 5.3 ms across 64–1024-sample host buffers without taxing stationary notes. The
 experimental legacy PSOLA path remains serialized for old-session compatibility
-but is not selectable. A separate `SattariLivePitchEngine` alpha now provides
-causal YIN, waveform-locked epochs, exact unity dry, transient-safe crossfades
-and a measured 15.17 ms normal-vocal foundation. It remains isolated from the
-plugin until private real-vocal listening and DAW stress qualification pass; see
-`validation/auto-pitch/2026-08-16-live-engine-alpha-01.md`.
+but is not selectable. `SattariLivePitchEngine` is connected to the visible Live
+Mode: causal YIN, waveform-locked epochs, exact unity dry and transient-safe
+crossfades. Two explicit profiles avoid hiding a frequency-range tradeoff:
+
+- **Ultra C3+:** 571 samples / 11.90 ms reported and measured at 48 kHz,
+  0.08-cent mean / 0.17-cent max across 28 detune cases, optimized for
+  fundamentals at C3 and above.
+- **Extended Range:** 1,037 samples / 21.60 ms at 48 kHz, 0.08-cent mean /
+  0.19-cent max across 40 cases from E2 through C5, with a 70 Hz detector floor.
+
+Both profiles measure 0.69% corrected-tone THD and pass the qualified 44.1/48 kHz
+64-1024 buffer CPU matrix. Exact graph-note targets, per-object
+retune/transition/vibrato, bypass, generated vibrato, and Humanize reach both
+paths. AutoKey is clocked by analysis hops rather than host callbacks, so key
+confidence does not change with buffer size. Neural Pitch's guarded fused estimate
+now guides the causal planner while the waveform tracker remains responsible for
+phase-coherent epoch placement; it passes the qualified 512-sample CPU point.
+Real-vocal listening and target-DAW stress remain required before a commercial
+quality claim.
 
 ## Build and prove the neural release shape
 
@@ -98,13 +112,20 @@ model's MIT notice and provenance while keeping optional key models external.
 ## Validation commands
 
 ```bash
-cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRender AutoPitchBench
+cmake --build build/auto-pitch-neural --target AutoPitchCoreContract AutoPitchRender AutoPitchBench AutoPitchObjectiveBench
 ./build/auto-pitch-neural/AutoPitchCoreContract
 ./build/auto-pitch-neural/AutoPitchCoreContract --render-ui-edit /tmp/auto-pitch-edit.png
 ./build/auto-pitch-neural/AutoPitchRender --smoke
 ./build/auto-pitch-neural/AutoPitchRender --hitracktest
-./build/auto-pitch-neural/AutoPitchBench
+./build/auto-pitch-neural/AutoPitchObjectiveBench
 ```
+
+Release builds pin `SATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND`. This is the
+engine covered by the latency, null, golden-render, objective, and listening
+evidence. Initialising the optional Signalsmith submodule no longer changes the
+audio path. Signalsmith can be selected explicitly for engineering evaluation,
+but it must pass the complete qualification set before it can replace the
+release engine.
 
 ## Truth label
 

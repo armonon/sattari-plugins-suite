@@ -134,18 +134,23 @@ private:
         const int compare = length - maxLag - 1;
         yin[0] = 1.0f;
         double running = 0.0;
+        const float* const frame = linear.data();
         for (int tau = 1; tau <= maxLag; ++tau)
         {
-            double difference = 0.0;
+            // A 512-sample frame at vocal level has ample float headroom. Keeping
+            // this inner accumulation in float lets Clang vectorise the hot YIN
+            // loop; double arithmetic here pushed the analysis callback just over
+            // a 48 kHz / 64-sample deadline without improving the selected lag.
+            float difference = 0.0f;
+            const float* const delayed = frame + tau;
             for (int i = 0; i < compare; ++i)
             {
-                const double d = (double) linear[(size_t) i]
-                               - (double) linear[(size_t) (i + tau)];
+                const float d = frame[i] - delayed[i];
                 difference += d * d;
             }
-            running += difference;
+            running += (double) difference;
             yin[(size_t) tau] = (float) (running > 1.0e-18
-                ? difference * (double) tau / running : 1.0);
+                ? (double) difference * (double) tau / running : 1.0);
         }
 
         constexpr float threshold = 0.16f;
@@ -503,6 +508,12 @@ public:
         double retuneMilliseconds = 20.0;    // correction trajectory time constant
         double preserveVibrato = 0.75;       // 0=flatten residual, 1=retain it
         double noteHysteresisCents = 18.0;   // advantage required before note switch
+        double transitionAmount = 1.0;       // 0=sustain speed, 1=fast note changes
+        int forcedTargetMidi = -1;           // >=0: explicit graph/MIDI note target
+        // Generated pitch motion applied after correction strength. This is the
+        // bridge for Auto Pitch's Add Vibrato control; it remains independent of
+        // Amount exactly as it is in the Studio engine.
+        double pitchOffsetCents = 0.0;
         //  Concert reference the integer MIDI grid is anchored to. The snap target
         //  comes from nearestEnabledMidi() on this grid, so a hardcoded 440 pulled
         //  an A=432 session 31.8 cents sharp - the plugin's own Reference Detune /
@@ -537,11 +548,19 @@ public:
 
         const double midi = 69.0 + 12.0 * std::log2 (
             pitch.frequencyHz / (settings.referenceHz > 0.0 ? settings.referenceHz : 440.0));
+        const int forcedTarget = settings.forcedTargetMidi >= 0
+            ? std::clamp (settings.forcedTargetMidi, 0, 127) : -1;
+        const auto selectTarget = [&] (double sourceMidi) noexcept
+        {
+            return forcedTarget >= 0
+                ? forcedTarget : nearestEnabledMidi (sourceMidi, settings.enabledNotes);
+        };
+        bool targetChanged = false;
         if (! voiced)
         {
             centreMidi = midi;
             correctionCents = 0.0;
-            targetMidi = nearestEnabledMidi (midi, settings.enabledNotes);
+            targetMidi = selectTarget (midi);
             voiced = true;
         }
 
@@ -552,7 +571,9 @@ public:
         if (std::abs (midi - centreMidi) > 0.80)
         {
             centreMidi = midi;
-            targetMidi = nearestEnabledMidi (midi, settings.enabledNotes);
+            const int nextTarget = selectTarget (midi);
+            targetChanged = nextTarget != targetMidi;
+            targetMidi = nextTarget;
         }
 
         // Separate the slowly moving sung-note centre from vibrato. Correction
@@ -564,16 +585,23 @@ public:
         // slow centre is only a vibrato decomposition signal; using it for note
         // selection can hold the previous note through a real transition and ask
         // for a correction larger than one semitone.
-        const int candidate = nearestEnabledMidi (midi, settings.enabledNotes);
+        const int candidate = selectTarget (midi);
         if (targetMidi < 0)
+        {
             targetMidi = candidate;
+            targetChanged = true;
+        }
         else if (candidate != targetMidi)
         {
             const double currentDistance = std::abs (midi - (double) targetMidi);
             const double candidateDistance = std::abs (midi - (double) candidate);
-            if (candidateDistance + std::max (0.0, settings.noteHysteresisCents) / 100.0
-                < currentDistance)
+            if (forcedTarget >= 0
+                || candidateDistance + std::max (0.0, settings.noteHysteresisCents) / 100.0
+                    < currentDistance)
+            {
                 targetMidi = candidate;
+                targetChanged = true;
+            }
         }
 
         const double residualSemitones = midi - centreMidi;
@@ -581,12 +609,17 @@ public:
         const double desiredSemitones = (double) targetMidi - centreMidi
                                       - (1.0 - preserve) * residualSemitones;
         const double desiredCents = 100.0 * std::clamp (settings.amount, 0.0, 1.0)
-                                  * desiredSemitones;
+                                  * desiredSemitones
+                                  + std::clamp (settings.pitchOffsetCents, -1200.0, 1200.0);
 
         // Even the Hard setting gets a 1.5 ms dezipper. It is short enough to
         // feel immediate and prevents a parameter/note boundary from making a
         // discontinuous pitch-scale step.
-        const double seconds = std::max (0.0015, 0.001 * settings.retuneMilliseconds);
+        const double transition = std::clamp (settings.transitionAmount, 0.0, 1.0);
+        const double requestedMs = std::max (1.5, settings.retuneMilliseconds);
+        const double activeMs = targetChanged
+            ? requestedMs + transition * (1.5 - requestedMs) : requestedMs;
+        const double seconds = 0.001 * activeMs;
         const double pole = std::exp (-(double) numSamples / (seconds * sr));
         correctionCents = pole * correctionCents + (1.0 - pole) * desiredCents;
         correctionCents = std::clamp (correctionCents, -1200.0, 1200.0);
@@ -632,18 +665,26 @@ public:
     void prepare (double sampleRate, int maximumBlockSize,
                   double minimumHz = 100.0, double maximumHz = 1100.0)
     {
+        sr = sampleRate > 0.0 ? sampleRate : 48000.0;
         tracker.prepare (sampleRate, minimumHz, maximumHz, 256);
         shifter.prepare (sampleRate, minimumHz, maximumHz, maximumBlockSize);
         planner.prepare (sampleRate);
         fallbackPeriod = sampleRate / 180.0;
     }
 
-    void reset() noexcept { tracker.reset(); shifter.reset(); planner.reset(); }
+    void reset() noexcept
+    {
+        tracker.reset();
+        shifter.reset();
+        planner.reset();
+        correctionResult = {};
+    }
 
     void process (const float* input, float* output, int numSamples,
                   double pitchScale) noexcept
     {
         const auto result = tracker.process (input, numSamples);
+        correctionResult = result;
         if (result.voiced && result.periodSamples > 0.0)
             fallbackPeriod = result.periodSamples;
         shifter.process (input, output, numSamples, pitchScale,
@@ -651,18 +692,31 @@ public:
     }
 
     void processCorrected (const float* input, float* output, int numSamples,
-                           const LiveCorrectionPlanner::Settings& settings) noexcept
+                           const LiveCorrectionPlanner::Settings& settings,
+                           const LivePitchTracker::Result* pitchGuide = nullptr) noexcept
     {
-        const auto result = tracker.process (input, numSamples);
-        if (result.voiced && result.periodSamples > 0.0)
-            fallbackPeriod = result.periodSamples;
-        const double scale = planner.update (result, numSamples, settings);
+        const auto tracked = tracker.process (input, numSamples);
+        const bool guideValid = pitchGuide != nullptr && pitchGuide->voiced
+                             && pitchGuide->frequencyHz > 0.0;
+        correctionResult = guideValid ? *pitchGuide : tracked;
+
+        // The waveform tracker remains the preferred epoch period because it is
+        // phase-coherent with this exact channel. Neural/fused guidance may steer
+        // the musical target and can rescue a dropout; it supplies a period only
+        // when the causal tracker has none.
+        if (tracked.voiced && tracked.periodSamples > 0.0)
+            fallbackPeriod = tracked.periodSamples;
+        else if (guideValid)
+            fallbackPeriod = pitchGuide->periodSamples > 0.0
+                ? pitchGuide->periodSamples : sr / pitchGuide->frequencyHz;
+
+        const double scale = planner.update (correctionResult, numSamples, settings);
         shifter.process (input, output, numSamples, scale,
-                         fallbackPeriod, result.voiced);
+                         fallbackPeriod, tracked.voiced || guideValid);
     }
 
     int getLatencySamples() const noexcept { return shifter.getLatencySamples(); }
-    LivePitchTracker::Result getPitchResult() const noexcept { return tracker.getResult(); }
+    LivePitchTracker::Result getPitchResult() const noexcept { return correctionResult; }
     int getTargetMidi() const noexcept { return planner.getTargetMidi(); }
     double getCorrectionCents() const noexcept { return planner.getCorrectionCents(); }
 
@@ -671,6 +725,8 @@ private:
     LiveEpochShifter shifter;
     LiveCorrectionPlanner planner;
     double fallbackPeriod = 266.7;
+    double sr = 48000.0;
+    LivePitchTracker::Result correctionResult;
 };
 
 } // namespace sattari::dsp
