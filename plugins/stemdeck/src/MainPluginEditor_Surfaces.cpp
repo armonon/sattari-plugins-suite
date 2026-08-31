@@ -55,3 +55,18 @@ void MainPluginEditor::selectPrimarySurface (PrimarySurface surface)
 
     resized();
 }
+
+void MainPluginEditor::setMasterDetailVisible (bool visible, bool showAdvanced)
+{
+    selectPrimarySurface (PrimarySurface::perform);
+    masterFocused = visible;
+    focusMode = false;
+    if (visible)
+    {
+        advancedVisible = showAdvanced;
+        advancedToggle.setToggleState (showAdvanced, juce::dontSendNotification);
+        advancedToggle.setButtonText (showAdvanced ? "Less" : "More");
+    }
+    resized();
+    repaint();
+}

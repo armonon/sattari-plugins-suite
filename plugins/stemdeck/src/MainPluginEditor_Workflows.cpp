@@ -465,17 +465,18 @@ public:
 
         destination.getParentDirectory().createDirectory();
         destination.deleteFile();
-        auto stream = destination.createOutputStream();
+        std::unique_ptr<juce::OutputStream> stream = destination.createOutputStream();
         if (stream == nullptr)
             return finish (false, peak);
 
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (
-            wav.createWriterFor (
-                stream.get(), sampleRate, 2, 24, {}, 0));
+        const auto writerOptions = juce::AudioFormatWriterOptions{}
+                                       .withSampleRate (sampleRate)
+                                       .withNumChannels (2)
+                                       .withBitsPerSample (24);
+        auto writer = wav.createWriterFor (stream, writerOptions);
         if (writer == nullptr)
             return finish (false, peak);
-        stream.release();
 
         // The measurement and write passes must begin from identical state.
         masterFx.reset();
@@ -549,6 +550,8 @@ juce::String MainPluginEditor::buildDiagnosticsReport() const
            << "Audio sample rate: " << juce::String (processorRef.getRecordingSampleRate(), 1) << " Hz\n"
            << "Audio block size: " << processorRef.getRecordingBlockSize() << " samples\n"
            << "Audio CPU load: " << juce::String (processorRef.getAudioCpuLoad() * 100.0f, 1) << "%\n"
+           << "Audio callback heartbeat: " << (audioCallbackHealthy ? "Running" : "Not observed") << "\n"
+           << "Processed audio blocks: " << juce::String (processorRef.getProcessedAudioBlockCount()) << "\n"
            << "Dropped audio buffers: " << processorRef.getDroppedBufferCount() << "\n"
            << "Dropped capture events: " << processorRef.getDroppedCaptureEventCount() << "\n"
            << "Intent coverage: " << processorRef.getIntentCaptureCoverage() << "/"
@@ -713,13 +716,13 @@ void MainPluginEditor::showDiagnostics()
             juce::FileBrowserComponent::saveMode
                 | juce::FileBrowserComponent::canSelectFiles
                 | juce::FileBrowserComponent::warnAboutOverwriting,
-            [safe, chooser, report = std::move (report)] (const juce::FileChooser& fc)
+            [safe, chooser, savedReport = std::move (report)] (const juce::FileChooser& fc)
             {
                 auto file = fc.getResult();
                 if (file == juce::File())
                     return;
                 file = file.withFileExtension ("txt");
-                const bool ok = file.replaceWithText (report);
+                const bool ok = file.replaceWithText (savedReport);
                 if (safe != nullptr)
                     safe->recordStatus.setText (
                         ok ? "Saved diagnostics: " + file.getFileName()
@@ -862,12 +865,14 @@ void MainPluginEditor::exportArrangementMixdown()
                     ? clip.trimEndSeconds : clip.durationSeconds);
             if (end - start <= 0.001)
                 continue;
-            MixdownClip mix {
-                clip.file, clip.timelineStartSeconds, start,
-                end - start, clip.fadeInSeconds,
-                clip.fadeOutSeconds,
-                laneGain * juce::Decibels::decibelsToGain (clip.gainDb), {}
-            };
+            MixdownClip mix;
+            mix.file = clip.file;
+            mix.timelineStart = clip.timelineStartSeconds;
+            mix.sourceStart = start;
+            mix.length = end - start;
+            mix.fadeIn = clip.fadeInSeconds;
+            mix.fadeOut = clip.fadeOutSeconds;
+            mix.gain = laneGain * juce::Decibels::decibelsToGain (clip.gainDb);
             if (const auto* dsp =
                     arrangementView.capturedDspForLane (lane);
                 dsp != nullptr)
@@ -938,11 +943,15 @@ void MainPluginEditor::exportArrangementMixdown()
                     ? clip.trimEndSeconds : clip.durationSeconds);
             if (end - start <= 0.001)
                 continue;
-            clips.push_back ({
-                clip.file, clip.timelineStartSeconds, start,
-                end - start, clip.fadeInSeconds, clip.fadeOutSeconds,
-                laneGain * juce::Decibels::decibelsToGain (clip.gainDb), {}
-            });
+            MixdownClip mix;
+            mix.file = clip.file;
+            mix.timelineStart = clip.timelineStartSeconds;
+            mix.sourceStart = start;
+            mix.length = end - start;
+            mix.fadeIn = clip.fadeInSeconds;
+            mix.fadeOut = clip.fadeOutSeconds;
+            mix.gain = laneGain * juce::Decibels::decibelsToGain (clip.gainDb);
+            clips.push_back (std::move (mix));
         }
         usingPrintedMaster = ! clips.empty();
     }
@@ -981,7 +990,7 @@ void MainPluginEditor::exportArrangementMixdown()
         }
     }
 
-    MixdownMasterSettings master;
+    MixdownMasterSettings mixdownMaster;
     auto value = [this] (const juce::String& id, float fallback)
     {
         if (auto* parameter =
@@ -991,34 +1000,34 @@ void MainPluginEditor::exportArrangementMixdown()
     };
     if (! usingPrintedMaster)
     {
-        master.gainDb = value ("master", 0.0f);
-        master.fxX = value ("masterFxX", 0.5f);
-        master.fxY = value ("masterFxY", 0.0f);
-        master.smartOn = value ("smartMasterOn", 0.0f) > 0.5f;
-        master.smartMode = (int) std::round (
+        mixdownMaster.gainDb = value ("master", 0.0f);
+        mixdownMaster.fxX = value ("masterFxX", 0.5f);
+        mixdownMaster.fxY = value ("masterFxY", 0.0f);
+        mixdownMaster.smartOn = value ("smartMasterOn", 0.0f) > 0.5f;
+        mixdownMaster.smartMode = (int) std::round (
             value ("smartMasterMode", 0.0f));
-        master.smartAmount = value ("smartMasterAmount", 0.0f);
-        master.limiterCeilingDb = value ("limiterCeiling", -1.0f);
+        mixdownMaster.smartAmount = value ("smartMasterAmount", 0.0f);
+        mixdownMaster.limiterCeilingDb = value ("limiterCeiling", -1.0f);
         const auto& performedMaster =
             arrangementView.capturedMasterAutomation();
-        master.gainAutomation = performedMaster.gainDb;
-        master.fxXAutomation = performedMaster.fxX;
-        master.fxYAutomation = performedMaster.fxY;
-        master.smartAmountAutomation = performedMaster.smartAmount;
-        master.smartModeAutomation = performedMaster.smartMode;
-        master.smartOnAutomation = performedMaster.smartOn;
-        master.limiterAutomation = performedMaster.limiterCeilingDb;
+        mixdownMaster.gainAutomation = performedMaster.gainDb;
+        mixdownMaster.fxXAutomation = performedMaster.fxX;
+        mixdownMaster.fxYAutomation = performedMaster.fxY;
+        mixdownMaster.smartAmountAutomation = performedMaster.smartAmount;
+        mixdownMaster.smartModeAutomation = performedMaster.smartMode;
+        mixdownMaster.smartOnAutomation = performedMaster.smartOn;
+        mixdownMaster.limiterAutomation = performedMaster.limiterCeilingDb;
     }
     else
     {
         // The reference lane is already the finished live bus. Keep export neutral
         // so its performed gain, Smart Master, FX and limiter are not applied twice.
-        master.gainDb = 0.0f;
-        master.fxX = 0.5f;
-        master.fxY = 0.0f;
-        master.smartOn = false;
-        master.smartAmount = 0.0f;
-        master.limiterCeilingDb = 0.0f;
+        mixdownMaster.gainDb = 0.0f;
+        mixdownMaster.fxX = 0.5f;
+        mixdownMaster.fxY = 0.0f;
+        mixdownMaster.smartOn = false;
+        mixdownMaster.smartAmount = 0.0f;
+        mixdownMaster.limiterCeilingDb = 0.0f;
     }
 
     if (clips.empty() && midiNotes.empty())
@@ -1040,8 +1049,8 @@ void MainPluginEditor::exportArrangementMixdown()
             | juce::FileBrowserComponent::canSelectFiles
             | juce::FileBrowserComponent::warnAboutOverwriting,
         [safe = juce::Component::SafePointer<MainPluginEditor> (this),
-         chooser, clips = std::move (clips),
-         midiNotes = std::move (midiNotes), midiBpm, midiGains, master]
+         chooser, exportedClips = std::move (clips),
+         exportedMidiNotes = std::move (midiNotes), midiBpm, midiGains, mixdownMaster]
         (const juce::FileChooser& fc) mutable
         {
             if (safe == nullptr) return;
@@ -1055,11 +1064,11 @@ void MainPluginEditor::exportArrangementMixdown()
                 new ArrangementMixdownJob (
                     destination,
                     safe->processorRef.getRecordingSampleRate(),
-                    std::move (clips),
-                    std::move (midiNotes),
+                    std::move (exportedClips),
+                    std::move (exportedMidiNotes),
                     midiBpm,
                     midiGains,
-                    master,
+                    mixdownMaster,
                     [safe] (bool ok, juce::File file, float peak)
                     {
                         if (safe == nullptr) return;

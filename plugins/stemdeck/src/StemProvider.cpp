@@ -254,12 +254,15 @@ bool StemProvider::runNeuralSeparation (const juce::File& sourceFile, const juce
     {
         auto outFile = cacheDirectory.getChildFile (name);
         outFile.deleteFile();
-        std::unique_ptr<juce::FileOutputStream> os (outFile.createOutputStream());
+        std::unique_ptr<juce::OutputStream> os (outFile.createOutputStream());
         if (os == nullptr) return false;
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (os.get(), sr, 2, 24, {}, 0));
+        const auto options = juce::AudioFormatWriterOptions{}
+                                 .withSampleRate (sr)
+                                 .withNumChannels (2)
+                                 .withBitsPerSample (24);
+        auto writer = wav.createWriterFor (os, options);
         if (writer == nullptr) return false;
-        os.release();   // writer takes ownership of the stream
         return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
     };
 
@@ -338,12 +341,15 @@ bool StemProvider::runNeuralSeparationStreaming (const juce::File& sourceFile, c
     {
         auto outFile = cacheDirectory.getChildFile (name);
         outFile.deleteFile();
-        std::unique_ptr<juce::FileOutputStream> os (outFile.createOutputStream());
+        std::unique_ptr<juce::OutputStream> os (outFile.createOutputStream());
         if (os == nullptr) return false;
         juce::WavAudioFormat wav;
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (os.get(), sr, 2, 24, {}, 0));
+        const auto options = juce::AudioFormatWriterOptions{}
+                                 .withSampleRate (sr)
+                                 .withNumChannels (2)
+                                 .withBitsPerSample (24);
+        auto writer = wav.createWriterFor (os, options);
         if (writer == nullptr) return false;
-        os.release();
         return writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
     };
 

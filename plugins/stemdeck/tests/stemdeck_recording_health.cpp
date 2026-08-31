@@ -2,6 +2,7 @@
 #include "MasterRecorder.h"
 #include "EventStream.h"
 #include "ArrangementComping.h"
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -55,6 +56,8 @@ int main (int argc, char** argv)
     constexpr double sr = 48000.0;
     constexpr int block = 512;
     processor.prepareToPlay (sr, block);
+    check (processor.getProcessedAudioBlockCount() == 0,
+           "audio callback heartbeat starts at zero before the first block");
 
     auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory)
                    .getNonexistentChildFile ("stemdeck-recording-health", {}, false);
@@ -98,17 +101,105 @@ int main (int argc, char** argv)
     }
 
     auto& midiMap = processor.getMidiMapping();
+    check (midiMap.numCc() > 100 && midiMap.numNote() > 75,
+           "controller layer covers master, decks, stems, hot cues, pads and safety");
+    check (midiMap.ccName (3) == "Deck A Volume"
+               && midiMap.noteName (MainPluginProcessor::numDecks * 2) == "Pad 1",
+           "expanded targets preserve the historical index bank for old projects");
     midiMap.beginLearnCc (0);
     juce::MidiBuffer learnMidi;
-    learnMidi.addEvent (juce::MidiMessage::controllerEvent (1, 74, 81), 0);
+    learnMidi.addEvent (juce::MidiMessage::controllerEvent (3, 74, 64), 0);
     midiMap.processBlock (learnMidi);
+    const auto learnedCc = midiMap.pollLearnResult();
+    check (learnedCc.valid && learnedCc.isCc && learnedCc.controller == 74
+               && learnedCc.midiChannel == 3,
+           "MIDI learn records the controller channel as well as its number");
     const auto controllerPreset = midiMap.serializeNamedPreset ("Health Check");
+    midiMap.clearAll();
+    midiMap.deserialize ("C7=0;N36=0");
+    check (midiMap.ccForTarget (0) == 7 && midiMap.ccChannelForTarget (0) == 0,
+           "legacy index-based project mappings still load as any-channel bindings");
     midiMap.clearAll();
     juce::String controllerError;
     check (midiMap.deserializeNamedPreset (controllerPreset, controllerError)
-               && midiMap.ccForTarget (0) == 74,
+               && midiMap.ccForTarget (0) == 74
+               && midiMap.ccChannelForTarget (0) == 3,
            "named controller preset round-trips by target identity");
 
+    auto* crossfaderParam = midiMap.ccParameter (0);
+    const float crossfaderBefore = crossfaderParam != nullptr ? crossfaderParam->getValue() : -1.0f;
+    juce::MidiBuffer wrongChannelCc;
+    wrongChannelCc.addEvent (juce::MidiMessage::controllerEvent (2, 74, 100), 0);
+    midiMap.processBlock (wrongChannelCc);
+    processor.serviceDeferredActions();
+    check (crossfaderParam != nullptr
+               && std::abs (crossfaderParam->getValue() - crossfaderBefore) < 0.0001f,
+           "a learned CC ignores the same controller number on another MIDI channel");
+
+    juce::MidiBuffer mappedCc;
+    mappedCc.addEvent (juce::MidiMessage::controllerEvent (3, 74, 64), 0);  // pickup
+    mappedCc.addEvent (juce::MidiMessage::controllerEvent (3, 74, 100), 1);
+    midiMap.processBlock (mappedCc);
+    check (std::abs (crossfaderParam->getValue() - crossfaderBefore) < 0.0001f,
+           "mapped CC never notifies a host parameter from the audio path");
+    processor.serviceDeferredActions();
+    check (std::abs (crossfaderParam->getValue() - 100.0f / 127.0f) < 0.01f,
+           "the processor services mapped CC movement on the message-thread path");
+
+    const int masterVolumeTarget = midiMap.ccTargetForName ("Master Volume");
+    midiMap.beginLearnCc (masterVolumeTarget);
+    juce::MidiBuffer replacementCc;
+    replacementCc.addEvent (juce::MidiMessage::controllerEvent (4, 74, 100), 0);
+    midiMap.processBlock (replacementCc);
+    check (midiMap.ccForTarget (0) < 0
+               && midiMap.ccForTarget (masterVolumeTarget) == 74
+               && midiMap.ccChannelForTarget (masterVolumeTarget) == 4,
+           "relearning a physical control replaces its old target instead of duplicating it");
+
+    const int syncTarget = midiMap.noteTargetForName ("Deck A Sync");
+    midiMap.beginLearnNote (syncTarget);
+    juce::MidiBuffer learnSync;
+    learnSync.addEvent (juce::MidiMessage::noteOn (2, 42, (juce::uint8) 100), 0);
+    midiMap.processBlock (learnSync);
+    auto* deckSync = processor.parameters().getParameter ("deckASync");
+    if (deckSync != nullptr) deckSync->setValueNotifyingHost (0.0f);
+    juce::AudioBuffer<float> controllerAudio (2, block);
+    controllerAudio.clear();
+    juce::MidiBuffer wrongSync;
+    wrongSync.addEvent (juce::MidiMessage::noteOn (1, 42, (juce::uint8) 100), 0);
+    processor.processBlock (controllerAudio, wrongSync);
+    processor.serviceDeferredActions();
+    check (deckSync != nullptr && deckSync->getValue() < 0.5f,
+           "a note trigger ignores the mapped note on another MIDI channel");
+    controllerAudio.clear();
+    juce::MidiBuffer rightSync;
+    rightSync.addEvent (juce::MidiMessage::noteOn (2, 42, (juce::uint8) 100), 0);
+    processor.processBlock (controllerAudio, rightSync);
+    processor.serviceDeferredActions();
+    check (deckSync != nullptr && deckSync->getValue() > 0.5f,
+           "mapped deck Sync triggers without requiring an open editor");
+    juce::MidiBuffer syncFeedback;
+    midiMap.writeFeedback (syncFeedback);
+    bool foundSyncFeedback = false;
+    for (const auto metadata : syncFeedback)
+    {
+        const auto message = metadata.getMessage();
+        if (message.isNoteOn() && message.getChannel() == 2
+            && message.getNoteNumber() == 42)
+            foundSyncFeedback = true;
+    }
+    check (foundSyncFeedback,
+           "mapped host-visible triggers send channel-correct LED feedback");
+    const auto compactControllerState = midiMap.serialize();
+    midiMap.clearAll();
+    midiMap.deserialize (compactControllerState);
+    check (midiMap.ccForTarget (masterVolumeTarget) == 74
+               && midiMap.ccChannelForTarget (masterVolumeTarget) == 4
+               && midiMap.noteForTarget (syncTarget) == 42
+               && midiMap.noteChannelForTarget (syncTarget) == 2,
+           "channel-aware controller assignments survive project-state round-trip");
+
+    const auto recordedBeforeTimelineBlocks = processor.getRecordedSamples();
     juce::AudioBuffer<float> audio (2, block);
     juce::MidiBuffer midi;
     for (int i = 0; i < 12; ++i)
@@ -138,8 +229,11 @@ int main (int argc, char** argv)
            "active intent checkpoint writes before Stop");
 
     processor.stopMasterRecording();
+    check (processor.getProcessedAudioBlockCount() > 0,
+           "audio callback heartbeat advances only when real blocks are processed");
     check (! processor.isIntentCaptureActive(), "intent capture stops with recording");
-    check (processor.getRecordedSamples() == 12 * block, "elapsed sample clock is exact");
+    check (processor.getRecordedSamples() - recordedBeforeTimelineBlocks == 12 * block,
+           "elapsed sample clock is exact");
 
     // A disappearing interface must be equivalent to a host stop/start: no stale
     // rate-sized buffers and finite output after re-prepare.
@@ -230,7 +324,7 @@ int main (int argc, char** argv)
     const auto read = stemdeck::events::Reader::read (streamFile, header, events);
     check (read == stemdeck::events::LoadResult::ok, "persisted intent stream parses");
     check (! events.empty(), "persisted intent stream contains the performed change");
-    check (header.sampleRate == sr && header.blockSize == block,
+    check (std::abs (header.sampleRate - sr) < 0.001 && header.blockSize == block,
            "intent stream pins recording sample rate and block size");
     stemdeck::events::Header recoveredHeader;
     std::vector<stemdeck::events::Event> recoveredEvents;

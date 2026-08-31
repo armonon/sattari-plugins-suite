@@ -52,11 +52,10 @@ public:
     void reset()
     {
         filter.reset();
-        for (auto& line : delayLines)
-            std::fill (line.begin(), line.end(), 0.0f);
-        reverb.reset();
-        writePos = 0;
+        clearSpaceTail();
     }
+
+    bool hasActiveTail() const noexcept { return tailSamplesRemaining > 0; }
 
     // Stereo (or mono) master buffer, processed in place. x, y in [0, 1].
     void process (juce::AudioBuffer<float>& buffer, float x, float y)
@@ -73,7 +72,11 @@ public:
         // The neutral pad position is the default. Avoid touching every master
         // sample when neither half of the effect can change the signal.
         if (! filterActive && send <= 0.0005f)
+        {
+            if (tailSamplesRemaining > 0)
+                clearSpaceTail();
             return;
+        }
 
         // ── DJ filter on the dry master path ────────────────────────────────
         if (filterActive)
@@ -91,6 +94,27 @@ public:
         }
 
         if (send <= 0.0005f)
+        {
+            // Dropping the send is an intentional hard bypass. Clear any
+            // partially rendered delay/reverb state so raising it again later
+            // cannot resurrect an old performance tail.
+            if (tailSamplesRemaining > 0)
+                clearSpaceTail();
+            return;
+        }
+
+        // A recovered project may leave the space send raised while every source
+        // is stopped. JUCE's reverb does useful work for a real tail, but running
+        // it forever on digital silence burns a measurable fraction of a core.
+        // Re-arm an eight-second tail whenever fresh signal arrives; once that
+        // bounded tail has drained, stay bypassed until audio returns.
+        float inputPeak = 0.0f;
+        for (int ch = 0; ch < numCh; ++ch)
+            inputPeak = juce::jmax (inputPeak,
+                                    buffer.getMagnitude (ch, 0, numSamples));
+        if (inputPeak > 1.0e-6f)
+            tailSamplesRemaining = juce::jmax (1, (int) std::llround (sr * 8.0));
+        else if (tailSamplesRemaining <= 0)
             return;
 
         // Do not resize the wet scratch on the audio thread if a host delivers
@@ -136,15 +160,32 @@ public:
         const float wetGain = send * 0.9f;
         for (int ch = 0; ch < numCh; ++ch)
             buffer.addFrom (ch, 0, wetBuffer, ch, 0, numSamples, wetGain);
+
+        if (inputPeak <= 1.0e-6f)
+        {
+            tailSamplesRemaining = juce::jmax (0, tailSamplesRemaining - numSamples);
+            if (tailSamplesRemaining == 0)
+                clearSpaceTail();
+        }
     }
 
 private:
+    void clearSpaceTail()
+    {
+        for (auto& line : delayLines)
+            std::fill (line.begin(), line.end(), 0.0f);
+        reverb.reset();
+        writePos = 0;
+        tailSamplesRemaining = 0;
+    }
+
     double sr = 44100.0;
     int maxBlock = 0;
     FilterProcessor filter;
     juce::Reverb reverb;
     std::array<std::vector<float>, 2> delayLines;
     int writePos = 0;
+    int tailSamplesRemaining = 0;
     juce::AudioBuffer<float> wetBuffer;
 
     JUCE_LEAK_DETECTOR (MasterFx)

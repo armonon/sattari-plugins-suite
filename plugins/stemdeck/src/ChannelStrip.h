@@ -45,6 +45,8 @@ public:
         bool  muted = false;
         bool  soloed = false;
         int   sourceChannel = -1;                          // Input: device channel, -1 = auto
+        bool  vocalInput = false;                          // Mic/vocal workflow vs guitar/line rig
+        int   editorPage = 0;                              // persisted per source by the host
         // Idle = no instrument chosen / no input device selected. Idle channels
         // recede so they never compete with loaded ones (reference: "IDLE — recedes").
         bool  hasContent = false;
@@ -69,6 +71,8 @@ public:
     std::function<void()>          onToggleMute;
     std::function<void()>          onToggleSolo;
     std::function<void()>          onCycleSource;    // Input: next device channel / MIDI: next channel
+    std::function<void(int)>       onSelectEditorPage;
+    std::function<void()>          onOpenFx;
 
     void setState (State s)
     {
@@ -89,6 +93,8 @@ public:
                           || differs (s.filter, state.filter, 0.001f)
                           || s.muted != state.muted || s.soloed != state.soloed
                           || s.sourceChannel != state.sourceChannel
+                          || s.vocalInput != state.vocalInput
+                          || s.editorPage != state.editorPage
                           || s.hasContent != state.hasContent;
         if (! changed) return;
         state = std::move (s);
@@ -99,6 +105,21 @@ public:
     void paint (juce::Graphics& g) override
     {
         namespace T = stemdeck::tokens;
+        gainBounds = actionBounds = filterBounds = muteBounds = soloBounds = sourceBounds = {};
+        eqBounds.fill ({});
+        editorTabBounds.fill ({});
+        chooseBounds = removeBounds = {};
+
+        // The performance surface has one editor and many monitors. Unfocused
+        // inputs/instruments retain identity, level, gain and their safety state,
+        // but their detailed EQ/routing controls move out of the visual hierarchy
+        // until the channel is selected.
+        if (! state.focused)
+        {
+            paintCompact (g, getLocalBounds());
+            return;
+        }
+
         auto r = getLocalBounds().toFloat();
         const auto panel   = T::c (T::bgPanel);      // #101014 per tokens (was #131316)
         const auto raised  = T::c (T::bgControl);
@@ -147,13 +168,51 @@ public:
         g.setFont (T::section (12.5f));
         g.drawText (state.name, header, juce::Justification::centredLeft, true);
 
-        body.removeFromTop (10);
+        body.removeFromTop (8);
+
+        // Every source is a small instrument with its own vocabulary. These tabs
+        // deliberately expose only workflows that are wired today; unavailable
+        // tuner/amp/plugin promises do not appear as decorative buttons.
+        const std::array<juce::String, 4> pageNames = isInput
+            ? (state.vocalInput
+                ? std::array<juce::String, 4> { "LIVE", "VOICE", "FX", "" }
+                : std::array<juce::String, 4> { "INPUT", "TONE", "FX", "" })
+            : std::array<juce::String, 4> { "PLAY", "TONE", "MIDI", "FX" };
+        const int pageCount = isInput ? 3 : 4;
+        const int activePage = juce::jlimit (0, pageCount - 1, state.editorPage);
+        auto pageRow = body.removeFromTop (28);
+        g.setColour (T::c (T::bgWell2));
+        g.fillRoundedRectangle (pageRow.toFloat(), T::radiusControl);
+        const int pageWidth = pageRow.getWidth() / pageCount;
+        for (int page = 0; page < pageCount; ++page)
+        {
+            auto cell = pageRow.removeFromLeft (page == pageCount - 1
+                                                   ? pageRow.getWidth() : pageWidth);
+            editorTabBounds[(size_t) page] = cell;
+            if (page == activePage)
+            {
+                g.setColour (T::c (T::bgControl));
+                g.fillRoundedRectangle (cell.reduced (2).toFloat(), T::radiusInner);
+            }
+            g.setColour (page == activePage ? textPri : textSec);
+            g.setFont (T::technical (8.5f, page == activePage));
+            g.drawText (pageNames[(size_t) page], cell, juce::Justification::centred);
+        }
+        body.removeFromTop (8);
 
         // Reserve the control stack from the BOTTOM so knobs always get a usable
         // size; the meter absorbs whatever height is left over. (Sizing the meter
         // first squeezed FILT/GAIN into unusable slivers.)
-        const int footerH = 24, muteRowH = 22, filtRowH = 58, eqRowH = 52, gaps = 6 * 4;
-        const int reserved = footerH + muteRowH + filtRowH + eqRowH + gaps;
+        const bool tonePage = activePage == 1;
+        const bool fxPage = activePage == pageCount - 1;
+        const int footerH = 24, muteRowH = 22, filtRowH = 58, eqRowH = 52;
+        // INPUT/PLAY/MIDI are intentionally sparse: they privilege the live meter,
+        // gain and routing. TONE earns the EQ/filter rows; FX earns a clear rack
+        // entry point. This makes the tabs change workflow instead of merely
+        // relabelling an identical control pile.
+        const int toneRows = tonePage ? (eqRowH + 6 + filtRowH + 6) : 0;
+        const int gainRow = (! tonePage && ! fxPage) ? (filtRowH + 6) : 0;
+        const int reserved = footerH + 6 + muteRowH + toneRows + gainRow;
         auto controls = body.removeFromBottom (juce::jmin (reserved, juce::jmax (0, body.getHeight() - 40)));
 
         auto meterArea = body;
@@ -208,7 +267,8 @@ public:
             }
         }
 
-        // ── EQ: LOW / MID / HIGH (same -24..+24 dB range as a deck) ──
+        // ── TONE: LOW / MID / HIGH plus filter and gain ──
+        if (tonePage)
         {
             auto eqRow = controls.removeFromTop (juce::jmin (eqRowH, controls.getHeight() / 2));
             const char* names[3] = { "LOW", "MID", "HIGH" };
@@ -224,12 +284,8 @@ public:
                 g.drawText (names[i], lab, juce::Justification::centred);
                 drawBipolarKnob (g, cell.toFloat().reduced (3.0f), vals[i], state.accent);
             }
-        }
+            controls.removeFromTop (6);
 
-        controls.removeFromTop (6);
-
-        // ── FILT (bipolar: <0.5 low-pass, >0.5 high-pass) + GAIN ──
-        {
             auto row = controls.removeFromTop (juce::jmin (filtRowH, controls.getHeight() / 2));
             auto filtCell = row.removeFromLeft (row.getWidth() / 2);
             filterBounds = filtCell;
@@ -245,14 +301,30 @@ public:
             g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
             g.drawText ("GAIN", gl, juce::Justification::centred);
             drawGainArc (g, row.toFloat().reduced (2.0f), state.gain, state.accent);
+
+            controls.removeFromTop (6);
         }
 
-        controls.removeFromTop (6);
+        // INPUT/PLAY/MIDI pages keep the live meter large and give gain a single,
+        // unambiguous target. Routing remains in the button row directly below.
+        if (! tonePage && ! fxPage)
+        {
+            auto row = controls.removeFromTop (juce::jmin (filtRowH, controls.getHeight() / 2));
+            gainBounds = row;
+            auto gl = row.removeFromTop (11);
+            g.setColour (textSec);
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            g.drawText ("GAIN", gl, juce::Justification::centred);
+            drawGainArc (g, row.toFloat().reduced (2.0f), state.gain, state.accent);
+            controls.removeFromTop (6);
+        }
 
         // ── MUTE + source selector ──
         {
             auto row = controls.removeFromTop (juce::jmin (muteRowH, juce::jmax (16, controls.getHeight() / 2)));
-            const int cellW = (row.getWidth() - 10) / 3;
+            const bool showRouting = ! fxPage;
+            const int cellW = (row.getWidth() - (showRouting ? 10 : 5))
+                            / (showRouting ? 3 : 2);
 
             auto muteCell = row.removeFromLeft (cellW);
             muteBounds = muteCell;
@@ -271,16 +343,19 @@ public:
             g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
             g.drawText ("SOLO", soloCell, juce::Justification::centred);
 
-            row.removeFromLeft (5);
-            sourceBounds = row;
-            g.setColour (raised);
-            g.fillRoundedRectangle (row.toFloat(), 4.0f);
-            g.setColour (textSec);
-            g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-            const juce::String srcText = isInput
-                ? (state.sourceChannel < 0 ? juce::String ("SRC AUTO") : "SRC " + juce::String (state.sourceChannel + 1))
-                : (state.midiChannel == 0 ? juce::String ("CH OMNI") : "CH " + juce::String (state.midiChannel));
-            g.drawText (srcText, row, juce::Justification::centred);
+            if (showRouting)
+            {
+                row.removeFromLeft (5);
+                sourceBounds = row;
+                g.setColour (raised);
+                g.fillRoundedRectangle (row.toFloat(), 4.0f);
+                g.setColour (textSec);
+                g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+                const juce::String srcText = isInput
+                    ? (state.sourceChannel < 0 ? juce::String ("SRC AUTO") : "SRC " + juce::String (state.sourceChannel + 1))
+                    : (state.midiChannel == 0 ? juce::String ("CH OMNI") : "CH " + juce::String (state.midiChannel));
+                g.drawText (srcText, row, juce::Justification::centred);
+            }
         }
 
         controls.removeFromTop (6);
@@ -291,7 +366,15 @@ public:
         g.setColour (raised);
         g.fillRoundedRectangle (footer.toFloat(), 5.0f);
 
-        if (isInput)
+        if (fxPage)
+        {
+            g.setColour (state.accent.withAlpha (0.18f));
+            g.fillRoundedRectangle (footer.toFloat(), 5.0f);
+            g.setColour (state.accent);
+            g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+            g.drawText ("OPEN CHANNEL FX", footer, juce::Justification::centred);
+        }
+        else if (isInput)
         {
             const bool on = state.monitor;
             if (on)
@@ -317,13 +400,25 @@ public:
     {
         if (onRequestFocus) onRequestFocus();
         const auto p = e.getPosition();
+        for (int page = 0; page < (int) editorTabBounds.size(); ++page)
+            if (editorTabBounds[(size_t) page].contains (p))
+            {
+                state.editorPage = page;
+                if (onSelectEditorPage) onSelectEditorPage (page);
+                repaint();
+                return;
+            }
         if (removeBounds.contains (p)) { if (onRemove) onRemove(); return; }
         if (isIdle() && chooseBounds.contains (p) && onCycleSource) { onCycleSource(); return; }
         if (muteBounds.contains (p))   { if (onToggleMute)   onToggleMute();   return; }
         if (soloBounds.contains (p))   { if (onToggleSolo)   onToggleSolo();   return; }
         if (sourceBounds.contains (p)) { if (onCycleSource)  onCycleSource();  return; }
-        if (actionBounds.contains (p) && state.type == ChannelType::input && onToggleMonitor)
-            onToggleMonitor();
+        if (actionBounds.contains (p))
+        {
+            const int pageCount = state.type == ChannelType::input ? 3 : 4;
+            if (state.editorPage == pageCount - 1) { if (onOpenFx) onOpenFx(); }
+            else if (state.type == ChannelType::input && onToggleMonitor) onToggleMonitor();
+        }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
@@ -356,6 +451,82 @@ public:
     }
 
 private:
+
+    void paintCompact (juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        namespace T = stemdeck::tokens;
+        const bool isInput = state.type == ChannelType::input;
+        const auto r = bounds.toFloat();
+        g.setColour (T::c (T::bgPanel));
+        g.fillRoundedRectangle (r, T::radiusPanel);
+        g.setColour (T::c (T::borderSubtle));
+        g.drawRoundedRectangle (r.reduced (0.5f), T::radiusPanel, 1.0f);
+        g.setColour (state.accent.withAlpha (0.82f));
+        g.fillRoundedRectangle (r.getX(), r.getY() + 12.0f, 3.0f,
+                                r.getHeight() - 24.0f, 1.5f);
+
+        auto body = bounds.reduced (12, 12);
+        auto header = body.removeFromTop (46);
+        auto badge = header.removeFromTop (22).removeFromLeft (isInput ? 30 : 40);
+        g.setColour (state.accent.withAlpha (0.16f));
+        g.fillRoundedRectangle (badge.toFloat(), T::radiusInner);
+        g.setColour (state.accent);
+        g.setFont (T::technical (9.0f, true));
+        g.drawText (isInput ? "IN" : "MIDI", badge, juce::Justification::centred);
+
+        auto close = juce::Rectangle<int> (body.getRight() - 18, body.getY(), 18, 22);
+        removeBounds = close;
+        g.setColour (T::c (T::fgMuted));
+        g.setFont (T::ui (12.0f, true));
+        g.drawText (juce::String::fromUTF8 ("\xc3\x97"), close, juce::Justification::centred);
+
+        auto name = body.removeFromTop (30);
+        g.setColour (T::c (T::fgPrimary));
+        g.setFont (T::section (13.0f));
+        g.drawFittedText (state.name, name, juce::Justification::centredLeft, 1);
+        body.removeFromTop (8);
+
+        // A tall segmented meter makes the compact object useful at a glance.
+        auto meter = body.removeFromTop (juce::jmax (80, body.getHeight() - 132));
+        meter = meter.reduced (juce::jmax (8, meter.getWidth() / 5), 0);
+        g.setColour (T::c (T::bgWell2));
+        g.fillRoundedRectangle (meter.toFloat(), T::radiusInner);
+        constexpr int segments = 24;
+        const int lit = juce::roundToInt (juce::jlimit (0.0f, 1.0f, state.level) * segments);
+        const float gap = 2.0f;
+        const float h = ((float) meter.getHeight() - gap * (segments - 1)) / segments;
+        for (int i = 0; i < segments; ++i)
+        {
+            const float fraction = (float) (i + 1) / (float) segments;
+            const auto colour = fraction > 0.90f ? T::c (T::meterHot)
+                              : fraction > 0.74f ? T::c (T::warn)
+                                                 : T::c (T::signal);
+            const float y = (float) meter.getBottom() - (float) (i + 1) * h - (float) i * gap;
+            g.setColour (i < lit ? colour : colour.withAlpha (0.09f));
+            g.fillRoundedRectangle ((float) meter.getX() + 4.0f, y,
+                                    (float) meter.getWidth() - 8.0f, h, 1.0f);
+        }
+
+        body.removeFromTop (10);
+        auto gain = body.removeFromTop (70);
+        gainBounds = gain;
+        g.setColour (T::c (T::fgTertiary));
+        g.setFont (T::technical (8.5f, true));
+        g.drawText ("LEVEL", gain.removeFromTop (12), juce::Justification::centred);
+        drawGainArc (g, gain.toFloat().reduced (3.0f), state.gain, state.accent);
+
+        body.removeFromTop (6);
+        auto status = body.removeFromTop (24);
+        actionBounds = status;
+        g.setColour ((isInput && state.monitor ? state.accent.withAlpha (0.16f)
+                                               : T::c (T::bgControl)));
+        g.fillRoundedRectangle (status.toFloat(), T::radiusInner);
+        g.setColour (isInput && state.monitor ? state.accent : T::c (T::fgTertiary));
+        g.setFont (T::technical (8.5f, true));
+        g.drawFittedText (isInput ? (state.monitor ? "MONITORING" : "MONITOR OFF")
+                                  : (state.active ? "PLAYING" : "READY"),
+                          status.reduced (5, 0), juce::Justification::centred, 1);
+    }
 
 
     // The receded state: identity + one call to action, at low contrast. Deliberately
@@ -515,6 +686,7 @@ private:
     State state;
     juce::Rectangle<int> gainBounds, actionBounds, filterBounds, muteBounds, soloBounds, sourceBounds;
     std::array<juce::Rectangle<int>, 3> eqBounds {};
+    std::array<juce::Rectangle<int>, 4> editorTabBounds {};
     mutable juce::Rectangle<int> chooseBounds;
     mutable juce::Rectangle<int> removeBounds;
 

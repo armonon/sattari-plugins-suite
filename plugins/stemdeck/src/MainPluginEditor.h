@@ -31,6 +31,7 @@
 #include "XYPad.h"
 #include "RecordingHealthBar.h"
 #include "CommandPalette.h"
+#include "KeyboardShortcutManager.h"
 #include "QuickInspector.h"
 #include "WorkflowPanels.h"
 
@@ -79,6 +80,11 @@ public:
     // Deterministic surface selection for render/interaction gates. This deliberately
     // uses the same callbacks as nav clicks, so tests cannot exercise a fake layout.
     void selectPrimarySurface (PrimarySurface surface);
+
+    // Deterministic disclosure for the whole-window render gate. This is the same
+    // state reached by clicking the Master Output card, without depending on a
+    // hard-coded test coordinate.
+    void setMasterDetailVisible (bool visible, bool showAdvanced = true);
 
 private:
     friend struct StemDeckArrangementTestAccess;
@@ -640,6 +646,7 @@ private:
 
     // Shared suite UI + cross-plugin preset system.
     StemDeckLookAndFeel lookAndFeel { sattari::brand::productAccent ("stemdeck") };
+    stemdeck::KeyboardShortcutManager keyboardShortcuts;
     sattari::presets::SattariPresetManager presetManager;
     juce::ComboBox userPresets;
     juce::TextButton savePresetButton { "Save Preset" };
@@ -689,9 +696,15 @@ private:
     // Rendering only — hit targets and behaviour are unchanged.
     void applyDeckControlWeights (int deckIndex);
 
-    // ── Focus model: one deck expands to full height, the rest collapse to strips ──
+    // ── Focus model: one musical source comes forward, peers become compact ──
     int  focusedDeck = 0;
+    int  focusedChannelIndex = 0;
     void setFocusedDeck (int deckIndex);
+    void setFocusedChannel (int channelIndex);
+    void cycleFocusedSource (int direction);
+    void toggleFocusedSourcePlayback();
+    bool isDeckPresented (int deckIndex) const;
+    int  firstHiddenEmptyDeck() const;
     void layoutCollapsedDeck (int deckIndex, juce::Rectangle<int> strip);
     void setDeckDetailVisible (int deckIndex, bool visible);
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckCollapsedBounds {};
@@ -700,6 +713,15 @@ private:
     // decks. Sessions may contain additional mic/line and instrument channels.
     std::array<float, kMaxChannels> deckWidthCurrent {};
     std::array<float, kMaxChannels> deckWidthTarget {};
+    // The engine retains four empty compatibility slots, but they are not musical
+    // sources until the user adds or drops content into one. This presentation-only
+    // state gives a new project the requested empty canvas without changing session
+    // or DSP topology.
+    std::array<bool, MainPluginProcessor::numDecks> revealedEmptyDecks {};
+    juce::Rectangle<int> emptySessionBounds {};
+    juce::Rectangle<int> masterCardBounds {};
+    juce::Rectangle<int> contextualInspectorBounds {};
+    bool masterFocused = false;
 
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckPanelBounds {};
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckHeaderBounds {};
@@ -719,6 +741,8 @@ private:
     juce::Rectangle<int> masterMeterBounds {};  // stereo meter zone inside it
     juce::Rectangle<int> masterTempoBounds {};  // painted GLOBAL TEMPO box
     juce::Rectangle<int> masterLufsBounds {};   // live integrated LUFS + limiter GR readout
+    juce::Rectangle<int> masterCorrelationBounds {};
+    juce::Rectangle<int> masterSignalFlowBounds {};
     std::array<float, 2> masterMeterHold { { 0.0f, 0.0f } };   // per-channel peak-hold (0..1)
     std::array<juce::Rectangle<int>, MainPluginProcessor::numDecks> deckMeterBounds {};  // console per-deck meters
     std::array<juce::Rectangle<int>, 4> masterStemCellBounds {};
@@ -755,7 +779,11 @@ private:
     juce::ToggleButton hostSync, beatSync, micMonitor, liveMidiButton;
     juce::TextButton tapTempoButton { "Tap" };
     juce::TextButton masterDeckButton { "Tempo Lead A" };
-    juce::TextButton resetOutputButton { "Reset Output" };
+    juce::TextButton resetOutputButton { "Restore" };
+    juce::TextButton monitorMonoButton { "Mono" };
+    juce::TextButton monitorDimButton  { "Dim -12" };
+    juce::TextButton monitorMuteButton { "Mute" };
+    juce::TextButton resetMetersButton { "Reset Meter" };
     stemdeck::ToolButton masterPlayButton { stemdeck::ToolIcon::play,  "Play All", juce::Colour (0xff2fd8f0) };   // header: play/stop ALL decks
     stemdeck::ToolButton topRecordButton  { stemdeck::ToolIcon::rec,   "Record",   juce::Colour (0xffff3b47) };   // header: arm/stop capturing
     stemdeck::ToolButton automixButton    { stemdeck::ToolIcon::magic, "Auto Mix", juce::Colour (0xffe8c25c) };   // header: phrase-aligned auto-transition
@@ -908,6 +936,10 @@ private:
     juce::TextButton focusModeButton { "Focus" };
     std::array<juce::TextButton, MainPluginProcessor::numPerformanceScenes> sceneButtons;
     void showCommandPalette();
+    std::vector<stemdeck::CommandPalette::Command> buildCommandList() const;
+    void showKeyboardShortcutMenu();
+    void beginShortcutCapture (int commandId, juce::Component* anchor = nullptr);
+    juce::String commandTitle (int commandId) const;
     void showQuickInspector();
     void performCommand (int commandId);
     void setFocusMode (bool enabled);
@@ -915,12 +947,15 @@ private:
     bool cpuPressureMode = false;
     int currentUiTimerHz = 10;
     int uiTimerTick = 0;
+    juce::uint64 lastAudioBlockCount = 0;
+    double lastAudioHeartbeatMs = 0.0;
+    bool audioHeartbeatSeen = false;
+    bool audioCallbackHealthy = false;
     // Advanced tools (plugin host, master key, AI master, rekordbox, project I/O,
     // limiter/mic/utility chips) are collapsed by default; the visible TOOLS button
     // in the header (plus title double-click) reveals them.
     bool advancedVisible = false;
     bool padsCollapsed = false;   // performance-pads strip collapsed when no pad is loaded
-    stemdeck::PlayIconLookAndFeel playIconLnF;   // deck play/stop rendered as an icon
     juce::TextButton advancedToggle { "More" };
     // Channel add/remove (channel architecture). Adding/removing is zero-dropout —
     // the engine swaps an immutable graph snapshot (see GraphSnapshot.h).
@@ -934,14 +969,16 @@ private:
     // model discoverable instead of hiding it behind a toolbar button.
     juce::Rectangle<int> addChannelTileBounds;
 
-    juce::TextButton addChannelButton    { "+ Channel" };
+    juce::TextButton addChannelButton    { "+ Source" };
     juce::TextButton removeChannelButton { "-" };
+    juce::TextButton emptyAddSourceButton { "+" };
     // Showcase demo content (fake titles / PLAY-on / demo waveforms / timeline
     // blocks). Off by default — real state only; opt-in via the Settings gear.
     bool showcaseMode = false;
     void setShowcaseMode (bool on);
     juce::TextButton settingsButton;   // gear — discoverable preferences (text set in ctor)
     void showSettingsMenu();
+    void showAudioSettings();
     void mouseDoubleClick (const juce::MouseEvent&) override;   // dbl-click title = reveal advanced
     void mouseDown (const juce::MouseEvent&) override;          // header BPM/Key chips
     void mouseDrag (const juce::MouseEvent&) override;
@@ -1058,6 +1095,10 @@ private:
     std::vector<std::pair<float, double>> masterTempoLaneNorm;
     void showLibraryMeta (const juce::File& file);
     void updateMidiLearnUI();
+    void setupMidiContextTargets();
+    void showMidiTargetContextMenu (const juce::String& type,
+                                    const juce::String& targetName,
+                                    juce::Component* anchor);
 
     void toggleRecording();
     void requestRecording (int countInBars);

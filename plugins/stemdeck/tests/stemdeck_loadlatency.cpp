@@ -50,9 +50,15 @@ juce::File writeTestTrack (double seconds, int sampleRate)
 
     f.deleteFile();
     juce::WavAudioFormat wav;
-    if (auto os = std::unique_ptr<juce::FileOutputStream> (f.createOutputStream()))
-        if (auto w = std::unique_ptr<juce::AudioFormatWriter> (wav.createWriterFor (os.get(), sampleRate, 2, 16, {}, 0)))
-        { os.release(); w->writeFromAudioSampleBuffer (buf, 0, n); }
+    if (std::unique_ptr<juce::OutputStream> os = f.createOutputStream())
+    {
+        const auto options = juce::AudioFormatWriterOptions{}
+                                 .withSampleRate (sampleRate)
+                                 .withNumChannels (2)
+                                 .withBitsPerSample (16);
+        if (auto w = wav.createWriterFor (os, options))
+            w->writeFromAudioSampleBuffer (buf, 0, n);
+    }
     return f;
 }
 } // namespace

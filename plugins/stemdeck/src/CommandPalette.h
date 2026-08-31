@@ -42,6 +42,7 @@ public:
     }
 
     std::function<void(int)> onInvoke;
+    std::function<void(int)> onAssignShortcut;
     std::function<void()> onDismiss;
 
     void visibilityChanged() override
@@ -72,7 +73,10 @@ public:
         list.removeFromTop (58);
         g.setColour (tokens::c (tokens::fgMuted));
         g.setFont (juce::FontOptions (tokens::tLabel, juce::Font::bold));
-        g.drawText ("COMMANDS", list.removeFromTop (18), juce::Justification::centredLeft);
+        auto heading = list.removeFromTop (18);
+        g.drawText ("COMMANDS", heading, juce::Justification::centredLeft);
+        g.drawText ("Right-click to assign a shortcut", heading,
+                    juce::Justification::centredRight);
 
         constexpr int rowHeight = 48;
         for (int visibleRow = 0; visibleRow < kVisibleRows; ++visibleRow)
@@ -129,7 +133,10 @@ public:
     void mouseDown (const juce::MouseEvent& event) override
     {
         selectedRow = rowAt (event.y);
-        invokeSelected();
+        if (event.mods.isPopupMenu())
+            assignSelected();
+        else
+            invokeSelected();
     }
 
 private:
@@ -189,6 +196,14 @@ private:
             return;
         if (onInvoke)
             onInvoke (commands[(size_t) filtered[(size_t) selectedRow]].id);
+    }
+
+    void assignSelected()
+    {
+        if (! juce::isPositiveAndBelow (selectedRow, (int) filtered.size()))
+            return;
+        if (onAssignShortcut)
+            onAssignShortcut (commands[(size_t) filtered[(size_t) selectedRow]].id);
     }
 
     juce::TextEditor search;

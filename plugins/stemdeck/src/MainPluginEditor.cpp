@@ -7,6 +7,10 @@
 #include "LayoutStack.h"
 #include "StructureAnalysis.h"
 #include "KeyChroma.h"
+#include "ShortcutCapturePanel.h"
+#if JucePlugin_Build_Standalone
+ #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
 
 using namespace sdedit;
 
@@ -19,6 +23,30 @@ static juce::Colour waveStructureColour (const juce::String& label)
     if (label == "BREAKDOWN") return juce::Colour (0xffB47AFF);
     if (label == "OUTRO")     return juce::Colour (0xffFFB84A);
     return juce::Colour (0xff8A8A93);
+}
+
+static int keyboardCommandForControl (const juce::String& targetName)
+{
+    if (targetName == "Performance Safe Mode") return 47;
+    if (targetName.startsWith ("Pad "))
+    {
+        const int pad = targetName.fromFirstOccurrenceOf ("Pad ", false, false).getIntValue();
+        if (juce::isPositiveAndBelow (pad - 1, PadBank::numPads)) return 100 + pad;
+    }
+    if (! targetName.startsWith ("Deck ") || targetName.length() < 8) return 0;
+    const int deck = (int) targetName[5] - (int) 'A';
+    if (! juce::isPositiveAndBelow (deck, MainPluginProcessor::numDecks)) return 0;
+    const auto action = targetName.substring (7);
+    int actionId = -1;
+    if (action == "Play") actionId = 0;
+    else if (action == "Cue") actionId = 1;
+    else if (action == "Loop") actionId = 2;
+    else if (action.startsWith ("Hot Cue "))
+    {
+        const int cue = action.fromFirstOccurrenceOf ("Hot Cue ", false, false).getIntValue();
+        if (juce::isPositiveAndBelow (cue - 1, MainPluginProcessor::numHotCues)) actionId = 2 + cue;
+    }
+    return actionId >= 0 ? 200 + deck * 16 + actionId : 0;
 }
 
 juce::String MainPluginEditor::deckPrefix (int deckIndex)
@@ -107,6 +135,14 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     addChannelButton.setTooltip ("Add a deck channel (live - playing channels keep playing)");
     addChannelButton.onClick = [this] { showAddChannelMenu (&addChannelButton); };
     addAndMakeVisible (addChannelButton);
+
+    setupButton (emptyAddSourceButton);
+    emptyAddSourceButton.getProperties().set ("buttonRole", "primary");
+    emptyAddSourceButton.getProperties().set ("sourceHero", true);
+    emptyAddSourceButton.setTooltip ("Add a musical source");
+    emptyAddSourceButton.setTitle ("Add Source");
+    emptyAddSourceButton.onClick = [this] { showAddChannelMenu (&emptyAddSourceButton); };
+    addAndMakeVisible (emptyAddSourceButton);
 
     setupButton (removeChannelButton);
     removeChannelButton.getProperties().set ("buttonRole", "danger");
@@ -507,10 +543,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                             notes = MelodyExtractor::extract (buf, reader->sampleRate);
                         }
                     }
-                    juce::MessageManager::callAsync ([safe, notes = std::move (notes), i, usedNeural]() mutable
+                    juce::MessageManager::callAsync ([safe, extractedNotes = std::move (notes), i, usedNeural]() mutable
                     {
                         if (safe != nullptr)
-                            safe->applyExtractedMelody (i, notes, usedNeural);
+                            safe->applyExtractedMelody (i, extractedNotes, usedNeural);
                     });
                     return juce::ThreadPoolJob::jobHasFinished;
                 }));
@@ -549,10 +585,10 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
                         reader->read (&buf, 0, len, 0, true, true);
                         drumHits = DrumExtractor::extract (buf, reader->sampleRate);
                     }
-                    juce::MessageManager::callAsync ([safe, drumHits = std::move (drumHits), i]() mutable
+                    juce::MessageManager::callAsync ([safe, extractedDrumHits = std::move (drumHits), i]() mutable
                     {
                         if (safe != nullptr)
-                            safe->applyExtractedDrums (i, drumHits);
+                            safe->applyExtractedDrums (i, extractedDrumHits);
                     });
                     return juce::ThreadPoolJob::jobHasFinished;
                 }));
@@ -576,7 +612,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             static constexpr const char* kBackLabels[] = { "◀4", "◀8", "◀16", "◀32" };
             static constexpr const char* kFwdLabels[]  = { "4▶", "8▶", "16▶", "32▶" };
             auto& dc = deckControls[(size_t) i];
-            for (int b = 0; b < 4; ++b)
+            for (size_t b = 0; b < 4; ++b)
             {
                 dc.beatJumpBack[b].setButtonText (u8 (kBackLabels[b]));
                 setupButton (dc.beatJumpBack[b]);
@@ -692,8 +728,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         const bool anyPlaying = masterPlayButton.isActive();
         const float target = anyPlaying ? 0.0f : 1.0f;   // any playing -> stop all, else start all
         for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
-            if (auto* p = processorRef.parameters().getParameter (deckPrefix (i) + "Play"))
-                p->setValueNotifyingHost (target);
+            if (auto* playParameter = processorRef.parameters().getParameter (deckPrefix (i) + "Play"))
+                playParameter->setValueNotifyingHost (target);
     };
     addAndMakeVisible (masterPlayButton);
 
@@ -866,6 +902,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     setupSlider (masterBpm, false, " BPM");
     setupSlider (master, true, "%");
     master.setDoubleClickReturnValue (true, 0.0);   // stored dB; displayed as 100%
+    master.setTooltip ("Master output level. Double-click to return to unity (100%).");
     setupSlider (masterFilter, true);
     masterFilter.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     masterFilter.setDoubleClickReturnValue (true, 0.5);
@@ -931,12 +968,56 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             setRealValue (prefix + "Solo", 0.0f);
         }
         processorRef.setChainBypassDispatched ((int) HostGraph::Chain::master, true);
+        processorRef.setMasterMonitorMono (false);
+        processorRef.setMasterMonitorDim (false);
+        processorRef.setMasterMonitorMute (false);
+        monitorMonoButton.setToggleState (false, juce::dontSendNotification);
+        monitorDimButton.setToggleState (false, juce::dontSendNotification);
+        monitorMuteButton.setToggleState (false, juce::dontSendNotification);
         recordStatus.setText (
-            "Sound restored: decks and output at unity, EQ neutral, mute/solo cleared, inserts bypassed",
+            "Sound restored: unity gain, neutral EQ, mute/solo and monitor utilities cleared, inserts bypassed",
             juce::dontSendNotification);
         repaint (masterOutBounds);
     };
     addAndMakeVisible (resetOutputButton);
+
+    for (auto* button : { &monitorMonoButton, &monitorDimButton, &monitorMuteButton })
+    {
+        setupButton (*button);
+        button->setClickingTogglesState (true);
+        button->setColour (juce::TextButton::buttonOnColourId,
+                           stemdeck::tokens::c (stemdeck::tokens::selected).withAlpha (0.72f));
+        addAndMakeVisible (*button);
+    }
+    monitorMonoButton.setTooltip (
+        "Monitor the master in mono to expose phase cancellation. Recordings and exports remain stereo.");
+    monitorDimButton.setTooltip (
+        "Reduce monitor level by 12 dB without changing the recorded or exported master.");
+    monitorMuteButton.setTooltip (
+        "Mute only the monitor output. Recording and retrospective capture continue safely.");
+    monitorMuteButton.setColour (juce::TextButton::buttonOnColourId,
+                                 juce::Colour (0xffff3b47).withAlpha (0.78f));
+    monitorMonoButton.onClick = [this]
+    {
+        processorRef.setMasterMonitorMono (monitorMonoButton.getToggleState());
+    };
+    monitorDimButton.onClick = [this]
+    {
+        processorRef.setMasterMonitorDim (monitorDimButton.getToggleState());
+    };
+    monitorMuteButton.onClick = [this]
+    {
+        processorRef.setMasterMonitorMute (monitorMuteButton.getToggleState());
+    };
+
+    setupButton (resetMetersButton);
+    resetMetersButton.setTooltip ("Restart integrated loudness and stereo-image metering");
+    resetMetersButton.onClick = [this]
+    {
+        processorRef.resetMasterMetering();
+        repaint (masterOutBounds);
+    };
+    addAndMakeVisible (resetMetersButton);
     // Widen these readouts so "120.0 BPM" / "-60.0 dB" fit without truncation.
     masterBpm.setSliderStyle (juce::Slider::IncDecButtons);
     masterBpm.setIncDecButtonsMode (juce::Slider::incDecButtonsDraggable_Vertical);
@@ -948,6 +1029,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     // graphical and include the exact ceiling in the adjacent loudness readout.
     limiter.setSliderStyle (juce::Slider::LinearHorizontal);
     limiter.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+    limiter.setTooltip ("Limiter ceiling. Exact ceiling and gain reduction appear in the loudness readout.");
     hostSync.setButtonText ("Clock");
     setupButton (hostSync);
     hostSync.setTooltip ("Follow the host clock when used as a plug-in; use StemDeck's project clock standalone");
@@ -1143,9 +1225,9 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         fxRack.onRemove       = [this] (int i)
         {
             // Close only THIS plugin's editor — removal destroys just that processor.
-            if (auto* p = processorRef.getChainPluginProcessor (fxRack.currentChainIndex(), i))
+            if (auto* pluginProcessor = processorRef.getChainPluginProcessor (fxRack.currentChainIndex(), i))
                 for (int w = pluginWindows.size(); --w >= 0;)
-                    if (pluginWindows[w]->ownedProcessor() == p)
+                    if (pluginWindows[w]->ownedProcessor() == pluginProcessor)
                         pluginWindows.remove (w);
 
             processorRef.removeChainPlugin (fxRack.currentChainIndex(), i);
@@ -1284,11 +1366,11 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     {
         const float v = keyLockAllButton.getToggleState() ? 1.0f : 0.0f;
         for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
-            if (auto* p = processorRef.parameters().getParameter (deckPrefix (i) + "KeyLock"))
+            if (auto* keyLockParameter = processorRef.parameters().getParameter (deckPrefix (i) + "KeyLock"))
             {
-                p->beginChangeGesture();
-                p->setValueNotifyingHost (v);
-                p->endChangeGesture();
+                keyLockParameter->beginChangeGesture();
+                keyLockParameter->setValueNotifyingHost (v);
+                keyLockParameter->endChangeGesture();
             }
     };
     addAndMakeVisible (keyLockAllButton);
@@ -1574,8 +1656,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     arrangementView.onStopDeckRequest = [this] (int lane)
     {
         if (lane >= 0 && lane < MainPluginProcessor::numDecks)
-            if (auto* p = processorRef.parameters().getParameter (deckPrefix (lane) + "Play"))
-                p->setValueNotifyingHost (0.0f);
+            if (auto* playParameter = processorRef.parameters().getParameter (deckPrefix (lane) + "Play"))
+                playParameter->setValueNotifyingHost (0.0f);
     };
     arrangementView.onClearDeckRequest = [this] (int lane)
     {
@@ -1653,6 +1735,8 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
         addAndMakeVisible (pad.gain);
     }
 
+    setupMidiContextTargets();
+
     // Resolve accessible names after every control has received its final text and
     // tooltip. This covers icon buttons and dynamically-labelled controls that were
     // configured before their visible caption was assigned.
@@ -1664,19 +1748,19 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             auto& child = *parent.getChildComponent (i);
             if (child.getTitle().isEmpty())
             {
-                juce::String title = child.getName();
+                juce::String childTitle = child.getName();
                 if (auto* button = dynamic_cast<juce::Button*> (&child))
-                    if (title.isEmpty()) title = button->getButtonText();
+                    if (childTitle.isEmpty()) childTitle = button->getButtonText();
                 if (auto* combo = dynamic_cast<juce::ComboBox*> (&child))
-                    if (title.isEmpty()) title = combo->getTextWhenNothingSelected();
+                    if (childTitle.isEmpty()) childTitle = combo->getTextWhenNothingSelected();
                 if (auto* tooltip = dynamic_cast<juce::TooltipClient*> (&child))
                 {
                     const auto hint = tooltip->getTooltip().trim();
-                    if (title.isEmpty()) title = hint;
+                    if (childTitle.isEmpty()) childTitle = hint;
                     if (child.getDescription().isEmpty() && hint.isNotEmpty())
                         child.setDescription (hint);
                 }
-                if (title.isNotEmpty()) child.setTitle (title);
+                if (childTitle.isNotEmpty()) child.setTitle (childTitle);
             }
             labelAccessibleControls (child);
         }
@@ -1704,109 +1788,35 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
 bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
 {
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'K')
+    const bool onPerformSurface = ! pianoRollButton.getToggleState()
+                               && ! libraryVisible && ! browserVisible;
+    const auto scope = pianoRollButton.getToggleState()
+                         ? stemdeck::KeyboardShortcutManager::Scope::replay
+                         : (onPerformSurface
+                              ? stemdeck::KeyboardShortcutManager::Scope::perform
+                              : stemdeck::KeyboardShortcutManager::Scope::global);
+    if (const int commandId = keyboardShortcuts.commandFor (key, scope); commandId > 0)
     {
-        showCommandPalette();
+        performCommand (commandId);
         return true;
     }
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'I')
+
+    // Escape and Delete remain standard navigation/editing keys rather than
+    // actions that can be remapped away from a recoverable interface state.
+    if (pianoRollButton.getToggleState()
+        && key.getKeyCode() == juce::KeyPress::escapeKey
+        && arrangementView.isRazorMode())
     {
-        showQuickInspector();
+        arrangementView.setRazorMode (false);
+        razorButton.setToggleState (false, juce::dontSendNotification);
         return true;
     }
-    if (key.getModifiers().isCommandDown()
-        && key.getKeyCode() >= '1' && key.getKeyCode() <= '4')
+    if (onPerformSurface && key.getKeyCode() == juce::KeyPress::escapeKey && masterFocused)
     {
-        // Match the visible journey: Sets, Perform, Replay. Mixer remains the
-        // contextual fourth shortcut for experienced users.
-        const PrimarySurface surfaces[] = { PrimarySurface::library, PrimarySurface::perform,
-                                            PrimarySurface::arranger, PrimarySurface::mixer };
-        selectPrimarySurface (surfaces[key.getKeyCode() - '1']);
+        masterFocused = false;
+        resized();
+        repaint();
         return true;
-    }
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'S')
-    {
-        if (key.getModifiers().isShiftDown())
-            createSessionSnapshot();
-        else
-            saveProject();
-        return true;
-    }
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'O')
-    {
-        if (key.getModifiers().isShiftDown())
-            loadProject();
-        else
-            selectPrimarySurface (PrimarySurface::files);
-        return true;
-    }
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Z')
-    {
-        if (key.getModifiers().isShiftDown())
-        {
-            if (arrangementView.canRedo()) arrangementView.redo();
-            else                           redoSessionAction();
-        }
-        else
-        {
-            if (arrangementView.canUndo()) arrangementView.undo();
-            else                           undoSessionAction();
-        }
-        return true;
-    }
-    if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Y')
-    {
-        if (arrangementView.canRedo()) arrangementView.redo();
-        else                           redoSessionAction();
-        return true;
-    }
-    if (pianoRollButton.getToggleState())
-    {
-        if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'D')
-        {
-            arrangementView.duplicateSelectedClip();
-            return true;
-        }
-        if (! key.getModifiers().isAnyModifierKeyDown() && key.getKeyCode() == '0')
-        {
-            arrangementView.toggleSelectedClipActive();
-            return true;
-        }
-        if (key.getKeyCode() == juce::KeyPress::spaceKey)
-        {
-            toggleArrangementPlayback();
-            return true;
-        }
-        if (! key.getModifiers().isAnyModifierKeyDown() && key.getKeyCode() == 'A')
-        {
-            const bool shouldShow = ! arrangementView.hasVisibleAutomation();
-            arrangementView.setAllAutomationVisible (shouldShow);
-            arrAutomationButton.setToggleState (shouldShow, juce::dontSendNotification);
-            return true;
-        }
-        if (! key.getModifiers().isAnyModifierKeyDown() && key.getKeyCode() == 'B')
-        {
-            const bool shouldSplit = ! arrangementView.isRazorMode();
-            arrangementView.setRazorMode (shouldSplit);
-            razorButton.setToggleState (shouldSplit, juce::dontSendNotification);
-            return true;
-        }
-        if (! key.getModifiers().isAnyModifierKeyDown() && key.getKeyCode() == 'F')
-        {
-            arrFollowButton.triggerClick();
-            return true;
-        }
-        if (key.getModifiers().isCommandDown() && key.getKeyCode() == '0')
-        {
-            arrangementView.zoomToFit();
-            return true;
-        }
-        if (key.getKeyCode() == juce::KeyPress::escapeKey && arrangementView.isRazorMode())
-        {
-            arrangementView.setRazorMode (false);
-            razorButton.setToggleState (false, juce::dontSendNotification);
-            return true;
-        }
     }
     if (key.getKeyCode() == juce::KeyPress::deleteKey || key.getKeyCode() == juce::KeyPress::backspaceKey)
     {
@@ -1820,23 +1830,6 @@ bool MainPluginEditor::keyPressed (const juce::KeyPress& key)
                 arrangementView.deleteSelectedClip();
             return true;
         }
-    }
-
-    // All-deck sync hotkeys: B = BPM sync, K = key sync (no modifiers; pads use 1-8).
-    if (! key.getModifiers().isAnyModifierKeyDown())
-    {
-        if (key.getKeyCode() == 'B') { syncBpmAll(); return true; }
-        if (key.getKeyCode() == 'K') { syncKeyAll(); return true; }
-        if (key.getKeyCode() == 'F') { setFocusMode (! focusMode); return true; }
-        if (key.getKeyCode() == 'L') { openDeckChooser (focusedDeck); return true; }
-        if (key.getKeyCode() == 'R') { toggleRecording(); return true; }
-    }
-
-    const int padIndex = padIndexForKeyPress (key);
-    if (juce::isPositiveAndBelow (padIndex, PadBank::numPads))
-    {
-        processorRef.triggerPad (padIndex);
-        return true;
     }
 
     return false;
@@ -1877,25 +1870,48 @@ void MainPluginEditor::setupSlider (juce::Slider& slider, bool rotary, const juc
 // Deck channels keep their full stem panel; inputs/instruments get a per-type strip.
 // Channel type picker (spec §6: "+" opens a type picker). Only the implemented
 // body types are offered; the rest are later build-order steps.
+bool MainPluginEditor::isDeckPresented (int deckIndex) const
+{
+    return juce::isPositiveAndBelow (deckIndex, MainPluginProcessor::numDecks)
+        && (deckHasContent (deckIndex) || revealedEmptyDecks[(size_t) deckIndex]);
+}
+
+int MainPluginEditor::firstHiddenEmptyDeck() const
+{
+    std::array<bool, MainPluginProcessor::numDecks> exists {};
+    for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+        if (processorRef.getChannelType (channel) == ChannelType::trackDeck)
+            if (const int slot = processorRef.getChannelSlot (channel);
+                juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
+                exists[(size_t) slot] = true;
+
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+    {
+        if (exists[(size_t) deck] && ! deckHasContent (deck)
+            && ! revealedEmptyDecks[(size_t) deck])
+            return deck;
+    }
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+        if (! exists[(size_t) deck])
+            return deck;
+    return -1;
+}
+
 void MainPluginEditor::showAddChannelMenu (juce::Component* target)
 {
-    std::array<bool, MainPluginProcessor::numDecks> deckSlotUsed {};
-    for (int i = 0; i < processorRef.getNumChannels(); ++i)
-    {
-        const int slot = processorRef.getChannelSlot (i);
-        if (processorRef.getChannelType (i) == ChannelType::trackDeck
-            && juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
-            deckSlotUsed[(size_t) slot] = true;
-    }
-    const bool hasFreeDeckSlot =
-        std::find (deckSlotUsed.begin(), deckSlotUsed.end(), false)
-            != deckSlotUsed.end();
+    const bool hasFreeDeckSlot = firstHiddenEmptyDeck() >= 0
+                              || processorRef.getNumTrackDecks() < MainPluginProcessor::numDecks;
 
     juce::PopupMenu m;
-    m.addSectionHeader ("Add channel");
-    m.addItem (1, "Track Deck", hasFreeDeckSlot);
-    m.addItem (2, "Input (mic / line)");
-    m.addItem (3, "MIDI Instrument");
+    m.addSectionHeader ("Add Source");
+    m.addItem (1, "DJ Deck     Music, waveform, stems and performance controls", hasFreeDeckSlot);
+    m.addItem (2, "Software Instrument     Play from MIDI with instrument and FX controls");
+    m.addSeparator();
+    m.addItem (3, "Microphone     Vocal input, monitoring, dynamics and effects");
+    m.addItem (4, "Instrument / Line Input     Guitar, synth or external hardware");
+    m.addSeparator();
+    m.addItem (5, "Audio Track     Place recorded or imported audio in Replay");
+    m.addItem (6, "MIDI Track     Create a playable MIDI instrument source");
 
     auto opts = juce::PopupMenu::Options();
     if (target != nullptr) opts = opts.withTargetComponent (target);
@@ -1905,18 +1921,68 @@ void MainPluginEditor::showAddChannelMenu (juce::Component* target)
         [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (int r)
         {
             if (safe == nullptr || r == 0) return;
-            const auto type = r == 2 ? ChannelType::input
-                            : r == 3 ? ChannelType::midiInstrument
-                                     : ChannelType::trackDeck;
-            safe->checkpointSessionUndo ("Add channel");
-            if (safe->processorRef.addChannel (type) >= 0)
+            safe->checkpointSessionUndo ("Add source");
+
+            if (r == 1)
             {
+                int deck = safe->firstHiddenEmptyDeck();
+                if (deck < 0)
+                    return;
+                bool channelExists = false;
+                for (int ch = 0; ch < safe->processorRef.getNumChannels(); ++ch)
+                    channelExists = channelExists
+                        || (safe->processorRef.getChannelType (ch) == ChannelType::trackDeck
+                            && safe->processorRef.getChannelSlot (ch) == deck);
+                if (! channelExists)
+                {
+                    const int added = safe->processorRef.addChannel (ChannelType::trackDeck);
+                    if (added < 0) return;
+                    deck = safe->processorRef.getChannelSlot (added);
+                }
+                if (! juce::isPositiveAndBelow (deck, MainPluginProcessor::numDecks)) return;
+                safe->revealedEmptyDecks[(size_t) deck] = true;
+                safe->setFocusedDeck (deck);
                 safe->refreshChannelStrips();
                 safe->refreshChannelButtons();
                 safe->refreshFxScopes();
                 safe->resized();
                 safe->repaint();
+                return;
             }
+
+            if (r == 5)
+            {
+                safe->deckChooser.launchAsync (
+                    juce::FileBrowserComponent::openMode
+                        | juce::FileBrowserComponent::canSelectFiles,
+                    [safe] (const juce::FileChooser& chooser)
+                    {
+                        if (safe == nullptr) return;
+                        const auto file = chooser.getResult();
+                        if (! file.existsAsFile()) return;
+                        safe->pianoRollButton.setToggleState (true, juce::sendNotification);
+                        juce::StringArray paths { file.getFullPathName() };
+                        safe->arrangementView.filesDropped (paths, 320, 120);
+                    });
+                return;
+            }
+
+            const auto type = (r == 3 || r == 4) ? ChannelType::input
+                                                   : ChannelType::midiInstrument;
+            const int added = safe->processorRef.addChannel (type);
+            if (added < 0) return;
+            safe->processorRef.setChannelName (
+                added, r == 3 ? "Vocal"
+                       : r == 4 ? "Guitar / Line"
+                       : r == 6 ? "MIDI Instrument"
+                                : "Software Instrument");
+            safe->focusedChannelIndex = added;
+            safe->masterFocused = false;
+            safe->refreshChannelStrips();
+            safe->refreshChannelButtons();
+            safe->refreshFxScopes();
+            safe->resized();
+            safe->repaint();
         });
 }
 
@@ -1943,19 +2009,21 @@ void MainPluginEditor::refreshChannelStrips()
             strip = std::make_unique<stemdeck::ChannelStrip>();
             addAndMakeVisible (*strip);
             const int idx = i;
-            strip->onRequestFocus = [this, idx] { setFocusedDeck (idx); };
+            strip->onRequestFocus = [this, idx] { setFocusedChannel (idx); };
             strip->onToggleMonitor = [this, idx]
             {
                 if (auto* b = processorRef.getChannelBody (idx))
                     if (auto* in = dynamic_cast<InputBody*> (b))
-                        in->setMonitorEnabled (! in->isMonitorEnabled());
+                        processorRef.setInputMonitorDispatched (idx, ! in->isMonitorEnabled());
             };
             strip->onGainChanged = [this, idx] (float gain)
             {
                 if (auto* b = processorRef.getChannelBody (idx))
                 {
-                    if (auto* in = dynamic_cast<InputBody*> (b))               in->setInputGain (gain);
-                    else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b)) mi->setGain (gain);
+                    if (dynamic_cast<InputBody*> (b) != nullptr)
+                        processorRef.setInputGainDispatched (idx, gain);
+                    else if (dynamic_cast<MidiInstrumentBody*> (b) != nullptr)
+                        processorRef.setInstGainDispatched (idx, gain);
                 }
             };
             strip->onEqChanged = [this, idx] (int band, float db)
@@ -1992,18 +2060,40 @@ void MainPluginEditor::refreshChannelStrips()
                 {
                     // -1 (auto) -> 0 -> 1 -> back to auto: the usual mono-source picks.
                     const int next = in->getSourceChannel() >= 1 ? -1 : in->getSourceChannel() + 1;
-                    in->setSourceChannel (next);
+                    processorRef.setInputSourceDispatched (idx, next);
                 }
                 else if (auto* mi = dynamic_cast<MidiInstrumentBody*> (b))
-                    mi->setMidiChannel ((mi->getMidiChannel() + 1) % 17);   // 0 = omni, then 1..16
+                    processorRef.setInstMidiChannelDispatched (
+                        idx, (mi->getMidiChannel() + 1) % 17);   // 0 = omni, then 1..16
+            };
+            strip->onSelectEditorPage = [this, idx] (int page)
+            {
+                processorRef.setChannelEditorPage (idx, page);
+            };
+            strip->onOpenFx = [this, idx]
+            {
+                const int slot = processorRef.getChannelSlot (idx);
+                if (! juce::isPositiveAndBelow (slot, HostGraph::kNumChannelChains)) return;
+                advancedVisible = true;
+                advancedToggle.setToggleState (true, juce::dontSendNotification);
+                masterFocused = true;
+                focusMode = false;
+                fxRack.selectChain ((int) HostGraph::channelChain (slot));
+                recordStatus.setText ("Channel FX  /  " + processorRef.getChannelName (idx),
+                                      juce::dontSendNotification);
+                resized();
+                repaint();
             };
         }
 
         stemdeck::ChannelStrip::State st;
         st.type    = processorRef.getChannelType (i);
         st.name    = processorRef.getChannelName (i);
+        const auto lowerName = st.name.toLowerCase();
+        st.vocalInput = lowerName.contains ("vocal") || lowerName.contains ("mic");
+        st.editorPage = processorRef.getChannelEditorPage (i);
         st.accent  = deckAccent (i % MainPluginProcessor::numDecks);
-        st.focused = (i == focusedDeck);
+        st.focused = (i == focusedChannelIndex) && ! masterFocused;
         if (auto* b = processorRef.getChannelBody (i))
         {
             if (auto* in = dynamic_cast<InputBody*> (b))
@@ -2098,7 +2188,7 @@ void MainPluginEditor::setupDeck (DeckControls& controls, const juce::String& pr
         button.setWantsKeyboardFocus (true);
     }
     setupButton (controls.play);
-    controls.play.setLookAndFeel (&playIconLnF);   // triangle / pause icon, not a text toggle
+    controls.play.getProperties().set ("playIcon", true);
     setupButton (controls.cue);
     setupComboBox (controls.stemLane);
     setupComboBox (controls.tempoInterpretation);
@@ -2354,6 +2444,7 @@ void MainPluginEditor::requestDeckLoad (int deckIndex, const juce::File& file,
         if (auto* play = safe->processorRef.parameters().getParameter (
                 deckPrefix (deckIndex) + "Play"))
             play->setValueNotifyingHost (0.0f);
+        safe->revealedEmptyDecks[(size_t) deckIndex] = true;
         safe->setFocusedDeck (deckIndex);
         safe->processorRef.loadDeckFileAsync (deckIndex, file);
         if (auto* wave = safe->deckWaves[(size_t) deckIndex].get())
@@ -2441,6 +2532,7 @@ void MainPluginEditor::requestDeckClear (int deckIndex)
                 deckPrefix (deckIndex) + "Play"))
             play->setValueNotifyingHost (0.0f);
         safe->processorRef.clearDeck (deckIndex);
+        safe->revealedEmptyDecks[(size_t) deckIndex] = false;
         if (auto* wave = safe->deckWaves[(size_t) deckIndex].get())
             wave->setFile (juce::File());
         safe->recordStatus.setText ("Cleared channel "
@@ -3402,7 +3494,7 @@ void MainPluginEditor::scheduleRecoveryAutosave()
     const auto flag = autosaveInFlight;
     autosavePool.addJob (std::function<juce::ThreadPoolJob::JobStatus()> (
         [file, intentFile, text, flag, hasActiveTake,
-         intentHeader, intentEvents = std::move (intentEvents)]() -> juce::ThreadPoolJob::JobStatus
+         intentHeader, capturedIntentEvents = std::move (intentEvents)]() -> juce::ThreadPoolJob::JobStatus
         {
             auto parent = file.getParentDirectory();
             if (! parent.exists())
@@ -3413,7 +3505,7 @@ void MainPluginEditor::scheduleRecoveryAutosave()
             // Checkpoint the deterministic stream beside it every five seconds so
             // a crash loses at most one autosave interval of intent.
             if (hasActiveTake)
-                stemdeck::events::Writer::write (intentFile, intentHeader, intentEvents);
+                stemdeck::events::Writer::write (intentFile, intentHeader, capturedIntentEvents);
             else
                 intentFile.deleteFile();   // never pair a newer idle snapshot with an old take
             flag->store (false);
@@ -3715,13 +3807,16 @@ void MainPluginEditor::bounceArrangementEdits()
                            .withFileExtension ("wav");
         destFile.deleteFile();
 
-        if (auto outStream = destFile.createOutputStream())
+        if (std::unique_ptr<juce::OutputStream> outStream = destFile.createOutputStream())
         {
             juce::WavAudioFormat wav;
-            std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (outStream.get(), sr, (unsigned int) channels, 24, {}, 0));
+            const auto options = juce::AudioFormatWriterOptions{}
+                                     .withSampleRate (sr)
+                                     .withNumChannels (channels)
+                                     .withBitsPerSample (24);
+            auto writer = wav.createWriterFor (outStream, options);
             if (writer != nullptr)
             {
-                outStream.release();
                 if (writer->writeFromAudioSampleBuffer (out, 0, out.getNumSamples()))
                 {
                     writer.reset();
@@ -4306,7 +4401,6 @@ MainPluginEditor::~MainPluginEditor()
         browserContents.clear();
         browserThread.stopThread (5000);
     }
-    for (auto& dc : deckControls) dc.play.setLookAndFeel (nullptr);   // drop icon LnF before it dies
     setLookAndFeel (nullptr);
 }
 
@@ -4390,6 +4484,11 @@ void MainPluginEditor::setupLibrary()
 
     libraryView = std::make_unique<MusicLibraryView> (thumbnailFormatManager);
     libraryView->onLoadFile = [this] (const juce::File& f) { fileDoubleClicked (f); };
+    libraryView->onLoadDeck = [this] (const juce::File& file, int deck)
+    {
+        processorRef.stopLibraryPreview();
+        requestDeckLoad (deck, file);
+    };
     libraryView->onLoadQueuedFile = [this] (const juce::File& file,
                                             std::function<void(bool)> completion)
     {
@@ -4522,7 +4621,10 @@ void MainPluginEditor::toggleLibrary()
     if (! libraryVisible)
         processorRef.stopLibraryPreview();
     if (libraryView != nullptr)
+    {
         libraryView->setVisible (libraryVisible);
+        if (libraryVisible) libraryView->toFront (false);
+    }
 
     // Library and the basic file browser share the left column — keep one open.
     if (libraryVisible && browserVisible)
@@ -4851,6 +4953,12 @@ void MainPluginEditor::showSettingsMenu()
 {
     juce::PopupMenu menu;
     menu.addSectionHeader ("Settings");
+    const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone
+                         || processorRef.wrapperType == juce::AudioProcessor::wrapperType_Undefined;
+    menu.addItem (12, standalone ? "Audio/MIDI setup..."
+                                 : "Audio/MIDI setup is controlled by the host",
+                  standalone, false);
+    menu.addSeparator();
     menu.addItem (1, "Advanced tools (plugin host, AI master, rekordbox, project I/O)", true, advancedVisible);
     menu.addItem (2, "Showcase demo content (fake titles / waveforms / clips)", true, showcaseMode);
     menu.addSeparator();
@@ -4863,12 +4971,15 @@ void MainPluginEditor::showSettingsMenu()
     menu.addItem (8, "Export Center...", true, false);
     menu.addItem (9, "Diagnostics...", true, false);
     menu.addItem (10, "Welcome guide...", true, false);
+    menu.addSeparator();
+    menu.addItem (11, "Keyboard Shortcuts...", true, false);
     juce::Component::SafePointer<MainPluginEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
         [safe] (int choice)
         {
             if (safe == nullptr) return;
-            if (choice == 1) { safe->advancedVisible = ! safe->advancedVisible; safe->advancedToggle.setToggleState (safe->advancedVisible, juce::dontSendNotification); safe->resized(); safe->repaint(); }
+            if (choice == 12) safe->showAudioSettings();
+            else if (choice == 1) { safe->advancedVisible = ! safe->advancedVisible; safe->advancedToggle.setToggleState (safe->advancedVisible, juce::dontSendNotification); safe->resized(); safe->repaint(); }
             else if (choice == 2) safe->setShowcaseMode (! safe->showcaseMode);
             else if (choice == 3) safe->processorRef.getMidiMapping().resyncFeedback();
             else if (choice == 4) safe->createSessionSnapshot();
@@ -4878,32 +4989,48 @@ void MainPluginEditor::showSettingsMenu()
             else if (choice == 8) safe->showExportCenter();
             else if (choice == 9) safe->showDiagnostics();
             else if (choice == 10) safe->showOnboarding (true);
+            else if (choice == 11) safe->showKeyboardShortcutMenu();
         });
 }
 
-void MainPluginEditor::showCommandPalette()
+void MainPluginEditor::showAudioSettings()
+{
+#if JucePlugin_Build_Standalone
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+    {
+        holder->showAudioSettingsDialog();
+        return;
+    }
+#endif
+    juce::AlertWindow::showMessageBoxAsync (
+        juce::AlertWindow::InfoIcon, "Audio/MIDI Setup",
+        "This plug-in receives audio and MIDI configuration from its host. "
+        "Open the host application's audio settings to change the output device or buffer size.");
+}
+
+std::vector<stemdeck::CommandPalette::Command> MainPluginEditor::buildCommandList() const
 {
     using Command = stemdeck::CommandPalette::Command;
     std::vector<Command> commands {
-        { 1,  "Open Sets",          "Search, prepare, and load your music",           u8 ("\xe2\x8c\x98" "1") },
-        { 2,  "Open Perform",       "Decks, stems, cues, and performance pads",       u8 ("\xe2\x8c\x98" "2") },
-        { 4,  "Open Replay",        "Captured takes, clips, and export",               u8 ("\xe2\x8c\x98" "3") },
-        { 3,  "Open Mixer",         "Detailed channel routing and metering",           u8 ("\xe2\x8c\x98" "4") },
-        { 5,  "Browse Audio Files", "Open the local audio-file browser",               u8 ("\xe2\x8c\x98O") },
-        { 10, "Choose Track",       "Load audio into the focused deck",                "L" },
+        { 1,  "Open Sets",          "Search, prepare, and load your music",           "" },
+        { 2,  "Open Perform",       "Decks, stems, cues, and performance pads",       "" },
+        { 4,  "Open Replay",        "Captured takes, clips, and export",              "" },
+        { 3,  "Open Mixer",         "Detailed channel routing and metering",          "" },
+        { 5,  "Browse Audio Files", "Open the local audio-file browser",              "" },
+        { 10, "Choose Track",       "Load audio into the focused deck",               "" },
         { 11, "Create Stems",       "Separate the focused deck into musical stems",    "" },
         { 12, focusMode ? "Exit Focus Mode" : "Enter Focus Mode",
-                                      "Concentrate on the selected deck",               "F" },
-        { 13, "Sync All Tempos",    "Match every deck to the master deck",             "B" },
-        { 14, "Sync All Keys",      "Harmonically match every deck",                   "K" },
+                                      "Concentrate on the selected deck",               "" },
+        { 13, "Sync All Tempos",    "Match every deck to the master deck",             "" },
+        { 14, "Sync All Keys",      "Harmonically match every deck",                   "" },
         { 15, processorRef.isMasterRecording() ? "Finish Recording" : "Start Recording",
-                                      "Capture master, decks, MIDI, and intent",         "R" },
-        { 16, "Save Project",       "Save the complete StemDeck session",              u8 ("\xe2\x8c\x98S") },
-        { 17, "Open Project",       "Restore a StemDeck session",                      u8 ("\xe2\x87\xa7\xe2\x8c\x98O") },
-        { 18, "Inspect Focused Deck", "Details, preflight, and quick actions",          u8 ("\xe2\x8c\x98I") },
+                                      "Capture master, decks, MIDI, and intent",         "" },
+        { 16, "Save Project",       "Save the complete StemDeck session",              "" },
+        { 17, "Open Project",       "Restore a StemDeck session",                      "" },
+        { 18, "Inspect Focused Deck", "Details, preflight, and quick actions",          "" },
         { 19, "MIDI Learn",         "Map a controller to a StemDeck action",            "" },
         { 20, "Scan Sattari FX",    "Refresh the safe curated plugin list",             "" },
-        { 21, "Create Snapshot",    "Keep a timestamped restore point for this session", u8 ("\xe2\x87\xa7\xe2\x8c\x98S") },
+        { 21, "Create Snapshot",    "Keep a timestamped restore point for this session", "" },
         { 22, "Restore Latest Snapshot", "Return to the newest named restore point",     "" },
         { 23, "Repair Missing Files", "Find and relink moved session audio by filename",  "" }
         ,{ 24, "Session History",     "Browse, annotate, restore, and remove restore points", "" }
@@ -4915,7 +5042,77 @@ void MainPluginEditor::showCommandPalette()
         ,{ 30, "Keep Last 60 Seconds", "Recover master audio captured before Record was armed", "" }
         ,{ 31, "Previous Performance Take", "Open the previous captured take in Replay", "" }
         ,{ 32, "Next Performance Take", "Open the next captured take in Replay", "" }
+        ,{ 33, "Next Live Source", "Move performance focus to the next source", "" }
+        ,{ 34, "Play Focused Source", "Start or stop the focused deck", "" }
+        ,{ 35, "Play All Sources", "Start or stop every loaded deck", "" }
+        ,{ 36, masterFocused ? "Close Master Detail" : "Open Master Detail",
+               "Show output routing, stems, effects and safety", "" }
+        ,{ 37, "Add Live Source", "Add a DJ deck, microphone, guitar/line input, or instrument", "" }
+        ,{ 38, "Set 8-Bar Loop", "Create and engage an eight-bar loop on the focused deck", "" }
+        ,{ 39, "Load Track into Deck A", "Choose audio for Deck A", "" }
+        ,{ 40, "Load Track into Deck B", "Choose audio for Deck B", "" }
+        ,{ 41, "Load Track into Deck C", "Choose audio for Deck C", "" }
+        ,{ 42, "Load Track into Deck D", "Choose audio for Deck D", "" }
+        ,{ 43, "Match Focused Deck Tempo", "Synchronize the selected deck to the project tempo", "" }
+        ,{ 44, "Match Focused Deck Key", "Harmonically match the selected deck to the tempo leader", "" }
+        ,{ 45, "Open Master Limiter", "Open master output, effects, and limiter controls", "" }
+        ,{ 46, "Export Set", "Open export preflight and packaging", "" }
+        ,{ 47, processorRef.isPerformanceSafeMode() ? "Disable Performance Safe Mode" : "Enable Performance Safe Mode",
+               "Emergency dry path without stopping transports", "" }
+        ,{ 48, "Keyboard Shortcuts", "Review or remap every computer-key action", "" }
+        ,{ 49, "Duplicate Selected Clip", "Duplicate the selected Replay clip", "" }
+        ,{ 50, "Enable or Disable Clip", "Toggle the selected Replay clip", "" }
+        ,{ 51, "Play Replay", "Start or stop arrangement playback", "" }
+        ,{ 52, "Toggle Automation Lanes", "Show or hide Replay automation", "" }
+        ,{ 53, "Toggle Razor Tool", "Enable or disable split-on-click editing", "" }
+        ,{ 54, "Toggle Replay Follow", "Keep the playhead in view during playback", "" }
+        ,{ 55, "Fit Replay to Window", "Zoom to the complete arrangement", "" }
+        ,{ 56, "Command Search", "Search and run every StemDeck action", "" }
+        ,{ 57, "Restore Sound", "Reset gains, EQ, routing and inserts to a safe audible path", "" }
+        ,{ 58, "Audio/MIDI Setup", "Choose the standalone output device and buffer size", "" }
+        ,{ 59, processorRef.isMasterMonitorMono() ? "Disable Monitor Mono" : "Enable Monitor Mono",
+               "Audition stereo compatibility without changing capture or export", "" }
+        ,{ 60, processorRef.isMasterMonitorDim() ? "Disable Monitor Dim" : "Enable Monitor Dim",
+               "Lower the control-room output by 12 dB without changing the master", "" }
+        ,{ 61, processorRef.isMasterMonitorMute() ? "Unmute Monitor" : "Mute Monitor",
+               "Silence monitoring while recording and retrospective capture continue", "" }
+        ,{ 62, "Reset Master Metering", "Restart integrated loudness and stereo-image analysis", "" }
     };
+
+    for (int pad = 0; pad < PadBank::numPads; ++pad)
+        commands.push_back ({ 101 + pad, "Trigger Pad " + juce::String (pad + 1),
+                              "Play performance pad " + juce::String (pad + 1), "" });
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+    {
+        const auto deckName = deckLabel (deck);
+        commands.push_back ({ 200 + deck * 16, deckName + " Play",
+                              "Start or stop this deck directly", "" });
+        commands.push_back ({ 201 + deck * 16, deckName + " Cue",
+                              "Jump to this deck's primary cue", "" });
+        commands.push_back ({ 202 + deck * 16, deckName + " Loop",
+                              "Engage or release this deck's loop", "" });
+        for (int cue = 0; cue < MainPluginProcessor::numHotCues; ++cue)
+            commands.push_back ({ 203 + deck * 16 + cue,
+                                  deckName + " Hot Cue " + juce::String (cue + 1),
+                                  "Set or jump to this deck cue", "" });
+    }
+
+    for (auto& command : commands)
+        command.shortcut = keyboardShortcuts.descriptionFor (command.id);
+    return commands;
+}
+
+juce::String MainPluginEditor::commandTitle (int commandId) const
+{
+    for (const auto& command : buildCommandList())
+        if (command.id == commandId)
+            return command.title;
+    return "Command " + juce::String (commandId);
+}
+
+void MainPluginEditor::showCommandPalette()
+{
+    auto commands = buildCommandList();
 
     auto panel = std::make_unique<stemdeck::CommandPalette> (std::move (commands));
     auto* panelPtr = panel.get();
@@ -4935,11 +5132,122 @@ void MainPluginEditor::showCommandPalette()
                 safe->performCommand (id);
         });
     };
+    panelPtr->onAssignShortcut = [safe, panelPtr] (int id)
+    {
+        if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+        juce::MessageManager::callAsync ([safe, id]
+        {
+            if (safe != nullptr) safe->beginShortcutCapture (id);
+        });
+    };
 
     const auto anchor = commandButton.isVisible() && ! commandButton.getBounds().isEmpty()
                       ? commandButton.getBounds()
                       : getLocalBounds().withSizeKeepingCentre (80, 30);
     juce::CallOutBox::launchAsynchronously (std::move (panel), anchor, this);
+}
+
+void MainPluginEditor::showKeyboardShortcutMenu()
+{
+    juce::PopupMenu menu, global, perform, replay, padCommands;
+    for (const auto& command : buildCommandList())
+    {
+        if (command.id == 48) continue;
+        auto label = command.title;
+        if (command.shortcut.isNotEmpty()) label += "    " + command.shortcut;
+        auto* group = &global;
+        const auto scope = keyboardShortcuts.scopeFor (command.id);
+        if (command.id >= 101 && command.id < 200) group = &padCommands;
+        else if (scope == stemdeck::KeyboardShortcutManager::Scope::perform) group = &perform;
+        else if (scope == stemdeck::KeyboardShortcutManager::Scope::replay) group = &replay;
+        group->addItem (command.id, label);
+    }
+    menu.addSectionHeader ("Keyboard Shortcuts");
+    menu.addSubMenu ("Global", global);
+    menu.addSubMenu ("Perform", perform);
+    menu.addSubMenu ("Replay", replay);
+    menu.addSubMenu ("Performance Pads", padCommands);
+    menu.addSeparator();
+    menu.addItem (9001, "Restore All Defaults");
+
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton),
+        [safe] (int result)
+        {
+            if (safe == nullptr || result == 0) return;
+            if (result == 9001)
+            {
+                safe->keyboardShortcuts.resetAll();
+                safe->recordStatus.setText ("Keyboard shortcuts restored to defaults",
+                                            juce::dontSendNotification);
+                return;
+            }
+            safe->beginShortcutCapture (result);
+        });
+}
+
+void MainPluginEditor::beginShortcutCapture (int commandId, juce::Component* anchor)
+{
+    auto panel = std::make_unique<stemdeck::ShortcutCapturePanel> (commandTitle (commandId));
+    auto* panelPtr = panel.get();
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+    const auto dismiss = [panelPtr]
+    {
+        if (auto* box = panelPtr->findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    };
+    panelPtr->onCancel = dismiss;
+    panelPtr->onClear = [safe, commandId, dismiss]
+    {
+        dismiss();
+        if (safe == nullptr) return;
+        safe->keyboardShortcuts.clear (commandId);
+        safe->recordStatus.setText (safe->commandTitle (commandId) + " shortcut removed",
+                                    juce::dontSendNotification);
+    };
+    panelPtr->onCapture = [safe, commandId, dismiss] (juce::KeyPress key)
+    {
+        dismiss();
+        if (safe == nullptr) return;
+        if (stemdeck::KeyboardShortcutManager::isReservedBySystem (key))
+        {
+            safe->recordStatus.setText ("That shortcut is reserved by macOS",
+                                        juce::dontSendNotification);
+            return;
+        }
+        const int conflict = safe->keyboardShortcuts.conflictFor (commandId, key);
+        if (conflict == 0)
+        {
+            safe->keyboardShortcuts.assign (commandId, key, false);
+            safe->recordStatus.setText (safe->commandTitle (commandId) + "  ·  "
+                                         + key.getTextDescriptionWithIcons(),
+                                        juce::dontSendNotification);
+            return;
+        }
+
+        const auto incoming = safe->commandTitle (commandId);
+        const auto existing = safe->commandTitle (conflict);
+        juce::AlertWindow::showOkCancelBox (
+            juce::MessageBoxIconType::QuestionIcon,
+            "Replace shortcut?",
+            key.getTextDescriptionWithIcons() + " is assigned to “" + existing
+                + "”. Replace it with “" + incoming + "”?",
+            "Replace", "Cancel", nullptr,
+            juce::ModalCallbackFunction::create ([safe, commandId, key] (int result)
+            {
+                if (safe == nullptr || result == 0) return;
+                safe->keyboardShortcuts.assign (commandId, key, true);
+                safe->recordStatus.setText (safe->commandTitle (commandId) + "  ·  "
+                                             + key.getTextDescriptionWithIcons(),
+                                            juce::dontSendNotification);
+            }));
+    };
+
+    auto target = anchor != nullptr ? getLocalArea (anchor, anchor->getLocalBounds())
+                                    : settingsButton.getBounds();
+    if (target.isEmpty()) target = getLocalBounds().withSizeKeepingCentre (80, 30);
+    juce::CallOutBox::launchAsynchronously (std::move (panel), target, this);
 }
 
 void MainPluginEditor::showQuickInspector()
@@ -5063,12 +5371,167 @@ void MainPluginEditor::performCommand (int commandId)
         case 25: showExportCenter(); break;
         case 26: showDiagnostics(); break;
         case 27: showOnboarding (true); break;
-        case 28: undoSessionAction(); break;
-        case 29: redoSessionAction(); break;
+        case 28:
+            if (pianoRollButton.getToggleState() && arrangementView.canUndo()) arrangementView.undo();
+            else undoSessionAction();
+            break;
+        case 29:
+            if (pianoRollButton.getToggleState() && arrangementView.canRedo()) arrangementView.redo();
+            else redoSessionAction();
+            break;
         case 30: keepRetrospectiveAudio(); break;
         case 31: selectPerformanceTake (-1); break;
         case 32: selectPerformanceTake (1); break;
+        case 33: cycleFocusedSource (1); break;
+        case 34: toggleFocusedSourcePlayback(); break;
+        case 35: masterPlayButton.triggerClick(); break;
+        case 36:
+            selectPrimarySurface (PrimarySurface::perform);
+            masterFocused = ! masterFocused;
+            if (masterFocused) focusMode = false;
+            resized();
+            repaint();
+            break;
+        case 37: showAddChannelMenu (nullptr); break;
+        case 38:
+        {
+            const int deck = juce::jlimit (0, MainPluginProcessor::numDecks - 1, focusedDeck);
+            const double bpm = juce::jmax (1.0, deckControls[(size_t) deck].bpm.getValue());
+            const double start = processorRef.getDeckPlayheadSeconds (deck);
+            stripLoopBeats[(size_t) deck] = 32.0; // eight 4/4 bars
+            processorRef.setDeckLoopSeconds (deck, start, start + 32.0 * 60.0 / bpm);
+            processorRef.setDeckLoopActive (deck, true);
+            setDeckToolTab (deck, DeckControls::TabLoop);
+            break;
+        }
+        case 39: openDeckChooser (0); break;
+        case 40: openDeckChooser (1); break;
+        case 41: openDeckChooser (2); break;
+        case 42: openDeckChooser (3); break;
+        case 43:
+        {
+            if (auto* p = processorRef.parameters().getParameter (
+                    deckPrefix (focusedDeck) + "Sync"))
+                p->setValueNotifyingHost (1.0f);
+            break;
+        }
+        case 44:
+        {
+            const auto reference = processorRef.getDeckAnalysis (masterDeckIndex);
+            const auto current = processorRef.getDeckAnalysis (focusedDeck);
+            if (! reference.hasKey() || ! current.hasKey())
+            {
+                recordStatus.setText ("Analyze both the focused deck and tempo leader before matching key",
+                                      juce::dontSendNotification);
+                break;
+            }
+            const std::array<int, 3> compatible {
+                reference.keyPitchClass,
+                (reference.keyPitchClass + 7) % 12,
+                (reference.keyPitchClass + 5) % 12
+            };
+            int target = compatible[0], smallestShift = 99;
+            for (const int candidate : compatible)
+            {
+                const int raw = ((candidate - current.keyPitchClass) % 12 + 12) % 12;
+                const int shift = juce::jmin (raw, 12 - raw);
+                if (shift < smallestShift) { smallestShift = shift; target = candidate; }
+            }
+            if (auto* masterKeyParam = processorRef.parameters().getParameter ("masterKey"))
+                masterKeyParam->setValueNotifyingHost (masterKeyParam->convertTo0to1 (0.0f));
+            if (auto* keyTarget = processorRef.parameters().getParameter (
+                    deckPrefix (focusedDeck) + "KeyTarget"))
+                keyTarget->setValueNotifyingHost (keyTarget->convertTo0to1 ((float) (target + 1)));
+            recordStatus.setText (deckLabel (focusedDeck) + " matched harmonically to "
+                                    + deckLabel (masterDeckIndex), juce::dontSendNotification);
+            break;
+        }
+        case 45:
+            selectPrimarySurface (PrimarySurface::perform);
+            masterFocused = true;
+            advancedVisible = true;
+            advancedToggle.setToggleState (true, juce::dontSendNotification);
+            advancedToggle.setButtonText ("Less");
+            resized(); repaint();
+            break;
+        case 46: showExportCenter(); break;
+        case 47:
+            processorRef.setPerformanceSafeMode (! processorRef.isPerformanceSafeMode());
+            break;
+        case 48: showKeyboardShortcutMenu(); break;
+        case 49: arrangementView.duplicateSelectedClip(); break;
+        case 50: arrangementView.toggleSelectedClipActive(); break;
+        case 51: toggleArrangementPlayback(); break;
+        case 52:
+        {
+            const bool shouldShow = ! arrangementView.hasVisibleAutomation();
+            arrangementView.setAllAutomationVisible (shouldShow);
+            arrAutomationButton.setToggleState (shouldShow, juce::dontSendNotification);
+            break;
+        }
+        case 53:
+        {
+            const bool shouldSplit = ! arrangementView.isRazorMode();
+            arrangementView.setRazorMode (shouldSplit);
+            razorButton.setToggleState (shouldSplit, juce::dontSendNotification);
+            break;
+        }
+        case 54: arrFollowButton.triggerClick(); break;
+        case 55: arrangementView.zoomToFit(); break;
+        case 56: showCommandPalette(); break;
+        case 57: resetOutputButton.triggerClick(); break;
+        case 58: showAudioSettings(); break;
+        case 59: monitorMonoButton.triggerClick(); break;
+        case 60: monitorDimButton.triggerClick(); break;
+        case 61: monitorMuteButton.triggerClick(); break;
+        case 62: resetMetersButton.triggerClick(); break;
         default: break;
+    }
+
+    if (commandId >= 101 && commandId < 101 + PadBank::numPads)
+        processorRef.triggerPad (commandId - 101);
+    if (commandId >= 200 && commandId < 200 + MainPluginProcessor::numDecks * 16)
+    {
+        const int deck = (commandId - 200) / 16;
+        const int action = (commandId - 200) % 16;
+        if (! juce::isPositiveAndBelow (deck, MainPluginProcessor::numDecks)) return;
+        const auto prefix = deckPrefix (deck);
+        if (action == 0)
+        {
+            if (auto* play = processorRef.parameters().getParameter (prefix + "Play"))
+                play->setValueNotifyingHost (play->getValue() > 0.5f ? 0.0f : 1.0f);
+        }
+        else if (action == 1)
+        {
+            double cue = processorRef.getHotCue (deck, 0);
+            if (cue < 0.0)
+            {
+                cue = processorRef.getDeckPlayheadSeconds (deck);
+                processorRef.setHotCue (deck, 0, cue);
+            }
+            processorRef.seekDeckSeconds (deck, cue);
+        }
+        else if (action == 2)
+        {
+            const bool active = processorRef.isDeckLoopActive (deck);
+            if (active)
+                processorRef.setDeckLoopActive (deck, false);
+            else
+            {
+                const double bpm = juce::jmax (1.0, deckControls[(size_t) deck].bpm.getValue());
+                const double start = processorRef.getDeckPlayheadSeconds (deck);
+                processorRef.setDeckLoopSeconds (deck, start, start + 4.0 * 60.0 / bpm);
+                processorRef.setDeckLoopActive (deck, true);
+            }
+        }
+        else if (action >= 3 && action < 3 + MainPluginProcessor::numHotCues)
+        {
+            const int cueIndex = action - 3;
+            const double cue = processorRef.getHotCue (deck, cueIndex);
+            if (cue >= 0.0) processorRef.seekDeckSeconds (deck, cue);
+            else processorRef.setHotCue (deck, cueIndex,
+                                         processorRef.getDeckPlayheadSeconds (deck));
+        }
     }
 }
 
@@ -5104,6 +5567,22 @@ void MainPluginEditor::setMasterDeck (int deckIndex)
 
 void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu() && e.eventComponent != nullptr)
+    {
+        const auto type = e.eventComponent->getProperties()["stemdeckMidiTargetType"].toString();
+        const auto target = e.eventComponent->getProperties()["stemdeckMidiTarget"].toString();
+        if (type.isNotEmpty() && target.isNotEmpty())
+        {
+            showMidiTargetContextMenu (type, target, e.eventComponent);
+            return;
+        }
+    }
+    // Child controls register this editor only for the contextual learn gesture.
+    // Their ordinary clicks remain owned by the child and must not be interpreted
+    // as coordinates in the editor's painted deck regions.
+    if (e.eventComponent != this)
+        return;
+
     for (int i = 0; i < MainPluginProcessor::numDecks; ++i)
         if (deckCollapsedBounds[(size_t) i].contains (e.getPosition()))
         {
@@ -5174,6 +5653,25 @@ void MainPluginEditor::mouseDown (const juce::MouseEvent& e)
     if (! addChannelTileBounds.isEmpty() && addChannelTileBounds.contains (e.getPosition()))
     {
         showAddChannelMenu (nullptr);
+        return;
+    }
+
+    const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone
+                         || processorRef.wrapperType == juce::AudioProcessor::wrapperType_Undefined;
+    const auto audioStatusHit = masterOutBounds.reduced (12, 6).withHeight (16);
+    if (standalone && uiTimerTick >= 12 && ! audioCallbackHealthy
+        && audioStatusHit.contains (e.getPosition()))
+    {
+        showAudioSettings();
+        return;
+    }
+
+    if (! masterCardBounds.isEmpty() && masterCardBounds.contains (e.getPosition()))
+    {
+        masterFocused = ! masterFocused;
+        if (masterFocused) focusMode = false;
+        resized();
+        repaint();
         return;
     }
 
@@ -5456,15 +5954,8 @@ void MainPluginEditor::paint (juce::Graphics& g)
         g.fillRoundedRectangle (r, 6.0f);
         g.setColour (deckAccent (0).withAlpha (0.45f));
         g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
-        g.setColour (juce::Colour (sdp::fgTertiary));
-        g.setFont (stemdeck::tokens::technical (8.0f, true));
-        // "HOST TEMPO" is only honest inside a DAW. Standalone has no host and this
-        // chip just mirrors the GLOBAL TEMPO clock, so label it plainly there.
-        const bool inHost = processorRef.wrapperType != juce::AudioProcessor::wrapperType_Standalone
-                         && processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
-        g.drawText (inHost ? "HOST TEMPO" : "TEMPO",
-                    juce::Rectangle<float> (r.getX() + 8.0f, r.getY() + 2.0f, r.getWidth() - 16.0f, 10.0f),
-                    juce::Justification::centredLeft);
+        // The slider and key selector draw their own honest labels. A second
+        // painted TEMPO caption here collided with GLOBAL TEMPO at compact sizes.
     }
 
     if (! browserPanelBounds.isEmpty())
@@ -5513,8 +6004,37 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
         g.setColour (juce::Colour (sdp::fgTertiary));
         g.setFont (stemdeck::tokens::technical (8.0f, true).withExtraKerningFactor (0.06f));
-        g.drawText ("CHANNEL", addChannelTileBounds.withTop (addChannelTileBounds.getCentreY() + 16).withHeight (12),
+        g.drawText ("SOURCE", addChannelTileBounds.withTop (addChannelTileBounds.getCentreY() + 16).withHeight (12),
                     juce::Justification::centred);
+    }
+
+    // A new set begins as an invitation, not four implementation slots. The
+    // button is a child component so it remains fully accessible; this parent
+    // layer supplies the calm musical context around it.
+    if (paintPerformSurface && ! emptySessionBounds.isEmpty())
+    {
+        namespace T = stemdeck::tokens;
+        const auto centre = emptySessionBounds.withSizeKeepingCentre (
+            juce::jmin (480, emptySessionBounds.getWidth()),
+            juce::jmin (300, emptySessionBounds.getHeight()));
+        const auto halo = centre.toFloat().reduced (22.0f, 8.0f);
+        g.setGradientFill (juce::ColourGradient (
+            T::c (T::selected).withAlpha (0.055f), halo.getCentre(),
+            T::c (T::bgApp).withAlpha (0.0f), { halo.getRight(), halo.getBottom() }, true));
+        g.fillEllipse (halo);
+
+        auto copy = centre.withTrimmedTop (centre.getHeight() / 2 + 28);
+        g.setColour (T::c (T::fgPrimary));
+        g.setFont (T::ui (20.0f, true));
+        g.drawText ("Add Source", copy.removeFromTop (30), juce::Justification::centred);
+        g.setColour (T::c (T::fgTertiary));
+        g.setFont (T::ui (12.5f));
+        g.drawText ("Drop music here, or add something you can play",
+                    copy.removeFromTop (24), juce::Justification::centred);
+        g.setColour (T::c (T::fgMuted));
+        g.setFont (T::technical (9.0f));
+        g.drawFittedText ("DJ DECK   /   INSTRUMENT   /   MIC   /   MIDI",
+                          copy.removeFromTop (22), juce::Justification::centred, 1);
     }
 
     // --- Deck panels: flat brand-palette card per deck, accent stripe at the top ---
@@ -6008,9 +6528,38 @@ void MainPluginEditor::paint (juce::Graphics& g)
 
         g.setColour (juce::Colour (kAccent));
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        g.drawText (advancedVisible ? "OUTPUT  /  MASTER STEMS" : "OUTPUT",
+        g.drawText (masterFocused ? (advancedVisible ? "MASTER OUTPUT  /  STEM BUSSES" : "MASTER OUTPUT")
+                                  : "MASTER OUTPUT",
                     masterOutBounds.reduced (12, 6).withHeight (14),
                     juce::Justification::centredLeft);
+        if (masterOutBounds.getWidth() > 520)
+        {
+            const auto dropped = processorRef.getDroppedBufferCount();
+            const auto cpu = processorRef.getAudioCpuLoad();
+            const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone
+                                 || processorRef.wrapperType == juce::AudioProcessor::wrapperType_Undefined;
+            const bool starting = standalone && ! audioHeartbeatSeen && uiTimerTick < 12;
+            const bool callbackOffline = standalone && ! starting && ! audioCallbackHealthy;
+            const bool monitorMuted = processorRef.isMasterMonitorMute();
+            const bool monitorDimmed = processorRef.isMasterMonitorDim();
+            const bool warning = callbackOffline || monitorMuted || monitorDimmed
+                              || dropped > 0 || cpu > 0.85f;
+            g.setColour (warning ? juce::Colour (sdp::warn)
+                                 : stemdeck::tokens::c (stemdeck::tokens::signal));
+            g.setFont (stemdeck::tokens::technical (9.0f, true));
+            const auto health = callbackOffline ? "OUTPUT OFFLINE"
+                              : starting ? "AUDIO STARTING"
+                              : monitorMuted ? "MONITOR MUTED"
+                              : dropped > 0 ? "AUDIO DROP"
+                              : cpu > 0.85f ? "CPU HIGH"
+                              : monitorDimmed ? "MONITOR DIM -12"
+                                            : "AUDIO READY";
+            const auto action = callbackOffline ? "SETTINGS > AUDIO"
+                              : masterFocused ? "CLOSE DETAIL" : "OPEN MASTER";
+            g.drawText (juce::String (health) + "   /   " + action,
+                        masterOutBounds.reduced (12, 6).withHeight (14),
+                        juce::Justification::centredRight);
+        }
 
         // Four pre-master contribution cells. The meter is deliberately adjacent to
         // the gain and M/S controls so a performer can see exactly what a bus change
@@ -6166,6 +6715,74 @@ void MainPluginEditor::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (track.withWidth (track.getWidth() * grNorm), 1.5f);
             }
             }
+        }
+
+        if (! masterCorrelationBounds.isEmpty())
+        {
+            const auto box = masterCorrelationBounds.toFloat();
+            g.setColour (juce::Colour (sdp::bgWell));
+            g.fillRoundedRectangle (box, 5.0f);
+            g.setColour (juce::Colour (sdp::borderSubtle));
+            g.drawRoundedRectangle (box.reduced (0.5f), 5.0f, 1.0f);
+
+            auto content = masterCorrelationBounds.reduced (8, 5);
+            auto heading = content.removeFromTop (13);
+            const float peak = juce::jmax (processorRef.getMasterPeak (0),
+                                           processorRef.getMasterPeak (1));
+            const bool haveSignal = peak > 0.0001f;
+            const float correlation = juce::jlimit (-1.0f, 1.0f,
+                                                     processorRef.getMasterCorrelation());
+            g.setColour (juce::Colour (sdp::fgTertiary));
+            g.setFont (juce::FontOptions (7.5f, juce::Font::bold)
+                           .withKerningFactor (sdp::trackLabel));
+            g.drawText ("STEREO IMAGE", heading, juce::Justification::centredLeft);
+            g.setColour (haveSignal && correlation < 0.0f
+                           ? juce::Colour (sdp::warn)
+                           : juce::Colour (sdp::fgSecondary));
+            g.setFont (sdp::numeric (8.5f, true));
+            g.drawText (haveSignal ? "CORR " + juce::String (correlation, 2)
+                                   : juce::String ("CORR --"),
+                        heading, juce::Justification::centredRight);
+
+            auto track = content.withHeight (8).withCentre (content.getCentre()).toFloat();
+            g.setColour (juce::Colour (sdp::borderSubtle).withAlpha (0.9f));
+            g.fillRoundedRectangle (track, 3.0f);
+            const float centreX = track.getCentreX();
+            g.setColour (juce::Colour (sdp::fgMuted));
+            g.drawVerticalLine ((int) centreX, track.getY() - 2.0f,
+                                track.getBottom() + 2.0f);
+            if (haveSignal)
+            {
+                const float markerX = juce::jmap (correlation, -1.0f, 1.0f,
+                                                  track.getX() + 3.0f,
+                                                  track.getRight() - 3.0f);
+                const auto markerColour = correlation < 0.0f
+                                            ? juce::Colour (sdp::warn)
+                                            : stemdeck::tokens::c (sdp::signal);
+                g.setColour (markerColour);
+                g.fillEllipse (markerX - 4.0f, track.getCentreY() - 4.0f, 8.0f, 8.0f);
+            }
+            g.setColour (juce::Colour (sdp::fgMuted));
+            g.setFont (juce::FontOptions (7.0f));
+            auto labels = content.removeFromBottom (10);
+            g.drawText ("PHASE", labels, juce::Justification::centredLeft);
+            g.drawText ("MONO", labels, juce::Justification::centred);
+            g.drawText ("WIDE", labels, juce::Justification::centredRight);
+        }
+
+        if (! masterSignalFlowBounds.isEmpty())
+        {
+            const auto flow = masterSignalFlowBounds.toFloat();
+            g.setColour (juce::Colour (sdp::bgWell).withAlpha (0.88f));
+            g.fillRoundedRectangle (flow, 5.0f);
+            g.setColour (juce::Colour (sdp::borderSubtle));
+            g.drawRoundedRectangle (flow.reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (juce::Colour (sdp::fgTertiary));
+            g.setFont (juce::FontOptions (7.0f, juce::Font::bold)
+                           .withKerningFactor (0.025f));
+            g.drawFittedText ("STEMS  >  INSERTS  >  COLOR  >  SMART  >  LIMITER  >  MONITOR",
+                              masterSignalFlowBounds.reduced (6, 3),
+                              juce::Justification::centred, 1, 0.7f);
         }
 
     }
@@ -6428,24 +7045,24 @@ void MainPluginEditor::refreshDeckWaveData (int i)
             }
         }
 
-        juce::MessageManager::callAsync ([safe, i, overview = std::move (overview),
-                                          stemPk = std::move (stemPk), regions = std::move (regions),
-                                          keyBands = std::move (keyBands), total, bpm]() mutable
+        juce::MessageManager::callAsync ([safe, i, waveformOverview = std::move (overview),
+                                          stemPeaks = std::move (stemPk), structureRegions = std::move (regions),
+                                          waveformKeyBands = std::move (keyBands), total, bpm]() mutable
         {
             if (safe == nullptr) return;
             auto* r = safe->deckWaveRegions[(size_t) i].get();
             if (r == nullptr) return;
             r->setTotalSeconds (total);
             if (bpm > 0) r->setBpm (bpm);
-            r->setOverviewPeaks (overview);
-            r->setStructure (regions);
-            r->setKeyBands (keyBands);
+            r->setOverviewPeaks (waveformOverview);
+            r->setStructure (structureRegions);
+            r->setKeyBands (waveformKeyBands);
             // Map columns VOX/DRM/BAS/OTH -> lanes vocals/drums/bass/music (st idx 3/0/1/2).
             const int colToSt[4] = { 3, 0, 1, 2 };
             for (int col = 0; col < 4; ++col)
             {
-                auto& pk = stemPk[(size_t) colToSt[col]];
-                r->setStemPeaks (col, pk.empty() ? overview : pk);
+                auto& pk = stemPeaks[(size_t) colToSt[col]];
+                r->setStemPeaks (col, pk.empty() ? waveformOverview : pk);
             }
         });
         return juce::ThreadPoolJob::jobHasFinished;
@@ -6455,11 +7072,87 @@ void MainPluginEditor::refreshDeckWaveData (int i)
 void MainPluginEditor::setFocusedDeck (int i)
 {
     i = juce::jlimit (0, MainPluginProcessor::numDecks - 1, i);
-    if (i == focusedDeck) return;
+    revealedEmptyDecks[(size_t) i] = revealedEmptyDecks[(size_t) i]
+                                        || ! deckHasContent (i);
+    int channelIndex = -1;
+    for (int ch = 0; ch < processorRef.getNumChannels(); ++ch)
+        if (processorRef.getChannelType (ch) == ChannelType::trackDeck
+            && processorRef.getChannelSlot (ch) == i)
+        {
+            channelIndex = ch;
+            break;
+        }
+    const bool unchanged = i == focusedDeck && channelIndex == focusedChannelIndex
+                        && ! masterFocused;
     focusedDeck = i;
+    if (channelIndex >= 0) focusedChannelIndex = channelIndex;
+    masterFocused = false;
+    if (unchanged) return;
     refreshFxScopes();   // updates the accent; selected FX destination is preserved
     resized();
     repaint();
+}
+
+void MainPluginEditor::setFocusedChannel (int channelIndex)
+{
+    if (! juce::isPositiveAndBelow (channelIndex, processorRef.getNumChannels()))
+        return;
+    if (processorRef.getChannelType (channelIndex) == ChannelType::trackDeck)
+    {
+        const int slot = processorRef.getChannelSlot (channelIndex);
+        if (juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
+        {
+            setFocusedDeck (slot);
+            return;
+        }
+    }
+    if (focusedChannelIndex == channelIndex && ! masterFocused) return;
+    focusedChannelIndex = channelIndex;
+    masterFocused = false;
+    refreshFxScopes();
+    resized();
+    repaint();
+}
+
+void MainPluginEditor::cycleFocusedSource (int direction)
+{
+    juce::Array<int> candidates;
+    for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+    {
+        const auto type = processorRef.getChannelType (channel);
+        if (type != ChannelType::trackDeck)
+        {
+            candidates.add (channel);
+            continue;
+        }
+
+        const int slot = processorRef.getChannelSlot (channel);
+        if (isDeckPresented (slot)) candidates.add (channel);
+    }
+    if (candidates.isEmpty()) return;
+
+    int position = candidates.indexOf (focusedChannelIndex);
+    if (position < 0) position = direction >= 0 ? -1 : 0;
+    position = (position + (direction >= 0 ? 1 : -1) + candidates.size()) % candidates.size();
+    setFocusedChannel (candidates[position]);
+}
+
+void MainPluginEditor::toggleFocusedSourcePlayback()
+{
+    if (masterFocused)
+    {
+        masterPlayButton.triggerClick();
+        return;
+    }
+    if (! juce::isPositiveAndBelow (focusedChannelIndex, processorRef.getNumChannels()))
+        return;
+    if (processorRef.getChannelType (focusedChannelIndex) != ChannelType::trackDeck)
+        return; // live inputs and instruments are continuously available, not transported
+
+    const int slot = processorRef.getChannelSlot (focusedChannelIndex);
+    if (juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks)
+        && isDeckPresented (slot))
+        deckControls[(size_t) slot].play.triggerClick();
 }
 
 // Keep the live/empty transition explicit. Empty controls are now removed from
@@ -6556,6 +7249,10 @@ void MainPluginEditor::configureDeckStrip (int i)
     };
 
     cb.onRequestFocus = [this, i] { setFocusedDeck (i); };   // single source of truth
+    cb.onMidiContext = [this, i, strip] (const juce::String& suffix)
+    {
+        showMidiTargetContextMenu ("note", deckLabel (i) + " " + suffix, strip);
+    };
 
     cb.onTogglePlay = [this, prefix]
     {
@@ -6612,7 +7309,7 @@ void MainPluginEditor::configureDeckStrip (int i)
         stripJumpBars[(size_t) i] = steps[(idx + 1) % 5];
     };
 
-    cb.onToggleSync = [this, prefix, &apvts]
+    cb.onToggleSync = [prefix, &apvts]
     {
         if (auto* sync = apvts.getParameter (prefix + "Sync"))
         {
@@ -6712,7 +7409,7 @@ void MainPluginEditor::configureDeckStrip (int i)
 
     // KEY: click opens the Camelot wheel for this deck; scroll nudges transposition.
     cb.onOpenKey  = [this, i] { showCamelotWheel (i); };
-    cb.onNudgeKey = [this, prefix, getFloat, setFloat] (int steps)
+    cb.onNudgeKey = [prefix, getFloat, setFloat] (int steps)
     {
         setFloat (prefix + "Pitch", juce::jlimit (-12.0f, 12.0f, getFloat (prefix + "Pitch") + (float) steps));
     };
@@ -6955,33 +7652,27 @@ void MainPluginEditor::resized()
                       hTools, hSettings, hNumItems };
 
         const std::vector<L::Item> items {
-            L::Item::fixed (82, /*pri*/ 9, T::gap3),   // SETS
-            L::Item::fixed (104, /*pri*/ 10, T::gap3), // PERFORM
-            L::Item::fixed (94, /*pri*/ 9, T::gap6),   // REPLAY
-            L::Item::fixed (94, /*pri*/ 7, T::gap5),   // global command palette
-            L::Item::fixed (118, /*pri*/ 10, T::gap5), // PLAY ALL — transport never sheds
-            L::Item::fixed (advancedVisible ? 68 : 0, /*pri*/ 4,
-                            advancedVisible ? T::gap3 : 0), // detailed mixer lives in Tools
-            L::Item::fixed (66,  /*pri*/ 3, T::gap3),  // distraction-free focus
-            L::Item::fixed (advancedVisible ? 70 : 0, /*pri*/ 3,
-                            advancedVisible ? T::gap6 : 0), // inspector lives in Tools
+            L::Item::fixed (72, /*pri*/ 9, T::gap3),   // SETS
+            L::Item::fixed (92, /*pri*/ 10, T::gap3),  // PERFORM
+            L::Item::fixed (82, /*pri*/ 9, T::gap6),   // REPLAY
+            L::Item::fixed (advancedVisible ? 94 : 0, /*pri*/ 3,
+                            advancedVisible ? T::gap5 : 0), // search lives under More
+            L::Item::fixed (108, /*pri*/ 10, T::gap5), // PLAY ALL
+            L::Item::fixed (0, /*pri*/ 0, 0),          // contextual mixer, not header chrome
+            L::Item::fixed (0, /*pri*/ 0, 0),          // focus is the source-card model
+            L::Item::fixed (0, /*pri*/ 0, 0),          // inspector is contextual below
             // The wordmark is branding: min 0, soaks up leftover, sheds silently.
             L::Item::flexible (0, 0, 1.0f, /*pri*/ 1, T::gap6),
-            // Tempo/key/sync now live in the dedicated project toolbar below.
+            // One musical-state capsule: project BPM and key, always reachable.
+            L::Item::fixed (206, /*pri*/ 10, T::gap6),
             L::Item::fixed (0, /*pri*/ 0, 0),
-            // Preset administration belongs to Tools during a performance. It
-            // disappears from the default stage bar so transport/tempo breathe.
-            L::Item::fixed (advancedVisible ? 160 : 0, /*pri*/ 2,
-                            advancedVisible ? T::gap6 : 0),
-            L::Item::fixed (advancedVisible ? 108 : 0, /*pri*/ 3,
-                            advancedVisible ? T::gap5 : 0),
+            // Record is a primary stage action, not a tiny health-bar accessory.
+            L::Item::fixed (112, /*pri*/ 10, T::gap5),
             // The channel row already ends in an always-visible + tile. Keeping a
             // second add/remove pair in the header created two competing paths.
-            L::Item::fixed (advancedVisible ? 82 : 0, /*pri*/ 5,
-                            advancedVisible ? T::gap3 : 0),
-            L::Item::fixed (advancedVisible ? 52 : 0, /*pri*/ 5,
-                            advancedVisible ? T::gap5 : 0),
-            L::Item::fixed (64,  /*pri*/ 6, T::gap5),  // TOOLS
+            L::Item::fixed (0, /*pri*/ 0, 0),
+            L::Item::fixed (0, /*pri*/ 0, 0),
+            L::Item::fixed (58,  /*pri*/ 6, T::gap5),  // MORE
             L::Item::fixed (32,  /*pri*/ 6, 0),        // gear
         };
         static_assert (hNumItems == 16, "header item count must match the priority table");
@@ -7020,18 +7711,18 @@ void MainPluginEditor::resized()
         place (mixerButton,         hMixer,      34);
         place (focusModeButton,     hFocus,      34);
         place (inspectorButton,     hInspect,    34);
-        topRecordButton.setVisible (false); topRecordButton.setBounds ({});
+        place (topRecordButton,     hSavePreset, 38);
         automixButton.setVisible (false); automixButton.setBounds ({});
         safeModeButton.setVisible (false); safeModeButton.setBounds ({});
         automixStatusLabel.setVisible (false); automixStatusLabel.setBounds ({});
-        place (savePresetButton,    hSavePreset, 30);
-        place (userPresets,         hPresets,    28);
+        savePresetButton.setVisible (false); savePresetButton.setBounds ({});
+        userPresets.setVisible (false); userPresets.setBounds ({});
         place (addChannelButton,    hAddCh,      30);
         place (removeChannelButton, hRemoveCh,   30);
         place (advancedToggle,      hTools,      30);
         place (settingsButton,      hSettings,   30);
 
-        tempoChipBounds = {};
+        tempoChipBounds = cells[(size_t) hTempo];
         tempoLabel.setVisible (false);
         tempoLabel.setBounds ({});
 
@@ -7047,9 +7738,7 @@ void MainPluginEditor::resized()
     // One always-visible place owns project tempo/key/clock and the relationship
     // between the project grid and each track. These controls used to be split
     // between a read-only header chip, Tools and the master-output dock.
-    area.removeFromTop (stemdeck::tokens::gap4);
-    projectToolbarBounds = area.removeFromTop (46);
-    area.removeFromTop (stemdeck::tokens::gap4);
+    projectToolbarBounds = {};
     {
         namespace L = stemdeck::layout;
         namespace T = stemdeck::tokens;
@@ -7106,6 +7795,20 @@ void MainPluginEditor::resized()
         place (metronomeButton,    pClick);
         masterKeyLabel.setVisible (false);
         masterKeyLabel.setBounds ({});
+    }
+
+    // The former project dashboard is folded into the one top bar. Both controls
+    // retain their native attachments and direct manipulation; only their visual
+    // container changed.
+    if (! tempoChipBounds.isEmpty())
+    {
+        auto musicalState = tempoChipBounds.reduced (4, 10).translated (0, 2);
+        auto bpmCell = musicalState.removeFromLeft (118);
+        musicalState.removeFromLeft (5);
+        masterBpm.setVisible (true);
+        masterBpm.setBounds (bpmCell);
+        masterKey.setVisible (true);
+        masterKey.setBounds (musicalState);
     }
 
     // Advanced tools toolbar (master key / AI master / rekordbox / project I/O) —
@@ -7167,31 +7870,12 @@ void MainPluginEditor::resized()
     // Recording safety remains global, but a compact console bar gives the actual
     // workspace priority. Placing it before asset sidebars keeps the clock and
     // health telemetry aligned across every surface.
-    recordingHealthBar.setVisible (true);
-    recordingHealthBar.setBounds (area.removeFromTop (46));
-    area.removeFromTop (stemdeck::tokens::gap4);
+    recordingHealthBar.setVisible (false);
+    recordingHealthBar.setBounds ({});
 
     const bool assetWorkspace = browserVisible || libraryVisible;
-    const bool performWorkspace = ! assetWorkspace
-                               && ! pianoRollButton.getToggleState()
-                               && ! pianoRoll.isVisible()
-                               && ! mixerButton.getToggleState();
     performanceCoachBounds = {};
-    if (performWorkspace)
-    {
-        performanceCoachBounds = area.removeFromTop (28);
-        auto sceneArea = performanceCoachBounds.withTrimmedLeft (
-            juce::jmax (0, performanceCoachBounds.getWidth() - 184)).reduced (0, 3);
-        for (auto& button : sceneButtons)
-        {
-            button.setVisible (true);
-            button.setBounds (sceneArea.removeFromLeft (43));
-            sceneArea.removeFromLeft (3);
-        }
-        area.removeFromTop (stemdeck::tokens::gap4);
-    }
-    else
-        for (auto& button : sceneButtons) { button.setVisible (false); button.setBounds ({}); }
+    for (auto& button : sceneButtons) { button.setVisible (false); button.setBounds ({}); }
     if (browserVisible)
     {
         const int browserWidth = juce::jlimit (340, 520, area.getWidth() * 31 / 100);
@@ -7227,10 +7911,10 @@ void MainPluginEditor::resized()
     else if (libraryVisible && libraryView != nullptr)
     {
         browserPanelBounds = browserTitleBounds = {};
-        const int libraryWidth = juce::jlimit (480, 720, area.getWidth() * 42 / 100);
-        auto libraryCol = area.removeFromLeft (libraryWidth);
-        area.removeFromLeft (12);
-        libraryView->setBounds (libraryCol);
+        // Sets is a primary workspace. Giving it the whole stage activates its
+        // wide preparation table, persistent Up Next rail and explicit A-D live
+        // targets instead of leaving most of the window as dead canvas.
+        libraryView->setBounds (area);
     }
     else
     {
@@ -7264,12 +7948,15 @@ void MainPluginEditor::resized()
                       || processorRef.getPadPath (pad).isNotEmpty();
 
     const bool compactHeight = getHeight() < 700;
-    const int kMasterBandH = assetWorkspace ? 112 : (compactHeight ? 96 : 126);
+    const int kMasterBandH = assetWorkspace ? 82
+                             : masterFocused ? (compactHeight ? 150 : 186)
+                             : 76;
     // Library/Explore keeps a compact pad dock visible.  Previously opening the
     // source browser removed every pad target, making the advertised "drag a row
     // to a deck or pad" workflow impossible without changing screens mid-drag.
     const int kPadStripH = assetWorkspace ? 42
-                                          : (compactHeight ? 42 : (anyPadAssigned ? 124 : 66));
+                                          : (! anyPadAssigned ? 0
+                                                               : (compactHeight ? 62 : 124));
     const int reservedBelow = kMasterBandH + kPadStripH + stemdeck::tokens::gap6 * 2;
     // Source workspaces share the window with a full library/browser column and
     // use monitor-style deck controls, so they can safely contract further than
@@ -7285,8 +7972,40 @@ void MainPluginEditor::resized()
     // EVERY channel is a box of the same size in one row — a deck shows its stem
     // panel, an input/instrument shows its own body. Same frame, different content
     // (spec §2.1); that consistency is the point of the channel model.
-    const int totalColumns = juce::jlimit (1, MainPluginProcessor::getMaxChannels(),
-                                           processorRef.getNumChannels());
+    // The processor deliberately keeps four compatibility deck slots alive. The
+    // performance surface presents MUSICAL SOURCES, not those implementation
+    // containers: an untouched deck is absent until content lands on it or the user
+    // explicitly chooses Add Source > DJ Deck.
+    std::array<int, kMaxChannels> channelIndexForColumn {};
+    channelIndexForColumn.fill (-1);
+    int visibleChannelCount = 0;
+    for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+    {
+        const auto type = processorRef.getChannelType (channel);
+        const int slot = processorRef.getChannelSlot (channel);
+        const bool show = type != ChannelType::trackDeck
+                       || (juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks)
+                           && isDeckPresented (slot));
+        if (show && visibleChannelCount < kMaxChannels)
+            channelIndexForColumn[(size_t) visibleChannelCount++] = channel;
+    }
+    const int totalColumns = juce::jmax (1, visibleChannelCount);
+
+    const bool showEmptyInvitation = visibleChannelCount == 0
+                                  && ! assetWorkspace && ! masterFocused;
+    emptySessionBounds = showEmptyInvitation ? decksArea.reduced (32, 20)
+                                             : juce::Rectangle<int>();
+    emptyAddSourceButton.setVisible (showEmptyInvitation);
+    if (showEmptyInvitation)
+    {
+        auto centre = emptySessionBounds.withSizeKeepingCentre (
+            juce::jmin (460, emptySessionBounds.getWidth()),
+            juce::jmin (260, emptySessionBounds.getHeight()));
+        emptyAddSourceButton.setBounds (
+            centre.withSizeKeepingCentre (76, 76).translated (0, -28));
+    }
+    else
+        emptyAddSourceButton.setBounds ({});
 
     // Channel list order is user-editable. A removed channel can leave a later
     // TrackDeck after one or more inputs, so list index and permanent deck slot
@@ -7296,21 +8015,26 @@ void MainPluginEditor::resized()
     std::array<int, MainPluginProcessor::numDecks> columnForDeckSlot {};
     deckSlotForColumn.fill (-1);
     columnForDeckSlot.fill (-1);
-    for (int col = 0; col < totalColumns; ++col)
-        if (processorRef.getChannelType (col) == ChannelType::trackDeck)
+    for (int col = 0; col < visibleChannelCount; ++col)
+    {
+        const int channel = channelIndexForColumn[(size_t) col];
+        if (processorRef.getChannelType (channel) == ChannelType::trackDeck)
         {
-            const int slot = processorRef.getChannelSlot (col);
+            const int slot = processorRef.getChannelSlot (channel);
             if (juce::isPositiveAndBelow (slot, MainPluginProcessor::numDecks))
             {
                 deckSlotForColumn[(size_t) col] = slot;
                 columnForDeckSlot[(size_t) slot] = col;
             }
         }
+    }
 
     // Always-visible "+" tile at the end of the row, so the channel model is
     // discoverable in the layout instead of hidden behind a toolbar button.
     addChannelTileBounds = {};
-    if (processorRef.getNumChannels() < MainPluginProcessor::getMaxChannels() && decksArea.getWidth() > 400)
+    if (visibleChannelCount > 0
+        && processorRef.getNumChannels() < MainPluginProcessor::getMaxChannels()
+        && decksArea.getWidth() > 400)
     {
         addChannelTileBounds = decksArea.removeFromRight (58);
         decksArea.removeFromRight (deckGap);
@@ -7331,7 +8055,7 @@ void MainPluginEditor::resized()
     // controls just stretch. Without a cap, one loaded channel beside three idle
     // ones ballooned to ~1130px and gave itself a 610px-wide PLAY button, which
     // is the same "space in the wrong place" failure as the footer, inverted.
-    constexpr int kMaxChannelW = 344;
+    constexpr int kMaxChannelW = 720;
 
     int idleCols = 0;
     for (int col = 0; col < totalColumns; ++col)
@@ -7374,10 +8098,8 @@ void MainPluginEditor::resized()
     int otherActiveW = activeW;
     int focusW = activeW;
     int focusedColumn = -1;
-    for (int col = 0; col < totalColumns; ++col)
-        if ((deckSlotForColumn[(size_t) col] >= 0
-                && deckSlotForColumn[(size_t) col] == focusedDeck)
-            || (deckSlotForColumn[(size_t) col] < 0 && col == focusedDeck))
+    for (int col = 0; col < visibleChannelCount; ++col)
+        if (channelIndexForColumn[(size_t) col] == focusedChannelIndex && ! masterFocused)
         {
             focusedColumn = col;
             break;
@@ -7389,13 +8111,10 @@ void MainPluginEditor::resized()
     {
         const int otherCount = activeCols - 1;
         const int peerMin = juce::jmin (activeW, totalColumns <= 6 ? 180 : 132);
-        focusW = juce::jlimit (activeW, 520,
+        otherActiveW = peerMin;
+        focusW = juce::jlimit (activeW, kMaxChannelW,
                               juce::jmax (activeW,
                                   avail - idleCols * idleW - otherCount * peerMin));
-        const int left = avail - idleCols * idleW - focusW;
-        otherActiveW = juce::jlimit (peerMin, activeW,
-                                     juce::jmax (peerMin, left / juce::jmax (1, otherCount)));
-        focusW = juce::jmin (520, focusW + juce::jmax (0, left - otherActiveW * otherCount));
     }
     for (int col = 0; col < totalColumns; ++col)
     {
@@ -7444,11 +8163,12 @@ void MainPluginEditor::resized()
         }
     }
 
-    for (int col = 0; col < totalColumns; ++col)
+    for (int col = 0; col < visibleChannelCount; ++col)
         if (deckSlotForColumn[(size_t) col] < 0)
-            if (auto* st = channelStrips[(size_t) col].get())
+            if (const int channel = channelIndexForColumn[(size_t) col]; channel >= 0)
+            if (auto* st = channelStrips[(size_t) channel].get())
             {
-                if (focusMode && col != focusedColumn)
+                if ((focusMode && col != focusedColumn) || masterFocused)
                 {
                     st->setVisible (false);
                     st->setBounds ({});
@@ -7478,7 +8198,13 @@ void MainPluginEditor::resized()
 
         const auto laneOuter = liveColumnBounds[(size_t) deckColumn];
 
-        if (focusMode && deckIndex != focusedDeck)
+        const int deckChannelIndex = deckColumn >= 0
+                                   ? channelIndexForColumn[(size_t) deckColumn] : -1;
+        const bool deckIsFocused = deckChannelIndex >= 0
+                                && deckChannelIndex == focusedChannelIndex
+                                && ! masterFocused;
+
+        if ((focusMode && ! deckIsFocused) || masterFocused)
         {
             setDeckDetailVisible (deckIndex, false);
             deckPanelBounds[(size_t) deckIndex] = {};
@@ -7504,7 +8230,7 @@ void MainPluginEditor::resized()
         }
 
         const bool loaded = deckHasContent (deckIndex);
-        const bool collapsed = loaded && deckIndex != focusedDeck;
+        const bool collapsed = loaded && ! deckIsFocused;
         if (collapsed)
         {
             // A secondary deck is still a live channel, not a 58 px title chip
@@ -7768,10 +8494,10 @@ void MainPluginEditor::resized()
             // Fallback: a loaded deck with no WaveformRegion. The stem strip needs
             // more height than the docked-knob row, so reclaim that row — the two
             // are adjacent, so their union is exactly the space both would occupy.
-            auto avail = knobRow.isEmpty() ? lane : lane.getUnion (knobRow);
+            auto stemAvailable = knobRow.isEmpty() ? lane : lane.getUnion (knobRow);
 
             // Empty deck: djay-Pro cells — DRUMS/BASS/MUSIC/VOCALS mini-faders + FX.
-            auto stemStrip = avail.removeFromBottom (juce::jmin (72, avail.getHeight() / 2));
+            auto stemStrip = stemAvailable.removeFromBottom (juce::jmin (72, stemAvailable.getHeight() / 2));
             deckStemBounds[(size_t) deckIndex] = stemStrip;
             const int cellW = juce::jmax (28, stemStrip.getWidth() / 5);
             auto cells = stemStrip;
@@ -7788,10 +8514,10 @@ void MainPluginEditor::resized()
             fxCell.removeFromBottom (10);
             controls.reverbMix.setVisible (true);
             controls.reverbMix.setBounds (fxCell.reduced (2, 0));
-            avail.removeFromBottom (stemdeck::tokens::gap5);
+            stemAvailable.removeFromBottom (stemdeck::tokens::gap5);
 
             if (region) { region->setVisible (false); region->setBounds ({}); }
-            if (wave)   { wave->setVisible (true);     wave->setBounds (avail); }
+            if (wave)   { wave->setVisible (true);     wave->setBounds (stemAvailable); }
         }
 
         // ---- Active toolbox tab content ----
@@ -7952,13 +8678,16 @@ void MainPluginEditor::resized()
     // metering. Keep the diagnostic column in Tools and give its 128 px to the
     // crossfader/FX route by default.
     auto band = area.removeFromTop (kMasterBandH);
+    if (masterFocused)
+        band = decksArea.getUnion (band);
+    masterCardBounds = band;
     const int panelGap = 8;
     scopePanelBounds = {};
     syncPanelBounds = {};
-    mixerPanel.setVisible (advancedVisible);
+    mixerPanel.setVisible (advancedVisible && masterFocused);
     for (auto* c : { &syncBpmButton, &syncKeyButton })
-        c->setVisible (advancedVisible);
-    if (advancedVisible)
+        c->setVisible (advancedVisible && masterFocused);
+    if (advancedVisible && masterFocused)
     {
         auto leftCol = band.removeFromLeft (128);
         band.removeFromLeft (panelGap);
@@ -7966,14 +8695,19 @@ void MainPluginEditor::resized()
         leftCol.removeFromTop (stemdeck::tokens::gap4);
         syncPanelBounds = leftCol;
     }
-    const int masterOutW = juce::jlimit (340, 470, band.getWidth() * 39 / 100);
-    masterOutBounds     = band.removeFromRight (masterOutW);    band.removeFromRight (panelGap);
+    const bool expandedMaster = masterFocused;
+    const int masterOutW = expandedMaster
+                             ? juce::jlimit (340, 470, band.getWidth() * 39 / 100)
+                             : band.getWidth();
+    masterOutBounds     = expandedMaster ? band.removeFromRight (masterOutW) : band;
+    if (expandedMaster) band.removeFromRight (panelGap);
     masterFxPanelBounds = {};
     masterFxPad.setVisible (false);
     masterFxPad.setBounds ({});
     const int liveMixW  = juce::jlimit (250, 330, band.getWidth() * 30 / 100);
-    xfPanelBounds       = band.removeFromLeft (liveMixW);       band.removeFromLeft (panelGap);
-    fxRackPanelBounds   = band;
+    xfPanelBounds       = expandedMaster ? band.removeFromLeft (liveMixW) : juce::Rectangle<int>();
+    if (expandedMaster) band.removeFromLeft (panelGap);
+    fxRackPanelBounds   = expandedMaster ? band : juce::Rectangle<int>();
 
     // SCOPE — the master scope component fills the panel.
     mixerPanel.setBounds (scopePanelBounds.reduced (4));
@@ -7992,11 +8726,11 @@ void MainPluginEditor::resized()
     // MIX — one compact control hierarchy: assignments flank the physical fader;
     // curve and the explicit 50/50 action sit in a small utility row below it.
     {
-        crossfader.setVisible (true);
-        transitionFrom.setVisible (true);
-        transitionTo.setVisible (true);
-        crossfaderCurve.setVisible (true);
-        crossfaderCenter.setVisible (true);
+        crossfader.setVisible (expandedMaster);
+        transitionFrom.setVisible (expandedMaster);
+        transitionTo.setVisible (expandedMaster);
+        crossfaderCurve.setVisible (expandedMaster);
+        crossfaderCenter.setVisible (expandedMaster);
         crossfaderReverse.setVisible (false);   // legacy parameter only
         crossfaderReverse.setBounds ({});
 
@@ -8021,7 +8755,7 @@ void MainPluginEditor::resized()
     }
 
     // Trusted suite insert rack gets the flexible centre of the dock.
-    fxRack.setVisible (! fxRackPanelBounds.isEmpty());
+    fxRack.setVisible (expandedMaster && ! fxRackPanelBounds.isEmpty());
     fxRack.setBounds (fxRackPanelBounds);
 
     if (advancedVisible)
@@ -8057,7 +8791,7 @@ void MainPluginEditor::resized()
 
         auto mo = masterOutBounds.reduced (10, 8);
         mo.removeFromTop (15);   // painted "MASTER OUTPUT" title
-        if (advancedVisible)
+        if (advancedVisible && expandedMaster)
         {
             auto stemZone = mo.removeFromLeft (juce::jmax (190, mo.getWidth() * 58 / 100));
             mo.removeFromLeft (8);
@@ -8091,53 +8825,107 @@ void MainPluginEditor::resized()
         }
 
         masterMeterBounds = mo.removeFromLeft (34).reduced (0, 2);
-        mo.removeFromLeft (6);
-        auto col = mo;   // output safety stack
-
-        // Three dense rows fit both the 96 px compact dock and the 126 px studio
-        // dock. The previous inherited four-row layout escaped the panel at 800p.
-        const bool compactMaster = col.getHeight() < 82;
-        const int row1H = compactMaster ? 25 : 31;
-        const int rowH = compactMaster ? 18 : 21;
-        const int rowGap = compactMaster ? 2 : 3;
-        auto row1 = col.removeFromTop (row1H);
-        master.setBounds (row1.removeFromLeft (juce::jmin (48, row1.getWidth())));
-        row1.removeFromLeft (3);
-        masterFilter.setVisible (advancedVisible);
-        if (advancedVisible)
+        mo.removeFromLeft (8);
+        if (! expandedMaster)
         {
-            masterFilter.setBounds (row1.removeFromLeft (juce::jmin (34, row1.getWidth())));
-            row1.removeFromLeft (5);
-        }
-        else
-            masterFilter.setBounds ({});
-        masterTempoBounds = row1;
-
-        col.removeFromTop (rowGap);
-        auto row2 = col.removeFromTop (rowH);
-        aiMasterButton.setBounds (row2.removeFromLeft (juce::jmin (64, row2.getWidth())));
-        row2.removeFromLeft (3);
-        if (row2.getWidth() >= 70)
-        {
-            aiMasterAmount.setVisible (true);
-            aiMasterAmount.setBounds (row2.removeFromRight (rowH));
-            row2.removeFromRight (3);
+            // At rest Master is a status/control card, not a second mixer. Keep
+            // only the live safety essentials and disclose routing/AI/FX when the
+            // performer opens the card.
+            master.setBounds (mo.removeFromLeft (72).reduced (2, 0));
+            mo.removeFromLeft (8);
+            limiter.setBounds (mo.removeFromLeft (72).reduced (2, 0));
+            mo.removeFromLeft (10);
+            masterLufsBounds = mo.removeFromLeft (juce::jmin (150, mo.getWidth() / 3));
+            resetOutputButton.setVisible (true);
+            resetOutputButton.setBounds (mo.removeFromRight (82).reduced (0, 4));
+            for (auto* button : { &monitorMonoButton, &monitorDimButton,
+                                  &monitorMuteButton, &resetMetersButton })
+            {
+                button->setVisible (false);
+                button->setBounds ({});
+            }
+            masterCorrelationBounds = {};
+            masterSignalFlowBounds = {};
+            masterFilter.setVisible (false); masterFilter.setBounds ({});
+            aiMasterButton.setVisible (false); aiMasterButton.setBounds ({});
+            aiMasterMode.setVisible (false); aiMasterMode.setBounds ({});
+            aiMasterAmount.setVisible (false); aiMasterAmount.setBounds ({});
+            masterTempoBounds = {};
         }
         else
         {
-            aiMasterAmount.setVisible (false);
-            aiMasterAmount.setBounds ({});
-        }
-        aiMasterMode.setBounds (row2);
+            auto col = mo;   // output safety stack
 
-        col.removeFromTop (rowGap);
-        auto row3 = col.removeFromTop (juce::jmin (rowH, col.getHeight()));
-        limiter.setBounds (row3.removeFromLeft (juce::jmin (58, row3.getWidth())));
-        row3.removeFromLeft (4);
-        resetOutputButton.setVisible (true);
-        resetOutputButton.setBounds (row3.removeFromRight (juce::jmin (82, row3.getWidth())));
-        row3.removeFromRight (4);
-        masterLufsBounds = row3;
+            // Three dense rows keep mastering controls scan-friendly even on a
+            // small laptop while the expanded card owns the primary surface.
+            const bool compactMaster = col.getHeight() < 82;
+            const int row1H = compactMaster ? 25 : 31;
+            const int rowH = compactMaster ? 18 : 21;
+            const int rowGap = compactMaster ? 2 : 3;
+            auto row1 = col.removeFromTop (row1H);
+            master.setBounds (row1.removeFromLeft (juce::jmin (48, row1.getWidth())));
+            row1.removeFromLeft (3);
+            masterFilter.setVisible (advancedVisible);
+            if (advancedVisible)
+            {
+                masterFilter.setBounds (row1.removeFromLeft (juce::jmin (34, row1.getWidth())));
+                row1.removeFromLeft (5);
+            }
+            else
+                masterFilter.setBounds ({});
+            masterTempoBounds = row1;
+
+            col.removeFromTop (rowGap);
+            auto row2 = col.removeFromTop (rowH);
+            aiMasterButton.setVisible (true);
+            aiMasterMode.setVisible (true);
+            aiMasterButton.setBounds (row2.removeFromLeft (juce::jmin (64, row2.getWidth())));
+            row2.removeFromLeft (3);
+            if (row2.getWidth() >= 70)
+            {
+                aiMasterAmount.setVisible (true);
+                aiMasterAmount.setBounds (row2.removeFromRight (rowH));
+                row2.removeFromRight (3);
+            }
+            else
+            {
+                aiMasterAmount.setVisible (false);
+                aiMasterAmount.setBounds ({});
+            }
+            aiMasterMode.setBounds (row2);
+
+            col.removeFromTop (rowGap);
+            auto row3 = col.removeFromTop (juce::jmin (rowH, col.getHeight()));
+            limiter.setBounds (row3.removeFromLeft (juce::jmin (58, row3.getWidth())));
+            row3.removeFromLeft (4);
+            resetOutputButton.setVisible (true);
+            resetOutputButton.setBounds (row3.removeFromRight (juce::jmin (82, row3.getWidth())));
+            row3.removeFromRight (4);
+            masterLufsBounds = row3;
+
+            col.removeFromTop (juce::jmax (4, rowGap));
+            auto monitorRow1 = col.removeFromTop (juce::jmin (22, col.getHeight()));
+            const int monitorHalf1 = juce::jmax (1, (monitorRow1.getWidth() - 3) / 2);
+            monitorMonoButton.setVisible (true);
+            monitorDimButton.setVisible (true);
+            monitorMonoButton.setBounds (monitorRow1.removeFromLeft (monitorHalf1));
+            monitorRow1.removeFromLeft (3);
+            monitorDimButton.setBounds (monitorRow1);
+
+            col.removeFromTop (3);
+            auto monitorRow2 = col.removeFromTop (juce::jmin (22, col.getHeight()));
+            const int monitorHalf2 = juce::jmax (1, (monitorRow2.getWidth() - 3) / 2);
+            monitorMuteButton.setVisible (true);
+            resetMetersButton.setVisible (true);
+            monitorMuteButton.setBounds (monitorRow2.removeFromLeft (monitorHalf2));
+            monitorRow2.removeFromLeft (3);
+            resetMetersButton.setBounds (monitorRow2);
+
+            col.removeFromTop (6);
+            masterCorrelationBounds = col.removeFromTop (juce::jmin (58, col.getHeight()));
+            col.removeFromTop (5);
+            masterSignalFlowBounds = col.removeFromTop (juce::jmin (34, col.getHeight()));
+        }
 
         // Reveal / Reload are advanced-only; park them on the utility row when shown.
         revealRecordingButton.setVisible (false); revealRecordingButton.setBounds ({});
@@ -8156,7 +8944,19 @@ void MainPluginEditor::resized()
     // The arrangement now owns the whole ARRANGER surface (see the overlay block
     // below). The pads get the perform footer, at a size you can actually hit.
     {
-        if (assetWorkspace)
+        if (kPadStripH <= 0)
+        {
+            samplerLabel.setVisible (false); samplerLabel.setBounds ({});
+            recordStatus.setVisible (false); recordStatus.setBounds ({});
+            libraryMetaLabel.setVisible (false); libraryMetaLabel.setBounds ({});
+            for (auto& pad : pads)
+            {
+                pad.trigger.setVisible (false); pad.trigger.setBounds ({});
+                pad.load.setVisible (false); pad.load.setBounds ({});
+                pad.gain.setVisible (false); pad.gain.setBounds ({});
+            }
+        }
+        else if (assetWorkspace)
         {
             // Compact source-workspace dock: library/file rows can be dragged
             // directly onto any pad without leaving the screen. Loaded pads keep
@@ -8275,7 +9075,8 @@ void MainPluginEditor::resized()
     // The overlays are opaque only where a component actually sits, so the gaps
     // between them — the arranger's toolbar row, for instance — were showing the
     // deck waveforms straight through from the perform screen underneath.
-    if (pianoRollButton.getToggleState() || mixerButton.getToggleState() || pianoRoll.isVisible())
+    if (pianoRollButton.getToggleState() || mixerButton.getToggleState()
+        || pianoRoll.isVisible() || libraryVisible)
         hidePerformSurface();
 }
 
@@ -8363,6 +9164,10 @@ void MainPluginEditor::hidePerformSurface()
                                    (juce::Component*) &masterFilter,
                                    (juce::Component*) &limiter,      (juce::Component*) &aiMasterButton,
                                    (juce::Component*) &resetOutputButton,
+                                   (juce::Component*) &monitorMonoButton,
+                                   (juce::Component*) &monitorDimButton,
+                                   (juce::Component*) &monitorMuteButton,
+                                   (juce::Component*) &resetMetersButton,
                                    (juce::Component*) &aiMasterMode, (juce::Component*) &aiMasterAmount,
                                    (juce::Component*) &crossfader, (juce::Component*) &transitionFrom,
                                    (juce::Component*) &transitionTo, (juce::Component*) &crossfaderCurve,
@@ -8371,9 +9176,14 @@ void MainPluginEditor::hidePerformSurface()
         hide (*comp);
 
     addChannelTileBounds = {};
+    emptySessionBounds = {};
+    masterCardBounds = {};
+    emptyAddSourceButton.setVisible (false);
+    emptyAddSourceButton.setBounds ({});
     scopePanelBounds = syncPanelBounds = xfPanelBounds = fxRackPanelBounds = {};
     masterFxPanelBounds = masterOutBounds = masterMeterBounds = {};
     masterTempoBounds = masterLufsBounds = {};
+    masterCorrelationBounds = masterSignalFlowBounds = {};
 }
 
 // Lays out the ARRANGER surface inside `bounds`, and hides every one of its
@@ -8673,12 +9483,33 @@ void MainPluginEditor::updateAutomixRamp()
 void MainPluginEditor::timerCallback()
 {
     ++uiTimerTick;
+    const double heartbeatNowMs = juce::Time::getMillisecondCounterHiRes();
+    const auto audioBlocks = processorRef.getProcessedAudioBlockCount();
+    if (audioBlocks != lastAudioBlockCount)
+    {
+        lastAudioBlockCount = audioBlocks;
+        lastAudioHeartbeatMs = heartbeatNowMs;
+        audioHeartbeatSeen = true;
+    }
+    const bool callbackNowHealthy = audioHeartbeatSeen
+                                 && heartbeatNowMs - lastAudioHeartbeatMs < 1500.0;
+    if (callbackNowHealthy != audioCallbackHealthy)
+    {
+        audioCallbackHealthy = callbackNowHealthy;
+        if (! masterOutBounds.isEmpty()) repaint (masterOutBounds);
+    }
     if (onboardingPending && recoveryDecisionMade && uiTimerTick >= 18)
     {
         onboardingPending = false;
         showOnboarding (false);
     }
     const bool underPressure = processorRef.getAudioCpuLoad() > 0.85f;
+    monitorMonoButton.setToggleState (processorRef.isMasterMonitorMono(),
+                                      juce::dontSendNotification);
+    monitorDimButton.setToggleState (processorRef.isMasterMonitorDim(),
+                                     juce::dontSendNotification);
+    monitorMuteButton.setToggleState (processorRef.isMasterMonitorMute(),
+                                      juce::dontSendNotification);
     if (underPressure != cpuPressureMode)
     {
         cpuPressureMode = underPressure;
@@ -8882,13 +9713,21 @@ void MainPluginEditor::timerCallback()
         {
             const auto name = res.isCc ? midi.ccName (res.targetIdx) : midi.noteName (res.targetIdx);
             libraryMetaLabel.setText ((res.isCc ? "Mapped CC " : "Mapped Note ")
-                                      + juce::String (res.controller) + u8 ("  \xe2\x86\x92  ") + name,
+                                      + juce::String (res.controller)
+                                      + (res.midiChannel > 0
+                                            ? " / Ch " + juce::String (res.midiChannel)
+                                            : juce::String())
+                                      + u8 ("  \xe2\x86\x92  ") + name,
                                       juce::dontSendNotification);
         }
-        midiLearnButton.setButtonText (midi.isLearning() ? u8 ("Learn\xe2\x80\xa6") : juce::String ("MIDI"));
-        midiLearnButton.setColour (juce::TextButton::buttonColourId,
-                                   midi.isLearning() ? stemdeck::tokens::c (stemdeck::tokens::selected).withAlpha (0.55f)
-                                                     : stemdeck::tokens::c (stemdeck::tokens::bgControl));
+        const auto midiLabel = midi.isLearning() ? u8 ("Learn\xe2\x80\xa6") : juce::String ("MIDI");
+        const auto midiColour = midi.isLearning()
+                                  ? stemdeck::tokens::c (stemdeck::tokens::selected).withAlpha (0.55f)
+                                  : stemdeck::tokens::c (stemdeck::tokens::bgControl);
+        if (midiLearnButton.getButtonText() != midiLabel)
+            midiLearnButton.setButtonText (midiLabel);
+        if (midiLearnButton.findColour (juce::TextButton::buttonColourId) != midiColour)
+            midiLearnButton.setColour (juce::TextButton::buttonColourId, midiColour);
     }
 
     // Live input meters / instrument activity on the per-type strips.
@@ -8903,11 +9742,15 @@ void MainPluginEditor::timerCallback()
     auto snapshot = processorRef.getTransportSnapshot();
     tempoLabel.setText (juce::String (snapshot.bpm, 1) + (snapshot.hostPlaying ? u8 ("  \xe2\x96\xb6") : u8 ("  \xe2\x97\xbc")),
                         juce::dontSendNotification);
-    masterDeckButton.setButtonText (
-        "Tempo Lead " + juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex)));
+    const auto masterDeckLabel =
+        "Tempo Lead " + juce::String::charToString ((juce_wchar) ('A' + masterDeckIndex));
+    if (masterDeckButton.getButtonText() != masterDeckLabel)
+        masterDeckButton.setButtonText (masterDeckLabel);
     const bool inHost = processorRef.wrapperType != juce::AudioProcessor::wrapperType_Standalone
                      && processorRef.wrapperType != juce::AudioProcessor::wrapperType_Undefined;
-    hostSync.setButtonText (inHost ? "Host" : "Internal");
+    const juce::String hostSyncLabel = inHost ? "Host" : "Internal";
+    if (hostSync.getButtonText() != hostSyncLabel)
+        hostSync.setButtonText (hostSyncLabel);
     bool everyKeyLocked = true;
     for (int d = 0; d < MainPluginProcessor::numDecks; ++d)
         everyKeyLocked = everyKeyLocked
@@ -8979,12 +9822,13 @@ void MainPluginEditor::timerCallback()
     }
 
     // Meters live in the MASTER OUTPUT panel — refresh continuously.
-    if (! masterOutBounds.isEmpty() && mixerPanel.isShowing())
+    if (visualActivity && ! masterOutBounds.isEmpty()
+        && (! cpuPressureMode || (uiTimerTick % 3) == 0))
         repaint (masterOutBounds);
 
     // Feed the live master-output scope + refresh the console channel meters.
     mixerPanel.pushLevel (processorRef.getMasterPeak (0), processorRef.getMasterPeak (1));
-    if (deckUiVisible)
+    if (deckUiVisible && visualActivity)
         for (const auto& mb : deckMeterBounds)
             if (! mb.isEmpty())
                 repaint (mb);
@@ -9301,7 +10145,16 @@ void MainPluginEditor::setupToolTabs (int deckIndex)
         btn.onClick = [this, deckIndex, t] { setDeckToolTab (deckIndex, t); };
         addAndMakeVisible (btn);
     }
-    setDeckToolTab (deckIndex, DeckControls::TabCue);
+    int restoredTab = DeckControls::TabCue;
+    for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+        if (processorRef.getChannelType (channel) == ChannelType::trackDeck
+            && processorRef.getChannelSlot (channel) == deckIndex)
+        {
+            restoredTab = juce::jlimit (0, (int) DeckControls::NumToolTabs - 1,
+                                        processorRef.getChannelEditorPage (channel));
+            break;
+        }
+    setDeckToolTab (deckIndex, restoredTab);
 }
 
 void MainPluginEditor::selectDeckToolTab (int deckIndex, int tab)
@@ -9444,6 +10297,13 @@ void MainPluginEditor::setDeckToolTab (int deckIndex, int tab)
     auto& dc = deckControls[(size_t) deckIndex];
     const bool changed = dc.activeToolTab != tab;
     dc.activeToolTab = tab;
+    for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+        if (processorRef.getChannelType (channel) == ChannelType::trackDeck
+            && processorRef.getChannelSlot (channel) == deckIndex)
+        {
+            processorRef.setChannelEditorPage (channel, tab);
+            break;
+        }
     for (int t = 0; t < DeckControls::NumToolTabs; ++t)
         dc.toolTabs[(size_t) t].setToggleState (t == tab, juce::dontSendNotification);
     applyDeckToolTabVisibility (deckIndex);
@@ -9974,6 +10834,9 @@ void MainPluginEditor::applyFollowAction (int laneIndex, int clipIndex)
 
     switch (fa)
     {
+        case FA::None:
+        case FA::Stop:
+            break;
         case FA::Next:
             arrangementView.triggerSlot (laneIndex, (clipIndex + 1) % numClips);
             break;
@@ -9988,7 +10851,6 @@ void MainPluginEditor::applyFollowAction (int laneIndex, int clipIndex)
                 arrangementView.triggerSlot (laneIndex, next);
             }
             break;
-        default: break;
     }
 }
 
@@ -10122,6 +10984,156 @@ void MainPluginEditor::showLibraryMeta (const juce::File& file)
 
 // ── MIDI learn — real controller mapping ───────────────────────────────────────
 
+void MainPluginEditor::setupMidiContextTargets()
+{
+    auto& midi = processorRef.getMidiMapping();
+    // One recursive listener is both cheaper and safer than installing the editor
+    // into every slider/button listener list. Target identity remains attached to
+    // the actual event component below.
+    addMouseListener (this, true);
+    auto bind = [] (juce::Component& component, const juce::String& type,
+                    const juce::String& target)
+    {
+        component.getProperties().set ("stemdeckMidiTargetType", type);
+        component.getProperties().set ("stemdeckMidiTarget", target);
+    };
+    auto bindCc = [&] (juce::Component& component, const juce::String& target)
+    {
+        if (midi.ccTargetForName (target) >= 0) bind (component, "cc", target);
+    };
+    auto bindNote = [&] (juce::Component& component, const juce::String& target)
+    {
+        if (midi.noteTargetForName (target) >= 0) bind (component, "note", target);
+    };
+
+    bindCc (crossfader, "Crossfader");
+    bindCc (masterBpm, "Master BPM");
+    bindCc (master, "Master Volume");
+    bindCc (masterFilter, "Master Filter");
+    bindCc (limiter, "Limiter Ceiling");
+    bindCc (micGain, "Mic Gain");
+
+    static const char* const masterStemNames[4] = { "Drums", "Bass", "Music", "Vocals" };
+    for (int stem = 0; stem < 4; ++stem)
+        bindCc (masterStemGains[(size_t) stem],
+                "Master " + juce::String (masterStemNames[stem]) + " Stem");
+
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+    {
+        auto& controls = deckControls[(size_t) deck];
+        const auto label = deckLabel (deck);
+        bindCc (controls.volume, label + " Volume");
+        bindCc (controls.fader, label + " Fader");
+        bindCc (controls.filter, label + " Filter");
+        bindCc (controls.low, label + " Low");
+        bindCc (controls.mid, label + " Mid");
+        bindCc (controls.high, label + " High");
+        bindCc (controls.pitch, label + " Pitch");
+        bindCc (controls.reverbMix, label + " Reverb");
+        bindCc (controls.echoMix, label + " Echo");
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+        {
+            const auto stem = DeckPlayer::stemLaneLabel (lane);
+            const auto fxLane = (size_t) (lane - DeckPlayer::drumsStem);
+            bindCc (controls.stemGains[(size_t) lane], label + " " + stem + " Stem");
+            bindCc (controls.stemFilt[fxLane], label + " " + stem + " Filter");
+            bindCc (controls.stemSend[fxLane], label + " " + stem + " Send");
+            bindCc (controls.stemPitch[fxLane], label + " " + stem + " Pitch");
+        }
+        bindNote (controls.play, label + " Play");
+        bindNote (controls.cue, label + " Cue");
+        bindNote (controls.loopToggle, label + " Loop");
+        for (int cue = 0; cue < MainPluginProcessor::numHotCues; ++cue)
+            bindNote (controls.hotCues[(size_t) cue],
+                      label + " Hot Cue " + juce::String (cue + 1));
+    }
+
+    for (int pad = 0; pad < PadBank::numPads; ++pad)
+    {
+        bindCc (pads[(size_t) pad].gain, "Pad " + juce::String (pad + 1) + " Gain");
+        bindNote (pads[(size_t) pad].trigger, "Pad " + juce::String (pad + 1));
+    }
+    bindNote (safeModeButton, "Performance Safe Mode");
+}
+
+void MainPluginEditor::showMidiTargetContextMenu (
+    const juce::String& type, const juce::String& targetName, juce::Component* anchor)
+{
+    auto& midi = processorRef.getMidiMapping();
+    const bool isCc = type == "cc";
+    const int target = isCc ? midi.ccTargetForName (targetName)
+                            : midi.noteTargetForName (targetName);
+    if (target < 0) return;
+    const int controller = isCc ? midi.ccForTarget (target)
+                                : midi.noteForTarget (target);
+    const int channel = isCc ? midi.ccChannelForTarget (target)
+                             : midi.noteChannelForTarget (target);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader (targetName);
+    if (controller >= 0)
+        menu.addItem (-1, (isCc ? "CC " : "Note ") + juce::String (controller)
+                         + (channel > 0 ? "  ·  Ch " + juce::String (channel)
+                                        : "  ·  Any channel"), false);
+    menu.addItem (1, isCc ? "MIDI Learn — move a control"
+                          : "MIDI Learn — press a pad or button");
+    menu.addItem (2, "Clear MIDI mapping", controller >= 0);
+    const int keyboardCommand = isCc ? 0 : keyboardCommandForControl (targetName);
+    if (keyboardCommand > 0)
+    {
+        menu.addSeparator();
+        const auto shortcut = keyboardShortcuts.descriptionFor (keyboardCommand);
+        menu.addItem (5, shortcut.isNotEmpty()
+                           ? "Keyboard Shortcut    " + shortcut
+                           : "Assign Keyboard Shortcut...");
+    }
+    if (isCc)
+    {
+        menu.addSeparator();
+        menu.addItem (3, "Reset to default");
+        menu.addItem (4, "Copy value");
+    }
+
+    juce::Component::SafePointer<MainPluginEditor> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (anchor),
+        [safe, isCc, target, targetName, keyboardCommand, anchor] (int result)
+        {
+            if (safe == nullptr || result <= 0) return;
+            auto& mapping = safe->processorRef.getMidiMapping();
+            if (result == 1)
+            {
+                if (isCc) mapping.beginLearnCc (target);
+                else      mapping.beginLearnNote (target);
+                safe->libraryMetaLabel.setText (
+                    "MIDI learn: " + targetName + " — "
+                        + (isCc ? "move a hardware control" : "press a hardware button"),
+                    juce::dontSendNotification);
+                safe->midiLearnButton.setButtonText (u8 ("Learn\xe2\x80\xa6"));
+            }
+            else if (result == 2)
+            {
+                mapping.clearTarget (isCc, target);
+                safe->libraryMetaLabel.setText ("Cleared MIDI mapping for " + targetName,
+                                                juce::dontSendNotification);
+            }
+            else if (result == 5 && keyboardCommand > 0)
+            {
+                safe->beginShortcutCapture (keyboardCommand, anchor);
+            }
+            else if (isCc)
+            {
+                if (auto* parameter = mapping.ccParameter (target))
+                {
+                    if (result == 3)
+                        parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                    else if (result == 4)
+                        juce::SystemClipboard::copyTextToClipboard (
+                            parameter->getText (parameter->getValue(), 64));
+                }
+            }
+        });
+}
+
 void MainPluginEditor::updateMidiLearnUI()
 {
     auto& midi = processorRef.getMidiMapping();
@@ -10143,22 +11155,50 @@ void MainPluginEditor::updateMidiLearnUI()
     constexpr int kImport   = 9998;
     constexpr int kClearAll = 9999;
 
-    juce::PopupMenu cont;
+    juce::PopupMenu cont, globalCc, padCc;
+    std::array<juce::PopupMenu, MainPluginProcessor::numDecks> deckCc;
     for (int i = 0; i < midi.numCc(); ++i)
     {
         const int cc = midi.ccForTarget (i);
-        cont.addItem (kCcBase + i,
-                      midi.ccName (i) + (cc >= 0 ? "   [CC " + juce::String (cc) + "]" : u8 ("   [\xe2\x80\x94]")));
+        const int channel = midi.ccChannelForTarget (i);
+        const auto name = midi.ccName (i);
+        const auto suffix = cc >= 0
+            ? "   [CC " + juce::String (cc)
+                + (channel > 0 ? " / Ch " + juce::String (channel) : juce::String()) + "]"
+            : u8 ("   [\xe2\x80\x94]");
+        auto* destination = &globalCc;
+        for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+            if (name.startsWith (deckLabel (deck) + " ")) destination = &deckCc[(size_t) deck];
+        if (name.startsWith ("Pad ")) destination = &padCc;
+        destination->addItem (kCcBase + i, name + suffix);
     }
+    cont.addSubMenu ("Master & global", globalCc);
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+        cont.addSubMenu (deckLabel (deck), deckCc[(size_t) deck]);
+    cont.addSubMenu ("Performance pads", padCc);
     menu.addSubMenu ("Continuous  (move a knob / fader)", cont);
 
-    juce::PopupMenu trig;
+    juce::PopupMenu trig, globalNotes, padNotes;
+    std::array<juce::PopupMenu, MainPluginProcessor::numDecks> deckNotes;
     for (int i = 0; i < midi.numNote(); ++i)
     {
         const int n = midi.noteForTarget (i);
-        trig.addItem (kNoteBase + i,
-                      midi.noteName (i) + (n >= 0 ? "   [Note " + juce::String (n) + "]" : u8 ("   [\xe2\x80\x94]")));
+        const int channel = midi.noteChannelForTarget (i);
+        const auto name = midi.noteName (i);
+        const auto suffix = n >= 0
+            ? "   [Note " + juce::String (n)
+                + (channel > 0 ? " / Ch " + juce::String (channel) : juce::String()) + "]"
+            : u8 ("   [\xe2\x80\x94]");
+        auto* destination = &globalNotes;
+        for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+            if (name.startsWith (deckLabel (deck) + " ")) destination = &deckNotes[(size_t) deck];
+        if (name.startsWith ("Pad ")) destination = &padNotes;
+        destination->addItem (kNoteBase + i, name + suffix);
     }
+    trig.addSubMenu ("Global safety", globalNotes);
+    for (int deck = 0; deck < MainPluginProcessor::numDecks; ++deck)
+        trig.addSubMenu (deckLabel (deck), deckNotes[(size_t) deck]);
+    trig.addSubMenu ("Performance pads", padNotes);
     menu.addSubMenu ("Triggers  (press a pad / button)", trig);
 
     menu.addSeparator();
@@ -10167,8 +11207,7 @@ void MainPluginEditor::updateMidiLearnUI()
     menu.addItem (kClearAll, "Clear all MIDI mappings");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (midiLearnButton),
-        [safe = juce::Component::SafePointer<MainPluginEditor> (this),
-         kCcBase, kNoteBase, kExport, kImport, kClearAll] (int result)
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (int result)
         {
             if (safe == nullptr || result <= 0) return;
             auto& m = safe->processorRef.getMidiMapping();

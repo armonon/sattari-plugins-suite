@@ -250,6 +250,14 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm, bool persistQu
     queueList.setMultipleSelectionEnabled (false);
     addAndMakeVisible (queueList);
 
+    queueEmptyLabel.setText ("DROP TRACKS HERE\nBuild the next few moves without leaving Sets",
+                             juce::dontSendNotification);
+    queueEmptyLabel.setFont (tokens::technical (9.0f, true));
+    queueEmptyLabel.setColour (juce::Label::textColourId, tokens::c (tokens::fgMuted));
+    queueEmptyLabel.setJustificationType (juce::Justification::centred);
+    queueEmptyLabel.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (queueEmptyLabel);
+
     loadNextButton.setTooltip ("Load the first Up Next track using normal deck-safety checks");
     loadNextButton.onClick = [this] { loadNextQueued(); };
     addAndMakeVisible (loadNextButton);
@@ -273,6 +281,27 @@ MusicLibraryView::MusicLibraryView (juce::AudioFormatManager& fm, bool persistQu
             queueList.selectRow (juce::jmin (row, (int) playQueue.size() - 1));
     };
     queueClearButton.onClick = [this] { clearQueue(); };
+
+    static constexpr std::array<juce::uint32, 4> deckColours {
+        tokens::deckA, tokens::deckB, tokens::deckC, tokens::deckD
+    };
+    for (int deck = 0; deck < 4; ++deck)
+    {
+        auto& button = deckLoadButtons[(size_t) deck];
+        button.setButtonText (juce::String::charToString ((juce_wchar) ('A' + deck)));
+        button.setTooltip ("Load the selected track into Deck "
+                           + juce::String::charToString ((juce_wchar) ('A' + deck)));
+        button.getProperties().set ("padColour", (int) deckColours[(size_t) deck]);
+        button.setColour (juce::TextButton::buttonOnColourId,
+                          tokens::c (deckColours[(size_t) deck]));
+        button.setEnabled (false);
+        button.onClick = [this, deck]
+        {
+            const auto file = selectedFile();
+            if (file.existsAsFile() && onLoadDeck) onLoadDeck (file, deck);
+        };
+        addAndMakeVisible (button);
+    }
     addAndMakeVisible (queueUpButton);
     addAndMakeVisible (queueDownButton);
     addAndMakeVisible (queueRemoveButton);
@@ -497,6 +526,7 @@ void MusicLibraryView::refreshQueueControls()
     queueDownButton.setEnabled (canEdit && selected + 1 < (int) playQueue.size());
     queueRemoveButton.setEnabled (canEdit);
     queueClearButton.setEnabled (! playQueue.empty() && ! queueLoadPending);
+    queueEmptyLabel.setVisible (playQueue.empty() && queueList.isVisible());
 }
 
 void MusicLibraryView::markFileLoaded (const juce::File& file)
@@ -1369,7 +1399,17 @@ void MusicLibraryView::selectedRowsChanged (int lastRowSelected)
     loadButton.setEnabled (valid);
     queueButton.setEnabled (valid);
     previewButton.setEnabled (valid);
+    for (auto& target : deckLoadButtons) target.setEnabled (valid);
     refreshPreparationControls();
+    resized();
+    repaint();
+}
+
+int MusicLibraryView::deckTargetAt (juce::Point<int> point) const
+{
+    for (int deck = 0; deck < (int) deckTargetBounds.size(); ++deck)
+        if (deckTargetBounds[(size_t) deck].contains (point)) return deck;
+    return -1;
 }
 
 juce::var MusicLibraryView::getDragSourceDescription (const juce::SparseSet<int>& rows)
@@ -1619,9 +1659,23 @@ void MusicLibraryView::resized()
     {
         queueBounds = area.removeFromRight (juce::jlimit (240, 292, area.getWidth() / 3));
         area.removeFromRight (tokens::gap6);
+
+        // Selection intelligence earns space only when it has content. With no
+        // selected track the queue expands to use the rail, keeping an empty
+        // Preparation card from becoming decorative chrome.
+        preparationBounds = {};
+        if (selectedFile().existsAsFile())
+        {
+            auto rail = queueBounds;
+            const int prepHeight = juce::jlimit (184, 248, rail.getHeight() * 34 / 100);
+            preparationBounds = rail.removeFromTop (prepHeight);
+            rail.removeFromTop (tokens::gap6);
+            queueBounds = rail;
+        }
     }
     else
     {
+        preparationBounds = {};
         const int queueHeight = showQueueContents
             ? juce::jlimit (112, 168, area.getHeight() / 3) : 34;
         queueBounds = area.removeFromBottom (queueHeight);
@@ -1640,6 +1694,26 @@ void MusicLibraryView::resized()
     queueCount.setBounds (queueHeader.removeFromRight (88));
     queueTitle.setBounds (queueHeader);
     queueArea.removeFromTop (tokens::gap4);
+    deckTargetsBounds = {};
+    deckTargetBounds.fill ({});
+    if (showQueueContents)
+    {
+        deckTargetsBounds = queueArea.removeFromTop (72);
+        auto targets = deckTargetsBounds.withTrimmedTop (24);
+        const int gap = tokens::gap3;
+        const int width = (targets.getWidth() - gap * 3) / 4;
+        for (int deck = 0; deck < 4; ++deck)
+        {
+            auto cell = targets.removeFromLeft (deck == 3 ? targets.getWidth() : width);
+            deckTargetBounds[(size_t) deck] = cell;
+            deckLoadButtons[(size_t) deck].setVisible (true);
+            deckLoadButtons[(size_t) deck].setBounds (cell.reduced (1, 1));
+            if (deck < 3) targets.removeFromLeft (gap);
+        }
+        queueArea.removeFromTop (tokens::gap5);
+    }
+    else
+        for (auto& button : deckLoadButtons) { button.setVisible (false); button.setBounds ({}); }
     queueList.setVisible (showQueueContents);
     loadNextButton.setVisible (showQueueContents);
     queuePreviewButton.setVisible (showQueueContents);
@@ -1656,6 +1730,8 @@ void MusicLibraryView::resized()
         queueDownButton.setBounds ({});
         queueRemoveButton.setBounds ({});
         queueClearButton.setBounds ({});
+        queueEmptyLabel.setVisible (false);
+        queueEmptyLabel.setBounds ({});
     }
     else
     {
@@ -1673,6 +1749,8 @@ void MusicLibraryView::resized()
     queueClearButton.setBounds (queueActions);
     queueArea.removeFromBottom (tokens::gap4);
     queueList.setBounds (queueArea);
+    queueEmptyLabel.setBounds (queueArea.reduced (14));
+    queueEmptyLabel.setVisible (playQueue.empty());
     }
 
     auto footer = area.removeFromBottom (32);
@@ -1725,9 +1803,20 @@ void MusicLibraryView::fileDragEnter (const juce::StringArray&, int, int)
     repaint();
 }
 
+void MusicLibraryView::fileDragMove (const juce::StringArray&, int x, int y)
+{
+    const int deck = deckTargetAt ({ x, y });
+    if (deckDragOver != deck)
+    {
+        deckDragOver = deck;
+        repaint (queueBounds);
+    }
+}
+
 void MusicLibraryView::fileDragExit (const juce::StringArray&)
 {
     fileDragOver = false;
+    deckDragOver = -1;
     repaint();
 }
 
@@ -1738,9 +1827,13 @@ void MusicLibraryView::filesDropped (const juce::StringArray& files, int x, int 
     for (const auto& path : files)
         imported.add (juce::File (path));
     addFiles (imported);
-    if (queueBounds.contains (x, y))
+    const int deck = deckTargetAt ({ x, y });
+    if (deck >= 0 && ! imported.isEmpty() && onLoadDeck)
+        onLoadDeck (imported.getFirst(), deck);
+    else if (queueBounds.contains (x, y))
         for (const auto& file : imported)
             enqueueFile (file);
+    deckDragOver = -1;
     repaint();
 }
 
@@ -1751,16 +1844,19 @@ bool MusicLibraryView::isInterestedInDragSource (const SourceDetails& details)
 
 void MusicLibraryView::itemDragEnter (const SourceDetails& details)
 {
-    queueDragOver = queueBounds.contains (details.localPosition);
+    deckDragOver = deckTargetAt (details.localPosition);
+    queueDragOver = deckDragOver < 0 && queueBounds.contains (details.localPosition);
     repaint (queueBounds);
 }
 
 void MusicLibraryView::itemDragMove (const SourceDetails& details)
 {
-    const bool over = queueBounds.contains (details.localPosition);
-    if (queueDragOver != over)
+    const int deck = deckTargetAt (details.localPosition);
+    const bool over = deck < 0 && queueBounds.contains (details.localPosition);
+    if (queueDragOver != over || deckDragOver != deck)
     {
         queueDragOver = over;
+        deckDragOver = deck;
         repaint (queueBounds);
     }
 }
@@ -1768,19 +1864,24 @@ void MusicLibraryView::itemDragMove (const SourceDetails& details)
 void MusicLibraryView::itemDragExit (const SourceDetails&)
 {
     queueDragOver = false;
+    deckDragOver = -1;
     repaint (queueBounds);
 }
 
 void MusicLibraryView::itemDropped (const SourceDetails& details)
 {
     queueDragOver = false;
+    const int deck = deckTargetAt (details.localPosition);
     const auto files = stemdeck::drag::audioFiles (details.description);
-    if (queueBounds.contains (details.localPosition))
+    if (deck >= 0 && ! files.isEmpty() && onLoadDeck)
+        onLoadDeck (files.getFirst(), deck);
+    else if (queueBounds.contains (details.localPosition))
     {
         addFiles (files);
         for (const auto& file : files)
             enqueueFile (file);
     }
+    deckDragOver = -1;
     repaint (queueBounds);
 }
 
@@ -1792,6 +1893,81 @@ void MusicLibraryView::paint (juce::Graphics& g)
     g.fillRoundedRectangle (panel, tokens::radiusPanel);
     g.setColour (tokens::c (tokens::borderSubtle));
     g.drawRoundedRectangle (panel.reduced (0.5f), tokens::radiusPanel, 1.0f);
+
+    if (! preparationBounds.isEmpty())
+    {
+        const int row = table.getSelectedRow();
+        const Entry* selected = juce::isPositiveAndBelow (row, (int) view.size())
+                              ? &entries[(size_t) view[(size_t) row]] : nullptr;
+        if (selected != nullptr)
+        {
+            auto prep = preparationBounds.reduced (10);
+            g.setColour (tokens::c (tokens::bgPanel2));
+            g.fillRoundedRectangle (preparationBounds.toFloat(), tokens::radiusWell);
+            g.setColour (tokens::c (tokens::borderSubtle));
+            g.drawRoundedRectangle (preparationBounds.toFloat().reduced (0.5f),
+                                    tokens::radiusWell, 1.0f);
+
+            auto heading = prep.removeFromTop (18);
+            g.setColour (tokens::c (tokens::fgTertiary));
+            g.setFont (tokens::technical (8.5f, true));
+            g.drawText ("PREPARATION", heading, juce::Justification::centredLeft);
+            g.setColour (selected->analyzed ? tokens::c (tokens::signal)
+                                            : tokens::c (tokens::warn));
+            g.drawText (selected->analyzed ? "READY" : "ANALYZING",
+                        heading, juce::Justification::centredRight);
+
+            prep.removeFromTop (6);
+            g.setColour (tokens::c (tokens::fgPrimary));
+            g.setFont (tokens::section (15.0f));
+            g.drawFittedText (selected->title, prep.removeFromTop (24),
+                              juce::Justification::centredLeft, 1);
+            g.setColour (tokens::c (tokens::fgMuted));
+            g.setFont (tokens::ui (9.0f));
+            g.drawFittedText (selected->file.getParentDirectory().getFileName(),
+                              prep.removeFromTop (15), juce::Justification::centredLeft, 1);
+
+            prep.removeFromTop (9);
+            auto metrics = prep.removeFromTop (48);
+            const int gap = tokens::gap3;
+            const int metricWidth = (metrics.getWidth() - gap * 2) / 3;
+            const std::array<juce::String, 3> labels { "BPM", "KEY", "LENGTH" };
+            const std::array<juce::String, 3> values {
+                selected->bpm > 1.0f ? juce::String (selected->bpm, 1) : juce::String ("--"),
+                selected->keyPitchClass >= 0
+                    ? camelotCode (selected->keyPitchClass, selected->keyMinor)
+                    : juce::String ("--"),
+                formatLength (selected->lengthSeconds)
+            };
+            for (int metric = 0; metric < 3; ++metric)
+            {
+                auto cell = metrics.removeFromLeft (metric == 2 ? metrics.getWidth() : metricWidth);
+                if (metric < 2) metrics.removeFromLeft (gap);
+                g.setColour (tokens::c (tokens::bgWell));
+                g.fillRoundedRectangle (cell.toFloat(), tokens::radiusInner);
+                g.setColour (tokens::c (tokens::fgMuted));
+                g.setFont (tokens::technical (7.5f, true));
+                g.drawText (labels[(size_t) metric], cell.removeFromTop (16),
+                            juce::Justification::centred);
+                g.setColour (metric == 1 ? tokens::c (tokens::deckC)
+                                         : tokens::c (tokens::fgPrimary));
+                g.setFont (tokens::numeric (12.0f, true));
+                g.drawText (values[(size_t) metric], cell, juce::Justification::centred);
+            }
+
+            prep.removeFromTop (10);
+            g.setColour (tokens::c (tokens::fgTertiary));
+            g.setFont (tokens::technical (8.0f, true));
+            g.drawText ("PERFORMANCE NOTES", prep.removeFromTop (14),
+                        juce::Justification::centredLeft);
+            g.setColour (tokens::c (tokens::fgMuted));
+            g.setFont (tokens::ui (9.0f));
+            const auto notes = selected->tags.trim().isNotEmpty()
+                             ? selected->tags
+                             : juce::String ("Add tags below; cues and beat-grid edits stay with the track.");
+            g.drawFittedText (notes, prep, juce::Justification::topLeft, 2);
+        }
+    }
 
     if (! queueBounds.isEmpty())
     {
@@ -1808,6 +1984,23 @@ void MusicLibraryView::paint (juce::Graphics& g)
             g.drawFittedText (queueDragOver ? "DROP TO ADD UP NEXT"
                                            : "Queue tracks here for your next move",
                               queueList.getBounds().reduced (14), juce::Justification::centred, 2);
+        }
+    }
+
+    if (! deckTargetsBounds.isEmpty())
+    {
+        g.setColour (tokens::c (tokens::fgTertiary));
+        g.setFont (tokens::technical (8.5f, true));
+        g.drawText ("LOAD OR DROP INTO LIVE DECK",
+                    deckTargetsBounds.withHeight (18), juce::Justification::centredLeft);
+        if (juce::isPositiveAndBelow (deckDragOver, 4))
+        {
+            const auto target = deckTargetBounds[(size_t) deckDragOver].toFloat().expanded (2.0f);
+            const auto colour = tokens::deckAccent (deckDragOver);
+            g.setColour (colour.withAlpha (0.15f));
+            g.fillRoundedRectangle (target, tokens::radiusControl);
+            g.setColour (colour);
+            g.drawRoundedRectangle (target.reduced (0.5f), tokens::radiusControl, 2.0f);
         }
     }
 

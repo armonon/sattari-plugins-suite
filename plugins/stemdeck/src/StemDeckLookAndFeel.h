@@ -74,29 +74,30 @@ public:
         setDefaultSansSerifTypefaceName ("SF Compact");
     }
 
-    // Deep console ground with a very quiet engineering grid. The grid is fixed,
-    // cheap to paint, and only visible in unoccupied space.
+    // Calm edge-to-edge stage canvas. Musical content supplies the structure;
+    // the application background must not read as graph paper or an engineering
+    // console. Two extremely soft colour fields give large empty sessions depth
+    // without turning every surface into glass.
     void paintModernBackground (juce::Graphics& g, juce::Rectangle<int> bounds) const
     {
         using namespace stemdeck::palette;
 
-        juce::ColourGradient ground (juce::Colour (kBackground).brighter (0.035f),
+        juce::ColourGradient ground (juce::Colour (kBackground).brighter (0.025f),
                                      bounds.getCentreX(), (float) bounds.getY(),
                                      juce::Colour (stemdeck::tokens::bgWell2),
                                      bounds.getCentreX(), (float) bounds.getBottom(), false);
         g.setGradientFill (ground);
         g.fillRect (bounds);
 
-        g.setColour (juce::Colour (stemdeck::tokens::borderFaint).withAlpha (0.18f));
-        for (int x = bounds.getX() + 24; x < bounds.getRight(); x += 48)
-            g.drawVerticalLine (x, (float) bounds.getY(), (float) bounds.getBottom());
-        for (int y = bounds.getY() + 24; y < bounds.getBottom(); y += 48)
-            g.drawHorizontalLine (y, (float) bounds.getX(), (float) bounds.getRight());
-
-        // Single crisp hairline frame — structure without chrome.
-        const auto frame = bounds.toFloat().reduced (sattari::brand::kPanelInset);
-        g.setColour (juce::Colour (kHairline));
-        g.drawRoundedRectangle (frame, sattari::brand::kCornerRadius, 1.0f);
+        const auto glow = juce::Colour (stemdeck::tokens::selected).withAlpha (0.028f);
+        juce::ColourGradient field (glow, (float) bounds.getCentreX(),
+                                    (float) bounds.getY() - 60.0f,
+                                    juce::Colours::transparentBlack,
+                                    (float) bounds.getCentreX(),
+                                    (float) bounds.getY() + bounds.getHeight() * 0.72f,
+                                    true);
+        g.setGradientFill (field);
+        g.fillRect (bounds);
     }
 
     // Hardware-style rotary: recessed track, luminous value arc and a restrained
@@ -355,11 +356,95 @@ public:
         g.drawRoundedRectangle (r.reduced (0.5f), corner, kBorder);
     }
 
+    void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                           bool over, bool down) override
+    {
+        if (! button.getProperties().getWithDefault ("playIcon", false))
+        {
+            sattari::ui::SattariLookAndFeel::drawToggleButton (g, button, over, down);
+            return;
+        }
+
+        using namespace stemdeck::palette;
+        auto face = button.getLocalBounds().toFloat().reduced (0.5f);
+        const bool playing = button.getToggleState();
+        auto fill = playing ? juce::Colour (T::selected).withAlpha (down ? 0.76f : 0.92f)
+                            : juce::Colour (T::bgControl).brighter (over ? 0.10f : 0.0f);
+        g.setColour (fill);
+        g.fillRoundedRectangle (face, T::radiusControl);
+        g.setColour (playing ? juce::Colour (T::selected).brighter (0.18f)
+                             : juce::Colour (T::borderSubtle));
+        g.drawRoundedRectangle (face.reduced (0.5f), T::radiusControl, 1.0f);
+
+        const float iconSide = face.getHeight() * 0.46f;
+        auto icon = juce::Rectangle<float> (iconSide, iconSide).withCentre (face.getCentre());
+        if (down) icon.translate (0.0f, 1.0f);
+        g.setColour (playing ? juce::Colour (T::bgApp) : juce::Colour (T::fgPrimary));
+        if (playing)
+        {
+            const float barWidth = juce::jmax (2.0f, icon.getWidth() * 0.22f);
+            const float gap = juce::jmax (2.0f, icon.getWidth() * 0.16f);
+            const float pairWidth = barWidth * 2.0f + gap;
+            const float left = icon.getCentreX() - pairWidth * 0.5f;
+            g.fillRoundedRectangle ({ left, icon.getY(), barWidth, icon.getHeight() }, 1.0f);
+            g.fillRoundedRectangle ({ left + barWidth + gap, icon.getY(),
+                                       barWidth, icon.getHeight() }, 1.0f);
+        }
+        else
+        {
+            juce::Path triangle;
+            triangle.startNewSubPath (icon.getX() + icon.getWidth() * 0.18f, icon.getY());
+            triangle.lineTo (icon.getRight(), icon.getCentreY());
+            triangle.lineTo (icon.getX() + icon.getWidth() * 0.18f, icon.getBottom());
+            triangle.closeSubPath();
+            g.fillPath (triangle);
+        }
+    }
+
     // Clean button text: medium-weight, fg-primary (accent when toggled on), padded.
     void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool over, bool down) override
     {
         using namespace stemdeck::palette;
         const bool on = b.getToggleState();
+
+        if (b.getProperties().getWithDefault ("playIcon", false))
+        {
+            auto icon = b.getLocalBounds().toFloat().reduced (
+                juce::jmax (5.0f, (float) b.getHeight() * 0.28f));
+            if (down) icon.translate (0.0f, 1.0f);
+            g.setColour (on ? juce::Colour (T::bgApp) : juce::Colour (T::fgPrimary));
+            if (on)
+            {
+                const float barWidth = juce::jmax (2.0f, icon.getWidth() * 0.22f);
+                const float gap = juce::jmax (2.0f, icon.getWidth() * 0.16f);
+                const float pairWidth = barWidth * 2.0f + gap;
+                const float left = icon.getCentreX() - pairWidth * 0.5f;
+                g.fillRoundedRectangle ({ left, icon.getY(), barWidth, icon.getHeight() }, 1.0f);
+                g.fillRoundedRectangle ({ left + barWidth + gap, icon.getY(),
+                                           barWidth, icon.getHeight() }, 1.0f);
+            }
+            else
+            {
+                juce::Path triangle;
+                triangle.startNewSubPath (icon.getX() + icon.getWidth() * 0.18f, icon.getY());
+                triangle.lineTo (icon.getRight(), icon.getCentreY());
+                triangle.lineTo (icon.getX() + icon.getWidth() * 0.18f, icon.getBottom());
+                triangle.closeSubPath();
+                g.fillPath (triangle);
+            }
+            return;
+        }
+
+        if (b.getProperties().getWithDefault ("sourceHero", false))
+        {
+            g.setColour (juce::Colour (T::selected).withAlpha (
+                b.isEnabled() ? (over || down ? 1.0f : 0.92f) : 0.35f));
+            g.setFont (T::ui (32.0f, false));
+            auto textBounds = b.getLocalBounds();
+            if (down) textBounds.translate (0, 1);
+            g.drawText (b.getButtonText(), textBounds, juce::Justification::centred);
+            return;
+        }
 
         // Segmented-control tabs carry state in the CHIP, so their text stays neutral
         // (fg-primary active / fg-tertiary inactive, medium weight when active) per

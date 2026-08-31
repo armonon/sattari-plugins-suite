@@ -23,32 +23,32 @@ namespace stemdeck::tokens
 {
 
 // ── Surfaces (darkest → lightest, by nesting depth) ──────────────────────────
-inline constexpr juce::uint32 bgApp          = 0xff0D0D0F;   // deepest outer frame
-inline constexpr juce::uint32 bgPanel        = 0xff1A1A1E;   // primary console panel
-inline constexpr juce::uint32 bgPanel2       = 0xff202025;   // nested channel / inspector panel
-inline constexpr juce::uint32 bgWell         = 0xff0A0A0C;   // recessed waveform / LCD well
-inline constexpr juce::uint32 bgWell2        = 0xff08080A;   // deepest meter / timeline recess
-inline constexpr juce::uint32 bgControl      = 0xff232328;   // raised control face
-inline constexpr juce::uint32 bgControlHover = 0xff2C2C33;
-inline constexpr juce::uint32 bgTile         = 0xff1E1E23;   // insert tile / knob face
+inline constexpr juce::uint32 bgApp          = 0xff08090B;   // edge-to-edge performance canvas
+inline constexpr juce::uint32 bgPanel        = 0xff15171B;   // primary source surface
+inline constexpr juce::uint32 bgPanel2       = 0xff1C1F24;   // lifted contextual surface
+inline constexpr juce::uint32 bgWell         = 0xff0B0D10;   // waveform / musical content well
+inline constexpr juce::uint32 bgWell2        = 0xff060709;   // deepest meter / timeline recess
+inline constexpr juce::uint32 bgControl      = 0xff24272D;   // raised control face
+inline constexpr juce::uint32 bgControlHover = 0xff30343C;
+inline constexpr juce::uint32 bgTile         = 0xff1B1E23;   // insert tile / knob face
 // Not a named var in tokens.css: the reference's channel components use this inline
 // for an IDLE channel panel. Recorded here so it stays a token, not a call-site hex.
-inline constexpr juce::uint32 bgIdle         = 0xff141417;   // idle channel panel
+inline constexpr juce::uint32 bgIdle         = 0xff101216;   // idle source surface
 
 // ── Borders ──────────────────────────────────────────────────────────────────
-inline constexpr juce::uint32 borderSubtle = 0xff2A2A30;
-inline constexpr juce::uint32 borderFaint  = 0xff17171B;     // stem-lane dividers, grid
+inline constexpr juce::uint32 borderSubtle = 0xff2B2F36;
+inline constexpr juce::uint32 borderFaint  = 0xff171A1F;     // stem-lane dividers, grid
 
 // ── Foreground (opacity ladder off #F2F2F5) ──────────────────────────────────
-inline constexpr juce::uint32 fgPrimary   = 0xffE0E0E4;      // headline numerics, active
-inline constexpr juce::uint32 fgSecondary = 0xffA0A0A8;      // body copy
-inline constexpr juce::uint32 fgTertiary  = 0xff808088;      // labels, inactive
-inline constexpr juce::uint32 fgMuted     = 0xff505058;      // captions, hints
-inline constexpr juce::uint32 fgFaint     = 0xff34343B;      // disabled, dividers
+inline constexpr juce::uint32 fgPrimary   = 0xffF1F3F6;      // headline numerics, active
+inline constexpr juce::uint32 fgSecondary = 0xffB7BCC5;      // body copy
+inline constexpr juce::uint32 fgTertiary  = 0xff858B95;      // labels, inactive
+inline constexpr juce::uint32 fgMuted     = 0xff5C626C;      // captions, hints
+inline constexpr juce::uint32 fgFaint     = 0xff373C44;      // disabled, dividers
 
 // ── Warn / meter ─────────────────────────────────────────────────────────────
 inline constexpr juce::uint32 signal   = 0xff00FF87;         // active / signal present LED
-inline constexpr juce::uint32 selected = 0xff00D4FF;         // focused control / send
+inline constexpr juce::uint32 selected = 0xff55E5D0;         // focus / primary action
 inline constexpr juce::uint32 effects  = 0xffA855F7;         // automation / effects
 inline constexpr juce::uint32 warn     = 0xffFFB800;         // solo / caution
 inline constexpr juce::uint32 warn2    = 0xffFFB800;         // take marker / caution
@@ -71,11 +71,11 @@ inline constexpr juce::uint32 stemOth      = 0xff888780;   // gray
 inline constexpr juce::uint32 stemOthLight = 0xffB4B2A9;
 
 // ── Radii (by nesting depth — larger outside, tighter inside) ────────────────
-inline constexpr float radiusPanel   = 9.0f;   // deck / channel / console group
-inline constexpr float radiusWell    = 7.0f;   // well or tile inside a panel
-inline constexpr float radiusControl = 6.0f;   // button, stepper
-inline constexpr float radiusInner   = 5.0f;   // chip inside a control
-inline constexpr float radiusPill    = 3.0f;   // tiny tags
+inline constexpr float radiusPanel   = 18.0f;  // source / master card
+inline constexpr float radiusWell    = 13.0f;  // musical content well
+inline constexpr float radiusControl = 10.0f;  // button, stepper
+inline constexpr float radiusInner   = 8.0f;   // chip inside a control
+inline constexpr float radiusPill    = 7.0f;   // status capsule
 
 // ── Spacing scale (4px rhythm — do not deviate) ──────────────────────────────
 inline constexpr int gap1 = 2, gap2 = 3, gap3 = 4;
@@ -85,13 +85,13 @@ inline constexpr int gap7 = 9;    // panel inner padding
 inline constexpr int gap8 = 11, gap9 = 12, gap10 = 14;
 
 // ── Type sizes (tabular figures required for ALL numerics) ───────────────────
-inline constexpr float tCaption   = 8.0f;    // hints
-inline constexpr float tLabel     = 9.0f;    // panel headers (uppercase + tracking)
-inline constexpr float tSmall     = 10.0f;   // secondary labels, tags
-inline constexpr float tBody      = 11.0f;   // control labels
-inline constexpr float tControl   = 12.0f;   // button text, values
-inline constexpr float tName      = 14.0f;   // track / instrument name
-inline constexpr float tReadout   = 15.0f;   // LUFS, gain readouts
+inline constexpr float tCaption   = 9.0f;    // hints
+inline constexpr float tLabel     = 10.0f;   // panel headers (uppercase + tracking)
+inline constexpr float tSmall     = 11.0f;   // secondary labels, tags
+inline constexpr float tBody      = 12.0f;   // control labels
+inline constexpr float tControl   = 13.0f;   // button text, values
+inline constexpr float tName      = 17.0f;   // track / instrument name
+inline constexpr float tReadout   = 18.0f;   // LUFS, gain readouts
 inline constexpr float tDisplay   = 26.0f;   // big tempo / key numerics
 inline constexpr float tDisplayLg = 30.0f;   // biggest (dual-tempo panel)
 
@@ -100,8 +100,8 @@ inline constexpr float trackLabel = 0.06f;   // uppercase header letter-spacing
 // ── Motion (all interruptible) ───────────────────────────────────────────────
 inline constexpr int durHover  = 90;
 inline constexpr int durPress  = 40;
-inline constexpr int durState  = 160;   // loop on, sync lock, segment swap
-inline constexpr int durDrawer = 220;   // panel expand, idle→active channel
+inline constexpr int durState  = 220;   // loop on, sync lock, segment swap
+inline constexpr int durDrawer = 340;   // source focus / contextual reveal
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 inline juce::Colour c (juce::uint32 argb) noexcept { return juce::Colour (argb); }

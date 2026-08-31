@@ -49,6 +49,15 @@ int main (int argc, char** argv)
         proc.addChannel (ChannelType::midiInstrument);
     }
 
+    if (scenario == "focus-source-tone" || scenario == "focus-source-fx")
+        for (int channel = 0; channel < proc.getNumChannels(); ++channel)
+            if (proc.getChannelType (channel) != ChannelType::trackDeck)
+            {
+                proc.setChannelEditorPage (channel,
+                    scenario == "focus-source-tone" ? 1 : 2);
+                break;
+            }
+
     // Optional 7th arg: write a short WAV and load it into deck 0, so the gate covers
     // the LOADED deck (WaveformRegion's vertical stem columns). Every render before
     // this one photographed an EMPTY deck, so the entire loaded layout — the part the
@@ -71,10 +80,15 @@ int main (int argc, char** argv)
             }
         tempWav.deleteFile();
         juce::WavAudioFormat wav;
-        if (auto os = std::unique_ptr<juce::FileOutputStream> (tempWav.createOutputStream()))
-            if (auto w = std::unique_ptr<juce::AudioFormatWriter> (
-                    wav.createWriterFor (os.get(), sr, 2, 16, {}, 0)))
-            { os.release(); w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()); }
+        if (std::unique_ptr<juce::OutputStream> os = tempWav.createOutputStream())
+        {
+            const auto options = juce::AudioFormatWriterOptions{}
+                                     .withSampleRate (sr)
+                                     .withNumChannels (2)
+                                     .withBitsPerSample (16);
+            if (auto writer = wav.createWriterFor (os, options))
+                writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+        }
         proc.loadDeckFileAsync (0, tempWav);
         if (scenario == "focus-c")
         {
@@ -112,6 +126,10 @@ int main (int argc, char** argv)
                 button->triggerClick();
                 break;
             }
+
+    if (scenario == "master-output")
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+            mpe->setMasterDetailVisible (true, true);
 
     // Optional 6th arg: select this segmented tab (0=CUE 1=LOOP 2=FX 3=SYNC 4=SRC) on
     // every deck, so each tab's panel can be photographed. Without this the gate only
@@ -166,6 +184,24 @@ int main (int argc, char** argv)
                     }
                 }
             // Exercise every eased geometry frame, including the final snap.
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (500);
+        }
+
+    if (scenario.startsWith ("focus-source"))
+        if (auto* mpe = dynamic_cast<MainPluginEditor*> (ed.get()))
+        {
+            // Typed channels normally enter as compact monitors while an existing
+            // deck retains focus. Promote the first one so CI photographs the real
+            // source editor (workflow tabs, meter, routing and FX affordance), not
+            // merely its collapsed strip.
+            for (int child = 0; child < mpe->getNumChildComponents(); ++child)
+                if (auto* strip = dynamic_cast<stemdeck::ChannelStrip*> (
+                        mpe->getChildComponent (child)); strip != nullptr)
+                {
+                    if (strip->onRequestFocus)
+                        strip->onRequestFocus();
+                    break;
+                }
             juce::MessageManager::getInstance()->runDispatchLoopUntil (500);
         }
 

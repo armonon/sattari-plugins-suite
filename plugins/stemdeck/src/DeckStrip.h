@@ -85,6 +85,7 @@ public:
         std::function<void()>        onOpenBeatGrid;
         std::function<void(int)>     onToggleFx;    // 0 = echo, 1 = reverb
         std::function<void()>        onRequestFocus;
+        std::function<void(const juce::String&)> onMidiContext; // control-click target suffix
     };
     Callbacks callbacks;
 

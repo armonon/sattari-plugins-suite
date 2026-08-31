@@ -9,6 +9,8 @@
 // delays by a known amount, and asserts the summed output stays phase-coherent.
 
 #include "TrackDeckBody.h"
+#include "MasterFx.h"
+#include "MasterMonitor.h"
 #include <iostream>
 #include <cmath>
 #include <vector>
@@ -140,6 +142,79 @@ int main()
         bool untouched = true;
         for (auto& s : stems) untouched = untouched && s.getSample (0, 7) > 0.99f;
         check (untouched, "zero-latency path passes stems through untouched");
+    }
+
+    // ── 3. Master space tail is bounded and cannot return from stale state ──
+    {
+        MasterFx masterFx;
+        masterFx.prepare (sr, block, channels);
+        juce::AudioBuffer<float> audio (channels, block);
+
+        audio.clear();
+        audio.setSample (0, 0, 1.0f);
+        audio.setSample (1, 0, 1.0f);
+        masterFx.process (audio, 0.5f, 1.0f);
+        check (masterFx.hasActiveTail(), "master space send arms a bounded tail on signal");
+
+        const int tailBlocks = (int) std::ceil ((sr * 8.0) / (double) block);
+        for (int i = 0; i < tailBlocks; ++i)
+        {
+            audio.clear();
+            masterFx.process (audio, 0.5f, 1.0f);
+        }
+        check (! masterFx.hasActiveTail(),
+               "master space processing sleeps after eight seconds of digital silence");
+
+        audio.clear();
+        audio.setSample (0, 0, 1.0f);
+        audio.setSample (1, 0, 1.0f);
+        masterFx.process (audio, 0.5f, 1.0f);
+        check (masterFx.hasActiveTail(), "new master signal wakes the space processor");
+
+        audio.clear();
+        masterFx.process (audio, 0.5f, 0.0f);
+        check (! masterFx.hasActiveTail(),
+               "hard-bypassing the send clears its tail instead of preserving stale audio");
+    }
+
+    // ── 4. Control-room utilities are predictable and independently testable ──
+    {
+        stemdeck::MasterMonitor monitor;
+        juce::AudioBuffer<float> audio (channels, 64);
+
+        for (int c = 0; c < channels; ++c)
+            for (int i = 0; i < audio.getNumSamples(); ++i)
+                audio.setSample (c, i, c == 0 ? 0.5f : -0.5f);
+        for (int pass = 0; pass < 12; ++pass)
+            monitor.analyze (audio);
+        check (monitor.getCorrelation() < -0.85f,
+               "stereo-image meter exposes strongly anti-phase material");
+
+        monitor.setMono (true);
+        monitor.processOutput (audio);
+        check (audio.getMagnitude (0, audio.getNumSamples()) < 1.0e-6f,
+               "mono audition reveals anti-phase cancellation");
+
+        audio.clear();
+        for (int c = 0; c < channels; ++c)
+            for (int i = 0; i < audio.getNumSamples(); ++i)
+                audio.setSample (c, i, 1.0f);
+        monitor.setMono (false);
+        monitor.setDim (true);
+        monitor.processOutput (audio);
+        const float dimGain = juce::Decibels::decibelsToGain (-12.0f);
+        check (std::abs (audio.getSample (0, 0) - dimGain) < 1.0e-5f,
+               "monitor Dim applies exactly -12 dB");
+
+        monitor.setDim (false);
+        monitor.setMute (true);
+        monitor.processOutput (audio);
+        check (audio.getMagnitude (0, audio.getNumSamples()) < 1.0e-6f,
+               "monitor Mute silences the hardware-output buffer");
+
+        monitor.resetMeter();
+        check (std::abs (monitor.getCorrelation()) < 1.0e-6f,
+               "master meter reset clears accumulated correlation");
     }
 
     std::cout << (failures == 0 ? "STEMFX_OK\n" : "STEMFX_FAILED\n");

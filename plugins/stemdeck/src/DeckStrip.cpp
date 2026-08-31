@@ -681,6 +681,28 @@ void DeckStrip::mouseDown (const juce::MouseEvent& e)
     if (callbacks.onRequestFocus && ! state.focused) callbacks.onRequestFocus();
 
     pressed = hitRegion (e.position);
+    if (e.mods.isPopupMenu() && callbacks.onMidiContext)
+    {
+        juce::String target;
+        if (pressed == Hit::play) target = "Play";
+        else if (pressed == Hit::cue) target = "Cue";
+        else if (pressed == Hit::loopNum) target = "Loop";
+        else if (pressed == Hit::sync) target = "Sync";
+        else if (pressed == Hit::stem0 || pressed == Hit::stem1
+                 || pressed == Hit::stem2 || pressed == Hit::stem3)
+        {
+            static const char* const names[4] = { "Drums", "Bass", "Music", "Vocals" };
+            const int lane = kStems[(size_t) ((int) pressed - (int) Hit::stem0)].lane;
+            target = juce::String (names[lane]) + " Mute";
+        }
+        if (target.isNotEmpty())
+        {
+            callbacks.onMidiContext (target);
+            pressed = Hit::none;
+            repaint();
+            return;
+        }
+    }
     const bool alt = e.mods.isAltDown();
 
     switch (pressed)

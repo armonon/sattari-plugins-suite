@@ -39,6 +39,7 @@ public:
     ~MusicLibraryView() override;
 
     std::function<void(const juce::File&)> onLoadFile;
+    std::function<void(const juce::File&, int)> onLoadDeck;
     std::function<void(const juce::File&, std::function<void(bool)>)> onLoadQueuedFile;
     std::function<void(const std::array<juce::File, 4>&)> onLoadSet;   // confirmed set proposal → decks A-D
     std::function<void(const juce::File&)> onTogglePreview;
@@ -78,6 +79,7 @@ public:
     void paint (juce::Graphics&) override;
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void fileDragEnter (const juce::StringArray&, int, int) override;
+    void fileDragMove (const juce::StringArray&, int, int) override;
     void fileDragExit (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
     bool isInterestedInDragSource (const SourceDetails&) override;
@@ -151,6 +153,7 @@ private:
     void enqueueSelected();
     void previewQueuedSelection();
     void refreshQueueControls();
+    int deckTargetAt (juce::Point<int>) const;
     void markFileLoaded (const juce::File& file);
     void loadQueue();
     void saveQueue() const;
@@ -185,6 +188,7 @@ private:
 
     QueueListModel      queueListModel { *this };
     juce::ListBox       queueList { "up-next", &queueListModel };
+    juce::Label         queueEmptyLabel;
     juce::Label         queueTitle;
     juce::Label         queueCount;
     juce::TextButton    queueDisclosureButton { "Show" };
@@ -194,10 +198,14 @@ private:
     juce::TextButton    queueDownButton { "Down" };
     juce::TextButton    queueRemoveButton { "Remove" };
     juce::TextButton    queueClearButton { "Clear" };
+    std::array<juce::TextButton, 4> deckLoadButtons;
 
     juce::Rectangle<int> headerBounds;
     juce::Rectangle<int> tableBounds;
+    juce::Rectangle<int> preparationBounds;
     juce::Rectangle<int> queueBounds;
+    juce::Rectangle<int> deckTargetsBounds;
+    std::array<juce::Rectangle<int>, 4> deckTargetBounds {};
 
     std::vector<Entry> entries;
     std::vector<int>   view;            // filtered + sorted indices into entries
@@ -223,6 +231,7 @@ private:
     bool updatingPreviewUi = false;
     bool fileDragOver = false;
     bool queueDragOver = false;
+    int deckDragOver = -1;
     bool queueLoadPending = false;
     bool queuePersistenceEnabled = true;
     bool compactQueueLayout = false;

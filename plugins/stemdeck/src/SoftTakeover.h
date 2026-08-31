@@ -52,6 +52,12 @@ public:
     }
 
     void setThreshold (float t) noexcept { threshold = juce::jlimit (0.001f, 0.1f, t); }
+    void reset() noexcept
+    {
+        lastHw = -1.0f;
+        lastApplied = 0.0f;
+        tracking = false;
+    }
 
 private:
     float threshold   = 0.02f;   // 2 % of normalized range

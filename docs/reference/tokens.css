@@ -6,29 +6,29 @@
 
 :root {
   /* ---- Surfaces (darkest → lightest, by nesting depth) ---- */
-  --bg-app:            #0D0D0F;   /* deepest outer frame */
-  --bg-panel:          #1A1A1E;   /* primary console panel */
-  --bg-panel-2:        #202025;   /* nested channel / inspector panel */
-  --bg-well:           #0A0A0C;   /* recessed waveform / LCD well */
-  --bg-well-2:         #08080A;   /* deepest meter / timeline recess */
-  --bg-control:        #232328;   /* raised control face */
-  --bg-control-hover:  #2C2C33;
-  --bg-tile:           #1E1E23;   /* insert tile / knob face */
+  --bg-app:            #08090B;   /* edge-to-edge performance canvas */
+  --bg-panel:          #15171B;   /* primary source surface */
+  --bg-panel-2:        #1C1F24;   /* lifted contextual surface */
+  --bg-well:           #0B0D10;   /* waveform / musical content well */
+  --bg-well-2:         #060709;   /* deepest meter / timeline recess */
+  --bg-control:        #24272D;   /* raised control face */
+  --bg-control-hover:  #30343C;
+  --bg-tile:           #1B1E23;   /* insert tile / knob face */
 
   /* ---- Borders ---- */
-  --border-subtle:     #2A2A30;
-  --border-faint:      #17171B;   /* stem-lane dividers, grid lines */
+  --border-subtle:     #2B2F36;
+  --border-faint:      #171A1F;   /* stem-lane dividers, grid lines */
 
   /* ---- Foreground (opacity ladder off #F2F2F5) ---- */
-  --fg-primary:        #E0E0E4;   /* headline numerics, active labels */
-  --fg-secondary:      #A0A0A8;   /* body copy */
-  --fg-tertiary:       #808088;   /* labels, inactive */
-  --fg-muted:          #505058;   /* captions, hints */
-  --fg-faint:          #34343B;   /* disabled, dividers */
+  --fg-primary:        #F1F3F6;   /* headline numerics, active labels */
+  --fg-secondary:      #B7BCC5;   /* body copy */
+  --fg-tertiary:       #858B95;   /* labels, inactive */
+  --fg-muted:          #5C626C;   /* captions, hints */
+  --fg-faint:          #373C44;   /* disabled, dividers */
 
   /* ---- Warn / meter ---- */
   --signal:            #00FF87;   /* active / signal-present LED */
-  --selected:          #00D4FF;   /* focused control / send */
+  --selected:          #55E5D0;   /* focused control / primary action */
   --effects:           #A855F7;   /* automation / effects */
   --warn:              #FFB800;   /* solo / caution */
   --warn-2:            #FFB800;   /* take marker / caution */
@@ -54,11 +54,11 @@
   /* pattern: rgba(<accent>, 0.12) fill + 0.5px solid rgba(<accent>, 0.4) border */
 
   /* ---- Radii (by nesting depth — larger outside, tighter inside) ---- */
-  --radius-panel:      9px;   /* a deck / channel / console group */
-  --radius-well:       7px;   /* a well or tile inside a panel */
-  --radius-control:    6px;   /* a button, a stepper */
-  --radius-inner:      5px;   /* a chip inside a control */
-  --radius-pill:       3px;   /* tiny tags */
+  --radius-panel:      18px;  /* a source / master card */
+  --radius-well:       13px;  /* musical content well */
+  --radius-control:    10px;  /* a button, a stepper */
+  --radius-inner:      8px;   /* a chip inside a control */
+  --radius-pill:       7px;   /* status capsule */
 
   /* ---- Spacing scale (4px rhythm — do not deviate) ---- */
   --gap-1:  2px;
@@ -74,13 +74,13 @@
 
   /* ---- Type sizes (accessibility floor — tabular figures required
           for all numerics: BPM, dB, gain, tempo, LUFS, loop/jump) ---- */
-  --t-caption:  8px;   /* hints, "click to jump" */
-  --t-label:    9px;   /* panel headers (letter-spacing 0.06em, uppercase) */
-  --t-small:    10px;  /* secondary labels, tags */
-  --t-body:     11px;  /* control labels */
-  --t-control:  12px;  /* button text, values */
-  --t-name:     14px;  /* track name, instrument name */
-  --t-readout:  15px;  /* LUFS, gain readouts */
+  --t-caption:  9px;   /* hints, "click to jump" */
+  --t-label:    10px;  /* panel headers (letter-spacing 0.06em, uppercase) */
+  --t-small:    11px;  /* secondary labels, tags */
+  --t-body:     12px;  /* control labels */
+  --t-control:  13px;  /* button text, values */
+  --t-name:     17px;  /* track name, instrument name */
+  --t-readout:  18px;  /* LUFS, gain readouts */
   --t-display:  26px;  /* big tempo / key numerics */
   --t-display-lg:30px; /* biggest (dual-tempo panel) */
 
@@ -92,8 +92,8 @@
   --ease:        cubic-bezier(0.2, 0, 0, 1);
   --dur-hover:   90ms;
   --dur-press:   40ms;
-  --dur-state:   160ms;   /* state change: loop on, sync lock, segment swap */
-  --dur-drawer:  220ms;   /* panel expand, idle→active channel */
+  --dur-state:   220ms;   /* state change: loop on, sync lock, segment swap */
+  --dur-drawer:  340ms;   /* source focus / contextual reveal */
 
   /* ---- Letter spacing ---- */
   --track-label: 0.06em; /* uppercase panel headers */

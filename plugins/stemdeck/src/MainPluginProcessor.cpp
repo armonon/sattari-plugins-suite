@@ -108,7 +108,10 @@ std::unique_ptr<juce::AudioParameterFloat> percentGainParam (
     const juce::String& id, const juce::String& name, float minimumDb,
     float defaultDb)
 {
-    juce::NormalisableRange<float> range (minimumDb, stemdeck::gainscale::kMaxDb, 0.001f);
+    // Keep this continuous. kMaxDb is the exact 20*log10(3) endpoint and is not
+    // an integer multiple of 0.001 dB from every minimum; snapping therefore
+    // made AU hosts read the maximum back as ~0.99997 instead of exactly 1.0.
+    juce::NormalisableRange<float> range (minimumDb, stemdeck::gainscale::kMaxDb);
     range.setSkewForCentre (0.0f);
     return std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID (id, 1), name, range,
@@ -260,6 +263,7 @@ MainPluginProcessor::MainPluginProcessor()
         liveKeyConfidence[(size_t) i].store (0.0f, std::memory_order_relaxed);
         stemRestoreGain[(size_t) i].fill (100.0f);
         stemSoloLane[(size_t) i] = -1;
+        deckHotCueRequested[(size_t) i].store (-1, std::memory_order_relaxed);
     }
     for (auto& deck : deckLoadGeneration)
         for (auto& lane : deck)
@@ -969,7 +973,56 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
             if (slot >= 0) hostGraph.setChainBypassed ((HostGraph::Chain) slot, e.param.value > 0.5);
             break;
 
-        default:
+        case ParamId::gainStem:
+        case ParamId::channelGain:
+        case ParamId::eqLow:
+        case ParamId::eqMid:
+        case ParamId::eqHigh:
+        case ParamId::filter:
+        case ParamId::pitchSemitones:
+        case ParamId::keyTarget:
+        case ParamId::keyLockOn:
+        case ParamId::bpmSource:
+        case ParamId::tempoInterp:
+        case ParamId::syncMode:
+        case ParamId::crossfader:
+        case ParamId::crossfaderCurve:
+        case ParamId::masterGain:
+        case ParamId::limiterCeiling:
+        case ParamId::masterKey:
+        case ParamId::channelFader:
+        case ParamId::fullMixGain:
+        case ParamId::pitchStem:
+        case ParamId::filterStem:
+        case ParamId::sendStem:
+        case ParamId::reverbMix:
+        case ParamId::echoMix:
+        case ParamId::deckPlay:
+        case ParamId::deckSync:
+        case ParamId::liveKeyOn:
+        case ParamId::beatOffset:
+        case ParamId::downbeat:
+        case ParamId::crossfaderReverse:
+        case ParamId::masterBpm:
+        case ParamId::hostSync:
+        case ParamId::beatSync:
+        case ParamId::micMonitorGlobal:
+        case ParamId::micGainGlobal:
+        case ParamId::liveInstrumentOn:
+        case ParamId::liveInstrumentGain:
+        case ParamId::masterFxX:
+        case ParamId::masterFxY:
+        case ParamId::smartMasterOn:
+        case ParamId::smartMasterMode:
+        case ParamId::smartMasterAmount:
+        case ParamId::stemLink:
+        case ParamId::padGain:
+        case ParamId::transitionFrom:
+        case ParamId::transitionTo:
+        case ParamId::transitionCurve:
+        case ParamId::masterStemGain:
+        case ParamId::masterStemMute:
+        case ParamId::masterStemSolo:
         {
             // APVTS-backed params: write the parameter with the guard set so the
             // resulting notification is not dispatched straight back.
@@ -983,6 +1036,9 @@ void MainPluginProcessor::applyEvent (const stemdeck::events::Event& e)
                 }
             break;
         }
+
+        case ParamId::count:
+            break;
     }
 }
 
@@ -1021,6 +1077,28 @@ juce::String MainPluginProcessor::getChannelName (int index) const
         if (auto& ch = channels[(size_t) index])
             return ch->name;
     return {};
+}
+
+void MainPluginProcessor::setChannelName (int index, const juce::String& name)
+{
+    if (! juce::isPositiveAndBelow (index, (int) channels.size())) return;
+    if (auto& channel = channels[(size_t) index])
+        channel->name = name.trim().substring (0, 64);
+}
+
+int MainPluginProcessor::getChannelEditorPage (int index) const
+{
+    const auto id = channelIdForIndex (index);
+    if (id < 0) return 0;
+    return (int) apvts.state.getProperty ("channelEditorPage_" + juce::String (id), 0);
+}
+
+void MainPluginProcessor::setChannelEditorPage (int index, int page)
+{
+    const auto id = channelIdForIndex (index);
+    if (id < 0) return;
+    apvts.state.setProperty ("channelEditorPage_" + juce::String (id),
+                             juce::jlimit (0, 4, page), nullptr);
 }
 
 void MainPluginProcessor::cacheDeckParamIds()
@@ -1067,12 +1145,15 @@ void MainPluginProcessor::buildMidiTargets()
     std::vector<MidiMappingManager::CcTarget> cc;
     auto addCc = [&] (const juce::String& name, const juce::String& paramId)
     {
-        cc.push_back ({ name, apvts.getParameter (paramId) });
+        cc.emplace_back (name, apvts.getParameter (paramId));
     };
 
     addCc ("Crossfader",    "crossfader");
     addCc ("Master BPM",    "masterBpm");
     addCc ("Master Volume", "master");
+
+    // Compatibility bank: do not reorder these original targets. Project-state
+    // maps written before named/channel-aware presets store their target indexes.
     for (int i = 0; i < numDecks; ++i)
     {
         const auto label = deckLabel (i);
@@ -1080,21 +1161,69 @@ void MainPluginProcessor::buildMidiTargets()
         addCc (label + " Filter", deckPrefix (i) + "Filter");
         addCc (label + " Low",    deckPrefix (i) + "Low");
         addCc (label + " High",   deckPrefix (i) + "High");
-        // Per-stem faders (drums/bass/music/vocals) so an MPK-style controller can
-        // ride individual stems.
         for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
             addCc (label + " " + DeckPlayer::stemLaneLabel (lane) + " Stem",
                    deckPrefix (i) + "Stem" + DeckPlayer::stemLaneId (lane) + "Gain");
     }
 
-    std::vector<MidiMappingManager::NoteTarget> notes;
+    // Expanded command layer appends new targets after the compatibility bank.
+    addCc ("Master Filter", "masterFxX");
+    addCc ("Master FX Y", "masterFxY");
+    addCc ("Limiter Ceiling", "limiterCeiling");
+    addCc ("Mic Gain", "micGain");
     for (int i = 0; i < numDecks; ++i)
     {
-        notes.push_back ({ deckLabel (i) + " Play", i, MidiMappingManager::ActionPlay });
-        notes.push_back ({ deckLabel (i) + " Cue",  i, MidiMappingManager::ActionCue  });
+        const auto label = deckLabel (i);
+        addCc (label + " Fader",  deckPrefix (i) + "Fader");
+        addCc (label + " Mid",    deckPrefix (i) + "Mid");
+        addCc (label + " Pitch",  deckPrefix (i) + "Pitch");
+        addCc (label + " Reverb", deckPrefix (i) + "RevMix");
+        addCc (label + " Echo",   deckPrefix (i) + "EchoMix");
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+        {
+            addCc (label + " " + DeckPlayer::stemLaneLabel (lane) + " Filter",
+                   deckPrefix (i) + "Stem" + DeckPlayer::stemLaneId (lane) + "Filt");
+            addCc (label + " " + DeckPlayer::stemLaneLabel (lane) + " Send",
+                   deckPrefix (i) + "Stem" + DeckPlayer::stemLaneId (lane) + "Send");
+            addCc (label + " " + DeckPlayer::stemLaneLabel (lane) + " Pitch",
+                   deckPrefix (i) + "Stem" + DeckPlayer::stemLaneId (lane) + "Pitch");
+        }
     }
-    for (int pad = 0; pad < PadBank::numPads; ++pad)   // pad triggers -> hardware pads
-        notes.push_back ({ "Pad " + juce::String (pad + 1), pad, MidiMappingManager::ActionPad });
+    for (int pad = 0; pad < PadBank::numPads; ++pad)
+        addCc ("Pad " + juce::String (pad + 1) + " Gain",
+               "pad" + juce::String (pad + 1) + "Gain");
+
+    static const char* const masterStemNames[4] = { "Drums", "Bass", "Music", "Vocals" };
+    for (const auto* stem : masterStemNames)
+        addCc ("Master " + juce::String (stem) + " Stem",
+               "masterStem" + juce::String (stem) + "Gain");
+
+    std::vector<MidiMappingManager::NoteTarget> notes;
+    // Original note-target ordering is likewise a persisted compatibility bank.
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto label = deckLabel (i);
+        notes.emplace_back (label + " Play", i, MidiMappingManager::ActionPlay, 0,
+                            apvts.getRawParameterValue (deckPrefix (i) + "Play"));
+        notes.emplace_back (label + " Cue", i, MidiMappingManager::ActionCue);
+    }
+    for (int pad = 0; pad < PadBank::numPads; ++pad)
+        notes.emplace_back ("Pad " + juce::String (pad + 1), pad, MidiMappingManager::ActionPad);
+
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto label = deckLabel (i);
+        notes.emplace_back (label + " Sync", i, MidiMappingManager::ActionSync, 0,
+                            apvts.getRawParameterValue (deckPrefix (i) + "Sync"));
+        notes.emplace_back (label + " Loop", i, MidiMappingManager::ActionLoop);
+        for (int cue = 0; cue < numHotCues; ++cue)
+            notes.emplace_back (label + " Hot Cue " + juce::String (cue + 1),
+                                i, MidiMappingManager::ActionHotCue, cue);
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            notes.emplace_back (label + " " + DeckPlayer::stemLaneLabel (lane) + " Mute",
+                                i, MidiMappingManager::ActionStemMute, lane);
+    }
+    notes.emplace_back ("Performance Safe Mode", 0, MidiMappingManager::ActionSafeMode);
 
     midiMapping.setTargets (std::move (cc), std::move (notes));
 }
@@ -1788,6 +1917,7 @@ bool MainPluginProcessor::getBoolParam (juce::StringRef id) const
 
 void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, juce::MidiBuffer& midi)
 {
+    processedAudioBlockCount.fetch_add (1, std::memory_order_relaxed);
     const auto cpuStartTicks = juce::Time::getHighResolutionTicks();
     juce::ScopedNoDenormals noDenormals;
 
@@ -1822,6 +1952,12 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
                 continue;
             }
 
+            if (tr.action == MidiMappingManager::ActionSafeMode)
+            {
+                performanceSafeToggleRequested.store (true, std::memory_order_relaxed);
+                continue;
+            }
+
             if (! juce::isPositiveAndBelow (tr.deck, numDecks)) continue;
 
             if (tr.action == MidiMappingManager::ActionPlay)
@@ -1838,6 +1974,17 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
                 deckCueRequested[(size_t) tr.deck].store (
                     true, std::memory_order_relaxed);
             }
+            else if (tr.action == MidiMappingManager::ActionSync)
+                deckSyncToggleRequested[(size_t) tr.deck].store (true, std::memory_order_relaxed);
+            else if (tr.action == MidiMappingManager::ActionLoop)
+                deckLoopToggleRequested[(size_t) tr.deck].store (true, std::memory_order_relaxed);
+            else if (tr.action == MidiMappingManager::ActionHotCue)
+                deckHotCueRequested[(size_t) tr.deck].store (
+                    juce::jlimit (0, numHotCues - 1, tr.detail), std::memory_order_relaxed);
+            else if (tr.action == MidiMappingManager::ActionStemMute)
+                deckStemMuteRequested[(size_t) tr.deck].fetch_or (
+                    1u << (unsigned int) juce::jlimit (0, DeckPlayer::numStemLanes - 1, tr.detail),
+                    std::memory_order_relaxed);
         }
     }
 
@@ -2186,6 +2333,7 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     smartMaster.process (buffer, (int) std::round (smartMode),
                          ! safePerformance && smartOn > 0.5f ? smartAmount : 0.0f);
     applyLimiter (buffer, limiterCeilingDb);
+    masterMonitor.analyze (buffer);
 
     // Master peak meters (block peak with fall-back decay).
     for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
@@ -2210,6 +2358,11 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     // Browser audition is monitoring-only: add it after every capture tap so
     // previewing a candidate never contaminates the performance or master file.
     renderLibraryPreview (cueOutput != nullptr ? *cueOutput : buffer);
+
+    // Control-room utilities are deliberately post-capture. Mono compatibility,
+    // Dim and Mute change the speakers/headphones, never the recorded or exported
+    // master that the performer may need to recover later.
+    masterMonitor.processOutput (buffer);
 
     // Motorized-fader feedback: emit CC out for mapped faders whose value changed
     // (so hardware/LED controllers track the UI). Change-detection avoids loops.
@@ -3216,14 +3369,14 @@ void MainPluginProcessor::buildAndStartArrangement (
                     (juce::int64) std::llround (
                         seconds * payload->engineSr),
                     juce::jlimit (0.0f, 3.0f, value));
-            auto copyAutomation = [engineSr = payload->engineSr] (
+            auto copyAutomation = [arrangementSampleRate = payload->engineSr] (
                 const std::vector<std::pair<double, float>>& source,
                 std::vector<std::pair<juce::int64, float>>& destination)
             {
                 destination.reserve (source.size());
                 for (const auto& [seconds, value] : source)
                     destination.emplace_back (
-                        (juce::int64) std::llround (seconds * engineSr),
+                        (juce::int64) std::llround (seconds * arrangementSampleRate),
                         value);
             };
             copyAutomation (spec.lowAutomation, c.lowAutomation);
@@ -3249,14 +3402,14 @@ void MainPluginProcessor::buildAndStartArrangement (
             sched->push_back (std::move (c));
         }
 
-        const auto copyMasterAutomation = [engineSr = payload->engineSr] (
+        const auto copyMasterAutomation = [arrangementSampleRate = payload->engineSr] (
             const std::vector<std::pair<double, float>>& source,
             std::vector<std::pair<juce::int64, float>>& destination)
         {
             destination.reserve (source.size());
             for (const auto& [seconds, value] : source)
                 destination.emplace_back (
-                    (juce::int64) std::llround (seconds * engineSr), value);
+                    (juce::int64) std::llround (seconds * arrangementSampleRate), value);
         };
         copyMasterAutomation (payload->master.gainDb, master->gainDb);
         copyMasterAutomation (payload->master.fxX, master->fxX);
@@ -3303,6 +3456,12 @@ void MainPluginProcessor::serviceDeferredActions()
                    [now] (const RetiredPreview& retired)
                    { return retired.releaseAfterMs <= now; });
 
+    midiMapping.servicePendingCc ([this] (int target, float normalized)
+    {
+        if (auto* parameter = midiMapping.ccParameter (target))
+            parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, normalized));
+    });
+
     // Message thread only. A MIDI-mapped Play trigger sets one of these on the
     // audio thread (see processBlock); the actual parameter string lookup and
     // setValueNotifyingHost happen here instead, off the audio thread.
@@ -3313,9 +3472,31 @@ void MainPluginProcessor::serviceDeferredActions()
     for (int i = 0; i < numDecks; ++i)
         if (deckCueRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
             rewindDeck (i);
+    for (int i = 0; i < numDecks; ++i)
+        if (deckSyncToggleRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
+            if (auto* p = dynamic_cast<juce::AudioParameterBool*> (
+                    apvts.getParameter (deckPrefix (i) + "Sync")))
+                p->setValueNotifyingHost (p->get() ? 0.0f : 1.0f);
+    for (int i = 0; i < numDecks; ++i)
+        if (deckLoopToggleRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
+            setDeckLoopActive (i, ! isDeckLoopActive (i));
+    for (int i = 0; i < numDecks; ++i)
+        if (const int cue = deckHotCueRequested[(size_t) i].exchange (
+                -1, std::memory_order_relaxed); cue >= 0)
+            jumpToHotCue (i, cue);
+    for (int i = 0; i < numDecks; ++i)
+    {
+        const auto mask = deckStemMuteRequested[(size_t) i].exchange (
+            0u, std::memory_order_relaxed);
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            if ((mask & (1u << (unsigned int) lane)) != 0u)
+                setStemMutedDispatched (i, lane, ! isStemMuted (i, lane));
+    }
     for (int i = 0; i < PadBank::numPads; ++i)
         if (padTriggerRequested[(size_t) i].exchange (false, std::memory_order_relaxed))
             triggerPad (i);
+    if (performanceSafeToggleRequested.exchange (false, std::memory_order_relaxed))
+        setPerformanceSafeMode (! isPerformanceSafeMode());
 }
 
 void MainPluginProcessor::timerCallback()

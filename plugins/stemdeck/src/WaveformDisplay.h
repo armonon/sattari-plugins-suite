@@ -46,8 +46,18 @@ public:
     void setZoom (float level, float scrollFraction);
 
     // Intro end / Outro start DJ markers (< 0 = unset)
-    void setIntroEnd   (double seconds) noexcept { introEndSeconds   = seconds; repaint(); }
-    void setOutroStart (double seconds) noexcept { outroStartSeconds = seconds; repaint(); }
+    void setIntroEnd (double seconds) noexcept
+    {
+        if (std::abs (introEndSeconds - seconds) <= 0.0001) return;
+        introEndSeconds = seconds;
+        repaint();
+    }
+    void setOutroStart (double seconds) noexcept
+    {
+        if (std::abs (outroStartSeconds - seconds) <= 0.0001) return;
+        outroStartSeconds = seconds;
+        repaint();
+    }
 
     // Show RTSS badge when real-time separation is active with no offline stems
     void setRtssActive (bool active);
@@ -68,12 +78,22 @@ public:
 
     // When false, the empty-state placeholder shows its waveform bars without the
     // "DROX AUDIO" drop hint (used to make a deck read as active in the showcase).
-    void setShowDropHint (bool shouldShow) { showDropHint = shouldShow; repaint(); }
+    void setShowDropHint (bool shouldShow)
+    {
+        if (showDropHint == shouldShow) return;
+        showDropHint = shouldShow;
+        repaint();
+    }
 
     // Showcase: render a jagged coloured demo waveform regardless of real audio
     // (so a deck reads as "active" in the mockup look). Real audio overrides once
     // a valid thumbnail is present.
-    void setDemoWaveform (bool shouldShow) { demoWaveform = shouldShow; repaint(); }
+    void setDemoWaveform (bool shouldShow)
+    {
+        if (demoWaveform == shouldShow) return;
+        demoWaveform = shouldShow;
+        repaint();
+    }
 
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;

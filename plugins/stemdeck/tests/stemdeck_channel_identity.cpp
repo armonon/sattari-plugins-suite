@@ -1,4 +1,5 @@
 #include "MainPluginProcessor.h"
+#include "KeyboardShortcutManager.h"
 
 #include <cmath>
 #include <iostream>
@@ -23,6 +24,40 @@ int main()
     constexpr int blockSize = 256;
 
     std::cout << "Channel identity and live-input routing contract\n";
+
+    const auto shortcutFile = juce::File::getSpecialLocation (juce::File::tempDirectory)
+        .getNonexistentChildFile ("stemdeck-shortcut-contract", ".json", false);
+    {
+        stemdeck::KeyboardShortcutManager shortcuts (
+            stemdeck::KeyboardShortcutManager::stemDeckDefaults(), shortcutFile);
+        using Scope = stemdeck::KeyboardShortcutManager::Scope;
+        const juce::KeyPress bKey ('B');
+        check (shortcuts.commandFor (bKey, Scope::perform) == 13,
+               "global shortcut dispatches on the Perform surface");
+        check (shortcuts.commandFor (bKey, Scope::replay) == 53,
+               "Replay shortcut overrides the same global key contextually");
+
+        const juce::KeyPress custom ('X', juce::ModifierKeys(), 'x');
+        check (shortcuts.assign (34, custom, false),
+               "a live command accepts a custom shortcut");
+        check (shortcuts.conflictFor (35, custom) == 34
+                   && ! shortcuts.assign (35, custom, false),
+               "same-scope conflicts are detected before replacement");
+        check (shortcuts.assign (35, custom, true)
+                   && ! shortcuts.keyFor (34).isValid(),
+               "confirmed replacement unassigns the previous action");
+    }
+    {
+        stemdeck::KeyboardShortcutManager restored (
+            stemdeck::KeyboardShortcutManager::stemDeckDefaults(), shortcutFile);
+        check (restored.keyFor (35).getKeyCode() == 'X'
+                   && ! restored.keyFor (34).isValid(),
+               "custom and removed shortcuts persist across launches");
+        restored.resetAll();
+        check (restored.keyFor (34).getKeyCode() == juce::KeyPress::spaceKey,
+               "all defaults can be restored without touching a project");
+    }
+    shortcutFile.deleteFile();
 
     MainPluginProcessor processor;
     // A host normally negotiates this before prepareToPlay. The synthetic contract
@@ -143,6 +178,19 @@ int main()
         slots.push_back (processor.getChannelSlot (i));
     }
 
+    // A source editor is part of the saved performance workspace. Its identity
+    // and last-open mini-workflow must survive list reordering and project reload.
+    int persistedInputIndex = -1;
+    for (int i = 0; i < processor.getNumChannels(); ++i)
+        if (processor.getChannelId (i) == 4)
+            persistedInputIndex = i;
+    check (persistedInputIndex >= 0, "the live input keeps its permanent identity after reordering");
+    if (persistedInputIndex >= 0)
+    {
+        processor.setChannelName (persistedInputIndex, "Lead Vocal");
+        processor.setChannelEditorPage (persistedInputIndex, 2);
+    }
+
     // Persist a deliberately unsafe live state. Loading a project/preset must keep
     // its routing and media while requiring a fresh gesture before sound starts.
     if (auto* play = processor.parameters().getParameter ("deckAPlay"))
@@ -173,6 +221,14 @@ int main()
         check (restored.getChannelSlot (i) == slots[(size_t) i],
                "state restore preserves processing slot " + juce::String (slots[(size_t) i]));
     }
+    int restoredInputIndex = -1;
+    for (int i = 0; i < restored.getNumChannels(); ++i)
+        if (restored.getChannelId (i) == 4)
+            restoredInputIndex = i;
+    check (restoredInputIndex >= 0
+               && restored.getChannelName (restoredInputIndex) == "Lead Vocal"
+               && restored.getChannelEditorPage (restoredInputIndex) == 2,
+           "state restore preserves source identity and its last-open editor tab");
 
     const int next = restored.addChannel (ChannelType::input);
     check (next >= 0 && restored.getChannelId (next) == 6,

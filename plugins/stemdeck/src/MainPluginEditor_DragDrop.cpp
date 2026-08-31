@@ -160,6 +160,29 @@ MainPluginEditor::DropTarget MainPluginEditor::findDropTarget (juce::Point<int> 
         }
     }
 
+    // Dropping audio on open canvas is equivalent to choosing Add Source > DJ
+    // Deck, then loading it. This keeps creation direct and makes the empty-state
+    // invitation a real target instead of decorative onboarding copy.
+    if (! pianoRollButton.getToggleState() && ! mixerButton.getToggleState()
+        && ! libraryVisible && ! browserVisible)
+    {
+        const int deck = firstHiddenEmptyDeck();
+        const auto canvas = emptySessionBounds.isEmpty()
+                              ? getLocalBounds().withTrimmedTop (headerBarBounds.getBottom())
+                              : emptySessionBounds;
+        if (deck >= 0 && canvas.contains (point))
+        {
+            target.kind = DropTarget::Kind::deck;
+            target.index = deck;
+            target.bounds = emptySessionBounds.isEmpty()
+                              ? juce::Rectangle<int> (point.x - 90, point.y - 45, 180, 90)
+                              : emptySessionBounds;
+            target.label = "CREATE " + deckDropName (deck) + " FROM AUDIO";
+            target.colour = deckAccent (deck);
+            return target;
+        }
+    }
+
     if (browserVisible && ! browserPanelBounds.isEmpty() && browserPanelBounds.contains (point))
     {
         target.kind = DropTarget::Kind::explorer;
@@ -326,6 +349,13 @@ void MainPluginEditor::handleAudioFilesDrop (const juce::Array<juce::File>& file
         {
             const int deck = target.index + loaded;
             if (! juce::isPositiveAndBelow (deck, MainPluginProcessor::numDecks))
+                break;
+            bool channelExists = false;
+            for (int ch = 0; ch < processorRef.getNumChannels(); ++ch)
+                channelExists = channelExists
+                    || (processorRef.getChannelType (ch) == ChannelType::trackDeck
+                        && processorRef.getChannelSlot (ch) == deck);
+            if (! channelExists && processorRef.addChannel (ChannelType::trackDeck) < 0)
                 break;
             setFocusedDeck (deck);
             requestDeckLoad (deck, file);

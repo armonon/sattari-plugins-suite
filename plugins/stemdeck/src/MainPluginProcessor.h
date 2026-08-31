@@ -27,6 +27,7 @@
 #include "MidiCapture.h"
 #include "GraphSnapshot.h"
 #include "MasterFx.h"
+#include "MasterMonitor.h"
 #include "SmartMaster.h"
 #include "LiveLoudnessMeter.h"
 #include "StemGain.h"
@@ -197,6 +198,10 @@ public:
     double getRetrospectiveSecondsAvailable() const noexcept
     { return retrospectiveRecorder.getAvailableSeconds(); }
     float getAudioCpuLoad() const noexcept { return audioCpuLoad.load (std::memory_order_relaxed); }
+    juce::uint64 getProcessedAudioBlockCount() const noexcept
+    {
+        return processedAudioBlockCount.load (std::memory_order_relaxed);
+    }
     // Reversible stage-emergency mode: keep transports and the dry mix alive,
     // but bypass hosted/built-in FX and release temporary loop/slip states.
     void setPerformanceSafeMode (bool enabled) noexcept;
@@ -246,6 +251,9 @@ public:
     bool didMidiCaptureOverflow() const noexcept    { return midiCapture.overflowed(); }
 
     juce::String getChannelName (int index) const;
+    void         setChannelName (int index, const juce::String& name);
+    int          getChannelEditorPage (int index) const;
+    void         setChannelEditorPage (int index, int page);
     ChannelType  getChannelType (int index) const;
     ChannelID    getChannelId (int index) const noexcept { return channelIdForIndex (index); }
     int          getChannelSlot (int index) const noexcept
@@ -448,6 +456,18 @@ public:
     double getLivePeakDb()         const noexcept { return liveLoudness.getPeakDb(); }
     void   resetLiveLoudness() noexcept           { liveLoudness.resetIntegration(); }
     float  getLimiterGrDb() const noexcept        { return limiterGrDb.load (std::memory_order_relaxed); }
+    void setMasterMonitorMono (bool enabled) noexcept { masterMonitor.setMono (enabled); }
+    void setMasterMonitorDim  (bool enabled) noexcept { masterMonitor.setDim (enabled); }
+    void setMasterMonitorMute (bool enabled) noexcept { masterMonitor.setMute (enabled); }
+    bool isMasterMonitorMono() const noexcept { return masterMonitor.isMono(); }
+    bool isMasterMonitorDim()  const noexcept { return masterMonitor.isDim(); }
+    bool isMasterMonitorMute() const noexcept { return masterMonitor.isMute(); }
+    float getMasterCorrelation() const noexcept { return masterMonitor.getCorrelation(); }
+    void resetMasterMetering() noexcept
+    {
+        liveLoudness.resetIntegration();
+        masterMonitor.resetMeter();
+    }
 
     // True when no offline stems are loaded and real-time separation is active.
     bool isDeckRtssActive (int deckIndex) const;
@@ -592,7 +612,12 @@ private:
     // arrangement auto-stop must not depend on a visible window existing.
     std::array<std::atomic<bool>, numDecks> deckPlayToggleRequested {};
     std::array<std::atomic<bool>, numDecks> deckCueRequested {};
+    std::array<std::atomic<bool>, numDecks> deckSyncToggleRequested {};
+    std::array<std::atomic<bool>, numDecks> deckLoopToggleRequested {};
+    std::array<std::atomic<int>, numDecks> deckHotCueRequested {};
+    std::array<std::atomic<unsigned int>, numDecks> deckStemMuteRequested {};
     std::array<std::atomic<bool>, PadBank::numPads> padTriggerRequested {};
+    std::atomic<bool> performanceSafeToggleRequested { false };
 
 public:
     // Message thread: services deferred audio-thread controller requests.
@@ -691,6 +716,7 @@ private:
     HostGraph hostGraph;
     std::map<std::tuple<int, int, std::uint64_t>, float> hostedParameterValues;
     MasterFx masterFx;
+    stemdeck::MasterMonitor masterMonitor;
     SmartMaster smartMaster;
     stemdeck::LiveLoudnessMeter liveLoudness;
     std::atomic<float> limiterGrDb { 0.0f };   // safety-limiter peak GR (dB), UI-read
@@ -738,6 +764,9 @@ private:
     std::atomic<int64_t> recordingSampleCounter { 0 };
     std::atomic<int> currentTakeNumber { 0 };
     std::atomic<float> audioCpuLoad { 0.0f };
+    // Monotonic, allocation-free callback heartbeat. The editor compares
+    // snapshots on its timer thread instead of guessing from configuration.
+    std::atomic<juce::uint64> processedAudioBlockCount { 0 };
     std::atomic<bool> performanceSafeMode { false };
     std::atomic<int> audioDeadlineMisses { 0 };
     int64_t transportSampleCounter = 0;
