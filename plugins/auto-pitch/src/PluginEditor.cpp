@@ -326,6 +326,14 @@ void PitchEditTimeline::setData (std::vector<Entry> newEntries, double newPlayhe
     repaint();
 }
 
+void PitchEditTimeline::setHarmonyOverlays (std::vector<HarmonyOverlay> newOverlays)
+{
+    harmonyOverlays = std::move (newOverlays);
+    for (const auto& voice : harmonyOverlays)
+        timelineDurationSec = juce::jmax (timelineDurationSec, voice.endSec + 1.0);
+    repaint();
+}
+
 void PitchEditTimeline::zoomIn()
 {
     fitToContent = false;
@@ -355,10 +363,11 @@ void PitchEditTimeline::fitAll()
 int PitchEditTimeline::minMidi() const
 {
     int result = 60;
-    if (! entries.empty())
+    if (! entries.empty() || ! harmonyOverlays.empty())
     {
         result = 127;
         for (const auto& e : entries) result = juce::jmin (result, e.sourceMidi, e.targetMidi);
+        for (const auto& voice : harmonyOverlays) result = juce::jmin (result, voice.midi);
     }
     return juce::jlimit (0, 120, result - 2);
 }
@@ -366,10 +375,11 @@ int PitchEditTimeline::minMidi() const
 int PitchEditTimeline::maxMidi() const
 {
     int result = 72;
-    if (! entries.empty())
+    if (! entries.empty() || ! harmonyOverlays.empty())
     {
         result = 0;
         for (const auto& e : entries) result = juce::jmax (result, e.sourceMidi, e.targetMidi);
+        for (const auto& voice : harmonyOverlays) result = juce::jmax (result, voice.midi);
     }
     return juce::jlimit (7, 127, result + 2);
 }
@@ -424,6 +434,33 @@ void PitchEditTimeline::paint (juce::Graphics& g)
     }
 
     static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    // Generated voices are read-only objects behind the lead notes. Their stable
+    // colour/lane labels make the audible arrangement inspectable without
+    // pretending they are independent source recordings.
+    const std::array<juce::Colour, 4> voiceColours {
+        juce::Colour (0xff60a5fa), juce::Colour (0xffc084fc),
+        juce::Colour (0xff34d399), juce::Colour (0xfff59e0b)
+    };
+    for (const auto& voice : harmonyOverlays)
+    {
+        const float x0 = juce::jmap ((float) voice.startSec, (float) viewStartSec,
+            (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
+        const float x1 = juce::jmap ((float) voice.endSec, (float) viewStartSec,
+            (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
+        const float y = plot.getBottom() - ((float) (voice.midi - lo) + 1.0f) * row;
+        juce::Rectangle<float> r (x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (4.0f, row - 2.0f));
+        const auto colour = voiceColours[(size_t) juce::jlimit (0, 3, voice.voice)];
+        g.setColour (colour.withAlpha (0.24f));
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (colour.withAlpha (0.78f));
+        g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        if (r.getWidth() > 44.0f)
+        {
+            g.setFont (sattari::brand::fontOptions (8.0f, juce::Font::bold));
+            g.drawText ("H" + juce::String (voice.voice + 1), r.toNearestInt().reduced (3, 0),
+                        juce::Justification::centredLeft, false);
+        }
+    }
     for (int i = 0; i < (int) entries.size(); ++i)
     {
         const auto& e = entries[(size_t) i];
@@ -728,8 +765,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     harmonyHeaderLabel.setText ("HARMONY", juce::dontSendNotification);
     harmonyPanel.addAndMakeVisible (harmonyHeaderLabel);
     harmonyStatusLabel.setJustificationType (juce::Justification::centredLeft);
-    harmonyStatusLabel.setText ("Play a vocal to see the planned harmony      "
-                                "VOICE RENDERING NOT YET CONNECTED - planned notes only",
+    harmonyStatusLabel.setText ("Play a vocal to hear and inspect the generated voices",
                                 juce::dontSendNotification);
     harmonyPanel.addAndMakeVisible (harmonyStatusLabel);
     harmonyModeBox.addItem ("Intelligent  (chord-aware)", 1);
@@ -738,6 +774,43 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     harmonyModeAttachment = std::make_unique<ComboAttachment> (
         audioProcessor.parameters(), "harmonyMode", harmonyModeBox);
     harmonyPanel.addAndMakeVisible (harmonyModeBox);
+
+    const std::array<juce::Slider*, 12> macroSliders {
+        &harmonyMix, &harmonyLead, &harmonyGlide, &harmonyHumanPitch,
+        &harmonyHumanTime, &harmonyVibratoRate, &harmonyEnsemble, &harmonyEnsembleDepth,
+        &harmonyEnsembleRate, &harmonyEnsembleSpread, &harmonyLowCut,
+        &harmonyHighCut
+    };
+    const std::array<const char*, 12> macroIds {
+        "harmonyMix", "harmonyLead", "harmonyGlide", "harmonyHumanPitch",
+        "harmonyHumanTime", "harmonyVibratoRate", "harmonyEnsemble", "harmonyEnsembleDepth",
+        "harmonyEnsembleRate", "harmonyEnsembleSpread", "harmonyLowCut",
+        "harmonyHighCut"
+    };
+    const std::array<const char*, 12> macroNames {
+        "HARMONY", "LEAD", "GLIDE MS", "PITCH HUMAN", "TIME HUMAN", "VIB RATE",
+        "CHOIR", "CHOIR DEPTH", "CHOIR RATE", "CHOIR WIDTH", "LOW CUT", "HIGH CUT"
+    };
+    for (int i = 0; i < (int) macroSliders.size(); ++i)
+    {
+        auto& slider = *macroSliders[(size_t) i];
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
+        harmonyPanel.addAndMakeVisible (slider);
+        auto& label = harmonyMacroLabels[(size_t) i];
+        label.setText (macroNames[(size_t) i], juce::dontSendNotification);
+        label.setJustificationType (juce::Justification::centredLeft);
+        label.setFont (juce::Font (sattari::brand::fontOptions (9.0f, juce::Font::bold)));
+        label.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+        harmonyPanel.addAndMakeVisible (label);
+        harmonyMacroAttachments[(size_t) i] = std::make_unique<SliderAttachment> (
+            audioProcessor.parameters(), macroIds[(size_t) i], slider);
+    }
+    harmonyVoiceOnly.setClickingTogglesState (true);
+    harmonyVoiceOnly.setTooltip ("Audition generated singers without the lead vocal.");
+    harmonyVoiceOnlyAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "harmonyVoiceOnly", harmonyVoiceOnly);
+    harmonyPanel.addAndMakeVisible (harmonyVoiceOnly);
 
     for (int v = 0; v < 4; ++v)
     {
@@ -752,6 +825,11 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         strip.enableAttach = std::make_unique<ButtonAttachment> (
             audioProcessor.parameters(), id + "Enable", strip.enable);
         harmonyPanel.addAndMakeVisible (strip.enable);
+        strip.solo.setButtonText ("S");
+        strip.solo.setClickingTogglesState (true);
+        strip.soloAttach = std::make_unique<ButtonAttachment> (
+            audioProcessor.parameters(), id + "Solo", strip.solo);
+        harmonyPanel.addAndMakeVisible (strip.solo);
 
         for (const char* r : { "Upper", "Lower", "High", "Low",
                                "Octave Up", "Octave Down", "Choir" })
@@ -760,9 +838,6 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
             audioProcessor.parameters(), id + "Role", strip.role);
         harmonyPanel.addAndMakeVisible (strip.role);
 
-        //  Interval degrees + octave: the two controls that actually change the
-        //  planned note. Level and pan are deliberately absent until there is a
-        //  renderer for them to control.
         strip.degrees.setSliderStyle (juce::Slider::IncDecButtons);
         strip.degrees.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 54, 20);
         strip.degrees.setTooltip ("Interval mode: diatonic degrees from the lead "
@@ -780,13 +855,41 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         strip.readout.setJustificationType (juce::Justification::centredLeft);
         strip.readout.setText ("-", juce::dontSendNotification);
         harmonyPanel.addAndMakeVisible (strip.readout);
+
+        const std::array<juce::Slider*, 5> voiceSliders {
+            &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato
+        };
+        const std::array<juce::Label*, 5> voiceLabels {
+            &strip.levelLabel, &strip.panLabel, &strip.delayLabel,
+            &strip.detuneLabel, &strip.vibratoLabel
+        };
+        const std::array<const char*, 5> suffixes { " dB", "", " ms", " ct", " ct" };
+        const std::array<const char*, 5> names { "LEVEL", "PAN", "DELAY", "DETUNE", "VIBRATO" };
+        const std::array<juce::String, 5> ids {
+            id + "Level", id + "Pan", id + "Delay", id + "Detune", id + "Vibrato"
+        };
+        for (int i = 0; i < 5; ++i)
+        {
+            auto& slider = *voiceSliders[(size_t) i];
+            slider.setSliderStyle (juce::Slider::LinearHorizontal);
+            slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 17);
+            slider.setTextValueSuffix (suffixes[(size_t) i]);
+            harmonyPanel.addAndMakeVisible (slider);
+            auto& label = *voiceLabels[(size_t) i];
+            label.setText (names[(size_t) i], juce::dontSendNotification);
+            label.setFont (juce::Font (sattari::brand::fontOptions (8.5f, juce::Font::bold)));
+            label.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
+            harmonyPanel.addAndMakeVisible (label);
+        }
+        strip.levelAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[0], strip.level);
+        strip.panAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[1], strip.pan);
+        strip.delayAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[2], strip.delay);
+        strip.detuneAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[3], strip.detune);
+        strip.vibratoAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[4], strip.vibrato);
     }
-    // Planning is implemented and tested, but no voices are rendered into audio
-    // yet. Keep the preview discoverable without presenting it as a finished
-    // production workspace.
-    wsHarmonyButton.setEnabled (false);
+    wsHarmonyButton.setEnabled (true);
     wsHarmonyButton.onClick = [this] { setWorkspace (Workspace::harmony); };
-    wsHarmonyButton.setTooltip ("Preview only - harmony voice rendering is not connected yet.");
+    wsHarmonyButton.setTooltip ("Four rendered voices with chord-aware planning and choir controls.");
 
     songStatusLabel.setJustificationType (juce::Justification::centredRight);
     songStatusLabel.setInterceptsMouseClicks (false, false);
@@ -1298,7 +1401,16 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"enabledNotes",4095},{"neuralPitch",0},{"lowLatency",0},{"liveEngine",0},
         {"liveMode",0},
         {"liveProfile",0},
-        {"inputGain",0},{"outputGain",0}
+        {"inputGain",0},{"outputGain",0},
+        {"harmonyMode",0},{"harmonyMix",0.72f},{"harmonyLead",1.0f},
+        {"harmonyVoiceOnly",0},{"harmonyGlide",28.0f},
+        {"harmonyHumanPitch",5.0f},{"harmonyHumanTime",7.0f},
+        {"harmonyVibratoRate",5.2f},{"harmonyEnsemble",0.2f},
+        {"harmonyEnsembleDepth",7.0f},{"harmonyEnsembleRate",0.35f},
+        {"harmonyEnsembleSpread",0.75f},{"harmonyLowCut",90.0f},
+        {"harmonyHighCut",16000.0f},
+        {"h1Enable",0},{"h2Enable",0},{"h3Enable",0},{"h4Enable",0},
+        {"h1Solo",0},{"h2Solo",0},{"h3Solo",0},{"h4Solo",0}
     };
     auto addWorkflow = [this, &neutral] (const juce::String& name, PV values)
     {
@@ -1354,6 +1466,25 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"style",0},{"liveMode",1},{"liveProfile",1},{"amount",0.9f},{"speed",0.75f},
         {"doNoHarm",1},{"formantPreserve",1},{"flexTune",0.12f},
         {"transition",0.7f},{"humanize",0.08f},{"vibrato",0.55f} });
+    addWorkflow ("Harmony · Pop Stack", PV {
+        {"harmonyMode",0},{"h1Enable",1},{"h2Enable",1},
+        {"h1Role",0},{"h2Role",1},{"h1Level",-8.0f},{"h2Level",-9.0f},
+        {"h1Pan",-0.32f},{"h2Pan",0.32f},{"harmonyMix",0.72f},
+        {"harmonyHumanPitch",4.0f},{"harmonyHumanTime",6.0f},
+        {"harmonyEnsemble",0.16f},{"harmonyEnsembleSpread",0.62f} });
+    addWorkflow ("Harmony · Wide Choir", PV {
+        {"harmonyMode",0},{"h1Enable",1},{"h2Enable",1},{"h3Enable",1},{"h4Enable",1},
+        {"h1Role",0},{"h2Role",1},{"h3Role",2},{"h4Role",3},
+        {"h1Level",-10.0f},{"h2Level",-10.0f},{"h3Level",-13.0f},{"h4Level",-13.0f},
+        {"harmonyMix",0.8f},{"harmonyHumanPitch",8.0f},{"harmonyHumanTime",14.0f},
+        {"harmonyEnsemble",0.72f},{"harmonyEnsembleDepth",11.0f},
+        {"harmonyEnsembleRate",0.28f},{"harmonyEnsembleSpread",1.0f},
+        {"harmonyLowCut",120.0f},{"harmonyHighCut",13500.0f} });
+    addWorkflow ("Harmony · MIDI Choir", PV {
+        {"harmonyMode",2},{"h1Enable",1},{"h2Enable",1},{"h3Enable",1},{"h4Enable",1},
+        {"h1Level",-9.0f},{"h2Level",-9.0f},{"h3Level",-9.0f},{"h4Level",-9.0f},
+        {"harmonyMix",0.76f},{"harmonyHumanPitch",3.0f},{"harmonyHumanTime",5.0f},
+        {"harmonyEnsemble",0.3f},{"harmonyEnsembleSpread",0.85f} });
 }
 
 void SattariAutoPitchAudioProcessorEditor::refreshUserPresets()
@@ -1414,6 +1545,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         auto edits = audioProcessor.getPitchEdits();
         const int revision = audioProcessor.getPitchEditRevision();
         pitchEditTimeline.setData (edits, audioProcessor.getKeyMapPlayheadSec());
+        pitchEditTimeline.setHarmonyOverlays (audioProcessor.getHarmonyEditOverlays());
         if (revision != pitchEditShownRevision && selectedPitchEditId != 0
             && ! objectAmount.isMouseButtonDown() && ! objectRetune.isMouseButtonDown()
             && ! objectTransition.isMouseButtonDown() && ! objectHumanize.isMouseButtonDown()
@@ -1654,10 +1786,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                                      juce::dontSendNotification);
     }
 
-    //  HARMONY: show the notes the planner would actually sing right now. This
-    //  is real planner output, not a mock — and the status line states plainly
-    //  that voice RENDERING is not yet connected, so nothing here can be mistaken
-    //  for audio the plugin is producing.
+    // HARMONY: the readout is the same planner that drives the audible renderer.
     if (workspace == Workspace::harmony)
     {
         static const char* hn[12] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
@@ -1679,8 +1808,11 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
             status = "Lead " + noteName (h.leadMidi)
                    + (h.fromChord ? "   -   planning from the detected chord"
                                   : "   -   no chord known here, planning from the scale");
+        int activeVoices = 0;
+        for (bool active : h.active) if (active) ++activeVoices;
         harmonyStatusLabel.setText (
-            status + "      VOICE RENDERING NOT YET CONNECTED - planned notes only",
+            status + "   -   " + juce::String (activeVoices) + " voices rendering"
+                   + "   -   generated notes are visible in Edit",
             juce::dontSendNotification);
         for (int v = 0; v < 4; ++v)
             harmonyVoices[(size_t) v].readout.setText (
@@ -1938,25 +2070,66 @@ void SattariAutoPitchAudioProcessorEditor::resized()
         auto top = h.removeFromTop (30);
         harmonyHeaderLabel.setBounds (top.removeFromLeft (140));
         harmonyModeBox.setBounds (top.removeFromLeft (260).reduced (0, 2));
+        top.removeFromLeft (10);
+        harmonyVoiceOnly.setBounds (top.removeFromLeft (126).reduced (0, 3));
         h.removeFromTop (4);
         harmonyStatusLabel.setBounds (h.removeFromTop (22));
-        h.removeFromTop (10);
+        h.removeFromTop (6);
+
+        const std::array<juce::Slider*, 12> macroSliders {
+            &harmonyMix, &harmonyLead, &harmonyGlide, &harmonyHumanPitch,
+            &harmonyHumanTime, &harmonyVibratoRate, &harmonyEnsemble, &harmonyEnsembleDepth,
+            &harmonyEnsembleRate, &harmonyEnsembleSpread, &harmonyLowCut,
+            &harmonyHighCut
+        };
+        for (int rowIndex = 0; rowIndex < 2; ++rowIndex)
+        {
+            auto macroRow = h.removeFromTop (48);
+            const int first = rowIndex == 0 ? 0 : 6;
+            const int count = 6;
+            const int cells = 6;
+            const int cellWidth = macroRow.getWidth() / cells;
+            for (int i = 0; i < count; ++i)
+            {
+                auto cell = macroRow.removeFromLeft (cellWidth).reduced (3, 0);
+                harmonyMacroLabels[(size_t) (first + i)].setBounds (cell.removeFromTop (14));
+                macroSliders[(size_t) (first + i)]->setBounds (cell.reduced (0, 2));
+            }
+        }
+        h.removeFromTop (6);
 
         for (int v = 0; v < 4; ++v)
         {
             auto& strip = harmonyVoices[(size_t) v];
-            auto row = h.removeFromTop (46);
-            strip.caption.setBounds (row.removeFromLeft (40));
-            strip.enable.setBounds (row.removeFromLeft (54).reduced (2, 8));
+            auto voiceArea = h.removeFromTop (76);
+            auto row = voiceArea.removeFromTop (32);
+            strip.caption.setBounds (row.removeFromLeft (36));
+            strip.enable.setBounds (row.removeFromLeft (50).reduced (2, 5));
+            strip.solo.setBounds (row.removeFromLeft (34).reduced (2, 5));
+            row.removeFromLeft (6);
+            strip.role.setBounds (row.removeFromLeft (138).reduced (0, 4));
             row.removeFromLeft (8);
-            strip.role.setBounds (row.removeFromLeft (140).reduced (0, 8));
+            strip.degrees.setBounds (row.removeFromLeft (112).reduced (0, 6));
+            row.removeFromLeft (6);
+            strip.octave.setBounds (row.removeFromLeft (112).reduced (0, 6));
             row.removeFromLeft (10);
-            strip.degrees.setBounds (row.removeFromLeft (120).reduced (0, 10));
-            row.removeFromLeft (8);
-            strip.octave.setBounds (row.removeFromLeft (120).reduced (0, 10));
-            row.removeFromLeft (12);
             strip.readout.setBounds (row);
-            h.removeFromTop (6);
+
+            const std::array<juce::Slider*, 5> sliders {
+                &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato
+            };
+            const std::array<juce::Label*, 5> labels {
+                &strip.levelLabel, &strip.panLabel, &strip.delayLabel,
+                &strip.detuneLabel, &strip.vibratoLabel
+            };
+            const int cellWidth = voiceArea.getWidth() / 5;
+            for (int i = 0; i < 5; ++i)
+            {
+                auto cell = voiceArea.removeFromLeft (cellWidth).reduced (4, 0);
+                labels[(size_t) i]->setBounds (cell.removeFromTop (13));
+                sliders[(size_t) i]->setBounds (cell.reduced (0, 1));
+            }
+            h.removeFromTop (3);
         }
         return;
     }

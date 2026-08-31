@@ -9,7 +9,8 @@
 //    Interval     — a fixed diatonic degree offset (the honest "+3rd" behaviour)
 //    Intelligent  — pick the musically appropriate note from the CURRENT CHORD
 //                   when one is known, falling back to the scale otherwise
-//    Midi         — the voices are whatever notes are being held
+//    Midi         — the voices follow the held notes inside the qualified
+//                   one-octave vocal-shifter range
 //
 //  Voice leading is the reason Intelligent is not just "nearest chord tone".
 //  Chosen candidates are scored on (a) closeness to the voice's previous note,
@@ -23,6 +24,7 @@
 
 #include <sattari_audio_core/SattariHarmonyVoicing.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -154,7 +156,13 @@ public:
 
             if (note < 0) { previousMidi[(size_t) v] = -1; continue; }
             note += 12 * s.octaveOffset;
-            note = note < 0 ? 0 : (note > 127 ? 127 : note);
+            // LiveEpochShifter's qualified range is 0.5x..2x. Clamp here, in
+            // the shared musical planner, rather than silently clamping only in
+            // the renderer: the Harmony readout and Edit overlays must always
+            // show the note that is actually audible. This also gives remote
+            // MIDI notes a deterministic nearest-octave interpretation.
+            note = std::clamp (note, leadMidi - 12, leadMidi + 12);
+            note = std::clamp (note, 0, 127);
 
             assigned[v] = note;
             previousMidi[(size_t) v] = note;

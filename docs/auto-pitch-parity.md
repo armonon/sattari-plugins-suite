@@ -20,8 +20,8 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 | Reference pitch | A4 detune ±100 cents or opt-in suite reference | Implemented |
 | MIDI | Exact held-note targeting plus the suite MIDI Learn mapper | Implemented |
 | Graph-style note editing | Stable persistent objects, octave-aware vertical retarget, bypass, split/join/delete and 64-step undo/redo; exact targets and bypass reach both Studio and causal Live planners | Implemented |
-| Harmony | Sattari Harmony provides eight independently voiced parts; Auto Pitch also has simpler Big Harmony/poly harmony colors | Implemented across suite |
-| Presets | Factory and user preset manager; dedicated Natural, Hard, Rap, Robot, Live, MIDI, Graph and Vibrato starting points | Implemented |
+| Harmony | Four continuous vocal voices with Intelligent chord/scale planning, diatonic Interval and four-note MIDI modes; per voice enable/solo, role, interval/octave, level, pan, delay, detune and vibrato; global glide, pitch/timing humanize, voice-only audition, filtering, and feed-forward stereo choir amount/depth/rate/width. Generated H1-H4 objects are visible in Edit. Whole-mix transpose/polyphonic modes take precedence so dense material is never silently treated as a vocal | Implemented; real-vocal arrangement listening still required |
+| Presets | Factory and user preset manager; dedicated Natural, Hard, Rap, Robot, Live, MIDI, Graph, Vibrato, Pop Stack, Wide Choir and MIDI Choir starting points | Implemented |
 | Detailed per-object controls | Amount, retune, transition, humanize, vibrato, formant, gain and ±500 ms timing, with horizontal graph zoom/fit; live retune/transition/vibrato and graph targets are covered by the causal planner contract | Implemented |
 | Graph pitch curves/lines | Region-level pitch is editable; freehand curve and line tools are not present | Future DSP/UI work |
 | Graph time correction | Opt-in latency-compensated fractional-delay engine with 500 ms look-ahead | Implemented; DAW stress qualification pending |
@@ -32,8 +32,10 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 ## Machine evidence
 
 - Core contract covers five sound styles, modal scales, reference detune, MIDI
-  targets, YIN noise robustness and UI rendering for Tune, Key, Edit, Advanced,
-  Harmony Preview and minimum-size layouts, including persistent-header pixels.
+  targets, YIN noise robustness, four harmony target notes (including the octave
+  edge), 64/512-sample harmony continuity, processor-level harmony audio/readout
+  agreement, and UI rendering for Tune, Key, Edit, Advanced, Harmony and
+  minimum-size layouts, including persistent-header pixels.
 - Offline smoke and High Tracking regression render the real processor.
 - Objective benchmark audits pitch accuracy, latency honesty, THD/alias proxy,
   CPU, transitions, vibrato, polyphonic correction and output safety.

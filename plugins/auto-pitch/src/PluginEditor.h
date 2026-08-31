@@ -133,11 +133,13 @@ class PitchEditTimeline final : public juce::Component
 {
 public:
     using Entry = SattariAutoPitchAudioProcessor::PitchEditEntry;
+    using HarmonyOverlay = SattariAutoPitchAudioProcessor::HarmonyEditOverlay;
     std::function<void(const Entry&)> onEntryChanged;
     std::function<void(juce::int64)> onSelectionChanged;
     std::function<void()> onGestureBegin, onGestureEnd;
 
     void setData (std::vector<Entry> newEntries, double newPlayhead);
+    void setHarmonyOverlays (std::vector<HarmonyOverlay> newOverlays);
     void zoomIn();
     void zoomOut();
     void fitAll();
@@ -155,6 +157,7 @@ private:
     int maxMidi() const;
 
     std::vector<Entry> entries;
+    std::vector<HarmonyOverlay> harmonyOverlays;
     double playheadSec = 0.0;
     double timelineDurationSec = 10.0;
     double viewStartSec = 0.0, viewDurationSec = 10.0;
@@ -212,10 +215,8 @@ private:
     sattari::ui::SattariABRow abRow { presetManager };
 
     // --- Workspaces ---------------------------------------------------------------
-    //  KEY | TUNE | HARMONY | EDIT. One primary workspace at a time; the header
-    //  and its musical summary persist across all of them. HARMONY is declared
-    //  but disabled — Phase 4 work, and a dead button labelled as such is more
-    //  honest than a page of controls that do nothing.
+    // KEY | TUNE | HARMONY | EDIT. One primary workspace at a time; the header
+    // and its musical summary persist across all of them.
     enum class Workspace { key, tune, harmony, edit };
     Workspace workspace = Workspace::tune;
     void setWorkspace (Workspace w);
@@ -247,15 +248,26 @@ private:
     juce::ComboBox harmonyModeBox;
     std::unique_ptr<ComboAttachment> harmonyModeAttachment;
     juce::Label harmonyHeaderLabel, harmonyStatusLabel;
+    juce::Slider harmonyMix, harmonyLead, harmonyGlide, harmonyHumanPitch,
+                 harmonyHumanTime, harmonyVibratoRate, harmonyEnsemble, harmonyEnsembleDepth,
+                 harmonyEnsembleRate, harmonyEnsembleSpread,
+                 harmonyLowCut, harmonyHighCut;
+    juce::TextButton harmonyVoiceOnly { "VOICES ONLY" };
+    std::array<juce::Label, 12> harmonyMacroLabels;
+    std::array<std::unique_ptr<SliderAttachment>, 12> harmonyMacroAttachments;
+    std::unique_ptr<ButtonAttachment> harmonyVoiceOnlyAttachment;
     struct HarmonyVoiceStrip
     {
-        juce::TextButton enable;
+        juce::TextButton enable, solo;
         juce::ComboBox   role;
-        juce::Slider     degrees, octave;
-        juce::Label      caption, readout;
-        std::unique_ptr<ButtonAttachment> enableAttach;
+        juce::Slider     degrees, octave, level, pan, delay, detune, vibrato;
+        juce::Label      caption, readout, levelLabel, panLabel, delayLabel,
+                         detuneLabel, vibratoLabel;
+        std::unique_ptr<ButtonAttachment> enableAttach, soloAttach;
         std::unique_ptr<ComboAttachment>  roleAttach;
-        std::unique_ptr<SliderAttachment> degreesAttach, octaveAttach;
+        std::unique_ptr<SliderAttachment> degreesAttach, octaveAttach,
+                                          levelAttach, panAttach, delayAttach,
+                                          detuneAttach, vibratoAttach;
     };
     std::array<HarmonyVoiceStrip, 4> harmonyVoices;
     double songModelSeenDuration = -1.0;   // repopulate the map only on change

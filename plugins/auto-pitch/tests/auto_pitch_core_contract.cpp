@@ -49,6 +49,32 @@ double rmsDifference (const juce::AudioBuffer<float>& a, const juce::AudioBuffer
     return std::sqrt (sum / (double) juce::jmax (1, count));
 }
 
+double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
+{
+    double real = 0.0, imag = 0.0, phase = 0.0;
+    const double step = juce::MathConstants<double>::twoPi * hz / sampleRate;
+    for (int i = start; i < (int) audio.size(); ++i)
+    {
+        const double sample = audio[(size_t) i];
+        real += sample * std::cos (phase);
+        imag -= sample * std::sin (phase);
+        phase += step;
+    }
+    return real * real + imag * imag;
+}
+
+double strongestNear (const std::vector<float>& audio, int start, double sampleRate,
+                      double centreHz, double radiusHz)
+{
+    double bestHz = centreHz, bestPower = -1.0;
+    for (double hz = centreHz - radiusHz; hz <= centreHz + radiusHz; hz += 0.25)
+    {
+        const double power = tonePower (audio, start, sampleRate, hz);
+        if (power > bestPower) { bestPower = power; bestHz = hz; }
+    }
+    return bestHz;
+}
+
 bool clickButtonNamed (juce::Component& parent, const juce::String& name)
 {
     for (int i = 0; i < parent.getNumChildComponents(); ++i)
@@ -352,6 +378,200 @@ int main (int argc, char** argv)
             return 1;
         }
         std::cout << "  liveGraphTarget=PASS (exact target + release + fused guidance)\n";
+    }
+
+    {
+        // Audible harmony contract: every object owns a continuous shifter and
+        // reaches its requested note from the same lead. Rendering at 64 and 512
+        // samples must also agree, proving host callback boundaries do not reset
+        // pitch phase (the failure mode of the retired Big Harmony resampler).
+        constexpr double sr = 48000.0;
+        constexpr int total = 96000;
+        auto renderVoice = [=] (int targetMidi, int blockSize)
+        {
+            sattari::dsp::HarmonyRenderer renderer;
+            renderer.prepare (sr, 512, 128.0, 1100.0, 4096);
+            std::array<sattari::dsp::HarmonyRenderer::Voice, 4> voices;
+            voices[0].active = true;
+            voices[0].targetMidi = targetMidi;
+            voices[0].level = 1.0f;
+            voices[0].pan = 0.0f;
+            sattari::dsp::HarmonyRenderer::Settings settings;
+            settings.glideMs = 1.5f;
+            settings.humanPitchCents = 0.0f;
+            settings.humanTimingMs = 0.0f;
+            settings.ensemble = 0.0f;
+            settings.lowCutHz = 20.0f;
+            settings.highCutHz = 20000.0f;
+
+            std::vector<float> input ((size_t) total), left ((size_t) total), right ((size_t) total);
+            double phase = 0.0;
+            for (int i = 0; i < total; ++i)
+            {
+                input[(size_t) i] = 0.22f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 220.0 / sr;
+            }
+            for (int offset = 0; offset < total; offset += blockSize)
+            {
+                const int n = juce::jmin (blockSize, total - offset);
+                const float* in[] { input.data() + offset };
+                renderer.process (in, 1, left.data() + offset, right.data() + offset, n,
+                                  57.0, sr / 220.0, true, voices, settings);
+            }
+            return left;
+        };
+
+        const std::array<int, 4> targets { 60, 64, 55, 69 };
+        for (int target : targets)
+        {
+            const auto rendered = renderVoice (target, 64);
+            const double expected = 440.0 * std::pow (2.0, ((double) target - 69.0) / 12.0);
+            const double measured = strongestNear (rendered, 36000, sr, expected, 12.0);
+            const double expectedPower = tonePower (rendered, 36000, sr, measured);
+            const double dryPower = tonePower (rendered, 36000, sr, 220.0);
+            if (std::abs (1200.0 * std::log2 (measured / expected)) > 35.0)
+            {
+                std::cerr << "harmony voice missed MIDI " << target
+                          << ": measured " << measured << " Hz, expected " << expected << " Hz\n";
+                return 1;
+            }
+            if (target != 57 && expectedPower < 1.5 * dryPower)
+            {
+                std::cerr << "harmony target is masked by dry fundamental at MIDI " << target
+                          << ": target/dry power=" << expectedPower / std::max (1.0e-12, dryPower) << "\n";
+                return 1;
+            }
+        }
+
+        const auto smallBlocks = renderVoice (64, 64);
+        const auto largeBlocks = renderVoice (64, 512);
+        double smallEnergy = 0.0, largeEnergy = 0.0;
+        double smallPeakJump = 0.0, largePeakJump = 0.0;
+        int compared = 0;
+        for (int i = 36000; i < total; ++i)
+        {
+            smallEnergy += (double) smallBlocks[(size_t) i] * smallBlocks[(size_t) i];
+            largeEnergy += (double) largeBlocks[(size_t) i] * largeBlocks[(size_t) i];
+            ++compared;
+            if (i % 64 == 0)
+                smallPeakJump = std::max (smallPeakJump,
+                    std::abs ((double) smallBlocks[(size_t) i]
+                            - (double) smallBlocks[(size_t) (i - 1)]));
+            if (i % 512 == 0)
+                largePeakJump = std::max (largePeakJump,
+                    std::abs ((double) largeBlocks[(size_t) i]
+                            - (double) largeBlocks[(size_t) (i - 1)]));
+        }
+        const double smallRms = std::sqrt (smallEnergy / (double) compared);
+        const double largeRms = std::sqrt (largeEnergy / (double) compared);
+        const double smallHz = strongestNear (smallBlocks, 36000, sr, 329.63, 12.0);
+        const double largeHz = strongestNear (largeBlocks, 36000, sr, 329.63, 12.0);
+        const double pitchDeltaCents = std::abs (1200.0 * std::log2 (smallHz / largeHz));
+        const double energyRatio = smallRms / std::max (1.0e-12, largeRms);
+        if (pitchDeltaCents > 5.0 || energyRatio < 0.85 || energyRatio > 1.18
+            || smallPeakJump > 0.12 || largePeakJump > 0.12)
+        {
+            std::cerr << "harmony block continuity failed: pitchDelta=" << pitchDeltaCents
+                      << " ct energyRatio=" << energyRatio
+                      << " boundaryJumps=" << smallPeakJump << "/" << largePeakJump << "\n";
+            return 1;
+        }
+        std::cout << "  harmonyRenderer=PASS (4 target notes, 64/512 continuity, max boundary jump "
+                  << std::max (smallPeakJump, largePeakJump) << ")\n";
+    }
+
+    {
+        // Processor integration: the Harmony workspace parameters must reach the
+        // audio output, and its public readout must report the same note that the
+        // renderer sings. Voice-only makes the spectral assertion unambiguous.
+        SattariAutoPitchAudioProcessor harmony;
+        auto& params = harmony.parameters();
+        setParameter (params, "liveMode", 1.0f);
+        setParameter (params, "liveProfile", 0.0f);
+        setParameter (params, "keyRoot", 0.0f);
+        setParameter (params, "scale", 0.0f);
+        setParameter (params, "scaleMode", 0.0f);
+        setParameter (params, "enableCorrection", 1.0f);
+        setParameter (params, "amount", 1.0f);
+        setParameter (params, "speed", 1.0f);
+        setParameter (params, "doNoHarm", 0.0f);
+        setParameter (params, "harmonyMode", 1.0f); // interval
+        setParameter (params, "h1Enable", 1.0f);
+        setParameter (params, "h1Degrees", 2.0f);
+        setParameter (params, "h1Level", 0.0f);
+        setParameter (params, "h1Pan", 0.0f);
+        setParameter (params, "h1Delay", 0.0f);
+        setParameter (params, "h1Detune", 0.0f);
+        setParameter (params, "harmonyMix", 1.0f);
+        setParameter (params, "harmonyVoiceOnly", 1.0f);
+        setParameter (params, "harmonyHumanPitch", 0.0f);
+        setParameter (params, "harmonyHumanTime", 0.0f);
+        setParameter (params, "harmonyEnsemble", 0.0f);
+        harmony.prepareToPlay (48000.0, 64);
+
+        std::vector<float> output (96000, 0.0f);
+        double phase = 0.0;
+        for (int offset = 0; offset < (int) output.size(); offset += 64)
+        {
+            juce::AudioBuffer<float> block (2, 64);
+            for (int i = 0; i < 64; ++i)
+            {
+                const float sample = 0.20f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 220.0 / 48000.0;
+                block.setSample (0, i, sample);
+                block.setSample (1, i, sample);
+            }
+            juce::MidiBuffer midi;
+            harmony.processBlock (block, midi);
+            std::copy_n (block.getReadPointer (0), 64, output.data() + offset);
+        }
+        const auto readout = harmony.planHarmonyNow();
+        if (! readout.valid || ! readout.active[0] || readout.midi[0] != 60)
+        {
+            std::cerr << "processor harmony planner/render integration target mismatch\n";
+            return 1;
+        }
+        const double targetHz = 261.625565;
+        const double measured = strongestNear (output, 36000, 48000.0, targetHz, 10.0);
+        const double targetPower = tonePower (output, 36000, 48000.0, measured);
+        const double sourcePower = tonePower (output, 36000, 48000.0, 220.0);
+        if (std::abs (1200.0 * std::log2 (measured / targetHz)) > 35.0
+            || targetPower < 1.5 * sourcePower)
+        {
+            std::cerr << "processor harmony output failed: measured=" << measured
+                      << " target/source power=" << targetPower / std::max (1.0e-12, sourcePower) << "\n";
+            return 1;
+        }
+
+        // Range -> Ultra -> Range must not resume an old delay-ring moment. A
+        // freshly selected bank begins with its own qualified latency, hence the
+        // first block after returning to Range is silent in voice-only mode.
+        auto processHarmonyBlock = [&]
+        {
+            juce::AudioBuffer<float> block (2, 64);
+            for (int i = 0; i < 64; ++i)
+            {
+                const float sample = 0.20f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 220.0 / 48000.0;
+                block.setSample (0, i, sample);
+                block.setSample (1, i, sample);
+            }
+            juce::MidiBuffer midi;
+            harmony.processBlock (block, midi);
+            return block;
+        };
+        setParameter (params, "liveProfile", 1.0f);
+        for (int i = 0; i < 30; ++i) (void) processHarmonyBlock();
+        setParameter (params, "liveProfile", 0.0f);
+        for (int i = 0; i < 30; ++i) (void) processHarmonyBlock();
+        setParameter (params, "liveProfile", 1.0f);
+        const auto switched = processHarmonyBlock();
+        if (switched.getMagnitude (0, switched.getNumSamples()) > 0.001f)
+        {
+            std::cerr << "harmony renderer resumed stale audio after profile switch\n";
+            return 1;
+        }
+        std::cout << "  harmonyIntegration=PASS (H1 C4 audible + readout matched; bank switch clean)\n";
     }
 
     {

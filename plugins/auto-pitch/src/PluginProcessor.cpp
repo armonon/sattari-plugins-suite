@@ -49,6 +49,16 @@ const juce::StringArray scaleChoices {
     "major pentatonic", "minor pentatonic", "blues"
 };
 const juce::StringArray styleChoices { "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" };
+constexpr std::array<const char*, 4> harmonyEnableIds { "h1Enable", "h2Enable", "h3Enable", "h4Enable" };
+constexpr std::array<const char*, 4> harmonySoloIds { "h1Solo", "h2Solo", "h3Solo", "h4Solo" };
+constexpr std::array<const char*, 4> harmonyRoleIds { "h1Role", "h2Role", "h3Role", "h4Role" };
+constexpr std::array<const char*, 4> harmonyDegreeIds { "h1Degrees", "h2Degrees", "h3Degrees", "h4Degrees" };
+constexpr std::array<const char*, 4> harmonyOctaveIds { "h1Octave", "h2Octave", "h3Octave", "h4Octave" };
+constexpr std::array<const char*, 4> harmonyLevelIds { "h1Level", "h2Level", "h3Level", "h4Level" };
+constexpr std::array<const char*, 4> harmonyPanIds { "h1Pan", "h2Pan", "h3Pan", "h4Pan" };
+constexpr std::array<const char*, 4> harmonyDelayIds { "h1Delay", "h2Delay", "h3Delay", "h4Delay" };
+constexpr std::array<const char*, 4> harmonyDetuneIds { "h1Detune", "h2Detune", "h3Detune", "h4Detune" };
+constexpr std::array<const char*, 4> harmonyVibratoIds { "h1Vibrato", "h2Vibrato", "h3Vibrato", "h4Vibrato" };
 
 constexpr std::array<unsigned short, 13> scaleMasks {
     // Major, natural minor, chromatic, church modes, harmonic/melodic minor,
@@ -441,20 +451,50 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         "followSongMap", "Follow Song Map", false));
 
-    //  --- HARMONY (Phase 4) -----------------------------------------------------
-    //  Voice PLANNING is implemented and contract-tested (HarmonyVoicePlanner);
-    //  these parameters expose it. Voice RENDERING — four independent shifted
-    //  streams — is the remaining work, so the workspace shows the planned notes
-    //  and says plainly that it is not yet producing audio. A control that
-    //  silently does nothing is the thing this project refuses to ship.
+    //  --- HARMONY ---------------------------------------------------------------
+    //  Four continuous, independently mixed vocal objects. Stable IDs are kept
+    //  separate from the correction parameters so old sessions load unchanged.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "harmonyMode", "Harmony Mode",
         juce::StringArray { "Intelligent", "Interval", "MIDI" }, 0));
-    //  ONLY the parameters that genuinely change the planned notes exist. Level
-    //  and pan are RENDERING controls, and there is no renderer yet — shipping
-    //  them would have been eight more automatable parameters that do nothing,
-    //  which is precisely the liveEngine/lowLatency defect this project already
-    //  had to fix. They arrive with the voice renderer or not at all.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyMix", "Harmony Level",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.72f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyLead", "Lead Level",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f));
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "harmonyVoiceOnly", "Harmony Voice Only", false));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyGlide", "Harmony Glide",
+        juce::NormalisableRange<float> (1.5f, 180.0f, 0.5f, 0.45f), 28.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyHumanPitch", "Harmony Pitch Humanize",
+        juce::NormalisableRange<float> (0.0f, 30.0f, 0.1f), 5.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyHumanTime", "Harmony Timing Humanize",
+        juce::NormalisableRange<float> (0.0f, 35.0f, 0.1f), 7.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyVibratoRate", "Harmony Vibrato Rate",
+        juce::NormalisableRange<float> (3.0f, 8.0f, 0.01f), 5.2f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyEnsemble", "Harmony Ensemble",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyEnsembleDepth", "Ensemble Depth",
+        juce::NormalisableRange<float> (0.0f, 18.0f, 0.1f), 7.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyEnsembleRate", "Ensemble Rate",
+        juce::NormalisableRange<float> (0.05f, 2.0f, 0.01f, 0.5f), 0.35f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyEnsembleSpread", "Ensemble Width",
+        juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f), 0.75f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyLowCut", "Harmony Low Cut",
+        juce::NormalisableRange<float> (20.0f, 500.0f, 1.0f, 0.45f), 90.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "harmonyHighCut", "Harmony High Cut",
+        juce::NormalisableRange<float> (3000.0f, 20000.0f, 10.0f, 0.55f), 16000.0f));
     for (int v = 1; v <= 4; ++v)
     {
         const auto id = juce::String ("h") + juce::String (v);
@@ -472,7 +512,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
             id + "Degrees", "Harmony " + juce::String (v) + " Interval",
             -7, 7, v == 1 ? 2 : v == 2 ? -2 : v == 3 ? 4 : -4));
         params.push_back (std::make_unique<juce::AudioParameterInt> (
-            id + "Octave", "Harmony " + juce::String (v) + " Octave", -2, 2, 0));
+            id + "Octave", "Harmony " + juce::String (v) + " Octave", -1, 1, 0));
+        params.push_back (std::make_unique<juce::AudioParameterBool> (
+            id + "Solo", "Harmony " + juce::String (v) + " Solo", false));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Level", "Harmony " + juce::String (v) + " Level",
+            juce::NormalisableRange<float> (-60.0f, 3.0f, 0.1f), -9.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Pan", "Harmony " + juce::String (v) + " Pan",
+            juce::NormalisableRange<float> (-1.0f, 1.0f, 0.01f),
+            v == 1 ? -0.35f : v == 2 ? 0.35f : v == 3 ? -0.72f : 0.72f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Delay", "Harmony " + juce::String (v) + " Delay",
+            juce::NormalisableRange<float> (0.0f, 80.0f, 0.1f), (float) (v - 1) * 4.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Detune", "Harmony " + juce::String (v) + " Detune",
+            juce::NormalisableRange<float> (-30.0f, 30.0f, 0.1f),
+            v == 1 ? -3.0f : v == 2 ? 3.0f : v == 3 ? -6.0f : 6.0f));
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            id + "Vibrato", "Harmony " + juce::String (v) + " Vibrato",
+            juce::NormalisableRange<float> (0.0f, 80.0f, 0.1f), 0.0f));
     }
 
     // Neural Pitch (CREPE): opt-in for difficult breathy/noisy sources. The tiny
@@ -692,6 +751,18 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         e.prepare (sampleRate, samplesPerBlock, 70.0, 1100.0);
         e.reset();
     }
+    // Harmony uses the same waveform-locked latency classes as the live lead.
+    // The Range bank also serves Studio; its shorter voice delay is compensated
+    // inside renderHarmonyInto against the actual print-engine delay.
+    const int harmonyAlignmentCapacity = (int) std::ceil (currentSampleRate * 0.35)
+                                       + preparedBlockSize + 64;
+    harmonyUltraRenderer.prepare (currentSampleRate, preparedBlockSize,
+                                  128.0, 1100.0, harmonyAlignmentCapacity);
+    harmonyRangeRenderer.prepare (currentSampleRate, preparedBlockSize,
+                                  70.0, 1100.0, harmonyAlignmentCapacity);
+    harmonyRenderPlanner.reset();
+    harmonyWasActive = false;
+    harmonyRendererBank = -1;
     lastLiveModeActive = liveModeActive();
     lastLiveProfile = ultraLiveProfileActive() ? 0 : 1;
 
@@ -734,8 +805,10 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     const int scratchChannels = juce::jmax (2, getTotalNumOutputChannels());
     formantScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     harmonyScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
+    harmonyWetScratch.setSize (2, preparedBlockSize, false, false, true);
     formantScratch.clear();
     harmonyScratch.clear();
+    harmonyWetScratch.clear();
 
     // Chroma FFT setup (allocation-free after this). Hann-windowed magnitude
     // spectrum is mapped to 12 pitch classes for polyphonic AutoKey on the SC.
@@ -1352,6 +1425,11 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     humanizeTargetCents = 0.0;
     humanizeBlocksUntilNewTarget = 0;
     for (auto& p : psola) p.reset();
+    harmonyUltraRenderer.reset();
+    harmonyRangeRenderer.reset();
+    harmonyRenderPlanner.reset();
+    harmonyWasActive = false;
+    harmonyRendererBank = -1;
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     resetRbFifo();
 #endif
@@ -1675,6 +1753,12 @@ void SattariAutoPitchAudioProcessor::updateMidiTargets (const juce::MidiBuffer& 
         }
     }
     midiTargetNote.store (mostRecent, std::memory_order_relaxed);
+    int heldIndex = 0;
+    for (int note = 0; note < 128 && heldIndex < 4; ++note)
+        if (midiNotesHeld[(size_t) note])
+            harmonyHeldMidi[(size_t) heldIndex++].store (note, std::memory_order_relaxed);
+    while (heldIndex < 4)
+        harmonyHeldMidi[(size_t) heldIndex++].store (-1, std::memory_order_relaxed);
 }
 
 int SattariAutoPitchAudioProcessor::currentCorrectionRootIndex() const
@@ -3626,6 +3710,32 @@ void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bo
     }
 }
 
+void SattariAutoPitchAudioProcessor::updateHarmonyChordAtSeconds (double seconds) noexcept
+{
+    // Song analysis is background-owned. The audio thread may sample it, but it
+    // never waits for a file scan or UI copy: if the mutex is busy, the previous
+    // coherent chord remains valid for one more block.
+    std::unique_lock<std::mutex> lock (songAnalysisMutex, std::try_to_lock);
+    if (! lock.owns_lock()) return;
+
+    int pcs[4] { -1, -1, -1, -1 };
+    int count = 0;
+    float confidence = 0.0f;
+    for (const auto& region : songAnalysis.chordRegions)
+    {
+        if (seconds < region.startSec || seconds >= region.endSec) continue;
+        for (int i = 0; i < 4 && count < 4; ++i)
+            if (region.chord.notes[(size_t) i] >= 0)
+                pcs[count++] = region.chord.notes[(size_t) i];
+        confidence = (float) region.chord.confidence;
+        break;
+    }
+    for (int i = 0; i < 4; ++i)
+        harmonyChordPcs[(size_t) i].store (pcs[i], std::memory_order_relaxed);
+    harmonyChordConfidence.store (confidence, std::memory_order_relaxed);
+    harmonyChordCount.store (count, std::memory_order_release);
+}
+
 SattariAutoPitchAudioProcessor::HarmonyReadout
 SattariAutoPitchAudioProcessor::planHarmonyNow() const
 {
@@ -3644,7 +3754,7 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
         settings[v].intervalDegrees =
             juce::jlimit (-7, 7, (int) std::lround (apvts.getRawParameterValue (id + "Degrees")->load()));
         settings[v].octaveOffset =
-            juce::jlimit (-2, 2, (int) std::lround (apvts.getRawParameterValue (id + "Octave")->load()));
+            juce::jlimit (-1, 1, (int) std::lround (apvts.getRawParameterValue (id + "Octave")->load()));
     }
 
     const auto origin = currentKeyOrigin();
@@ -3680,8 +3790,11 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
     int held[4]; int numHeld = 0;
     if (realMode == sattari::dsp::HarmonyMode::midi)
     {
-        const int t = midiTargetNote.load (std::memory_order_relaxed);
-        if (t >= 0) held[numHeld++] = t;
+        for (const auto& note : harmonyHeldMidi)
+        {
+            const int value = note.load (std::memory_order_relaxed);
+            if (value >= 0) held[numHeld++] = value;
+        }
     }
 
     const auto plan = harmonyPlanner.plan (out.leadMidi, realMode, settings, 4,
@@ -3698,6 +3811,86 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
     out.fromChord = numPcs > 0;
     out.valid = true;
     return out;
+}
+
+std::vector<SattariAutoPitchAudioProcessor::HarmonyEditOverlay>
+SattariAutoPitchAudioProcessor::getHarmonyEditOverlays() const
+{
+    const auto edits = getPitchEdits();
+    std::vector<HarmonyEditOverlay> overlays;
+    overlays.reserve (edits.size() * 4);
+    if (edits.empty()) return overlays;
+
+    sattari::dsp::HarmonyVoiceSettings settings[4];
+    bool anySolo = false;
+    for (int v = 0; v < 4; ++v)
+    {
+        const auto id = juce::String ("h") + juce::String (v + 1);
+        anySolo = anySolo || apvts.getRawParameterValue (id + "Solo")->load() > 0.5f;
+    }
+    for (int v = 0; v < 4; ++v)
+    {
+        const auto id = juce::String ("h") + juce::String (v + 1);
+        const bool solo = apvts.getRawParameterValue (id + "Solo")->load() > 0.5f;
+        settings[v].enabled = apvts.getRawParameterValue (id + "Enable")->load() > 0.5f
+                           && (! anySolo || solo);
+        settings[v].role = (sattari::dsp::HarmonyRole) juce::jlimit (0, 6,
+            (int) std::lround (apvts.getRawParameterValue (id + "Role")->load()));
+        settings[v].intervalDegrees = juce::jlimit (-7, 7,
+            (int) std::lround (apvts.getRawParameterValue (id + "Degrees")->load()));
+        settings[v].octaveOffset = juce::jlimit (-1, 1,
+            (int) std::lround (apvts.getRawParameterValue (id + "Octave")->load()));
+    }
+
+    const int uiMode = juce::jlimit (0, 2,
+        (int) std::lround (apvts.getRawParameterValue ("harmonyMode")->load()));
+    const auto mode = uiMode == 0 ? sattari::dsp::HarmonyMode::intelligent
+                    : uiMode == 1 ? sattari::dsp::HarmonyMode::interval
+                                  : sattari::dsp::HarmonyMode::midi;
+    const auto model = songAnalysisCopy();
+    const auto defaultOrigin = currentKeyOrigin();
+    sattari::dsp::HarmonyVoicePlanner timelinePlanner;
+    int held[4], numHeld = 0;
+    if (mode == sattari::dsp::HarmonyMode::midi)
+        for (const auto& note : harmonyHeldMidi)
+        {
+            const int value = note.load (std::memory_order_relaxed);
+            if (value >= 0) held[numHeld++] = value;
+        }
+
+    for (const auto& edit : edits)
+    {
+        const double at = 0.5 * (edit.startSec + edit.endSec);
+        int root = defaultOrigin.root, scaleChoice = defaultOrigin.scale;
+        for (const auto& region : model.scaleRegions)
+            if (at >= region.startSec && at < region.endSec)
+            {
+                root = region.root;
+                scaleChoice = region.minor ? 1 : 0;
+                break;
+            }
+        int pcs[4], numPcs = 0; double chordConfidence = 0.0;
+        for (const auto& region : model.chordRegions)
+            if (at >= region.startSec && at < region.endSec)
+            {
+                for (int i = 0; i < 4; ++i)
+                    if (region.chord.notes[(size_t) i] >= 0)
+                        pcs[numPcs++] = region.chord.notes[(size_t) i];
+                chordConfidence = region.chord.confidence;
+                break;
+            }
+        const auto plan = timelinePlanner.plan (
+            edit.targetMidi, mode, settings, 4, root,
+            sattari::harmony::scaleIdFromChoice (scaleChoice),
+            numPcs > 0 ? pcs : nullptr, numPcs, chordConfidence,
+            numHeld > 0 ? held : nullptr, numHeld);
+        for (int v = 0; v < 4; ++v)
+            if (plan.voices[(size_t) v].active)
+                overlays.push_back ({ edit.id, v, edit.startSec + edit.timeOffsetSec,
+                                      edit.endSec + edit.timeOffsetSec,
+                                      plan.voices[(size_t) v].midi });
+    }
+    return overlays;
 }
 
 double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFrame& frame) const noexcept
@@ -4163,6 +4356,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // The reference ring runs continuously so Correction Off can become a true,
     // sample-identical bypass without changing the plugin's declared latency.
     renderDelayedDryReference (mainBuffer);
+    // Keep an untouched vocal source for harmony. Pitching an already-corrected
+    // lead again compounds formant/phase processing; every generated singer is
+    // therefore rendered once from the original insert input and aligned later.
+    if (numSamples <= harmonyScratch.getNumSamples())
+        for (int ch = 0; ch < juce::jmin (numChannels, harmonyScratch.getNumChannels()); ++ch)
+            harmonyScratch.copyFrom (ch, 0, mainBuffer, ch, 0, numSamples);
 
     const bool autoKeyOn = apvts.getRawParameterValue ("autoKey")->load() > 0.5f;
     const bool useKeyMap = apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f;
@@ -4200,6 +4399,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 //  to fix once with liveEngine/lowLatency.
                 if (useKeyMap || followSongMapOn)
                     applyKeyMapAtSeconds (*t);
+                updateHarmonyChordAtSeconds (*t);
             }
         }
 
@@ -4861,6 +5061,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 #endif
     }
     applyModeCharacter (mainBuffer);
+    renderHarmonyInto (mainBuffer, harmonyScratch, hostTimeSeconds);
 
     // Per-object gain is intentionally post-character and pre-master trim: editing
     // one note's level cannot change the saturation character of that note.
@@ -5397,35 +5598,154 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
         return;
     }
 
-    if (style == "Big Harmony")
+    // Big Harmony's old block-centred resampler is intentionally gone. The
+    // continuous renderer below owns every audible voice and survives arbitrary
+    // DAW callback boundaries without restarting phase.
+}
+
+void SattariAutoPitchAudioProcessor::renderHarmonyInto (
+    juce::AudioBuffer<float>& lead, const juce::AudioBuffer<float>& untouchedInput,
+    double)
+{
+    const int numSamples = lead.getNumSamples();
+    const int numChannels = lead.getNumChannels();
+    if (numSamples <= 0 || numChannels <= 0 || numSamples > harmonyWetScratch.getNumSamples())
+        return;
+
+    // Harmony is a monophonic-vocal operation. Whole-mix transpose and the
+    // polyphonic vocoder take precedence rather than multiplying a complete mix.
+    const bool incompatible = apvts.getRawParameterValue ("xposeMode")->load() > 0.5f
+                           || (apvts.getRawParameterValue ("polyphonic")->load() > 0.5f
+                               && apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f);
+    bool anyEnabled = false, anySolo = false;
+    for (int v = 0; v < 4; ++v)
     {
-        auto& base = harmonyScratch;
-        const int baseChannels = buffer.getNumChannels();
-        const auto numSamples = buffer.getNumSamples();
-        //  Preallocated in prepareToPlay. A host that exceeds its declared maximum
-        //  would make this setSize actually allocate on the audio thread, so grow
-        //  only when genuinely necessary and never shrink - the comment used to
-        //  claim "no realloc" unconditionally, which was true only while the host
-        //  honoured its own contract.
-        if (base.getNumChannels() < baseChannels || base.getNumSamples() < numSamples)
-            base.setSize (juce::jmax (base.getNumChannels(), baseChannels),
-                          juce::jmax (base.getNumSamples(), numSamples),
-                          false, false, true);
-        for (int channel = 0; channel < baseChannels; ++channel)
-            base.copyFrom (channel, 0, buffer, channel, 0, numSamples);
-        const double centre = (double) (numSamples - 1) * 0.5;
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        anyEnabled = anyEnabled
+                  || apvts.getRawParameterValue (harmonyEnableIds[(size_t) v])->load() > 0.5f;
+        anySolo = anySolo
+               || apvts.getRawParameterValue (harmonySoloIds[(size_t) v])->load() > 0.5f;
+    }
+    if (! anyEnabled || incompatible)
+    {
+        if (harmonyWasActive)
         {
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const double upPosition = centre + ((double) i - centre) / 1.25992104989;   // +4 semitones flavour layer
-                const double downPosition = centre + ((double) i - centre) / 0.84089641525; // -3 semitones flavour layer
-                const auto dry = base.getSample (channel, i);
-                const auto up = readLinearInterpolated (base, channel, upPosition);
-                const auto down = readLinearInterpolated (base, channel, downPosition);
-                buffer.setSample (channel, i, softCeiling (dry * 0.68f + up * 0.2f + down * 0.12f));
-            }
+            harmonyUltraRenderer.reset();
+            harmonyRangeRenderer.reset();
+            harmonyRenderPlanner.reset();
+            harmonyWasActive = false;
+            harmonyRendererBank = -1;
         }
+        return;
+    }
+    harmonyWasActive = true;
+
+    sattari::dsp::HarmonyVoiceSettings planSettings[4];
+    for (int v = 0; v < 4; ++v)
+    {
+        const bool solo = apvts.getRawParameterValue (harmonySoloIds[(size_t) v])->load() > 0.5f;
+        planSettings[v].enabled = apvts.getRawParameterValue (harmonyEnableIds[(size_t) v])->load() > 0.5f
+                               && (! anySolo || solo);
+        planSettings[v].role = (sattari::dsp::HarmonyRole) juce::jlimit (0, 6,
+            (int) std::lround (apvts.getRawParameterValue (harmonyRoleIds[(size_t) v])->load()));
+        planSettings[v].intervalDegrees = juce::jlimit (-7, 7,
+            (int) std::lround (apvts.getRawParameterValue (harmonyDegreeIds[(size_t) v])->load()));
+        planSettings[v].octaveOffset = juce::jlimit (-1, 1,
+            (int) std::lround (apvts.getRawParameterValue (harmonyOctaveIds[(size_t) v])->load()));
+    }
+
+    const int uiMode = juce::jlimit (0, 2,
+        (int) std::lround (apvts.getRawParameterValue ("harmonyMode")->load()));
+    const auto mode = uiMode == 0 ? sattari::dsp::HarmonyMode::intelligent
+                    : uiMode == 1 ? sattari::dsp::HarmonyMode::interval
+                                  : sattari::dsp::HarmonyMode::midi;
+    const int leadMidi = lastPitchFrame.voiced
+        ? juce::jlimit (0, 127, (int) std::llround (
+            apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f
+                ? lastPitchFrame.targetMidi : lastPitchFrame.midi))
+        : -1;
+    const auto origin = currentKeyOrigin();
+    int pcs[4], numPcs = juce::jlimit (0, 4,
+        harmonyChordCount.load (std::memory_order_acquire));
+    for (int i = 0; i < numPcs; ++i)
+        pcs[i] = harmonyChordPcs[(size_t) i].load (std::memory_order_relaxed);
+    int held[4], numHeld = 0;
+    if (mode == sattari::dsp::HarmonyMode::midi)
+        for (const auto& note : harmonyHeldMidi)
+        {
+            const int value = note.load (std::memory_order_relaxed);
+            if (value >= 0) held[numHeld++] = value;
+        }
+    const auto plan = harmonyRenderPlanner.plan (
+        leadMidi, mode, planSettings, 4, origin.root,
+        sattari::harmony::scaleIdFromChoice (origin.scale),
+        numPcs > 0 ? pcs : nullptr, numPcs,
+        (double) harmonyChordConfidence.load (std::memory_order_relaxed),
+        numHeld > 0 ? held : nullptr, numHeld);
+
+    std::array<sattari::dsp::HarmonyRenderer::Voice, 4> voices;
+    for (int v = 0; v < 4; ++v)
+    {
+        auto& voice = voices[(size_t) v];
+        voice.active = plan.voices[(size_t) v].active;
+        voice.targetMidi = plan.voices[(size_t) v].midi;
+        voice.level = juce::Decibels::decibelsToGain (
+            apvts.getRawParameterValue (harmonyLevelIds[(size_t) v])->load(), -60.0f);
+        voice.pan = apvts.getRawParameterValue (harmonyPanIds[(size_t) v])->load();
+        voice.delayMs = apvts.getRawParameterValue (harmonyDelayIds[(size_t) v])->load();
+        voice.detuneCents = apvts.getRawParameterValue (harmonyDetuneIds[(size_t) v])->load();
+        voice.vibratoCents = apvts.getRawParameterValue (harmonyVibratoIds[(size_t) v])->load();
+    }
+
+    const int requestedBank = liveModeActive() && ultraLiveProfileActive() ? 0 : 1;
+    if (requestedBank != harmonyRendererBank)
+    {
+        // A dormant bank contains delayed audio from the previous mode. Never
+        // resume it into a new transport moment: clear both rings and let the
+        // renderer's built-in wet fade establish the newly selected latency.
+        harmonyUltraRenderer.reset();
+        harmonyRangeRenderer.reset();
+        harmonyRendererBank = requestedBank;
+    }
+    auto& renderer = requestedBank == 0 ? harmonyUltraRenderer : harmonyRangeRenderer;
+    const int leadLatency = liveModeActive() ? liveEngineLatencySamples()
+                                             : printEngineLatencySamples();
+    sattari::dsp::HarmonyRenderer::Settings renderSettings;
+    renderSettings.glideMs = apvts.getRawParameterValue ("harmonyGlide")->load();
+    renderSettings.humanPitchCents = apvts.getRawParameterValue ("harmonyHumanPitch")->load();
+    renderSettings.humanTimingMs = apvts.getRawParameterValue ("harmonyHumanTime")->load();
+    renderSettings.vibratoRateHz = apvts.getRawParameterValue ("harmonyVibratoRate")->load();
+    renderSettings.ensemble = apvts.getRawParameterValue ("harmonyEnsemble")->load();
+    renderSettings.ensembleDepthMs = apvts.getRawParameterValue ("harmonyEnsembleDepth")->load();
+    renderSettings.ensembleRateHz = apvts.getRawParameterValue ("harmonyEnsembleRate")->load();
+    renderSettings.ensembleSpread = apvts.getRawParameterValue ("harmonyEnsembleSpread")->load();
+    renderSettings.lowCutHz = apvts.getRawParameterValue ("harmonyLowCut")->load();
+    renderSettings.highCutHz = apvts.getRawParameterValue ("harmonyHighCut")->load();
+    renderSettings.alignmentDelaySamples = juce::jmax (0, leadLatency - renderer.getLatencySamples());
+
+    const int inputChannels = juce::jmin (2, untouchedInput.getNumChannels());
+    const float* inputs[2] { untouchedInput.getReadPointer (0),
+                             untouchedInput.getReadPointer (juce::jmax (0, inputChannels - 1)) };
+    harmonyWetScratch.clear();
+    const double sourceMidi = lastPitchFrame.voiced ? lastPitchFrame.midi : 60.0;
+    const double sourcePeriod = lastPitchFrame.voiced && lastPitchFrame.frequencyHz > 0.0
+        ? currentSampleRate / lastPitchFrame.frequencyHz : currentSampleRate / 180.0;
+    renderer.process (inputs, inputChannels,
+                      harmonyWetScratch.getWritePointer (0),
+                      harmonyWetScratch.getWritePointer (1), numSamples,
+                      sourceMidi, sourcePeriod, lastPitchFrame.voiced,
+                      voices, renderSettings);
+
+    const float wet = apvts.getRawParameterValue ("harmonyMix")->load()
+                    * juce::Decibels::decibelsToGain (
+                        apvts.getRawParameterValue ("inputGain")->load());
+    const bool voiceOnly = apvts.getRawParameterValue ("harmonyVoiceOnly")->load() > 0.5f;
+    const float leadGain = voiceOnly ? 0.0f : apvts.getRawParameterValue ("harmonyLead")->load();
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        const float* harmony = harmonyWetScratch.getReadPointer (juce::jmin (ch, 1));
+        float* output = lead.getWritePointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            output[i] = leadGain * output[i] + wet * harmony[i];
     }
 }
 

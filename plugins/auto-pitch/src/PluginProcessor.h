@@ -14,6 +14,7 @@
 #include <sattari_audio_core/SattariSongModel.h>
 #include <sattari_audio_core/SattariChordAnalysis.h>
 #include <sattari_audio_core/SattariHarmonyVoices.h>
+#include <sattari_audio_core/SattariHarmonyRenderer.h>
 #include <sattari_audio_core/SattariCrepePitch.h>
 #include <sattari_audio_core/SattariPitchFusion.h>
 #include <sattari_audio_core/SattariKeyNet.h>
@@ -442,10 +443,10 @@ public:
     //  state) but it is the one place that knows the applied intent scale.
     mutable std::atomic<float> intentConfidenceUi { 1.0f };
 
-    //  Harmony planning. The planner is contract-tested; this exposes the notes
-    //  it WOULD sing so the workspace can show real output while voice rendering
-    //  is still being built. Planned on the message thread from the UI snapshot,
-    //  so no audio-thread cost at all.
+    //  Harmony planning. The planner is contract-tested and shared by the
+    //  renderer/readouts, so the workspace reports the notes it really sings.
+    //  Planned on the message thread from the UI snapshot, so no audio-thread
+    //  cost at all.
     struct HarmonyReadout
     {
         bool valid = false;
@@ -457,6 +458,16 @@ public:
         int    heldNotes = 0;      // MIDI mode: how many notes were actually held
     };
     HarmonyReadout planHarmonyNow() const;
+    struct HarmonyEditOverlay
+    {
+        juce::int64 sourceId = 0;
+        int voice = 0;
+        double startSec = 0.0, endSec = 0.0;
+        int midi = -1;
+    };
+    // Read-only generated harmony objects for the Edit timeline. They follow the
+    // same planner/settings as the audible renderer but never mutate source notes.
+    std::vector<HarmonyEditOverlay> getHarmonyEditOverlays() const;
     mutable sattari::dsp::HarmonyVoicePlanner harmonyPlanner;
 
     //  The shared song model (Phase 1): everything the drop analysis learned,
@@ -587,6 +598,10 @@ private:
     void processWithSignalsmith (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processFallbackFormantGuide (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void applyModeCharacter (juce::AudioBuffer<float>& buffer) const;
+    void renderHarmonyInto (juce::AudioBuffer<float>& lead,
+                            const juce::AudioBuffer<float>& untouchedInput,
+                            double hostTimeSeconds);
+    void updateHarmonyChordAtSeconds (double seconds) noexcept;
     void applyGraphTimeCorrection (juce::AudioBuffer<float>& buffer, double hostTimeSeconds);
     void renderDelayedDryReference (const juce::AudioBuffer<float>& input);
     void copyDelayedDryReferenceTo (juce::AudioBuffer<float>& output) const;
@@ -640,10 +655,22 @@ private:
 
     // Preallocated scratch so the audio thread never calls makeCopyOf():
     //  - formantScratch: dry copy for the no-RubberBand pitch-guide fallback
-    //  - harmonyScratch: base copy for the "Big Harmony" style layer
+    //  - harmonyScratch: untouched vocal source for the continuous voice renderer
     // Declared mutable because applyModeCharacter() is const.
     mutable juce::AudioBuffer<float> formantScratch;
     mutable juce::AudioBuffer<float> harmonyScratch;
+    juce::AudioBuffer<float> harmonyWetScratch;
+    // Two prepared banks keep the generated voices sample-aligned with either
+    // Live profile: Ultra uses the same 128 Hz floor as the lead, while Range and
+    // Studio use the 70 Hz bank. Switching profiles is allocation-free.
+    sattari::dsp::HarmonyRenderer harmonyUltraRenderer, harmonyRangeRenderer;
+    sattari::dsp::HarmonyVoicePlanner harmonyRenderPlanner;
+    std::array<std::atomic<int>, 4> harmonyChordPcs { -1, -1, -1, -1 };
+    std::atomic<int> harmonyChordCount { 0 };
+    std::atomic<float> harmonyChordConfidence { 0.0f };
+    std::array<std::atomic<int>, 4> harmonyHeldMidi { -1, -1, -1, -1 };
+    bool harmonyWasActive = false;
+    int harmonyRendererBank = -1; // 0=Ultra, 1=Range/Studio; prevents stale-ring reuse
     double smoothedPitchScale = 1.0;
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)

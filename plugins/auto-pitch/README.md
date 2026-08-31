@@ -13,6 +13,13 @@ Auto Pitch has two intentionally distinct audio paths:
 - **Polyphonic tonal correction:** a phase-vocoder path for sustained instruments
   and well-separated chords, with High Tracking, Tonal Focus, Scale Lock,
   polyphonic harmony, and whole-source Transpose to Key.
+- **Four-voice vocal harmony:** Intelligent chord-aware, diatonic Interval, or
+  four-note MIDI planning rendered from the untouched vocal through continuous
+  waveform-locked voices. Each singer has enable/solo, role, interval/octave,
+  level, pan, delay, detune, and vibrato. Global lead/harmony balance, voice-only
+  audition, glide, pitch/timing humanize, low/high cuts, and a feed-forward stereo
+  choir stage provide depth/rate/width control without feedback. Generated H1-H4
+  note objects are shown as read-only layers in the Edit timeline.
 
 The musical target can come from a manual key (major/minor/chromatic, church
 modes, harmonic/melodic minor, pentatonics, or blues), held MIDI notes, live
@@ -30,12 +37,16 @@ fallback behavior.
 - **Pro:** tune detector/engine behaviour, reference pitch, MIDI targets,
   formants, Flex-Tune, humanize, throat, vibrato, polyphonic scale lock, and the
   modulation-aware Key Map scanner.
+- **Harmony:** arrange and audition four audible singers, choose chord/scale/MIDI
+  note sourcing, and shape the stereo choir without leaving Auto Pitch.
 - **Edit:** arm Capture, play the song, then drag captured note objects vertically
   to retarget them or right-click to bypass individual corrections. Edits persist
-  in the host session and are applied by transport time.
+  in the host session and are applied by transport time; active harmony notes are
+  visible alongside the lead objects.
 
 Factory starting points cover natural correction, hard/vintage tuning, modern
-rap, robot, MIDI-directed tuning, graph editing, and generated natural vibrato.
+rap, robot, MIDI-directed tuning, graph editing, generated natural vibrato, a
+two-part Pop Stack, four-part Wide Choir, and MIDI Choir.
 
 See [`docs/auto-pitch-parity.md`](../../docs/auto-pitch-parity.md) for the
 feature-by-feature implementation and remaining external SDK gates.

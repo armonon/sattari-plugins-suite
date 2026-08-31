@@ -582,7 +582,8 @@ void runCpu()
     //  serves both the headline figures and the sample-rate/buffer sweep.
     double mSr = kSr; int mBlock = kBlock;
 
-    auto run = [&] (const char* label, bool live, bool extended, bool neural, bool qualified) {
+    auto run = [&] (const char* label, bool live, bool extended, bool neural,
+                    bool harmony, bool qualified) {
         const double sr = mSr;
         const int blockSize = mBlock;
         const double audioSec = (double) (nBlocks * blockSize) / sr;
@@ -595,6 +596,19 @@ void runCpu()
         setParam (a, "liveMode", live ? 1.0f : 0.0f);
         setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
         setParam (a, "neuralPitch", neural ? 1.0f : 0.0f);
+        if (harmony)
+        {
+            setParam (a, "harmonyMode", 1.0f); // interval
+            setParam (a, "harmonyMix", 1.0f);
+            setParam (a, "harmonyEnsemble", 1.0f);
+            setParam (a, "harmonyEnsembleDepth", 18.0f);
+            for (int v = 1; v <= 4; ++v)
+            {
+                const auto id = juce::String ("h") + juce::String (v);
+                setParam (a, id + "Enable", 1.0f);
+                setParam (a, id + "Level", -6.0f);
+            }
+        }
         p.setRateAndBufferSizeDetails (sr, blockSize);
         p.prepareToPlay (sr, blockSize);
 
@@ -670,10 +684,11 @@ void runCpu()
     bool neuralPresent = false;
     { SattariAutoPitchAudioProcessor q; q.prepareToPlay (kSr, kBlock); neuralPresent = q.neuralModelPresent(); }
 
-    run ("Studio HQ", false, false, false, true);
-    run ("Live Ultra", true, false, false, true);
-    run ("Live Extended", true, true, false, true);
-    if (neuralPresent) run ("Ultra + Neural Pitch", true, false, true, true);
+    run ("Studio HQ", false, false, false, false, true);
+    run ("Live Ultra", true, false, false, false, true);
+    run ("Live Extended", true, true, false, false, true);
+    run ("Live + 4 Harmony", true, false, false, true, true);
+    if (neuralPresent) run ("Ultra + Neural Pitch", true, false, true, false, true);
     std::printf ("  neural model (crepe.onnx) present: %s\n", neuralPresent ? "yes" : "no");
     std::printf ("  verdict follows CPU p95 against the block budget, not wall time\n");
 
@@ -690,7 +705,7 @@ void runCpu()
         for (int blk : { 64, 128, 256, 512, 1024 })
         {
             mSr = sr; mBlock = blk;
-            run ("", true, false, false, sr <= 48000.0);
+            run ("", true, false, false, false, sr <= 48000.0);
         }
     mSr = kSr; mBlock = kBlock;
 }
@@ -953,9 +968,18 @@ void runSafety()
     setParam (a, "style", 4.0f);            setParam (a, "amount", 1.0f);   // Big Harmony (loudest)
     setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
     setParam (a, "outputGain", 6.0f);
+    setParam (a, "harmonyMode", 1.0f);       setParam (a, "harmonyMix", 1.0f);
+    setParam (a, "harmonyEnsemble", 1.0f);   setParam (a, "harmonyEnsembleDepth", 18.0f);
+    for (int v = 1; v <= 4; ++v)
+    {
+        const auto id = juce::String ("h") + juce::String (v);
+        setParam (a, id + "Enable", 1.0f);
+        setParam (a, id + "Level", 3.0f);
+    }
     const auto out = sattari::harness::renderThrough (p, loud, kSr, kBlock);
     auditSafety (out, "safety-hot");
-    std::printf ("  hot-input (+6 dB, Big Harmony, +6 dB out) peak=%.4f\n", gSafety.maxPeak);
+    std::printf ("  hot-input (+6 dB, four voices + max choir, +6 dB out) peak=%.4f\n",
+                 gSafety.maxPeak);
 }
 } // namespace
 

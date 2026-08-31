@@ -133,6 +133,22 @@ int main()
         check ("no lead -> no voices", ! plan.voices[0].active && ! plan.voices[1].active);
     }
 
+    // The waveform engine is qualified to one octave. The planner owns that
+    // contract so MIDI/readout/editor targets can never disagree with audio.
+    {
+        HarmonyVoiceSettings midi[2];
+        midi[0].enabled = true;
+        midi[1].enabled = true;
+        const int held[2] = { 96, 24 };
+        HarmonyVoicePlanner p;
+        const auto plan = p.plan (lead, HarmonyMode::midi, midi, 2, 0,
+                                  sattari::harmony::ScaleId::Major,
+                                  nullptr, 0, 1.0, held, 2);
+        check ("MIDI targets stay in audible range",
+               plan.voices[0].midi == lead + 12
+               && plan.voices[1].midi == lead - 12);
+    }
+
     std::printf (failures == 0 ? "harmony voices contract ok\n"
                                : "harmony voices contract FAILED\n");
     return failures == 0 ? 0 : 1;
