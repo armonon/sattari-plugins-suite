@@ -190,6 +190,7 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     apvts.addParameterListener ("liveEngine", this);
     apvts.addParameterListener ("liveMode", this);
     apvts.addParameterListener ("liveProfile", this);
+    apvts.addParameterListener ("extremeLive", this);
     apvts.addParameterListener ("lowLatency", this);
     apvts.addParameterListener ("scale", this);
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
@@ -214,6 +215,7 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     apvts.removeParameterListener ("liveEngine", this);
     apvts.removeParameterListener ("liveMode", this);
     apvts.removeParameterListener ("liveProfile", this);
+    apvts.removeParameterListener ("extremeLive", this);
     apvts.removeParameterListener ("lowLatency", this);
     apvts.removeParameterListener ("scale", this);
     apvts.removeParameterListener ("polyphonic", this);
@@ -442,6 +444,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "liveProfile", "Live Profile",
         juce::StringArray { "Ultra (C3+)", "Extended Range" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "extremeLive", "Extreme Live (2 ms)", true));
 
     //  Follow Song Map: the correction target tracks the analysed song's scale
     //  regions as the transport moves, so a verse in C natural minor and a
@@ -745,6 +749,12 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         e.prepare (sampleRate, samplesPerBlock, 128.0, 1100.0);
         e.reset();
     }
+    extremeLiveEngines.resize (liveChannels);
+    for (auto& e : extremeLiveEngines)
+    {
+        e.prepare (sampleRate, samplesPerBlock, 70.0, 1100.0);
+        e.reset();
+    }
     liveExtendedEngines.resize (liveChannels);
     for (auto& e : liveExtendedEngines)
     {
@@ -760,11 +770,13 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
                                   128.0, 1100.0, harmonyAlignmentCapacity);
     harmonyRangeRenderer.prepare (currentSampleRate, preparedBlockSize,
                                   70.0, 1100.0, harmonyAlignmentCapacity);
+    harmonyExtremeRenderer.prepare (currentSampleRate, preparedBlockSize,
+                                    70.0, 1100.0, harmonyAlignmentCapacity, true);
     harmonyRenderPlanner.reset();
     harmonyWasActive = false;
     harmonyRendererBank = -1;
     lastLiveModeActive = liveModeActive();
-    lastLiveProfile = ultraLiveProfileActive() ? 0 : 1;
+    lastLiveProfile = extremeLiveProfileActive() ? 0 : ultraLiveProfileActive() ? 1 : 2;
 
     // CREPE model: every ONNX-enabled shipping build uses the same provenance-
     // locked tiny model embedded in its binary. Developers can explicitly point
@@ -1023,9 +1035,14 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     //  Size for the LARGEST delay either engine can ask for, not the current one.
     //  Live Mode can be toggled while the transport rolls, and that must move a read
     //  pointer rather than resize a buffer on the audio thread.
+    const int maximumLiveLatency = juce::jmax (
+        extremeLiveEngines.empty() ? 0 : extremeLiveEngines.front().getLatencySamples(),
+        juce::jmax (liveEngines.empty() ? 0 : liveEngines.front().getLatencySamples(),
+                    liveExtendedEngines.empty() ? 0
+                                                : liveExtendedEngines.front().getLatencySamples()));
     dryDelayRingSize = juce::jmax (juce::jmax (juce::jmax (monoEngineLatencySamples(),
                                                            printEngineLatencySamples()),
-                                               liveEngineLatencySamples())
+                                               maximumLiveLatency)
                                        + preparedBlockSize + 1,
                                    preparedBlockSize * 2 + 1);
     dryDelayRing.setSize (juce::jmax (1, getTotalNumOutputChannels()), dryDelayRingSize,
@@ -1152,6 +1169,12 @@ bool SattariAutoPitchAudioProcessor::ultraLiveProfileActive() const noexcept
     return profile == nullptr || profile->load() < 0.5f;
 }
 
+bool SattariAutoPitchAudioProcessor::extremeLiveProfileActive() const noexcept
+{
+    const auto* extreme = apvts.getRawParameterValue ("extremeLive");
+    return ultraLiveProfileActive() && (extreme == nullptr || extreme->load() > 0.5f);
+}
+
 std::vector<sattari::dsp::LivePitchEngine>&
 SattariAutoPitchAudioProcessor::activeLiveEngines() noexcept
 {
@@ -1166,6 +1189,8 @@ SattariAutoPitchAudioProcessor::activeLiveEngines() const noexcept
 
 int SattariAutoPitchAudioProcessor::liveEngineLatencySamples() const noexcept
 {
+    if (extremeLiveProfileActive())
+        return extremeLiveEngines.empty() ? 0 : extremeLiveEngines.front().getLatencySamples();
     const auto& engines = activeLiveEngines();
     return engines.empty() ? 0 : engines.front().getLatencySamples();
 }
@@ -1233,7 +1258,7 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
     // automation), so defer to handleAsyncUpdate(). Only posts on an actual change,
     // never per block.
     if (parameterID == "liveEngine" || parameterID == "lowLatency" || parameterID == "liveMode"
-        || parameterID == "liveProfile"
+        || parameterID == "liveProfile" || parameterID == "extremeLive"
         || parameterID == "polyphonic"
         || parameterID == "xposeMode" || parameterID == "enableCorrection"
         || parameterID == "graphTimeCorrection")
@@ -1425,6 +1450,10 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     humanizeTargetCents = 0.0;
     humanizeBlocksUntilNewTarget = 0;
     for (auto& p : psola) p.reset();
+    for (auto& e : extremeLiveEngines) e.reset();
+    for (auto& e : liveEngines) e.reset();
+    for (auto& e : liveExtendedEngines) e.reset();
+    harmonyExtremeRenderer.reset();
     harmonyUltraRenderer.reset();
     harmonyRangeRenderer.reset();
     harmonyRenderPlanner.reset();
@@ -4913,12 +4942,14 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     //  of processed audio, and the incoming one must re-prime from silence rather
     //  than splice across a phase discontinuity. Allocation-free.
     const bool liveNow = liveModeActive();
-    const int liveProfileNow = ultraLiveProfileActive() ? 0 : 1;
+    const int liveProfileNow = extremeLiveProfileActive() ? 0
+                             : ultraLiveProfileActive() ? 1 : 2;
     if (liveNow != lastLiveModeActive
         || (liveNow && liveProfileNow != lastLiveProfile))
     {
         for (auto& e : liveEngines) e.reset();
         for (auto& e : liveExtendedEngines) e.reset();
+        for (auto& e : extremeLiveEngines) e.reset();
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
         for (auto& st : rubberBand) if (st != nullptr) st->reset();
         resetRbFifo();
@@ -5189,8 +5220,10 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
                                                             float linearGain,
                                                             double pitchOffsetCents)
 {
-    auto& engines = activeLiveEngines();
-    const int nCh = juce::jmin (buffer.getNumChannels(), (int) engines.size());
+    const bool extreme = extremeLiveProfileActive();
+    const int available = extreme ? (int) extremeLiveEngines.size()
+                                  : (int) activeLiveEngines().size();
+    const int nCh = juce::jmin (buffer.getNumChannels(), available);
     const int n   = buffer.getNumSamples();
     if (nCh <= 0 || n <= 0) return;
 
@@ -5272,21 +5305,31 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
         fusedGuide.voiced = true;
     }
 
-    //  Channel 0 plans; the rest follow ITS scale. Independent planners on a stereo
-    //  source would let the channels disagree by a few cents and smear the image.
-    engines[0].processCorrected (buffer.getReadPointer (0), buffer.getWritePointer (0),
-                                 n, settings, neuralGuideActive ? &fusedGuide : nullptr);
-    if (nCh > 1)
+    // Channel 0 plans; the rest follow its exact scale. Both live renderers expose
+    // the same contract, so selection changes latency/rendering only—not targeting.
+    sattari::dsp::LivePitchTracker::Result tracked;
+    int targetMidi = -1;
+    double correctionCents = 0.0;
+    auto processBank = [&] (auto& engines)
     {
-        const double scale = std::pow (2.0, engines[0].getCorrectionCents() / 1200.0);
-        for (int ch = 1; ch < nCh; ++ch)
-            engines[(size_t) ch].process (buffer.getReadPointer (ch),
-                                          buffer.getWritePointer (ch), n, scale);
-    }
+        engines[0].processCorrected (buffer.getReadPointer (0), buffer.getWritePointer (0),
+                                     n, settings, neuralGuideActive ? &fusedGuide : nullptr);
+        correctionCents = engines[0].getCorrectionCents();
+        if (nCh > 1)
+        {
+            const double scale = std::pow (2.0, correctionCents / 1200.0);
+            for (int ch = 1; ch < nCh; ++ch)
+                engines[(size_t) ch].process (buffer.getReadPointer (ch),
+                                              buffer.getWritePointer (ch), n, scale);
+        }
+        tracked = engines[0].getPitchResult();
+        targetMidi = engines[0].getTargetMidi();
+    };
+    if (extreme) processBank (extremeLiveEngines);
+    else         processBank (activeLiveEngines());
 
     // Publish the causal track as the visible/debug pitch state. In YIN-only Live
     // Mode this replaces the deliberately skipped duplicate Studio analysis.
-    const auto tracked = engines[0].getPitchResult();
     PitchFrame liveFrame = lastPitchFrame; // retain current per-object controls
     liveFrame.frequencyHz = tracked.frequencyHz;
     liveFrame.midi = tracked.voiced
@@ -5294,10 +5337,9 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
     liveFrame.confidence = tracked.confidence;
     liveFrame.rms = tracked.rms;
     liveFrame.voiced = tracked.voiced;
-    const int targetMidi = engines[0].getTargetMidi();
     liveFrame.targetMidi = targetMidi >= 0 ? (double) targetMidi : liveFrame.midi;
     liveFrame.correctionCents = tracked.voiced
-        ? engines[0].getCorrectionCents() : 0.0;
+        ? correctionCents : 0.0;
     lastPitchFrame = liveFrame;
     lastFedPitchScale = std::pow (2.0, liveFrame.correctionCents / 1200.0);
 
@@ -5629,6 +5671,7 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
     {
         if (harmonyWasActive)
         {
+            harmonyExtremeRenderer.reset();
             harmonyUltraRenderer.reset();
             harmonyRangeRenderer.reset();
             harmonyRenderPlanner.reset();
@@ -5696,17 +5739,22 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
         voice.vibratoCents = apvts.getRawParameterValue (harmonyVibratoIds[(size_t) v])->load();
     }
 
-    const int requestedBank = liveModeActive() && ultraLiveProfileActive() ? 0 : 1;
+    const int requestedBank = liveModeActive()
+        ? (extremeLiveProfileActive() ? 0 : ultraLiveProfileActive() ? 1 : 2)
+        : 2;
     if (requestedBank != harmonyRendererBank)
     {
         // A dormant bank contains delayed audio from the previous mode. Never
         // resume it into a new transport moment: clear both rings and let the
         // renderer's built-in wet fade establish the newly selected latency.
+        harmonyExtremeRenderer.reset();
         harmonyUltraRenderer.reset();
         harmonyRangeRenderer.reset();
         harmonyRendererBank = requestedBank;
     }
-    auto& renderer = requestedBank == 0 ? harmonyUltraRenderer : harmonyRangeRenderer;
+    auto& renderer = requestedBank == 0 ? harmonyExtremeRenderer
+                   : requestedBank == 1 ? harmonyUltraRenderer
+                                        : harmonyRangeRenderer;
     const int leadLatency = liveModeActive() ? liveEngineLatencySamples()
                                              : printEngineLatencySamples();
     sattari::dsp::HarmonyRenderer::Settings renderSettings;
@@ -5771,7 +5819,8 @@ juce::String SattariAutoPitchAudioProcessor::getLiveStatusSummary() const
     //  Rubber Band print path while signalsmith was doing the work.
     juce::String engine;
     if (liveModeActive())
-        engine = ultraLiveProfileActive() ? "Live Ultra" : "Live Range";
+        engine = extremeLiveProfileActive() ? "Live Extreme"
+               : ultraLiveProfileActive() ? "Live Ultra" : "Live Range";
     else
     {
 #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH

@@ -1,12 +1,13 @@
 # Auto Pitch 0.5.0 RC3 parity record
 
-Comparison target: AutoTune Pro 11.6 and AutoKey 2.6 published product surfaces
-and manuals (checked 2026-08-16):
+Comparison target: AutoTune Pro 11.6, AutoTune 2026, and AutoKey 2.6 published
+product surfaces, manuals, and latency guidance (checked 2026-08-31):
 
 - <https://www.antarestech.com/products/pitch-correction/pro>
 - <https://www.antarestech.com/documentation/auto-tune-pro-11>
 - <https://www.antarestech.com/products/pitch-correction/auto-key>
 - <https://www.antarestech.com/documentation/auto-key>
+- <https://help.antarestech.com/hc/en-us/articles/42858099043092-AutoTune-2026-Best-Practices>
 
 This record is an engineering scope map, not a sound-quality or trademark claim.
 
@@ -14,13 +15,13 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 |---|---|---|
 | Realtime automatic tuning | YIN/optional CREPE, Natural through Hard/Robot styles, Flex, Humanize, transition, throat, formant and vibrato controls | Implemented |
 | Audibly validated vocal quality | Synthetic target math, controlled Hard-mode modulation, safety, and six real-vocal corpus renders pass; the 18-item blind package still has no user scores | **Unproven; blocking** |
-| Low-latency tracking | Visible Live Mode offers explicit Ultra C3+ (571 samples / 11.90 ms at 48 kHz, 0.08-cent mean synthetic error) and Extended Range (1,037 samples / 21.60 ms, 70 Hz floor, 0.08-cent mean from E2-C5). Both report and measure the same delay, measure 0.69% corrected-tone THD, preserve exact unity dry and pass qualified 44.1/48 kHz CPU coverage from 64-1024 samples. Neural fusion now reaches the causal planner instead of consuming CPU without steering it. Legacy Live/Low-Latency parameters remain inactive for old-session compatibility | **Implemented; real-vocal and DAW listening/stress qualification still blocking** |
+| Low-latency tracking | Live Mode offers Extreme 2MS (96 samples / 2.00 ms at 48 kHz), Ultra Quality C3+ (571 / 11.90 ms), and Extended Range (1,037 / 21.60 ms). Reported and impulse-measured delay agree exactly. Extreme measures 1.97-cent mean / 6.04-cent max synthetic error across 40 E2-C5 detune cases, 0.19% corrected-tone THD and exact unity dry; dual-range acquisition reaches voiced at 24 ms and >=50-cent correction at 28 ms. Ultra/Range retain ~0.08-cent mean accuracy. All pass the qualified 44.1/48 kHz 64-1024 CPU matrix; Extreme is outside at 96 kHz / 64. Antares publishes 2.3 ms for its Modern low-latency mode, so Sattari now meets that numeric latency target, not Antares' 0.77 ms Classic figure. Neural fusion reaches the causal planner. Legacy Live/Low-Latency parameters remain inactive for old-session compatibility | **Engine and objective gates implemented; subjective Antares parity, real-vocal and DAW listening/stress qualification still blocking** |
 | Key and scale | Manual, AutoKey, Song Key bus, modulation-aware Key Map, editable pitch classes and 13 scale/mode choices | Implemented |
 | AutoKey + Sattari Key handoff | Auto Pitch's frozen internal fallback remains Aarden/chroma and retains the manual key below its 0.10 margin. Sattari Key uses a specialized balanced full-mix engine, applies the same conservative margin policy, and sends only an explicitly locked result over the session bus. No neural model is shipped in either path | Implemented; wider held-out calibration still required |
 | Reference pitch | A4 detune ±100 cents or opt-in suite reference | Implemented |
 | MIDI | Exact held-note targeting plus the suite MIDI Learn mapper | Implemented |
 | Graph-style note editing | Stable persistent objects, octave-aware vertical retarget, bypass, split/join/delete and 64-step undo/redo; exact targets and bypass reach both Studio and causal Live planners | Implemented |
-| Harmony | Four continuous vocal voices with Intelligent chord/scale planning, diatonic Interval and four-note MIDI modes; per voice enable/solo, role, interval/octave, level, pan, delay, detune and vibrato; global glide, pitch/timing humanize, voice-only audition, filtering, and feed-forward stereo choir amount/depth/rate/width. Generated H1-H4 objects are visible in Edit. Whole-mix transpose/polyphonic modes take precedence so dense material is never silently treated as a vocal | Implemented; real-vocal arrangement listening still required |
+| Harmony | Four continuous vocal voices with Intelligent chord/scale planning, diatonic Interval and four-note MIDI modes; per voice enable/solo, role, interval/octave, level, pan, delay, detune and vibrato; global glide, pitch/timing humanize, voice-only audition, filtering, and feed-forward stereo choir amount/depth/rate/width. Generated H1-H4 objects are visible in Edit. Extreme, Ultra and Range/Studio have separate prepared harmony banks, so generated voices remain aligned with the active lead engine and profile switches cannot replay stale delayed audio. Whole-mix transpose/polyphonic modes take precedence so dense material is never silently treated as a vocal | Implemented; real-vocal arrangement listening still required |
 | Presets | Factory and user preset manager; dedicated Natural, Hard, Rap, Robot, Live, MIDI, Graph, Vibrato, Pop Stack, Wide Choir and MIDI Choir starting points | Implemented |
 | Detailed per-object controls | Amount, retune, transition, humanize, vibrato, formant, gain and ±500 ms timing, with horizontal graph zoom/fit; live retune/transition/vibrato and graph targets are covered by the causal planner contract | Implemented |
 | Graph pitch curves/lines | Region-level pitch is editable; freehand curve and line tools are not present | Future DSP/UI work |
@@ -34,7 +35,8 @@ This record is an engineering scope map, not a sound-quality or trademark claim.
 - Core contract covers five sound styles, modal scales, reference detune, MIDI
   targets, YIN noise robustness, four harmony target notes (including the octave
   edge), 64/512-sample harmony continuity, processor-level harmony audio/readout
-  agreement, and UI rendering for Tune, Key, Edit, Advanced, Harmony and
+  agreement, Extreme's 96-sample delay and 24/28 ms detector/correction
+  acquisition contract, and UI rendering for Tune, Key, Edit, Advanced, Harmony and
   minimum-size layouts, including persistent-header pixels.
 - Offline smoke and High Tracking regression render the real processor.
 - Objective benchmark audits pitch accuracy, latency honesty, THD/alias proxy,

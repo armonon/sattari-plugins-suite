@@ -45,8 +45,9 @@ fallback behavior.
   visible alongside the lead objects.
 
 Factory starting points cover natural correction, hard/vintage tuning, modern
-rap, robot, MIDI-directed tuning, graph editing, generated natural vibrato, a
-two-part Pop Stack, four-part Wide Choir, and MIDI Choir.
+rap, robot, MIDI-directed tuning, graph editing, generated natural vibrato,
+2 ms Extreme monitoring, waveform-locked Ultra monitoring, a two-part Pop Stack,
+four-part Wide Choir, and MIDI Choir.
 
 See [`docs/auto-pitch-parity.md`](../../docs/auto-pitch-parity.md) for the
 feature-by-feature implementation and remaining external SDK gates.
@@ -70,25 +71,37 @@ and 96 kHz sessions remain outside the approved envelope.
 Adaptive 128-sample ratio interpolation keeps note-transition timing within
 5.3 ms across 64–1024-sample host buffers without taxing stationary notes. The
 experimental legacy PSOLA path remains serialized for old-session compatibility
-but is not selectable. `SattariLivePitchEngine` is connected to the visible Live
-Mode: causal YIN, waveform-locked epochs, exact unity dry and transient-safe
-crossfades. Two explicit profiles avoid hiding a frequency-range tradeoff:
+but is not selectable. Live Mode now offers three explicit, fully prepared paths
+instead of hiding latency/quality/range tradeoffs:
 
-- **Ultra C3+:** 571 samples / 11.90 ms reported and measured at 48 kHz,
+- **Extreme 2MS:** 96 samples / 2.00 ms reported and measured at 48 kHz. Its
+  causal pitch-synchronous renderer reuses only completed waveform cycles,
+  correlates epochs, crossfades cycle updates, and anti-aliases upward shifts.
+  It measures 1.97-cent mean / 6.04-cent max error across 40 detune cases from
+  E2 through C5,
+  0.19% corrected-tone THD and 0.11% alias proxy. A dual-range causal detector
+  reaches voiced state in 24 ms and a useful >=50-cent correction in 28 ms on
+  the clean-onset contract while preserving the 70 Hz full-range detector.
+- **Ultra Quality C3+:** 571 samples / 11.90 ms reported and measured at 48 kHz,
   0.08-cent mean / 0.17-cent max across 28 detune cases, optimized for
   fundamentals at C3 and above.
 - **Extended Range:** 1,037 samples / 21.60 ms at 48 kHz, 0.08-cent mean /
   0.19-cent max across 40 cases from E2 through C5, with a 70 Hz detector floor.
 
-Both profiles measure 0.69% corrected-tone THD and pass the qualified 44.1/48 kHz
-64-1024 buffer CPU matrix. Exact graph-note targets, per-object
+Ultra and Range measure 0.69% corrected-tone THD. All three paths pass the
+qualified 44.1/48 kHz 64-1024 buffer CPU matrix; Extreme measures a 0.370 ms
+CPU p95 against a 1.33 ms callback budget at 48 kHz / 64 samples (3.6x headroom),
+and Extreme plus four generated harmony voices passes at the 512-sample gate.
+The 96 kHz / 64-sample Extreme point remains outside qualification. Exact
+graph-note targets, per-object
 retune/transition/vibrato, bypass, generated vibrato, and Humanize reach both
-paths. AutoKey is clocked by analysis hops rather than host callbacks, so key
+engine families. AutoKey is clocked by analysis hops rather than host callbacks, so key
 confidence does not change with buffer size. Neural Pitch's guarded fused estimate
 now guides the causal planner while the waveform tracker remains responsible for
 phase-coherent epoch placement; it passes the qualified 512-sample CPU point.
-Real-vocal listening and target-DAW stress remain required before a commercial
-quality claim.
+Real-vocal, phrase-transition and target-DAW stress listening remain required.
+The 2.00 ms result establishes numeric modern monitoring-latency parity; it does
+not by itself establish subjective parity with a proprietary commercial tuner.
 
 ## Build and prove the neural release shape
 

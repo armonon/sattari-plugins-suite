@@ -47,6 +47,9 @@ Sattari Maqam extends the direction into microtonal tuning.
 - Select or follow the correct key and scale.
 - Start with **Natural** for expressive correction or **Pitch Center** for a
   clean, stronger pull. Use **Hard Tune** only when the snap is intentional.
+- For monitored performance, enable **LIVE + 2MS** for the measured 2.00 ms
+  Extreme path. Disable 2MS for the more exact 11.90 ms Ultra Quality renderer,
+  or choose Range for the 70 Hz floor at 21.60 ms.
 - Factory workflows are deterministic: changing workflow clears incompatible
   MIDI, graph, transpose, polyphonic and generated-vibrato modes instead of
   silently inheriting them from the previous choice.

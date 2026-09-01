@@ -57,10 +57,12 @@ public:
 
     void prepare (double sampleRate, int maximumBlockSize,
                   double minimumHz, double maximumHz,
-                  int maximumAlignmentSamples = 8192)
+                  int maximumAlignmentSamples = 8192,
+                  bool useExtremeShifter = false)
     {
         sr = sampleRate > 0.0 ? sampleRate : 48000.0;
         maxBlock = std::max (1, maximumBlockSize);
+        extremeMode = useExtremeShifter;
         monoInput.assign ((size_t) maxBlock, 0.0f);
         wetLeft.assign ((size_t) maxBlock, 0.0f);
         wetRight.assign ((size_t) maxBlock, 0.0f);
@@ -75,6 +77,7 @@ public:
         {
             auto& state = states[(size_t) v];
             state.shifter.prepare (sr, minimumHz, maximumHz, maxBlock);
+            state.extremeShifter.prepare (sr, maxBlock);
             state.shifted.assign ((size_t) maxBlock, 0.0f);
             state.delayRing.assign ((size_t) ringSize, 0.0f);
             state.residualRing.assign ((size_t) ringSize, 0.0f);
@@ -95,6 +98,7 @@ public:
         {
             auto& state = states[(size_t) v];
             state.shifter.reset();
+            state.extremeShifter.reset();
             std::fill (state.shifted.begin(), state.shifted.end(), 0.0f);
             std::fill (state.delayRing.begin(), state.delayRing.end(), 0.0f);
             std::fill (state.residualRing.begin(), state.residualRing.end(), 0.0f);
@@ -110,7 +114,8 @@ public:
 
     int getLatencySamples() const noexcept
     {
-        return states.front().shifter.getLatencySamples();
+        return extremeMode ? states.front().extremeShifter.getLatencySamples()
+                           : states.front().shifter.getLatencySamples();
     }
 
     // Input is summed to mono deliberately: a generated singer is a mono object,
@@ -173,8 +178,13 @@ public:
             // octave to well inside the strictest musical-tuning tolerance.
             const double guardedCents = std::clamp (cents, -1199.5, 1199.5);
             const double ratio = std::pow (2.0, guardedCents / 1200.0);
-            state.shifter.process (monoInput.data(), state.shifted.data(), numSamples,
-                                   ratio, sourcePeriodSamples, voiced && voice.active);
+            if (extremeMode)
+                state.extremeShifter.process (monoInput.data(), state.shifted.data(), numSamples,
+                                              ratio, voiced && voice.active,
+                                              sourcePeriodSamples);
+            else
+                state.shifter.process (monoInput.data(), state.shifted.data(), numSamples,
+                                       ratio, sourcePeriodSamples, voiced && voice.active);
 
             const float pan = std::clamp (voice.pan, -1.0f, 1.0f);
             const float angle = (pan + 1.0f) * 0.7853981633974483f;
@@ -237,6 +247,7 @@ private:
     struct VoiceState
     {
         LiveEpochShifter shifter;
+        ExtremePitchShifter extremeShifter;
         std::vector<float> shifted, delayRing, residualRing;
         int write = 0;
         double smoothedSemitones = 0.0;
@@ -272,6 +283,7 @@ private:
 
     double sr = 48000.0;
     int maxBlock = 0, delayMask = 0;
+    bool extremeMode = false;
     std::array<VoiceState, maxVoices> states;
     std::vector<float> monoInput, wetLeft, wetRight;
 };

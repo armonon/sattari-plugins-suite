@@ -659,6 +659,301 @@ private:
     bool voiced = false;
 };
 
+// -----------------------------------------------------------------------------
+// ExtremePitchShifter
+// -----------------------------------------------------------------------------
+// A fixed-2 ms causal monitor shifter for the latency-critical tracking path.
+// It reuses the newest completed, causally observed pitch cycle and performs
+// pitch-synchronous resampling with epoch correlation, short cycle crossfades,
+// and an upward-shift anti-alias guard. Unlike an FFT or look-ahead epoch engine,
+// it does not wait for a future pitch period before returning audio. The tracker
+// still needs accumulated history; until its estimate is trustworthy, output is
+// the exact fixed-delay dry path. This is the distinction between processing
+// latency and detector acquisition time.
+class ExtremePitchShifter
+{
+public:
+    void prepare (double sampleRate, int maximumBlockSize)
+    {
+        sr = sampleRate > 0.0 ? sampleRate : 48000.0;
+        latency = std::max (16, (int) std::lround (0.002 * sr));
+        minimumDelay = std::max (8.0, 0.0005 * sr);
+        const double maximumWorkingDelay = std::max (
+            minimumDelay + 16.0, 2.0 * (double) latency - minimumDelay);
+        int wanted = (int) std::ceil (std::max (maximumWorkingDelay, 0.06 * sr))
+                   + std::max (1, maximumBlockSize) + 16;
+        int size = 1;
+        while (size < wanted) size <<= 1;
+        mask = size - 1;
+        ring.assign ((size_t) size, 0.0f);
+        dryRing.assign ((size_t) size, 0.0f);
+        wetCoefficient = 1.0 - std::exp (-1.0 / (0.0015 * sr));
+        ratioCoefficient = 1.0 - std::exp (-1.0 / (0.0010 * sr));
+        reset();
+    }
+
+    void reset() noexcept
+    {
+        std::fill (ring.begin(), ring.end(), 0.0f);
+        std::fill (dryRing.begin(), dryRing.end(), 0.0f);
+        writePosition = 0;
+        phase = 0.25;
+        wetMix = 0.0;
+        smoothedRatio = 1.0;
+        smoothedPeriod = sr / 180.0;
+        currentCycleStart = previousCycleStart = 0;
+        hasCycle = false;
+        antiAlias1 = antiAlias2 = 0.0;
+    }
+
+    int getLatencySamples() const noexcept { return latency; }
+
+    void process (const float* input, float* output, int numSamples,
+                  double pitchScale, bool voiced,
+                  double sourcePeriodSamples = 0.0) noexcept
+    {
+        if (input == nullptr || output == nullptr || numSamples <= 0 || mask <= 0)
+            return;
+
+        constexpr double twoPi = 6.283185307179586476925286766559;
+        const double wantedRatio = std::clamp (pitchScale, 0.5, 2.0);
+        const double correctionCents = 1200.0 * std::log2 (
+            std::max (wantedRatio, 1.0e-12));
+        const double targetWet = voiced && std::abs (correctionCents) > 0.10 ? 1.0 : 0.0;
+        const bool validPeriod = voiced && sourcePeriodSamples >= 24.0
+                              && sourcePeriodSamples <= 0.025 * sr;
+        if (validPeriod)
+        {
+            const double periodRatio = std::clamp (
+                sourcePeriodSamples / smoothedPeriod, 0.8, 1.25);
+            smoothedPeriod *= std::pow (periodRatio, 0.45);
+        }
+        else
+            hasCycle = false;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            smoothedRatio += ratioCoefficient * (wantedRatio - smoothedRatio);
+
+            // A causal anti-alias guard matters only for upward shifts. Near the
+            // correction range (normally < one semitone) its cutoff stays above
+            // 20 kHz at 48 kHz; octave harmony lowers it before resampling rather
+            // than folding upper vocal harmonics into the audible band.
+            const double cutoff = std::min (0.45 * sr, 0.45 * sr / std::max (1.0, smoothedRatio));
+            const double lp = 1.0 - std::exp (-twoPi * cutoff / sr);
+            antiAlias1 += lp * ((double) input[i] - antiAlias1);
+            antiAlias2 += lp * (antiAlias1 - antiAlias2);
+            ring[(size_t) (writePosition & mask)] = (float) antiAlias2;
+            dryRing[(size_t) (writePosition & mask)] = input[i];
+
+            const float dry = readAbsoluteFrom (
+                dryRing, (double) writePosition - (double) latency);
+            double shifted = (double) dry;
+            if (validPeriod)
+            {
+                if ((! hasCycle || phase >= 1.0)
+                    && writePosition > (std::int64_t) std::ceil (
+                        minimumDelay + smoothedPeriod + 4.0))
+                {
+                    phase -= std::floor (phase);
+                    const auto next = findCycleStart (smoothedPeriod);
+                    if (! hasCycle)
+                    {
+                        currentCycleStart = previousCycleStart = next;
+                        hasCycle = true;
+                    }
+                    else
+                    {
+                        previousCycleStart = currentCycleStart;
+                        currentCycleStart = next;
+                    }
+                }
+
+                const double cycleOffset = phase * smoothedPeriod;
+                const double oldCycle = readAbsolute ((double) previousCycleStart + cycleOffset);
+                const double newCycle = readAbsolute ((double) currentCycleStart + cycleOffset);
+                const double x = std::clamp (phase * 5.0, 0.0, 1.0);
+                const double blend = x * x * (3.0 - 2.0 * x);
+                shifted = oldCycle + blend * (newCycle - oldCycle);
+                phase += smoothedRatio / smoothedPeriod;
+            }
+
+            wetMix += wetCoefficient * (targetWet - wetMix);
+            output[i] = (float) ((double) dry + wetMix * (shifted - (double) dry));
+            ++writePosition;
+        }
+    }
+
+private:
+    float sampleAt (std::int64_t p) const noexcept
+    {
+        return sampleAtFrom (ring, p);
+    }
+
+    float sampleAtFrom (const std::vector<float>& source, std::int64_t p) const noexcept
+    {
+        if (p < 0 || p >= writePosition) return 0.0f;
+        if (p < writePosition - (std::int64_t) source.size()) return 0.0f;
+        return source[(size_t) (p & mask)];
+    }
+
+    float readAbsolute (double position) const noexcept
+    {
+        return readAbsoluteFrom (ring, position);
+    }
+
+    float readAbsoluteFrom (const std::vector<float>& source, double position) const noexcept
+    {
+        const auto i1 = (std::int64_t) std::floor (position);
+        const double t = position - (double) i1;
+        const double y0 = sampleAtFrom (source, i1 - 1), y1 = sampleAtFrom (source, i1);
+        const double y2 = sampleAtFrom (source, i1 + 1), y3 = sampleAtFrom (source, i1 + 2);
+        // Catmull-Rom interpolation has much lower high-frequency droop than a
+        // linear tap while remaining four multiplies and allocation-free.
+        const double a = -0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3;
+        const double b = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+        const double c = -0.5 * y0 + 0.5 * y2;
+        return (float) (((a * t + b) * t + c) * t + y1);
+    }
+
+    std::int64_t findCycleStart (double period) const noexcept
+    {
+        // The newest complete cycle ends at least minimumDelay behind the write
+        // head. Search backwards for a strong differentiated epoch; never search
+        // forward into samples that have not arrived.
+        const auto latest = writePosition
+            - (std::int64_t) std::ceil (minimumDelay + period);
+        const auto radius = (std::int64_t) std::ceil ((hasCycle ? 0.14 : 1.0) * period);
+        std::int64_t predicted = latest;
+        if (hasCycle)
+        {
+            const double distance = (double) (latest - currentCycleStart);
+            const auto cycles = std::max<std::int64_t> (
+                0, (std::int64_t) std::floor (distance / period));
+            predicted = currentCycleStart
+                      + (std::int64_t) std::llround ((double) cycles * period);
+        }
+        const auto lo = predicted - radius;
+        const auto hi = std::min (latest, predicted + radius);
+        std::int64_t best = std::min (predicted, latest);
+        double bestScore = -1.0;
+        for (std::int64_t p = lo; p <= hi; ++p)
+        {
+            double score = 0.0;
+            if (hasCycle)
+            {
+                double cross = 0.0, oldPower = 1.0e-12, newPower = 1.0e-12;
+                for (int k = -12; k <= 12; ++k)
+                {
+                    const double oldSample = sampleAt (currentCycleStart + k);
+                    const double newSample = sampleAt (p + k);
+                    cross += oldSample * newSample;
+                    oldPower += oldSample * oldSample;
+                    newPower += newSample * newSample;
+                }
+                score = cross / std::sqrt (oldPower * newPower);
+            }
+            else
+            {
+                const double x = sampleAt (p);
+                const double derivative = x - 0.97 * (double) sampleAt (p - 1);
+                const double curvature = x - 0.5 * ((double) sampleAt (p - 1)
+                                                    + (double) sampleAt (p + 1));
+                score = std::abs (derivative) + 0.35 * std::abs (curvature);
+            }
+            if (score > bestScore) { bestScore = score; best = p; }
+        }
+        return best;
+    }
+
+    double sr = 48000.0;
+    int latency = 96, mask = 0;
+    double minimumDelay = 24.0;
+    std::int64_t writePosition = 0;
+    double phase = 0.25, wetMix = 0.0, smoothedRatio = 1.0;
+    double smoothedPeriod = 266.7;
+    std::int64_t currentCycleStart = 0, previousCycleStart = 0;
+    bool hasCycle = false;
+    double wetCoefficient = 0.01, ratioCoefficient = 0.02;
+    double antiAlias1 = 0.0, antiAlias2 = 0.0;
+    std::vector<float> ring, dryRing;
+};
+
+class ExtremeLivePitchEngine
+{
+public:
+    void prepare (double sampleRate, int maximumBlockSize,
+                  double minimumHz = 70.0, double maximumHz = 1100.0)
+    {
+        sr = sampleRate > 0.0 ? sampleRate : 48000.0;
+        tracker.prepare (sr, minimumHz, maximumHz, 256);
+        // The full-range detector needs a 42.7 ms frame at 48 kHz to observe
+        // two periods at 70 Hz. A second 100 Hz floor halves that acquisition
+        // window for ordinary vocal notes; the full tracker takes authority as
+        // soon as it is voiced, preserving the advertised bass range.
+        fastTracker.prepare (sr, std::max (100.0, minimumHz), maximumHz, 128);
+        shifter.prepare (sr, maximumBlockSize);
+        planner.prepare (sr);
+    }
+
+    void reset() noexcept
+    {
+        tracker.reset();
+        fastTracker.reset();
+        shifter.reset();
+        planner.reset();
+        fallbackPeriod = sr / 180.0;
+        correctionResult = {};
+    }
+
+    void process (const float* input, float* output, int numSamples,
+                  double pitchScale) noexcept
+    {
+        const auto fullResult = tracker.process (input, numSamples);
+        const auto fastResult = fastTracker.process (input, numSamples);
+        const auto result = fullResult.voiced ? fullResult : fastResult;
+        correctionResult = result;
+        if (result.voiced && result.periodSamples > 0.0)
+            fallbackPeriod = result.periodSamples;
+        shifter.process (input, output, numSamples, pitchScale, result.voiced,
+                         fallbackPeriod);
+    }
+
+    void processCorrected (const float* input, float* output, int numSamples,
+                           const LiveCorrectionPlanner::Settings& settings,
+                           const LivePitchTracker::Result* pitchGuide = nullptr) noexcept
+    {
+        const auto fullResult = tracker.process (input, numSamples);
+        const auto fastResult = fastTracker.process (input, numSamples);
+        const auto tracked = fullResult.voiced ? fullResult : fastResult;
+        const bool guideValid = pitchGuide != nullptr && pitchGuide->voiced
+                             && pitchGuide->frequencyHz > 0.0;
+        correctionResult = guideValid ? *pitchGuide : tracked;
+        if (tracked.voiced && tracked.periodSamples > 0.0)
+            fallbackPeriod = tracked.periodSamples;
+        else if (guideValid)
+            fallbackPeriod = pitchGuide->periodSamples > 0.0
+                ? pitchGuide->periodSamples : sr / pitchGuide->frequencyHz;
+        const double scale = planner.update (correctionResult, numSamples, settings);
+        shifter.process (input, output, numSamples, scale, tracked.voiced || guideValid,
+                         fallbackPeriod);
+    }
+
+    int getLatencySamples() const noexcept { return shifter.getLatencySamples(); }
+    LivePitchTracker::Result getPitchResult() const noexcept { return correctionResult; }
+    int getTargetMidi() const noexcept { return planner.getTargetMidi(); }
+    double getCorrectionCents() const noexcept { return planner.getCorrectionCents(); }
+
+private:
+    LivePitchTracker tracker;
+    LivePitchTracker fastTracker;
+    ExtremePitchShifter shifter;
+    LiveCorrectionPlanner planner;
+    double sr = 48000.0;
+    double fallbackPeriod = 266.7;
+    LivePitchTracker::Result correctionResult;
+};
+
 class LivePitchEngine
 {
 public:

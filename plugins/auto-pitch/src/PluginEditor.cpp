@@ -615,15 +615,23 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     //  ADVANCED drawer (the old PRO tab) starts collapsed — the everyday controls
     //  are the whole first impression, which is the "minimal" in minimal UI.
     liveModeButton.setClickingTogglesState (true);
-    liveModeButton.setTooltip ("Live Mode: the causal tracking engine. Ultra is below "
-                               "12 ms at 48 kHz for C3 and above; Extended Range reaches "
-                               "70 Hz at about 22 ms. Off uses Studio HQ.");
+    liveModeButton.setTooltip ("Live Mode: causal tracking and monitoring. Enable 2MS for "
+                               "the Extreme renderer; disable it for waveform-locked Ultra. "
+                               "Extended Range reaches 70 Hz at about 22 ms.");
     liveModeAttachment = std::make_unique<ButtonAttachment> (
         audioProcessor.parameters(), "liveMode", liveModeButton);
     addAndMakeVisible (liveModeButton);
 
+    extremeLiveButton.setClickingTogglesState (true);
+    extremeLiveButton.setTooltip ("Extreme Live: fixed 96-sample / 2.0 ms processing latency "
+                                  "at 48 kHz. Available with the Ultra profile.");
+    extremeLiveAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "extremeLive", extremeLiveButton);
+    addAndMakeVisible (extremeLiveButton);
+
     liveProfile.addItemList ({ "ULTRA C3+", "RANGE 70HZ" }, 1);
-    liveProfile.setTooltip ("Ultra: 571 samples at 48 kHz, optimized for C3 and above. "
+    liveProfile.setTooltip ("Ultra + 2MS: 96 samples at 48 kHz. Ultra without 2MS: "
+                            "571 samples, waveform-locked and optimized for C3 and above. "
                             "Range: 1,037 samples, tracking down to 70 Hz.");
     liveProfileAttachment = std::make_unique<ComboAttachment> (
         audioProcessor.parameters(), "liveProfile", liveProfile);
@@ -1399,7 +1407,7 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"usePitchEdits",0},{"graphTimeCorrection",0},{"xposeMode",0},{"xposeSemis",0},
         {"polyphonic",0},{"polyHarmony",0},{"tonalFocus",0},{"hiTrack",0},
         {"enabledNotes",4095},{"neuralPitch",0},{"lowLatency",0},{"liveEngine",0},
-        {"liveMode",0},
+        {"liveMode",0},{"extremeLive",1},
         {"liveProfile",0},
         {"inputGain",0},{"outputGain",0},
         {"harmonyMode",0},{"harmonyMix",0.72f},{"harmonyLead",1.0f},
@@ -1458,12 +1466,19 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
     addWorkflow ("Bright Lift", PV {
         {"style",0},{"enableCorrection",1},{"amount",0.84f},{"speed",0.58f},{"doNoHarm",1},
         {"formantPreserve",1},{"flexTune",0.2f},{"humanize",0.1f},{"formantShift",4} });
-    addWorkflow ("Live Ultra", PV {
-        {"style",0},{"liveMode",1},{"liveProfile",0},{"amount",0.9f},{"speed",0.78f},
+    addWorkflow ("Live Extreme", PV {
+        {"style",0},{"liveMode",1},{"liveProfile",0},{"extremeLive",1},
+        {"amount",0.9f},{"speed",0.78f},
+        {"doNoHarm",1},{"formantPreserve",1},{"flexTune",0.12f},
+        {"transition",0.7f},{"humanize",0.08f},{"vibrato",0.55f} });
+    addWorkflow ("Live Ultra Quality", PV {
+        {"style",0},{"liveMode",1},{"liveProfile",0},{"extremeLive",0},
+        {"amount",0.9f},{"speed",0.78f},
         {"doNoHarm",1},{"formantPreserve",1},{"flexTune",0.12f},
         {"transition",0.7f},{"humanize",0.08f},{"vibrato",0.55f} });
     addWorkflow ("Live Extended", PV {
-        {"style",0},{"liveMode",1},{"liveProfile",1},{"amount",0.9f},{"speed",0.75f},
+        {"style",0},{"liveMode",1},{"liveProfile",1},{"extremeLive",0},
+        {"amount",0.9f},{"speed",0.75f},
         {"doNoHarm",1},{"formantPreserve",1},{"flexTune",0.12f},
         {"transition",0.7f},{"humanize",0.08f},{"vibrato",0.55f} });
     addWorkflow ("Harmony · Pop Stack", PV {
@@ -1750,11 +1765,14 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         const int lat = audioProcessor.getLatencySamples();
         const double srNow = audioProcessor.getSampleRate() > 0.0 ? audioProcessor.getSampleRate() : 48000.0;
         const bool live = liveModeButton.getToggleState();
-        const auto mode = live ? (liveProfile.getSelectedItemIndex() == 1 ? "RANGE" : "ULTRA")
+        const auto mode = live ? (liveProfile.getSelectedItemIndex() == 1 ? "RANGE"
+                                : extremeLiveButton.getToggleState() ? "EXTREME" : "ULTRA")
                                : "STUDIO";
         latencyReadout.setText (juce::String (lat > 0 ? 1000.0 * lat / srNow : 0.0, 1)
                                     + " ms " + mode,
                                 juce::dontSendNotification);
+        setControlActive (extremeLiveButton,
+                          live && liveProfile.getSelectedItemIndex() == 0);
     }
 
     //  Song drop analysis: progress while running, the verdict once done, and the
@@ -2000,9 +2018,11 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     //  Engine mode: one pill, lit while Live Mode runs, with the ACTIVE engine's
     //  reported delay beside it. The old three-item combo pretending to offer
     //  locked-off engines is gone.
-    auto engineBlock = header.removeFromLeft (260);
+    auto engineBlock = header.removeFromLeft (310);
     engineBlock.removeFromTop (10);
     liveModeButton.setBounds (engineBlock.removeFromLeft (58).reduced (0, 2));
+    engineBlock.removeFromLeft (6);
+    extremeLiveButton.setBounds (engineBlock.removeFromLeft (48).reduced (0, 2));
     engineBlock.removeFromLeft (6);
     liveProfile.setBounds (engineBlock.removeFromLeft (102).reduced (0, 2));
     engineBlock.removeFromLeft (6);
@@ -2052,7 +2072,7 @@ void SattariAutoPitchAudioProcessorEditor::resized()
     // the workspace changes.
     for (auto* c : { (juce::Component*) &title, (juce::Component*) &vocalRangeCaption,
                      (juce::Component*) &vocalRange, (juce::Component*) &liveModeButton,
-                     (juce::Component*) &liveProfile,
+                     (juce::Component*) &extremeLiveButton, (juce::Component*) &liveProfile,
                      (juce::Component*) &latencyReadout, (juce::Component*) &factoryPresets,
                      (juce::Component*) &userPresets, (juce::Component*) &savePresetButton,
                      (juce::Component*) &abRow, (juce::Component*) &wsKeyButton,

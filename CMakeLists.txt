@@ -127,6 +127,15 @@ if(TARGET juce::juce_dsp)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
 
+    add_executable(SattariExtremeLivePitchContract
+        EXCLUDE_FROM_ALL
+        core/tests/extreme_live_pitch_contract.cpp)
+    target_link_libraries(SattariExtremeLivePitchContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
     add_executable(SattariChordAnalysisContract
         EXCLUDE_FROM_ALL
         core/tests/chord_analysis_contract.cpp)
@@ -160,6 +169,7 @@ if(BUILD_TESTING)
     set(SATTARI_CONTRACT_TARGETS
         SattariChordAnalysisContract
         SattariHarmonyVoicesContract
+        SattariExtremeLivePitchContract
         SattariAudioCorePitchContract
         SattariAudioCoreHarmonicContract
         SattariAudioCoreKeyContract

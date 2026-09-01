@@ -177,7 +177,7 @@ int main (int argc, char** argv)
     const juce::StringArray parityParameters {
         "scaleMode", "referenceDetune", "followReference", "midiTarget",
         "capturePitchEdits", "usePitchEdits", "graphTimeCorrection",
-        "addVibrato", "vibratoRate", "vibratoOnset", "liveProfile"
+        "addVibrato", "vibratoRate", "vibratoOnset", "liveProfile", "extremeLive"
     };
     for (const auto& id : parityParameters)
         if (apvts.getParameter (id) == nullptr)
@@ -575,22 +575,77 @@ int main (int argc, char** argv)
     }
 
     {
+        SattariAutoPitchAudioProcessor extreme;
+        setParameter (extreme.parameters(), "liveMode", 1.0f);
+        setParameter (extreme.parameters(), "liveProfile", 0.0f);
+        setParameter (extreme.parameters(), "extremeLive", 1.0f);
+        extreme.prepareToPlay (48000.0, 512);
         SattariAutoPitchAudioProcessor ultra;
         setParameter (ultra.parameters(), "liveMode", 1.0f);
         setParameter (ultra.parameters(), "liveProfile", 0.0f);
+        setParameter (ultra.parameters(), "extremeLive", 0.0f);
         ultra.prepareToPlay (48000.0, 512);
         SattariAutoPitchAudioProcessor extended;
         setParameter (extended.parameters(), "liveMode", 1.0f);
         setParameter (extended.parameters(), "liveProfile", 1.0f);
         extended.prepareToPlay (48000.0, 512);
-        if (ultra.getLatencySamples() != 571 || extended.getLatencySamples() != 1037)
+        if (extreme.getLatencySamples() != 96 || ultra.getLatencySamples() != 571
+            || extended.getLatencySamples() != 1037)
         {
-            std::cerr << "live profile latency contract changed: ultra="
-                      << ultra.getLatencySamples() << " extended="
+            std::cerr << "live profile latency contract changed: extreme="
+                      << extreme.getLatencySamples() << " ultra="
+                      << ultra.getLatencySamples() << " range="
                       << extended.getLatencySamples() << "\n";
             return 1;
         }
-        std::cout << "  liveProfiles=PASS (Ultra 571 smp, Range 1037 smp @ 48 kHz)\n";
+        std::cout << "  liveProfiles=PASS (Extreme 96, Ultra 571, Range 1037 smp @ 48 kHz)\n";
+    }
+
+    {
+        // Processing delay and correction acquisition are different contracts.
+        // Extreme must return audio in 2 ms AND establish a useful correction
+        // promptly after a fresh voiced onset.
+        SattariAutoPitchAudioProcessor extreme;
+        auto& params = extreme.parameters();
+        setParameter (params, "liveMode", 1.0f);
+        setParameter (params, "liveProfile", 0.0f);
+        setParameter (params, "extremeLive", 1.0f);
+        setParameter (params, "keyRoot", 9.0f); // A major
+        setParameter (params, "scale", 0.0f);
+        setParameter (params, "enableCorrection", 1.0f);
+        setParameter (params, "amount", 1.0f);
+        setParameter (params, "speed", 1.0f);
+        setParameter (params, "doNoHarm", 0.0f);
+        extreme.prepareToPlay (48000.0, 64);
+        int voicedAt = -1, correctedAt = -1;
+        double phase = 0.0;
+        for (int blockIndex = 0; blockIndex < 80 && correctedAt < 0; ++blockIndex)
+        {
+            juce::AudioBuffer<float> block (2, 64);
+            for (int i = 0; i < 64; ++i)
+            {
+                const float sample = 0.2f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * 456.0 / 48000.0;
+                block.setSample (0, i, sample);
+                block.setSample (1, i, sample);
+            }
+            juce::MidiBuffer midi;
+            extreme.processBlock (block, midi);
+            const auto snapshot = extreme.getLiveSnapshot();
+            if (snapshot.voiced && voicedAt < 0) voicedAt = (blockIndex + 1) * 64;
+            if (snapshot.voiced && std::abs (snapshot.correctionCents) >= 50.0f)
+                correctedAt = (blockIndex + 1) * 64;
+        }
+        const double voicedMs = 1000.0 * (double) voicedAt / 48000.0;
+        const double correctedMs = 1000.0 * (double) correctedAt / 48000.0;
+        if (voicedAt < 0 || correctedAt < 0 || voicedMs > 30.0 || correctedMs > 45.0)
+        {
+            std::cerr << "Extreme correction acquisition too slow: voiced="
+                      << voicedMs << " ms correction=" << correctedMs << " ms\n";
+            return 1;
+        }
+        std::cout << "  extremeAcquisition=PASS (voiced " << voicedMs
+                  << " ms, >=50 ct correction " << correctedMs << " ms)\n";
     }
 
     {

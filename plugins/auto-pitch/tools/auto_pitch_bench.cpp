@@ -285,11 +285,13 @@ void runAccuracy()
     const std::vector<int> extendedNotes { 40, 43, 45, 48, 52, 55, 60, 64, 67, 72 }; // E2..C5
     const double det[]  = { 30.0, -30.0, 50.0, -45.0 };     // input detune in cents
 
-    for (int engine = 0; engine < 3; ++engine)
+    for (int engine = 0; engine < 4; ++engine)
     {
         const bool live = engine > 0;
-        const bool extended = engine == 2;
-        const auto& notes = extended ? extendedNotes : standardNotes;
+        const bool extreme = engine == 1;
+        const bool quality = engine == 2;
+        const bool extended = engine == 3;
+        const auto& notes = (extreme || extended) ? extendedNotes : standardNotes;
         double sumErr = 0.0, maxErr = 0.0; int cases = 0;
         for (int m : notes)
             for (double dc : det)
@@ -308,6 +310,7 @@ void runAccuracy()
                 setParam (a, "classicMode", 0.0f);      setParam (a, "flexTune", 0.0f);
                 setParam (a, "vibrato", 0.0f);          setParam (a, "liveMode", live ? 1.0f : 0.0f);
                 setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
+                setParam (a, "extremeLive", quality || extended ? 0.0f : 1.0f);
                 // Neural Pitch defaults ON, and its detections arrive from a BACKGROUND
                 // worker whose timing relative to the audio blocks is not reproducible.
                 // Leaving it on made this measurement swing 3.8-5.6 ct mean (max 17-48)
@@ -339,7 +342,8 @@ void runAccuracy()
         const double mean = cases > 0 ? sumErr / (double) cases : 999.0;
         const char* v = verdict (complete && mean < 5.0, complete && mean < 15.0);
         std::printf ("  %-12s mean=%6.2f ct   max=%6.2f ct   (n=%d)   [%s]\n",
-                     ! live ? "Studio HQ" : extended ? "Live Range" : "Live Ultra",
+                     ! live ? "Studio HQ" : extended ? "Live Range"
+                                             : quality ? "Live Ultra" : "Live Extreme",
                      mean, maxErr, cases, v);
     }
     std::printf ("  thresholds: mean < 5 ct PASS, < 15 ct WARN\n");
@@ -386,12 +390,13 @@ void runLatency()
     // disabled so this measures the engine's fixed group delay—the quantity a host
     // can compensate—without content-dependent pitch-automation smearing.
     // All legacy choices must remain on the same latency while PSOLA is quality-locked.
-    for (int engine = 0; engine < 5; ++engine)
+    for (int engine = 0; engine < 6; ++engine)
     {
         const bool legacyLive = (engine == 1 || engine == 2);
         const bool lowLat = (engine == 2);
         const bool liveMode = engine >= 3;
-        const bool extended = engine == 4;
+        const bool quality = engine == 4;
+        const bool extended = engine == 5;
         SattariAutoPitchAudioProcessor p;
         auto& a = p.parameters();
         setParam (a, "keyRoot", 9.0f);          setParam (a, "scale", 0.0f);   // A major (440 in scale)
@@ -402,6 +407,7 @@ void runLatency()
         setParam (a, "lowLatency", lowLat ? 1.0f : 0.0f);
         setParam (a, "liveMode", liveMode ? 1.0f : 0.0f);
         setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
+        setParam (a, "extremeLive", quality || extended ? 0.0f : 1.0f);
         const auto out = sattari::harness::renderThrough (p, sig, kSr, kBlock);
         auditSafety (out, "latency");
 
@@ -414,12 +420,20 @@ void runLatency()
         const char* label = engine == 0 ? "Studio HQ"
                           : engine == 1 ? "Legacy lock"
                           : engine == 2 ? "LowLat lock"
-                          : engine == 3 ? "Live Ultra"
+                          : engine == 3 ? "Live Extreme"
+                          : engine == 4 ? "Live Ultra"
                                         : "Live Range";
         const bool honest = (measured >= 0 && diffMs <= 3.0);
         std::printf ("  %-12s reported=%5d smp (%6.2f ms)   measured=%5d smp (%6.2f ms)   d=%.2f ms   [%s]\n",
                      label, reported, repMs, measured, measMs, diffMs, verdict (honest, measured >= 0));
         if (engine == 3)
+        {
+            const int limit = 110; // Antares Modern: 2.3 ms ~= 110 samples at 48 kHz
+            std::printf ("  %-12s target <=%4d smp (2.30 ms)    actual=%4d smp   [%s]\n",
+                         "Extreme gate", limit, reported,
+                         verdict (reported <= limit, false));
+        }
+        if (engine == 4)
         {
             const int limit = (int) std::floor (0.012 * kSr);
             std::printf ("  %-12s target <=%4d smp (12.00 ms)   actual=%4d smp   [%s]\n",
@@ -520,10 +534,11 @@ void runArtifacts()
         return fund > 1.0e-12 ? std::sqrt (ap) / fund : 0.0;
     };
 
-    for (int engine = 0; engine < 3; ++engine)
+    for (int engine = 0; engine < 4; ++engine)
     {
         const bool live = engine > 0;
-        const bool extended = engine == 2;
+        const bool quality = engine == 2;
+        const bool extended = engine == 3;
         auto render = [&] (double inHz) {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
@@ -533,6 +548,7 @@ void runArtifacts()
             setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
             setParam (a, "doNoHarm", 0.0f);         setParam (a, "liveMode", live ? 1.0f : 0.0f);
             setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
+            setParam (a, "extremeLive", quality || extended ? 0.0f : 1.0f);
             const auto out = sattari::harness::renderThrough (p, makeTone (kSr, 2.0, inHz), kSr, kBlock);
             auditSafety (out, "thd");
             return out;
@@ -545,7 +561,8 @@ void runArtifacts()
         const double worstThd = std::max (thdClean, thdDet);
         const char* v = verdict (worstThd < 3.0, worstThd < 8.0);
         std::printf ("  %-12s THD in-tune=%5.2f%%   THD corrected=%5.2f%%   alias=%5.2f%%   [%s]\n",
-                     ! live ? "Studio HQ" : extended ? "Live Range" : "Live Ultra",
+                     ! live ? "Studio HQ" : extended ? "Live Range"
+                                             : quality ? "Live Ultra" : "Live Extreme",
                      thdClean, thdDet, alias, v);
 
         if (extended)
@@ -583,7 +600,7 @@ void runCpu()
     double mSr = kSr; int mBlock = kBlock;
 
     auto run = [&] (const char* label, bool live, bool extended, bool neural,
-                    bool harmony, bool qualified) {
+                    bool harmony, bool extreme, bool qualified) {
         const double sr = mSr;
         const int blockSize = mBlock;
         const double audioSec = (double) (nBlocks * blockSize) / sr;
@@ -595,6 +612,7 @@ void runCpu()
         setParam (a, "speed", 0.9f);            setParam (a, "enableCorrection", 1.0f);
         setParam (a, "liveMode", live ? 1.0f : 0.0f);
         setParam (a, "liveProfile", extended ? 1.0f : 0.0f);
+        setParam (a, "extremeLive", extreme ? 1.0f : 0.0f);
         setParam (a, "neuralPitch", neural ? 1.0f : 0.0f);
         if (harmony)
         {
@@ -684,11 +702,12 @@ void runCpu()
     bool neuralPresent = false;
     { SattariAutoPitchAudioProcessor q; q.prepareToPlay (kSr, kBlock); neuralPresent = q.neuralModelPresent(); }
 
-    run ("Studio HQ", false, false, false, false, true);
-    run ("Live Ultra", true, false, false, false, true);
-    run ("Live Extended", true, true, false, false, true);
-    run ("Live + 4 Harmony", true, false, false, true, true);
-    if (neuralPresent) run ("Ultra + Neural Pitch", true, false, true, false, true);
+    run ("Studio HQ", false, false, false, false, false, true);
+    run ("Live Extreme", true, false, false, false, true, true);
+    run ("Live Ultra Quality", true, false, false, false, false, true);
+    run ("Live Extended", true, true, false, false, false, true);
+    run ("Extreme + 4 Harmony", true, false, false, true, true, true);
+    if (neuralPresent) run ("Extreme + Neural", true, false, true, false, true, true);
     std::printf ("  neural model (crepe.onnx) present: %s\n", neuralPresent ? "yes" : "no");
     std::printf ("  verdict follows CPU p95 against the block budget, not wall time\n");
 
@@ -705,7 +724,7 @@ void runCpu()
         for (int blk : { 64, 128, 256, 512, 1024 })
         {
             mSr = sr; mBlock = blk;
-            run ("", true, false, false, false, sr <= 48000.0);
+            run ("", true, false, false, false, true, sr <= 48000.0);
         }
     mSr = kSr; mBlock = kBlock;
 }

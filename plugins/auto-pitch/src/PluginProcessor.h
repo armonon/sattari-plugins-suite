@@ -622,6 +622,7 @@ private:
     int  liveEngineLatencySamples() const noexcept;
     bool liveModeActive() const noexcept;
     bool ultraLiveProfileActive() const noexcept;
+    bool extremeLiveProfileActive() const noexcept;
     std::vector<sattari::dsp::LivePitchEngine>& activeLiveEngines() noexcept;
     const std::vector<sattari::dsp::LivePitchEngine>& activeLiveEngines() const noexcept;
     // PSOLA prep helpers. Low-latency vocal mode raises the min-Hz floor so PSOLA's
@@ -660,17 +661,17 @@ private:
     mutable juce::AudioBuffer<float> formantScratch;
     mutable juce::AudioBuffer<float> harmonyScratch;
     juce::AudioBuffer<float> harmonyWetScratch;
-    // Two prepared banks keep the generated voices sample-aligned with either
-    // Live profile: Ultra uses the same 128 Hz floor as the lead, while Range and
-    // Studio use the 70 Hz bank. Switching profiles is allocation-free.
-    sattari::dsp::HarmonyRenderer harmonyUltraRenderer, harmonyRangeRenderer;
+    // Three prepared banks keep generated voices aligned with Extreme, Ultra,
+    // and Range/Studio. Switching profiles is allocation-free.
+    sattari::dsp::HarmonyRenderer harmonyExtremeRenderer, harmonyUltraRenderer,
+                                  harmonyRangeRenderer;
     sattari::dsp::HarmonyVoicePlanner harmonyRenderPlanner;
     std::array<std::atomic<int>, 4> harmonyChordPcs { -1, -1, -1, -1 };
     std::atomic<int> harmonyChordCount { 0 };
     std::atomic<float> harmonyChordConfidence { 0.0f };
     std::array<std::atomic<int>, 4> harmonyHeldMidi { -1, -1, -1, -1 };
     bool harmonyWasActive = false;
-    int harmonyRendererBank = -1; // 0=Ultra, 1=Range/Studio; prevents stale-ring reuse
+    int harmonyRendererBank = -1; // 0=Extreme, 1=Ultra, 2=Range/Studio
     double smoothedPitchScale = 1.0;
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
@@ -957,12 +958,13 @@ private:
     // Near-zero-latency, formant-preserving pitch shift for tracking/monitoring.
     // Rubber Band stays the default "print" engine (higher fidelity, more
     // latency); the "Live Engine" toggle swaps to PSOLA per channel.
-    // Live Mode has two fully-prepared banks so profile changes never allocate on
-    // the audio thread. Ultra covers C3+ at <12 ms / 48 kHz; Extended preserves
-    // the qualified 70 Hz floor at ~22 ms. Only channel 0 plans the correction;
-    // the others follow its pitch scale so stereo cannot drift apart.
+    // Live Mode has three fully-prepared paths so changes never allocate on the
+    // audio thread. Extreme targets 2 ms, waveform-locked Ultra covers C3+ at
+    // <12 ms, and Extended preserves the 70 Hz floor at ~22 ms. Only channel 0
+    // plans; the others follow its pitch scale so stereo cannot drift apart.
     std::vector<sattari::dsp::LivePitchEngine> liveEngines;
     std::vector<sattari::dsp::LivePitchEngine> liveExtendedEngines;
+    std::vector<sattari::dsp::ExtremeLivePitchEngine> extremeLiveEngines;
     bool lastLiveModeActive = false;
     int lastLiveProfile = 0;
 
