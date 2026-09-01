@@ -182,6 +182,12 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
     focusModeButton.onClick = [this] { setFocusMode (focusModeButton.getToggleState()); };
     addAndMakeVisible (focusModeButton);
 
+    setupButton (performanceFlowButton);
+    performanceFlowButton.getProperties().set ("buttonRole", "primary");
+    performanceFlowButton.setTooltip ("Open transitions, adaptive FX, live looper, rehearsal and continuity");
+    performanceFlowButton.onClick = [this] { showPerformanceFlow(); };
+    addAndMakeVisible (performanceFlowButton);
+
     for (int scene = 0; scene < MainPluginProcessor::numPerformanceScenes; ++scene)
     {
         auto& button = sceneButtons[(size_t) scene];
@@ -1132,6 +1138,15 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             requestRecording (2);
     };
     addAndMakeVisible (arrRecordButton);
+    setupButton (arrAddTrackButton);
+    arrAddTrackButton.getProperties().set ("buttonRole", "positive");
+    arrAddTrackButton.setTooltip (
+        "Add an audio, MIDI, live-input, or stem track to the arrangement");
+    arrAddTrackButton.setTitle ("Add arrangement track");
+    arrAddTrackButton.setDescription (
+        "Creates a typed track ready for audio, MIDI, or a live input");
+    arrAddTrackButton.onClick = [this] { showAddArrangementTrackMenu(); };
+    addAndMakeVisible (arrAddTrackButton);
     setupButton (keepLastButton);
     keepLastButton.setButtonText ("Keep 60s");
     keepLastButton.setTooltip ("Save the last 60 seconds of master audio, even when Record was not armed");
@@ -1617,6 +1632,22 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
 
     // Wire follow-action popup request from ArrangementRecorderView
     arrangementView.onFollowActionRequest = [this] (int lane, int clip) { showFollowActionMenu (lane, clip); };
+    arrangementView.onRouteRequest = [this] (int lane)
+    {
+        showArrangementRouteMenu (lane);
+    };
+    arrangementView.onTrackStateChanged = [this] (int lane)
+    {
+        const auto& track = arrangementView.getTrackState (lane);
+        if (track.type != ArrangementRecorderView::TrackType::LiveInput
+            || ! track.inputRoute.startsWith ("Channel "))
+            return;
+        const int channel = track.inputRoute.fromFirstOccurrenceOf (
+            "Channel ", false, false).getIntValue() - 1;
+        if (juce::isPositiveAndBelow (channel, processorRef.getNumChannels())
+            && processorRef.getChannelType (channel) == ChannelType::input)
+            processorRef.setInputMonitorDispatched (channel, track.monitoring);
+    };
     arrangementView.onGetCompTakeNames = [this]
     {
         syncCurrentTakeToHistory();
@@ -1983,6 +2014,149 @@ void MainPluginEditor::showAddChannelMenu (juce::Component* target)
             safe->refreshFxScopes();
             safe->resized();
             safe->repaint();
+        });
+}
+
+void MainPluginEditor::showAddArrangementTrackMenu()
+{
+    using TrackType = ArrangementRecorderView::TrackType;
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Add Arrangement Track");
+    menu.addItem (1, "Audio Track     Drop or import recordings and samples");
+    menu.addItem (2, "MIDI Instrument     Creates a clip and opens the piano roll");
+    menu.addItem (3, "Live Input     Microphone, guitar, synth, or interface input");
+    menu.addItem (4, "Stem Layer     Vocals, drums, bass, or instrumental layer");
+
+    const auto options = juce::PopupMenu::Options().withTargetComponent (
+        &arrAddTrackButton);
+    menu.showMenuAsync (options,
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this)] (int result)
+        {
+            if (safe == nullptr || result == 0) return;
+
+            if (result == 1)
+            {
+                const int lane = safe->arrangementView.addTrack (TrackType::Audio);
+                if (lane < 0)
+                {
+                    safe->recordStatus.setText (
+                        "Arrangement track limit reached (16)",
+                        juce::dontSendNotification);
+                    return;
+                }
+                safe->deckChooser.launchAsync (
+                    juce::FileBrowserComponent::openMode
+                        | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::canSelectMultipleItems,
+                    [safe, lane] (const juce::FileChooser& chooser)
+                    {
+                        if (safe == nullptr) return;
+                        juce::StringArray paths;
+                        for (const auto& file : chooser.getResults())
+                            if (file.existsAsFile())
+                                paths.add (file.getFullPathName());
+                        if (! paths.isEmpty())
+                            safe->arrangementView.importAudioFiles (
+                                lane, paths, safe->arrangementCursorSeconds);
+                    });
+                return;
+            }
+
+            if (result == 2)
+            {
+                const int lane = safe->arrangementView.addTrack (TrackType::Midi);
+                if (lane < 0) return;
+                safe->arrangementView.setTrackRecordArmed (lane, true);
+                const int clip = safe->arrangementView.addMidiClip (
+                    lane, safe->arrangementCursorSeconds);
+                safe->openPianoRollForClip (lane, clip);
+                return;
+            }
+
+            if (result == 3)
+            {
+                const int channel = safe->processorRef.addChannel (ChannelType::input);
+                if (channel < 0)
+                {
+                    safe->recordStatus.setText (
+                        "No live-input channel is available",
+                        juce::dontSendNotification);
+                    return;
+                }
+                safe->processorRef.setChannelName (
+                    channel, "Arrangement Input " + juce::String (channel + 1));
+                const int lane = safe->arrangementView.addTrack (
+                    TrackType::LiveInput,
+                    safe->processorRef.getChannelName (channel));
+                if (lane < 0)
+                {
+                    safe->processorRef.removeChannel (channel);
+                    return;
+                }
+                safe->arrangementView.setTrackInputRoute (
+                    lane, "Channel " + juce::String (channel + 1));
+                safe->arrangementView.setTrackRecordArmed (lane, true);
+                safe->arrangementView.setTrackMonitoring (lane, true);
+                safe->refreshChannelStrips();
+                safe->refreshChannelButtons();
+                safe->refreshFxScopes();
+                return;
+            }
+
+            const int lane = safe->arrangementView.addTrack (
+                TrackType::StemLayer, "Stem Layer");
+            if (lane >= 0)
+                safe->arrangementView.setTrackInputRoute (lane, "Stem source");
+        });
+}
+
+void MainPluginEditor::showArrangementRouteMenu (int lane)
+{
+    if (! juce::isPositiveAndBelow (
+            lane, ArrangementRecorderView::numLanes))
+        return;
+    const auto track = arrangementView.getTrackState (lane);
+    juce::PopupMenu menu;
+    menu.addSectionHeader (track.name + " Routing");
+
+    if (track.type == ArrangementRecorderView::TrackType::LiveInput)
+    {
+        bool found = false;
+        for (int channel = 0; channel < processorRef.getNumChannels(); ++channel)
+            if (processorRef.getChannelType (channel) == ChannelType::input)
+            {
+                found = true;
+                const auto route = "Channel " + juce::String (channel + 1);
+                menu.addItem (1000 + channel,
+                              route + "  /  " + processorRef.getChannelName (channel),
+                              true, track.inputRoute == route);
+            }
+        if (! found)
+            menu.addItem (999, "No input channels available", false, false);
+        menu.addSeparator();
+    }
+    else if (track.type == ArrangementRecorderView::TrackType::Midi)
+    {
+        menu.addItem (2001, "MIDI All", true,
+                      track.inputRoute == "MIDI All");
+        menu.addSeparator();
+    }
+
+    menu.addSectionHeader ("Output");
+    menu.addItem (3001, "Master", true, track.outputRoute == "Master");
+    menu.showMenuAsync (
+        juce::PopupMenu::Options().withTargetComponent (&arrangementView),
+        [safe = juce::Component::SafePointer<MainPluginEditor> (this), lane]
+        (int result)
+        {
+            if (safe == nullptr || result == 0) return;
+            if (result >= 1000 && result < 2000)
+                safe->arrangementView.setTrackInputRoute (
+                    lane, "Channel " + juce::String (result - 999));
+            else if (result == 2001)
+                safe->arrangementView.setTrackInputRoute (lane, "MIDI All");
+            else if (result == 3001)
+                safe->arrangementView.setTrackOutputRoute (lane, "Master");
         });
 }
 
@@ -2626,6 +2800,7 @@ void MainPluginEditor::toggleRecording()
         // ── Live MIDI you played during the take -> piano roll, ready to edit ──
         // Captured in samples and converted to beats here, so the notes stay correct
         // if the tempo changes later (capture intent, not a baked rendering).
+        std::vector<ArrangementRecorderView::MidiNote> capturedMidi;
         {
             const double bpm = (double) processorRef.parameters().getRawParameterValue ("masterBpm")->load();
             const auto captured = processorRef.getCapturedMidiNotes (bpm);
@@ -2634,7 +2809,11 @@ void MainPluginEditor::toggleRecording()
                 std::vector<PianoRollView::Note> notes;
                 notes.reserve (captured.size());
                 for (const auto& c : captured)
+                {
                     notes.push_back ({ c.pitch, c.startBeats, c.lengthBeats, c.velocity });
+                    capturedMidi.push_back ({ c.pitch, c.startBeats,
+                                              c.lengthBeats, c.velocity });
+                }
 
                 pianoRoll.setBpm (bpm > 1.0 ? bpm : 120.0);
                 pianoRoll.setNotes (std::move (notes));
@@ -2646,6 +2825,55 @@ void MainPluginEditor::toggleRecording()
 
         recordStatus.setText (savedMsg, juce::dontSendNotification);
         loadLastArrangementIntoView (savedMsg);
+
+        // Armed arranger tracks turn Record into a non-destructive overdub. Keep
+        // the freshly captured take in take history, then place its input/MIDI
+        // material over the existing edit at the arranger cursor.
+        if (pendingOverdubBase.isValid())
+        {
+            const auto capturedLanes = arrangementView.getClips();
+            arrangementView.fromState (pendingOverdubBase);
+            int addedLayers = 0;
+            for (int lane = 0; lane < arrangementView.getVisibleLanes(); ++lane)
+            {
+                const auto track = arrangementView.getTrackState (lane);
+                if (! track.recordArmed) continue;
+                if (track.type == ArrangementRecorderView::TrackType::Midi
+                    && ! capturedMidi.empty())
+                {
+                    const int clip = arrangementView.addMidiClip (
+                        lane, pendingOverdubStartSeconds);
+                    arrangementView.setMidiClipNotes (
+                        lane, clip, capturedMidi);
+                    ++addedLayers;
+                }
+                else if (track.type
+                            == ArrangementRecorderView::TrackType::LiveInput
+                         && track.inputRoute.startsWith ("Channel "))
+                {
+                    const int sourceLane = track.inputRoute
+                        .fromFirstOccurrenceOf ("Channel ", false, false)
+                        .getIntValue() - 1;
+                    if (! juce::isPositiveAndBelow (
+                            sourceLane, ArrangementRecorderView::numLanes))
+                        continue;
+                    juce::StringArray files;
+                    for (const auto& clip : capturedLanes[(size_t) sourceLane])
+                        if (clip.file.existsAsFile())
+                            files.addIfNotAlreadyThere (
+                                clip.file.getFullPathName());
+                    if (! files.isEmpty()
+                        && arrangementView.importAudioFiles (
+                            lane, files, pendingOverdubStartSeconds))
+                        ++addedLayers;
+                }
+            }
+            pendingOverdubBase = {};
+            pendingOverdubStartSeconds = 0.0;
+            savedMsg += " - overdubbed " + juce::String (addedLayers)
+                      + (addedLayers == 1 ? " armed track" : " armed tracks");
+            recordStatus.setText (savedMsg, juce::dontSendNotification);
+        }
         // Recording is the handoff boundary: put the completed take directly in
         // front of the artist, ready to trim, arrange, mix, and export.
         selectPrimarySurface (PrimarySurface::arranger);
@@ -2846,13 +3074,22 @@ void MainPluginEditor::startRecordingNow (const juce::File& file)
     // restore point before the destructive transition.
     createSessionSnapshot();
     syncCurrentTakeToHistory();
+    const bool overdubbing = arrangementView.hasArrangement()
+                          && arrangementView.hasArmedTracks();
+    pendingOverdubBase = overdubbing ? arrangementView.toState()
+                                     : juce::ValueTree();
+    pendingOverdubStartSeconds = overdubbing ? arrangementCursorSeconds : 0.0;
     const bool started = processorRef.beginMasterRecording (file);
     recordStatus.setText (started ? "Recording: " + file.getFileName()
                                   : "Could not start recording", juce::dontSendNotification);
     if (! started)
+    {
+        pendingOverdubBase = {};
         return;
+    }
 
-    arrangementView.clearArrangement();
+    if (! overdubbing)
+        arrangementView.clearArrangement();
     revealRecordingButton.setEnabled (false);
     reloadIntoDecksButton.setEnabled (false);
     bounceEditsButton.setEnabled (false);
@@ -5077,6 +5314,11 @@ std::vector<stemdeck::CommandPalette::Command> MainPluginEditor::buildCommandLis
         ,{ 61, processorRef.isMasterMonitorMute() ? "Unmute Monitor" : "Mute Monitor",
                "Silence monitoring while recording and retrospective capture continue", "" }
         ,{ 62, "Reset Master Metering", "Restart integrated loudness and stereo-image analysis", "" }
+        ,{ 63, "Open Performance Flow", "Transitions, adaptive FX, looper, rehearsal and continuity", "" }
+        ,{ 64, "Capture 4-Bar Live Loop", "Capture the complete performance bus on the next bar", "" }
+        ,{ 65, "Play or Stop Live Loop", "Toggle the captured performance loop", "" }
+        ,{ 66, "Toggle Live Loop Overdub", "Layer the current performance into the live loop", "" }
+        ,{ 67, "Clear Live Loop", "Release the current performance loop", "" }
     };
 
     for (int pad = 0; pad < PadBank::numPads; ++pad)
@@ -5485,6 +5727,11 @@ void MainPluginEditor::performCommand (int commandId)
         case 60: monitorDimButton.triggerClick(); break;
         case 61: monitorMuteButton.triggerClick(); break;
         case 62: resetMetersButton.triggerClick(); break;
+        case 63: showPerformanceFlow(); break;
+        case 64: processorRef.requestLiveLoopCapture (4); break;
+        case 65: processorRef.toggleLiveLoopPlayback(); break;
+        case 66: processorRef.toggleLiveLoopOverdub(); break;
+        case 67: processorRef.clearLiveLoop(); break;
         default: break;
     }
 
@@ -5924,7 +6171,7 @@ void MainPluginEditor::paint (juce::Graphics& g)
         else                  objective = juce::String::fromUTF8 ("LIVE");
 
         auto row = performanceCoachBounds.reduced (14, 0);
-        row.removeFromRight (190);   // live scene buttons occupy this fixed cluster
+        row.removeFromRight (250);   // Flow + live scene buttons occupy this cluster
         g.setColour (recording ? stemdeck::tokens::c (stemdeck::tokens::meterHot) : accent);
         g.setFont (stemdeck::tokens::technical (10.5f, true).withExtraKerningFactor (0.035f));
         g.drawFittedText (objective, row, juce::Justification::centredLeft, 1);
@@ -7875,7 +8122,24 @@ void MainPluginEditor::resized()
 
     const bool assetWorkspace = browserVisible || libraryVisible;
     performanceCoachBounds = {};
+    performanceFlowButton.setVisible (false);
+    performanceFlowButton.setBounds ({});
     for (auto& button : sceneButtons) { button.setVisible (false); button.setBounds ({}); }
+    if (! assetWorkspace && ! pianoRollButton.getToggleState() && ! mixerButton.getToggleState())
+    {
+        performanceCoachBounds = area.removeFromTop (38);
+        auto actions = performanceCoachBounds.reduced (8, 4);
+        performanceFlowButton.setVisible (true);
+        performanceFlowButton.setBounds (actions.removeFromRight (58));
+        for (int scene = MainPluginProcessor::numPerformanceScenes; --scene >= 0;)
+        {
+            actions.removeFromRight (4);
+            auto& button = sceneButtons[(size_t) scene];
+            button.setVisible (true);
+            button.setBounds (actions.removeFromRight (36));
+        }
+        area.removeFromTop (4);
+    }
     if (browserVisible)
     {
         const int browserWidth = juce::jlimit (340, 520, area.getWidth() * 31 / 100);
@@ -9174,6 +9438,9 @@ void MainPluginEditor::hidePerformSurface()
                                    (juce::Component*) &crossfaderCenter, (juce::Component*) &crossfaderReverse,
                                    (juce::Component*) &samplerLabel, (juce::Component*) &recordStatus })
         hide (*comp);
+    hide (performanceFlowButton);
+    for (auto& button : sceneButtons) hide (button);
+    performanceCoachBounds = {};
 
     addChannelTileBounds = {};
     emptySessionBounds = {};
@@ -9196,7 +9463,8 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
 
     juce::Component* arrangerControls[] = {
         &arrangementLabel, &previousTakeButton, &nextTakeButton,
-        &launchAllButton, &playArrButton, &arrRecordButton, &keepLastButton, &arrLoopButton,
+        &launchAllButton, &playArrButton, &arrRecordButton, &arrAddTrackButton,
+        &keepLastButton, &arrLoopButton,
         &arrZoomOutButton, &arrZoomInButton, &arrZoomFitButton,
         &snapToggleButton, &arrGrid, &razorButton, &arrAutomationButton, &arrFollowButton, &overlapModeButton,
         &undoButton, &redoButton, &bounceEditsButton };
@@ -9228,6 +9496,8 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
     nextTakeButton.setEnabled (selectedPerformanceTake >= 0
                                && selectedPerformanceTake + 1
                                       < (int) performanceTakeHistory.size());
+    arrAddTrackButton.setEnabled (
+        arrangementView.getVisibleLanes() < ArrangementRecorderView::numLanes);
 
     // The first Replay view is intentionally an editor, not a DAW cockpit.
     // Grid resolution, overlap policy, automation and launch mode return with
@@ -9284,6 +9554,7 @@ void MainPluginEditor::layoutArrangerSurface (juce::Rectangle<int> bounds)
         c.setBounds (editRow.removeFromLeft (w));
         editRow.removeFromLeft (T::gap3);
     };
+    chip (arrAddTrackButton, 82);
     chip (snapToggleButton, 54);
     if (advancedVisible) chip (arrGrid, 74);
     if (! useIntegratedToolRail)
@@ -9462,8 +9733,10 @@ void MainPluginEditor::updateAutomixRamp()
     if (! automixRamping)
         return;
 
-    const double elapsed = (double) (juce::Time::getMillisecondCounter() - automixStartMs);
-    const double t = automixDurationMs > 1.0 ? juce::jlimit (0.0, 1.0, elapsed / automixDurationMs) : 1.0;
+    // Mirror the processor's sample-clocked transition into the visible/recorded
+    // parameter. Wall-clock timing drifted under UI load and could snap backward.
+    const double t = processorRef.isAutomixRuntimeActive()
+                   ? processorRef.getAutomixRuntimeProgress() : 1.0;
     const float cf = automixCfFrom + (automixCfTo - automixCfFrom) * (float) t;
     if (auto* p = processorRef.parameters().getParameter ("crossfader"))
         p->setValueNotifyingHost (cf);
@@ -9475,6 +9748,7 @@ void MainPluginEditor::updateAutomixRamp()
         if (automixOutDeck >= 0)
             if (auto* p = processorRef.parameters().getParameter (deckPrefix (automixOutDeck) + "Play"))
                 p->setValueNotifyingHost (0.0f);
+        processorRef.cancelAutomixRuntime();
         automixOutDeck = -1;
         automixStatusLabel.setText ("AUTO: mix complete", juce::dontSendNotification);
     }
@@ -9497,6 +9771,27 @@ void MainPluginEditor::timerCallback()
     {
         audioCallbackHealthy = callbackNowHealthy;
         if (! masterOutBounds.isEmpty()) repaint (masterOutBounds);
+    }
+    if (uiTimerTick % 3 == 0)
+    {
+        // A plug-in editor may open while its host transport is idle and before
+        // the first callback. Do not mistake "not started yet" for a device loss;
+        // once a heartbeat has been observed, disappearance is actionable.
+        const auto decision = processorRef.evaluateEmergencyContinuity (
+            ! audioHeartbeatSeen || callbackNowHealthy);
+        if (decision.engageSafeMode || decision.pluginDryFallback)
+            recordStatus.setText (decision.reason, juce::dontSendNotification);
+    }
+    {
+        const auto state = processorRef.getLiveLooperState();
+        const bool active = state == stemdeck::LiveLooper::State::armed
+                         || state == stemdeck::LiveLooper::State::recording
+                         || state == stemdeck::LiveLooper::State::playing
+                         || state == stemdeck::LiveLooper::State::overdubbing;
+        const auto text = active ? juce::String::fromUTF8 ("Flow \xe2\x80\xa2 Loop") : "Flow";
+        if (performanceFlowButton.getButtonText() != text)
+            performanceFlowButton.setButtonText (text);
+        performanceFlowButton.setToggleState (active, juce::dontSendNotification);
     }
     if (onboardingPending && recoveryDecisionMade && uiTimerTick >= 18)
     {
@@ -9859,7 +10154,7 @@ void MainPluginEditor::timerCallback()
         const int gridIndex = juce::jlimit (0, (int) grids.size() - 1, arrGrid.getSelectedItemIndex());
         if (arrangementView.isVisible())
         {
-            arrangementView.setVisibleLanes (processorRef.getNumChannels());
+            arrangementView.ensureVisibleLanes (processorRef.getNumChannels());
             arrangementView.setSnap (snapToggleButton.getToggleState(), grids[(size_t) gridIndex], bpm);
         }
         if (pianoRoll.isVisible())
@@ -10059,7 +10354,8 @@ void MainPluginEditor::timerCallback()
         if (newBeat)
         {
             // Fire all lanes waiting for the next beat
-            for (int lane = 0; lane < ArrangementRecorderView::numLanes; ++lane)
+            for (int lane = 0;
+                 lane < ArrangementRecorderView::numPerformanceLanes; ++lane)
             {
                 if (arrangementView.getSlotState (lane) != ArrangementRecorderView::SlotState::WaitingToStart)
                     continue;
@@ -10750,19 +11046,26 @@ void MainPluginEditor::setupMacroKnob (int deckIndex)
     setupSlider (dc.macroKnob, true);
     dc.macroKnob.setRange (0.0, 1.0);
     dc.macroKnob.setValue (0.0, juce::dontSendNotification);
-    dc.macroKnob.setTooltip ("FX Macro: drives Reverb + Echo simultaneously");
+    dc.macroKnob.setTooltip ("Adaptive FX Macro: profile selected in Flow; captured as editable automation");
     dc.macroKnob.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     dc.macroKnob.setPopupDisplayEnabled (true, true, this);
     dc.macroKnob.onValueChange = [this, deckIndex]
     {
         const float v = (float) deckControls[(size_t) deckIndex].macroKnob.getValue();
-        // Soft-link: macro drives both reverb and echo params
-        if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (
-                processorRef.parameters().getParameter (deckPrefix (deckIndex) + "RevMix")))
-            p->setValueNotifyingHost (v);
-        if (auto* p = dynamic_cast<juce::AudioParameterFloat*> (
-                processorRef.parameters().getParameter (deckPrefix (deckIndex) + "EchoMix")))
-            p->setValueNotifyingHost (v);
+        const auto profile = (stemdeck::performance::MacroProfile)
+            processorRef.getMacroProfileChoice();
+        const auto frame = stemdeck::performance::AdaptiveFxMacro::frame (profile, v);
+        auto setPlain = [this] (const juce::String& id, float plain)
+        {
+            if (auto* p = processorRef.parameters().getParameter (id))
+                p->setValueNotifyingHost (p->convertTo0to1 (plain));
+        };
+        const auto prefix = deckPrefix (deckIndex);
+        setPlain (prefix + "RevMix", frame.reverb);
+        setPlain (prefix + "EchoMix", frame.echo);
+        setPlain (prefix + "Filter", frame.filter);
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            setPlain (prefix + "Stem" + DeckPlayer::stemLaneId (lane) + "Send", frame.stemSend);
     };
     addAndMakeVisible (dc.macroKnob);
 }

@@ -17,7 +17,9 @@
 class MidiClipPlayer
 {
 public:
-    static constexpr int numLanes = 5;   // matches ArrangementRecorderView::numEditableLanes
+    // Must cover every arranger lane. The previous five-lane allocation silently
+    // truncated higher MIDI tracks and made gain-array writes unsafe.
+    static constexpr int numLanes = 17;
 
     struct SourceNote { int lane = 0; int pitch = 60; double startBeats = 0.0; double lengthBeats = 1.0; int velocity = 100; };
 
@@ -29,7 +31,10 @@ public:
             s.setCurrentPlaybackSampleRate (sr);
             if (s.getNumSounds() == 0)
             {
-                for (int i = 0; i < 16; ++i) s.addVoice (new Voice());
+                // Eight voices per timeline lane is ample for performance clips
+                // and keeps sixteen-track projects materially lighter than the
+                // old 16-voices-per-lane allocation.
+                for (int i = 0; i < 8; ++i) s.addVoice (new Voice());
                 s.addSound (new Sound());
             }
         }
@@ -112,9 +117,21 @@ public:
 
         for (int lane = 0; lane < numLanes; ++lane)
         {
+            const auto& events = sched[(size_t) lane];
+            bool sounding = false;
+            for (int voice = 0; voice < synths[(size_t) lane].getNumVoices(); ++voice)
+                if (auto* v = synths[(size_t) lane].getVoice (voice);
+                    v != nullptr && v->isVoiceActive())
+                {
+                    sounding = true;
+                    break;
+                }
+            if ((events == nullptr || events->empty()) && ! sounding)
+                continue;
+
             laneMidi.clear();   // reuse — MidiBuffer::clear keeps capacity (no RT alloc)
-            if (sched[(size_t) lane] != nullptr)
-                for (const auto& e : *sched[(size_t) lane])
+            if (events != nullptr)
+                for (const auto& e : *events)
                 {
                     if (e.on  >= pos && e.on  < pos + n) laneMidi.addEvent (juce::MidiMessage::noteOn  (1, e.pitch, (juce::uint8) e.velocity), (int) (e.on  - pos));
                     if (e.off >= pos && e.off < pos + n) laneMidi.addEvent (juce::MidiMessage::noteOff (1, e.pitch), (int) (e.off - pos));

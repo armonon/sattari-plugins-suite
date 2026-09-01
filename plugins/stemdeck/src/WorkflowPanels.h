@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "DesignTokens.h"
+#include "PerformanceFeatures.h"
 
 namespace stemdeck
 {
@@ -469,6 +470,151 @@ private:
 
     State state;
     juce::TextButton mixdown, package, project, bounce, reveal;
+};
+
+class PerformanceFlowPanel final : public juce::Component
+{
+public:
+    struct State
+    {
+        int recipe = 1, length = 1, macro = 0, loopBars = 4;
+        bool stemMorph = true, automaticContinuity = true, safeMode = false;
+        juce::String looperStatus, continuityStatus;
+        performance::RehearsalReport rehearsal;
+    };
+
+    explicit PerformanceFlowPanel (State initial) : state (std::move (initial))
+    {
+        setSize (720, 590);
+        setTitle ("Performance Flow");
+        setDescription ("Transitions, adaptive FX, live looping, rehearsal and emergency continuity.");
+        setupCombo (recipe, { "Smooth Blend", "Bass Swap", "Drum Bridge", "Vocal Handoff" }, state.recipe + 1);
+        setupCombo (length, { "4 Bars", "8 Bars", "16 Bars" }, state.length + 1);
+        setupCombo (macro, { "Build", "Echo Out", "Space Bloom", "Filter Lift" }, state.macro + 1);
+        setupCombo (loopLength, { "1 Bar", "2 Bars", "4 Bars", "8 Bars" },
+                    state.loopBars == 1 ? 1 : state.loopBars == 2 ? 2 : state.loopBars == 8 ? 4 : 3);
+        recipe.setTitle ("Transition recipe"); length.setTitle ("Transition length");
+        macro.setTitle ("Adaptive effects profile"); loopLength.setTitle ("Loop capture length");
+        setupButton (runTransition, "Run Transition");
+        setupButton (capture, "Capture Loop"); setupButton (play, "Play / Stop");
+        setupButton (overdub, "Overdub"); setupButton (clear, "Clear");
+        setupButton (refresh, "Run Rehearsal Check"); setupButton (safe, state.safeMode ? "Leave Safe Mode" : "Safe Now");
+        stemMorph.setButtonText ("Morph separated stems");
+        autoContinuity.setButtonText ("Automatic emergency continuity");
+        stemMorph.setTitle ("Stem morphing");
+        autoContinuity.setTitle ("Automatic emergency continuity");
+        for (auto* toggle : { &stemMorph, &autoContinuity })
+        {
+            toggle->setColour (juce::ToggleButton::textColourId, tokens::c (tokens::fgSecondary));
+            toggle->setColour (juce::ToggleButton::tickColourId, tokens::c (tokens::deckA));
+            toggle->setColour (juce::ToggleButton::tickDisabledColourId, tokens::c (tokens::fgMuted));
+            addAndMakeVisible (*toggle);
+        }
+        stemMorph.setToggleState (state.stemMorph, juce::dontSendNotification);
+        autoContinuity.setToggleState (state.automaticContinuity, juce::dontSendNotification);
+        report.setMultiLine (true); report.setReadOnly (true); report.setScrollbarsShown (true);
+        report.setTitle ("Rehearsal readiness report");
+        report.setDescription ("Show readiness score, live looper state, continuity state, and recommended actions");
+        report.setColour (juce::TextEditor::backgroundColourId, tokens::c (tokens::bgWell));
+        report.setColour (juce::TextEditor::textColourId, tokens::c (tokens::fgSecondary));
+        report.setColour (juce::TextEditor::outlineColourId, tokens::c (tokens::borderSubtle));
+        addAndMakeVisible (report);
+        runTransition.onClick = [this] { pushSettings(); if (onRunTransition) onRunTransition(); };
+        capture.onClick = [this] { if (onCaptureLoop) onCaptureLoop (loopBars()); };
+        play.onClick = [this] { if (onToggleLoop) onToggleLoop(); };
+        overdub.onClick = [this] { if (onOverdub) onOverdub(); };
+        clear.onClick = [this] { if (onClearLoop) onClearLoop(); };
+        refresh.onClick = [this] { if (onRefresh) onRefresh(); };
+        safe.onClick = [this] { if (onSafeMode) onSafeMode(); };
+        recipe.onChange = length.onChange = macro.onChange = [this] { pushSettings(); };
+        stemMorph.onClick = autoContinuity.onClick = [this] { pushSettings(); };
+        updateState (state);
+    }
+
+    std::function<void (int,int,bool,int,bool)> onSettings;
+    std::function<void()> onRunTransition, onToggleLoop, onOverdub, onClearLoop, onRefresh, onSafeMode;
+    std::function<void(int)> onCaptureLoop;
+
+    void updateState (State next)
+    {
+        state = std::move (next);
+        safe.setButtonText (state.safeMode ? "Leave Safe Mode" : "Safe Now");
+        juce::String text;
+        text << "READINESS  " << state.rehearsal.score << "/100\n";
+        text << "LOOPER  " << state.looperStatus << "\n";
+        text << "CONTINUITY  " << state.continuityStatus << "\n\n";
+        for (const auto& finding : state.rehearsal.findings)
+        {
+            const auto tag = finding.severity == performance::FindingSeverity::critical ? "FIX"
+                           : finding.severity == performance::FindingSeverity::warning ? "CHECK" : "INFO";
+            text << tag << "  " << finding.title << "\n     " << finding.action << "\n";
+        }
+        report.setText (text, false);
+        repaint();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        workflow_detail::drawPanelBackground (g, getLocalBounds(), "Performance Flow",
+            "One stage surface for musical automation and recovery.");
+        g.setColour (tokens::c (tokens::fgTertiary));
+        g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+        for (const auto& item : std::array<std::pair<juce::String, juce::Rectangle<int>>, 4> {{
+            { "TRANSITION DESIGNER", recipe.getBounds().translated (0, -18) },
+            { "ADAPTIVE FX", macro.getBounds().translated (0, -18) },
+            { "LIVE LOOPER", loopLength.getBounds().translated (0, -18) },
+            { "REHEARSAL + CONTINUITY", report.getBounds().translated (0, -18) } }})
+            g.drawText (item.first, item.second, juce::Justification::centredLeft);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (20); area.removeFromTop (82);
+        auto transition = area.removeFromTop (36);
+        recipe.setBounds (transition.removeFromLeft (150)); transition.removeFromLeft (8);
+        length.setBounds (transition.removeFromLeft (100)); transition.removeFromLeft (8);
+        stemMorph.setBounds (transition.removeFromLeft (190)); transition.removeFromLeft (8);
+        runTransition.setBounds (transition.removeFromLeft (132));
+        area.removeFromTop (30);
+        auto fx = area.removeFromTop (36); macro.setBounds (fx.removeFromLeft (180));
+        area.removeFromTop (30);
+        auto loops = area.removeFromTop (36);
+        loopLength.setBounds (loops.removeFromLeft (96)); loops.removeFromLeft (8);
+        capture.setBounds (loops.removeFromLeft (112)); loops.removeFromLeft (6);
+        play.setBounds (loops.removeFromLeft (100)); loops.removeFromLeft (6);
+        overdub.setBounds (loops.removeFromLeft (88)); loops.removeFromLeft (6);
+        clear.setBounds (loops.removeFromLeft (66));
+        area.removeFromTop (30);
+        auto bottom = area.removeFromBottom (36);
+        autoContinuity.setBounds (bottom.removeFromLeft (224)); bottom.removeFromLeft (8);
+        safe.setBounds (bottom.removeFromLeft (112)); bottom.removeFromLeft (8);
+        refresh.setBounds (bottom.removeFromLeft (160));
+        area.removeFromBottom (8); report.setBounds (area);
+    }
+
+private:
+    void setupButton (juce::TextButton& button, const juce::String& label)
+    { button.setButtonText (label); workflow_detail::styleButton (button); addAndMakeVisible (button); }
+    void setupCombo (juce::ComboBox& combo, std::initializer_list<const char*> values, int selected)
+    {
+        int id = 1; for (auto* value : values) combo.addItem (value, id++);
+        combo.setSelectedId (selected, juce::dontSendNotification);
+        combo.setColour (juce::ComboBox::backgroundColourId, tokens::c (tokens::bgWell));
+        addAndMakeVisible (combo);
+    }
+    int loopBars() const
+    { static constexpr int bars[] { 1, 2, 4, 8 }; return bars[juce::jlimit (0, 3, loopLength.getSelectedItemIndex())]; }
+    void pushSettings()
+    {
+        if (onSettings) onSettings (recipe.getSelectedItemIndex(), length.getSelectedItemIndex(),
+                                    stemMorph.getToggleState(), macro.getSelectedItemIndex(),
+                                    autoContinuity.getToggleState());
+    }
+    State state;
+    juce::ComboBox recipe, length, macro, loopLength;
+    juce::ToggleButton stemMorph, autoContinuity;
+    juce::TextButton runTransition, capture, play, overdub, clear, refresh, safe;
+    juce::TextEditor report;
 };
 
 } // namespace stemdeck

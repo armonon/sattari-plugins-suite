@@ -32,6 +32,8 @@
 #include "LiveLoudnessMeter.h"
 #include "StemGain.h"
 #include "AutomixEngine.h"
+#include "LiveLooper.h"
+#include "PerformanceFeatures.h"
 #include "NeuralKeyEngine.h"
 #include "NeuralBeatEngine.h"
 #include "AnalysisCache.h"
@@ -139,11 +141,28 @@ public:
     // ── Automix ──────────────────────────────────────────────────────────────
     // Plan a phrase-aligned harmonic transition from outDeck to inDeck (pure).
     stemdeck::TransitionPlan planAutomixTransition (int outDeck, int inDeck) const;
+    stemdeck::TransitionPlan planAutomixTransition (
+        int outDeck, int inDeck, const stemdeck::AutomixEngine::Options&) const;
     // Execute the discrete setup: cue inDeck to the plan's in-point, assign
     // crossfader sides (out=A/left, in=B/right), enable beat sync, and start
     // inDeck. The crossfader RAMP itself is driven by the editor timer. Returns
     // the plan (invalid if decks aren't ready).
     stemdeck::TransitionPlan beginAutomix (int outDeck, int inDeck);
+    stemdeck::TransitionPlan beginAutomix (
+        int outDeck, int inDeck, const stemdeck::AutomixEngine::Options&);
+    int getAutomixRecipeChoice() const;
+    int getAutomixLengthChoice() const;
+    int getMacroProfileChoice() const;
+    bool isStemMorphEnabled() const;
+    bool isAutomaticContinuityEnabled() const;
+    void setPerformanceFlowSettings (int recipe, int length, bool stemMorph,
+                                     int macroProfile, bool automaticContinuity);
+    bool isAutomixRuntimeActive() const noexcept
+    { return automixAudioActive.load (std::memory_order_acquire); }
+    float getAutomixRuntimeProgress() const noexcept
+    { return automixAudioProgress.load (std::memory_order_relaxed); }
+    void cancelAutomixRuntime() noexcept
+    { automixAudioActive.store (false, std::memory_order_release); }
     // The two crossfader endpoints (0=left/A .. 1=right/B) for a begun automix,
     // so the UI can ramp between them. from = out-deck side, to = in-deck side.
     static float automixCrossfaderFrom() noexcept { return 0.0f; }
@@ -210,6 +229,25 @@ public:
         return performanceSafeMode.load (std::memory_order_acquire);
     }
     int getDroppedBufferCount() const noexcept;
+    int getFaultedPluginCount() const { return hostGraph.getFaultedChainCount(); }
+
+    // Quantized performance-bus looper. Commands are lock-free and are applied at
+    // the next callback; the loop itself is captured before master processing.
+    void requestLiveLoopCapture (int bars);
+    void toggleLiveLoopPlayback();
+    void toggleLiveLoopOverdub();
+    void clearLiveLoop();
+    stemdeck::LiveLooper::State getLiveLooperState() const noexcept
+    { return liveLooper.getState(); }
+    bool hasLiveLoop() const noexcept { return liveLooper.hasLoop(); }
+    float getLiveLoopProgress() const noexcept { return liveLooper.progress(); }
+    int getLiveLoopBars() const noexcept { return liveLooper.bars(); }
+
+    stemdeck::performance::RehearsalReport buildRehearsalReport (
+        bool audioCallbackHealthy) const;
+    stemdeck::performance::EmergencyContinuity::Decision evaluateEmergencyContinuity (
+        bool audioCallbackHealthy);
+    juce::String getContinuityStatus() const;
     int getDroppedCaptureEventCount() const noexcept
     {
         return performanceRecorder.getDroppedEventCount()
@@ -711,6 +749,7 @@ private:
     std::array<MasterRecorder, kMaxChannels> deckSourceRecorders;
     std::array<MasterRecorder, kMaxChannels> deckPrintedRecorders;
     PerformanceRecorder performanceRecorder;
+    stemdeck::LiveLooper liveLooper;
     TransportSync sync;
     WarpEngine warpEngine;
     HostGraph hostGraph;
@@ -768,6 +807,15 @@ private:
     // snapshots on its timer thread instead of guessing from configuration.
     std::atomic<juce::uint64> processedAudioBlockCount { 0 };
     std::atomic<bool> performanceSafeMode { false };
+    stemdeck::performance::EmergencyContinuity continuityEngine;
+    mutable juce::CriticalSection continuityStatusLock;
+    juce::String continuityStatus { "Continuity monitoring ready" };
+    std::atomic<bool> automixAudioActive { false };
+    std::atomic<bool> automixStemMorph { false };
+    std::atomic<int> automixOutDeck { -1 }, automixInDeck { -1 };
+    std::atomic<int> automixRecipe { (int) stemdeck::TransitionRecipe::smooth };
+    std::atomic<juce::int64> automixStartSample { 0 }, automixDurationSamples { 1 };
+    std::atomic<float> automixAudioProgress { 0.0f };
     std::atomic<int> audioDeadlineMisses { 0 };
     int64_t transportSampleCounter = 0;
     juce::File lastPerformanceEventLogFile;

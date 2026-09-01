@@ -134,6 +134,17 @@ if [[ -n "$onnx_ref" ]]; then
   echo "--- bundled ONNX Runtime: $onnx_name (resolved from $onnx_real)"
 fi
 
+# Once every @rpath dependency has been copied into Contents/Frameworks, the
+# build-directory search paths are both unnecessary and a portability leak.
+# CMake intentionally records the selected ONNX directory so the just-built app
+# can run in place; a distributable copy must search only inside its own bundle.
+while IFS= read -r absolute_rpath; do
+  [[ -n "$absolute_rpath" ]] || continue
+  /usr/bin/install_name_tool -delete_rpath "$absolute_rpath" "$app_binary"
+  echo "--- removed machine-local rpath: $absolute_rpath"
+done < <(otool -l "$app_binary" \
+          | awk '/cmd LC_RPATH/{getline; getline; sub(/^ *path /, ""); sub(/ \(offset [0-9]+\)$/, ""); if ($0 ~ /^\// && !seen[$0]++) print}')
+
 # Optionally bundle the on-device neural models INTO the app so premium AI stem
 # separation and neural beat tracking work with zero manual install. Opt-in because
 # the models are large (~353MB stem + ~84MB beat): set STEMDECK_BUNDLE_MODELS=1.

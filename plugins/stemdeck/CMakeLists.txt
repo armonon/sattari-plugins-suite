@@ -517,6 +517,20 @@ target_link_libraries(StemDeckAutomixTest
             juce::juce_recommended_warning_flags)
 stemdeck_link_tracktion(StemDeckAutomixTest)
 
+# ── Performance Flow (stem recipes, adaptive macros, coach, looper, continuity) ─
+add_executable(StemDeckPerformanceFeatures EXCLUDE_FROM_ALL
+    tests/stemdeck_performance_features.cpp)
+add_dependencies(StemDeckPerformanceFeatures SattariStemDeck)
+target_include_directories(StemDeckPerformanceFeatures PRIVATE
+    src ${CMAKE_CURRENT_BINARY_DIR}/SattariStemDeck_artefacts/JuceLibraryCode)
+target_compile_definitions(StemDeckPerformanceFeatures PUBLIC
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LV2=0 JUCE_PLUGINHOST_VST=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(StemDeckPerformanceFeatures
+    PRIVATE juce::juce_audio_utils
+    PUBLIC juce::juce_recommended_config_flags ${STEMDECK_TEST_LTO_FLAGS}
+           juce::juce_recommended_warning_flags)
+
 # ── Analysis cache round-trip (SQLite persistence of TrackAnalysis) ────────────
 add_executable(StemDeckAnalysisCacheTest
     EXCLUDE_FROM_ALL
@@ -1277,6 +1291,7 @@ if(BUILD_TESTING)
         StemDeckBeatGridDecoderTest
         StemDeckKeyDetectTest
         StemDeckAutomixTest
+        StemDeckPerformanceFeatures
         StemDeckAnalysisCacheTest
         StemDeckLongAudioTest
         StemDeckSessionTest
@@ -1317,7 +1332,8 @@ if(BUILD_TESTING)
             # CPU-bound, four times (including a 30s waits-for-progress step) —
             # 120s is tight for that specific test even though it's generous for
             # every other zero-arg contract, so it alone gets more room.
-            if(_sd_test STREQUAL "StemDeckStemCancelSmoke")
+            if(_sd_test STREQUAL "StemDeckStemCancelSmoke"
+               OR _sd_test STREQUAL "StemDeckNeuralBeatSmoke")
                 set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 300)
             else()
                 set_tests_properties(${_sd_test} PROPERTIES LABELS "stemdeck;contract" TIMEOUT 120)
@@ -1325,7 +1341,14 @@ if(BUILD_TESTING)
             # This contract intentionally measures cold loading of a five-minute
             # asset. Running it beside the neural model stress tests measures CPU
             # contention rather than the load path and creates a false failure.
-            if(_sd_test STREQUAL "StemDeckLoadLatency")
+            # Timing and large-model inference must measure the product, not
+            # scheduler contention from another 370 MB model or render contract.
+            # RUN_SERIAL keeps the complete gate deterministic on normal laptops.
+            if(_sd_test STREQUAL "StemDeckLoadLatency"
+               OR _sd_test STREQUAL "StemDeckRecordingHealth"
+               OR _sd_test STREQUAL "StemDeckNeuralBeatSmoke"
+               OR _sd_test STREQUAL "StemDeckNeuralKeySmoke"
+               OR _sd_test STREQUAL "StemDeckStemCancelSmoke")
                 set_tests_properties(${_sd_test} PROPERTIES RUN_SERIAL TRUE)
             endif()
         endif()

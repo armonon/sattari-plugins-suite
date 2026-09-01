@@ -274,6 +274,11 @@ bool NeuralStemEngine::separate (const juce::AudioBuffer<float>& input, double /
     juce::AudioBuffer<float>* outs[4] = { &outDrums, &outBass, &outMusic, &outVocals };
     for (auto* b : outs) { b->setSize (2, total, false, false, true); b->clear(); }
 
+    // Loading/allocating the first inference window can take tens of seconds on
+    // a cold CPU model. Publish activity before Session::Run so the UI never
+    // appears frozen and a user can cancel based on an honest running state.
+    if (onProgress) onProgress (0.001f);
+
     // Window/hop with 25% overlap and a Hann cross-fade (constant-power sum).
     const int64_t win = impl->windowSamples > 0 ? impl->windowSamples
                                                 : (int64_t) juce::jmin (total, (int) (10.0 * 44100.0));
@@ -366,6 +371,7 @@ bool NeuralStemEngine::separateStreaming (const juce::AudioBuffer<float>& input,
 
     const int64_t total = input.getNumSamples();
     if (total < 16) { message = "Input too short"; return false; }
+    if (onProgress) onProgress (0.001f);
 
     const int64_t win = impl->windowSamples > 0 ? impl->windowSamples
                                                 : (int64_t) juce::jmin ((int) total, (int) (10.0 * 44100.0));

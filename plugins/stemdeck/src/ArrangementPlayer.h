@@ -29,7 +29,7 @@
 class ArrangementPlayer
 {
 public:
-    static constexpr int kMaxLanes = 9; // eight channels plus printed master
+    static constexpr int kMaxLanes = 17; // sixteen arrangement tracks + reference
 
     ArrangementPlayer()
     {

@@ -36,7 +36,7 @@ public:
 
         // Commands without factory shortcuts still need a registered scope so a
         // newly assigned key is serialised and restored on the next launch.
-        for (int commandId = 1; commandId <= 62; ++commandId)
+        for (int commandId = 1; commandId <= 67; ++commandId)
             scopes.try_emplace (commandId, Scope::global);
 
         bindings = defaults;

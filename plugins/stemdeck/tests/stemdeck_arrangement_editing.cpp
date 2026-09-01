@@ -244,6 +244,75 @@ struct StemDeckArrangementTestAccess
         check (view.midiClipNotes (1, 0).size() == 2,
                "redo restores piano-roll note edits");
 
+        check (MidiClipPlayer::numLanes >= View::numEditableLanes,
+               "MIDI playback capacity covers every arrangement lane");
+
+        View expanded;
+        expanded.setVisibleLanes (View::numPerformanceLanes);
+        const int audioLane = expanded.addTrack (View::TrackType::Audio,
+                                                 "Backing Vocals");
+        check (audioLane == View::numPerformanceLanes,
+               "new arrangement tracks continue after captured performance lanes");
+        expanded.undo();
+        check (expanded.getVisibleLanes() == View::numPerformanceLanes,
+               "adding a typed track is undoable");
+        expanded.redo();
+        check (expanded.getVisibleLanes() == View::numPerformanceLanes + 1
+                   && expanded.getTrackState (audioLane).type
+                          == View::TrackType::Audio,
+               "redo restores a typed arrangement track");
+
+        const int midiLane = expanded.addTrack (View::TrackType::Midi,
+                                                "Night Synth");
+        expanded.setTrackInputRoute (midiLane, "MIDI All");
+        expanded.setTrackRecordArmed (midiLane, true);
+        check (audioLane == View::numPerformanceLanes
+                   && midiLane == View::numPerformanceLanes + 1,
+               "new arrangement tracks continue after captured performance lanes");
+
+        while (expanded.getVisibleLanes() < View::numLanes)
+            expanded.addTrack (View::TrackType::StemLayer);
+        check (expanded.getVisibleLanes() == 16
+                   && expanded.addTrack (View::TrackType::Audio) < 0,
+               "arranger exposes sixteen bounded real-time-safe tracks");
+
+        const auto expandedState = expanded.toState();
+        View expandedRestored;
+        expandedRestored.fromState (expandedState);
+        check (expandedRestored.getVisibleLanes() == 16
+                   && expandedRestored.getTrackState (midiLane).type
+                          == View::TrackType::Midi
+                   && expandedRestored.getTrackState (midiLane).inputRoute
+                          == "MIDI All"
+                   && expandedRestored.getTrackState (midiLane).recordArmed,
+               "typed tracks, routing, arm state, and capacity survive project restore");
+
+        View idle;
+        View idleRestored;
+        idleRestored.fromState (idle.toState());
+        check (! idleRestored.hasArrangement(),
+               "an empty idle arrangement stays idle after project restore");
+
+        juce::ValueTree legacyMaster ("ARRANGEMENT");
+        legacyMaster.setProperty ("schemaVersion", 3, nullptr);
+        legacyMaster.setProperty ("visibleLanes", View::numPerformanceLanes,
+                                  nullptr);
+        juce::ValueTree oldMasterLane ("LANE");
+        oldMasterLane.setProperty ("index", View::numPerformanceLanes, nullptr);
+        juce::ValueTree oldMasterClip ("CLIP");
+        oldMasterClip.setProperty ("file", "/missing/legacy-master.wav", nullptr);
+        oldMasterClip.setProperty ("dur", 10.0, nullptr);
+        oldMasterClip.setProperty ("trimStart", 0.0, nullptr);
+        oldMasterClip.setProperty ("trimEnd", 10.0, nullptr);
+        oldMasterLane.appendChild (oldMasterClip, nullptr);
+        legacyMaster.appendChild (oldMasterLane, nullptr);
+        View migratedMaster;
+        migratedMaster.fromState (legacyMaster);
+        check (migratedMaster.getClips()[(size_t) View::masterLane].size() == 1
+                   && migratedMaster.getTrackState (View::masterLane).type
+                          == View::TrackType::MasterReference,
+               "v3 printed-master lane migrates to the pinned reference slot");
+
         // Library Up Next contract. Persistence is disabled so the test never
         // touches a musician's real queue in Application Support.
         juce::AudioFormatManager queueFormats;

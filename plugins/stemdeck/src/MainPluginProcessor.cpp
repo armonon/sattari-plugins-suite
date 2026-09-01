@@ -1851,6 +1851,7 @@ void MainPluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     publishChannels();
     refreshLatencyCompensation();
     padBank.prepare (sampleRate);
+    liveLooper.prepare (sampleRate, samplesPerBlock, outputChannels);
     masterRecorder.prepare (sampleRate, outputChannels, samplesPerBlock);
     retrospectiveRecorder.prepare (sampleRate, outputChannels,
                                    samplesPerBlock, 60.0);
@@ -2035,7 +2036,26 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
     updatePerformanceCaptureState (blockRecordingStart, syncSnapshot);
     const bool safePerformance = performanceSafeMode.load (std::memory_order_acquire);
 
-    const float crossfader = getFloatParam ("crossfader");
+    float crossfader = getFloatParam ("crossfader");
+    float automixProgress = 0.0f;
+    const bool automixRunning = automixAudioActive.load (std::memory_order_acquire);
+    if (automixRunning)
+    {
+        const auto start = automixStartSample.load (std::memory_order_relaxed);
+        const auto duration = juce::jmax<juce::int64> (
+            1, automixDurationSamples.load (std::memory_order_relaxed));
+        automixProgress = juce::jlimit (0.0f, 1.0f,
+            (float) ((double) (transportSampleCounter - start) / (double) duration));
+        // Sample-clocked automation stays deterministic with or without the editor,
+        // and a smoothstep avoids a level kink at either phrase boundary.
+        crossfader = automixProgress * automixProgress * (3.0f - 2.0f * automixProgress);
+        automixAudioProgress.store (automixProgress, std::memory_order_relaxed);
+    }
+    const bool automixMorphing = automixRunning
+                              && automixStemMorph.load (std::memory_order_relaxed);
+    const auto morphFrame = stemdeck::performance::StemMorphEngine::frame (
+        (stemdeck::TransitionRecipe) juce::jlimit (
+            0, 3, automixRecipe.load (std::memory_order_relaxed)), automixProgress);
     const int   transitionCurve = (int) std::round (getFloatParam ("transitionCurve"));
     const int   xfCurve    = transitionCurve == 1 ? 1 : transitionCurve == 2 ? 2 : 0;
     const bool  xfReverse  = transitionCurve == 3 || getBoolParam ("crossfaderReverse");
@@ -2116,7 +2136,11 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
         // Arbitrary transition endpoints. Channels outside the selected pair remain
         // at unity, so changing the route never silently attenuates the rest of a set.
         const int slot = ch->slotIndex;
-        ch->cfSide = slot == transitionFrom ? CrossfaderSide::ac
+        const bool isMorphEndpoint = automixMorphing
+                                  && (slot == automixOutDeck.load (std::memory_order_relaxed)
+                                      || slot == automixInDeck.load (std::memory_order_relaxed));
+        ch->cfSide = isMorphEndpoint          ? CrossfaderSide::center
+                   : slot == transitionFrom ? CrossfaderSide::ac
                    : slot == transitionTo   ? CrossfaderSide::bd
                                             : CrossfaderSide::center;
 
@@ -2155,6 +2179,17 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
             for (int lane = 0; lane < DeckPlayer::numStemLanes; ++lane)
             {
                 p->stemGainPercent[(size_t) lane] = getFloatParam (ids.stemGain[(size_t) lane]);
+                if (automixMorphing)
+                {
+                    const int out = automixOutDeck.load (std::memory_order_relaxed);
+                    const int in  = automixInDeck.load (std::memory_order_relaxed);
+                    const float scale = lane == DeckPlayer::fullMixStem
+                        ? (slot == out ? morphFrame.outgoingFullMix
+                                      : slot == in ? morphFrame.incomingFullMix : 1.0f)
+                        : (slot == out ? morphFrame.outgoing[(size_t) (lane - DeckPlayer::drumsStem)]
+                                      : slot == in ? morphFrame.incoming[(size_t) (lane - DeckPlayer::drumsStem)] : 1.0f);
+                    p->stemGainPercent[(size_t) lane] *= scale;
+                }
                 if (lane >= DeckPlayer::drumsStem && lane <= DeckPlayer::vocalsStem)
                     p->stemGainPercent[(size_t) lane] *= masterStemScale[(size_t) (lane - DeckPlayer::drumsStem)];
                 // Pitch / filter / send params exist only for drums..vocals.
@@ -2290,6 +2325,11 @@ void MainPluginProcessor::processBlock (juce::AudioBuffer<float>& deviceBuffer, 
                                     juce::Decibels::decibelsToGain (getFloatParam ("liveInstrumentGain")));
     else
         midiClipPlayer.liveAllNotesOff();
+
+    // The live looper captures the complete performance bus (decks, inputs, pads,
+    // arrangement and instruments), then returns through the current master chain.
+    // It is deliberately before master capture so the resulting set is exact.
+    liveLooper.process (buffer, transportSampleCounter, masterBpm);
 
     // Arrangement playback must reproduce the captured master processing, not
     // silently substitute whatever happens to be on the live controls now. Each
@@ -3543,6 +3583,85 @@ void MainPluginProcessor::setPerformanceSafeMode (bool enabled) noexcept
     midiClipPlayer.liveAllNotesOff();
 }
 
+void MainPluginProcessor::requestLiveLoopCapture (int bars)
+{
+    liveLooper.requestCapture (bars);
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "looper", {}, "capture", juce::String (bars) + " bars");
+}
+
+void MainPluginProcessor::toggleLiveLoopPlayback()
+{
+    liveLooper.requestTogglePlayback();
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "looper", {}, "playback", "toggle");
+}
+
+void MainPluginProcessor::toggleLiveLoopOverdub()
+{
+    liveLooper.requestToggleOverdub();
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "looper", {}, "overdub", "toggle");
+}
+
+void MainPluginProcessor::clearLiveLoop()
+{
+    liveLooper.requestClear();
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "looper", {}, "clear", "1");
+}
+
+stemdeck::performance::RehearsalReport MainPluginProcessor::buildRehearsalReport (
+    bool callbackHealthy) const
+{
+    stemdeck::performance::RehearsalInput input;
+    input.audioCallbackHealthy = callbackHealthy;
+    input.pluginFaults = hostGraph.getFaultedChainCount();
+    input.droppedBuffers = getDroppedBufferCount();
+    input.cpuLoad = getAudioCpuLoad();
+    input.masterPeak = juce::jmax (getMasterPeak (0), getMasterPeak (1));
+    for (int deck = 0; deck < numDecks; ++deck)
+    {
+        const auto path = getDeckPath (deck);
+        if (path.isEmpty()) continue;
+        ++input.loadedDecks;
+        if (! juce::File (path).existsAsFile()) input.missingMedia = true;
+        const auto analysis = getDeckActiveAnalysis (deck);
+        if (analysis.detectedBpm > 0.0f && analysis.beatGridSamples.size() >= 4
+            && analysis.hasKey()) ++input.analyzedDecks;
+    }
+    for (int scene = 0; scene < numPerformanceScenes; ++scene)
+        if (hasPerformanceScene (scene)) ++input.storedScenes;
+    input.looperArmedWithoutSignal = getLiveLooperState() == stemdeck::LiveLooper::State::armed
+                                  && input.masterPeak < 1.0e-4f;
+    // Recording destinations are selected transactionally at capture time; no
+    // stale path is treated as a requirement while idle.
+    input.hasRecordingDestination = true;
+    return stemdeck::performance::RehearsalCoach::assess (input);
+}
+
+stemdeck::performance::EmergencyContinuity::Decision
+MainPluginProcessor::evaluateEmergencyContinuity (bool callbackHealthy)
+{
+    const auto decision = continuityEngine.update (
+        { callbackHealthy, getAudioCpuLoad(), getDroppedBufferCount(),
+          hostGraph.getFaultedChainCount() }, isAutomaticContinuityEnabled());
+    if (decision.engageSafeMode && ! isPerformanceSafeMode())
+        setPerformanceSafeMode (true);
+    if (decision.reason.isNotEmpty())
+    {
+        const juce::ScopedLock lock (continuityStatusLock);
+        continuityStatus = decision.reason;
+    }
+    return decision;
+}
+
+juce::String MainPluginProcessor::getContinuityStatus() const
+{
+    const juce::ScopedLock lock (continuityStatusLock);
+    return continuityStatus;
+}
+
 bool MainPluginProcessor::isDeckSlipEnabled (int deckIndex) const noexcept
 {
     return juce::isPositiveAndBelow (deckIndex, numDecks) && deckAt (deckIndex).isSlipEnabled();
@@ -3587,7 +3706,44 @@ void MainPluginProcessor::seekDeckSeconds (int deckIndex, double seconds)
     eventDispatcher->dispatch (event);
 }
 
+int MainPluginProcessor::getAutomixRecipeChoice() const
+{ return juce::jlimit (0, 3, (int) apvts.state.getProperty ("performanceRecipe", 1)); }
+
+int MainPluginProcessor::getAutomixLengthChoice() const
+{ return juce::jlimit (0, 2, (int) apvts.state.getProperty ("performanceLength", 1)); }
+
+int MainPluginProcessor::getMacroProfileChoice() const
+{ return juce::jlimit (0, 3, (int) apvts.state.getProperty ("performanceMacro", 0)); }
+
+bool MainPluginProcessor::isStemMorphEnabled() const
+{ return (bool) apvts.state.getProperty ("performanceStemMorph", true); }
+
+bool MainPluginProcessor::isAutomaticContinuityEnabled() const
+{ return (bool) apvts.state.getProperty ("performanceAutoContinuity", true); }
+
+void MainPluginProcessor::setPerformanceFlowSettings (
+    int recipe, int length, bool stemMorph, int macroProfile, bool automaticContinuity)
+{
+    apvts.state.setProperty ("performanceRecipe", juce::jlimit (0, 3, recipe), nullptr);
+    apvts.state.setProperty ("performanceLength", juce::jlimit (0, 2, length), nullptr);
+    apvts.state.setProperty ("performanceStemMorph", stemMorph, nullptr);
+    apvts.state.setProperty ("performanceMacro", juce::jlimit (0, 3, macroProfile), nullptr);
+    apvts.state.setProperty ("performanceAutoContinuity", automaticContinuity, nullptr);
+    if (! automaticContinuity) continuityEngine.reset();
+}
+
 stemdeck::TransitionPlan MainPluginProcessor::planAutomixTransition (int outDeck, int inDeck) const
+{
+    stemdeck::AutomixEngine::Options options;
+    options.recipe = (stemdeck::TransitionRecipe) getAutomixRecipeChoice();
+    static constexpr int lengths[] { 16, 32, 64 };
+    options.transitionBeats = lengths[getAutomixLengthChoice()];
+    options.stemMorph = isStemMorphEnabled();
+    return planAutomixTransition (outDeck, inDeck, options);
+}
+
+stemdeck::TransitionPlan MainPluginProcessor::planAutomixTransition (
+    int outDeck, int inDeck, const stemdeck::AutomixEngine::Options& requested) const
 {
     stemdeck::TransitionPlan plan;
     if (! juce::isPositiveAndBelow (outDeck, numDecks) || ! juce::isPositiveAndBelow (inDeck, numDecks) || outDeck == inDeck)
@@ -3606,12 +3762,38 @@ stemdeck::TransitionPlan MainPluginProcessor::planAutomixTransition (int outDeck
         eIn = stemdeck::AutomixEngine::phraseEnergies (audioIn->audio, aIn.sampleRate,
                     stemdeck::AutomixEngine::phraseBoundaries (aIn, 16));
 
-    return stemdeck::AutomixEngine::planTransition (aOut, aIn, eOut, eIn);
+    auto options = requested;
+    auto hasCompleteStems = [this] (int deck)
+    {
+        for (int lane = DeckPlayer::drumsStem; lane <= DeckPlayer::vocalsStem; ++lane)
+            if (deckAt (deck).getStemAudio (lane) == nullptr) return false;
+        return true;
+    };
+    // Never wake the expensive real-time separator just to perform an automated
+    // blend. Full-mix crossfade is the deterministic fallback until both decks
+    // have materialized stems.
+    options.stemMorph = options.stemMorph
+                     && hasCompleteStems (outDeck) && hasCompleteStems (inDeck);
+    plan = stemdeck::AutomixEngine::planTransition (aOut, aIn, eOut, eIn, options);
+    if (plan.valid && requested.stemMorph && ! options.stemMorph)
+        plan.description << " Full-mix fallback (prepare both stem sets to morph).";
+    return plan;
 }
 
 stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inDeck)
 {
-    stemdeck::TransitionPlan plan = planAutomixTransition (outDeck, inDeck);
+    stemdeck::AutomixEngine::Options options;
+    options.recipe = (stemdeck::TransitionRecipe) getAutomixRecipeChoice();
+    static constexpr int lengths[] { 16, 32, 64 };
+    options.transitionBeats = lengths[getAutomixLengthChoice()];
+    options.stemMorph = isStemMorphEnabled();
+    return beginAutomix (outDeck, inDeck, options);
+}
+
+stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (
+    int outDeck, int inDeck, const stemdeck::AutomixEngine::Options& options)
+{
+    stemdeck::TransitionPlan plan = planAutomixTransition (outDeck, inDeck, options);
     if (! plan.valid)
         return plan;
 
@@ -3632,6 +3814,22 @@ stemdeck::TransitionPlan MainPluginProcessor::beginAutomix (int outDeck, int inD
 
     // Start the incoming deck; the outgoing one keeps playing until the blend ends.
     if (auto* p = apvts.getParameter (deckPrefix (inDeck) + "Play")) p->setValueNotifyingHost (1.0f);
+
+    const double bpm = juce::jmax (40.0, (double) getFloatParam ("masterBpm"));
+    automixOutDeck.store (outDeck, std::memory_order_relaxed);
+    automixInDeck.store (inDeck, std::memory_order_relaxed);
+    automixRecipe.store ((int) plan.recipe, std::memory_order_relaxed);
+    automixStemMorph.store (plan.stemMorphEnabled, std::memory_order_relaxed);
+    automixStartSample.store (transportSampleCounter, std::memory_order_relaxed);
+    automixDurationSamples.store (juce::jmax<juce::int64> (1,
+        (juce::int64) std::llround ((double) plan.lengthBeats * 60.0 / bpm
+                                   * currentSampleRate)), std::memory_order_relaxed);
+    automixAudioProgress.store (0.0f, std::memory_order_relaxed);
+    automixAudioActive.store (true, std::memory_order_release);
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "transition", deckNameFor (outDeck), "automix",
+                         stemdeck::transitionRecipeName (plan.recipe), getDeckPath (inDeck),
+                         plan.description);
 
     return plan;
 }
@@ -4794,6 +4992,7 @@ bool MainPluginProcessor::capturePerformanceScene (int sceneIndex)
 
     juce::ValueTree scene ("SCENE");
     scene.setProperty ("slot", sceneIndex, nullptr);
+    scene.setProperty ("name", "Scene " + juce::String (sceneIndex + 1), nullptr);
     scene.setProperty ("capturedAt", juce::Time::getCurrentTime().toISO8601 (true), nullptr);
     for (auto* parameter : getParameters())
     {
@@ -4804,7 +5003,31 @@ bool MainPluginProcessor::capturePerformanceScene (int sceneIndex)
         value.setProperty ("value", parameter->getValue(), nullptr);
         scene.appendChild (value, nullptr);
     }
+    for (int deck = 0; deck < numDecks; ++deck)
+    {
+        juce::ValueTree savedDeck ("DECK");
+        savedDeck.setProperty ("slot", deck, nullptr);
+        savedDeck.setProperty ("position", getDeckPlayheadSeconds (deck), nullptr);
+        savedDeck.setProperty ("loopActive", isDeckLoopActive (deck), nullptr);
+        savedDeck.setProperty ("loopIn", getDeckLoopInSeconds (deck), nullptr);
+        savedDeck.setProperty ("loopOut", getDeckLoopOutSeconds (deck), nullptr);
+        savedDeck.setProperty ("slip", isDeckSlipEnabled (deck), nullptr);
+        for (int cue = 0; cue < numHotCues; ++cue)
+            savedDeck.setProperty ("cue" + juce::String (cue), getHotCue (deck, cue), nullptr);
+        scene.appendChild (savedDeck, nullptr);
+    }
+    for (const auto& channel : channels)
+    {
+        if (channel == nullptr) continue;
+        juce::ValueTree savedChannel ("CHANNEL");
+        savedChannel.setProperty ("slot", channel->slotIndex, nullptr);
+        savedChannel.setProperty ("muted", channel->isMuted(), nullptr);
+        savedChannel.setProperty ("soloed", channel->isSoloed(), nullptr);
+        scene.appendChild (savedChannel, nullptr);
+    }
     scenes.appendChild (scene, nullptr);
+    logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                         "scene", {}, "capture", juce::String (sceneIndex + 1));
     return true;
 }
 
@@ -4820,14 +5043,48 @@ bool MainPluginProcessor::recallPerformanceScene (int sceneIndex)
         for (int p = 0; p < scene.getNumChildren(); ++p)
         {
             const auto value = scene.getChild (p);
-            if (auto* parameter = apvts.getParameter (value.getProperty ("id").toString()))
+            if (value.hasType ("PARAM"))
             {
-                parameter->beginChangeGesture();
-                parameter->setValueNotifyingHost (juce::jlimit (
-                    0.0f, 1.0f, (float) value.getProperty ("value", parameter->getValue())));
-                parameter->endChangeGesture();
+                if (auto* parameter = apvts.getParameter (value.getProperty ("id").toString()))
+                {
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost (juce::jlimit (
+                        0.0f, 1.0f, (float) value.getProperty ("value", parameter->getValue())));
+                    parameter->endChangeGesture();
+                }
+            }
+            else if (value.hasType ("DECK"))
+            {
+                const int deck = (int) value.getProperty ("slot", -1);
+                if (! juce::isPositiveAndBelow (deck, numDecks)) continue;
+                seekDeckSeconds (deck, (double) value.getProperty ("position", 0.0));
+                setDeckSlipEnabled (deck, (bool) value.getProperty ("slip", false));
+                const double in = (double) value.getProperty ("loopIn", 0.0);
+                const double out = (double) value.getProperty ("loopOut", 0.0);
+                if (out > in) setDeckLoopSeconds (deck, in, out);
+                setDeckLoopActive (deck, (bool) value.getProperty ("loopActive", false));
+                for (int cue = 0; cue < numHotCues; ++cue)
+                {
+                    const double seconds = (double) value.getProperty (
+                        "cue" + juce::String (cue), -1.0);
+                    if (seconds >= 0.0) setHotCue (deck, cue, seconds);
+                    else clearHotCue (deck, cue);
+                }
+            }
+            else if (value.hasType ("CHANNEL"))
+            {
+                const int slot = (int) value.getProperty ("slot", -1);
+                for (auto& channel : channels)
+                    if (channel != nullptr && channel->slotIndex == slot)
+                    {
+                        channel->setMuted ((bool) value.getProperty ("muted", false));
+                        channel->setSoloed ((bool) value.getProperty ("soloed", false));
+                        break;
+                    }
             }
         }
+        logPerformanceEvent (recordingSampleCounter.load (std::memory_order_relaxed),
+                             "scene", {}, "recall", juce::String (sceneIndex + 1));
         return true;
     }
     return false;

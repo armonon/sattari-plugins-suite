@@ -407,20 +407,27 @@ juce::String HostGraph::getStatusSummary() const
              + juce::String (quarantinedPluginFiles.size());
 
     int loaded = 0;
-    int faulted = 0;
     for (const auto& chain : chains)
-    {
         loaded += chain.pluginCountAtomic.load (std::memory_order_relaxed);
-        faulted += chain.outputFaulted.load (std::memory_order_relaxed) ? 1 : 0;
-        const juce::ScopedTryLock lock (chain.graphLock);
-        if (lock.isLocked())
-            for (const auto& sandbox : chain.sandboxes)
-                if (sandbox->hasCrashed()) ++faulted;
-    }
+    const int faulted = getFaultedChainCount();
     text += "; loaded chain plugins: " + juce::String (loaded);
     if (faulted > 0)
         text += "; safety-bypassed chains: " + juce::String (faulted);
     return text;
+}
+
+int HostGraph::getFaultedChainCount() const
+{
+    int faulted = 0;
+    for (const auto& chain : chains)
+    {
+        faulted += chain.outputFaulted.load (std::memory_order_relaxed) ? 1 : 0;
+        const juce::ScopedTryLock lock (chain.graphLock);
+        if (lock.isLocked())
+            for (const auto& sandbox : chain.sandboxes)
+                if (sandbox != nullptr && sandbox->hasCrashed()) ++faulted;
+    }
+    return faulted;
 }
 
 juce::Array<juce::PluginDescription> HostGraph::getKnownPlugins() const

@@ -12,8 +12,203 @@ using namespace sdedit;
 MainPluginEditor::ArrangementRecorderView::ArrangementRecorderView()
 {
     for (int i = 0; i < numLanes; ++i)
-        laneDisplayNames[(size_t) i] =
-            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
+    {
+        trackStates[(size_t) i].type = i < numPerformanceLanes
+                                            ? TrackType::Performance
+                                            : TrackType::Audio;
+        trackStates[(size_t) i].name = defaultTrackName (
+            trackStates[(size_t) i].type, i + 1);
+        laneDisplayNames[(size_t) i] = trackStates[(size_t) i].name;
+    }
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
+}
+
+juce::String MainPluginEditor::ArrangementRecorderView::trackTypeLabel (TrackType type)
+{
+    switch (type)
+    {
+        case TrackType::Performance:     return "PERFORMANCE";
+        case TrackType::Audio:           return "AUDIO";
+        case TrackType::Midi:            return "MIDI";
+        case TrackType::LiveInput:       return "LIVE INPUT";
+        case TrackType::StemLayer:       return "STEM";
+        case TrackType::Group:           return "GROUP";
+        case TrackType::Return:          return "RETURN";
+        case TrackType::MasterReference: return "REFERENCE";
+    }
+    return "TRACK";
+}
+
+juce::String MainPluginEditor::ArrangementRecorderView::defaultTrackName (
+    TrackType type, int ordinal)
+{
+    if (type == TrackType::Performance && ordinal <= 26)
+        return "CH " + juce::String::charToString (
+            (juce_wchar) ('A' + ordinal - 1));
+    return trackTypeLabel (type).toLowerCase().replaceCharacter (' ', '_')
+               .replaceCharacter ('_', ' ').toUpperCase()
+           + " " + juce::String (ordinal);
+}
+
+const MainPluginEditor::ArrangementRecorderView::TrackState&
+MainPluginEditor::ArrangementRecorderView::getTrackState (int lane) const noexcept
+{
+    return trackStates[(size_t) juce::jlimit (0, numEditableLanes - 1, lane)];
+}
+
+int MainPluginEditor::ArrangementRecorderView::addTrack (TrackType type,
+                                                         juce::String name)
+{
+    if (visibleLanes >= numLanes || type == TrackType::MasterReference)
+        return -1;
+    auto before = captureFullState();
+    const int lane = visibleLanes++;
+    auto& state = trackStates[(size_t) lane];
+    state = {};
+    state.type = type;
+    state.name = name.isNotEmpty() ? std::move (name)
+                                   : defaultTrackName (type, lane + 1);
+    state.inputRoute = type == TrackType::Midi ? "MIDI All"
+                       : type == TrackType::LiveInput ? "Input 1"
+                       : type == TrackType::StemLayer ? "Stem source"
+                       : type == TrackType::Return ? "Send A"
+                       : "None";
+    state.outputRoute = type == TrackType::MasterReference ? "Reference only"
+                                                           : "Master";
+    // Audio-input monitoring is backed by a real processor input channel.
+    // MIDI capture is armed here, but the existing live-instrument monitor is
+    // global, so do not present a per-track monitor state that cannot be honoured.
+    state.monitoring = type == TrackType::LiveInput;
+    laneDisplayNames[(size_t) lane] = state.name;
+    clips[(size_t) lane].clear();
+    midiClips[(size_t) lane].clear();
+    editAuto[(size_t) lane] = {};
+    capturedDsp[(size_t) lane] = {};
+    laneMuted[(size_t) lane] = laneSoloed[(size_t) lane] = false;
+    laneGainDb[(size_t) lane] = 0.0f;
+    mode = Mode::Finished;
+    status = "Track ready - drop audio, create a MIDI clip, or choose an input.";
+    selectedLane = lane;
+    selectedClip = -1;
+    commitEdit (std::move (before));
+    repaint();
+    return lane;
+}
+
+bool MainPluginEditor::ArrangementRecorderView::removeTrack (int lane)
+{
+    if (! juce::isPositiveAndBelow (lane, visibleLanes) || visibleLanes <= 1)
+        return false;
+    auto before = captureFullState();
+    for (int i = lane; i + 1 < visibleLanes; ++i)
+    {
+        clips[(size_t) i] = std::move (clips[(size_t) (i + 1)]);
+        midiClips[(size_t) i] = std::move (midiClips[(size_t) (i + 1)]);
+        editAuto[(size_t) i] = std::move (editAuto[(size_t) (i + 1)]);
+        capturedDsp[(size_t) i] = std::move (capturedDsp[(size_t) (i + 1)]);
+        deckAutomation[(size_t) i] = std::move (deckAutomation[(size_t) (i + 1)]);
+        deckFiles[(size_t) i] = deckFiles[(size_t) (i + 1)];
+        trackStates[(size_t) i] = trackStates[(size_t) (i + 1)];
+        laneDisplayNames[(size_t) i] = trackStates[(size_t) i].name;
+        laneMuted[(size_t) i] = laneMuted[(size_t) (i + 1)];
+        laneSoloed[(size_t) i] = laneSoloed[(size_t) (i + 1)];
+        laneGainDb[(size_t) i] = laneGainDb[(size_t) (i + 1)];
+        if (deckThumbs[(size_t) i] != nullptr)
+        {
+            deckThumbs[(size_t) i]->clear();
+            if (deckFiles[(size_t) i].existsAsFile())
+                loadThumbnail (*deckThumbs[(size_t) i], deckFiles[(size_t) i]);
+        }
+    }
+    const int last = --visibleLanes;
+    clips[(size_t) last].clear();
+    midiClips[(size_t) last].clear();
+    deckFiles[(size_t) last] = juce::File();
+    if (deckThumbs[(size_t) last] != nullptr)
+        deckThumbs[(size_t) last]->clear();
+    trackStates[(size_t) last] = {};
+    trackStates[(size_t) last].name = defaultTrackName (TrackType::Audio, last + 1);
+    laneDisplayNames[(size_t) last] = trackStates[(size_t) last].name;
+    selectedLane = juce::jmin (lane, visibleLanes - 1);
+    selectedClip = -1;
+    commitEdit (std::move (before));
+    if (onLaneMixChanged) onLaneMixChanged();
+    repaint();
+    return true;
+}
+
+void MainPluginEditor::ArrangementRecorderView::setTrackName (int lane,
+                                                              juce::String name)
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes) || name.trim().isEmpty()) return;
+    if (trackStates[(size_t) lane].name == name.trim()) return;
+    auto before = captureFullState();
+    trackStates[(size_t) lane].name = name.trim();
+    laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
+    commitEdit (std::move (before));
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setTrackInputRoute (int lane,
+                                                                    juce::String route)
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return;
+    if (trackStates[(size_t) lane].inputRoute == route) return;
+    auto before = captureFullState();
+    trackStates[(size_t) lane].inputRoute = std::move (route);
+    commitEdit (std::move (before));
+    if (onTrackStateChanged) onTrackStateChanged (lane);
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setTrackOutputRoute (int lane,
+                                                                     juce::String route)
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return;
+    if (trackStates[(size_t) lane].outputRoute == route) return;
+    auto before = captureFullState();
+    trackStates[(size_t) lane].outputRoute = std::move (route);
+    commitEdit (std::move (before));
+    if (onTrackStateChanged) onTrackStateChanged (lane);
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setTrackRecordArmed (int lane,
+                                                                     bool armed)
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return;
+    const auto type = trackStates[(size_t) lane].type;
+    if (type != TrackType::Midi && type != TrackType::LiveInput) return;
+    if (trackStates[(size_t) lane].recordArmed == armed) return;
+    auto before = captureFullState();
+    trackStates[(size_t) lane].recordArmed = armed;
+    commitEdit (std::move (before));
+    if (onTrackStateChanged) onTrackStateChanged (lane);
+    repaint();
+}
+
+void MainPluginEditor::ArrangementRecorderView::setTrackMonitoring (int lane,
+                                                                    bool monitoring)
+{
+    if (! juce::isPositiveAndBelow (lane, numLanes)) return;
+    if (trackStates[(size_t) lane].type != TrackType::LiveInput) return;
+    if (trackStates[(size_t) lane].monitoring == monitoring) return;
+    auto before = captureFullState();
+    trackStates[(size_t) lane].monitoring = monitoring;
+    commitEdit (std::move (before));
+    if (onTrackStateChanged) onTrackStateChanged (lane);
+    repaint();
+}
+
+int MainPluginEditor::ArrangementRecorderView::firstArmedMidiTrack() const noexcept
+{
+    for (int lane = 0; lane < visibleLanes; ++lane)
+        if (trackStates[(size_t) lane].type == TrackType::Midi
+            && trackStates[(size_t) lane].recordArmed)
+            return lane;
+    return -1;
 }
 
 MainPluginEditor::ArrangementRecorderView::~ArrangementRecorderView()
@@ -61,13 +256,15 @@ void MainPluginEditor::ArrangementRecorderView::setRecordingProgress (double sec
 }
 
 void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File& masterAudio,
-                                                                const std::array<juce::File, numLanes>& decks,
+                                                                const std::array<juce::File, numPerformanceLanes>& decks,
                                                                 juce::String statusLine)
 {
     mode = Mode::Finished;
     status = std::move (statusLine);
     masterFile = masterAudio;
-    deckFiles = decks;
+    deckFiles.fill ({});
+    for (int i = 0; i < numPerformanceLanes; ++i)
+        deckFiles[(size_t) i] = decks[(size_t) i];
     clipThumbs.clear();
     for (auto& lane : clips) lane.clear();
     for (auto& midi : midiClips) midi.clear();
@@ -82,15 +279,29 @@ void MainPluginEditor::ArrangementRecorderView::setArrangement (const juce::File
     launcherClipPerLane.fill (-1);
     loopStartSeconds = loopEndSeconds = 0.0;
     loopEnabled = false;
+    int highestUsedLane = 0;
     for (int i = 0; i < numLanes; ++i)
     {
-        laneDisplayNames[(size_t) i] =
-            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
-        if (decks[(size_t) i].existsAsFile())
+        trackStates[(size_t) i] = {};
+        trackStates[(size_t) i].type = i < numPerformanceLanes
+                                            ? TrackType::Performance
+                                            : TrackType::Audio;
+        trackStates[(size_t) i].name = defaultTrackName (
+            trackStates[(size_t) i].type, i + 1);
+        laneDisplayNames[(size_t) i] = trackStates[(size_t) i].name;
+        if (i < numPerformanceLanes && decks[(size_t) i].existsAsFile())
+        {
             clips[(size_t) i].assign (1, LaneClip { decks[(size_t) i], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
+            highestUsedLane = i;
+        }
         if (deckThumbs[(size_t) i] != nullptr)
             loadThumbnail (*deckThumbs[(size_t) i], deckFiles[(size_t) i]);
     }
+    trackStates[(size_t) masterLane] = {};
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
+    setVisibleLanes (highestUsedLane + 1);
     if (masterAudio.existsAsFile())
         clips[(size_t) masterLane].assign (1, LaneClip { masterAudio, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false });
     if (masterThumb != nullptr)
@@ -147,13 +358,38 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
     laneMuted.fill (false);
     laneSoloed.fill (false);
     laneGainDb.fill (0.0f);
+    for (int lane = 0; lane < numPerformanceLanes; ++lane)
+    {
+        trackStates[(size_t) lane] = {};
+        trackStates[(size_t) lane].type = lane < numPerformanceLanes
+                                               ? TrackType::Performance
+                                               : TrackType::Audio;
+        trackStates[(size_t) lane].name = defaultTrackName (
+            trackStates[(size_t) lane].type, lane + 1);
+        laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
+    }
+    trackStates[(size_t) masterLane] = {};
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
     slotStates.fill (SlotState::Idle);
     launcherClipPerLane.fill (-1);
     loopStartSeconds = loopEndSeconds = 0.0;
     loopEnabled = false;
     for (int i = 0; i < numLanes; ++i)
-        laneDisplayNames[(size_t) i] =
-            "CH " + juce::String::charToString ((juce_wchar) ('A' + i));
+    {
+        trackStates[(size_t) i] = {};
+        trackStates[(size_t) i].type = i < numPerformanceLanes
+                                            ? TrackType::Performance
+                                            : TrackType::Audio;
+        trackStates[(size_t) i].name = defaultTrackName (
+            trackStates[(size_t) i].type, i + 1);
+        laneDisplayNames[(size_t) i] = trackStates[(size_t) i].name;
+    }
+    trackStates[(size_t) masterLane] = {};
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
 
     masterFile = juce::File (
         json.getProperty ("masterAudio", {}).toString());
@@ -264,6 +500,15 @@ bool MainPluginEditor::ArrangementRecorderView::setArrangementFromCapture (
         deckFiles[(size_t) lane] = rendered;
         laneDisplayNames[(size_t) lane] =
             type == "mic_lane" ? "INPUT RAW" : name.toUpperCase();
+        trackStates[(size_t) lane].type = (type == "mic_lane" || type == "input_lane")
+                                              ? TrackType::LiveInput
+                                              : type == "instrument_lane" ? TrackType::Midi
+                                              : TrackType::Performance;
+        trackStates[(size_t) lane].name = laneDisplayNames[(size_t) lane];
+        trackStates[(size_t) lane].inputRoute = (type == "mic_lane" || type == "input_lane")
+                                                   ? "Captured input"
+                                                   : type == "instrument_lane" ? "Captured MIDI"
+                                                   : "Performance capture";
         highestUsedLane = juce::jmax (highestUsedLane, lane);
 
         if (const auto* clipVars =
@@ -494,9 +739,11 @@ void MainPluginEditor::ArrangementRecorderView::updateClipAfterBounce (int laneI
     repaint();
 }
 
-void MainPluginEditor::ArrangementRecorderView::setDeckAutomation (std::array<DeckAutomation, numLanes> automation)
+void MainPluginEditor::ArrangementRecorderView::setDeckAutomation (
+    std::array<DeckAutomation, numPerformanceLanes> automation)
 {
-    deckAutomation = std::move (automation);
+    for (int lane = 0; lane < numPerformanceLanes; ++lane)
+        deckAutomation[(size_t) lane] = std::move (automation[(size_t) lane]);
     repaint();
 }
 
@@ -527,6 +774,20 @@ void MainPluginEditor::ArrangementRecorderView::clearArrangement()
     laneMuted.fill (false);
     laneSoloed.fill (false);
     laneGainDb.fill (0.0f);
+    for (int lane = 0; lane < numLanes; ++lane)
+    {
+        trackStates[(size_t) lane] = {};
+        trackStates[(size_t) lane].type = lane < numPerformanceLanes
+                                               ? TrackType::Performance
+                                               : TrackType::Audio;
+        trackStates[(size_t) lane].name = defaultTrackName (
+            trackStates[(size_t) lane].type, lane + 1);
+        laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
+    }
+    trackStates[(size_t) masterLane] = {};
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
     slotStates.fill (SlotState::Idle);
     launcherClipPerLane.fill (-1);
     loopStartSeconds = loopEndSeconds = 0.0;
@@ -672,6 +933,26 @@ float MainPluginEditor::ArrangementRecorderView::automationValueAt (int lane, do
 
 void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEvent& e)
 {
+    const int headerLane = laneAtY (e.getPosition().y);
+    if (e.mods.isPopupMenu()
+        && juce::isPositiveAndBelow (headerLane, visibleLanes)
+        && e.getPosition().x < laneRects[(size_t) headerLane].getX()
+                                      + trackHeaderWidth)
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader (trackStates[(size_t) headerLane].name);
+        menu.addItem (1, "Remove Track", visibleLanes > 1);
+        menu.showMenuAsync (
+            juce::PopupMenu::Options().withTargetComponent (this),
+            [safe = juce::Component::SafePointer<ArrangementRecorderView> (this),
+             headerLane] (int result)
+            {
+                if (safe != nullptr && result == 1)
+                    safe->removeTrack (headerLane);
+            });
+        return;
+    }
+
     // Pulsebox-style editing rail. Every action maps to an existing native edit
     // operation, so the rail is a faster entry point rather than parallel state.
     for (int toolIndex = 0; toolIndex < (int) toolRailButtonRects.size(); ++toolIndex)
@@ -793,11 +1074,26 @@ void MainPluginEditor::ArrangementRecorderView::mouseDown (const juce::MouseEven
         return;
     }
 
-    for (int i = 0; i < numLanes; ++i)   // M / S / A toggles in the deck headers
+    for (int i = 0; i < numLanes; ++i)   // track-header controls
     {
         if (muteBtnRects[(size_t) i].contains (e.getPosition())) { toggleLaneMute (i); return; }
         if (soloBtnRects[(size_t) i].contains (e.getPosition())) { toggleLaneSolo (i); return; }
         if (autoBtnRects[(size_t) i].contains (e.getPosition())) { editAuto[(size_t) i].visible = ! editAuto[(size_t) i].visible; repaint(); return; }
+        if (armBtnRects[(size_t) i].contains (e.getPosition()))
+        {
+            setTrackRecordArmed (i, ! trackStates[(size_t) i].recordArmed);
+            return;
+        }
+        if (monitorBtnRects[(size_t) i].contains (e.getPosition()))
+        {
+            setTrackMonitoring (i, ! trackStates[(size_t) i].monitoring);
+            return;
+        }
+        if (routeBtnRects[(size_t) i].contains (e.getPosition()))
+        {
+            if (onRouteRequest) onRouteRequest (i);
+            return;
+        }
         if (editAuto[(size_t) i].visible && autoTargetRects[(size_t) i].contains (e.getPosition()))
         {
             editAuto[(size_t) i].target = (editAuto[(size_t) i].target + 1) % numAutoTargets;
@@ -1526,7 +1822,8 @@ void MainPluginEditor::ArrangementRecorderView::ensureClipThumb (const juce::Fil
 juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
 {
     juce::ValueTree root ("ARRANGEMENT");
-    root.setProperty ("schemaVersion", 3, nullptr);
+    root.setProperty ("schemaVersion", 4, nullptr);
+    root.setProperty ("mode", (int) mode, nullptr);
     root.setProperty ("visibleLanes", visibleLanes, nullptr);
     root.setProperty ("overlapMode", (int) overlapMode, nullptr);
     root.setProperty ("snapEnabled", snapEnabled, nullptr);
@@ -1541,6 +1838,13 @@ juce::ValueTree MainPluginEditor::ArrangementRecorderView::toState() const
     {
         juce::ValueTree lt ("LANE");
         lt.setProperty ("index",  lane,                   nullptr);
+        lt.setProperty ("role", lane == masterLane ? "master_reference" : "track", nullptr);
+        lt.setProperty ("trackType", (int) trackStates[(size_t) lane].type, nullptr);
+        lt.setProperty ("name", trackStates[(size_t) lane].name, nullptr);
+        lt.setProperty ("inputRoute", trackStates[(size_t) lane].inputRoute, nullptr);
+        lt.setProperty ("outputRoute", trackStates[(size_t) lane].outputRoute, nullptr);
+        lt.setProperty ("recordArmed", trackStates[(size_t) lane].recordArmed, nullptr);
+        lt.setProperty ("monitoring", trackStates[(size_t) lane].monitoring, nullptr);
         lt.setProperty ("muted",  laneMuted[(size_t) lane],  nullptr);
         lt.setProperty ("soloed", laneSoloed[(size_t) lane], nullptr);
         lt.setProperty ("gainDb", (double) laneGainDb[(size_t) lane], nullptr);
@@ -1682,8 +1986,19 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
     for (auto& dsp : capturedDsp) dsp = {};
     capturedMaster = {};
     for (int lane = 0; lane < numLanes; ++lane)
-        laneDisplayNames[(size_t) lane] =
-            "CH " + juce::String::charToString ((juce_wchar) ('A' + lane));
+    {
+        trackStates[(size_t) lane] = {};
+        trackStates[(size_t) lane].type = lane < numPerformanceLanes
+                                               ? TrackType::Performance
+                                               : TrackType::Audio;
+        trackStates[(size_t) lane].name = defaultTrackName (
+            trackStates[(size_t) lane].type, lane + 1);
+        laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
+    }
+    trackStates[(size_t) masterLane] = {};
+    trackStates[(size_t) masterLane].type = TrackType::MasterReference;
+    trackStates[(size_t) masterLane].name = "Live Master Reference";
+    trackStates[(size_t) masterLane].outputRoute = "Reference only";
 
     const auto finiteOr = [] (double value, double fallback)
     {
@@ -1765,13 +2080,35 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
     sanitisePoints (capturedMaster.smartOn, 0.0f, 1.0f);
     sanitisePoints (capturedMaster.limiterCeilingDb, -24.0f, 0.0f);
 
+    const int schemaVersion = juce::jmax (
+        1, (int) root.getProperty ("schemaVersion", 3));
     bool anyClip = false;
     for (int i = 0; i < root.getNumChildren(); ++i)
     {
         const auto lt = root.getChild (i);
         if (! lt.hasType ("LANE")) continue;
-        const int lane = (int) lt.getProperty ("index", -1);
+        const int savedLane = (int) lt.getProperty ("index", -1);
+        const bool legacyMaster = schemaVersion < 4
+                               && savedLane == numPerformanceLanes;
+        const int lane = legacyMaster ? masterLane : savedLane;
         if (! juce::isPositiveAndBelow (lane, numEditableLanes)) continue;
+        auto& track = trackStates[(size_t) lane];
+        const int defaultType = lane == masterLane ? (int) TrackType::MasterReference
+                              : lane < numPerformanceLanes ? (int) TrackType::Performance
+                              : (int) TrackType::Audio;
+        track.type = (TrackType) juce::jlimit (
+            0, (int) TrackType::MasterReference,
+            (int) lt.getProperty ("trackType", defaultType));
+        track.name = lt.getProperty (
+            "name", lane == masterLane ? juce::String ("Live Master Reference")
+                                        : defaultTrackName (track.type, lane + 1)).toString();
+        track.inputRoute = lt.getProperty ("inputRoute", "None").toString();
+        track.outputRoute = lt.getProperty (
+            "outputRoute", lane == masterLane ? "Reference only" : "Master").toString();
+        track.recordArmed = (bool) lt.getProperty ("recordArmed", false);
+        track.monitoring = (bool) lt.getProperty ("monitoring", false);
+        if (lane < numLanes)
+            laneDisplayNames[(size_t) lane] = track.name;
         laneMuted[(size_t) lane]  = lt.getProperty ("muted",  false);
         laneSoloed[(size_t) lane] = lt.getProperty ("soloed", false);
         laneGainDb[(size_t) lane] = juce::jlimit (
@@ -1923,11 +2260,25 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
             sanitisePoints (dsp.echoMix, 0.0f, 1.0f);
         }
     }
-    mode = anyClip ? Mode::Finished : Mode::Idle;
+    const bool hasCreatedTracks = schemaVersion >= 4
+                               && (int) root.getProperty ("visibleLanes", 1) > 0;
+    if (root.hasProperty ("mode"))
+    {
+        const auto savedMode = (Mode) juce::jlimit (
+            (int) Mode::Idle, (int) Mode::Finished,
+            (int) root.getProperty ("mode", (int) Mode::Idle));
+        // A persisted recording can never be resumed safely after relaunch.
+        mode = savedMode == Mode::Idle && ! anyClip ? Mode::Idle
+                                                    : Mode::Finished;
+    }
+    else
+    {
+        mode = (anyClip || hasCreatedTracks) ? Mode::Finished : Mode::Idle;
+    }
     undoStack.clear();
     redoStack.clear();
     selectedLane = -1;
-    if (anyClip)
+    if (mode == Mode::Finished)
         for (int lane = 0; lane < numEditableLanes; ++lane)
             if (! clips[(size_t) lane].empty()
                 || ! midiClips[(size_t) lane].empty())
@@ -1935,6 +2286,8 @@ void MainPluginEditor::ArrangementRecorderView::fromState (const juce::ValueTree
                 selectedLane = lane;
                 break;
             }
+    if (selectedLane < 0 && mode == Mode::Finished)
+        selectedLane = 0;
     selectedClip = -1;
     if (onLaneMixChanged) onLaneMixChanged();
     if (onLoopChanged) onLoopChanged (
@@ -2043,11 +2396,13 @@ void MainPluginEditor::ArrangementRecorderView::mouseDoubleClick (const juce::Mo
     const auto ref = midiClipAt (e.getPosition());
     if (ref.valid()) { if (onEditMidiClip) onEditMidiClip (ref.lane, ref.clip); return; }
 
-    const int lane = laneAtY (e.getPosition().y);   // double-click empty lane area → new MIDI clip there
+    const int lane = laneAtY (e.getPosition().y);
     if (lane < 0) return;
     const int labelWidth = trackHeaderWidth;
     const auto hit = hitTestAt (e.getPosition());
-    if (hit.clip < 0 && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
+    if (hit.clip < 0
+        && trackStates[(size_t) lane].type == TrackType::Midi
+        && e.getPosition().x > laneRects[(size_t) lane].getX() + labelWidth)
     {
         const double t = juce::jlimit (0.0, timelineContentSeconds(), xToTimeIn (timelineMapRect, e.getPosition().x));
         const int idx = addMidiClip (lane, t);
@@ -2090,8 +2445,20 @@ void MainPluginEditor::ArrangementRecorderView::filesDropped (const juce::String
     int lane = laneAtY (y);
     if (lane < 0) lane = 0;
 
-    double dropTime = juce::jmax (0.0, snapTime (xToTimeIn (timelineMapRect, x)));
-    auto before = captureLaneState (lane);
+    const double dropTime = juce::jmax (
+        0.0, snapTime (xToTimeIn (timelineMapRect, x)));
+    importAudioFiles (lane, files, dropTime);
+}
+
+bool MainPluginEditor::ArrangementRecorderView::importAudioFiles (
+    int lane, const juce::StringArray& files, double timelineSeconds)
+{
+    if (formatManager == nullptr || thumbnailCache == nullptr
+        || ! juce::isPositiveAndBelow (lane, numLanes))
+        return false;
+
+    double dropTime = juce::jmax (0.0, snapTime (timelineSeconds));
+    auto before = captureFullState();
     bool added = false;
 
     for (const auto& fs : files)
@@ -2129,10 +2496,16 @@ void MainPluginEditor::ArrangementRecorderView::filesDropped (const juce::String
 
     if (added)
     {
+        if (trackStates[(size_t) lane].type != TrackType::StemLayer)
+            trackStates[(size_t) lane].type = TrackType::Audio;
+        if (trackStates[(size_t) lane].name.isEmpty())
+            setTrackName (lane, defaultTrackName (trackStates[(size_t) lane].type,
+                                                  lane + 1));
         mode = Mode::Finished;
         commitEdit (std::move (before));
     }
     repaint();
+    return added;
 }
 
 void MainPluginEditor::ArrangementRecorderView::applyOverlapResolution (int laneIndex, const LaneClip& incoming)
@@ -2283,6 +2656,9 @@ MainPluginEditor::ArrangementRecorderView::captureFullState() const
     s.allMuted = laneMuted;
     s.allSoloed = laneSoloed;
     s.allGainDb = laneGainDb;
+    s.allTracks = trackStates;
+    s.savedVisibleLanes = visibleLanes;
+    s.savedMode = mode;
     s.savedLoopStart = loopStartSeconds;
     s.savedLoopEnd = loopEndSeconds;
     s.savedLoopEnabled = loopEnabled;
@@ -2319,6 +2695,11 @@ void MainPluginEditor::ArrangementRecorderView::undo()
         laneMuted = entry.allMuted;
         laneSoloed = entry.allSoloed;
         laneGainDb = entry.allGainDb;
+        trackStates = entry.allTracks;
+        visibleLanes = juce::jlimit (1, numLanes, entry.savedVisibleLanes);
+        mode = entry.savedMode;
+        for (int lane = 0; lane < numLanes; ++lane)
+            laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
         loopStartSeconds = entry.savedLoopStart;
         loopEndSeconds = entry.savedLoopEnd;
         loopEnabled = entry.savedLoopEnabled;
@@ -2329,7 +2710,8 @@ void MainPluginEditor::ArrangementRecorderView::undo()
         redoEntry.state = clips[(size_t) entry.lane];
         clips[(size_t) entry.lane] = entry.state;
     }
-    mode = Mode::Idle;
+    if (! entry.full)
+        mode = Mode::Idle;
     selectedLane = -1;
     for (int lane = 0; lane < numEditableLanes; ++lane)
         if (! clips[(size_t) lane].empty() || ! midiClips[(size_t) lane].empty())
@@ -2367,6 +2749,11 @@ void MainPluginEditor::ArrangementRecorderView::redo()
         laneMuted = entry.allMuted;
         laneSoloed = entry.allSoloed;
         laneGainDb = entry.allGainDb;
+        trackStates = entry.allTracks;
+        visibleLanes = juce::jlimit (1, numLanes, entry.savedVisibleLanes);
+        mode = entry.savedMode;
+        for (int lane = 0; lane < numLanes; ++lane)
+            laneDisplayNames[(size_t) lane] = trackStates[(size_t) lane].name;
         loopStartSeconds = entry.savedLoopStart;
         loopEndSeconds = entry.savedLoopEnd;
         loopEnabled = entry.savedLoopEnabled;
@@ -2377,7 +2764,8 @@ void MainPluginEditor::ArrangementRecorderView::redo()
         undoEntry.state = clips[(size_t) entry.lane];
         clips[(size_t) entry.lane] = entry.state;
     }
-    mode = Mode::Idle;
+    if (! entry.full)
+        mode = Mode::Idle;
     selectedLane = -1;
     for (int lane = 0; lane < numEditableLanes; ++lane)
         if (! clips[(size_t) lane].empty() || ! midiClips[(size_t) lane].empty())
@@ -2407,7 +2795,7 @@ void MainPluginEditor::ArrangementRecorderView::triggerSlot (int lane, int clip)
 
 void MainPluginEditor::ArrangementRecorderView::triggerAllSlots() noexcept
 {
-    for (int lane = 0; lane < numLanes; ++lane)
+    for (int lane = 0; lane < numPerformanceLanes; ++lane)
     {
         if (juce::isPositiveAndBelow (lane, (int) clips.size()) && ! clips[(size_t) lane].empty())
             triggerSlot (lane, 0);
@@ -2783,7 +3171,15 @@ void MainPluginEditor::ArrangementRecorderView::mouseWheelMove (const juce::Mous
         const double anchorTime = xToTimeIn (track, e.getPosition().x);
         setZoomAnchored (zoom * (wheel.deltaY > 0.0f ? 1.2 : 1.0 / 1.2), anchorTime);
     }
-    else                                                 // horizontal scroll
+    else if (! e.mods.isShiftDown() && visibleLanes > lanesPerPage)
+    {
+        const int direction = wheel.deltaY > 0.0f ? -1 : 1;
+        firstVisibleLane = juce::jlimit (
+            0, juce::jmax (0, visibleLanes - lanesPerPage),
+            firstVisibleLane + direction);
+        repaint();
+    }
+    else                                                 // Shift+wheel: horizontal scroll
     {
         viewStartSeconds -= (double) wheel.deltaY * visibleSeconds() * 0.35;
         clampView();
@@ -2992,6 +3388,18 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     auto mapRect = juce::Rectangle<int> (gridLeftX, area.getY(), juce::jmax (1, gridRightX - gridLeftX), 1);
     timelineMapRect = mapRect;   // remembered for click-to-seek hit-testing
 
+    // Resolve vertical paging before painting its ruler label. Previously this
+    // used the previous frame's lanesPerPage value, so compact layouts claimed
+    // all tracks were visible even while one was off-screen.
+    const int laneGap = 2;
+    const int minLaneHeight = 62;
+    const int pagingHeight = juce::jmax (1, area.getHeight() - rulerHeight);
+    lanesPerPage = juce::jlimit (1, visibleLanes,
+        juce::jmax (1, (pagingHeight - minLaneHeight - laneGap)
+                          / (minLaneHeight + laneGap)));
+    firstVisibleLane = juce::jlimit (
+        0, juce::jmax (0, visibleLanes - lanesPerPage), firstVisibleLane);
+
     auto ruler = area.removeFromTop (rulerHeight);
     g.setColour (juce::Colour (0xff202329));
     g.fillRect (ruler);
@@ -2999,7 +3407,14 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     rulerBounds = ruler;   // timeline portion of the ruler — click here to seek
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
     g.setColour (juce::Colour (kTextMuted));
-    g.drawText ("TRACKS", rulerLabel.reduced (10, 0), juce::Justification::centredLeft);
+    const auto trackRange = visibleLanes > lanesPerPage
+        ? "TRACKS  " + juce::String (firstVisibleLane + 1) + "-"
+            + juce::String (juce::jmin (visibleLanes,
+                                        firstVisibleLane + lanesPerPage))
+            + " / " + juce::String (visibleLanes)
+        : "TRACKS  " + juce::String (visibleLanes);
+    g.drawText (trackRange, rulerLabel.reduced (10, 0),
+                juce::Justification::centredLeft);
 
     auto rulerTimeToX = [&] (double t) -> int { return timeToXIn (mapRect, t); };
 
@@ -3039,13 +3454,16 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
     }
     g.restoreState();
 
-    // Lanes area. Height is divided by the lanes actually SHOWN (master + the
-    // existing channels), not by the pool size — dividing by the pool left the
-    // drawn lanes squeezed into the top with dead space beneath them.
-    const int lanesTotal = visibleLanes + 1;
-    const int laneGap = 2;
+    // Keep track controls finger-sized as projects grow. The master reference is
+    // pinned; source tracks scroll vertically instead of collapsing into unusable
+    // 16-pixel rows.
     const int laneAreaHeight = area.getHeight();
-    const int laneHeight = juce::jmax (16, (laneAreaHeight - laneGap * (lanesTotal - 1)) / lanesTotal);
+    const int shownTracks = juce::jmin (lanesPerPage,
+                                       visibleLanes - firstVisibleLane);
+    const int lanesTotal = shownTracks + 1;
+    const int laneHeight = juce::jmax (
+        minLaneHeight,
+        (laneAreaHeight - laneGap * (lanesTotal - 1)) / lanesTotal);
 
     // Vertical grid lines extending through the entire stack of lanes (drawn before clips so clips overlay).
     const int gridLeft  = area.getX() + labelWidth + 4;   // matches clip rect math below
@@ -3090,9 +3508,16 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                     numberBox, juce::Justification::centred);
 
         auto laneTitleBox = topLine.reduced (6, 0);
+        auto typeBox = laneTitleBox.removeFromRight (58);
         g.setColour (juce::Colour (kTextPrimary).withAlpha (laneAudible (deckIndex) ? 0.96f : 0.42f));
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
         g.drawText (laneTitle, laneTitleBox, juce::Justification::centredLeft, true);
+        g.setColour (colour.withAlpha (0.16f));
+        g.fillRoundedRectangle (typeBox.toFloat().reduced (1.0f, 3.0f), 3.0f);
+        g.setColour (colour.withAlpha (0.88f));
+        g.setFont (juce::FontOptions (7.6f, juce::Font::bold));
+        g.drawFittedText (trackTypeLabel (trackStates[(size_t) deckIndex].type),
+                          typeBox.reduced (3, 1), juce::Justification::centred, 1);
 
         auto drawTag = [&] (juce::Rectangle<int> r, const char* tag, bool on, juce::Colour onCol)
         {
@@ -3109,19 +3534,49 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             auto mRect = controls.removeFromLeft (22).reduced (1, 1);
             auto sRect = controls.removeFromLeft (22).reduced (1, 1);
             auto aRect = controls.removeFromLeft (22).reduced (1, 1);
+            auto rRect = controls.removeFromLeft (22).reduced (1, 1);
+            auto iRect = controls.removeFromLeft (22).reduced (1, 1);
             muteBtnRects[(size_t) deckIndex] = mRect;
             soloBtnRects[(size_t) deckIndex] = sRect;
             autoBtnRects[(size_t) deckIndex] = aRect;
+            const auto type = trackStates[(size_t) deckIndex].type;
+            const bool recordable = type == TrackType::Midi
+                                 || type == TrackType::LiveInput;
+            const bool monitorable = type == TrackType::LiveInput;
+            armBtnRects[(size_t) deckIndex] = recordable ? rRect
+                                                          : juce::Rectangle<int>();
+            monitorBtnRects[(size_t) deckIndex] = monitorable ? iRect
+                                                               : juce::Rectangle<int>();
             drawTag (mRect, "M", laneMuted[(size_t) deckIndex], juce::Colour (kDanger));
             drawTag (sRect, "S", laneSoloed[(size_t) deckIndex], juce::Colour (kAccent));
             drawTag (aRect, "A", editAuto[(size_t) deckIndex].visible, juce::Colour (kAccentViolet));
+            drawTag (rRect, recordable ? "R" : "-",
+                     recordable && trackStates[(size_t) deckIndex].recordArmed,
+                     juce::Colour (kDanger));
+            drawTag (iRect, monitorable ? "I" : "-",
+                     monitorable && trackStates[(size_t) deckIndex].monitoring,
+                     juce::Colour (kAccent));
+
+            routeBtnRects[(size_t) deckIndex] = controls.reduced (2, 1);
+            g.setColour (juce::Colour (0xff15171b));
+            g.fillRoundedRectangle (routeBtnRects[(size_t) deckIndex].toFloat(), 3.0f);
+            g.setColour (juce::Colour (kTextMuted));
+            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
+            const auto route = trackStates[(size_t) deckIndex].inputRoute == "None"
+                                 ? trackStates[(size_t) deckIndex].outputRoute
+                                 : trackStates[(size_t) deckIndex].inputRoute;
+            g.drawFittedText (route, routeBtnRects[(size_t) deckIndex].reduced (3, 0),
+                              juce::Justification::centred, 1);
         }
         else if (deckIndex == masterLane)
         {
             muteBtnRects[(size_t) deckIndex] = soloBtnRects[(size_t) deckIndex] = {};
+            armBtnRects[(size_t) deckIndex] = monitorBtnRects[(size_t) deckIndex]
+                                              = routeBtnRects[(size_t) deckIndex] = {};
             g.setColour (juce::Colour (kTextFaint));
             g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            g.drawText ("MASTER BUS", controls, juce::Justification::centredLeft);
+            g.drawText ("REFERENCE ONLY  /  printed safety mix",
+                        controls, juce::Justification::centredLeft);
         }
 
         // Compact but real track gain: drag horizontally; double-click returns to 0 dB.
@@ -3419,7 +3874,29 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
         {
             g.setColour (juce::Colour (kTextFaint).withAlpha (0.65f));
             g.setFont (juce::FontOptions (10.0f));
-            g.drawText ("empty", track.reduced (8, 0), juce::Justification::centredLeft);
+            juce::String invitation;
+            switch (trackStates[(size_t) deckIndex].type)
+            {
+                case TrackType::Performance:
+                case TrackType::Audio:
+                    invitation = "Drop audio here or choose + Track"; break;
+                case TrackType::Midi:
+                    invitation = "Double-click to create a MIDI clip"; break;
+                case TrackType::LiveInput:
+                    invitation = trackStates[(size_t) deckIndex].recordArmed
+                                   ? "Armed - Record captures this input into the next take"
+                                   : "Choose an input, then arm R to record"; break;
+                case TrackType::StemLayer:
+                    invitation = "Drop a stem or separated audio layer here"; break;
+                case TrackType::Group:
+                    invitation = "Route tracks here from their output selector"; break;
+                case TrackType::Return:
+                    invitation = "Return bus - route sends here"; break;
+                case TrackType::MasterReference:
+                    invitation = "Printed safety mix appears here after recording"; break;
+            }
+            g.drawText (invitation, track.reduced (10, 0),
+                        juce::Justification::centredLeft);
         }
 
         // ---- Per-lane MIDI clip blocks (each a mini piano-roll preview) ----
@@ -3532,19 +4009,18 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
 
     // Arrangement convention: source tracks top-to-bottom, master bus anchored
     // at the bottom of the stack.
-    for (int i = 0; i < visibleLanes; ++i)
+    laneRects.fill ({});
+    for (int page = 0; page < shownTracks; ++page)
     {
+        const int i = firstVisibleLane + page;
         auto laneRect = area.removeFromTop (laneHeight);
         drawLane (laneRect, laneDisplayNames[(size_t) i],
                   deckAccent (i), deckThumbs[(size_t) i].get(), deckFiles[(size_t) i], i);
         area.removeFromTop (laneGap);
     }
     auto masterLaneRect = area.removeFromTop (laneHeight);
-    drawLane (masterLaneRect, "MASTER", juce::Colour (kAccent), masterThumb.get(), masterFile, masterLane);
-    // Lanes past the channel count are not drawn, so their cached rectangles must
-    // not linger — laneAtY()/hitTestAt() read these to route clicks.
-    for (int i = visibleLanes; i < numLanes; ++i)
-        laneRects[(size_t) i] = {};
+    drawLane (masterLaneRect, "LIVE MASTER REFERENCE", juce::Colour (kAccent),
+              masterThumb.get(), masterFile, masterLane);
 
     // Clip detail view: a persistent, glanceable equivalent of a DAW's lower
     // inspector. The existing context menu remains the editing surface, while
@@ -3577,7 +4053,7 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
                         identity.removeFromTop (22), juce::Justification::centredLeft, true);
             g.setColour (juce::Colour (kTextMuted));
             g.setFont (juce::FontOptions (9.5f));
-            g.drawText ((selectedLane == masterLane ? juce::String ("MASTER") : laneDisplayNames[(size_t) selectedLane])
+            g.drawText ((selectedLane == masterLane ? juce::String ("REFERENCE") : laneDisplayNames[(size_t) selectedLane])
                             + "  /  AUDIO CLIP" + (clip.sourceTake >= 0
                                 ? "  /  COMP T" + juce::String (clip.sourceTake + 1) : "")
                             + (clip.locked ? "  /  LOCKED" : ""),
@@ -3676,11 +4152,11 @@ void MainPluginEditor::ArrangementRecorderView::paint (juce::Graphics& g)
             channelHead.removeFromLeft (9);
             g.setColour (juce::Colour (kTextFaint));
             g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-            g.drawText (selectedLane == masterLane ? "MASTER CHANNEL" : "SELECTED CHANNEL",
+            g.drawText (selectedLane == masterLane ? "PRINTED REFERENCE" : "SELECTED CHANNEL",
                         channelHead.removeFromTop (16), juce::Justification::centredLeft);
             g.setColour (juce::Colour (kTextPrimary));
             g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-            const auto laneName = selectedLane == masterLane ? juce::String ("MASTER")
+            const auto laneName = selectedLane == masterLane ? juce::String ("LIVE MASTER REFERENCE")
                                                               : laneDisplayNames[(size_t) selectedLane];
             g.drawText (laneName, channelHead.removeFromTop (24), juce::Justification::centredLeft, true);
             panel.removeFromTop (6);

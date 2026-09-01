@@ -87,6 +87,9 @@ public:
 
     juce::StringArray getSupportedPluginFormats() const;
     juce::String getStatusSummary() const;
+    // Message-thread health telemetry for rehearsal and automatic continuity.
+    // Includes both in-process safety bypasses and crashed helper processes.
+    int getFaultedChainCount() const;
     juce::Array<juce::PluginDescription> getKnownPlugins() const;
     juce::File getCacheFile() const;
 

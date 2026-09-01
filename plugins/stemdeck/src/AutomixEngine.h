@@ -18,6 +18,20 @@
 namespace stemdeck
 {
 
+enum class TransitionRecipe { smooth = 0, bassSwap, drumBridge, vocalHandoff };
+
+inline juce::String transitionRecipeName (TransitionRecipe recipe)
+{
+    switch (recipe)
+    {
+        case TransitionRecipe::smooth:       return "Smooth Blend";
+        case TransitionRecipe::bassSwap:     return "Bass Swap";
+        case TransitionRecipe::drumBridge:   return "Drum Bridge";
+        case TransitionRecipe::vocalHandoff: return "Vocal Handoff";
+    }
+    return "Smooth Blend";
+}
+
 struct TransitionPlan
 {
     bool   valid = false;
@@ -28,6 +42,8 @@ struct TransitionPlan
     double bassSwapFraction = 0.5;     // 0..1 through the blend where B's bass takes over
     bool   keyCompatible   = false;    // A and B are harmonically compatible as-is
     int    suggestedSemitoneShiftB = 0;// pitch shift on B that makes it compatible (0 if already)
+    TransitionRecipe recipe = TransitionRecipe::smooth;
+    bool stemMorphEnabled = true;
     juce::String description;
 };
 
@@ -39,6 +55,8 @@ public:
         int  phraseBeats     = 16;     // phrase length (16 beats = 4 bars in 4/4)
         int  transitionBeats = 32;     // desired blend length
         bool harmonicMatch   = true;   // consider Camelot compatibility / suggest shift
+        TransitionRecipe recipe = TransitionRecipe::smooth;
+        bool stemMorph = true;
     };
 
     // ── Camelot harmonic mixing ───────────────────────────────────────────────
@@ -144,6 +162,8 @@ public:
 
         plan.lengthBeats = opt.transitionBeats;
         plan.bassSwapFraction = 0.5;   // swap lows at the blend midpoint (classic move)
+        plan.recipe = opt.recipe;
+        plan.stemMorphEnabled = opt.stemMorph;
 
         if (opt.harmonicMatch)
         {
@@ -217,7 +237,7 @@ private:
     static juce::String describe (const TrackAnalysis& a, const TrackAnalysis& b, const TransitionPlan& p)
     {
         juce::String s;
-        s << "Blend over " << p.lengthBeats << " beats. ";
+        s << transitionRecipeName (p.recipe) << " over " << p.lengthBeats << " beats. ";
         const double pct = (double) (int) (p.tempoRatioBtoA * 1000.0) / 10.0;
         s << "Match B to A (x" << juce::String (p.tempoRatioBtoA, 3) << ", " << juce::String (pct, 1) << "%). ";
         if (a.hasKey() && b.hasKey())

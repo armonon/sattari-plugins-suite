@@ -178,8 +178,13 @@ private:
                                           private juce::ChangeListener
     {
     public:
-        static constexpr int numLanes = MainPluginProcessor::numDecks;
-        static constexpr int masterLane = numLanes;          // master follows the channel pool
+        // Performance channels occupy the first slots, while the arranger owns a
+        // larger independent pool for post-performance audio and MIDI layers.
+        // Keeping this bounded avoids audio-thread allocation while removing the
+        // old eight-track editing ceiling.
+        static constexpr int numPerformanceLanes = MainPluginProcessor::numDecks;
+        static constexpr int numLanes = 16;
+        static constexpr int masterLane = numLanes;
         static constexpr int numEditableLanes = numLanes + 1;
         // Pulsebox-style track headers: icon/identity, M/S/automation and a real
         // gain readout remain legible while the timeline scrolls independently.
@@ -205,6 +210,19 @@ private:
 
         // Overlap resolution when a clip is dragged/dropped onto existing clips
         enum class OverlapMode { Keep, Push, Replace };
+
+        enum class TrackType { Performance, Audio, Midi, LiveInput, StemLayer,
+                               Group, Return, MasterReference };
+
+        struct TrackState
+        {
+            TrackType type = TrackType::Audio;
+            juce::String name;
+            juce::String inputRoute { "None" };
+            juce::String outputRoute { "Master" };
+            bool recordArmed = false;
+            bool monitoring = false;
+        };
 
         // A clip is a region [trimStartSeconds, trimEndSeconds] of its source file,
         // shown in place on the timeline (timeline position == source region). A
@@ -260,33 +278,54 @@ private:
         void setIdle (juce::String hint);
         void setRecordingProgress (double elapsedSeconds, juce::String recordingPath);
         void setArrangement (const juce::File& masterFile,
-                             const std::array<juce::File, numLanes>& deckFiles,
+                             const std::array<juce::File, numPerformanceLanes>& deckFiles,
                              juce::String statusLine);
         // Load the canonical arrangement produced at Stop, including its performed
         // clip regions, input lane, and captured automation. Returns false when the
         // document is missing or invalid so callers can fall back to raw WAV lanes.
         bool setArrangementFromCapture (const juce::File& arrangementFile,
                                         juce::String statusLine);
-        void setDeckAutomation (std::array<DeckAutomation, numLanes> automation);
+        void setDeckAutomation (
+            std::array<DeckAutomation, numPerformanceLanes> automation);
         void clearArrangement();
         bool hasArrangement() const noexcept { return mode == Mode::Finished; }
         const LaneClips& getClips() const noexcept { return clips; }
         int getSelectedLane() const noexcept { return selectedLane; }
 
-        // How many channel lanes actually exist. numLanes is the POOL SIZE (8);
-        // rendering all of it meant the arranger showed CH A..CH H while the header
-        // said "6 CH" — the channel model never propagated down here. Lanes beyond
-        // this are neither drawn nor hit-tested.
+        // Total user-created/captured tracks (master reference excluded). Only a
+        // page is drawn at once, so all sixteen remain usable on small screens.
         void setVisibleLanes (int n)
         {
             const int clamped = juce::jlimit (1, numLanes, n);
             if (clamped == visibleLanes) return;
             visibleLanes = clamped;
+            firstVisibleLane = juce::jlimit (
+                0, juce::jmax (0, visibleLanes - lanesPerPage), firstVisibleLane);
             for (int i = clamped; i < numLanes; ++i)
                 laneRects[(size_t) i] = {};
             repaint();
         }
         int getVisibleLanes() const noexcept { return visibleLanes; }
+        void ensureVisibleLanes (int n) { if (n > visibleLanes) setVisibleLanes (n); }
+        int addTrack (TrackType type, juce::String name = {});
+        bool removeTrack (int lane);
+        bool importAudioFiles (int lane, const juce::StringArray& files,
+                               double timelineSeconds);
+        const TrackState& getTrackState (int lane) const noexcept;
+        void setTrackName (int lane, juce::String name);
+        void setTrackInputRoute (int lane, juce::String route);
+        void setTrackOutputRoute (int lane, juce::String route);
+        void setTrackRecordArmed (int lane, bool armed);
+        void setTrackMonitoring (int lane, bool monitoring);
+        int firstArmedMidiTrack() const noexcept;
+        bool hasArmedTracks() const noexcept
+        {
+            for (int lane = 0; lane < visibleLanes; ++lane)
+                if (trackStates[(size_t) lane].recordArmed) return true;
+            return false;
+        }
+        static juce::String defaultTrackName (TrackType type, int ordinal);
+        static juce::String trackTypeLabel (TrackType type);
         void updateClipAfterBounce (int laneIndex, const juce::File& newFile, double newDuration);
         void resetSelectedClipEdits();
         void resetClipEdits (int laneIndex);
@@ -349,6 +388,9 @@ private:
             std::array<int, numLanes> allAutoTarget {};
             std::array<bool, numEditableLanes> allMuted {}, allSoloed {};
             std::array<float, numEditableLanes> allGainDb {};
+            std::array<TrackState, numEditableLanes> allTracks {};
+            int savedVisibleLanes = 1;
+            Mode savedMode = Mode::Idle;
             double savedLoopStart = 0.0, savedLoopEnd = 0.0;
             bool savedLoopEnabled = false;
         };
@@ -362,6 +404,8 @@ private:
 
         std::function<void(int)> onClearDeckRequest;
         std::function<void(int)> onStopDeckRequest;   // stop the deck's transport (launcher Stop)
+        std::function<void(int)> onRouteRequest;
+        std::function<void(int)> onTrackStateChanged;
         std::function<void()>    onLaneMixChanged;    // mute/solo/gain edited — apply live
         std::function<void(double)> onSeek;   // user clicked the ruler to move the play cursor
         struct MidiRef { int lane = -1; int clip = -1; bool valid() const noexcept { return lane >= 0 && clip >= 0; } };
@@ -554,7 +598,10 @@ private:
         int  fileDragLane = -1;   // lane currently under a file drag (for highlight)
         std::array<bool, numEditableLanes> laneMuted {}, laneSoloed {};
         std::array<float, numEditableLanes> laneGainDb {};   // 0 dB default
-        std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {}, gainSliderRects {};
+        std::array<TrackState, numEditableLanes> trackStates {};
+        std::array<juce::Rectangle<int>, numEditableLanes> muteBtnRects {}, soloBtnRects {},
+                                                               armBtnRects {}, monitorBtnRects {},
+                                                               routeBtnRects {}, gainSliderRects {};
         std::array<juce::Rectangle<int>, numLanes> autoBtnRects {}, autoTargetRects {};
         std::array<EditAutomation, numLanes> editAuto;
         std::array<CapturedDspAutomation, numLanes> capturedDsp;
@@ -570,7 +617,9 @@ private:
         LaneClips clips {};
         std::array<juce::Rectangle<int>, numEditableLanes> laneRects {};
         std::array<DeckAutomation, numLanes> deckAutomation;
-        int visibleLanes = numLanes;   // see setVisibleLanes()
+        int visibleLanes = 1;   // grows to the real channel/track count
+        int firstVisibleLane = 0;
+        int lanesPerPage = numLanes;
         int selectedLane = -1;
         int selectedClip = -1;
         bool razorMode = false;
@@ -815,6 +864,7 @@ private:
     juce::TextButton launchAllButton { "Launch" };   // trigger all clip slots at next beat (was cryptic ">>>")
     juce::TextButton playArrButton { "Play" };
     juce::TextButton arrRecordButton { "Record" };
+    juce::TextButton arrAddTrackButton { "+ Track" };
     juce::TextButton keepLastButton { "Keep 60s" };
     juce::TextButton previousTakeButton { juce::String::fromUTF8 ("\xe2\x80\xb9 Take") };
     juce::TextButton nextTakeButton { juce::String::fromUTF8 ("Take \xe2\x80\xba") };
@@ -824,6 +874,8 @@ private:
     // timeline itself) whose visibility follows the nav toggle rather than the
     // perform layout. Kept out of resized() so that stays about the perform screen.
     void layoutArrangerSurface (juce::Rectangle<int> bounds);
+    void showAddArrangementTrackMenu();
+    void showArrangementRouteMenu (int lane);
     // Enforces "one primary surface at a time": blanks the perform screen so an
     // overlay (ARRANGER / MIXER / piano roll) does not show decks through its gaps.
     void hidePerformSurface();
@@ -837,6 +889,7 @@ private:
     void showDiagnostics();
     void showOnboarding (bool force = false);
     void showExportCenter();
+    void showPerformanceFlow();
     void exportArrangementMixdown();
     void exportSessionPackage();
     void keepRetrospectiveAudio();
@@ -934,6 +987,7 @@ private:
     juce::TextButton commandButton { "Search" };
     juce::TextButton inspectorButton { "Inspect" };
     juce::TextButton focusModeButton { "Focus" };
+    juce::TextButton performanceFlowButton { "Flow" };
     std::array<juce::TextButton, MainPluginProcessor::numPerformanceScenes> sceneButtons;
     void showCommandPalette();
     std::vector<stemdeck::CommandPalette::Command> buildCommandList() const;
@@ -1182,6 +1236,8 @@ private:
     float navUnderlineX = -1.0f, navUnderlineW = 0.0f;      // sliding nav underline
     std::array<double, 8> padFlashMs {};                    // pad-trigger flash stamps
     juce::File pendingRecordingFile;
+    juce::ValueTree pendingOverdubBase;
+    double pendingOverdubStartSeconds = 0.0;
     double pendingRecordingStartMs = 0.0;
     bool restoreMetronomeAfterCountIn = false;
     int healthRefreshTick = 0;

@@ -734,6 +734,79 @@ void MainPluginEditor::showDiagnostics()
         std::move (panel), centredAnchor (*this), this);
 }
 
+void MainPluginEditor::showPerformanceFlow()
+{
+    auto looperName = [] (stemdeck::LiveLooper::State state)
+    {
+        switch (state)
+        {
+            case stemdeck::LiveLooper::State::empty:       return juce::String ("Empty");
+            case stemdeck::LiveLooper::State::armed:       return juce::String ("Armed - starts on the next bar");
+            case stemdeck::LiveLooper::State::recording:   return juce::String ("Recording");
+            case stemdeck::LiveLooper::State::playing:     return juce::String ("Playing");
+            case stemdeck::LiveLooper::State::overdubbing: return juce::String ("Overdubbing");
+            case stemdeck::LiveLooper::State::stopped:     return juce::String ("Stopped");
+        }
+        return juce::String ("Empty");
+    };
+    stemdeck::PerformanceFlowPanel::State initial;
+    initial.recipe = processorRef.getAutomixRecipeChoice();
+    initial.length = processorRef.getAutomixLengthChoice();
+    initial.macro = processorRef.getMacroProfileChoice();
+    initial.stemMorph = processorRef.isStemMorphEnabled();
+    initial.automaticContinuity = processorRef.isAutomaticContinuityEnabled();
+    initial.safeMode = processorRef.isPerformanceSafeMode();
+    initial.looperStatus = looperName (processorRef.getLiveLooperState());
+    initial.continuityStatus = processorRef.getContinuityStatus();
+    initial.rehearsal = processorRef.buildRehearsalReport (audioCallbackHealthy);
+
+    auto panel = std::make_unique<stemdeck::PerformanceFlowPanel> (initial);
+    auto* panelPtr = panel.get();
+    const juce::Component::SafePointer<MainPluginEditor> safe (this);
+    const juce::Component::SafePointer<stemdeck::PerformanceFlowPanel> safePanel (panelPtr);
+    auto refresh = [safe, safePanel, looperName]
+    {
+        if (safe == nullptr || safePanel == nullptr) return;
+        stemdeck::PerformanceFlowPanel::State state;
+        state.recipe = safe->processorRef.getAutomixRecipeChoice();
+        state.length = safe->processorRef.getAutomixLengthChoice();
+        state.macro = safe->processorRef.getMacroProfileChoice();
+        state.stemMorph = safe->processorRef.isStemMorphEnabled();
+        state.automaticContinuity = safe->processorRef.isAutomaticContinuityEnabled();
+        state.safeMode = safe->processorRef.isPerformanceSafeMode();
+        state.loopBars = safe->processorRef.getLiveLoopBars();
+        state.looperStatus = looperName (safe->processorRef.getLiveLooperState());
+        state.continuityStatus = safe->processorRef.getContinuityStatus();
+        state.rehearsal = safe->processorRef.buildRehearsalReport (safe->audioCallbackHealthy);
+        safePanel->updateState (std::move (state));
+    };
+    panelPtr->onSettings = [safe] (int recipe, int length, bool morph, int macro, bool continuity)
+    {
+        if (safe == nullptr) return;
+        safe->processorRef.setPerformanceFlowSettings (
+            recipe, length, morph, macro, continuity);
+    };
+    panelPtr->onRunTransition = [safe] { if (safe != nullptr) safe->startAutomix(); };
+    panelPtr->onCaptureLoop = [safe, refresh] (int bars)
+    { if (safe != nullptr) safe->processorRef.requestLiveLoopCapture (bars); juce::Timer::callAfterDelay (80, refresh); };
+    panelPtr->onToggleLoop = [safe, refresh]
+    { if (safe != nullptr) safe->processorRef.toggleLiveLoopPlayback(); juce::Timer::callAfterDelay (80, refresh); };
+    panelPtr->onOverdub = [safe, refresh]
+    { if (safe != nullptr) safe->processorRef.toggleLiveLoopOverdub(); juce::Timer::callAfterDelay (80, refresh); };
+    panelPtr->onClearLoop = [safe, refresh]
+    { if (safe != nullptr) safe->processorRef.clearLiveLoop(); juce::Timer::callAfterDelay (80, refresh); };
+    panelPtr->onSafeMode = [safe, refresh]
+    {
+        if (safe != nullptr)
+            safe->processorRef.setPerformanceSafeMode (! safe->processorRef.isPerformanceSafeMode());
+        refresh();
+    };
+    panelPtr->onRefresh = refresh;
+    const auto anchor = performanceFlowButton.isVisible() && ! performanceFlowButton.getBounds().isEmpty()
+                      ? performanceFlowButton.getBounds() : centredAnchor (*this);
+    juce::CallOutBox::launchAsynchronously (std::move (panel), anchor, this);
+}
+
 void MainPluginEditor::showOnboarding (bool force)
 {
     const auto marker = onboardingMarkerFile();

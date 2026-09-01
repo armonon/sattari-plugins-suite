@@ -216,6 +216,14 @@ int main (int argc, char** argv)
                 mpe->keyPressed (juce::KeyPress ('K', juce::ModifierKeys::commandModifier, 0));
             else if (surface == "inspector")
                 mpe->keyPressed (juce::KeyPress ('I', juce::ModifierKeys::commandModifier, 0));
+            else if (surface == "flow")
+                for (int child = 0; child < mpe->getNumChildComponents(); ++child)
+                    if (auto* button = dynamic_cast<juce::Button*> (mpe->getChildComponent (child));
+                        button != nullptr && button->getButtonText().startsWith ("Flow"))
+                    {
+                        button->triggerClick();
+                        break;
+                    }
         }
     juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
     if (argc >= 9 && juce::String (argv[8]).equalsIgnoreCase ("focus-exit"))
