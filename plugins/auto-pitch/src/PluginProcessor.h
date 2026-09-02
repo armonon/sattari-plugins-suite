@@ -407,6 +407,9 @@ public:
         //  indistinguishable from a confident detection, and every key-following
         //  plugin in the suite accepted it as fact.
         float  confidence = 1.0f;
+        bool   dynamic = false;
+        int    revision = 0;
+        float  windowSeconds = 0.0f;
     };
     //  MINIMUM MARGIN AN AUTOKEY VERDICT NEEDS BEFORE IT MAY REACH THE SESSION
     //  BUS. Derived from measurement, not chosen: the Krumhansl margin on 48

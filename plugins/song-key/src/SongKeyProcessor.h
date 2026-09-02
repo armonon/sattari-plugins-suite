@@ -64,6 +64,7 @@ public:
     // Run one detection pass over the current ring (FFT -> chroma -> key). Called
     // by the background publisher thread and by the offline render proof.
     void analyseNow();
+    void serviceLiveAnalysis();
     void requestRescan();
 
     // A file analysis is deliberately a command, not an automatable parameter.
@@ -75,6 +76,7 @@ public:
     void listenLive();
     void reanalyseCurrentSource();
     void setSessionLocked (bool);
+    void setDynamicFollowEnabled (bool);
     void unlockSession();
     static bool isSupportedAudioFile (const juce::File&);
 
@@ -106,6 +108,18 @@ public:
         double segmentAgreement = 0.0;
         int segments = 0;
         bool possibleModulation = false;
+        bool dynamicEnabled = false;
+        bool dynamicActive = false;
+        int dynamicRoot = 0;
+        bool dynamicMinor = false;
+        double dynamicConfidence = 0.0;
+        bool dynamicPending = false;
+        int dynamicPendingRoot = 0;
+        bool dynamicPendingMinor = false;
+        int dynamicPendingConfirmations = 0;
+        double dynamicIntervalSeconds = 3.0;
+        double dynamicSecondsUntilScan = 0.0;
+        int dynamicRevision = 0;
         juce::String sourceName;
         juce::String error;
     };
@@ -133,6 +147,8 @@ private:
                                 std::vector<float>& previous);
     void stopFileWorker();
     void clearPublishedDecision();
+    void resetLiveKeyWindow();
+    void resetDynamicDecision();
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -196,6 +212,23 @@ private:
     double lockedReferenceHz = 440.0;
     double lockedBpm = 0.0;
     static constexpr double kMinPublishConfidence = sattari::dsp::kReleaseKeyConfidence;
+    static constexpr double kStrongDynamicConfidence = 0.22;
+
+    // Dynamic Follow state is worker-thread owned under analysisStateMutex.
+    // The accepted key is deliberately separate from the latest detector
+    // candidate: ambiguous or silent windows retain the last trusted decision.
+    bool dynamicWasEnabled = false;
+    bool dynamicDecisionValid = false;
+    int dynamicRoot = 0;
+    bool dynamicMinor = false;
+    double dynamicConfidence = 0.0;
+    int dynamicPendingRoot = 0;
+    bool dynamicPendingMinor = false;
+    int dynamicPendingConfirmations = 0;
+    int dynamicRevision = 0;
+    juce::int64 nextDynamicScanSample = 0;
+    juce::int64 lastDynamicPublishAttemptMs = 0;
+    bool liveWindowHasValidDecision = false;
 
     std::thread worker;
     std::atomic<bool> workerRunning { false };

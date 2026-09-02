@@ -195,6 +195,10 @@ struct SessionMessage
     float  energy = 0.0f;          // 0..1 arrangement energy
     int    maqamId = 0;            // 0=western/none, else a maqam/dastgah id
     double referenceHz = 440.0;    // reference tuning (A4)
+    bool   dynamicKey = false;      // key may change while the session is running
+    float  keyConfidence = 0.0f;    // publisher's gated margin; 0 means unspecified
+    int    keyRevision = 0;         // increments only when the accepted key changes
+    double keyWindowSeconds = 0.0;  // evidence window used for the accepted decision
     juce::String progression;      // e.g. "0,9,5,7" chord roots (message-only, not in the RT snapshot)
 };
 
@@ -253,9 +257,31 @@ inline bool publishSessionState (const juce::String& publisherId, const SessionM
     obj->setProperty ("energy",       juce::jlimit (0.0f, 1.0f, s.energy));
     obj->setProperty ("maqamId",      s.maqamId);
     obj->setProperty ("referenceHz",  s.referenceHz > 0.0 ? s.referenceHz : 440.0);
+    obj->setProperty ("dynamicKey",   s.dynamicKey);
+    obj->setProperty ("keyConfidence", juce::jlimit (0.0f, 1.0f, s.keyConfidence));
+    obj->setProperty ("keyRevision",  juce::jmax (0, s.keyRevision));
+    obj->setProperty ("keyWindowSeconds", juce::jmax (0.0, s.keyWindowSeconds));
     if (s.progression.isNotEmpty()) obj->setProperty ("progression", s.progression);
     obj->setProperty ("timestampMs", currentTimeMs());
     return file.replaceWithText (juce::JSON::toString (juce::var (obj)));
+}
+
+// Remove a session frame only when it still belongs to this publisher. This is
+// used when a detector is explicitly disabled/unlocked, so followers stop now
+// instead of consuming its otherwise-valid 30-second stale tail. A different
+// authority's frame can never be removed by this call.
+inline bool withdrawSessionState (const juce::String& publisherId,
+                                  const juce::String& requestedSessionId = {})
+{
+    juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
+    if (! publishLock.isLocked()) return false;
+    const auto file = keyBusFile (requestedSessionId);
+    if (! file.existsAsFile()) return false;
+    const auto parsed = juce::JSON::parse (file.loadFileAsString());
+    if (! parsed.isObject()
+        || parsed.getProperty ("publisher", juce::String()).toString() != publisherId)
+        return false;
+    return file.deleteFile();
 }
 
 inline std::optional<SessionMessage> readSession (
@@ -293,6 +319,12 @@ inline std::optional<SessionMessage> readSession (
     s.energy       = juce::jlimit (0.0f, 1.0f, (float) (double) parsed.getProperty ("energy", 0.0));
     s.maqamId      = (int) parsed.getProperty ("maqamId", 0);
     s.referenceHz  = (double) parsed.getProperty ("referenceHz", 440.0);
+    s.dynamicKey   = (bool) parsed.getProperty ("dynamicKey", false);
+    s.keyConfidence = juce::jlimit (0.0f, 1.0f,
+        (float) (double) parsed.getProperty ("keyConfidence", 0.0));
+    s.keyRevision = juce::jmax (0, (int) parsed.getProperty ("keyRevision", 0));
+    s.keyWindowSeconds = juce::jmax (0.0,
+        (double) parsed.getProperty ("keyWindowSeconds", 0.0));
     s.progression  = parsed.getProperty ("progression", juce::String()).toString();
     return s;
 }
@@ -312,6 +344,10 @@ struct SessionSnapshot
     float       energy = 0.0f;
     int         maqamId = 0;
     double      referenceHz = 440.0;
+    bool        dynamicKey = false;
+    float       keyConfidence = 0.0f;
+    int         keyRevision = 0;
+    double      keyWindowSeconds = 0.0;
 };
 
 namespace detail
@@ -378,6 +414,10 @@ private:
                 fresh.energy = m->energy;
                 fresh.maqamId = m->maqamId;
                 fresh.referenceHz = m->referenceHz;
+                fresh.dynamicKey = m->dynamicKey;
+                fresh.keyConfidence = m->keyConfidence;
+                fresh.keyRevision = m->keyRevision;
+                fresh.keyWindowSeconds = m->keyWindowSeconds;
                 frame.store (fresh);
             }
             else

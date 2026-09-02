@@ -1645,13 +1645,17 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         else
         {
             const auto summaryOrigin = audioProcessor.currentKeyOrigin();
-            const char* src = summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus ? "BUS"
+            const char* src = summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus
+                                  ? (summaryOrigin.dynamic ? "DYNAMIC BUS" : "BUS")
                             : summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::KeyMap    ? "KEY MAP"
                             : summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey   ? "AUTO"
                                                                                                                    : "MANUAL";
             text << src << "  " << nm[juce::jlimit (0, 11, summaryOrigin.root)]
                  << (summaryOrigin.scale == 1 ? " minor" : summaryOrigin.scale == 2 ? "" : " major");
-            if (summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey)
+            if (summaryOrigin.dynamic)
+                text << "  -  rev " << summaryOrigin.revision;
+            if (summaryOrigin.source == SattariAutoPitchAudioProcessor::KeyOrigin::Source::AutoKey
+                || summaryOrigin.dynamic)
                 text << "  -  margin " << juce::String (summaryOrigin.confidence, 2);
         }
         headerSummary.setText (text, juce::dontSendNotification);

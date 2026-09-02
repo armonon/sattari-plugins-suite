@@ -29,6 +29,25 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
         audioProcessor.setSessionLocked (lockToggle.getToggleState());
     };
     addAndMakeVisible (lockToggle);
+    dynamicFollowToggle.setTitle ("Follow live key changes automatically");
+    dynamicFollowToggle.setDescription (
+        "Analyse a new rolling key window every 1-5 seconds and publish only trusted changes");
+    dynamicFollowToggle.onClick = [this]
+    {
+        audioProcessor.setDynamicFollowEnabled (
+            dynamicFollowToggle.getToggleState());
+        updateManualControls();
+        updateSnapshot();
+    };
+    addAndMakeVisible (dynamicFollowToggle);
+
+    dynamicInterval.setSliderStyle (juce::Slider::LinearHorizontal);
+    dynamicInterval.setTextBoxStyle (juce::Slider::TextBoxRight, false, 54, 22);
+    dynamicInterval.setTextValueSuffix (" s");
+    dynamicInterval.setTitle ("Dynamic scan interval");
+    dynamicInterval.setDescription (
+        "Length of each non-overlapping live key evidence window");
+    addAndMakeVisible (dynamicInterval);
     manualToggle.setTitle ("Manual key override");
     manualToggle.setDescription (
         "Use an explicit key instead of the detected result");
@@ -49,6 +68,10 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
 
     lockAttachment = std::make_unique<ButtonAttachment> (
         audioProcessor.parameters(), "lockSession", lockToggle);
+    dynamicFollowAttachment = std::make_unique<ButtonAttachment> (
+        audioProcessor.parameters(), "dynamicFollow", dynamicFollowToggle);
+    dynamicIntervalAttachment = std::make_unique<SliderAttachment> (
+        audioProcessor.parameters(), "dynamicInterval", dynamicInterval);
     manualAttachment = std::make_unique<ButtonAttachment> (
         audioProcessor.parameters(), "manual", manualToggle);
     rootAttachment = std::make_unique<ComboAttachment> (
@@ -185,13 +208,20 @@ void SattariSongKeyAudioProcessorEditor::timerCallback()
 
 void SattariSongKeyAudioProcessorEditor::updateManualControls()
 {
-    const bool manual = manualToggle.getToggleState();
-    manualRootBox.setEnabled (manual);
-    manualScaleBox.setEnabled (manual);
+    const bool dynamic = dynamicFollowToggle.getToggleState();
+    const bool manual = manualToggle.getToggleState() && ! dynamic;
+    manualToggle.setEnabled (! dynamic);
+    manualRootBox.setEnabled (manual && ! dynamic);
+    manualScaleBox.setEnabled (manual && ! dynamic);
+    dynamicInterval.setEnabled (dynamic);
 }
 
 juce::String SattariSongKeyAudioProcessorEditor::currentRoot() const
 {
+    if (snapshot.dynamicActive)
+        return rootName (snapshot.dynamicRoot);
+    if (snapshot.dynamicEnabled)
+        return "--";
     if (snapshot.sessionLocked)
         return rootName (snapshot.lockedRoot);
     if (manualToggle.getToggleState())
@@ -205,6 +235,12 @@ juce::String SattariSongKeyAudioProcessorEditor::currentRoot() const
 
 juce::String SattariSongKeyAudioProcessorEditor::currentMode() const
 {
+    if (snapshot.dynamicActive)
+        return juce::String (snapshot.dynamicMinor ? "MINOR" : "MAJOR")
+            + " · " + camelotName (snapshot.dynamicRoot, snapshot.dynamicMinor)
+            + " · DYNAMIC";
+    if (snapshot.dynamicEnabled)
+        return "DYNAMIC · BUILDING EVIDENCE";
     if (snapshot.sessionLocked)
         return juce::String (snapshot.lockedMinor ? "MINOR" : "MAJOR")
             + " · " + camelotName (snapshot.lockedRoot, snapshot.lockedMinor)
@@ -230,16 +266,24 @@ juce::String SattariSongKeyAudioProcessorEditor::currentMode() const
 void SattariSongKeyAudioProcessorEditor::updateSnapshot()
 {
     snapshot = audioProcessor.detected();
-    const bool manual = manualToggle.getToggleState();
-    const bool trusted = snapshot.valid
+    dynamicFollowToggle.setToggleState (
+        snapshot.dynamicEnabled, juce::dontSendNotification);
+    updateManualControls();
+    const bool manual = manualToggle.getToggleState() && ! snapshot.dynamicEnabled;
+    const bool trustedDetector = snapshot.valid
         && snapshot.confidence >= sattari::dsp::kReleaseKeyConfidence;
+    const bool trusted = snapshot.dynamicActive || trustedDetector;
     // The detector returns a winner-vs-runner-up margin, not a calibrated
     // probability. Display it without the old arbitrary 3x inflation.
     const float confidence = manual ? 1.0f
-                                    : juce::jlimit (0.0f, 1.0f, (float) snapshot.confidence);
+        : juce::jlimit (0.0f, 1.0f, (float) (snapshot.dynamicActive
+                                                ? snapshot.dynamicConfidence
+                                                : snapshot.confidence));
     confidenceMetric.setValue (
         juce::String ((int) std::round (confidence * 100.0f)),
-        "%", manual ? "explicit key" : "uncalibrated margin");
+        "%", manual ? "explicit key"
+            : snapshot.dynamicActive ? "accepted rolling margin"
+                                     : "uncalibrated margin");
     tuningMetric.setValue (
         trusted ? juce::String (snapshot.detuneCents, 1)
                        : juce::String ("--"),
@@ -290,7 +334,8 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     lockToggle.setButtonText (
         snapshot.sessionLocked ? "Session locked"
             : snapshot.lockRequested ? "Waiting to lock" : "Lock session");
-    lockToggle.setEnabled (snapshot.lockRequested || manual || trusted);
+    lockToggle.setEnabled (! snapshot.dynamicEnabled
+        && (snapshot.lockRequested || manual || trustedDetector));
 
     juce::String status;
     bool active = false;
@@ -303,6 +348,32 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     else if (snapshot.error.isNotEmpty())
     {
         status = "FILE COULD NOT BE ANALYSED";
+    }
+    else if (snapshot.dynamicEnabled && snapshot.dynamicActive
+             && snapshot.publishing)
+    {
+        status = "DYNAMIC FOLLOW / REV "
+            + juce::String (snapshot.dynamicRevision)
+            + " / NEXT " + juce::String (snapshot.dynamicSecondsUntilScan, 1) + " S";
+        active = true;
+    }
+    else if (snapshot.dynamicEnabled && snapshot.dynamicPending)
+    {
+        status = "DYNAMIC / CONFIRMING "
+            + rootName (snapshot.dynamicPendingRoot)
+            + (snapshot.dynamicPendingMinor ? " MINOR" : " MAJOR");
+        active = true;
+    }
+    else if (snapshot.dynamicEnabled && snapshot.dynamicActive)
+    {
+        status = "DYNAMIC READY / SUITE BUS OWNED ELSEWHERE";
+        active = true;
+    }
+    else if (snapshot.dynamicEnabled)
+    {
+        status = "DYNAMIC / BUILDING "
+            + juce::String (snapshot.dynamicIntervalSeconds, 1) + " S WINDOW";
+        active = true;
     }
     else if (snapshot.sessionLocked && snapshot.publishing)
     {
@@ -345,7 +416,9 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     auto key = keyArea.reduced (16, 12);
     sattari::studio::paintSectionTitle (
         g, key.removeFromTop (18), "Detected key",
-        snapshot.sessionLocked ? "locked session truth" : "review before locking");
+        snapshot.dynamicEnabled ? "rolling trusted decision"
+            : snapshot.sessionLocked ? "locked session truth"
+                                     : "review before locking");
     key.removeFromTop (4);
 
     auto rootArea = key.removeFromTop (
@@ -372,9 +445,11 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     auto confidenceBar = key.removeFromTop (8).toFloat();
     g.setColour (sattari::studio::colour::separator);
     g.fillRoundedRectangle (confidenceBar, 4.0f);
-    const bool manual = manualToggle.getToggleState();
+    const bool manual = manualToggle.getToggleState() && ! snapshot.dynamicEnabled;
     const float confidence = manual ? 1.0f : juce::jlimit (
-        0.0f, 1.0f, (float) snapshot.confidence);
+        0.0f, 1.0f, (float) (snapshot.dynamicActive
+                                 ? snapshot.dynamicConfidence
+                                 : snapshot.confidence));
     g.setColour (accent);
     g.fillRoundedRectangle (
         confidenceBar.withWidth (
@@ -411,7 +486,9 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     else
     {
         primary = "Live input";
-        secondary = "Play the song through this track, master bus, or standalone input";
+        secondary = snapshot.dynamicEnabled
+            ? "Dynamic Follow holds the last trusted key through silence and ambiguity"
+            : "Play the song through this track, master bus, or standalone input";
     }
 
     auto text = source.removeFromLeft (juce::jmax (240, source.getWidth() - 190));
@@ -490,9 +567,13 @@ void SattariSongKeyAudioProcessorEditor::resized()
 
     auto manual = manualArea.reduced (14);
     manual.removeFromTop (24);
-    manualToggle.setBounds (manual.removeFromLeft (158));
-    manual.removeFromLeft (10);
-    manualRootBox.setBounds (manual.removeFromLeft (110));
+    manualToggle.setBounds (manual.removeFromLeft (144));
     manual.removeFromLeft (8);
-    manualScaleBox.setBounds (manual.removeFromLeft (130));
+    manualRootBox.setBounds (manual.removeFromLeft (92));
+    manual.removeFromLeft (8);
+    manualScaleBox.setBounds (manual.removeFromLeft (112));
+    manual.removeFromLeft (8);
+    dynamicFollowToggle.setBounds (manual.removeFromLeft (140));
+    manual.removeFromLeft (8);
+    dynamicInterval.setBounds (manual);
 }

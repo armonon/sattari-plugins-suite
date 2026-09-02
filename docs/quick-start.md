@@ -45,6 +45,14 @@ Sattari Maqam extends the direction into microtonal tuning.
 - Insert on an isolated vocal or monophonic instrument.
 - Set the voice/instrument range before tuning.
 - Select or follow the correct key and scale.
+- For a set that genuinely modulates, place **Sattari Key** on the music/master
+  feed, choose **Listen live**, enable **Dynamic follow**, and set a 1–5 second
+  scan window. Leave Auto Pitch's **Follow Song Key** on for the singer. Three
+  seconds is the recommended balance; one second reacts fastest but has less
+  harmonic evidence. A strong new key moves after one complete window, a
+  marginal new key must repeat in two windows, and silence or ambiguity retains
+  the last trusted key. The suite reader adds up to roughly 0.4 seconds after an
+  accepted change; this does not add audio latency to the vocal path.
 - Start with **Natural** for expressive correction or **Pitch Center** for a
   clean, stronger pull. Use **Hard Tune** only when the snap is intentional.
 - For monitored performance, enable **LIVE + 2MS** for the measured 2.00 ms

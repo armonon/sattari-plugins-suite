@@ -126,11 +126,11 @@ Focused results on 2026-08-16:
 3. Repeat tempo comparison on a genuinely held-out, labeled and independent set;
    this private development folder cannot be reused as release evidence.
 4. Add an audition keyboard and, later, an explicit key-change timeline editor.
-5. Extend the session-bus schema with decision kind, confidence, scope and
-   optional key-map timeline; the current frozen snapshot uses the compatible
-   base key/tempo/reference message.
+5. Dynamic decision kind, confidence, revision and evidence-window metadata were
+   added compatibly on 2026-09-02. An optional authored key-map timeline remains
+   future work; see `2026-09-02-dynamic-key-follow.md`.
 
-No Auto Pitch DSP, Compass decision path, StemDeck code, signing or notarization
-was changed by this work. Auto Pitch can consume the explicitly locked Sattari
-Key result through the existing session bus while its frozen internal fallback
-remains unchanged.
+No Auto Pitch DSP or Compass decision path was changed by this work. Auto Pitch
+can consume either the explicitly locked Sattari Key result or the later Dynamic
+Follow extension through the existing session bus while its frozen internal
+fallback remains unchanged.

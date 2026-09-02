@@ -349,8 +349,10 @@ if(BUILD_TESTING)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
         add_test(NAME SongKeyFileAnalysisSmoke COMMAND $<TARGET_FILE:SongKeyRender> --file-smoke)
         add_test(NAME SongKeyLiveTempoSmoke COMMAND $<TARGET_FILE:SongKeyRender> --live-tempo-smoke)
+        add_test(NAME SongKeyDynamicFollowSmoke COMMAND $<TARGET_FILE:SongKeyRender> --dynamic-follow-smoke)
         set_tests_properties(
             SongKeyRenderSmoke SongKeyFileAnalysisSmoke SongKeyLiveTempoSmoke
+            SongKeyDynamicFollowSmoke
             PROPERTIES LABELS "render;non-stemdeck")
     endif()
     if(TARGET AutoPitchRender)

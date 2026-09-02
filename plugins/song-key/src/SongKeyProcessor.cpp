@@ -16,6 +16,9 @@ APVTS::ParameterLayout SattariSongKeyAudioProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "publish", 1 }, "Publish to Suite", true));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "lockSession", 1 }, "Lock Session", false));
+    p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "dynamicFollow", 1 }, "Dynamic Key Follow", false));
+    p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "dynamicInterval", 1 }, "Dynamic Scan Interval",
+        juce::NormalisableRange<float> (1.0f, 5.0f, 0.5f), 3.0f));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "manual",  1 }, "Manual Override", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualRoot",  1 }, "Manual Root",  rootChoices(),  0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualScale", 1 }, "Manual Scale", scaleChoices(), 0));
@@ -64,6 +67,7 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
     liveOnsetEnvelope.clear();
     liveOnsetEnvelope.reserve ((size_t) std::ceil (
         currentSampleRate / (double) (fftSize / 2) * 120.0));
+    resetDynamicDecision();
 
     workerRunning.store (true, std::memory_order_release);
     worker = std::thread ([this] { workerLoop(); });
@@ -113,9 +117,7 @@ void SattariSongKeyAudioProcessor::analyseNow()
     if (! fft) return;
     if (rescan.exchange (false))
     {
-        std::fill (running, running + 12, 0.0);
-        hpcp.reset();
-        liveSongKey.prepare (currentSampleRate);
+        resetLiveKeyWindow();
         std::fill (livePreviousSpectrum.begin(), livePreviousSpectrum.end(), 0.0f);
         liveOnsetEnvelope.clear();
         runningDetune = 0.0;
@@ -129,6 +131,7 @@ void SattariSongKeyAudioProcessor::analyseNow()
         detSegmentAgreement.store (0.0);
         detSegments.store (0);
         detPossibleModulation.store (false);
+        resetDynamicDecision();
     }
 
     const int wp = writePos.load (std::memory_order_acquire);
@@ -208,6 +211,7 @@ void SattariSongKeyAudioProcessor::analyseNow()
         detMinor.store (k.minor);
         detConf.store (k.confidence);
         detValid.store (true);
+        liveWindowHasValidDecision = true;
         detAlternativeValid.store (alternative.valid);
         if (alternative.valid)
         {
@@ -230,6 +234,12 @@ void SattariSongKeyAudioProcessor::analyseNow()
     detBpm.store (tempo.valid ? tempo.bpm : 0.0);
     detTempoConfidence.store (tempo.confidence);
     detTempoOctaveAmbiguous.store (tempo.octaveAmbiguous);
+}
+
+void SattariSongKeyAudioProcessor::serviceLiveAnalysis()
+{
+    analyseNow();
+    publishCurrent();
 }
 
 float SattariSongKeyAudioProcessor::onsetStrength (
@@ -261,17 +271,65 @@ void SattariSongKeyAudioProcessor::clearPublishedDecision()
     publishingNow.store (false);
 }
 
+void SattariSongKeyAudioProcessor::resetLiveKeyWindow()
+{
+    std::fill (running, running + 12, 0.0);
+    hpcp.reset();
+    liveSongKey.prepare (currentSampleRate);
+    liveWindowHasValidDecision = false;
+}
+
+void SattariSongKeyAudioProcessor::resetDynamicDecision()
+{
+    dynamicWasEnabled = false;
+    dynamicDecisionValid = false;
+    dynamicRoot = dynamicPendingRoot = 0;
+    dynamicMinor = dynamicPendingMinor = false;
+    dynamicConfidence = 0.0;
+    dynamicPendingConfirmations = 0;
+    dynamicRevision = 0;
+    nextDynamicScanSample = 0;
+    lastDynamicPublishAttemptMs = 0;
+    liveWindowHasValidDecision = false;
+}
+
 void SattariSongKeyAudioProcessor::setSessionLocked (bool shouldLock)
 {
     if (auto* parameter = apvts.getParameter ("lockSession"))
         parameter->setValueNotifyingHost (shouldLock ? 1.0f : 0.0f);
     if (! shouldLock)
     {
-        const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
-        clearPublishedDecision();
+        {
+            const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
+            clearPublishedDecision();
+        }
+        sattari::xplugin::withdrawSessionState ("song-key");
         return;
     }
     publishCurrent();
+}
+
+void SattariSongKeyAudioProcessor::setDynamicFollowEnabled (bool enabled)
+{
+    if (auto* parameter = apvts.getParameter ("dynamicFollow"))
+        parameter->setValueNotifyingHost (enabled ? 1.0f : 0.0f);
+    if (enabled)
+    {
+        if (auto* parameter = apvts.getParameter ("lockSession"))
+            parameter->setValueNotifyingHost (0.0f);
+        if (auto* parameter = apvts.getParameter ("manual"))
+            parameter->setValueNotifyingHost (0.0f);
+        listenLive();
+    }
+    else
+    {
+        {
+            const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
+            resetDynamicDecision();
+            publishingNow.store (false);
+        }
+        sattari::xplugin::withdrawSessionState ("song-key");
+    }
 }
 
 void SattariSongKeyAudioProcessor::unlockSession()
@@ -307,6 +365,7 @@ void SattariSongKeyAudioProcessor::listenLive()
     {
         const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
         clearPublishedDecision();
+        resetDynamicDecision();
         detValid.store (false);
         detSegmentAgreement.store (0.0);
         detSegments.store (0);
@@ -336,6 +395,8 @@ void SattariSongKeyAudioProcessor::reanalyseCurrentSource()
 bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
 {
     stopFileWorker();
+    if (auto* parameter = apvts.getParameter ("dynamicFollow"))
+        parameter->setValueNotifyingHost (0.0f);
     unlockSession();
     analysisSource.store (AnalysisSource::File, std::memory_order_release);
     fileProgress.store (0.0);
@@ -349,6 +410,7 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
     {
         const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
         clearPublishedDecision();
+        resetDynamicDecision();
         detValid.store (false);
         detAlternativeValid.store (false);
         detTempoValid.store (false);
@@ -573,10 +635,138 @@ void SattariSongKeyAudioProcessor::publishCurrent()
 {
     const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
     const bool pub = param ("publish") > 0.5f;
+    const bool dynamicRequested = param ("dynamicFollow") > 0.5f
+        && analysisSource.load (std::memory_order_acquire) == AnalysisSource::Live;
     const bool lockRequested = param ("lockSession") > 0.5f;
-    publishingNow.store (false);
+    const bool wasPublishing = publishingNow.exchange (false);
+
+    if (dynamicRequested)
+    {
+        lockSnapshotValid = false;
+        const auto written = totalSamplesWritten.load (std::memory_order_acquire);
+        const double interval = juce::jlimit (
+            1.0, 5.0, (double) param ("dynamicInterval"));
+        const auto intervalSamples = juce::jmax<juce::int64> (
+            1, (juce::int64) std::llround (interval * currentSampleRate));
+        if (! dynamicWasEnabled)
+        {
+            dynamicWasEnabled = true;
+            nextDynamicScanSample = written + intervalSamples;
+            dynamicPendingConfirmations = 0;
+            resetLiveKeyWindow();
+        }
+
+        bool acceptedNewKey = false;
+        if (written >= nextDynamicScanSample)
+        {
+            if (liveWindowHasValidDecision && detValid.load()
+                && detConf.load() >= kMinPublishConfidence)
+            {
+                const int candidateRoot = juce::jlimit (0, 11, detRoot.load());
+                const bool candidateMinor = detMinor.load();
+                const double candidateConfidence = detConf.load();
+                const bool sameAsActive = dynamicDecisionValid
+                    && candidateRoot == dynamicRoot
+                    && candidateMinor == dynamicMinor;
+                if (! dynamicDecisionValid || sameAsActive)
+                {
+                    if (! dynamicDecisionValid)
+                    {
+                        dynamicRoot = candidateRoot;
+                        dynamicMinor = candidateMinor;
+                        dynamicDecisionValid = true;
+                        ++dynamicRevision;
+                        acceptedNewKey = true;
+                    }
+                    dynamicConfidence = candidateConfidence;
+                    dynamicPendingConfirmations = 0;
+                }
+                else
+                {
+                    const bool sameAsPending = dynamicPendingConfirmations > 0
+                        && candidateRoot == dynamicPendingRoot
+                        && candidateMinor == dynamicPendingMinor;
+                    if (sameAsPending)
+                        ++dynamicPendingConfirmations;
+                    else
+                    {
+                        dynamicPendingRoot = candidateRoot;
+                        dynamicPendingMinor = candidateMinor;
+                        dynamicPendingConfirmations = 1;
+                    }
+
+                    // Strong evidence can follow one scan window. A marginal
+                    // but releasable change must repeat in two consecutive,
+                    // non-overlapping windows before it can move a singer.
+                    if (candidateConfidence >= kStrongDynamicConfidence
+                        || dynamicPendingConfirmations >= 2)
+                    {
+                        dynamicRoot = candidateRoot;
+                        dynamicMinor = candidateMinor;
+                        dynamicConfidence = candidateConfidence;
+                        dynamicDecisionValid = true;
+                        dynamicPendingConfirmations = 0;
+                        ++dynamicRevision;
+                        acceptedNewKey = true;
+                    }
+                }
+            }
+            else
+            {
+                // Silence, drums and ambiguous harmony are not new keys. Keep
+                // the last trusted result and discard partial switch evidence.
+                dynamicPendingConfirmations = 0;
+            }
+
+            nextDynamicScanSample = written + intervalSamples;
+            resetLiveKeyWindow();
+        }
+
+        if (! pub || ! dynamicDecisionValid)
+        {
+            if (! pub && wasPublishing)
+                sattari::xplugin::withdrawSessionState ("song-key");
+            return;
+        }
+
+        const auto now = sattari::xplugin::currentTimeMs();
+        const bool heartbeatDue = lastDynamicPublishAttemptMs <= 0
+            || now - lastDynamicPublishAttemptMs >= 650;
+        if (! acceptedNewKey && ! heartbeatDue)
+        {
+            publishingNow.store (wasPublishing);
+            return;
+        }
+
+        const double exactHostTempo = hostBpm.load();
+        const double detectedTempo = detTempoValid.load() ? detBpm.load() : 0.0;
+        sattari::xplugin::SessionMessage msg;
+        msg.root = dynamicRoot;
+        msg.scale = dynamicMinor ? 1 : 0;
+        msg.bpm = exactHostTempo > 1.0 ? exactHostTempo : detectedTempo;
+        msg.transientId = ++transientId;
+        msg.referenceHz = 440.0 * std::pow (
+            2.0, detDetuneCents.load() / 1200.0);
+        msg.dynamicKey = true;
+        msg.keyConfidence = (float) juce::jlimit (0.0, 1.0, dynamicConfidence);
+        msg.keyRevision = dynamicRevision;
+        msg.keyWindowSeconds = interval;
+        const bool published = sattari::xplugin::publishSessionState ("song-key", msg);
+        publishingNow.store (published);
+        lastDynamicPublishAttemptMs = now;
+        return;
+    }
+
+    if (dynamicWasEnabled)
+    {
+        resetDynamicDecision();
+        if (wasPublishing)
+            sattari::xplugin::withdrawSessionState ("song-key");
+    }
     if (! pub || ! lockRequested)
     {
+        if (wasPublishing)
+            sattari::xplugin::withdrawSessionState ("song-key");
         if (! lockRequested) lockSnapshotValid = false;
         return;
     }
@@ -607,7 +797,6 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         lockSnapshotValid = true;
     }
 
-    publishingNow.store (true);
     // Publish the base SessionState (Compass fallback): key + host tempo + the
     // reference tuning we already estimate from the spectrum. referenceHz rides the
     // bus so any plugin can follow the song's actual A, not just its key. The other
@@ -618,7 +807,8 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     msg.bpm         = lockedBpm;
     msg.transientId = ++transientId;
     msg.referenceHz = lockedReferenceHz;
-    sattari::xplugin::publishSessionState ("song-key", msg);
+    publishingNow.store (
+        sattari::xplugin::publishSessionState ("song-key", msg));
 }
 
 void SattariSongKeyAudioProcessor::stopWorker()
@@ -654,8 +844,7 @@ void SattariSongKeyAudioProcessor::workerLoop()
         if (written < fftSize || written - lastAnalysed < fftSize / 2)
             continue;
         lastAnalysed = written;
-        analyseNow();
-        publishCurrent();
+        serviceLiveAnalysis();
     }
 }
 
@@ -680,11 +869,26 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
     d.tempoFromHost = useHostTempo;
     d.tempoOctaveAmbiguous = ! useHostTempo && detTempoOctaveAmbiguous.load();
     d.lockRequested = param ("lockSession") > 0.5f;
+    d.dynamicEnabled = param ("dynamicFollow") > 0.5f;
+    d.dynamicIntervalSeconds = juce::jlimit (
+        1.0, 5.0, (double) param ("dynamicInterval"));
+    const auto written = totalSamplesWritten.load (std::memory_order_acquire);
     {
         const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
         d.sessionLocked = lockSnapshotValid;
         d.lockedRoot = lockedRoot;
         d.lockedMinor = lockedMinor;
+        d.dynamicActive = dynamicDecisionValid;
+        d.dynamicRoot = dynamicRoot;
+        d.dynamicMinor = dynamicMinor;
+        d.dynamicConfidence = dynamicConfidence;
+        d.dynamicPending = dynamicPendingConfirmations > 0;
+        d.dynamicPendingRoot = dynamicPendingRoot;
+        d.dynamicPendingMinor = dynamicPendingMinor;
+        d.dynamicPendingConfirmations = dynamicPendingConfirmations;
+        d.dynamicRevision = dynamicRevision;
+        d.dynamicSecondsUntilScan = nextDynamicScanSample > written
+            ? (double) (nextDynamicScanSample - written) / currentSampleRate : 0.0;
     }
     d.source = analysisSource.load();
     d.analysing = fileAnalysing.load();

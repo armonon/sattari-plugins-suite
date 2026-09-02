@@ -61,7 +61,13 @@ for backward compatibility.
   "energy":        0.0,        // 0..1 mix intensity
   "maqamId":       0,          // microtonal system id (0 = 12-TET)
   "referenceHz":   440.0,      // A4 tuning reference
-  "progression":   "0,9,5,7"   // optional chord-root list, message-only
+  "progression":   "0,9,5,7",  // optional chord-root list, message-only
+
+  // additive Dynamic Key extensions — omit for a fixed/locked key:
+  "dynamicKey":      true,      // accepted key may change during playback
+  "keyConfidence":   0.24,      // publisher's gated decision margin, 0..1
+  "keyRevision":     3,         // increments only when accepted key changes
+  "keyWindowSeconds": 3.0       // duration of the evidence window
 }
 ```
 
@@ -79,7 +85,9 @@ default the missing fields.
   becomes the fallback after that lease expires.
 - **Staleness.** A reader ignores a record older than **30 s** (`now - timestampMs`), so a
   closed publisher's key doesn't linger forever. Publishers should refresh at least every
-  few seconds while active.
+  few seconds while active. The reference implementation also provides an
+  owner-checked withdrawal call for an explicit disable/unlock; it cannot remove
+  a frame written by a different publisher.
 - **Threading.** Never read the file on the audio thread. Poll on a timer (Sattari uses
   ~2.5 Hz) and hand the result to the audio thread through a lock-free snapshot. The
   reference header ships `SessionReader`, a background-thread poller exposing a wait-free
@@ -87,12 +95,20 @@ default the missing fields.
 - **Conventions.** `root` 0=C…11=B. `scale` matches Auto Pitch: 0 major / 1 minor / 2
   chromatic. `referenceHz` is A4. These match every Sattari plugin, so a third-party
   reader lands in the same key the suite is following.
+- **Dynamic keys.** `dynamicKey=true` says the key is an automatically accepted,
+  changeable decision rather than a fixed user lock. Consumers apply `root` and
+  `scale` exactly as before; newer UIs can show `keyConfidence`, and can use
+  `keyRevision` to distinguish a real musical change from a heartbeat refresh.
+  Missing dynamic fields mean a fixed/legacy publication and default to
+  `false`, `0`, `0`, and `0.0` respectively.
 
 ## Product roles
 
 - **Sattari Compass** is the conductor and highest-authority publisher. Its
   compatibility-safe publisher id remains `brain`.
-- **Sattari Key** is the focused key detector and lower-priority fallback.
+- **Sattari Key** is the focused key detector and lower-priority fallback. Its
+  optional Dynamic Follow mode publishes confidence-gated 1–5 second rolling
+  decisions while retaining the last trusted key through silence or ambiguity.
 - Consumers opt into individual dimensions. Following key does not silently
   enable groove, energy or section response.
 - Readers expose `hasSceneContext` so consumers can distinguish a full Compass

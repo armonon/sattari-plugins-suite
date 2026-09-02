@@ -28,6 +28,8 @@ private:
         juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment =
         juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using SliderAttachment =
+        juce::AudioProcessorValueTreeState::SliderAttachment;
 
     void timerCallback() override;
     void updateSnapshot();
@@ -56,6 +58,8 @@ private:
 
     sattari::ui::SessionHud sessionHud;
     juce::ToggleButton lockToggle { "Lock session" };
+    juce::ToggleButton dynamicFollowToggle { "Dynamic key" };
+    juce::Slider dynamicInterval;
     juce::TextButton chooseSongButton { "Choose song" };
     juce::TextButton liveButton { "Listen live" };
     juce::TextButton rescanButton { "Re-scan" };
@@ -63,6 +67,8 @@ private:
     juce::ComboBox manualRootBox;
     juce::ComboBox manualScaleBox;
     std::unique_ptr<ButtonAttachment> lockAttachment;
+    std::unique_ptr<ButtonAttachment> dynamicFollowAttachment;
+    std::unique_ptr<SliderAttachment> dynamicIntervalAttachment;
     std::unique_ptr<ButtonAttachment> manualAttachment;
     std::unique_ptr<ComboAttachment> rootAttachment;
     std::unique_ptr<ComboAttachment> scaleAttachment;

@@ -3,9 +3,12 @@
 #include <sattari_audio_core/SattariRenderHarness.h>
 
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <thread>
 
 namespace
 {
@@ -111,6 +114,15 @@ bool headerHasVisibleContent (juce::Component& editor)
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    // Keep every SessionReader used by this executable away from an open DAW.
+    const auto contractSession = "auto-pitch-contract-" + juce::String (
+        sattari::xplugin::currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", contractSession.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", contractSession.toRawUTF8(), 1);
+   #endif
 
     if (argc == 3
         && (std::strcmp (argv[1], "--render-ui") == 0
@@ -953,6 +965,75 @@ int main (int argc, char** argv)
         std::cout << "  autoKeyGate=tonal " << tonalKey.confidence
                   << " >= " << gate << " > noise " << noiseKey.confidence
                   << " (manual fallback retained)\n";
+    }
+
+    // --- Dynamic Sattari Key -> Auto Pitch handoff -------------------------
+    // Prove the actual realtime-safe SessionReader follows successive accepted
+    // revisions and preserves the publisher's gated margin for the UI.
+    {
+        sattari::xplugin::SessionMessage first;
+        first.root = 0;
+        first.scale = 0;
+        first.dynamicKey = true;
+        first.keyConfidence = 0.31f;
+        first.keyRevision = 1;
+        first.keyWindowSeconds = 1.0;
+        if (! sattari::xplugin::publishSessionState ("song-key", first))
+        {
+            std::cerr << "Dynamic Song Key first publish failed\n";
+            return 1;
+        }
+
+        SattariAutoPitchAudioProcessor follower;
+        setParameter (follower.parameters(), "followSongKey", 1.0f);
+        follower.prepareToPlay (48000.0, 512);
+        auto origin = follower.currentKeyOrigin();
+        for (int i = 0; i < 30
+             && origin.source != SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus;
+             ++i)
+        {
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+            origin = follower.currentKeyOrigin();
+        }
+        if (origin.source != SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus
+            || origin.root != 0 || origin.scale != 0
+            || std::abs (origin.confidence - 0.31f) > 1.0e-4f
+            || ! origin.dynamic || origin.revision != 1
+            || std::abs (origin.windowSeconds - 1.0f) > 1.0e-4f)
+        {
+            std::cerr << "Auto Pitch missed first Dynamic Key revision\n";
+            return 1;
+        }
+
+        auto second = first;
+        second.root = 7;
+        second.scale = 1;
+        second.keyConfidence = 0.18f;
+        second.keyRevision = 2;
+        if (! sattari::xplugin::publishSessionState ("song-key", second))
+        {
+            std::cerr << "Dynamic Song Key second publish failed\n";
+            return 1;
+        }
+        for (int i = 0; i < 30 && origin.root != 7; ++i)
+        {
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+            origin = follower.currentKeyOrigin();
+        }
+        const auto dynamicSummary = follower.getKeyDetectionTabSummary();
+        follower.releaseResources();
+        if (origin.source != SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus
+            || origin.root != 7 || origin.scale != 1
+            || std::abs (origin.confidence - 0.18f) > 1.0e-4f
+            || ! origin.dynamic || origin.revision != 2
+            || ! dynamicSummary.contains ("60% confidence")
+            || ! dynamicSummary.contains ("Dynamic Song Key"))
+        {
+            std::cerr << "Auto Pitch missed changed Dynamic Key revision\n";
+            return 1;
+        }
+        sattari::xplugin::keyBusFile().deleteFile();
+        std::cout << "  dynamicKeyFollow=PASS (C major -> G minor, margins preserved)\n";
     }
 
     std::cout << "Auto Pitch core contract ok\n";

@@ -1873,9 +1873,15 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
             o.source = KeyOrigin::Source::FollowBus;
             o.root   = juce::jlimit (0, 11, s.root);
             o.scale  = s.scale == 1 ? 1 : (s.scale == 2 ? 2 : 0);
-            //  Anything reaching the bus has already passed the publisher's gate,
-            //  so a bus key is by construction one somebody was willing to assert.
-            o.confidence = 1.0f;
+            // Locked publishers are explicit session truth. Dynamic publishers
+            // also pass a confidence gate, but preserve their actual decision
+            // margin so the singer can see that the key is being followed rather
+            // than mistake an automatic update for a manual certainty.
+            o.confidence = s.dynamicKey && s.keyConfidence > 0.0f
+                         ? s.keyConfidence : 1.0f;
+            o.dynamic = s.dynamicKey;
+            o.revision = s.keyRevision;
+            o.windowSeconds = (float) s.keyWindowSeconds;
             return o;
         }
 
@@ -5887,13 +5893,14 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
     //  that had a perfectly good key, and it would read high on a confidently
     //  tracked note in a key the detector was guessing at.
     const bool detectorSource = (origin.source == KeyOrigin::Source::AutoKey
-                                 || origin.source == KeyOrigin::Source::KeyMap);
+                                 || origin.source == KeyOrigin::Source::KeyMap
+                                 || origin.source == KeyOrigin::Source::FollowBus);
     const int confidence = juce::roundToInt (
         (detectorSource ? juce::jlimit (0.0f, 1.0f, origin.confidence / 0.3f)
                         : (float) key.confidence) * 100.0f);
     juce::String engine = "Manual";
     if (origin.source == KeyOrigin::Source::FollowBus)
-        engine = "Song Key";
+        engine = origin.dynamic ? "Dynamic Song Key" : "Song Key";
     else if (origin.source == KeyOrigin::Source::KeyMap)
         engine = keyNetSpecPresent ? "Neural Key Map" : "HPCP Key Map";
     else if (origin.source == KeyOrigin::Source::AutoKey)

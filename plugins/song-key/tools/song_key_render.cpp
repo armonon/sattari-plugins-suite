@@ -8,6 +8,7 @@
 //   song_key_render --smoke  # assert a valid key is detected (CI-safe)
 //   song_key_render --file-smoke # choose/drop path: decode + full-song analysis
 //   song_key_render --live-tempo-smoke # live 120 BPM onset/tempo contract
+//   song_key_render --dynamic-follow-smoke # C->G bus update + silence hold
 //   song_key_render --analyse-file <audio> # print the production file verdict
 //   song_key_render --corpus <dir> [N]   # score the REAL PLUGIN on a labelled corpus
 //
@@ -207,6 +208,104 @@ bool liveTempoSmoke()
         && detected.tempoValid
         && std::abs (detected.bpm - 120.0) <= 2.0;
 }
+
+bool dynamicFollowSmoke()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+
+    // Isolate this proof from a running DAW and from parallel contract tests.
+    const auto sessionId = "song-key-dynamic-" + juce::String (
+        sattari::xplugin::currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", sessionId.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", sessionId.toRawUTF8(), 1);
+   #endif
+
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+    processor.releaseResources();
+    setParam (processor.parameters(), "publish", 1.0f);
+    setParam (processor.parameters(), "dynamicInterval", 1.0f);
+    processor.setDynamicFollowEnabled (true);
+
+    int sinceAnalysis = 0;
+    auto feed = [&] (const std::array<double, 3>& frequencies,
+                     double seconds, bool silence)
+    {
+        std::array<double, 3> phases {};
+        const int blocks = (int) std::ceil (seconds * sampleRate / blockSize);
+        for (int block = 0; block < blocks; ++block)
+        {
+            juce::AudioBuffer<float> audio (2, blockSize);
+            audio.clear();
+            if (! silence)
+            {
+                for (int sample = 0; sample < blockSize; ++sample)
+                {
+                    float value = 0.0f;
+                    for (int tone = 0; tone < 3; ++tone)
+                    {
+                        value += 0.25f * (float) std::sin (phases[(size_t) tone]);
+                        phases[(size_t) tone] += juce::MathConstants<double>::twoPi
+                            * frequencies[(size_t) tone] / sampleRate;
+                    }
+                    audio.setSample (0, sample, value);
+                    audio.setSample (1, sample, value);
+                }
+            }
+            juce::MidiBuffer midi;
+            processor.processBlock (audio, midi);
+            sinceAnalysis += blockSize;
+            if (sinceAnalysis >= 2048)
+            {
+                sinceAnalysis = 0;
+                processor.serviceLiveAnalysis();
+            }
+        }
+        processor.serviceLiveAnalysis();
+    };
+
+    feed ({ 261.6256, 329.6276, 391.9954 }, 1.7, false); // C major
+    const auto c = processor.detected();
+    const auto cBus = sattari::xplugin::readSession();
+    const bool cAccepted = c.dynamicEnabled && c.dynamicActive
+        && c.dynamicRoot == 0 && ! c.dynamicMinor
+        && c.dynamicRevision == 1 && c.publishing
+        && cBus && cBus->dynamicKey && cBus->root == 0 && cBus->scale == 0
+        && cBus->keyRevision == 1
+        && std::abs (cBus->keyWindowSeconds - 1.0) < 1.0e-6
+        && cBus->keyConfidence >= sattari::dsp::kReleaseKeyConfidence;
+
+    feed ({ 195.9977, 246.9417, 293.6648 }, 3.2, false); // G major
+    const auto g = processor.detected();
+    const auto gBus = sattari::xplugin::readSession();
+    const bool gAccepted = g.dynamicActive && g.dynamicRoot == 7
+        && ! g.dynamicMinor && g.dynamicRevision >= 2 && g.publishing
+        && gBus && gBus->dynamicKey && gBus->root == 7 && gBus->scale == 0
+        && gBus->keyRevision == g.dynamicRevision;
+    const int heldRevision = g.dynamicRevision;
+
+    feed ({ 0.0, 0.0, 0.0 }, 1.4, true);
+    const auto held = processor.detected();
+    const auto heldBus = sattari::xplugin::readSession();
+    const bool silenceHeld = held.dynamicActive && held.dynamicRoot == 7
+        && ! held.dynamicMinor && held.dynamicRevision == heldRevision
+        && heldBus && heldBus->root == 7
+        && heldBus->keyRevision == heldRevision;
+
+    sattari::xplugin::keyBusFile().deleteFile();
+    if (! cAccepted || ! gAccepted || ! silenceHeld)
+    {
+        std::fprintf (stderr,
+            "Dynamic state C=%d/%d rev%d G=%d/%d rev%d held=%d/%d rev%d\n",
+            c.dynamicRoot, c.dynamicMinor ? 1 : 0, c.dynamicRevision,
+            g.dynamicRoot, g.dynamicMinor ? 1 : 0, g.dynamicRevision,
+            held.dynamicRoot, held.dynamicMinor ? 1 : 0, held.dynamicRevision);
+    }
+    return cAccepted && gAccepted && silenceHeld;
+}
 }
 
 namespace
@@ -310,6 +409,17 @@ int main (int argc, char** argv)
             return 1;
         }
         std::printf ("Sattari Key live tempo smoke ok\n");
+        return 0;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--dynamic-follow-smoke") == 0)
+    {
+        if (! dynamicFollowSmoke())
+        {
+            std::fprintf (stderr, "FAIL: dynamic key follow workflow\n");
+            return 1;
+        }
+        std::printf ("Sattari Key dynamic follow smoke ok\n");
         return 0;
     }
 

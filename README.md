@@ -10,7 +10,8 @@ pitch + key detectors, envelope follower, render harness, and an optional ML
 stem-separation seam. Every plugin builds through `cmake/SattariPlugin.cmake`.
 
 Vocal & tuning
-- `plugins/auto-pitch` — flagship monophonic correction plus a separate polyphonic tonal path; YIN/optional CREPE detection, Studio and measured 2 ms Extreme Live engines, extended scales, MIDI targeting, reference tuning, editable captured notes, four generated harmony voices, AutoKey, Song Key follow, and Key Map.
+- `plugins/auto-pitch` — flagship monophonic correction plus a separate polyphonic tonal path; YIN/optional CREPE detection, Studio and measured 2 ms Extreme Live engines, extended scales, MIDI targeting, reference tuning, editable captured notes, four generated harmony voices, AutoKey, live Dynamic Key follow, and Key Map.
+- `plugins/song-key` — full-song, drag/drop, and live key/tempo analysis; a reviewed fixed lock or confidence-gated 1–5 second Dynamic Follow can publish key changes to Auto Pitch and the rest of the suite.
 - `plugins/maqam` — microtonal **quarter-tone** tuner for Arabic/Persian/Turkish maqamat.
 - `plugins/harmony` — diatonic harmoniser / choir: scale **or chord-track** follow, auto-tune, choir doubler.
 - `plugins/royal-chain` — nine-stage vocal chain with the Portal-style Vocal Crown Compass.

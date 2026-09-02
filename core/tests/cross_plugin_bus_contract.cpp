@@ -146,14 +146,17 @@ int main()
     }
 
     // 8) SessionState v2+: publishSessionState round-trips the full Brain context
-    //    (chord/timeSig/swing/section/energy/maqam/reference), AND a plain v1
-    //    publishSession leaves the v2 fields at safe defaults (backward compat).
+    //    (chord/timeSig/swing/section/energy/maqam/reference) and additive
+    //    Dynamic Key metadata, AND a plain v1 publishSession leaves the newer
+    //    fields at safe defaults (backward compat).
     {
         SessionMessage full;
         full.root = 2; full.scale = 1; full.bpm = 100.0; full.transientId = 3;
         full.chordRoot = 9; full.chordQuality = 4; full.timeSigNum = 6; full.timeSigDen = 8;
         full.swing = 0.6f; full.sectionId = 4; full.energy = 0.8f; full.maqamId = 5;
         full.referenceHz = 432.0; full.progression = "2,9,5,7";
+        full.dynamicKey = true; full.keyConfidence = 0.73f;
+        full.keyRevision = 6; full.keyWindowSeconds = 2.5;
         publishSessionState ("brain", full);
         auto r = readSession();
         check (r.has_value(), "SessionState not readable");
@@ -165,7 +168,29 @@ int main()
             check (r->sectionId == 4 && r->maqamId == 5, "section/maqam wrong");
             check (std::abs (r->referenceHz - 432.0) < 1e-6, "referenceHz wrong");
             check (r->progression == "2,9,5,7", "progression wrong");
+            check (r->dynamicKey, "dynamic-key flag missing");
+            check (std::abs (r->keyConfidence - 0.73f) < 1e-4,
+                   "dynamic-key confidence wrong");
+            check (r->keyRevision == 6, "dynamic-key revision wrong");
+            check (std::abs (r->keyWindowSeconds - 2.5) < 1e-6,
+                   "dynamic-key window wrong");
         }
+
+        SessionReader dynamicReader;
+        dynamicReader.start (40);
+        SessionReader::Snapshot dynamicSnapshot;
+        for (int i = 0; i < 40; ++i)
+        {
+            dynamicSnapshot = dynamicReader.current();
+            if (dynamicSnapshot.valid && dynamicSnapshot.keyRevision == 6) break;
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+        }
+        dynamicReader.stop();
+        check (dynamicSnapshot.valid && dynamicSnapshot.dynamicKey
+                   && dynamicSnapshot.keyRevision == 6
+                   && std::abs (dynamicSnapshot.keyConfidence - 0.73f) < 1e-4
+                   && std::abs (dynamicSnapshot.keyWindowSeconds - 2.5) < 1e-6,
+               "SessionReader dynamic-key snapshot wrong");
 
         // A v1 key+tempo-only publish must leave the v2 fields at defaults.
         publishSession ("brain", 0, 0, 120.0, 1);
@@ -176,6 +201,9 @@ int main()
             check (d->chordRoot == -1 && d->chordQuality == 0, "v1 default chord wrong");
             check (d->timeSigNum == 4 && d->timeSigDen == 4, "v1 default timeSig wrong");
             check (std::abs (d->referenceHz - 440.0) < 1e-6, "v1 default reference wrong");
+            check (! d->dynamicKey && d->keyConfidence == 0.0f
+                       && d->keyRevision == 0 && d->keyWindowSeconds == 0.0,
+                   "v1 default dynamic-key metadata wrong");
         }
     }
 
@@ -213,6 +241,22 @@ int main()
         keyBusFile (sessionB).deleteFile();
         tempoBusFile (sessionA).deleteFile();
         tempoBusFile (sessionB).deleteFile();
+    }
+
+    // 10) A publisher can withdraw its own frame immediately when the user
+    //     disables/unlocks it, but cannot delete another authority's frame.
+    {
+        const auto session = "contract-withdraw-" + juce::String (currentTimeMs());
+        check (publishSession ("song-key", 4, 0, 0.0, 0, session),
+               "withdrawal fixture publish failed");
+        check (! withdrawSessionState ("auto-pitch", session),
+               "non-owner withdrew another publisher's frame");
+        check (readSession (30, session).has_value(),
+               "non-owner withdrawal removed the frame");
+        check (withdrawSessionState ("song-key", session),
+               "owner could not withdraw its frame");
+        check (! readSession (30, session).has_value(),
+               "withdrawn frame remained readable");
     }
 
     keyBusFile().deleteFile();
