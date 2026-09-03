@@ -11,8 +11,10 @@
 #include <sattari_audio_core/SattariHpcpChroma.h>
 #include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariTempoEstimator.h>
+#include <sattari_audio_core/SattariDynamicKeyTracker.h>
 #include <array>
 #include <atomic>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -120,6 +122,9 @@ public:
         double dynamicIntervalSeconds = 3.0;
         double dynamicSecondsUntilScan = 0.0;
         int dynamicRevision = 0;
+        bool dynamicFastLane = false;
+        int dynamicEvidenceWindows = 0;
+        int dynamicRequiredConfirmations = 0;
         juce::String sourceName;
         juce::String error;
     };
@@ -163,6 +168,12 @@ private:
     std::atomic<int> writePos { 0 };
     std::atomic<juce::int64> totalSamplesWritten { 0 };
     double running[12] = { 0 };                    // background-thread-only
+    double runningBass[12] = { 0 };                // low-band tonic evidence
+    std::array<double, 12> liveChordRootEvidence {};
+    double liveWindowRmsSum = 0.0;
+    int liveWindowRmsFrames = 0;
+    double liveOnsetBaseline = 0.0;
+    juce::int64 lastHostBeatIndex = std::numeric_limits<juce::int64>::min();
     double runningDetune = 0.0;                    // background-thread-only (cents)
     std::vector<float> livePreviousSpectrum;       // worker-thread-only
     std::vector<float> liveOnsetEnvelope;          // worker-thread-only
@@ -172,8 +183,12 @@ private:
     // path remains as a warm-up fallback and provides the A440 detune readout;
     // changing Sattari Key therefore does not change Compass or frozen Auto Pitch.
     sattari::dsp::HpcpChromagram hpcp;
+    sattari::dsp::HpcpChromagram bassHpcp { 40.0, 260.0 };
+    sattari::dsp::HpcpChromagram frameHpcp;
     sattari::dsp::KeyAnalysisEngine keyAnalysis;
     sattari::dsp::SongKeyEstimator liveSongKey;
+    sattari::dsp::ChordAnalyzer chordAnalysis;
+    sattari::dsp::DynamicKeyTracker dynamicTracker;
 
     std::atomic<int>   detRoot { 0 };
     std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
@@ -190,6 +205,8 @@ private:
     std::atomic<int>    detSegments { 0 };
     std::atomic<bool>   detPossibleModulation { false };
     std::atomic<double> hostBpm { 0.0 };
+    std::atomic<double> hostPpq { -1.0 };
+    std::atomic<bool> hostHasPpq { false };
     juce::int64 transientId = 0;
 
     std::atomic<AnalysisSource> analysisSource { AnalysisSource::Live };
@@ -212,7 +229,6 @@ private:
     double lockedReferenceHz = 440.0;
     double lockedBpm = 0.0;
     static constexpr double kMinPublishConfidence = sattari::dsp::kReleaseKeyConfidence;
-    static constexpr double kStrongDynamicConfidence = 0.22;
 
     // Dynamic Follow state is worker-thread owned under analysisStateMutex.
     // The accepted key is deliberately separate from the latest detector
@@ -226,6 +242,9 @@ private:
     bool dynamicPendingMinor = false;
     int dynamicPendingConfirmations = 0;
     int dynamicRevision = 0;
+    bool dynamicLastFastLane = false;
+    int dynamicEvidenceWindows = 0;
+    int dynamicRequiredConfirmations = 0;
     juce::int64 nextDynamicScanSample = 0;
     juce::int64 lastDynamicPublishAttemptMs = 0;
     bool liveWindowHasValidDecision = false;

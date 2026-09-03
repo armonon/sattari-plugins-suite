@@ -17,8 +17,8 @@ APVTS::ParameterLayout SattariSongKeyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "publish", 1 }, "Publish to Suite", true));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "lockSession", 1 }, "Lock Session", false));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "dynamicFollow", 1 }, "Dynamic Key Follow", false));
-    p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "dynamicInterval", 1 }, "Dynamic Scan Interval",
-        juce::NormalisableRange<float> (1.0f, 5.0f, 0.5f), 3.0f));
+    p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "dynamicInterval", 1 }, "Dynamic Stability Horizon",
+        juce::NormalisableRange<float> (1.0f, 5.0f, 1.0f), 3.0f));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "manual",  1 }, "Manual Override", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualRoot",  1 }, "Manual Root",  rootChoices(),  0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualScale", 1 }, "Manual Scale", scaleChoices(), 0));
@@ -61,7 +61,11 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
     // HPCP accumulator: warm its whitening buffer here so accumulate() never
     // allocates, and clear any state carried over from the previous sample rate.
     hpcp.reserveBins (fftSize / 2 + 1);
+    bassHpcp.reserveBins (fftSize / 2 + 1);
+    frameHpcp.reserveBins (fftSize / 2 + 1);
     hpcp.reset();
+    bassHpcp.reset();
+    frameHpcp.reset();
     liveSongKey.prepare (currentSampleRate);
     livePreviousSpectrum.assign ((size_t) fftSize / 2 + 1, 0.0f);
     liveOnsetEnvelope.clear();
@@ -95,6 +99,8 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     const auto t = sattari::host::read (*this);
     if (t.hasHostBpm) hostBpm.store (t.bpm);
+    hostHasPpq.store (t.hasPpq, std::memory_order_relaxed);
+    if (t.hasPpq) hostPpq.store (t.ppqPosition, std::memory_order_relaxed);
 
     // Feed the analysis ring with a mono sum. Audio is NOT modified — Sattari Key
     // is a transparent analyser that just listens to the master.
@@ -142,6 +148,11 @@ void SattariSongKeyAudioProcessor::analyseNow()
         liveKeyInput[(size_t) i] = sample;
         scratch[(size_t) i] = sample * hann[(size_t) i];
     }
+    double frameSquareSum = 0.0;
+    for (const auto sample : liveKeyInput)
+        frameSquareSum += (double) sample * (double) sample;
+    liveWindowRmsSum += std::sqrt (frameSquareSum / (double) fftSize);
+    ++liveWindowRmsFrames;
     std::fill (scratch.begin() + fftSize, scratch.end(), 0.0f);
     fft->performFrequencyOnlyForwardTransform (scratch.data());
 
@@ -152,6 +163,46 @@ void SattariSongKeyAudioProcessor::analyseNow()
     // snapshot of it for the detector (no second smoothing pass).
     hpcp.accumulate (scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize);
     hpcp.finish (running);
+    bassHpcp.accumulate (
+        scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize);
+    bassHpcp.finish (runningBass);
+
+    // A separate one-frame chroma drives chord evidence. When the host exposes
+    // PPQ, integer-beat frames receive the strongest vote; outside a DAW, onset
+    // strength provides the causal proxy. The full-window chroma remains the key
+    // cue, so a passing chord cannot become a key by itself.
+    frameHpcp.reset();
+    frameHpcp.accumulate (
+        scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize);
+    double frameChroma[12] {};
+    frameHpcp.finish (frameChroma);
+
+    const float currentOnset = onsetStrength (
+        scratch.data(), fftSize / 2 + 1, livePreviousSpectrum);
+    liveOnsetEnvelope.push_back (currentOnset);
+    liveOnsetBaseline += 0.06 * ((double) currentOnset - liveOnsetBaseline);
+
+    double chordWeight = 0.25;
+    if (hostHasPpq.load (std::memory_order_relaxed))
+    {
+        const auto beat = (juce::int64) std::floor (
+            hostPpq.load (std::memory_order_relaxed) + 0.02);
+        if (beat != lastHostBeatIndex)
+        {
+            chordWeight = 2.0;
+            lastHostBeatIndex = beat;
+        }
+    }
+    else if (liveOnsetBaseline > 1.0e-8)
+    {
+        chordWeight += juce::jlimit (
+            0.0, 1.5, (double) currentOnset / (3.0 * liveOnsetBaseline));
+    }
+
+    const auto frameChord = chordAnalysis.analyse (frameChroma);
+    if (frameChord.valid && frameChord.confidence >= 0.005)
+        liveChordRootEvidence[(size_t) frameChord.root]
+            += chordWeight * juce::jmax (0.005, frameChord.confidence);
 
     // Tuning-reference estimate (detune vs A440). For each strong spectral peak in
     // the musical range, measure how far it sits from the nearest equal-tempered
@@ -220,8 +271,6 @@ void SattariSongKeyAudioProcessor::analyseNow()
         }
     }
 
-    liveOnsetEnvelope.push_back (onsetStrength (
-        scratch.data(), fftSize / 2 + 1, livePreviousSpectrum));
     const auto maxLiveFrames = (size_t) std::ceil (
         currentSampleRate / (double) (fftSize / 2) * 120.0);
     if (liveOnsetEnvelope.size() > maxLiveFrames + 256)
@@ -274,7 +323,12 @@ void SattariSongKeyAudioProcessor::clearPublishedDecision()
 void SattariSongKeyAudioProcessor::resetLiveKeyWindow()
 {
     std::fill (running, running + 12, 0.0);
+    std::fill (runningBass, runningBass + 12, 0.0);
+    liveChordRootEvidence.fill (0.0);
+    liveWindowRmsSum = 0.0;
+    liveWindowRmsFrames = 0;
     hpcp.reset();
+    bassHpcp.reset();
     liveSongKey.prepare (currentSampleRate);
     liveWindowHasValidDecision = false;
 }
@@ -288,9 +342,15 @@ void SattariSongKeyAudioProcessor::resetDynamicDecision()
     dynamicConfidence = 0.0;
     dynamicPendingConfirmations = 0;
     dynamicRevision = 0;
+    dynamicLastFastLane = false;
+    dynamicEvidenceWindows = 0;
+    dynamicRequiredConfirmations = 0;
     nextDynamicScanSample = 0;
     lastDynamicPublishAttemptMs = 0;
     liveWindowHasValidDecision = false;
+    lastHostBeatIndex = std::numeric_limits<juce::int64>::min();
+    liveOnsetBaseline = 0.0;
+    dynamicTracker.reset();
 }
 
 void SattariSongKeyAudioProcessor::setSessionLocked (bool shouldLock)
@@ -644,14 +704,14 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     {
         lockSnapshotValid = false;
         const auto written = totalSamplesWritten.load (std::memory_order_acquire);
-        const double interval = juce::jlimit (
+        const double stabilityHorizon = juce::jlimit (
             1.0, 5.0, (double) param ("dynamicInterval"));
-        const auto intervalSamples = juce::jmax<juce::int64> (
-            1, (juce::int64) std::llround (interval * currentSampleRate));
+        const auto evidenceSamples = juce::jmax<juce::int64> (
+            1, (juce::int64) std::llround (currentSampleRate));
         if (! dynamicWasEnabled)
         {
             dynamicWasEnabled = true;
-            nextDynamicScanSample = written + intervalSamples;
+            nextDynamicScanSample = written + evidenceSamples;
             dynamicPendingConfirmations = 0;
             resetLiveKeyWindow();
         }
@@ -659,66 +719,47 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         bool acceptedNewKey = false;
         if (written >= nextDynamicScanSample)
         {
-            if (liveWindowHasValidDecision && detValid.load()
-                && detConf.load() >= kMinPublishConfidence)
+            sattari::dsp::DynamicKeyObservation observation;
+            if (liveWindowHasValidDecision && detValid.load())
             {
-                const int candidateRoot = juce::jlimit (0, 11, detRoot.load());
-                const bool candidateMinor = detMinor.load();
-                const double candidateConfidence = detConf.load();
-                const bool sameAsActive = dynamicDecisionValid
-                    && candidateRoot == dynamicRoot
-                    && candidateMinor == dynamicMinor;
-                if (! dynamicDecisionValid || sameAsActive)
-                {
-                    if (! dynamicDecisionValid)
-                    {
-                        dynamicRoot = candidateRoot;
-                        dynamicMinor = candidateMinor;
-                        dynamicDecisionValid = true;
-                        ++dynamicRevision;
-                        acceptedNewKey = true;
-                    }
-                    dynamicConfidence = candidateConfidence;
-                    dynamicPendingConfirmations = 0;
-                }
-                else
-                {
-                    const bool sameAsPending = dynamicPendingConfirmations > 0
-                        && candidateRoot == dynamicPendingRoot
-                        && candidateMinor == dynamicPendingMinor;
-                    if (sameAsPending)
-                        ++dynamicPendingConfirmations;
-                    else
-                    {
-                        dynamicPendingRoot = candidateRoot;
-                        dynamicPendingMinor = candidateMinor;
-                        dynamicPendingConfirmations = 1;
-                    }
-
-                    // Strong evidence can follow one scan window. A marginal
-                    // but releasable change must repeat in two consecutive,
-                    // non-overlapping windows before it can move a singer.
-                    if (candidateConfidence >= kStrongDynamicConfidence
-                        || dynamicPendingConfirmations >= 2)
-                    {
-                        dynamicRoot = candidateRoot;
-                        dynamicMinor = candidateMinor;
-                        dynamicConfidence = candidateConfidence;
-                        dynamicDecisionValid = true;
-                        dynamicPendingConfirmations = 0;
-                        ++dynamicRevision;
-                        acceptedNewKey = true;
-                    }
-                }
+                observation.detector.root = juce::jlimit (0, 11, detRoot.load());
+                observation.detector.minor = detMinor.load();
+                observation.detector.confidence = detConf.load();
+                observation.detector.valid = true;
+                observation.detector.source = sattari::dsp::KeyAnalysisSource::Chroma;
             }
-            else
+            std::copy (running, running + 12, observation.chroma.begin());
+            std::copy (runningBass, runningBass + 12, observation.bassChroma.begin());
+            observation.chordRootEvidence = liveChordRootEvidence;
+            observation.summaryChord = chordAnalysis.analyse (
+                running,
+                observation.detector.valid ? observation.detector.root : -1,
+                observation.detector.minor);
+            observation.rms = liveWindowRmsFrames > 0
+                ? liveWindowRmsSum / (double) liveWindowRmsFrames : 0.0;
+
+            const auto tracked = dynamicTracker.update (
+                observation, stabilityHorizon);
+            dynamicDecisionValid = tracked.valid;
+            if (tracked.valid)
             {
-                // Silence, drums and ambiguous harmony are not new keys. Keep
-                // the last trusted result and discard partial switch evidence.
-                dynamicPendingConfirmations = 0;
+                dynamicRoot = tracked.root;
+                dynamicMinor = tracked.minor;
+                dynamicConfidence = tracked.confidence;
+                dynamicRevision = tracked.revision;
             }
+            dynamicPendingConfirmations = tracked.pendingConfirmations;
+            dynamicPendingRoot = tracked.pendingRoot;
+            dynamicPendingMinor = tracked.pendingMinor;
+            dynamicEvidenceWindows = tracked.evidenceWindows;
+            dynamicRequiredConfirmations = tracked.requiredConfirmations;
+            if (tracked.changed)
+                dynamicLastFastLane = tracked.fastLane;
+            acceptedNewKey = tracked.changed;
 
-            nextDynamicScanSample = written + intervalSamples;
+            // Analysis cadence is always one second. The user control adjusts
+            // how long marginal evidence must agree, not how often we listen.
+            nextDynamicScanSample = written + evidenceSamples;
             resetLiveKeyWindow();
         }
 
@@ -750,7 +791,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         msg.dynamicKey = true;
         msg.keyConfidence = (float) juce::jlimit (0.0, 1.0, dynamicConfidence);
         msg.keyRevision = dynamicRevision;
-        msg.keyWindowSeconds = interval;
+        msg.keyWindowSeconds = stabilityHorizon;
         const bool published = sattari::xplugin::publishSessionState ("song-key", msg);
         publishingNow.store (published);
         lastDynamicPublishAttemptMs = now;
@@ -887,6 +928,9 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
         d.dynamicPendingMinor = dynamicPendingMinor;
         d.dynamicPendingConfirmations = dynamicPendingConfirmations;
         d.dynamicRevision = dynamicRevision;
+        d.dynamicFastLane = dynamicLastFastLane;
+        d.dynamicEvidenceWindows = dynamicEvidenceWindows;
+        d.dynamicRequiredConfirmations = dynamicRequiredConfirmations;
         d.dynamicSecondsUntilScan = nextDynamicScanSample > written
             ? (double) (nextDynamicScanSample - written) / currentSampleRate : 0.0;
     }

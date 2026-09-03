@@ -227,7 +227,7 @@ bool dynamicFollowSmoke()
     processor.prepareToPlay (sampleRate, blockSize);
     processor.releaseResources();
     setParam (processor.parameters(), "publish", 1.0f);
-    setParam (processor.parameters(), "dynamicInterval", 1.0f);
+    setParam (processor.parameters(), "dynamicInterval", 3.0f);
     processor.setDynamicFollowEnabled (true);
 
     int sinceAnalysis = 0;
@@ -267,7 +267,7 @@ bool dynamicFollowSmoke()
         processor.serviceLiveAnalysis();
     };
 
-    feed ({ 261.6256, 329.6276, 391.9954 }, 1.7, false); // C major
+    feed ({ 261.6256, 329.6276, 391.9954 }, 3.3, false); // C major
     const auto c = processor.detected();
     const auto cBus = sattari::xplugin::readSession();
     const bool cAccepted = c.dynamicEnabled && c.dynamicActive
@@ -275,10 +275,19 @@ bool dynamicFollowSmoke()
         && c.dynamicRevision == 1 && c.publishing
         && cBus && cBus->dynamicKey && cBus->root == 0 && cBus->scale == 0
         && cBus->keyRevision == 1
-        && std::abs (cBus->keyWindowSeconds - 1.0) < 1.0e-6
+        && std::abs (cBus->keyWindowSeconds - 3.0) < 1.0e-6
         && cBus->keyConfidence >= sattari::dsp::kReleaseKeyConfidence;
 
-    feed ({ 195.9977, 246.9417, 293.6648 }, 3.2, false); // G major
+    // One second of IV followed by one second of V is a progression, not two
+    // modulations. Neither isolated chord may move the accepted key.
+    feed ({ 174.6141, 220.0000, 261.6256 }, 1.05, false); // F major
+    feed ({ 195.9977, 246.9417, 293.6648 }, 1.05, false); // G major
+    const auto progression = processor.detected();
+    const bool progressionHeld = progression.dynamicActive
+        && progression.dynamicRoot == 0 && ! progression.dynamicMinor
+        && progression.dynamicRevision == 1;
+
+    feed ({ 195.9977, 246.9417, 293.6648 }, 3.3, false); // G major
     const auto g = processor.detected();
     const auto gBus = sattari::xplugin::readSession();
     const bool gAccepted = g.dynamicActive && g.dynamicRoot == 7
@@ -296,7 +305,7 @@ bool dynamicFollowSmoke()
         && heldBus->keyRevision == heldRevision;
 
     sattari::xplugin::keyBusFile().deleteFile();
-    if (! cAccepted || ! gAccepted || ! silenceHeld)
+    if (! cAccepted || ! progressionHeld || ! gAccepted || ! silenceHeld)
     {
         std::fprintf (stderr,
             "Dynamic state C=%d/%d rev%d G=%d/%d rev%d held=%d/%d rev%d\n",
@@ -304,7 +313,7 @@ bool dynamicFollowSmoke()
             g.dynamicRoot, g.dynamicMinor ? 1 : 0, g.dynamicRevision,
             held.dynamicRoot, held.dynamicMinor ? 1 : 0, held.dynamicRevision);
     }
-    return cAccepted && gAccepted && silenceHeld;
+    return cAccepted && progressionHeld && gAccepted && silenceHeld;
 }
 }
 

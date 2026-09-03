@@ -159,6 +159,18 @@ if(TARGET juce::juce_dsp)
             juce::juce_dsp
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
+
+    add_executable(SattariDynamicKeyTrackerContract
+        EXCLUDE_FROM_ALL
+        core/tests/dynamic_key_tracker_contract.cpp)
+    target_compile_definitions(SattariDynamicKeyTrackerContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariDynamicKeyTrackerContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
 endif()
 
 # Root-suite CTest inventory. The executables remain explicit build targets so a
@@ -168,6 +180,7 @@ include(CTest)
 if(BUILD_TESTING)
     set(SATTARI_CONTRACT_TARGETS
         SattariChordAnalysisContract
+        SattariDynamicKeyTrackerContract
         SattariHarmonyVoicesContract
         SattariExtremeLivePitchContract
         SattariAudioCorePitchContract

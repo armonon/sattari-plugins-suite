@@ -31,7 +31,7 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
     addAndMakeVisible (lockToggle);
     dynamicFollowToggle.setTitle ("Follow live key changes automatically");
     dynamicFollowToggle.setDescription (
-        "Analyse a new rolling key window every 1-5 seconds and publish only trusted changes");
+        "Analyse every second and publish only changes confirmed by the fast or stable lane");
     dynamicFollowToggle.onClick = [this]
     {
         audioProcessor.setDynamicFollowEnabled (
@@ -44,9 +44,9 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
     dynamicInterval.setSliderStyle (juce::Slider::LinearHorizontal);
     dynamicInterval.setTextBoxStyle (juce::Slider::TextBoxRight, false, 54, 22);
     dynamicInterval.setTextValueSuffix (" s");
-    dynamicInterval.setTitle ("Dynamic scan interval");
+    dynamicInterval.setTitle ("Dynamic stability horizon");
     dynamicInterval.setDescription (
-        "Length of each non-overlapping live key evidence window");
+        "Seconds of agreement required for marginal key changes; analysis always runs every second");
     addAndMakeVisible (dynamicInterval);
     manualToggle.setTitle ("Manual key override");
     manualToggle.setDescription (
@@ -352,16 +352,21 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     else if (snapshot.dynamicEnabled && snapshot.dynamicActive
              && snapshot.publishing)
     {
-        status = "DYNAMIC FOLLOW / REV "
+        status = "ENGINE V2 / "
+            + juce::String (snapshot.dynamicFastLane ? "FAST" : "STABLE")
+            + " / REV "
             + juce::String (snapshot.dynamicRevision)
-            + " / NEXT " + juce::String (snapshot.dynamicSecondsUntilScan, 1) + " S";
+            + " / NEXT EVIDENCE "
+            + juce::String (snapshot.dynamicSecondsUntilScan, 1) + " S";
         active = true;
     }
     else if (snapshot.dynamicEnabled && snapshot.dynamicPending)
     {
         status = "DYNAMIC / CONFIRMING "
             + rootName (snapshot.dynamicPendingRoot)
-            + (snapshot.dynamicPendingMinor ? " MINOR" : " MAJOR");
+            + (snapshot.dynamicPendingMinor ? " MINOR " : " MAJOR ")
+            + juce::String (snapshot.dynamicPendingConfirmations)
+            + "/" + juce::String (snapshot.dynamicRequiredConfirmations);
         active = true;
     }
     else if (snapshot.dynamicEnabled && snapshot.dynamicActive)
@@ -371,8 +376,8 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     }
     else if (snapshot.dynamicEnabled)
     {
-        status = "DYNAMIC / BUILDING "
-            + juce::String (snapshot.dynamicIntervalSeconds, 1) + " S WINDOW";
+        status = "ENGINE V2 / FAST 1-2 S / STABLE "
+            + juce::String (snapshot.dynamicIntervalSeconds, 1) + " S";
         active = true;
     }
     else if (snapshot.sessionLocked && snapshot.publishing)

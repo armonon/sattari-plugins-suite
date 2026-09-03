@@ -2,34 +2,43 @@
 type: implementation-and-validation-record
 product: Sattari Key + Sattari Auto Pitch
 date: 2026-09-02
-status: DYNAMIC KEY FOLLOW IMPLEMENTED; PROCESSOR/BUS CONTRACTS PASS; MUSICAL CORPUS GATE OPEN
+status: DYNAMIC KEY ENGINE V2 IMPLEMENTED; PROCESSOR/BUS CONTRACTS PASS; MUSICAL CORPUS GATE OPEN
 ---
 
 # Dynamic Key Follow
 
 ## Outcome
 
-Sattari Key can now stay on a live music or master feed, form a fresh
-non-overlapping key-evidence window every 1–5 seconds, and send accepted changes
-to Auto Pitch. Auto Pitch's existing **Follow Song Key** mode consumes those
+Sattari Key can now stay on a live music or master feed, form a fresh causal key
+observation every second, and send accepted changes to Auto Pitch. Auto Pitch's
+existing **Follow Song Key** mode consumes those
 updates through the realtime-safe session reader; no file access or key analysis
 runs on the vocal audio callback.
 
-Dynamic Follow is opt-in and defaults to a 3-second window. Enabling it returns
+Dynamic Follow is opt-in and defaults to a 3-second stability horizon. Enabling it returns
 Sattari Key to live input and clears incompatible manual/locked states. Fixed
 review-and-lock remains the default workflow for a song that does not modulate.
 Existing saved sessions remain compatible because both new parameters default to
 inactive/safe values.
 
-## Decision policy
+## Engine v2
 
-- The first result above the shared 0.10 winner-versus-runner-up margin becomes
-  the active key.
-- A different key with a margin of at least 0.22 is accepted after one complete
-  evidence window.
-- A different releasable but marginal key must recur in two consecutive windows.
-- Silence, percussion-only, and below-threshold/ambiguous windows retain the last
-  accepted key and clear partial switch evidence.
+- A full-band tuning-corrected HPCP, a dedicated 40–260 Hz bass HPCP, and the
+  balanced 16 kHz song-key estimator provide complementary spectral resolutions.
+- One-frame chord votes are weighted at host PPQ beat boundaries when the DAW
+  reports them. Outside a DAW, spectral onset strength supplies the causal proxy.
+- A 24-state temporal decoder scores all major/minor keys, adds bass tonic/fifth
+  support, chord-function evidence, and musically weighted transition costs.
+  Relative, parallel, and circle-of-fifths movement is possible without making
+  arbitrary modulation impossible.
+- The fast lane can establish a context-rich initial key after one second. A
+  context-rich change requires two adjacent observations. It must include a
+  strong detector margin, tonic bass, harmonic context, and at least five
+  materially represented pitch classes; an isolated chord cannot qualify.
+- All other changes must recur for the selected 1–5 second stability horizon.
+  The analyser still listens every second at every setting.
+- Silence, percussion-only, and below-threshold/ambiguous observations retain the
+  last accepted key and clear partial switch evidence.
 - A revision number increments only when the accepted root or mode changes.
 - While active, Sattari Key refreshes its publication as a heartbeat. A fresh
   higher-priority Compass frame remains authoritative by the existing bus lease
@@ -47,11 +56,11 @@ accepted margin instead of presenting it as 100% manual certainty.
 ## Timing truth
 
 The musical response is not the Auto Pitch engine latency. At the recommended
-3-second setting, a strong modulation is accepted after the next completed
-3-second evidence window and reaches Auto Pitch after up to roughly 0.4 seconds
-of suite-bus polling. A marginal change can require two windows. The 1-second
-setting is faster but necessarily has less harmonic evidence. Auto Pitch's
-selected Live/Studio engine latency is unchanged after the new key arrives.
+3-second setting, a context-rich modulation takes two adjacent one-second
+observations; a normal modulation takes three. The accepted revision then reaches
+Auto Pitch after up to roughly 0.4 seconds of suite-bus polling. The 1-second
+horizon is faster but necessarily less conservative. Auto Pitch's selected
+Live/Studio engine latency is unchanged after the new key arrives.
 
 This design prevents silence or a single ambiguous chord from immediately
 retuning a singer to a false tonic. It cannot promise that every arbitrary song
@@ -69,14 +78,18 @@ cmake -S . -B build-dynamic-key -G Ninja \
   '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' \
   -DSATTARI_INCLUDE_STEMDECK=OFF
 cmake --build build-dynamic-key --target \
-  SongKeyRender SattariCrossPluginBusContract AutoPitchCoreContract -j 6
+  SongKeyRender SattariDynamicKeyTrackerContract \
+  SattariCrossPluginBusContract AutoPitchCoreContract -j 6
 ```
 
 Passing contracts on 2026-09-02:
 
+- `SattariDynamicKeyTrackerContract`: fast acquisition, two-observation fast
+  modulation, three-observation stable modulation, progression hold, isolated
+  chord rejection, low-margin rejection, silence hold, and revision semantics.
 - `SongKeyRender --dynamic-follow-smoke`: actual plugin processor accepted C
-  major, changed to G major, published both revisions, then held G through a
-  silent window.
+  major, held C through isolated IV/V chords, changed to G major, published both
+  revisions with a 3-second horizon, then held G through a silent observation.
 - `SattariCrossPluginBusContract`: Dynamic Key metadata round-trip, lock-free
   `SessionReader` snapshot, and legacy default behavior pass.
 - `AutoPitchCoreContract`: actual Auto Pitch `SessionReader` followed C major to
