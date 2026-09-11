@@ -96,6 +96,8 @@ void WaveformDisplay::setOnSeekRequest (std::function<void(double)> callback)
 
 void WaveformDisplay::setPlaybackState (double positionSeconds, double totalSeconds, bool playing)
 {
+    const double oldPosition = playbackPositionSeconds;
+    const double oldTotal    = playbackTotalSeconds;
     const bool playingChanged = playing != isPlaying;
     const bool totalChanged   = std::abs (totalSeconds    - playbackTotalSeconds)    > 0.05;
     const bool posChanged     = std::abs (positionSeconds - playbackPositionSeconds) > 0.10;
@@ -104,8 +106,49 @@ void WaveformDisplay::setPlaybackState (double positionSeconds, double totalSeco
     playbackTotalSeconds    = totalSeconds;
     isPlaying               = playing;
 
-    if (playingChanged || totalChanged || posChanged)
+    if (playingChanged || totalChanged)
+    {
         repaint();
+        return;
+    }
+
+    if (! posChanged || oldTotal <= 0.0 || getWidth() <= 0 || getHeight() <= 0)
+        return;
+
+    // Playback used to invalidate the complete waveform on every UI tick. A
+    // moving playhead only changes the narrow strip between its old and new
+    // positions (including the progress tint), so keep large stem waveforms out
+    // of the software renderer's dirty region. Full repaints above still cover
+    // play/pause glyph and duration changes.
+    const auto [t0, t1] = visibleTimeRange (oldTotal);
+    if (t1 <= t0)
+    {
+        repaint();
+        return;
+    }
+
+    const auto norm = [t0, t1] (double seconds)
+    {
+        return juce::jlimit (0.0, 1.0, (seconds - t0) / (t1 - t0));
+    };
+    const double a = norm (oldPosition);
+    const double b = norm (positionSeconds);
+    constexpr int pad = 5;
+
+    if (verticalTimeMode)
+    {
+        const int y0 = (int) std::floor (juce::jmin (a, b) * (double) getHeight()) - pad;
+        const int y1 = (int) std::ceil  (juce::jmax (a, b) * (double) getHeight()) + pad;
+        repaint (0, juce::jmax (0, y0), getWidth(),
+                 juce::jmin (getHeight(), y1) - juce::jmax (0, y0));
+    }
+    else
+    {
+        const int x0 = (int) std::floor (juce::jmin (a, b) * (double) getWidth()) - pad;
+        const int x1 = (int) std::ceil  (juce::jmax (a, b) * (double) getWidth()) + pad;
+        repaint (juce::jmax (0, x0), 0,
+                 juce::jmin (getWidth(), x1) - juce::jmax (0, x0), getHeight());
+    }
 }
 
 void WaveformDisplay::setFile (const juce::File& file)

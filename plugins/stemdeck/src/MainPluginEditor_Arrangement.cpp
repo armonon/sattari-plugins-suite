@@ -2606,6 +2606,9 @@ double MainPluginEditor::ArrangementRecorderView::snapTime (double seconds) cons
 
 void MainPluginEditor::ArrangementRecorderView::setPlaybackPosition (double seconds, bool active)
 {
+    const double previousSeconds = playbackPositionSeconds;
+    const double previousViewStart = viewStartSeconds;
+    const bool previousActive = playbackActive;
     const bool changed = active != playbackActive || std::abs (seconds - playbackPositionSeconds) > 0.02;
     playbackPositionSeconds = seconds;
     playbackActive = active;
@@ -2618,8 +2621,30 @@ void MainPluginEditor::ArrangementRecorderView::setPlaybackPosition (double seco
             clampView();
         }
     }
-    if (changed)
+    if (! changed)
+        return;
+
+    // Starting/stopping changes the cursor weight and follow paging changes the
+    // complete time transform, so those still need a full repaint. During normal
+    // playback only the strip between the old and new playhead positions changes;
+    // invalidating every clip, waveform and automation lane at each timer tick
+    // made long sessions needlessly expensive.
+    if (previousActive != active
+        || std::abs (previousViewStart - viewStartSeconds) > 0.00001
+        || timelineMapRect.isEmpty() || rulerBounds.isEmpty())
+    {
         repaint();
+        return;
+    }
+
+    const int oldX = timeToXIn (timelineMapRect, previousSeconds);
+    const int newX = timeToXIn (timelineMapRect, seconds);
+    const int left = juce::jmax (timelineMapRect.getX(), juce::jmin (oldX, newX) - 7);
+    const int right = juce::jmin (timelineMapRect.getRight(), juce::jmax (oldX, newX) + 8);
+    const int bottom = scrollTrackBounds.isEmpty() ? getHeight()
+                                                   : scrollTrackBounds.getY();
+    if (right > left && bottom > rulerBounds.getY())
+        repaint (left, rulerBounds.getY(), right - left, bottom - rulerBounds.getY());
 }
 
 void MainPluginEditor::ArrangementRecorderView::setSnap (bool enabled, double beatGrid, double bpm)
