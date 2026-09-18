@@ -204,7 +204,8 @@ struct SessionMessage
 
 inline bool publishSession (const juce::String& publisherId, int root, int scale,
                             double bpm, juce::int64 transientId,
-                            const juce::String& requestedSessionId = {})
+                            const juce::String& requestedSessionId = {},
+                            const juce::String& ownerToken = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
@@ -216,6 +217,7 @@ inline bool publishSession (const juce::String& publisherId, int root, int scale
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("schemaVersion", 3);
     obj->setProperty ("publisher", publisherId);
+    if (ownerToken.isNotEmpty()) obj->setProperty ("ownerToken", ownerToken);
     if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, root));
@@ -229,7 +231,8 @@ inline bool publishSession (const juce::String& publisherId, int root, int scale
 // Full SessionState publisher (the Compass path). Writes every field; base-field-only
 // readers ignore the extras, SessionState readers pick up whatever is present.
 inline bool publishSessionState (const juce::String& publisherId, const SessionMessage& s,
-                                 const juce::String& requestedSessionId = {})
+                                 const juce::String& requestedSessionId = {},
+                                 const juce::String& ownerToken = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
@@ -242,6 +245,7 @@ inline bool publishSessionState (const juce::String& publisherId, const SessionM
     auto* obj = new juce::DynamicObject();
     obj->setProperty ("schemaVersion", 3);
     obj->setProperty ("publisher", publisherId);
+    if (ownerToken.isNotEmpty()) obj->setProperty ("ownerToken", ownerToken);
     if (sessionId.isNotEmpty()) obj->setProperty ("sessionId", sessionId);
     obj->setProperty ("priority", publisherPriority (publisherId));
     obj->setProperty ("root",  juce::jlimit (0, 11, s.root));
@@ -269,9 +273,12 @@ inline bool publishSessionState (const juce::String& publisherId, const SessionM
 // Remove a session frame only when it still belongs to this publisher. This is
 // used when a detector is explicitly disabled/unlocked, so followers stop now
 // instead of consuming its otherwise-valid 30-second stale tail. A different
-// authority's frame can never be removed by this call.
+// authority's frame can never be removed by this call. Supplying an instance
+// token also protects newer frames from another instance of the same product;
+// callers without a token retain the legacy product-level ownership contract.
 inline bool withdrawSessionState (const juce::String& publisherId,
-                                  const juce::String& requestedSessionId = {})
+                                  const juce::String& requestedSessionId = {},
+                                  const juce::String& ownerToken = {})
 {
     juce::InterProcessLock::ScopedLockType publishLock (keyBusPublishLock());
     if (! publishLock.isLocked()) return false;
@@ -279,7 +286,8 @@ inline bool withdrawSessionState (const juce::String& publisherId,
     if (! file.existsAsFile()) return false;
     const auto parsed = juce::JSON::parse (file.loadFileAsString());
     if (! parsed.isObject()
-        || parsed.getProperty ("publisher", juce::String()).toString() != publisherId)
+        || parsed.getProperty ("publisher", juce::String()).toString() != publisherId
+        || (ownerToken.isNotEmpty() && parsed.getProperty ("ownerToken", juce::String()).toString() != ownerToken))
         return false;
     return file.deleteFile();
 }

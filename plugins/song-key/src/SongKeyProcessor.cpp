@@ -1,5 +1,6 @@
 #include "SongKeyProcessor.h"
 #include "SongKeyEditor.h"
+#include <sattari_audio_core/SattariArrangementClip.h>
 #include <chrono>
 #include <cstring>
 
@@ -18,10 +19,12 @@ APVTS::ParameterLayout SattariSongKeyAudioProcessor::createParameterLayout()
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "lockSession", 1 }, "Lock Session", false));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "dynamicFollow", 1 }, "Dynamic Key Follow", false));
     p.push_back (std::make_unique<juce::AudioParameterFloat>  (juce::ParameterID { "dynamicInterval", 1 }, "Dynamic Stability Horizon",
-        juce::NormalisableRange<float> (1.0f, 5.0f, 1.0f), 3.0f));
+        juce::NormalisableRange<float> (1.0f, 5.0f, 1.0f), 5.0f));
     p.push_back (std::make_unique<juce::AudioParameterBool>   (juce::ParameterID { "manual",  1 }, "Manual Override", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualRoot",  1 }, "Manual Root",  rootChoices(),  0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "manualScale", 1 }, "Manual Scale", scaleChoices(), 0));
+    p.push_back (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { "songContextSeconds", 1 }, "Live Song Context",
+        juce::NormalisableRange<float> (5.0f, 60.0f, 5.0f), 15.0f));
     return { p.begin(), p.end() };
 }
 
@@ -39,11 +42,17 @@ SattariSongKeyAudioProcessor::~SattariSongKeyAudioProcessor()
     stopWorker();
 }
 
-void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
+void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     stopWorker();
 
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+#if JucePlugin_Enable_ARA
+    prepareToPlayForARA (currentSampleRate, samplesPerBlock,
+                         getTotalNumOutputChannels(), getProcessingPrecision());
+#else
+    juce::ignoreUnused (samplesPerBlock);
+#endif
     if (! fft)
         fft = std::make_unique<juce::dsp::FFT> (fftOrder);
 
@@ -56,6 +65,8 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (fftSize - 1));
     writePos.store (0);
     totalSamplesWritten.store (0);
+    lastLiveAnalysedSample = 0;
+    liveContextSamples.store (0);
     std::fill (running, running + 12, 0.0);
 
     // HPCP accumulator: warm its whitening buffer here so accumulate() never
@@ -80,6 +91,9 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
 void SattariSongKeyAudioProcessor::releaseResources()
 {
     stopWorker();
+#if JucePlugin_Enable_ARA
+    releaseResourcesForARA();
+#endif
 }
 
 bool SattariSongKeyAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -92,6 +106,9 @@ bool SattariSongKeyAudioProcessor::isBusesLayoutSupported (const BusesLayout& la
 void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+#if JucePlugin_Enable_ARA
+    processBlockForARA (buffer, isRealtime(), getPlayHead());
+#endif
     midiLearn.processMidi (midi);
 
     const int n  = buffer.getNumSamples();
@@ -140,6 +157,10 @@ void SattariSongKeyAudioProcessor::analyseNow()
         resetDynamicDecision();
     }
 
+    const auto written = totalSamplesWritten.load (std::memory_order_acquire);
+    if (written < fftSize || written <= lastLiveAnalysedSample) return;
+    const int freshSamples = (int) juce::jmin<juce::int64> (fftSize, written - lastLiveAnalysedSample);
+    lastLiveAnalysedSample = written;
     const int wp = writePos.load (std::memory_order_acquire);
     for (int i = 0; i < fftSize; ++i)
     {
@@ -151,6 +172,13 @@ void SattariSongKeyAudioProcessor::analyseNow()
     double frameSquareSum = 0.0;
     for (const auto sample : liveKeyInput)
         frameSquareSum += (double) sample * (double) sample;
+    // Count only new, non-silent audio actually inspected, not elapsed wall
+    // time, repeated UI snapshots, or the overlapping part of FFT windows.
+    double freshSquareSum = 0.0;
+    for (int i = fftSize - freshSamples; i < fftSize; ++i)
+        freshSquareSum += (double) liveKeyInput[(size_t) i] * liveKeyInput[(size_t) i];
+    if (freshSquareSum / freshSamples > 1.0e-8)
+        liveContextSamples.fetch_add (freshSamples);
     liveWindowRmsSum += std::sqrt (frameSquareSum / (double) fftSize);
     ++liveWindowRmsFrames;
     std::fill (scratch.begin() + fftSize, scratch.end(), 0.0f);
@@ -239,13 +267,14 @@ void SattariSongKeyAudioProcessor::analyseNow()
     }
 
     // Feed the same fixed 16 kHz/4096-frame path used for dropped song files.
-    // The worker snapshots overlap, which preserves continuity and improves the
-    // live warm-up time without ever touching the realtime audio callback.
-    liveSongKey.addSamples (liveKeyInput.data(), fftSize);
+    // FFT windows overlap, but the song estimator must see each captured sample
+    // only once. Duplicating the overlap exaggerated both evidence and duration.
+    liveSongKey.addSamples (liveKeyInput.data() + fftSize - freshSamples, freshSamples);
     auto k = liveSongKey.result();
     auto alternative = liveSongKey.alternative();
     const auto cleanTonal = keyAnalysis.analyseChroma (running);
-    if (! k.valid || (cleanTonal.valid && cleanTonal.confidence >= 0.25
+    if (! k.valid || (param ("dynamicFollow") > 0.5f
+                      && cleanTonal.valid && cleanTonal.confidence >= 0.25
                       && (cleanTonal.root != k.root
                           || cleanTonal.minor != k.minor)))
     {
@@ -256,7 +285,13 @@ void SattariSongKeyAudioProcessor::analyseNow()
         k = cleanTonal;
         alternative = keyAnalysis.analyseAlternativeChroma (running, k);
     }
-    if (k.valid)
+    const bool contextReady = hasLiveSongContext();
+    if (! contextReady)
+    {
+        detValid.store (false);
+        detAlternativeValid.store (false);
+    }
+    if (k.valid && contextReady)
     {
         detRoot.store (k.root);
         detMinor.store (k.minor);
@@ -322,6 +357,7 @@ void SattariSongKeyAudioProcessor::clearPublishedDecision()
 
 void SattariSongKeyAudioProcessor::resetLiveKeyWindow()
 {
+    liveContextSamples.store (0);
     std::fill (running, running + 12, 0.0);
     std::fill (runningBass, runningBass + 12, 0.0);
     liveChordRootEvidence.fill (0.0);
@@ -331,6 +367,14 @@ void SattariSongKeyAudioProcessor::resetLiveKeyWindow()
     bassHpcp.reset();
     liveSongKey.prepare (currentSampleRate);
     liveWindowHasValidDecision = false;
+}
+
+bool SattariSongKeyAudioProcessor::hasLiveSongContext() const
+{
+    return analysisSource.load() != AnalysisSource::Live
+        || param ("dynamicFollow") > 0.5f
+        || (double) liveContextSamples.load() / currentSampleRate
+            >= (double) param ("songContextSeconds");
 }
 
 void SattariSongKeyAudioProcessor::resetDynamicDecision()
@@ -363,7 +407,7 @@ void SattariSongKeyAudioProcessor::setSessionLocked (bool shouldLock)
             const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
             clearPublishedDecision();
         }
-        sattari::xplugin::withdrawSessionState ("song-key");
+        sattari::xplugin::withdrawSessionState ("song-key", {}, busOwnerToken);
         return;
     }
     publishCurrent();
@@ -388,7 +432,7 @@ void SattariSongKeyAudioProcessor::setDynamicFollowEnabled (bool enabled)
             resetDynamicDecision();
             publishingNow.store (false);
         }
-        sattari::xplugin::withdrawSessionState ("song-key");
+        sattari::xplugin::withdrawSessionState ("song-key", {}, busOwnerToken);
     }
 }
 
@@ -408,12 +452,16 @@ void SattariSongKeyAudioProcessor::stopFileWorker()
     fileCancel.store (true, std::memory_order_release);
     if (fileWorker.joinable())
         fileWorker.join();
+    arrangementReader.reset();
     fileAnalysing.store (false, std::memory_order_release);
 }
 
 void SattariSongKeyAudioProcessor::listenLive()
 {
     stopFileWorker();
+#if JucePlugin_Enable_ARA
+    arrangementWatch.reset();
+#endif
     unlockSession();
     analysisSource.store (AnalysisSource::Live, std::memory_order_release);
     {
@@ -436,6 +484,16 @@ void SattariSongKeyAudioProcessor::listenLive()
 
 void SattariSongKeyAudioProcessor::reanalyseCurrentSource()
 {
+    if (analysisSource.load (std::memory_order_acquire) == AnalysisSource::Arrangement)
+    {
+        juce::String error;
+        if (! analyseSelectedArrangementClip (error))
+        {
+            const juce::ScopedLock state (fileStateLock);
+            fileError = error;
+        }
+        return;
+    }
     if (analysisSource.load (std::memory_order_acquire) == AnalysisSource::File)
     {
         juce::File file;
@@ -454,17 +512,50 @@ void SattariSongKeyAudioProcessor::reanalyseCurrentSource()
 
 bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
 {
+    return analyseSourceAsync (file, {}, file.getFileNameWithoutExtension(), AnalysisSource::File);
+}
+
+bool SattariSongKeyAudioProcessor::analyseSelectedArrangementClip (juce::String& error)
+{
+#if JucePlugin_Enable_ARA
+    auto request = sattari::arrangement::selectedClip (getEditorView());
+    error = request.error;
+    if (request.reader == nullptr) return false;
+    const bool started = analyseClipAsync (std::move (request.reader), request.name);
+    arrangementWatch = std::move (request.watch);
+    arrangementWatch->onInvalidated = [this] { invalidateArrangementAnalysis(); };
+    return started;
+#else
+    error = sattari::arrangement::unavailableMessage();
+    return false;
+#endif
+}
+
+bool SattariSongKeyAudioProcessor::analyseClipAsync (
+    std::unique_ptr<juce::AudioFormatReader> reader, const juce::String& name)
+{
+    return analyseSourceAsync ({}, std::move (reader), name, AnalysisSource::Arrangement);
+}
+
+bool SattariSongKeyAudioProcessor::analyseSourceAsync (
+    const juce::File& file, std::unique_ptr<juce::AudioFormatReader> reader,
+    const juce::String& name, AnalysisSource source)
+{
     stopFileWorker();
+#if JucePlugin_Enable_ARA
+    arrangementWatch.reset();
+#endif
+    arrangementReader = std::move (reader);
     if (auto* parameter = apvts.getParameter ("dynamicFollow"))
         parameter->setValueNotifyingHost (0.0f);
     unlockSession();
-    analysisSource.store (AnalysisSource::File, std::memory_order_release);
+    analysisSource.store (source, std::memory_order_release);
     fileProgress.store (0.0);
 
     {
         const juce::ScopedLock state (fileStateLock);
         lastFile = file;
-        fileSourceName = file.getFileNameWithoutExtension();
+        fileSourceName = name;
         fileError.clear();
     }
     {
@@ -482,7 +573,7 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
         detPossibleModulation.store (false);
     }
 
-    if (! isSupportedAudioFile (file))
+    if (source == AnalysisSource::File && ! isSupportedAudioFile (file))
     {
         const juce::ScopedLock state (fileStateLock);
         fileError = file.existsAsFile()
@@ -491,15 +582,25 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
         return false;
     }
 
+    if (source == AnalysisSource::Arrangement && arrangementReader == nullptr)
+    {
+        const juce::ScopedLock state (fileStateLock);
+        fileError = "No readable arrangement clip was supplied";
+        return false;
+    }
+
     fileCancel.store (false, std::memory_order_release);
     fileAnalysing.store (true, std::memory_order_release);
-    fileWorker = std::thread ([this, file]
+    fileWorker = std::thread ([this, file, source]
     {
         OfflineResult result;
         juce::String error;
-        const bool ok = analyseFile (file, result, error);
+        const bool ok = source == AnalysisSource::Arrangement
+            ? analyseReader (*arrangementReader, result, error)
+            : analyseFile (file, result, error);
 
-        if (fileCancel.load (std::memory_order_acquire))
+        if (fileCancel.load (std::memory_order_acquire)
+            || ! sattari::arrangement::isCurrent (arrangementReader.get()))
             return;
 
         if (! ok || ! result.key.valid)
@@ -512,7 +613,7 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
 
         {
             const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
-            if (analysisSource.load (std::memory_order_acquire) != AnalysisSource::File)
+            if (analysisSource.load (std::memory_order_acquire) != source)
                 return;
             detRoot.store (result.key.root);
             detMinor.store (result.key.minor);
@@ -541,6 +642,25 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
     return true;
 }
 
+void SattariSongKeyAudioProcessor::invalidateArrangementAnalysis()
+{
+    // Document thread: cancel/join before revoking state, so a late worker can
+    // never republish the clip after the host edit has completed.
+    stopFileWorker();
+    {
+        const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
+        detValid.store (false);
+        detAlternativeValid.store (false);
+        detTempoValid.store (false);
+        detConf.store (0.0);
+        clearPublishedDecision();
+    }
+    unlockSession();
+    fileProgress.store (0.0);
+    const juce::ScopedLock state (fileStateLock);
+    fileError = "Arrangement clip changed or was removed. Select it and scan again.";
+}
+
 bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
                                                  OfflineResult& result,
                                                  juce::String& error)
@@ -553,6 +673,14 @@ bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
         error = "This build cannot decode that audio file";
         return false;
     }
+    return analyseReader (*reader, result, error);
+}
+
+bool SattariSongKeyAudioProcessor::analyseReader (juce::AudioFormatReader& sourceReader,
+                                                 OfflineResult& result,
+                                                 juce::String& error)
+{
+    auto* reader = &sourceReader;
     if (reader->lengthInSamples <= 0 || reader->numChannels == 0
         || reader->sampleRate <= 0.0)
     {
@@ -608,7 +736,7 @@ bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
         decoded.clear();
         if (! reader->read (&decoded, 0, count, readPosition, true, true))
         {
-            error = "The song could not be decoded completely";
+            error = "Audio became unavailable or changed during analysis. Select the clip and scan again.";
             return false;
         }
         for (int i = 0; i < count; ++i)
@@ -766,7 +894,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         if (! pub || ! dynamicDecisionValid)
         {
             if (! pub && wasPublishing)
-                sattari::xplugin::withdrawSessionState ("song-key");
+                sattari::xplugin::withdrawSessionState ("song-key", {}, busOwnerToken);
             return;
         }
 
@@ -792,7 +920,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         msg.keyConfidence = (float) juce::jlimit (0.0, 1.0, dynamicConfidence);
         msg.keyRevision = dynamicRevision;
         msg.keyWindowSeconds = stabilityHorizon;
-        const bool published = sattari::xplugin::publishSessionState ("song-key", msg);
+        const bool published = sattari::xplugin::publishSessionState ("song-key", msg, {}, busOwnerToken);
         publishingNow.store (published);
         lastDynamicPublishAttemptMs = now;
         return;
@@ -802,12 +930,12 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     {
         resetDynamicDecision();
         if (wasPublishing)
-            sattari::xplugin::withdrawSessionState ("song-key");
+            sattari::xplugin::withdrawSessionState ("song-key", {}, busOwnerToken);
     }
     if (! pub || ! lockRequested)
     {
         if (wasPublishing)
-            sattari::xplugin::withdrawSessionState ("song-key");
+            sattari::xplugin::withdrawSessionState ("song-key", {}, busOwnerToken);
         if (! lockRequested) lockSnapshotValid = false;
         return;
     }
@@ -821,7 +949,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         }
         else
         {
-            if (! detValid.load() || detConf.load() < kMinPublishConfidence)
+            if (! detValid.load() || ! hasLiveSongContext() || detConf.load() < kMinPublishConfidence)
                 return;
             lockedRoot = detRoot.load();
             lockedMinor = detMinor.load();
@@ -829,7 +957,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
 
         lockedReferenceHz = 440.0 * std::pow (
             2.0, detDetuneCents.load() / 1200.0);
-        const bool isFile = analysisSource.load() == AnalysisSource::File;
+        const bool isFile = analysisSource.load() != AnalysisSource::Live;
         const double detectedTempo = detTempoValid.load() ? detBpm.load() : 0.0;
         const double exactHostTempo = hostBpm.load();
         lockedBpm = isFile
@@ -849,7 +977,7 @@ void SattariSongKeyAudioProcessor::publishCurrent()
     msg.transientId = ++transientId;
     msg.referenceHz = lockedReferenceHz;
     publishingNow.store (
-        sattari::xplugin::publishSessionState ("song-key", msg));
+        sattari::xplugin::publishSessionState ("song-key", msg, {}, busOwnerToken));
 }
 
 void SattariSongKeyAudioProcessor::stopWorker()
@@ -892,7 +1020,7 @@ void SattariSongKeyAudioProcessor::workerLoop()
 SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() const
 {
     Detected d;
-    d.valid = detValid.load();
+    d.valid = detValid.load() && hasLiveSongContext();
     d.root = detRoot.load();
     d.minor = detMinor.load();
     d.confidence = detConf.load();
@@ -901,7 +1029,7 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
     d.alternativeMinor = detAlternativeMinor.load();
     d.publishing = publishingNow.load();
     d.detuneCents = detDetuneCents.load();
-    const bool isFile = analysisSource.load() == AnalysisSource::File;
+    const bool isFile = analysisSource.load() != AnalysisSource::Live;
     const double exactHostTempo = hostBpm.load();
     const bool useHostTempo = ! isFile && exactHostTempo > 1.0;
     d.tempoValid = useHostTempo || detTempoValid.load();
@@ -937,6 +1065,10 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
     d.source = analysisSource.load();
     d.analysing = fileAnalysing.load();
     d.progress = fileProgress.load();
+    d.liveAnalysedSeconds = (double) liveContextSamples.load() / currentSampleRate;
+    d.liveRequiredSeconds = param ("songContextSeconds");
+    d.gatheringSongContext = d.source == AnalysisSource::Live && ! d.dynamicEnabled
+        && ! hasLiveSongContext();
     d.segmentAgreement = detSegmentAgreement.load();
     d.segments = detSegments.load();
     d.possibleModulation = detPossibleModulation.load();

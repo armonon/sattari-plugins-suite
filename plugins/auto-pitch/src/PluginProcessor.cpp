@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariArrangementClip.h>
 #include "PluginEditor.h"
 #include <SattariAutoPitchModelData.h>
 
@@ -546,8 +547,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     // Transpose to Key (whole-mix): instead of per-note correction, shift the ENTIRE
     // signal by a fixed number of semitones via Rubber Band (formant-aware) so a whole
     // beat / instrumental / sample lands in a target key. xposeSemis is the shift; the
-    // editor's "Match Key" button sets it from AutoKey's detected key -> the SET KEY
-    // target. This is a musical transpose (moves everything), NOT note correction.
+    // editor's "Match Key" button sets it from a completed original-source scan
+    // to the suite/manual target. This moves everything, NOT individual notes.
     params.push_back (std::make_unique<juce::AudioParameterBool> ("xposeMode", "Transpose to Key", false));
     params.push_back (std::make_unique<juce::AudioParameterInt>  ("xposeSemis", "Transpose", -12, 12, 0));
 
@@ -2083,6 +2084,63 @@ void SattariAutoPitchAudioProcessor::readDetectedAutoKey (int& root, int& scale,
     std::memcpy (&confidence, &confidenceBits, sizeof (confidence));
 }
 
+bool SattariAutoPitchAudioProcessor::matchScannedSourceToTargetKey (juce::String& error)
+{
+    error.clear();
+#if ! SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    error = "Whole-mix key matching requires the Rubber Band engine in this build.";
+    return false;
+#else
+    if (fileProgress.load (std::memory_order_acquire) < 1.0f || ! fileKeyValid.load()
+        || ! std::isfinite (fileKeyConf.load()) || fileKeyConf.load() < kMinBusKeyConfidence)
+    {
+        error = "Scan or drop the original beat/instrument into Auto Pitch first. "
+                "Match Key needs a completed, confident source-key analysis, not an instantaneous note.";
+        return false;
+    }
+    int targetRoot = juce::roundToInt (apvts.getRawParameterValue ("keyRoot")->load());
+    int targetScale = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
+    if (apvts.getRawParameterValue ("followSongKey")->load() > 0.5f)
+    {
+        // This is a UI command, not an audio callback: read the current authority
+        // directly, including expiry, instead of falling back to a hidden local key.
+        const auto session = sattari::xplugin::readSession();
+        if (! session || (session->dynamicKey && session->keyConfidence < kMinBusKeyConfidence))
+        {
+            error = "No fresh, trusted session key. Lock and publish the reference song in Sattari Key, then match again.";
+            return false;
+        }
+        targetRoot = session->root;
+        targetScale = session->scale;
+    }
+    else if (apvts.getRawParameterValue ("autoKey")->load() > 0.5f
+             || apvts.getRawParameterValue ("useKeyMap")->load() > 0.5f
+             || apvts.getRawParameterValue ("followSongMap")->load() > 0.5f)
+    {
+        error = "Use Follow Song for the reference key, or turn AutoKey and key-map following off to choose a manual destination. The scanned beat is the source, not its own target.";
+        return false;
+    }
+    if (targetScale != 0 && targetScale != 1)
+    {
+        error = "Whole-mix matching needs a major or minor target. Chromatic/custom-scale note correction is a different operation.";
+        return false;
+    }
+    if ((fileKeyMinor.load() != 0) != (targetScale == 1))
+    {
+        error = "Source and target modes differ. A fixed transpose preserves major/minor chord relationships; "
+                "changing those requires editing the individual notes or stems.";
+        return false;
+    }
+    int delta = (targetRoot - fileKeyRoot.load() + 12) % 12;
+    if (delta > 6) delta -= 12;
+    auto* shift = apvts.getParameter ("xposeSemis");
+    shift->beginChangeGesture();
+    shift->setValueNotifyingHost (shift->convertTo0to1 ((float) delta));
+    shift->endChangeGesture();
+    return true;
+#endif
+}
+
 void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
 {
     // Throttle to once a second so we never thrash the bus file. Per-instance
@@ -2140,7 +2198,7 @@ void SattariAutoPitchAudioProcessor::publishCurrentKeyToBus()
     // Backward-compatible: key-only readers still parse this fine.
     sattari::xplugin::publishSession ("auto-pitch", root, scale,
                                       hostBpmForBus.load(),
-                                      sessionTransientId.load());
+                                      sessionTransientId.load(), {}, busOwnerToken);
 }
 
 void SattariAutoPitchAudioProcessor::pushSidechainBlock (const float* mono, int numSamples)
@@ -2740,6 +2798,11 @@ bool SattariAutoPitchAudioProcessor::isSupportedAudioFile (const juce::File& fil
 
 void SattariAutoPitchAudioProcessor::clearSongFileResult()
 {
+    // Do not retain a previous clip's detected latch while replacing/rescanning
+    // its source. The user's manual key is the safe fallback until a new result.
+    songSourceIsClip.store (false);
+    songSourceStartSeconds.store (0.0);
+    songSourceDurationSeconds.store (0.0);
     fileKeyValid.store (false, std::memory_order_release);
     fileBpm.store (0.0f, std::memory_order_relaxed);
     fileProgress.store (0.0f, std::memory_order_relaxed);
@@ -2749,27 +2812,79 @@ void SattariAutoPitchAudioProcessor::clearSongFileResult()
         //  UI showed no analysis at all.
         const juce::ScopedLock kl (keyMapLock);
         songMapEntries.clear();
+        keyMapCurrentSegment.store (-1);
+        // Reset after acquiring the map lock: an audio callback finishing its
+        // old map lookup must not restore that verdict after it was revoked.
+        publishDetectedAutoKey (9, 1, 0.0f);
     }
-    keyMapCurrentSegment.store (-1);
+    sattari::xplugin::withdrawSessionState ("auto-pitch", {}, busOwnerToken);
     const std::lock_guard<std::mutex> lock (songAnalysisMutex);
     songAnalysis = {};
+    songAnalysisRevision.fetch_add (1);
 }
 
 void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& file)
+{
+    startSongSourceAnalysis (file, {}, file.getFileNameWithoutExtension(), 0.0, false);
+}
+
+bool SattariAutoPitchAudioProcessor::analyseSelectedArrangementClip (juce::String& error)
+{
+#if JucePlugin_Enable_ARA
+    auto request = sattari::arrangement::selectedClip (getEditorView());
+    error = request.error;
+    if (request.reader == nullptr) return false;
+    const bool started = analyseSongClipAsync (std::move (request.reader), request.name,
+                                               request.timelineStartSeconds);
+    songClipWatch = std::move (request.watch);
+    songClipWatch->onInvalidated = [this] { invalidateArrangementAnalysis(); };
+    return started;
+#else
+    error = sattari::arrangement::unavailableMessage();
+    return false;
+#endif
+}
+
+bool SattariAutoPitchAudioProcessor::analyseSongClipAsync (
+    std::unique_ptr<juce::AudioFormatReader> reader,
+    const juce::String& name, double timelineStartSeconds)
+{
+    if (reader == nullptr || ! std::isfinite (timelineStartSeconds)) return false;
+    startSongSourceAnalysis ({}, std::move (reader), name, timelineStartSeconds, true);
+    return true;
+}
+
+void SattariAutoPitchAudioProcessor::startSongSourceAnalysis (
+    const juce::File& file, std::unique_ptr<juce::AudioFormatReader> clipReader,
+    const juce::String& name, double timelineStartSeconds, bool isClip)
 {
     //  Serialise: one file analysis at a time, and never concurrently with a dying
     //  predecessor (the reader owns a file handle).
     fileWorkerCancel.store (true, std::memory_order_release);
     if (fileWorker.joinable())
         fileWorker.join();
+    // ARA readers register model listeners. Their ownership remains on the
+    // message thread; the worker only borrows them until it has been joined.
+#if JucePlugin_Enable_ARA
+    songClipWatch.reset();
+#endif
+    songClipReader = std::move (clipReader);
     fileWorkerCancel.store (false, std::memory_order_relaxed);
     clearSongFileResult();
+    songSourceStartSeconds.store (timelineStartSeconds);
+    songSourceIsClip.store (isClip);
+    {
+        const juce::ScopedLock lock (songSourceLock);
+        songSourceName = name;
+    }
 
-    fileWorker = std::thread ([this, file]
+    fileWorker = std::thread ([this, file, isClip, timelineStartSeconds]
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        std::unique_ptr<juce::AudioFormatReader> fileReader;
+        if (! isClip) fileReader.reset (formats.createReaderFor (file));
+        auto* reader = isClip ? songClipReader.get() : fileReader.get();
         if (reader == nullptr || reader->lengthInSamples <= 0
             || reader->numChannels == 0 || reader->sampleRate <= 0.0)
         {
@@ -2923,6 +3038,10 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
         const auto tempo = sattari::dsp::TempoEstimator::analyse (
             onsetEnvelope, reader->sampleRate / (double) hop);
 
+        if (fileWorkerCancel.load (std::memory_order_acquire)
+            || ! sattari::arrangement::isCurrent (reader)) return;
+        songSourceDurationSeconds.store ((double) reader->lengthInSamples / reader->sampleRate);
+
         fileKeyRoot.store (key.root, std::memory_order_relaxed);
         fileKeyMinor.store (key.minor ? 1 : 0, std::memory_order_relaxed);
         fileKeyConf.store ((float) key.confidence, std::memory_order_relaxed);
@@ -2988,7 +3107,7 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
                 std::vector<KeyMapEntry> entries;
                 entries.reserve (a.scaleRegions.size());
                 for (const auto& r : a.scaleRegions)
-                    entries.push_back ({ r.startSec, juce::jlimit (0, 11, r.root),
+                    entries.push_back ({ timelineStartSeconds + r.startSec, juce::jlimit (0, 11, r.root),
                                          r.minor ? 1 : 0, (float) r.confidence });
                 const juce::ScopedLock kl (keyMapLock);
                 songMapEntries = std::move (entries);
@@ -3007,10 +3126,20 @@ void SattariAutoPitchAudioProcessor::analyseSongFileAsync (const juce::File& fil
                       r.userSet = true; r.confidence = 1.0; }
             }
             songAnalysis = std::move (a);
+            songAnalysisRevision.fetch_add (1);
         }
 
         fileProgress.store (1.0f, std::memory_order_release);
     });
+}
+
+void SattariAutoPitchAudioProcessor::invalidateArrangementAnalysis()
+{
+    fileWorkerCancel.store (true, std::memory_order_release);
+    if (fileWorker.joinable()) fileWorker.join();
+    songClipReader.reset();
+    clearSongFileResult();
+    fileProgress.store (-1.0f, std::memory_order_release);
 }
 
 bool SattariAutoPitchAudioProcessor::startKeyMapScan (const juce::File& audioFile)
@@ -3344,7 +3473,10 @@ void SattariAutoPitchAudioProcessor::applyKeyMapAtSeconds (double seconds)
                       && ! keyMap.empty();
     const bool useSong = ! useScan
                       && apvts.getRawParameterValue ("followSongMap")->load() > 0.5f
-                      && ! songMapEntries.empty();
+                      && ! songMapEntries.empty()
+                      && (! songSourceIsClip.load()
+                          || (seconds >= songSourceStartSeconds.load()
+                              && seconds < songSourceStartSeconds.load() + songSourceDurationSeconds.load()));
     if (! useScan && ! useSong)
     {
         //  Clear the latch. Returning without this left keyMapCurrentSegment at
@@ -3738,7 +3870,7 @@ void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bo
         std::vector<KeyMapEntry> entries;
         entries.reserve (model.scaleRegions.size());
         for (const auto& r : model.scaleRegions)
-            entries.push_back ({ r.startSec, juce::jlimit (0, 11, r.root),
+            entries.push_back ({ songSourceStartSeconds.load() + r.startSec, juce::jlimit (0, 11, r.root),
                                  r.minor ? 1 : 0, (float) r.confidence });
         const juce::ScopedLock kl (keyMapLock);
         songMapEntries = std::move (entries);
@@ -3747,6 +3879,7 @@ void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bo
 
 void SattariAutoPitchAudioProcessor::updateHarmonyChordAtSeconds (double seconds) noexcept
 {
+    seconds -= songSourceStartSeconds.load();
     // Song analysis is background-owned. The audio thread may sample it, but it
     // never waits for a file scan or UI copy: if the mutex is busy, the previous
     // coherent chord remains valid for one more block.
@@ -3809,7 +3942,7 @@ SattariAutoPitchAudioProcessor::planHarmonyNow() const
     int pcs[4]; int numPcs = 0; double chordConf = 0.0;
     {
         const auto model = songAnalysisCopy();
-        const double at = getKeyMapPlayheadSec();
+        const double at = getSongPlayheadSeconds();
         for (const auto& cr : model.chordRegions)
         {
             if (at < cr.startSec || at >= cr.endSec) continue;
@@ -3895,7 +4028,7 @@ SattariAutoPitchAudioProcessor::getHarmonyEditOverlays() const
 
     for (const auto& edit : edits)
     {
-        const double at = 0.5 * (edit.startSec + edit.endSec);
+        const double at = 0.5 * (edit.startSec + edit.endSec) - songSourceStartSeconds.load();
         int root = defaultOrigin.root, scaleChoice = defaultOrigin.scale;
         for (const auto& region : model.scaleRegions)
             if (at >= region.startSec && at < region.endSec)

@@ -270,6 +270,178 @@ int main (int argc, char** argv)
     }();
     const double seconds = 4.0;
 
+    // --keyhandoff : objective held-note test for Dynamic Sattari Key -> Auto
+    // Pitch. A continuous A3+45c input begins under C major (target A), then the
+    // real session bus changes to Db major (target Bb) without a note boundary,
+    // followed later by a short phrase break. This measures whether the revision
+    // reaches the planner, whether a held note stays safe, whether the new key is
+    // used on the next attack, and whether the handoff creates a sample jump.
+    // It is a diagnostic, not a listening score.
+    if (argc > 1 && std::strcmp (argv[1], "--keyhandoff") == 0)
+    {
+        const auto sessionId = "auto-pitch-key-handoff-" + juce::String (
+            sattari::xplugin::currentTimeMs());
+       #if JUCE_WINDOWS
+        _putenv_s ("SATTARI_SESSION_ID", sessionId.toRawUTF8());
+       #else
+        setenv ("SATTARI_SESSION_ID", sessionId.toRawUTF8(), 1);
+       #endif
+
+        auto publishDynamic = [] (int root, int revision)
+        {
+            sattari::xplugin::SessionMessage message;
+            message.root = root;
+            message.scale = 0;
+            message.dynamicKey = true;
+            message.keyConfidence = 0.30f;
+            message.keyRevision = revision;
+            message.keyWindowSeconds = 3.0;
+            return sattari::xplugin::publishSessionState ("song-key", message);
+        };
+
+        if (! publishDynamic (0, 1))
+        {
+            std::fprintf (stderr, "FAIL: could not publish initial C-major key\n");
+            return 2;
+        }
+
+        SattariAutoPitchAudioProcessor processor;
+        processor.setRateAndBufferSizeDetails (sr, block);
+        setParam (processor.parameters(), "followSongKey", 1.0f);
+        setParam (processor.parameters(), "autoKey", 0.0f);
+        setParam (processor.parameters(), "liveMode", 1.0f);
+        setParam (processor.parameters(), "enableCorrection", 1.0f);
+        setParam (processor.parameters(), "amount", 1.0f);
+        setParam (processor.parameters(), "speed", 1.0f);
+        setParam (processor.parameters(), "flexTune", 0.0f);
+        setParam (processor.parameters(), "transition", 0.5f);
+        setParam (processor.parameters(), "humanize", 0.0f);
+        setParam (processor.parameters(), "polyphonic", 0.0f);
+        processor.prepareToPlay (sr, block);
+        juce::Thread::sleep (900); // allow the production SessionReader to acquire rev 1
+
+        constexpr double durationSeconds = 7.0;
+        const int totalSamples = ((int) (durationSeconds * sr) / block) * block;
+        const int switchSample = (int) (3.0 * sr);
+        const int phraseBreakStart = (int) (4.5 * sr);
+        const int phraseBreakEnd = (int) (4.75 * sr);
+        const double inputHz = 220.0 * std::pow (2.0, 45.0 / 1200.0);
+        juce::AudioBuffer<float> output (2, totalSamples);
+        output.clear();
+        double phase = 0.0;
+        bool switched = false;
+        int appliedSwitchSample = -1;
+
+        for (int position = 0; position < totalSamples; position += block)
+        {
+            if (! switched && position >= switchSample)
+            {
+                if (! publishDynamic (1, 2)) // Db major
+                {
+                    std::fprintf (stderr, "FAIL: could not publish Db-major key\n");
+                    return 2;
+                }
+                juce::Thread::sleep (900); // production poller, not a test hook
+                switched = true;
+                appliedSwitchSample = position;
+            }
+
+            juce::AudioBuffer<float> audio (2, block);
+            for (int sample = 0; sample < block; ++sample)
+            {
+                const int absoluteSample = position + sample;
+                const bool phraseBreak = absoluteSample >= phraseBreakStart
+                    && absoluteSample < phraseBreakEnd;
+                const float value = phraseBreak
+                    ? 0.0f : 0.35f * (float) std::sin (phase);
+                phase += juce::MathConstants<double>::twoPi * inputHz / sr;
+                audio.setSample (0, sample, value);
+                audio.setSample (1, sample, value);
+            }
+            juce::MidiBuffer midi;
+            processor.processBlock (audio, midi);
+            for (int channel = 0; channel < 2; ++channel)
+                output.copyFrom (channel, position, audio, channel, 0, block);
+        }
+
+        auto medianMidi = [&] (double fromSeconds, double toSeconds)
+        {
+            sattari::dsp::PitchDetector detector;
+            detector.prepare (sr, 80.0f, 800.0f, 0.045f);
+            constexpr int hop = 256;
+            const int begin = juce::jlimit (
+                0, totalSamples, (int) std::round (fromSeconds * sr));
+            const int end = juce::jlimit (
+                begin, totalSamples, (int) std::round (toSeconds * sr));
+            std::vector<double> notes;
+            for (int position = begin; position + hop <= end; position += hop)
+            {
+                detector.pushBlock (output.getReadPointer (0) + position, hop);
+                const auto result = detector.analyse (0.2f);
+                if (result.voiced)
+                    notes.push_back (69.0 + 12.0 * std::log2 (
+                        (double) result.frequencyHz / 440.0));
+            }
+            if (notes.empty()) return -9999.0;
+            std::sort (notes.begin(), notes.end());
+            return notes[notes.size() / 2];
+        };
+
+        const double before = medianMidi (1.8, 2.8);
+        const double heldAfterRevision = medianMidi (3.6, 4.35);
+        const double afterNewAttack = medianMidi (5.4, 6.7);
+        const int latency = processor.getLatencySamples();
+        double maximumJump = 0.0;
+        const int jumpBegin = juce::jlimit (
+            1, totalSamples - 1, appliedSwitchSample + latency - (int) (0.15 * sr));
+        const int jumpEnd = juce::jlimit (
+            jumpBegin + 1, totalSamples, appliedSwitchSample + latency + (int) (0.80 * sr));
+        for (int sample = jumpBegin; sample < jumpEnd; ++sample)
+            maximumJump = std::max (
+                maximumJump,
+                std::abs ((double) output.getSample (0, sample)
+                        - (double) output.getSample (0, sample - 1)));
+
+        const auto origin = processor.currentKeyOrigin();
+        const bool reached = origin.source
+                == SattariAutoPitchAudioProcessor::KeyOrigin::Source::FollowBus
+            && origin.root == 1 && origin.scale == 0
+            && origin.dynamic && origin.revision == 2;
+        const bool phraseSafe = before > -9000.0 && heldAfterRevision > -9000.0
+            && std::abs (before - 57.0) <= 0.35
+            && std::abs (heldAfterRevision - before) <= 0.20;
+        const bool nextAttackMoved = afterNewAttack > -9000.0
+            && std::abs (before - 57.0) <= 0.35
+            && std::abs (afterNewAttack - 58.0) <= 0.35
+            && afterNewAttack - before >= 0.55;
+        const bool bounded = std::isfinite (maximumJump) && maximumJump < 0.50;
+
+        std::printf ("Dynamic key held-note handoff\n");
+        std::printf ("  bus revision reached : %s (root=%d rev=%d)\n",
+                     reached ? "yes" : "NO", origin.root, origin.revision);
+        std::printf ("  before C major       : MIDI %.3f (target A3 = 57)\n", before);
+        std::printf ("  held after revision  : MIDI %.3f (safe target A3 = 57)\n",
+                     heldAfterRevision);
+        std::printf ("  after next attack    : MIDI %.3f (new target Bb3 = 58)\n",
+                     afterNewAttack);
+        std::printf ("  held-note movement   : %+.1f cents\n",
+                     100.0 * (heldAfterRevision - before));
+        std::printf ("  next-attack movement : %+.1f cents\n",
+                     100.0 * (afterNewAttack - before));
+        std::printf ("  max adjacent jump    : %.5f FS\n", maximumJump);
+        std::printf ("  reported latency     : %d samples / %.2f ms\n",
+                     latency, 1000.0 * latency / sr);
+        std::printf ("  interpretation       : hold the current note, apply the "
+                     "new key on the next attack; objective only, not a listening score\n");
+
+        processor.releaseResources();
+        sattari::xplugin::keyBusFile().deleteFile();
+        const bool ok = reached && phraseSafe && nextAttackMoved && bounded;
+        std::printf (ok ? "Auto Pitch dynamic held-note handoff ok\n"
+                        : "FAIL: dynamic held-note handoff\n");
+        return ok ? 0 : 1;
+    }
+
     // --followmap : does Follow Song Map actually DRIVE correction?
     //
     // This exists because it did not. keyMapDriving() was widened to accept the

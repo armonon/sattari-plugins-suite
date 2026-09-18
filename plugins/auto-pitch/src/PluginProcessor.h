@@ -11,6 +11,7 @@
 #include <sattari_audio_core/SattariLivePitchEngine.h>
 #include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariTempoEstimator.h>
+#include <sattari_audio_core/SattariArrangementClip.h>
 #include <sattari_audio_core/SattariSongModel.h>
 #include <sattari_audio_core/SattariChordAnalysis.h>
 #include <sattari_audio_core/SattariHarmonyVoices.h>
@@ -425,14 +426,42 @@ public:
     static constexpr float kMinBusKeyConfidence = (float) sattari::dsp::kReleaseKeyConfidence;
 
     KeyOrigin currentKeyOrigin() const;
+    // Message-thread command. A completed scan describes the ORIGINAL beat;
+    // the suite/manual key describes the destination. Never use the current
+    // monophonic detector or a followed target as the beat's source key.
+    bool matchScannedSourceToTargetKey (juce::String& error);
 
     //  Full-song drop analysis (ported from Sattari Key): decode + finalised
     //  SongKeyEstimator + TempoEstimator on a background thread. The finalised
     //  whole-file verdict outranks the mid-stream one in AutoKey.
     void analyseSongFileAsync (const juce::File& file);
+    bool analyseSelectedArrangementClip (juce::String& error);
+    bool analyseSongClipAsync (std::unique_ptr<juce::AudioFormatReader>,
+                               const juce::String& name, double timelineStartSeconds);
+    juce::String getSongSourceName() const
+    {
+        const juce::ScopedLock lock (songSourceLock);
+        return songSourceName;
+    }
+    double getSongPlayheadSeconds() const
+    {
+        return getKeyMapPlayheadSec() - songSourceStartSeconds.load();
+    }
     bool isSupportedAudioFile (const juce::File& file) const;
     void clearSongFileResult();
     std::thread fileWorker;
+    std::unique_ptr<juce::AudioFormatReader> songClipReader;
+#if JucePlugin_Enable_ARA
+    std::unique_ptr<sattari::arrangement::ClipWatch> songClipWatch;
+#endif
+    void invalidateArrangementAnalysis();
+    std::atomic<double> songSourceStartSeconds { 0.0 }, songSourceDurationSeconds { 0.0 };
+    std::atomic<bool> songSourceIsClip { false };
+    std::atomic<int> songAnalysisRevision { 0 };
+    mutable juce::CriticalSection songSourceLock;
+    juce::String songSourceName;
+    void startSongSourceAnalysis (const juce::File&, std::unique_ptr<juce::AudioFormatReader>,
+                                  const juce::String&, double timelineStartSeconds, bool isClip);
     std::atomic<bool>  fileWorkerCancel { false };
     std::atomic<float> fileProgress { 0.0f };      // 0..1; <0 = error
     std::atomic<bool>  fileKeyValid { false };
@@ -759,6 +788,7 @@ private:
     // (so the key keeps broadcasting after the GUI is closed) — the CAS guarantees at
     // most one writer per second, so the two threads never write the bus file at once.
     std::atomic<juce::int64> lastBusPublishMs { 0 };
+    const juce::String busOwnerToken = juce::Uuid().toString();
 
     // Follow Song Key: read the key Sattari Key (or any publisher) puts on the bus.
     sattari::xplugin::SessionReader sessionReader;

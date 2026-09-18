@@ -10,6 +10,7 @@
 //   song_key_render --live-tempo-smoke # live 120 BPM onset/tempo contract
 //   song_key_render --dynamic-follow-smoke # C->G bus update + silence hold
 //   song_key_render --analyse-file <audio> # print the production file verdict
+//   song_key_render --dynamic-file <audio> [1-5] # print accepted live-key timeline
 //   song_key_render --corpus <dir> [N]   # score the REAL PLUGIN on a labelled corpus
 //
 // --corpus is the honest end-to-end measurement: it streams each track through
@@ -18,6 +19,7 @@
 // core; this scores what the plugin actually ships, including its ring buffers,
 // worker cadence and shared Aarden/chroma decision.
 #include "SongKeyProcessor.h"
+#include "../../../core/tests/ArrangementClipFixture.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <sattari_audio_core/SattariEditorRender.h>
@@ -209,6 +211,125 @@ bool liveTempoSmoke()
         && std::abs (detected.bpm - 120.0) <= 2.0;
 }
 
+bool liveContextSmoke()
+{
+    const auto session = "live-context-" + juce::Uuid().toString();
+#if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", session.toRawUTF8());
+#else
+    setenv ("SATTARI_SESSION_ID", session.toRawUTF8(), 1);
+#endif
+    constexpr double rate = 48000;
+    constexpr int blockSize = 512;
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (rate, blockSize);
+    processor.releaseResources();
+    setParam (processor.parameters(), "publish", 1);
+    double time = 0;
+    int sinceAnalysis = 0;
+    auto feed = [&] (double seconds, bool silent)
+    {
+        for (int block = 0; block < (int) std::ceil (seconds * rate / blockSize); ++block)
+        {
+            juce::AudioBuffer<float> audio (2, blockSize);
+            for (int i = 0; i < blockSize; ++i, time += 1.0 / rate)
+            {
+                double value = 0;
+                if (! silent)
+                    for (double hz : { 261.6256, 329.6276, 391.9954 })
+                        value += 0.2 * std::sin (juce::MathConstants<double>::twoPi * hz * time);
+                audio.setSample (0, i, (float) value);
+                audio.setSample (1, i, (float) value);
+            }
+            juce::MidiBuffer midi;
+            processor.processBlock (audio, midi);
+            sinceAnalysis += blockSize;
+            if (sinceAnalysis >= 2048) { processor.serviceLiveAnalysis(); sinceAnalysis = 0; }
+        }
+    };
+    bool ok = true;
+    feed (6.0, true);
+    ok &= ! processor.detected().valid && processor.detected().liveAnalysedSeconds < 0.001;
+    feed (14.0, false);
+    const auto early = processor.detected();
+    ok &= ! early.valid && early.gatheringSongContext && early.liveAnalysedSeconds < 15.0;
+    for (int i = 0; i < 200; ++i) processor.serviceLiveAnalysis();
+    ok &= std::abs (processor.detected().liveAnalysedSeconds - early.liveAnalysedSeconds) < 0.0001;
+    processor.setSessionLocked (true);
+    ok &= ! processor.detected().sessionLocked && ! sattari::xplugin::readSession();
+    feed (2.0, false);
+    const auto ready = processor.detected();
+    const auto published = sattari::xplugin::readSession();
+    ok &= ready.valid && ! ready.gatheringSongContext && ready.root == 0 && ! ready.minor
+        && ready.sessionLocked && published && published->root == 0;
+    // Increasing context does not leave a premature candidate enabled. Restoring
+    // the session preserves the user-selected horizon.
+    processor.unlockSession();
+    setParam (processor.parameters(), "songContextSeconds", 30);
+    ok &= ! processor.detected().valid && processor.detected().gatheringSongContext;
+    juce::MemoryBlock state;
+    processor.getStateInformation (state);
+    SattariSongKeyAudioProcessor restored;
+    restored.setStateInformation (state.getData(), (int) state.getSize());
+    ok &= std::abs (restored.detected().liveRequiredSeconds - 30.0) < 0.001;
+    processor.requestRescan();
+    processor.analyseNow();
+    ok &= processor.detected().liveAnalysedSeconds < 0.001 && ! processor.detected().valid;
+    std::printf ("Song context: early %.3f s valid=%d; ready %.3f s root=%d minor=%d; %s\n",
+        early.liveAnalysedSeconds, early.valid, ready.liveAnalysedSeconds, ready.root, ready.minor, ok ? "PASS" : "FAIL");
+    return ok;
+}
+
+bool arrangementClipSmoke()
+{
+    const auto sessionId = "song-key-arrangement-" + juce::String (sattari::xplugin::currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", sessionId.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", sessionId.toRawUTF8(), 1);
+   #endif
+    auto probe = std::make_shared<sattari::test::ClipReaderProbe>();
+    SattariSongKeyAudioProcessor processor;
+    setParam (processor.parameters(), "publish", 0.0f);
+    if (! processor.analyseClipAsync (sattari::test::makeArrangementClip (probe), "DAW chorus"))
+        return false;
+    auto waitForAnalysis = [&]
+    {
+        for (int i = 0; processor.detected().analysing && i < 1000; ++i)
+            std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        return processor.detected();
+    };
+    const auto result = waitForAnalysis();
+    const bool validClip = result.valid && ! result.analysing && result.error.isEmpty()
+        && result.root == 0 && ! result.minor && result.tempoValid
+        && std::abs (result.bpm - 120) < 2
+        && result.source == SattariSongKeyAudioProcessor::AnalysisSource::Arrangement
+        && result.sourceName == "DAW chorus" && sattari::test::readOnlyTrimmedClip (*probe);
+    setParam (processor.parameters(), "publish", 1.0f);
+    processor.setSessionLocked (true);
+    const auto bus = sattari::xplugin::readSession();
+    const bool publishedClip = processor.detected().sessionLocked && bus
+        && bus->root == 0 && bus->scale == 0 && ! bus->dynamicKey
+        && std::abs (bus->bpm - 120) < 2;
+    setParam (processor.parameters(), "publish", 0.0f);
+    processor.listenLive();
+    if (! validClip || ! publishedClip || ! probe->destroyedOnOwnerThread.load()) return false;
+
+    auto invalidated = std::make_shared<sattari::test::ClipReaderProbe>();
+    invalidated->failAfterReads = 2;
+    processor.analyseClipAsync (sattari::test::makeArrangementClip (invalidated), "Changed clip");
+    const auto failed = waitForAnalysis();
+    if (failed.valid || failed.analysing || failed.error.isEmpty()) return false;
+
+    auto cancelled = std::make_shared<sattari::test::ClipReaderProbe>();
+    cancelled->slow = true;
+    processor.analyseClipAsync (sattari::test::makeArrangementClip (cancelled), "Cancelled clip");
+    processor.listenLive();
+    return cancelled->destroyedOnOwnerThread.load()
+        && ! processor.detected().valid
+        && processor.detected().source == SattariSongKeyAudioProcessor::AnalysisSource::Live;
+}
+
 bool dynamicFollowSmoke()
 {
     constexpr double sampleRate = 48000.0;
@@ -287,7 +408,9 @@ bool dynamicFollowSmoke()
         && progression.dynamicRoot == 0 && ! progression.dynamicMinor
         && progression.dynamicRevision == 1;
 
-    feed ({ 195.9977, 246.9417, 293.6648 }, 3.3, false); // G major
+    // C -> G is a harmonically confusable fifth relation, so the adaptive
+    // safety layer extends the selected 3-second minimum to five observations.
+    feed ({ 195.9977, 246.9417, 293.6648 }, 5.3, false); // G major
     const auto g = processor.detected();
     const auto gBus = sattari::xplugin::readSession();
     const bool gAccepted = g.dynamicActive && g.dynamicRoot == 7
@@ -314,6 +437,110 @@ bool dynamicFollowSmoke()
             held.dynamicRoot, held.dynamicMinor ? 1 : 0, held.dynamicRevision);
     }
     return cAccepted && progressionHeld && gAccepted && silenceHeld;
+}
+
+int dynamicFileTimeline (const juce::File& file, double horizon)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (
+        formats.createReaderFor (file));
+    if (reader == nullptr || reader->lengthInSamples <= 0
+        || reader->sampleRate <= 0.0)
+    {
+        std::fprintf (stderr, "FAIL: cannot decode %s\n",
+                      file.getFullPathName().toRawUTF8());
+        return 2;
+    }
+
+    horizon = juce::jlimit (1.0, 5.0, std::round (horizon));
+    const auto sessionId = "song-key-file-timeline-" + juce::String (
+        sattari::xplugin::currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", sessionId.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", sessionId.toRawUTF8(), 1);
+   #endif
+
+    constexpr int blockSize = 512;
+    constexpr int analysisHop = 2048;
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (reader->sampleRate, blockSize);
+    processor.releaseResources(); // deterministic: drive the production cadence here
+    setParam (processor.parameters(), "publish", 0.0f);
+    setParam (processor.parameters(), "dynamicInterval", (float) horizon);
+    processor.setDynamicFollowEnabled (true);
+
+    juce::AudioBuffer<float> audio (2, blockSize);
+    juce::int64 position = 0;
+    int sinceAnalysis = 0;
+    int lastRevision = 0;
+    int acceptedEvents = 0;
+    static const char* names[] = {
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B"
+    };
+
+    std::printf ("file=%s\thorizon=%.0fs\tduration=%.3fs\n",
+                 file.getFileName().toRawUTF8(), horizon,
+                 (double) reader->lengthInSamples / reader->sampleRate);
+    std::printf ("event_sec\tkey\tmargin\tlane\trevision\n");
+
+    while (position < reader->lengthInSamples)
+    {
+        const int count = (int) juce::jmin (
+            (juce::int64) blockSize, reader->lengthInSamples - position);
+        audio.clear();
+        if (! reader->read (&audio, 0, count, position, true, true))
+        {
+            std::fprintf (stderr, "FAIL: decode stopped at %.3f s\n",
+                          (double) position / reader->sampleRate);
+            return 2;
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (audio, midi);
+        position += count;
+        sinceAnalysis += count;
+
+        if (sinceAnalysis >= analysisHop)
+        {
+            sinceAnalysis = 0;
+            processor.serviceLiveAnalysis();
+            const auto d = processor.detected();
+            if (d.dynamicActive && d.dynamicRevision != lastRevision)
+            {
+                std::printf ("%.3f\t%s %s\t%.4f\t%s\t%d\n",
+                             (double) position / reader->sampleRate,
+                             names[juce::jlimit (0, 11, d.dynamicRoot)],
+                             d.dynamicMinor ? "minor" : "major",
+                             d.dynamicConfidence,
+                             d.dynamicFastLane ? "fast" : "stable",
+                             d.dynamicRevision);
+                lastRevision = d.dynamicRevision;
+                ++acceptedEvents;
+            }
+        }
+    }
+    if (sinceAnalysis > 0)
+        processor.serviceLiveAnalysis();
+
+    const auto final = processor.detected();
+    std::printf ("summary\taccepted_events=%d\tfinal=%s",
+                 acceptedEvents,
+                 final.dynamicActive
+                    ? names[juce::jlimit (0, 11, final.dynamicRoot)] : "none");
+    if (final.dynamicActive)
+        std::printf (" %s\tmargin=%.4f\trevision=%d",
+                     final.dynamicMinor ? "minor" : "major",
+                     final.dynamicConfidence, final.dynamicRevision);
+    if (final.dynamicPending)
+        std::printf ("\tpending=%s %s %d/%d",
+                     names[juce::jlimit (0, 11, final.dynamicPendingRoot)],
+                     final.dynamicPendingMinor ? "minor" : "major",
+                     final.dynamicPendingConfirmations,
+                     final.dynamicRequiredConfirmations);
+    std::printf ("\n");
+    return final.dynamicActive ? 0 : 1;
 }
 }
 
@@ -357,6 +584,26 @@ double mirexScore (int pRoot, bool pMin, int tRoot, bool tMin)
 
 int main (int argc, char** argv)
 {
+    if (argc == 2 && std::strcmp (argv[1], "--context-smoke") == 0)
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        return liveContextSmoke() ? 0 : 1;
+    }
+    if (argc == 2 && std::strcmp (argv[1], "--clip-smoke") == 0)
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        const bool ok = arrangementClipSmoke();
+        std::printf ("Sattari Key arrangement reader: %s (trim, key/tempo, invalidation, cancellation, ownership)\n", ok ? "PASS" : "FAIL");
+        return ok ? 0 : 1;
+    }
+    if ((argc == 3 || argc == 4)
+        && std::strcmp (argv[1], "--dynamic-file") == 0)
+    {
+        const double horizon = argc == 4 ? std::atof (argv[3]) : 3.0;
+        return dynamicFileTimeline (
+            juce::File (juce::String::fromUTF8 (argv[2])), horizon);
+    }
+
     if (argc == 3 && std::strcmp (argv[1], "--analyse-file") == 0)
     {
         SattariSongKeyAudioProcessor processor;
@@ -478,10 +725,11 @@ int main (int argc, char** argv)
 
             juce::AudioBuffer<float> buf (2, block);
             const juce::int64 total = rd->lengthInSamples;
-            // Drive analyseNow() at the SAME rate the plugin's worker does (~700 ms),
+            // Drive analyseNow() at the SAME 2048-sample cadence as the plugin's
+            // worker, not at the historical 700 ms publisher cadence,
             // not once per block: the chroma accumulates per call, so a faster cadence
             // would measure something the shipping plugin never does.
-            const juce::int64 analysePeriod = (juce::int64) (sr * 0.7);
+            constexpr juce::int64 analysePeriod = 2048;
             juce::int64 sinceAnalyse = 0;
             for (juce::int64 pos = 0; pos + block <= total; pos += block)
             {
@@ -516,10 +764,10 @@ int main (int argc, char** argv)
     proc.releaseResources();                   // stop the background worker; we drive analysis directly
     setParam (proc.parameters(), "publish", 0.0f);   // don't touch the suite bus during the test
 
-    // ~0.7 s of a C major triad, fed block by block to fill the analysis ring.
+    // A real 16-second context, not repeated snapshots of the same short chord.
     const double f[3] = { 261.63, 329.63, 392.00 };
     double ph[3] = { 0, 0, 0 };
-    const int blocks = (int) (0.7 * sr / block);
+    const int blocks = (int) (16.0 * sr / block);
     for (int b = 0; b < blocks; ++b)
     {
         juce::AudioBuffer<float> buf (2, block);
@@ -531,9 +779,9 @@ int main (int argc, char** argv)
         }
         juce::MidiBuffer midi;
         proc.processBlock (buf, midi);
+        if (b % 4 == 3) proc.analyseNow();
     }
-
-    for (int i = 0; i < 20; ++i) proc.analyseNow();   // let the rolling chroma settle
+    proc.analyseNow();
 
     const auto d = proc.detected();
     if (! d.valid) { std::fprintf (stderr, "FAIL: no key detected\n"); return 1; }

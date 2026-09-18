@@ -16,7 +16,9 @@
 //  without making any transition impossible. The fast lane may establish a
 //  clean initial key after one observation and a tonic-confirmed change after
 //  two. Everything else must remain consistent for the selected 1-5 second
-//  stability horizon. Silence, drums,
+//  minimum stability horizon. At the normal 3-5 second settings, low-margin
+//  and harmonically confusable changes automatically receive extra evidence
+//  time. Silence, drums,
 //  low-margin guesses and isolated chords retain the last trusted key.
 //
 //  This class is deliberately independent of plugin state and wall-clock time:
@@ -82,6 +84,7 @@ public:
         acceptedState_ = 0;
         acceptedConfidence_ = 0.0;
         revision_ = 0;
+        windowsSinceAccepted_ = 0;
         pendingState_ = -1;
         pendingCount_ = 0;
     }
@@ -93,6 +96,9 @@ public:
         decision.changed = false;
         decision.fastLane = false;
         decision.requiredConfirmations = requiredFor (stabilityHorizonSeconds);
+
+        if (acceptedValid_)
+            ++windowsSinceAccepted_;
 
         if (! observationIsUsable (observation))
         {
@@ -176,6 +182,24 @@ public:
             return snapshotWithRequirements (required);
         }
 
+        int confirmationRequired = required;
+        const bool confusableWithAccepted = acceptedValid_
+            && relatedStates (acceptedState_, bestState);
+        if (acceptedValid_)
+        {
+            // The one-second control means "observe every second", never
+            // "retune a held singer from one ordinary guess". Only the qualified
+            // two-observation fast lane may beat this confirmation floor.
+            confirmationRequired = std::max (confirmationRequired, 2);
+            // Parallel, relative and fifth-related keys share enough material
+            // that a chord progression can impersonate a modulation. Marginal
+            // changes get the same protection even when roots are unrelated.
+            if (confusableWithAccepted || confidence < 0.14)
+                confirmationRequired = std::max (confirmationRequired, 5);
+            else if (confidence < 0.18)
+                confirmationRequired = std::max (confirmationRequired, 4);
+        }
+
         if (pendingState_ == bestState)
             ++pendingCount_;
         else
@@ -188,23 +212,29 @@ public:
         // Even fast-lane changes therefore need two adjacent one-second votes;
         // the first trusted acquisition may enter immediately.
         const bool fast = fastLaneIsSafe (observation, bestState)
+            && (! acceptedValid_ || ! confusableWithAccepted)
             && pendingCount_ >= (acceptedValid_ ? 2 : 1);
-        const int initialRequired = std::min (2, required);
-        if (fast || pendingCount_ >= (acceptedValid_ ? required : initialRequired))
+        const int initialRequired = std::min (2, confirmationRequired);
+        const bool stableReady = pendingCount_ >= (acceptedValid_
+                                                        ? confirmationRequired
+                                                        : initialRequired)
+            && (! acceptedValid_ || windowsSinceAccepted_ >= kMinimumDwellWindows);
+        if (fast || stableReady)
         {
             acceptedValid_ = true;
             acceptedState_ = bestState;
             acceptedConfidence_ = confidence;
             ++revision_;
+            windowsSinceAccepted_ = 0;
             pendingState_ = -1;
             pendingCount_ = 0;
-            auto accepted = snapshotWithRequirements (required);
+            auto accepted = snapshotWithRequirements (confirmationRequired);
             accepted.changed = true;
             accepted.fastLane = fast;
             return accepted;
         }
 
-        return snapshotWithRequirements (required);
+        return snapshotWithRequirements (confirmationRequired);
     }
 
     DynamicKeyDecision decision() const noexcept { return snapshot(); }
@@ -459,6 +489,8 @@ private:
     int acceptedState_ = 0;
     double acceptedConfidence_ = 0.0;
     int revision_ = 0;
+    static constexpr int kMinimumDwellWindows = 5;
+    int windowsSinceAccepted_ = 0;
     int pendingState_ = -1;
     int pendingCount_ = 0;
 };

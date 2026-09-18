@@ -282,6 +282,16 @@ add_executable(AutoPitchMotionBench
     EXCLUDE_FROM_ALL
         tools/autopitch_motionbench.cpp)
 
+if(SATTARI_AUTOPITCH_ENABLE_ARA)
+    add_executable(AutoPitchARAContract EXCLUDE_FROM_ALL
+        ../song-key/tests/arrangement_ara_contract.cpp
+        ../../third_party/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_ARA.cpp)
+    target_include_directories(AutoPitchARAContract PRIVATE $<TARGET_PROPERTY:SattariAutoPitch,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(AutoPitchARAContract PRIVATE
+        $<TARGET_PROPERTY:SattariAutoPitch,COMPILE_DEFINITIONS> JucePlugin_Build_Standalone=1 SATTARI_TEST_AUTOPITCH=1)
+    target_link_libraries(AutoPitchARAContract PRIVATE SattariAutoPitch)
+endif()
+
 target_include_directories(AutoPitchMotionBench
     PRIVATE
         src)

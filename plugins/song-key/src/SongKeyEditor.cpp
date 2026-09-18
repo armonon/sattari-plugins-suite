@@ -4,7 +4,11 @@
 
 SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
     SattariSongKeyAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p)
+    : AudioProcessorEditor (&p),
+#if JucePlugin_Enable_ARA
+      AudioProcessorEditorARAExtension (&p),
+#endif
+      audioProcessor (p)
 {
     setLookAndFeel (&lookAndFeel);
     setTitle ("Sattari Key");
@@ -46,8 +50,17 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
     dynamicInterval.setTextValueSuffix (" s");
     dynamicInterval.setTitle ("Dynamic stability horizon");
     dynamicInterval.setDescription (
-        "Seconds of agreement required for marginal key changes; analysis always runs every second");
+        "Minimum evidence horizon; the default 5 seconds is safest for automatic vocal correction");
     addAndMakeVisible (dynamicInterval);
+    songContextLabel.setText ("Song context", juce::dontSendNotification);
+    songContextLabel.setFont (sattari::brand::fontOptions (11.0f));
+    addAndMakeVisible (songContextLabel);
+    songContext.setSliderStyle (juce::Slider::LinearHorizontal);
+    songContext.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 22);
+    songContext.setTextValueSuffix (" s");
+    songContext.setTitle ("Live song context");
+    songContext.setTooltip ("Minimum new, non-silent audio before a live song-key result. Clip/file scans always analyse the entire selection. Dynamic Key uses its separate shorter horizon.");
+    addAndMakeVisible (songContext);
     manualToggle.setTitle ("Manual key override");
     manualToggle.setDescription (
         "Use an explicit key instead of the detected result");
@@ -72,6 +85,8 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
         audioProcessor.parameters(), "dynamicFollow", dynamicFollowToggle);
     dynamicIntervalAttachment = std::make_unique<SliderAttachment> (
         audioProcessor.parameters(), "dynamicInterval", dynamicInterval);
+    songContextAttachment = std::make_unique<SliderAttachment> (
+        audioProcessor.parameters(), "songContextSeconds", songContext);
     manualAttachment = std::make_unique<ButtonAttachment> (
         audioProcessor.parameters(), "manual", manualToggle);
     rootAttachment = std::make_unique<ComboAttachment> (
@@ -86,6 +101,17 @@ SattariSongKeyAudioProcessorEditor::SattariSongKeyAudioProcessorEditor (
         "Analyse a complete WAV, AIFF, FLAC, MP3, M4A, AAC, or OGG song");
     chooseSongButton.onClick = [this] { chooseSong(); };
     addAndMakeVisible (chooseSongButton);
+
+    scanClipButton.setTooltip ("Analyse one selected, ARA-linked arrangement clip without importing a file or pressing Play. Source audio, before track effects.");
+    scanClipButton.onClick = [this]
+    {
+        juce::String error;
+        if (! audioProcessor.analyseSelectedArrangementClip (error))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                   "Scan DAW clip", error);
+        updateSnapshot();
+    };
+    addAndMakeVisible (scanClipButton);
 
     liveButton.setTitle ("Listen to live input");
     liveButton.setDescription (
@@ -331,6 +357,8 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     liveButton.setToggleState (
         snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::Live,
         juce::dontSendNotification);
+    songContext.setEnabled (snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::Live
+        && ! snapshot.dynamicEnabled);
     lockToggle.setButtonText (
         snapshot.sessionLocked ? "Session locked"
             : snapshot.lockRequested ? "Waiting to lock" : "Lock session");
@@ -341,13 +369,14 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     bool active = false;
     if (snapshot.analysing)
     {
-        status = "ANALYSING FILE · "
+        status = juce::String (snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::Arrangement
+                                  ? "ANALYSING DAW CLIP - " : "ANALYSING FILE - ")
             + juce::String ((int) std::round (snapshot.progress * 100.0)) + "%";
         active = true;
     }
     else if (snapshot.error.isNotEmpty())
     {
-        status = "FILE COULD NOT BE ANALYSED";
+        status = "SOURCE COULD NOT BE ANALYSED";
     }
     else if (snapshot.dynamicEnabled && snapshot.dynamicActive
              && snapshot.publishing)
@@ -383,6 +412,12 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     else if (snapshot.sessionLocked && snapshot.publishing)
     {
         status = "SESSION LOCKED / PUBLISHING";
+        active = true;
+    }
+    else if (snapshot.gatheringSongContext && ! manual)
+    {
+        status = "BUILDING SONG CONTEXT / " + juce::String (snapshot.liveAnalysedSeconds, 1)
+            + " OF " + juce::String (snapshot.liveRequiredSeconds, 0) + " S";
         active = true;
     }
     else if (snapshot.lockRequested)
@@ -469,31 +504,38 @@ void SattariSongKeyAudioProcessorEditor::paint (juce::Graphics& g)
     sattari::studio::paintSectionTitle (
         g, source.removeFromTop (18), "Analysis source",
         snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::File
-            ? "full-song scan" : "plugin input");
+            ? "full-song scan"
+            : snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::Arrangement
+                ? "DAW clip / pre-FX" : "plugin input");
     source.removeFromTop (5);
 
     juce::String primary;
     juce::String secondary;
-    if (snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::File)
+    if (snapshot.source != SattariSongKeyAudioProcessor::AnalysisSource::Live)
     {
         primary = snapshot.sourceName.isNotEmpty()
             ? snapshot.sourceName : "Choose or drop a song";
         if (snapshot.analysing)
-            secondary = "Reading the complete track · "
+            secondary = "Reading selected audio - "
                 + juce::String ((int) std::round (snapshot.progress * 100.0)) + "%";
         else if (snapshot.error.isNotEmpty())
             secondary = snapshot.error;
         else if (snapshot.possibleModulation)
             secondary = "Section results differ · possible key change";
         else
-            secondary = "Drop another audio file here to replace it";
+            secondary = snapshot.source == SattariSongKeyAudioProcessor::AnalysisSource::Arrangement
+                ? "Clip snapshot - select and re-scan after arrangement edits"
+                : "Drop another audio file here to replace it";
     }
     else
     {
         primary = "Live input";
         secondary = snapshot.dynamicEnabled
             ? "Dynamic Follow holds the last trusted key through silence and ambiguity"
-            : "Play the song through this track, master bus, or standalone input";
+            : snapshot.gatheringSongContext
+                ? "Listening across the song - " + juce::String (snapshot.liveAnalysedSeconds, 1)
+                    + " / " + juce::String (snapshot.liveRequiredSeconds, 0) + " s analysed"
+                : "Accumulating song context - review and lock the overall key";
     }
 
     auto text = source.removeFromLeft (juce::jmax (240, source.getWidth() - 190));
@@ -539,14 +581,20 @@ void SattariSongKeyAudioProcessorEditor::resized()
     auto command = area.removeFromTop (
         sattari::studio::metric::commandHeight);
     lockToggle.setBounds (command.removeFromLeft (152));
-    command.removeFromLeft (6);
-    chooseSongButton.setBounds (command.removeFromLeft (104));
-    command.removeFromLeft (6);
-    liveButton.setBounds (command.removeFromLeft (94));
-    command.removeFromLeft (6);
-    rescanButton.setBounds (command.removeFromLeft (76));
     sessionHud.setBounds (
         command.removeFromRight (190).withSizeKeepingCentre (190, 26));
+    command.reduce (8, 0);
+    songContextLabel.setBounds (command.removeFromLeft (80));
+    songContext.setBounds (command);
+
+    auto sources = area.removeFromTop (32).reduced (0, 3);
+    scanClipButton.setBounds (sources.removeFromLeft (142));
+    sources.removeFromLeft (8);
+    chooseSongButton.setBounds (sources.removeFromLeft (104));
+    sources.removeFromLeft (8);
+    liveButton.setBounds (sources.removeFromLeft (94));
+    sources.removeFromLeft (8);
+    rescanButton.setBounds (sources.removeFromLeft (76));
 
     area.removeFromTop ((int) sattari::studio::metric::gap);
     sourceArea = area.removeFromTop (76);

@@ -12,6 +12,7 @@
 #include <sattari_audio_core/SattariSongKeyEstimator.h>
 #include <sattari_audio_core/SattariTempoEstimator.h>
 #include <sattari_audio_core/SattariDynamicKeyTracker.h>
+#include <sattari_audio_core/SattariArrangementClip.h>
 #include <array>
 #include <atomic>
 #include <limits>
@@ -30,6 +31,9 @@
 //  to it. Live audio passes through untouched.
 // =============================================================================
 class SattariSongKeyAudioProcessor final : public juce::AudioProcessor
+#if JucePlugin_Enable_ARA
+                                       , public juce::AudioProcessorARAExtension
+#endif
 {
 public:
     SattariSongKeyAudioProcessor();
@@ -73,8 +77,12 @@ public:
     // It decodes and scans on its own worker so neither the audio callback nor the
     // message thread is blocked. Live mode keeps listening to the plugin's main
     // input, including a standalone app's selected audio input.
-    enum class AnalysisSource { Live, File };
+    enum class AnalysisSource { Live, File, Arrangement };
     bool analyseFileAsync (const juce::File&);
+    bool analyseSelectedArrangementClip (juce::String& error);
+    // Host-owned readers are constructed/destroyed on the message thread;
+    // decoding and analysis still run entirely on the worker.
+    bool analyseClipAsync (std::unique_ptr<juce::AudioFormatReader>, const juce::String& name);
     void listenLive();
     void reanalyseCurrentSource();
     void setSessionLocked (bool);
@@ -107,6 +115,9 @@ public:
         AnalysisSource source = AnalysisSource::Live;
         bool analysing = false;
         double progress = 0.0;
+        double liveAnalysedSeconds = 0.0;
+        double liveRequiredSeconds = 15.0;
+        bool gatheringSongContext = false;
         double segmentAgreement = 0.0;
         int segments = 0;
         bool possibleModulation = false;
@@ -148,12 +159,17 @@ private:
         bool possibleModulation = false;
     };
     bool analyseFile (const juce::File&, OfflineResult&, juce::String& error);
+    bool analyseReader (juce::AudioFormatReader&, OfflineResult&, juce::String& error);
+    bool analyseSourceAsync (const juce::File&, std::unique_ptr<juce::AudioFormatReader>,
+                             const juce::String&, AnalysisSource);
     static float onsetStrength (const float* magnitude, int numBins,
                                 std::vector<float>& previous);
     void stopFileWorker();
+    void invalidateArrangementAnalysis();
     void clearPublishedDecision();
     void resetLiveKeyWindow();
     void resetDynamicDecision();
+    bool hasLiveSongContext() const;
 
     juce::AudioProcessorValueTreeState apvts;
 
@@ -167,6 +183,8 @@ private:
     std::array<float, fftSize> liveKeyInput {};
     std::atomic<int> writePos { 0 };
     std::atomic<juce::int64> totalSamplesWritten { 0 };
+    juce::int64 lastLiveAnalysedSample = 0; // analysisStateMutex, never count a snapshot twice
+    std::atomic<juce::int64> liveContextSamples { 0 };
     double running[12] = { 0 };                    // background-thread-only
     double runningBass[12] = { 0 };                // low-band tonic evidence
     std::array<double, 12> liveChordRootEvidence {};
@@ -208,12 +226,17 @@ private:
     std::atomic<double> hostPpq { -1.0 };
     std::atomic<bool> hostHasPpq { false };
     juce::int64 transientId = 0;
+    const juce::String busOwnerToken = juce::Uuid().toString();
 
     std::atomic<AnalysisSource> analysisSource { AnalysisSource::Live };
     std::atomic<bool> fileAnalysing { false };
     std::atomic<double> fileProgress { 0.0 };
     std::atomic<bool> fileCancel { false };
     std::thread fileWorker;
+    std::unique_ptr<juce::AudioFormatReader> arrangementReader;
+#if JucePlugin_Enable_ARA
+    std::unique_ptr<sattari::arrangement::ClipWatch> arrangementWatch;
+#endif
     juce::File lastFile;
     juce::String fileSourceName;
     juce::String fileError;

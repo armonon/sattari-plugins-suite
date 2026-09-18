@@ -562,7 +562,11 @@ void PitchEditTimeline::mouseWheelMove (const juce::MouseEvent& e, const juce::M
 // Editor
 // ============================================================================
 SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (SattariAutoPitchAudioProcessor& p)
-    : AudioProcessorEditor (&p), audioProcessor (p),
+    : AudioProcessorEditor (&p),
+#if JucePlugin_Enable_ARA
+      AudioProcessorEditorARAExtension (&p),
+#endif
+      audioProcessor (p),
       presetManager (p.parameters(), "auto-pitch")
 {
     setLookAndFeel (&lookAndFeel);
@@ -666,6 +670,21 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     headerSummary.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (headerSummary);
 
+    scanClipButton.setTooltip ("Analyse one selected, ARA-linked arrangement clip without importing a file or pressing Play. Source audio, before track effects.");
+    scanClipButton.onClick = [this]
+    {
+        juce::String error;
+        if (audioProcessor.analyseSelectedArrangementClip (error))
+        {
+            wsKeyButton.setToggleState (true, juce::dontSendNotification);
+            setWorkspace (Workspace::key);
+        }
+        else
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                   "Scan DAW clip", error);
+    };
+    addAndMakeVisible (scanClipButton);
+
     //  KEY workspace. Pure view over the shared song model.
     addAndMakeVisible (keyPanel);
     keyPanel.setVisible (false);
@@ -682,7 +701,7 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     initKeyLabel (keyInspectorLabel, 14.0f, false);
     initKeyLabel (keyHintLabel, 16.0f, false);
     keyHintLabel.setJustificationType (juce::Justification::centred);
-    keyHintLabel.setText ("Drop a song here to map its keys, sections, and tempo",
+    keyHintLabel.setText ("Select an ARA-linked audio clip and click Scan DAW clip, or drop a song here",
                           juce::dontSendNotification);
     keyPanel.addAndMakeVisible (songMapView);
     songMapView.onSegmentClicked = [this] (double sec)
@@ -1037,18 +1056,18 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (enableCorrection);
     proPanel.addAndMakeVisible (doNoHarm);
     proPanel.addAndMakeVisible (formantPreserve);
-    // Polyphonic tuning: shipping feature (benchmark: 96-98% per-note on separated
-    // chords). Retunes each note of a chord/pad independently to the scale.
+    // Per-peak retuning is best-effort on separated chord tones, not a complete
+    // source-separation engine for dense beats or shared note harmonics.
     proPanel.addAndMakeVisible (polyphonic);
-    // Scale Lock macro — arm Polyphonic + AutoKey in one click (and clear the mutually
-    // exclusive Follow-Song-Key), so a whole instrumental snaps into its own detected
-    // key. Releasing just drops Polyphonic; the key mode is left as the user had it.
+    polyphonic.setTooltip ("Best-effort per-peak chord correction. Shared harmonics and dense mixes can be ambiguous. Use Beat / Sample Transpose to move an entire beat by one fixed interval.");
+    // Never replace the chosen reference key with a guess from this input.
+    // The old macro explicitly disabled Follow Song, breaking the suite workflow.
     proPanel.addAndMakeVisible (scaleLock);
+    scaleLock.setTooltip ("Enable polyphonic correction with tonal protection while keeping the current manual or followed key. Not guaranteed independent note editing of a dense mix.");
     scaleLock.onClick = [this]
     {
         const bool lock = scaleLock.getToggleState();
         setKeyParam ("polyphonic", lock ? 1.0f : 0.0f);
-        if (lock) { setKeyParam ("autoKey", 1.0f); setKeyParam ("followSongKey", 0.0f); }
         // Full poly high-end: follow each corrected note's tonal overtones up into the top
         // end so the HIGHS land in key too (legacy stopped at 2.5 kHz, leaving them frozen),
         // and protect percussive/noise content while doing it. Both release with the lock.
@@ -1104,8 +1123,8 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     proPanel.addAndMakeVisible (neuralPitch);
 
     // Transpose to Key: whole-mix musical transpose for beats/instruments. The semitone
-    // slider is the shift; "Match Key" reads AutoKey's detected key and sets the shift
-    // to land on the SET KEY target; enabling the mode auto-runs a Match once.
+    // slider is a manual shift; Match Key explicitly uses the completed source
+    // scan and the suite/manual target. It is a fixed match, not dynamic retuning.
     proPanel.addAndMakeVisible (transposeMode);
     styleCaption (transposeCaption, "TRANSPOSE TO KEY  (beats / instruments)");
     proPanel.addAndMakeVisible (transposeCaption);
@@ -1116,21 +1135,16 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         const int s = juce::roundToInt (v);
         return (s > 0 ? "+" : "") + juce::String (s) + " st"; };
     proPanel.addAndMakeVisible (transposeSemis);
+    transposeMode.setTooltip ("Transpose the whole beat or instrument by a fixed interval. Rhythm duration is preserved; drums and all tonal layers shift together. This is not per-note correction.");
+    matchKeyButton.setTooltip ("Scan the original beat in Auto Pitch, then match its complete key to Sattari Key's published target (Follow Song), or your manual target. Major/minor mode must match. Click again if the target changes.");
     matchKeyButton.onClick = [this]
     {
-        // source = AutoKey's detected root; target = the SET KEY root. Shift by the
-        // nearest signed semitone delta so the whole mix lands on the target key.
-        const auto snap = audioProcessor.getLiveSnapshot();
-        auto& a = audioProcessor.parameters();
-        const int src = juce::jlimit (0, 11, snap.detectedRoot);
-        const int tgt = juce::jlimit (0, 11, (int) std::round (a.getRawParameterValue ("keyRoot")->load()));
-        int d = ((tgt - src) % 12 + 12) % 12;   // 0..11
-        if (d > 6) d -= 12;                      // nearest signed: -5..+6
-        setKeyParam ("xposeSemis", (float) d);
+        juce::String error;
+        if (! audioProcessor.matchScannedSourceToTargetKey (error))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                   "Match beat / instrument key", error);
     };
     proPanel.addAndMakeVisible (matchKeyButton);
-    // Enabling the mode auto-runs Match once so it "just works" on drop-in.
-    transposeMode.onClick = [this] { if (transposeMode.getToggleState()) matchKeyButton.onClick(); };
     transposeReadout.setJustificationType (juce::Justification::centredLeft);
     transposeReadout.setColour (juce::Label::textColourId, juce::Colour (sattari::brand::kTextMuted));
     proPanel.addAndMakeVisible (transposeReadout);
@@ -1500,6 +1514,18 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"h1Level",-9.0f},{"h2Level",-9.0f},{"h3Level",-9.0f},{"h4Level",-9.0f},
         {"harmonyMix",0.76f},{"harmonyHumanPitch",3.0f},{"harmonyHumanTime",5.0f},
         {"harmonyEnsemble",0.3f},{"harmonyEnsembleSpread",0.85f} });
+    addWorkflow ("Instrument - Bass", PV {
+        {"vocalRange",7},{"formantPreserve",0},{"throat",1},{"speed",0.85f},
+        {"autoKey",0},{"followSongMap",0},{"useKeyMap",0} });
+    addWorkflow ("Instrument - Mid", PV {
+        {"vocalRange",8},{"formantPreserve",0},{"throat",1},{"speed",0.85f},
+        {"autoKey",0},{"followSongMap",0},{"useKeyMap",0} });
+    addWorkflow ("Instrument - High", PV {
+        {"vocalRange",9},{"formantPreserve",0},{"throat",1},{"speed",0.85f},
+        {"autoKey",0},{"followSongMap",0},{"useKeyMap",0} });
+    addWorkflow ("Beat / Sample Transpose", PV {
+        {"vocalRange",0},{"formantPreserve",0},{"xposeMode",1},{"xposeSemis",0},
+        {"autoKey",0},{"followSongMap",0},{"useKeyMap",0} });
 }
 
 void SattariAutoPitchAudioProcessorEditor::refreshUserPresets()
@@ -1581,9 +1607,11 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     // Keep the Scale Lock macro lit only while it is actually armed (Polyphonic + AutoKey),
     // so toggling either underlying control directly stays reflected.
     if (auto* pv = audioProcessor.parameters().getRawParameterValue ("polyphonic"))
-        if (auto* ak = audioProcessor.parameters().getRawParameterValue ("autoKey"))
         {
-            const bool locked = pv->load() > 0.5f && ak->load() > 0.5f;
+            const auto& params = audioProcessor.parameters();
+            const bool locked = pv->load() > 0.5f
+                && params.getRawParameterValue ("hiTrack")->load() > 0.5f
+                && params.getRawParameterValue ("tonalFocus")->load() > 0.5f;
             if (scaleLock.getToggleState() != locked)
                 scaleLock.setToggleState (locked, juce::dontSendNotification);
         }
@@ -1632,11 +1660,13 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     //  source, never a bare assertion.
     {
         static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        const int modelRevision = audioProcessor.songAnalysisRevision.load();
         const auto model = audioProcessor.songAnalysisCopy();
         juce::String text;
         if (model.valid && model.globalKey.valid)
         {
-            text << "SONG  " << nm[juce::jlimit (0, 11, model.globalKey.root)]
+            text << (audioProcessor.songSourceIsClip.load() ? "CLIP  " : "SONG  ")
+                 << nm[juce::jlimit (0, 11, model.globalKey.root)]
                  << (model.globalKey.minor ? " MINOR" : " MAJOR");
             if (model.bpm > 0.0) text << "  -  " << juce::String (model.bpm, 1) << " BPM";
             text << "  -  A=" << juce::String (model.tuningHz(), 1) << " Hz"
@@ -1660,24 +1690,26 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         }
         headerSummary.setText (text, juce::dontSendNotification);
 
-        //  KEY page: rebuild only when the model actually changed shape.
+        // A different clip may have exactly the same length and region count.
         if (model.valid
-            && (std::abs (model.durationSec - songModelSeenDuration) > 1.0e-6
+            && (songModelSeenRevision != modelRevision
+                || std::abs (model.durationSec - songModelSeenDuration) > 1.0e-6
                 || (int) model.scaleRegions.size() != songModelSeenRegions))
         {
+            songModelSeenRevision = modelRevision;
             songModelSeenDuration = model.durationSec;
             songModelSeenRegions  = (int) model.scaleRegions.size();
 
             keyBigLabel.setText (juce::String (nm[juce::jlimit (0, 11, model.globalKey.root)])
                                      + (model.globalKey.minor ? " MINOR" : " MAJOR"),
                                  juce::dontSendNotification);
-            juce::String meta;
+            juce::String meta = audioProcessor.getSongSourceName() + "   -   ";
             if (model.bpm > 0.0)
                 meta << juce::String (model.bpm, 1) << " BPM"
                      << (model.tempoOctaveAmbiguous ? " (octave ambiguous)" : "") << "   -   ";
             meta << "A = " << juce::String (model.tuningHz(), 1) << " Hz   -   "
                  << juce::String (model.detuneCents, 1) << " cents   -   "
-                 << juce::String (model.durationSec / 60.0, 0) << ":"
+                 << juce::String ((int) model.durationSec / 60) << ":"
                  << juce::String ((int) model.durationSec % 60).paddedLeft ('0', 2);
             keyMetaLabel.setText (meta, juce::dontSendNotification);
 
@@ -1760,6 +1792,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
             songMapView.clear();
             if (workspace == Workspace::key) resized();
         }
+        songMapView.setPlayhead (audioProcessor.getSongPlayheadSeconds());
     }
 
     //  Engine + latency readout: the ACTIVE engine's reported delay, which is what
@@ -1784,10 +1817,11 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     {
         const float prog = audioProcessor.fileProgress.load (std::memory_order_acquire);
         if (prog < 0.0f)
-            songStatusLabel.setText ("Song analysis failed - unreadable or unpitched audio",
+            songStatusLabel.setText ("Analysis failed - audio unavailable, changed, or unpitched",
                                      juce::dontSendNotification);
         else if (prog > 0.0f && prog < 1.0f)
-            songStatusLabel.setText ("Analysing song... " + juce::String ((int) (prog * 100.0f)) + "%",
+            songStatusLabel.setText ("Analysing " + audioProcessor.getSongSourceName()
+                                    + "... " + juce::String ((int) (prog * 100.0f)) + "%",
                                      juce::dontSendNotification);
         else if (audioProcessor.fileKeyValid.load (std::memory_order_acquire))
         {
@@ -1799,7 +1833,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                 + (audioProcessor.fileKeyMinor.load() != 0 ? " minor" : " major");
             if (bpm > 0.0f) text += "  -  " + juce::String (bpm, 1) + " BPM";
             text += conf >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
-                        ? "  (driving AutoKey)"
+                        ? "  (ready for AutoKey / Follow Song Map)"
                         : "  (low confidence - shown, not applied)";
             songStatusLabel.setText (text, juce::dontSendNotification);
         }
@@ -1850,14 +1884,18 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     // Transpose-to-Key readout: detected source key -> shift -> resulting key.
     {
         static const char* nm[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
-        const int src   = juce::jlimit (0, 11, snap.detectedRoot);
+        const int src = juce::jlimit (0, 11, audioProcessor.fileKeyRoot.load());
+        const bool sourceReady = audioProcessor.fileProgress.load() >= 1.0f
+            && audioProcessor.fileKeyValid.load()
+            && audioProcessor.fileKeyConf.load() >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence;
         const int semis = juce::jlimit (-12, 12,
             (int) std::round (audioProcessor.parameters().getRawParameterValue ("xposeSemis")->load()));
         const int res   = ((src + semis) % 12 + 12) % 12;
         const bool on   = audioProcessor.parameters().getRawParameterValue ("xposeMode")->load() > 0.5f;
         transposeReadout.setText (on
-            ? juce::String ("detected ") + nm[src] + juce::String::fromUTF8 ("  \xe2\x86\x92  ")
-                + (semis > 0 ? "+" : "") + juce::String (semis) + juce::String::fromUTF8 (" st  \xe2\x86\x92  ") + nm[res]
+            ? (sourceReady ? juce::String ("source ") + nm[src] + " -> " : juce::String ("manual shift "))
+                + (semis > 0 ? "+" : "") + juce::String (semis) + " st"
+                + (sourceReady ? " -> " + juce::String (nm[res]) : juce::String())
             : juce::String::fromUTF8 ("off \xe2\x80\x94 per-note correction active"),
             juce::dontSendNotification);
     }
@@ -1917,7 +1955,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         &retuneSpeed, &flexTune, &humanize, &styleSelect, &styleCaptionLabel,
         &retuneSpeedCaption, &flexTuneCaption, &humanizeCaption, &pillRow, &editNotesLabel,
         &flexAmt, &transition, &throat, &vibratoKnob, &classicMode, &doNoHarm,
-        &formantPreserve, &polyphonic, &formantShift, &flexAmtCaption, &transitionCaption,
+        &formantPreserve, &polyphonic, &scaleLock, &formantShift, &flexAmtCaption, &transitionCaption,
         &throatCaption, &vibratoCaption, &formantCaption, &addVibrato, &vibratoRate,
         &vibratoOnset, &addVibratoCaption, &vibratoRateCaption, &vibratoOnsetCaption,
         &midiTarget
@@ -2054,6 +2092,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
             wsRow.removeFromLeft (6);
         }
         wsRow.removeFromLeft (10);
+        scanClipButton.setBounds (wsRow.removeFromRight (136));
+        wsRow.removeFromRight (8);
         headerSummary.setBounds (wsRow);
     }
     area.removeFromTop (8);
@@ -2081,7 +2121,8 @@ void SattariAutoPitchAudioProcessorEditor::resized()
                      (juce::Component*) &userPresets, (juce::Component*) &savePresetButton,
                      (juce::Component*) &abRow, (juce::Component*) &wsKeyButton,
                      (juce::Component*) &wsTuneButton, (juce::Component*) &wsHarmonyButton,
-                     (juce::Component*) &wsEditButton, (juce::Component*) &headerSummary })
+                     (juce::Component*) &wsEditButton, (juce::Component*) &headerSummary,
+                     (juce::Component*) &scanClipButton })
         c->toFront (false);
 
     // ---- HARMONY workspace -------------------------------------------------------

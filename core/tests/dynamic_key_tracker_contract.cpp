@@ -71,15 +71,33 @@ int main()
     {
         DynamicKeyTracker fastChangeTracker;
         (void) fastChangeTracker.update (cleanC, 5.0);
+        auto cleanDSharp = observation (3, false, 0.28, 3, 3);
+        cleanDSharp.chordRootEvidence[8] = 0.25;
+        cleanDSharp.chordRootEvidence[10] = 0.30;
+        auto first = fastChangeTracker.update (cleanDSharp, 5.0);
+        auto second = fastChangeTracker.update (cleanDSharp, 5.0);
+        expect (first.root == 0 && first.pending && first.revision == 1,
+                "fast modulation still requires adjacent evidence");
+        expect (second.root == 3 && second.fastLane && second.revision == 2,
+                "context-rich modulation enters fast lane at 2 s");
+    }
+
+    {
+        DynamicKeyTracker relatedTracker;
+        (void) relatedTracker.update (cleanC, 3.0);
         auto cleanG = observation (7, false, 0.28, 7, 7);
         cleanG.chordRootEvidence[0] = 0.25;
         cleanG.chordRootEvidence[2] = 0.30;
-        auto first = fastChangeTracker.update (cleanG, 5.0);
-        auto second = fastChangeTracker.update (cleanG, 5.0);
-        expect (first.root == 0 && first.pending && first.revision == 1,
-                "fast modulation still requires adjacent evidence");
-        expect (second.root == 7 && second.fastLane && second.revision == 2,
-                "context-rich modulation enters fast lane at 2 s");
+        sattari::dsp::DynamicKeyDecision related;
+        for (int i = 0; i < 4; ++i)
+            related = relatedTracker.update (cleanG, 3.0);
+        expect (related.root == 0 && related.pending
+                && related.requiredConfirmations == 5,
+                "fifth-related key receives five-second safety");
+        related = relatedTracker.update (cleanG, 3.0);
+        expect (related.root == 7 && ! related.fastLane
+                && related.revision == 2,
+                "related modulation is accepted after five votes");
     }
 
     // IV and V are chord movement, not key movement. The key observation remains C.
@@ -110,14 +128,18 @@ int main()
     expect (d.root == 0 && d.revision == 1 && ! d.pending,
             "isolated chord does not become a modulation");
 
+    // Let the accepted key satisfy its minimum dwell before testing the normal
+    // three-window lane; real callers receive one observation per second.
+    (void) tracker.update (observation (0, false, 0.14, 0, 0), 3.0);
+
     // A marginal D change needs the complete three-window stable lane.
-    d = tracker.update (observation (2, false, 0.14, 2, 2), 3.0);
+    d = tracker.update (observation (2, false, 0.20, 2, 2), 3.0);
     expect (d.root == 0 && d.pending && d.pendingConfirmations == 1,
             "stable change window 1 of 3");
-    d = tracker.update (observation (2, false, 0.14, 2, 2), 3.0);
+    d = tracker.update (observation (2, false, 0.20, 2, 2), 3.0);
     expect (d.root == 0 && d.pending && d.pendingConfirmations == 2,
             "stable change window 2 of 3");
-    d = tracker.update (observation (2, false, 0.14, 2, 2), 3.0);
+    d = tracker.update (observation (2, false, 0.20, 2, 2), 3.0);
     expect (d.root == 2 && ! d.minor && d.changed && ! d.fastLane
             && d.revision == 2,
             "stable change accepted only at window 3");

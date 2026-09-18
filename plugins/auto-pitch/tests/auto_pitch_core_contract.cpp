@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "../../../core/tests/ArrangementClipFixture.h"
 #include <sattari_audio_core/SattariEditorRender.h>
 #include <sattari_audio_core/SattariRenderHarness.h>
 
@@ -50,6 +51,34 @@ double rmsDifference (const juce::AudioBuffer<float>& a, const juce::AudioBuffer
     }
 
     return std::sqrt (sum / (double) juce::jmax (1, count));
+}
+
+bool selectWorkflow (SattariAutoPitchAudioProcessor& processor, const juce::String& name)
+{
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    for (auto* child : editor->getChildren())
+        if (auto* combo = dynamic_cast<juce::ComboBox*> (child))
+            for (int i = 0; i < combo->getNumItems(); ++i)
+                if (combo->getItemText (i) == name)
+                {
+                    combo->setSelectedItemIndex (i, juce::sendNotificationSync);
+                    return true;
+                }
+    return false;
+}
+
+bool enableToggleNamed (juce::Component& component, const juce::String& name)
+{
+    if (auto* button = dynamic_cast<juce::ToggleButton*> (&component);
+        button != nullptr && button->getButtonText() == name)
+    {
+        button->setToggleState (true, juce::dontSendNotification);
+        if (button->onClick) button->onClick();
+        return true;
+    }
+    for (auto* child : component.getChildren())
+        if (enableToggleNamed (*child, name)) return true;
+    return false;
 }
 
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
@@ -123,6 +152,218 @@ int main (int argc, char** argv)
    #else
     setenv ("SATTARI_SESSION_ID", contractSession.toRawUTF8(), 1);
    #endif
+
+    if (argc == 2 && std::strcmp (argv[1], "--source-match-smoke") == 0)
+    {
+        bool passed = true;
+        auto check = [&] (bool ok, const char* message)
+        { if (! ok) { std::cerr << "FAIL: " << message << '\n'; passed = false; } };
+        SattariAutoPitchAudioProcessor p;
+        auto& params = p.parameters();
+        check (selectWorkflow (p, "Beat / Sample Transpose")
+            && params.getRawParameterValue ("xposeMode")->load() > 0.5f
+            && params.getRawParameterValue ("polyphonic")->load() < 0.5f,
+            "beat workflow selects whole-mix processing, not per-peak polyphonic retuning");
+        {
+            SattariAutoPitchAudioProcessor poly;
+            auto& a = poly.parameters();
+            setParameter (a, "followSongKey", 1);
+            setParameter (a, "autoKey", 0);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (poly.createEditor());
+            check (enableToggleNamed (*editor, "Poly Scale Lock")
+                && a.getRawParameterValue ("polyphonic")->load() > 0.5f
+                && a.getRawParameterValue ("followSongKey")->load() > 0.5f
+                && a.getRawParameterValue ("autoKey")->load() < 0.5f,
+                "polyphonic shortcut must preserve the chosen suite-key authority");
+        }
+        juce::String error;
+        check (! p.matchScannedSourceToTargetKey (error) && error.isNotEmpty(), "unknown source must not match");
+        auto probe = std::make_shared<sattari::test::ClipReaderProbe>();
+        p.analyseSongClipAsync (sattari::test::makeArrangementClip (probe), "Original C-major beat", 0);
+        for (int i = 0; p.fileProgress.load() >= 0 && p.fileProgress.load() < 1 && i < 1000; ++i)
+            std::this_thread::sleep_for (std::chrono::milliseconds (5));
+        check (p.fileKeyValid.load() && p.fileKeyRoot.load() == 0 && p.fileKeyMinor.load() == 0,
+            "actual full-source scan supplies C-major source");
+        auto shift = [&] { return juce::roundToInt (params.getRawParameterValue ("xposeSemis")->load()); };
+        setParameter (params, "keyRoot", 11);
+        setParameter (params, "scaleMode", 0);
+        check (p.matchScannedSourceToTargetKey (error) && shift() == -1, "manual C-to-B uses nearest interval");
+        setParameter (params, "scaleMode", 1);
+        check (! p.matchScannedSourceToTargetKey (error) && shift() == -1,
+            "major-to-minor mismatch leaves the current shift unchanged");
+        setParameter (params, "scaleMode", 2);
+        check (! p.matchScannedSourceToTargetKey (error), "chromatic is not a whole-mix key destination");
+        setParameter (params, "followSongKey", 1);
+        check (! p.matchScannedSourceToTargetKey (error), "missing bus must not silently use the manual target");
+        sattari::xplugin::publishSession ("song-key", 2, 0, 120, 0);
+        check (p.matchScannedSourceToTargetKey (error) && shift() == 2,
+            "published D-major target overrides the different local key");
+        const float confidence = p.fileKeyConf.load();
+        p.fileKeyConf.store (0);
+        check (! p.matchScannedSourceToTargetKey (error) && shift() == 2, "low-confidence source cannot alter the shift");
+        p.fileKeyConf.store (confidence);
+        juce::MemoryBlock state;
+        p.getStateInformation (state);
+        SattariAutoPitchAudioProcessor restored;
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        check (juce::roundToInt (restored.parameters().getRawParameterValue ("xposeSemis")->load()) == 2,
+            "matched interval survives project recall without re-detection");
+
+        constexpr double rate = 48000;
+        constexpr int blockSize = 256;
+        setParameter (params, "xposeMode", 1);
+        setParameter (params, "inputGain", 0);
+        setParameter (params, "outputGain", 0);
+        p.prepareToPlay (rate, blockSize);
+        std::vector<float> output (192000, 0);
+        double stereoDifference = 0;
+        for (int offset = 0; offset < (int) output.size(); offset += blockSize)
+        {
+            const int count = juce::jmin (blockSize, (int) output.size() - offset);
+            juce::AudioBuffer<float> block (2, count);
+            for (int i = 0; i < count; ++i)
+            {
+                const double t = (offset + i) / rate;
+                const double pulse = 0.2 + 0.8 * std::exp (-std::fmod (t, 0.5) / 0.04);
+                double value = 0;
+                for (double hz : { 261.625565, 329.627557, 391.995436 })
+                    value += 0.15 * pulse * std::sin (juce::MathConstants<double>::twoPi * hz * t);
+                block.setSample (0, i, (float) value);
+                block.setSample (1, i, (float) value);
+            }
+            juce::MidiBuffer midi;
+            p.processBlock (block, midi);
+            std::copy_n (block.getReadPointer (0), count, output.data() + offset);
+            for (int i = 0; i < count; ++i)
+            {
+                check (std::isfinite (block.getSample (0, i)), "transpose output is finite");
+                stereoDifference = juce::jmax (stereoDifference,
+                    (double) std::abs (block.getSample (0, i) - block.getSample (1, i)));
+            }
+        }
+        for (double sourceHz : { 261.625565, 329.627557, 391.995436 })
+        {
+            const double targetHz = sourceHz * std::pow (2.0, 2.0 / 12.0);
+            const double measured = strongestNear (output, 96000, rate, targetHz, 3.0);
+            const double cents = std::abs (1200 * std::log2 (measured / targetHz));
+            const double ratio = tonePower (output, 96000, rate, measured)
+                / juce::jmax (1.0e-12, tonePower (output, 96000, rate, sourceHz));
+            std::cout << "Beat tone " << sourceHz << " -> " << measured << " Hz, " << cents
+                      << " cents, target/source power=" << ratio << '\n';
+            check (cents < 10 && ratio > 10, "all chord tones move together by the matched interval");
+        }
+        check (stereoDifference < 0.00001, "identical stereo source channels remain identical");
+
+        // Exercise the real per-note print path with three harmonic-rich,
+        // monophonic instrument registers. These are synthetic, not listening scores.
+        for (int source = 7; source <= 9; ++source)
+        {
+            SattariAutoPitchAudioProcessor instrument;
+            auto& a = instrument.parameters();
+            const juce::String workflow = source == 7 ? "Instrument - Bass"
+                : source == 8 ? "Instrument - Mid" : "Instrument - High";
+            check (selectWorkflow (instrument, workflow)
+                && juce::roundToInt (a.getRawParameterValue ("vocalRange")->load()) == source
+                && a.getRawParameterValue ("formantPreserve")->load() < 0.5f
+                && a.getRawParameterValue ("xposeMode")->load() < 0.5f,
+                "instrument workflow selects its detector range without vocal formants or whole-mix transpose");
+            setParameter (a, "vocalRange", (float) source);
+            setParameter (a, "keyRoot", 0); setParameter (a, "scaleMode", 0);
+            setParameter (a, "liveMode", 0); setParameter (a, "liveEngine", 0);
+            setParameter (a, "amount", 1); setParameter (a, "speed", 1);
+            setParameter (a, "doNoHarm", 0); setParameter (a, "formantPreserve", 0);
+            setParameter (a, "flexTune", 0); setParameter (a, "humanize", 0);
+            instrument.prepareToPlay (rate, blockSize);
+            const double targetHz = source == 7 ? 110.0 : source == 8 ? 220.0 : 880.0;
+            const double sourceHz = targetHz * std::pow (2.0, 35.0 / 1200.0);
+            std::vector<float> tuned (144000, 0);
+            for (int offset = 0; offset < (int) tuned.size(); offset += blockSize)
+            {
+                const int count = juce::jmin (blockSize, (int) tuned.size() - offset);
+                juce::AudioBuffer<float> block (2, count);
+                for (int i = 0; i < count; ++i)
+                {
+                    const double phase = juce::MathConstants<double>::twoPi * sourceHz * (offset + i) / rate;
+                    const float value = (float) (0.2 * std::sin (phase) + 0.07 * std::sin (2 * phase) + 0.03 * std::sin (3 * phase));
+                    block.setSample (0, i, value); block.setSample (1, i, value);
+                }
+                juce::MidiBuffer midi; instrument.processBlock (block, midi);
+                std::copy_n (block.getReadPointer (0), count, tuned.data() + offset);
+            }
+            const double measured = strongestNear (tuned, 96000, rate, targetHz, targetHz * 0.03);
+            const double cents = std::abs (1200 * std::log2 (measured / targetHz));
+            std::cout << "Instrument register " << source << ": " << sourceHz << " -> " << measured
+                      << " Hz, residual " << cents << " cents\n";
+            check (cents < 15, "monophonic instrument detune is corrected toward its scale note");
+        }
+        sattari::xplugin::withdrawSessionState ("song-key");
+        std::cout << "Instrument / beat key matching: " << (passed ? "PASS" : "FAIL") << '\n';
+        return passed ? 0 : 1;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--clip-smoke") == 0)
+    {
+        auto probe = std::make_shared<sattari::test::ClipReaderProbe>();
+        auto failedProbe = std::make_shared<sattari::test::ClipReaderProbe>();
+        failedProbe->failAfterReads = 2;
+        {
+            SattariAutoPitchAudioProcessor p;
+            p.prepareToPlay (48000, 512);
+            if (! p.analyseSongClipAsync (sattari::test::makeArrangementClip (probe), "DAW chorus", 45.0))
+                return 1;
+            auto waitForAnalysis = [&]
+            {
+                for (int i = 0; p.fileProgress.load() >= 0 && p.fileProgress.load() < 1 && i < 1000; ++i)
+                    std::this_thread::sleep_for (std::chrono::milliseconds (5));
+            };
+            waitForAnalysis();
+            const auto model = p.songAnalysisCopy();
+            if (! p.fileKeyValid.load() || p.fileProgress.load() < 1
+                || p.fileKeyRoot.load() != 0 || p.fileKeyMinor.load() != 0
+                || std::abs (p.fileBpm.load() - 120.0f) > 2.0f
+                || ! model.valid || std::abs (model.durationSec - 12.0) > 0.001
+                || p.getSongSourceName() != "DAW chorus"
+                || ! sattari::test::readOnlyTrimmedClip (*probe))
+            {
+                std::cerr << "Clip analysis did not preserve its bounds/key/tempo\n";
+                return 1;
+            }
+            setParameter (p.parameters(), "followSongMap", 1);
+            setParameter (p.parameters(), "keyRoot", 9);
+            setParameter (p.parameters(), "autoKey", 0);
+            TestPlayHead head;
+            p.setPlayHead (&head);
+            auto sourceAt = [&] (double seconds)
+            {
+                head.seconds = seconds;
+                juce::AudioBuffer<float> block (2, 512); block.clear();
+                juce::MidiBuffer midi; p.processBlock (block, midi);
+                return p.currentKeyOrigin();
+            };
+            const auto before = sourceAt (44.0), inside = sourceAt (46.0), after = sourceAt (58.0);
+            p.setPlayHead (nullptr);
+            if (before.root != 9 || after.root != 9 || inside.root != 0
+                || inside.source != SattariAutoPitchAudioProcessor::KeyOrigin::Source::KeyMap)
+            {
+                std::cerr << "Clip key map was not aligned to its 45-second arrangement offset\n";
+                return 1;
+            }
+            p.analyseSongClipAsync (sattari::test::makeArrangementClip (failedProbe), "Changed clip", 100);
+            waitForAnalysis();
+            if (p.fileKeyValid.load() || p.fileProgress.load() >= 0)
+            {
+                std::cerr << "Incomplete clip scan published a verdict\n";
+                return 1;
+            }
+        }
+        if (! probe->destroyedOnOwnerThread.load() || ! failedProbe->destroyedOnOwnerThread.load())
+        {
+            std::cerr << "Host reader was destroyed on its analysis worker\n";
+            return 1;
+        }
+        std::cout << "Auto Pitch arrangement reader PASS (trim, key/tempo, timeline offset, invalidation, ownership)\n";
+        return 0;
+    }
 
     if (argc == 3
         && (std::strcmp (argv[1], "--render-ui") == 0

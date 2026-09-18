@@ -8,6 +8,9 @@
 
 class SattariSongKeyAudioProcessorEditor final
     : public juce::AudioProcessorEditor,
+#if JucePlugin_Enable_ARA
+      public juce::AudioProcessorEditorARAExtension,
+#endif
       public juce::FileDragAndDropTarget,
       private juce::Timer
 {
@@ -60,7 +63,10 @@ private:
     juce::ToggleButton lockToggle { "Lock session" };
     juce::ToggleButton dynamicFollowToggle { "Dynamic key" };
     juce::Slider dynamicInterval;
+    juce::Slider songContext;
+    juce::Label songContextLabel;
     juce::TextButton chooseSongButton { "Choose song" };
+    juce::TextButton scanClipButton { "Scan DAW clip" };
     juce::TextButton liveButton { "Listen live" };
     juce::TextButton rescanButton { "Re-scan" };
     juce::ToggleButton manualToggle { "Manual override" };
@@ -69,6 +75,7 @@ private:
     std::unique_ptr<ButtonAttachment> lockAttachment;
     std::unique_ptr<ButtonAttachment> dynamicFollowAttachment;
     std::unique_ptr<SliderAttachment> dynamicIntervalAttachment;
+    std::unique_ptr<SliderAttachment> songContextAttachment;
     std::unique_ptr<ButtonAttachment> manualAttachment;
     std::unique_ptr<ComboAttachment> rootAttachment;
     std::unique_ptr<ComboAttachment> scaleAttachment;

@@ -273,6 +273,21 @@ if(BUILD_TESTING)
         endif()
     endforeach()
 
+    if(TARGET AutoPitchCoreContract)
+        add_test(NAME AutoPitchArrangementClipSmoke COMMAND $<TARGET_FILE:AutoPitchCoreContract> --clip-smoke)
+        set_tests_properties(AutoPitchArrangementClipSmoke PROPERTIES LABELS "contract;arrangement;non-stemdeck" TIMEOUT 30)
+        add_test(NAME AutoPitchSourceMatchSmoke COMMAND $<TARGET_FILE:AutoPitchCoreContract> --source-match-smoke)
+        set_tests_properties(AutoPitchSourceMatchSmoke PROPERTIES LABELS "contract;transpose;non-stemdeck" TIMEOUT 90)
+    endif()
+    if(TARGET SongKeyARAContract)
+        add_test(NAME SongKeyARAContract COMMAND $<TARGET_FILE:SongKeyARAContract>)
+        set_tests_properties(SongKeyARAContract PROPERTIES LABELS "contract;ara;arrangement;non-stemdeck" TIMEOUT 30)
+    endif()
+    if(TARGET AutoPitchARAContract)
+        add_test(NAME AutoPitchARAContract COMMAND $<TARGET_FILE:AutoPitchARAContract>)
+        set_tests_properties(AutoPitchARAContract PROPERTIES LABELS "contract;ara;arrangement;non-stemdeck" TIMEOUT 60)
+    endif()
+
     foreach(ui_product IN ITEMS
             "BrainContract;brain"
             "SattariArpTimingContract;sattari-arp"
@@ -361,18 +376,21 @@ if(BUILD_TESTING)
     if(TARGET SongKeyRender)
         add_test(NAME SongKeyRenderSmoke COMMAND $<TARGET_FILE:SongKeyRender> --smoke)
         add_test(NAME SongKeyFileAnalysisSmoke COMMAND $<TARGET_FILE:SongKeyRender> --file-smoke)
+        add_test(NAME SongKeyArrangementClipSmoke COMMAND $<TARGET_FILE:SongKeyRender> --clip-smoke)
         add_test(NAME SongKeyLiveTempoSmoke COMMAND $<TARGET_FILE:SongKeyRender> --live-tempo-smoke)
         add_test(NAME SongKeyDynamicFollowSmoke COMMAND $<TARGET_FILE:SongKeyRender> --dynamic-follow-smoke)
+        add_test(NAME SongKeyLiveContextSmoke COMMAND $<TARGET_FILE:SongKeyRender> --context-smoke)
         set_tests_properties(
-            SongKeyRenderSmoke SongKeyFileAnalysisSmoke SongKeyLiveTempoSmoke
-            SongKeyDynamicFollowSmoke
+            SongKeyRenderSmoke SongKeyFileAnalysisSmoke SongKeyLiveTempoSmoke SongKeyArrangementClipSmoke
+            SongKeyDynamicFollowSmoke SongKeyLiveContextSmoke
             PROPERTIES LABELS "render;non-stemdeck")
     endif()
     if(TARGET AutoPitchRender)
         add_test(NAME AutoPitchRenderSmoke COMMAND $<TARGET_FILE:AutoPitchRender> --smoke)
         add_test(NAME AutoPitchHighTracking COMMAND $<TARGET_FILE:AutoPitchRender> --hitracktest)
+        add_test(NAME AutoPitchDynamicKeyHandoff COMMAND $<TARGET_FILE:AutoPitchRender> --keyhandoff)
         set_tests_properties(
-            AutoPitchRenderSmoke AutoPitchHighTracking
+            AutoPitchRenderSmoke AutoPitchHighTracking AutoPitchDynamicKeyHandoff
             PROPERTIES LABELS "render;non-stemdeck")
     endif()
 endif()

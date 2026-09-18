@@ -257,6 +257,26 @@ int main()
                "owner could not withdraw its frame");
         check (! readSession (30, session).has_value(),
                "withdrawn frame remained readable");
+
+        SessionMessage state;
+        state.root = 2;
+        check (publishSessionState ("song-key", state, session, "instance-a"),
+               "owned full-state publication failed");
+        check (publishSession ("song-key", 7, 0, 120.0, 0, session, "instance-b"),
+               "newer same-product instance publication failed");
+        check (! withdrawSessionState ("song-key", session, "instance-a"),
+               "old instance withdrew a newer instance's frame");
+        const auto newer = readSession (30, session);
+        check (newer && newer->root == 7,
+               "instance ownership broke backward-compatible session reading");
+        check (withdrawSessionState ("song-key", session, "instance-b"),
+               "current instance could not withdraw its own frame");
+        check (publishSession ("song-key", 0, 0, 0.0, 0, session),
+               "legacy publication failed");
+        check (! withdrawSessionState ("song-key", session, "instance-a"),
+               "owned instance withdrew an unowned legacy frame");
+        check (withdrawSessionState ("song-key", session),
+               "legacy product-level withdrawal compatibility regressed");
     }
 
     keyBusFile().deleteFile();

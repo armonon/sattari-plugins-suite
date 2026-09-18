@@ -172,6 +172,9 @@ private:
 // Editor proper.
 // -----------------------------------------------------------------------------
 class SattariAutoPitchAudioProcessorEditor final : public juce::AudioProcessorEditor,
+#if JucePlugin_Enable_ARA
+                                                   public juce::AudioProcessorEditorARAExtension,
+#endif
                                                    public juce::FileDragAndDropTarget,
                                                    private juce::Timer
 {
@@ -286,6 +289,8 @@ private:
     juce::Label latencyReadout;                    // reported delay of the ACTIVE engine
     juce::TextButton advancedToggle { "ADVANCED" };
     juce::Label songStatusLabel;                   // drop-analysis progress / verdict
+    juce::TextButton scanClipButton { "Scan DAW clip" };
+    int songModelSeenRevision = -1;
     bool advancedOpen = false;
     bool dragActive = false;
 
@@ -324,10 +329,9 @@ private:
     juce::ToggleButton enableCorrection { "Correction On" }, doNoHarm { "Do No Harm" },
                        formantPreserve  { "Formant Preserve" },
                        polyphonic       { "Polyphonic" };
-    // One-click macro: arms Polyphonic + AutoKey so a whole instrument/chord is pulled
-    // into the detected key (Amount is the strength). Not a param — a convenience over
-    // the two toggles it drives; its lit state mirrors them (synced in timerCallback).
-    juce::ToggleButton scaleLock { juce::String::fromUTF8 ("Scale Lock  \xc2\xb7  instrument \xe2\x86\x92 key") };
+    // Per-peak polyphonic macro; keeps the selected manual/suite key authority.
+    // This is not the whole-beat transpose workflow.
+    juce::ToggleButton scaleLock { "Poly Scale Lock" };
     juce::Slider inputGain, outputGain, formantShift;
     juce::Label inputCaption, outputCaption, formantCaption;
 

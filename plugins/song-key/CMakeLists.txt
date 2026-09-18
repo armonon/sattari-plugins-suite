@@ -8,6 +8,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariPlugin.cmake)
 
+set(SATTARI_SONGKEY_ARA_SDK_PATH "${CMAKE_CURRENT_LIST_DIR}/../../third_party/ARA_SDK" CACHE PATH "ARA SDK for direct arrangement clip analysis")
+set(_song_key_ara_default OFF)
+if(EXISTS "${SATTARI_SONGKEY_ARA_SDK_PATH}/ARA_API/ARAInterface.h")
+    set(_song_key_ara_default ON)
+endif()
+option(SATTARI_SONGKEY_ENABLE_ARA "Enable direct DAW clip access through ARA" ${_song_key_ara_default})
+set(_song_key_ara_args)
+set(_song_key_ara_sources)
+if(SATTARI_SONGKEY_ENABLE_ARA)
+    if(NOT EXISTS "${SATTARI_SONGKEY_ARA_SDK_PATH}/ARA_API/ARAInterface.h")
+        message(FATAL_ERROR "Sattari Key ARA requested but the ARA SDK is missing")
+    endif()
+    list(APPEND _song_key_ara_args IS_ARA_EFFECT ARA_SDK_PATH "${SATTARI_SONGKEY_ARA_SDK_PATH}")
+    list(APPEND _song_key_ara_sources src/SongKeyARA.cpp)
+endif()
+
 sattari_add_plugin(
     TARGET SattariSongKey
     SLUG song-key
@@ -16,9 +32,11 @@ sattari_add_plugin(
     VERSION ${PROJECT_VERSION}
     NEEDS_MIDI_INPUT
     EDITOR_WANTS_KEYBOARD_FOCUS
+    ${_song_key_ara_args}
     SOURCES
         src/SongKeyProcessor.cpp
-        src/SongKeyEditor.cpp)
+        src/SongKeyEditor.cpp
+        ${_song_key_ara_sources})
 
 # The optional key model lost the only held-out evaluation. Production Sattari
 # Key is deliberately model-free: no hidden model loading, 30-second ring, or
@@ -54,3 +72,15 @@ target_link_libraries(SongKeyRender
 
 # Same release shape for the render tool (it compiles the processor directly).
 target_compile_definitions(SongKeyRender PRIVATE SATTARI_HAS_ONNX=0)
+
+if(SATTARI_SONGKEY_ENABLE_ARA)
+    # Link the actual production ARA factory without building/installing an AU
+    # or VST3. This contract acts as a small in-process host using synthetic audio.
+    add_executable(SongKeyARAContract EXCLUDE_FROM_ALL
+        tests/arrangement_ara_contract.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/../../third_party/JUCE/modules/juce_audio_plugin_client/juce_audio_plugin_client_ARA.cpp)
+    target_include_directories(SongKeyARAContract PRIVATE $<TARGET_PROPERTY:SattariSongKey,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(SongKeyARAContract PRIVATE
+        $<TARGET_PROPERTY:SattariSongKey,COMPILE_DEFINITIONS> JucePlugin_Build_Standalone=1 SATTARI_TEST_AUTOPITCH=0)
+    target_link_libraries(SongKeyARAContract PRIVATE SattariSongKey)
+endif()
