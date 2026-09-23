@@ -148,6 +148,14 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
+    // Hosts may tear an instance down without ever preparing it (plugin scan,
+    // insert-then-remove). This used to segfault inside releaseResources().
+    for (int i = 0; i < 8; ++i)
+    {
+        SattariAutoPitchAudioProcessor unprepared;
+        unprepared.releaseResources();
+    }
+
     // Keep every SessionReader used by this executable away from an open DAW.
     const auto contractSession = "auto-pitch-contract-" + juce::String (
         sattari::xplugin::currentTimeMs());

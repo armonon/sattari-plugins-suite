@@ -256,6 +256,7 @@ public:
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -765,6 +766,11 @@ private:
     // repeatedly spiking transitionBoost=1.0 on every crossing.
     int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
+    // Dry signal delayed by the reported latency so host bypass stays in time.
+    // Sized in prepare to cover the largest latency this instance can report.
+    juce::AudioBuffer<float> bypassDelay;
+    int bypassDelayWrite = 0;
+
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
     std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION
@@ -966,6 +972,9 @@ private:
     // signalsmith-stretch — MIT, secondary low-latency engine (active when
     // elastique SDK is absent). Single instance manages all channels.
     signalsmith::stretch::SignalsmithStretch<float> ssStretch;
+    // reset() on an unconfigured stretch dereferences null, and hosts may call
+    // releaseResources() without a prior prepareToPlay() (scan, remove, teardown).
+    bool ssConfigured = false;
     juce::AudioBuffer<float> ssOutput;
     std::vector<const float*> ssInputPtrs;
     std::vector<float*>       ssOutputPtrs;
