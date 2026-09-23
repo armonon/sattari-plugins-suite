@@ -52,6 +52,7 @@ private:
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    static BusesProperties makeBusesProperties();
     void registerFactoryPresets();
 
     void renderArp (juce::MidiBuffer& output, int startSample, int numSamples);

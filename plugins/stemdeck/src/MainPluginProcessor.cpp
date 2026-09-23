@@ -107,7 +107,7 @@ MainPluginProcessor::MainPluginProcessor()
 #if JUCE_USE_MP3AUDIOFORMAT
     formatManager.registerFormat (new juce::MP3AudioFormat(), true);
 #endif
-    apvts.state.setProperty ("schema", "SattariStemDeck.v0.3.8", nullptr);
+    apvts.state.setProperty ("schema", "SattariStemDeck.v" JucePlugin_VersionString, nullptr);
     for (int i = 0; i < numDecks; ++i)
     {
         liveKeyPitchClass[(size_t) i].store (-1, std::memory_order_relaxed);

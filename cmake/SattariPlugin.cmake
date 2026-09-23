@@ -32,7 +32,7 @@ get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE
 function(sattari_add_plugin)
     set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
     set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ARA_SDK_PATH AAX_SDK_PATH)
-    set(multiValueArgs FORMATS SOURCES)
+    set(multiValueArgs FORMATS SOURCES VST3_CATEGORIES)
     cmake_parse_arguments(SAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     if(NOT SAP_TARGET)
@@ -123,7 +123,13 @@ function(sattari_add_plugin)
         endif()
     endforeach()
 
+    set(extra_plugin_args)
+    if(SAP_VST3_CATEGORIES)
+        list(APPEND extra_plugin_args VST3_CATEGORIES ${SAP_VST3_CATEGORIES})
+    endif()
+
     juce_add_plugin(${SAP_TARGET}
+        ${extra_plugin_args}
         COMPANY_NAME                "${SAP_COMPANY_NAME}"
         IS_SYNTH                    ${IS_SYNTH_VAL}
         NEEDS_MIDI_INPUT            ${NEEDS_MIDI_INPUT_VAL}
