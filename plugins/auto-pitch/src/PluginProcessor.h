@@ -254,6 +254,7 @@ public:
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -733,6 +734,10 @@ private:
     // half-semitone line every cycle, and a per-frame nearest-note target then
     // flips between two notes so the corrections cancel. Hold the current target
     // until the pitch is clearly nearer another note or stays there long enough.
+    // Dry signal delayed by the reported latency so host bypass stays in time.
+    // Sized in prepare to cover the largest latency this instance can report.
+    juce::AudioBuffer<float> bypassDelay;
+    int bypassDelayWrite = 0;
     bool   targetHysteresisEnabled = true;
     int    heldTargetMidi      = -1;
     double heldTargetAwaySec   = 0.0;
@@ -937,6 +942,9 @@ private:
     // signalsmith-stretch — MIT, secondary low-latency engine (active when
     // elastique SDK is absent). Single instance manages all channels.
     signalsmith::stretch::SignalsmithStretch<float> ssStretch;
+    // reset() on an unconfigured stretch dereferences null, and hosts may call
+    // releaseResources() without a prior prepareToPlay() (scan, remove, teardown).
+    bool ssConfigured = false;
     juce::AudioBuffer<float> ssOutput;
     std::vector<const float*> ssInputPtrs;
     std::vector<float*>       ssOutputPtrs;

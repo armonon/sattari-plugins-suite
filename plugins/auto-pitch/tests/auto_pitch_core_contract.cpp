@@ -256,6 +256,14 @@ bool headerHasVisibleContent (juce::Component& editor)
 
 int main (int argc, char** argv)
 {
+    // Hosts may tear an instance down without ever preparing it (plugin scan,
+    // insert-then-remove). This used to segfault inside releaseResources().
+    for (int i = 0; i < 8; ++i)
+    {
+        SattariAutoPitchAudioProcessor unprepared;
+        unprepared.releaseResources();
+    }
+
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     // Keep every SessionReader used by this executable away from an open DAW.

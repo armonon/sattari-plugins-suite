@@ -687,6 +687,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const juce::ScopedLock l (pitchEditLock);
         pitchEdits.reserve (4096);
     }
+    // Covers the engine latency plus the 500 ms graph-time look-ahead.
+    bypassDelay.setSize (juce::jmax (2, getTotalNumOutputChannels()),
+                         (int) std::ceil (currentSampleRate * 0.5) + 16384);
+    bypassDelay.clear();
+    bypassDelayWrite = 0;
     resetPitchState (preparedBlockSize);
     {
         const auto offsetText = juce::SystemStats::getEnvironmentVariable (
@@ -934,6 +939,7 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         else
             ssStretch.configure (numCh, 4096, 1024);
 
+        ssConfigured = true;
         ssStretch.reset();
         ssOutput.setSize (numCh, preparedBlockSize);
         ssInputPtrs.resize  ((size_t) numCh);
@@ -1351,7 +1357,8 @@ void SattariAutoPitchAudioProcessor::releaseResources()
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
-    ssStretch.reset();
+    if (ssConfigured)
+        ssStretch.reset();
     ssOutput.setSize (0, 0);
     ssInputPtrs.clear();
     ssOutputPtrs.clear();
@@ -4368,6 +4375,33 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
     const double limit = exactTarget ? 1200.0 : 700.0;
     const double limitedCents = juce::jlimit (-limit, limit, frame.correctionCents * strength);
     return std::pow (2.0, limitedCents / 1200.0);
+}
+
+void SattariAutoPitchAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    // JUCE's default bypass passes audio through undelayed while the host is
+    // still compensating for the reported latency, so a bypassed vocal played
+    // ~60 ms early. Delay the dry signal by the same amount instead.
+    auto main = getBusBuffer (buffer, false, 0);
+    const int size = bypassDelay.getNumSamples();
+    const int latency = getLatencySamples();
+    if (size <= 0 || latency <= 0 || latency >= size)
+        return;
+
+    const int numChannels = juce::jmin (main.getNumChannels(), bypassDelay.getNumChannels());
+    const int n = main.getNumSamples();
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto* data = main.getWritePointer (ch);
+        auto* line = bypassDelay.getWritePointer (ch);
+        for (int i = 0; i < n; ++i)
+        {
+            const int w = (bypassDelayWrite + i) % size;
+            line[w] = data[i];
+            data[i] = line[(w - latency + size) % size];
+        }
+    }
+    bypassDelayWrite = (bypassDelayWrite + n) % size;
 }
 
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
