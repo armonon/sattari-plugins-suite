@@ -336,7 +336,10 @@ bool parseKeyLabel (std::string s, int& root, bool& minor)
     else if (i < s.size() && (s[i] == 'b' || s[i] == 'f')) { pc = (pc + 11) % 12; ++i; }
     std::string mode = s.substr (i);
     std::transform (mode.begin(), mode.end(), mode.begin(), [] (unsigned char c) { return (char) std::tolower (c); });
-    minor = (mode.find ("min") != std::string::npos) || (mode.find (" m") != std::string::npos);
+    // "C major" contains " m", so a bare-"m" test must match the whole mode token
+    // ("Am", "A m"); matching " m" anywhere scored every major label as minor.
+    mode.erase (std::remove (mode.begin(), mode.end(), ' '), mode.end());
+    minor = (mode.find ("min") != std::string::npos) || mode == "m";
     root = pc;
     (void) N;
     return true;
@@ -478,10 +481,11 @@ int main (int argc, char** argv)
 
             juce::AudioBuffer<float> buf (2, block);
             const juce::int64 total = rd->lengthInSamples;
-            // Drive analyseNow() at the SAME rate the plugin's worker does (~700 ms),
-            // not once per block: the chroma accumulates per call, so a faster cadence
-            // would measure something the shipping plugin never does.
-            const juce::int64 analysePeriod = (juce::int64) (sr * 0.7);
+            // Drive analysis at the SAME cadence as the plugin's worker: workerLoop()
+            // runs serviceLiveAnalysis() every fftSize / 2 (2048) new samples. This
+            // used to be every 700 ms, which analysed only ~12% of each track and
+            // scored 15/48 on a corpus the plugin gets 48/48 on.
+            constexpr juce::int64 analysePeriod = 4096 / 2;
             juce::int64 sinceAnalyse = 0;
             for (juce::int64 pos = 0; pos + block <= total; pos += block)
             {
