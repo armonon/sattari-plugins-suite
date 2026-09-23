@@ -9,6 +9,7 @@
 #include <cstring>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -50,6 +51,99 @@ double rmsDifference (const juce::AudioBuffer<float>& a, const juce::AudioBuffer
     }
 
     return std::sqrt (sum / (double) juce::jmax (1, count));
+}
+
+double midiToHz (int midi)
+{
+    return 440.0 * std::pow (2.0, ((double) midi - 69.0) / 12.0);
+}
+
+double hzToMidi (double hz)
+{
+    return 69.0 + 12.0 * std::log2 (hz / 440.0);
+}
+
+double estimateFrequencyFromPositiveCrossings (const std::vector<float>& samples, double sampleRate)
+{
+    std::vector<double> crossings;
+    crossings.reserve (samples.size() / 80);
+
+    for (size_t i = 1; i < samples.size(); ++i)
+    {
+        const double prev = samples[i - 1];
+        const double cur = samples[i];
+        if (prev < 0.0 && cur >= 0.0)
+        {
+            const double denom = cur - prev;
+            const double frac = std::abs (denom) > 1.0e-12 ? -prev / denom : 0.0;
+            crossings.push_back ((double) (i - 1) + frac);
+        }
+    }
+
+    if (crossings.size() < 2)
+        return 0.0;
+
+    double periodSum = 0.0;
+    for (size_t i = 1; i < crossings.size(); ++i)
+        periodSum += crossings[i] - crossings[i - 1];
+
+    const double period = periodSum / (double) (crossings.size() - 1);
+    return period > 0.0 ? sampleRate / period : 0.0;
+}
+
+double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode)
+{
+    constexpr int blockSize = 512;
+    constexpr int blocks = 170;
+    constexpr double sampleRate = 48000.0;
+    constexpr int targetMidi = 59; // B3
+    const double inputFrequency = midiToHz (targetMidi) * std::pow (2.0, 45.0 / 1200.0);
+
+    SattariAutoPitchAudioProcessor processor;
+    auto& apvts = processor.parameters();
+    setParameter (apvts, "liveMode", productionLiveMode ? 1.0f : 0.0f);
+    setParameter (apvts, "liveProfile", 0.0f);
+    setParameter (apvts, "extremeLive", productionLiveMode ? 1.0f : 0.0f);
+    setParameter (apvts, "keyRoot", 0.0f); // C
+    setParameter (apvts, "scale", 2.0f); // chromatic
+    setParameter (apvts, "scaleMode", 2.0f); // chromatic
+    setParameter (apvts, "style", 1.0f); // Classic style must hard-correct.
+    setParameter (apvts, "amount", 1.0f);
+    setParameter (apvts, "speed", 1.0f);
+    setParameter (apvts, "enableCorrection", 1.0f);
+    setParameter (apvts, "doNoHarm", 0.0f);
+    setParameter (apvts, "formantPreserve", 1.0f);
+    setParameter (apvts, "classicMode", 0.0f); // Style alone must be enough.
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    std::vector<float> steadyOutput;
+    steadyOutput.reserve (8192);
+
+    double phase = 0.0;
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const float sample = 0.18f * std::sin ((float) phase);
+            phase += juce::MathConstants<double>::twoPi * inputFrequency / sampleRate;
+            for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+                buffer.setSample (channel, i, sample);
+        }
+
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+
+        if (block >= blocks - 16)
+            for (int i = 0; i < blockSize; ++i)
+                steadyOutput.push_back (buffer.getSample (0, i));
+    }
+
+    const double outputFrequency = estimateFrequencyFromPositiveCrossings (steadyOutput, sampleRate);
+    if (outputFrequency <= 0.0)
+        return 999.0;
+
+    return std::abs ((hzToMidi (outputFrequency) - (double) targetMidi) * 100.0);
 }
 
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
@@ -734,6 +828,22 @@ int main (int argc, char** argv)
         return 1;
     }
 
+    const double classicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (false);
+    if (classicB3ErrorCents > 25.0)
+    {
+        std::cerr << "Classic strong correction missed B3 +45c steady target; absErrorCents="
+                  << classicB3ErrorCents << "\n";
+        return 1;
+    }
+
+    const double liveClassicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (true);
+    if (liveClassicB3ErrorCents > 25.0)
+    {
+        std::cerr << "Production Live Mode Classic strong correction missed B3 +45c steady target; absErrorCents="
+                  << liveClassicB3ErrorCents << "\n";
+        return 1;
+    }
+
     // --- YIN noise-robustness phase ------------------------------------------
     // Feed a 220 Hz (A3) fundamental buried under a strong 2nd harmonic (440 Hz)
     // AND broadband noise. Plain normalised autocorrelation tends to octave-jump
@@ -1040,6 +1150,8 @@ int main (int argc, char** argv)
     std::cout << "  status=" << status << "\n";
     std::cout << "  keyTab=" << keyTabSummary << "\n";
     std::cout << "  changedEnergy=" << changedEnergy << "\n";
+    std::cout << "  classicB3Plus45AbsErrorCents=" << classicB3ErrorCents << "\n";
+    std::cout << "  productionLiveClassicB3Plus45AbsErrorCents=" << liveClassicB3ErrorCents << "\n";
     std::cout << "  modes=Natural, Classic, Modern Rap, Robot, Big Harmony\n";
 #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
     std::cout << "  engine=signalsmith\n";

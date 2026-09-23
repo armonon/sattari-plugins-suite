@@ -926,10 +926,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
                             && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
 
-        // Live mode: small window for low latency (~23ms total at 44100Hz).
+        // Legacy low-latency Signalsmith mode: keep enough window for the
+        // qualified +45c low-register correction while staying below Studio.
         // Standard mode: larger window for higher quality studio correction.
         if (lowLat)
-            ssStretch.configure (numCh, 1024, 256);
+            ssStretch.configure (numCh, 3072, 768);
         else
             ssStretch.configure (numCh, 4096, 1024);
 
