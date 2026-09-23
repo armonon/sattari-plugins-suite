@@ -1439,6 +1439,9 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     // Vibrato-boundary hysteresis + Intent v2 state clear with everything else,
     // or a stale bias survives a re-prepare.
     hysteresisAltTarget = -1000;
+    heldTargetMidi = -1;
+    heldTargetAwaySec = 0.0;
+    heldTargetSilentSec = 0.0;
     hysteresisAge       = 999.0;
     intentState.reset();
     // Synthetic vibrato generator: clear phase + onset ramp.
@@ -3720,6 +3723,52 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     return detected;
 }
 
+void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, double hopSec)
+{
+    // Explicit targets (MIDI / graph edits) are exact requests, never held.
+    if (! targetHysteresisEnabled
+        || apvts.getRawParameterValue ("midiTarget")->load() > 0.5f
+        || apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f)
+    {
+        heldTargetMidi = -1;
+        return;
+    }
+
+    if (! frame.voiced)
+    {
+        heldTargetSilentSec += hopSec;
+        if (heldTargetSilentSec > 0.150)
+            heldTargetMidi = -1;             // a new phrase starts fresh
+        return;
+    }
+    heldTargetSilentSec = 0.0;
+
+    const int nearest = juce::roundToInt (frame.targetMidi);
+    if (heldTargetMidi < 0 || nearest == heldTargetMidi)
+    {
+        heldTargetMidi = nearest;
+        heldTargetAwaySec = 0.0;
+        return;
+    }
+
+    // Switch once the new note is nearer by more than half a semitone (25 c past
+    // the midpoint between neighbouring semitones) or the pitch has stayed nearer
+    // it for 120 ms. Real note changes (>= 100 c) switch immediately.
+    constexpr double switchMarginSemis = 0.5;
+    constexpr double switchAfterSec    = 0.120;
+    const double margin = std::abs (frame.midi - (double) heldTargetMidi) - std::abs (frame.midi - (double) nearest);
+    heldTargetAwaySec += hopSec;
+    if (margin > switchMarginSemis || heldTargetAwaySec >= switchAfterSec)
+    {
+        heldTargetMidi = nearest;
+        heldTargetAwaySec = 0.0;
+        return;
+    }
+
+    frame.targetMidi = (double) heldTargetMidi;
+    frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
+}
+
 void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bool minor)
 {
     {
@@ -4547,6 +4596,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 if (! keyMapDriving() && ! sidechainSeenAudio)
                     updateAutoKeyHistogram (detected);
                 lastPitchFrame = buildCorrectionFrame (detected);
+                applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
                 // Intent Engine v2: override targetMidi when mode != PRODUCTION
                 if (intentMode.load (std::memory_order_relaxed) != 0)
                 {
@@ -4619,6 +4669,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             nf.confidence  = fused.confidence;
             nf.voiced      = true;
             lastPitchFrame = buildCorrectionFrame (nf);
+            applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
         }
         else
         {

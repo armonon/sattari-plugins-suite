@@ -290,6 +290,8 @@ public:
     // Intent Engine v2 mode control (bench / DAW experimentation only)
     void setIntentMode (IntentMode m) noexcept { intentMode.store ((int) m, std::memory_order_relaxed); }
     IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
+    // Target-note hysteresis on/off (bench A/B only; always on in the plugin).
+    void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
 
     // --- Track Key Map -------------------------------------------------------
@@ -727,6 +729,15 @@ private:
     // repeatedly spiking transitionBoost=1.0 on every crossing.
     int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
+    // Target-note hysteresis: a note sung 30-45 c off with vibrato crosses the
+    // half-semitone line every cycle, and a per-frame nearest-note target then
+    // flips between two notes so the corrections cancel. Hold the current target
+    // until the pitch is clearly nearer another note or stays there long enough.
+    bool   targetHysteresisEnabled = true;
+    int    heldTargetMidi      = -1;
+    double heldTargetAwaySec   = 0.0;
+    double heldTargetSilentSec = 0.0;
+    void applyTargetHysteresis (PitchFrame& frame, double hopSec);
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
     std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION

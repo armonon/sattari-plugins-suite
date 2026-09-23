@@ -1,3 +1,4 @@
+#include <vector>
 // autopitch_bench.cpp — offline per-frame trace renderer for AutoPitch
 //
 // Usage:
@@ -55,6 +56,8 @@ struct Args
     bool   autoKey     = false;
     bool   lowLatency  = false;   // --low-latency: sets lowLatency param → OptionWindowShort
     bool   liveMode    = false;
+    bool noHysteresis = false;
+    std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
     bool   enableCorrection = true;
     bool   valid       = false;
 };
@@ -171,6 +174,13 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--auto-key")    { a.autoKey = true; }
         else if (arg == "--low-latency") { a.lowLatency = true; }
         else if (arg == "--live-mode")   { a.liveMode = true; }
+        else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+        else if (arg == "--param" && hasNext)
+        {
+            const juce::String kv (argv[++i]);
+            a.extraParams.push_back ({ kv.upToFirstOccurrenceOf ("=", false, false),
+                                       kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue() });
+        }
         else if (arg == "--disable-correction") { a.enableCorrection = false; }
     }
 
@@ -242,10 +252,13 @@ int main (int argc, char** argv)
     paramsOk &= setParam (apvts, "humanize",         0.0f);
     paramsOk &= setParam (apvts, "lowLatency",       a.lowLatency ? 1.0f : 0.0f);
     paramsOk &= setParam (apvts, "liveMode",         a.liveMode ? 1.0f : 0.0f);
+    for (const auto& [id, value] : a.extraParams)
+        paramsOk &= setParam (apvts, id, value);
     if (! paramsOk)
         return 1;
 
     proc.setIntentMode (a.intentMode);
+    proc.setTargetHysteresisEnabled (! a.noHysteresis);
     proc.prepareToPlay (sr, a.block);
 
     // --- Render block by block ---

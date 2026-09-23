@@ -146,6 +146,55 @@ double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode)
     return std::abs ((hzToMidi (outputFrequency) - (double) targetMidi) * 100.0);
 }
 
+// A note sung +42 c sharp with +-20 c vibrato crosses the half-semitone line
+// every cycle. Classic must still pull its centre to the intended note instead of
+// flipping the target between B3 and C4 frame by frame.
+double renderVibratoNearBoundaryErrorCents (bool targetHysteresis)
+{
+    constexpr int blockSize = 512;
+    constexpr int blocks = 240;
+    constexpr double sampleRate = 48000.0;
+    constexpr int targetMidi = 59; // B3
+    const double centreHz = midiToHz (targetMidi) * std::pow (2.0, 42.0 / 1200.0);
+
+    SattariAutoPitchAudioProcessor processor;
+    processor.setTargetHysteresisEnabled (targetHysteresis);
+    auto& apvts = processor.parameters();
+    setParameter (apvts, "keyRoot", 0.0f);
+    setParameter (apvts, "scale", 2.0f);      // chromatic
+    setParameter (apvts, "scaleMode", 2.0f);
+    setParameter (apvts, "style", 1.0f);      // Classic
+    setParameter (apvts, "amount", 1.0f);
+    setParameter (apvts, "speed", 1.0f);
+    setParameter (apvts, "enableCorrection", 1.0f);
+    setParameter (apvts, "doNoHarm", 0.0f);
+    setParameter (apvts, "classicMode", 0.0f);
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    std::vector<float> tail;
+    double phase = 0.0;
+    int n = 0;
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i, ++n)
+        {
+            const double cents = 20.0 * std::sin (juce::MathConstants<double>::twoPi * 5.5 * n / sampleRate);
+            const float sample = 0.18f * std::sin ((float) phase);
+            phase += juce::MathConstants<double>::twoPi * centreHz * std::pow (2.0, cents / 1200.0) / sampleRate;
+            for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+                buffer.setSample (channel, i, sample);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+        if (block >= blocks - 110)   // ~1.2 s = six vibrato cycles
+            for (int i = 0; i < blockSize; ++i)
+                tail.push_back (buffer.getSample (0, i));
+    }
+    const double hz = estimateFrequencyFromPositiveCrossings (tail, sampleRate);
+    return hz > 0.0 ? std::abs ((hzToMidi (hz) - (double) targetMidi) * 100.0) : 999.0;
+}
+
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
 {
     double real = 0.0, imag = 0.0, phase = 0.0;
@@ -836,6 +885,15 @@ int main (int argc, char** argv)
         return 1;
     }
 
+    const double vibratoBoundaryErrorCents = renderVibratoNearBoundaryErrorCents (true);
+    const double vibratoBoundaryNoHoldCents = renderVibratoNearBoundaryErrorCents (false);
+    if (vibratoBoundaryErrorCents > 12.0)
+    {
+        std::cerr << "Classic flipped targets on a +42c note with vibrato; absErrorCents="
+                  << vibratoBoundaryErrorCents << " (without target hold: " << vibratoBoundaryNoHoldCents << ")\n";
+        return 1;
+    }
+
     const double liveClassicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (true);
     if (liveClassicB3ErrorCents > 25.0)
     {
@@ -1151,6 +1209,8 @@ int main (int argc, char** argv)
     std::cout << "  keyTab=" << keyTabSummary << "\n";
     std::cout << "  changedEnergy=" << changedEnergy << "\n";
     std::cout << "  classicB3Plus45AbsErrorCents=" << classicB3ErrorCents << "\n";
+    std::cout << "  vibratoNearBoundaryAbsErrorCents=" << vibratoBoundaryErrorCents
+              << " (no target hold: " << vibratoBoundaryNoHoldCents << ")\n";
     std::cout << "  productionLiveClassicB3Plus45AbsErrorCents=" << liveClassicB3ErrorCents << "\n";
     std::cout << "  modes=Natural, Classic, Modern Rap, Robot, Big Harmony\n";
 #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
