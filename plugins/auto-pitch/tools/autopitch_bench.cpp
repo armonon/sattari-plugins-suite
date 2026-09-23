@@ -1,3 +1,5 @@
+#include <thread>
+#include <chrono>
 #include <vector>
 // autopitch_bench.cpp — offline per-frame trace renderer for AutoPitch
 //
@@ -57,6 +59,8 @@ struct Args
     bool   lowLatency  = false;   // --low-latency: sets lowLatency param → OptionWindowShort
     bool   liveMode    = false;
     bool noHysteresis = false;
+    bool realtime = false;
+    int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
     std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
     bool   enableCorrection = true;
     bool   valid       = false;
@@ -175,6 +179,8 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--low-latency") { a.lowLatency = true; }
         else if (arg == "--live-mode")   { a.liveMode = true; }
         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+        else if (arg == "--realtime") { a.realtime = true; }
+        else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
         else if (arg == "--param" && hasNext)
         {
             const juce::String kv (argv[++i]);
@@ -259,6 +265,8 @@ int main (int argc, char** argv)
 
     proc.setIntentMode (a.intentMode);
     proc.setTargetHysteresisEnabled (! a.noHysteresis);
+    if (a.keyProfile >= 0)
+        proc.setAutoKeyHistogramProfile (a.keyProfile);
     proc.prepareToPlay (sr, a.block);
 
     // --- Render block by block ---
@@ -270,9 +278,12 @@ int main (int argc, char** argv)
     int blockIdx = 0;
     double timeSec = 0.0;
 
+    const auto wallStart = std::chrono::steady_clock::now();
     for (int start = 0; start < tot; start += a.block)
     {
         const int n = std::min (a.block, tot - start);
+        if (a.realtime)
+            std::this_thread::sleep_until (wallStart + std::chrono::microseconds ((long long) (1.0e6 * start / sr)));
         juce::AudioBuffer<float> block (nch, n);
         for (int c = 0; c < nch; ++c)
             block.copyFrom (c, 0, inBuf, c, start, n);
@@ -295,6 +306,7 @@ int main (int argc, char** argv)
         obj->setProperty ("correctionCents", (double) snap.correctionCents);
         obj->setProperty ("confidence",      (double) snap.confidence);
         obj->setProperty ("detectedRoot",    snap.detectedRoot);
+        obj->setProperty ("detectedScale",   snap.detectedScale);
         obj->setProperty ("intentTarget",    is.v2Target);
         obj->setProperty ("intentConf",      (double) is.intentConf);
         obj->setProperty ("intentReason",    (int) is.reason);

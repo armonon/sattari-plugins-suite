@@ -1938,8 +1938,14 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
 
     const int note = ((int) std::round (frame.midi) % 12 + 12) % 12;
     const double weight = juce::jlimit (0.0, 1.0, frame.confidence) * juce::jlimit (0.0, 1.0, frame.rms * 30.0);
+    // A key needs a memory of phrases, not of the current chord. The old fixed
+    // 0.995 per analysis hop (every 5.3 ms) forgot in ~1 s, so the "key" followed
+    // the harmony bar by bar (a I-IV-V-I melody read as IV half the time).
+    // Time-based decay: ~15 s time constant regardless of hop size or sample rate.
+    constexpr double kAutoKeyMemorySec = 15.0;
+    const double decay = std::exp (-((double) pitchHopSize / juce::jmax (1.0, currentSampleRate)) / kAutoKeyMemorySec);
     for (auto& value : autoKeyHistogram)
-        value *= 0.995;
+        value *= decay;
     autoKeyHistogram[(size_t) note] += weight;
 
     correlateAutoKeyHistogram();
@@ -2019,7 +2025,9 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         }
         else
         {
-            const auto kr = keyAnalysis.analyseChroma (autoKeyHistogram.data());
+            sattari::dsp::KeyAnalysisConfig histogramCfg;
+            histogramCfg.profile = autoKeyHistogramProfile;
+            const auto kr = keyAnalysis.analyseChroma (autoKeyHistogram.data(), histogramCfg);
             if (kr.valid)
             {
                 bestRoot = kr.root;

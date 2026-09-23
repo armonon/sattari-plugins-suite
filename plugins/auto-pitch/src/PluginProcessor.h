@@ -293,6 +293,8 @@ public:
     IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
     // Target-note hysteresis on/off (bench A/B only; always on in the plugin).
     void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
+    // Key profile for the sung-note AutoKey histogram (bench A/B).
+    void setAutoKeyHistogramProfile (int profile) noexcept { autoKeyHistogramProfile = (sattari::dsp::KeyProfile) profile; }
     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
 
     // --- Track Key Map -------------------------------------------------------
@@ -378,6 +380,7 @@ public:
         float correctionCents = 0.0f;
         float confidence = 0.0f;
         int   detectedRoot = 0;      // 0..11, AutoKey output (or selected key)
+        int   detectedScale = 0;     // scale index of the AutoKey output (0 major, 1 minor)
         //  INPUT / INTENT / OUTPUT transparency: what was sung, what Auto Pitch
         //  believes was meant, and how sure it is. intentConfidence scales the
         //  correction, so this readout explains the amount actually applied.
@@ -514,6 +517,7 @@ public:
         s.correctionCents = (float) juce::jlimit (-200.0, 200.0, frame.correctionCents);
         s.confidence = (float) juce::jlimit (0.0, 1.0, frame.confidence);
         s.detectedRoot = frame.detectedRoot;
+        s.detectedScale = frame.detectedScale;
         s.intentMidi = frame.intentMidi;
         s.intentConfidence = frame.intentConfidence;
         //  How much of the requested correction actually survived the intent
@@ -808,6 +812,12 @@ private:
     // winning Aarden chroma configuration; the optional neural key model stays
     // quarantined until it beats that path on representative held-out genres.
     sattari::dsp::KeyAnalysisEngine keyAnalysis;
+    // The AutoKey histogram counts detected FUNDAMENTALS (one pitch class per sung
+    // note, no harmonics). Aarden weights the 5th above the tonic to offset the
+    // harmonic leakage in audio chroma; on a harmonic-free note histogram that bias
+    // turns a tonic-heavy melody into the key a fourth up. Krumhansl (tonic-led):
+    // generated-voice key corpus 52% -> 89% exact, a cappella 48/48 (2026-09-23).
+    sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Krumhansl;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
