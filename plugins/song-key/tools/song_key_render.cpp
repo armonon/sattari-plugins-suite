@@ -9,6 +9,7 @@
 //   song_key_render --file-smoke # choose/drop path: decode + full-song analysis
 //   song_key_render --live-tempo-smoke # live 120 BPM onset/tempo contract
 //   song_key_render --dynamic-follow-smoke # C->G bus update + silence hold
+//   song_key_render --cadence-smoke # verdict independent of worker cadence/rate
 //   song_key_render --analyse-file <audio> # print the production file verdict
 //   song_key_render --corpus <dir> [N]   # score the REAL PLUGIN on a labelled corpus
 //
@@ -207,6 +208,77 @@ bool liveTempoSmoke()
     return detected.source == SattariSongKeyAudioProcessor::AnalysisSource::Live
         && detected.tempoValid
         && std::abs (detected.bpm - 120.0) <= 2.0;
+}
+
+// The analysis must be a function of the audio stream only. Drive the same
+// A-minor cadence through the processor twice: once analysing after every
+// block (a worker that keeps up) and once only every ~1.2 s (a worker that fell
+// behind, e.g. an offline bounce or 192 kHz). Both must produce the identical
+// verdict. The old "latest 4096-sample ring" design analysed a single window
+// per late wake-up and failed this.
+bool cadenceInvarianceSmoke (double sampleRate)
+{
+    constexpr int blockSize = 512;
+    const double chords[4][3] = {
+        { 220.0000, 261.6256, 329.6276 },   // A minor
+        { 293.6648, 349.2282, 440.0000 },   // D minor
+        { 207.6523, 246.9417, 329.6276 },   // E major (harmonic-minor V)
+        { 220.0000, 261.6256, 329.6276 },   // A minor
+    };
+    const int totalSamples = (int) (6.0 * sampleRate);
+
+    auto run = [&] (int analyseEverySamples)
+    {
+        SattariSongKeyAudioProcessor processor;
+        processor.prepareToPlay (sampleRate, blockSize);
+        processor.releaseResources();
+        setParam (processor.parameters(), "publish", 0.0f);
+        double phases[3] {};
+        int sinceAnalysis = 0;
+        for (int start = 0; start < totalSamples; start += blockSize)
+        {
+            juce::AudioBuffer<float> audio (2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const int chord = juce::jmin (3, (int) ((start + i) / (1.5 * sampleRate)));
+                float value = 0.0f;
+                for (int tone = 0; tone < 3; ++tone)
+                {
+                    value += (float) (0.2 * std::sin (phases[tone])
+                                      + 0.06 * std::sin (2.0 * phases[tone]));
+                    phases[tone] += juce::MathConstants<double>::twoPi
+                        * chords[chord][tone] / sampleRate;
+                }
+                audio.setSample (0, i, value);
+                audio.setSample (1, i, value);
+            }
+            juce::MidiBuffer midi;
+            processor.processBlock (audio, midi);
+            sinceAnalysis += blockSize;
+            if (sinceAnalysis >= analyseEverySamples)
+            {
+                sinceAnalysis = 0;
+                processor.analyseNow();
+            }
+        }
+        processor.analyseNow();
+        return processor.detected();
+    };
+
+    const auto prompt = run (blockSize);
+    const auto late = run ((int) (1.2 * sampleRate));
+    const bool same = prompt.valid && late.valid
+        && prompt.root == late.root && prompt.minor == late.minor
+        && std::abs (prompt.confidence - late.confidence) < 1.0e-12
+        && std::abs (prompt.detuneCents - late.detuneCents) < 1.0e-12
+        && prompt.tempoValid == late.tempoValid
+        && std::abs (prompt.bpm - late.bpm) < 1.0e-12;
+    if (! same || prompt.root != 9 || ! prompt.minor)
+        std::fprintf (stderr,
+            "Cadence @%.0f Hz: prompt %d%s %.4f, late %d%s %.4f\n",
+            sampleRate, prompt.root, prompt.minor ? "m" : "M", prompt.confidence,
+            late.root, late.minor ? "m" : "M", late.confidence);
+    return same && prompt.root == 9 && prompt.minor;
 }
 
 bool dynamicFollowSmoke()
@@ -421,6 +493,17 @@ int main (int argc, char** argv)
             return 1;
         }
         std::printf ("Sattari Key live tempo smoke ok\n");
+        return 0;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--cadence-smoke") == 0)
+    {
+        if (! cadenceInvarianceSmoke (48000.0) || ! cadenceInvarianceSmoke (192000.0))
+        {
+            std::fprintf (stderr, "FAIL: live analysis depends on worker cadence\n");
+            return 1;
+        }
+        std::printf ("Sattari Key cadence invariance smoke ok\n");
         return 0;
     }
 
