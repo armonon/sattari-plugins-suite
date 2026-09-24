@@ -1,0 +1,17 @@
+{
+ "tag": "oracle",
+ "notes": 288,
+ "within_10c_pct": 98.26,
+ "within_5c_pct": 77.43,
+ "median_abs_c": 2.85,
+ "p95_abs_c": 7.22,
+ "worst_c": 13.1,
+ "per_voice_within_10c": {
+  "bass": 100.0,
+  "baritone": 97.9,
+  "tenor": 97.9,
+  "alto": 97.9,
+  "mezzo": 97.9,
+  "soprano": 97.9
+ }
+}

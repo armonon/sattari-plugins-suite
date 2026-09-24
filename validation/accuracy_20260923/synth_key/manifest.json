@@ -1,0 +1,578 @@
+[
+ {
+  "file": "C_maj_baritone_acappella.wav",
+  "label": "C major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "C_maj_tenor_voice_chords.wav",
+  "label": "C major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "C_maj_alto_acappella.wav",
+  "label": "C major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "C_maj_soprano_voice_chords.wav",
+  "label": "C major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Cs_maj_baritone_acappella.wav",
+  "label": "C# major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Cs_maj_tenor_voice_chords.wav",
+  "label": "C# major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Cs_maj_alto_acappella.wav",
+  "label": "C# major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Cs_maj_soprano_voice_chords.wav",
+  "label": "C# major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "D_maj_baritone_acappella.wav",
+  "label": "D major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "D_maj_tenor_voice_chords.wav",
+  "label": "D major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "D_maj_alto_acappella.wav",
+  "label": "D major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "D_maj_soprano_voice_chords.wav",
+  "label": "D major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Ds_maj_baritone_acappella.wav",
+  "label": "D# major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Ds_maj_tenor_voice_chords.wav",
+  "label": "D# major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Ds_maj_alto_acappella.wav",
+  "label": "D# major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Ds_maj_soprano_voice_chords.wav",
+  "label": "D# major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "E_maj_baritone_acappella.wav",
+  "label": "E major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "E_maj_tenor_voice_chords.wav",
+  "label": "E major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "E_maj_alto_acappella.wav",
+  "label": "E major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "E_maj_soprano_voice_chords.wav",
+  "label": "E major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "F_maj_baritone_acappella.wav",
+  "label": "F major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "F_maj_tenor_voice_chords.wav",
+  "label": "F major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "F_maj_alto_acappella.wav",
+  "label": "F major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "F_maj_soprano_voice_chords.wav",
+  "label": "F major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Fs_maj_baritone_acappella.wav",
+  "label": "F# major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Fs_maj_tenor_voice_chords.wav",
+  "label": "F# major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Fs_maj_alto_acappella.wav",
+  "label": "F# major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Fs_maj_soprano_voice_chords.wav",
+  "label": "F# major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "G_maj_baritone_acappella.wav",
+  "label": "G major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "G_maj_tenor_voice_chords.wav",
+  "label": "G major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "G_maj_alto_acappella.wav",
+  "label": "G major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "G_maj_soprano_voice_chords.wav",
+  "label": "G major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Gs_maj_baritone_acappella.wav",
+  "label": "G# major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Gs_maj_tenor_voice_chords.wav",
+  "label": "G# major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Gs_maj_alto_acappella.wav",
+  "label": "G# major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Gs_maj_soprano_voice_chords.wav",
+  "label": "G# major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "A_maj_baritone_acappella.wav",
+  "label": "A major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "A_maj_tenor_voice_chords.wav",
+  "label": "A major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "A_maj_alto_acappella.wav",
+  "label": "A major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "A_maj_soprano_voice_chords.wav",
+  "label": "A major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "As_maj_baritone_acappella.wav",
+  "label": "A# major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "As_maj_tenor_voice_chords.wav",
+  "label": "A# major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "As_maj_alto_acappella.wav",
+  "label": "A# major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "As_maj_soprano_voice_chords.wav",
+  "label": "A# major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "B_maj_baritone_acappella.wav",
+  "label": "B major",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "B_maj_tenor_voice_chords.wav",
+  "label": "B major",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "B_maj_alto_acappella.wav",
+  "label": "B major",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "B_maj_soprano_voice_chords.wav",
+  "label": "B major",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "C_min_baritone_acappella.wav",
+  "label": "C minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "C_min_tenor_voice_chords.wav",
+  "label": "C minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "C_min_alto_acappella.wav",
+  "label": "C minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "C_min_soprano_voice_chords.wav",
+  "label": "C minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Cs_min_baritone_acappella.wav",
+  "label": "C# minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Cs_min_tenor_voice_chords.wav",
+  "label": "C# minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Cs_min_alto_acappella.wav",
+  "label": "C# minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Cs_min_soprano_voice_chords.wav",
+  "label": "C# minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "D_min_baritone_acappella.wav",
+  "label": "D minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "D_min_tenor_voice_chords.wav",
+  "label": "D minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "D_min_alto_acappella.wav",
+  "label": "D minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "D_min_soprano_voice_chords.wav",
+  "label": "D minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Ds_min_baritone_acappella.wav",
+  "label": "D# minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Ds_min_tenor_voice_chords.wav",
+  "label": "D# minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Ds_min_alto_acappella.wav",
+  "label": "D# minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Ds_min_soprano_voice_chords.wav",
+  "label": "D# minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "E_min_baritone_acappella.wav",
+  "label": "E minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "E_min_tenor_voice_chords.wav",
+  "label": "E minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "E_min_alto_acappella.wav",
+  "label": "E minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "E_min_soprano_voice_chords.wav",
+  "label": "E minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "F_min_baritone_acappella.wav",
+  "label": "F minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "F_min_tenor_voice_chords.wav",
+  "label": "F minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "F_min_alto_acappella.wav",
+  "label": "F minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "F_min_soprano_voice_chords.wav",
+  "label": "F minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Fs_min_baritone_acappella.wav",
+  "label": "F# minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Fs_min_tenor_voice_chords.wav",
+  "label": "F# minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Fs_min_alto_acappella.wav",
+  "label": "F# minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Fs_min_soprano_voice_chords.wav",
+  "label": "F# minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "G_min_baritone_acappella.wav",
+  "label": "G minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "G_min_tenor_voice_chords.wav",
+  "label": "G minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "G_min_alto_acappella.wav",
+  "label": "G minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "G_min_soprano_voice_chords.wav",
+  "label": "G minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Gs_min_baritone_acappella.wav",
+  "label": "G# minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "Gs_min_tenor_voice_chords.wav",
+  "label": "G# minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "Gs_min_alto_acappella.wav",
+  "label": "G# minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "Gs_min_soprano_voice_chords.wav",
+  "label": "G# minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "A_min_baritone_acappella.wav",
+  "label": "A minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "A_min_tenor_voice_chords.wav",
+  "label": "A minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "A_min_alto_acappella.wav",
+  "label": "A minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "A_min_soprano_voice_chords.wav",
+  "label": "A minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "As_min_baritone_acappella.wav",
+  "label": "A# minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "As_min_tenor_voice_chords.wav",
+  "label": "A# minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "As_min_alto_acappella.wav",
+  "label": "A# minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "As_min_soprano_voice_chords.wav",
+  "label": "A# minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "B_min_baritone_acappella.wav",
+  "label": "B minor",
+  "voice": "baritone",
+  "kind": "acappella"
+ },
+ {
+  "file": "B_min_tenor_voice_chords.wav",
+  "label": "B minor",
+  "voice": "tenor",
+  "kind": "voice+chords"
+ },
+ {
+  "file": "B_min_alto_acappella.wav",
+  "label": "B minor",
+  "voice": "alto",
+  "kind": "acappella"
+ },
+ {
+  "file": "B_min_soprano_voice_chords.wav",
+  "label": "B minor",
+  "voice": "soprano",
+  "kind": "voice+chords"
+ }
+]

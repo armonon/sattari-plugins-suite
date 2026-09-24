@@ -1,0 +1,24 @@
+{"id": "v01_bass_male_gospel", "voice": "deep bass male voice", "style": "slow gospel hymn", "prompted_key": "D major", "seed": 23000}
+{"id": "v02_baritone_male_soul", "voice": "warm baritone male voice", "style": "soul ballad", "prompted_key": "F minor", "seed": 23001}
+{"id": "v03_tenor_male_pop", "voice": "bright tenor male voice", "style": "upbeat pop", "prompted_key": "A major", "seed": 23002}
+{"id": "v04_countertenor_folk", "voice": "light countertenor male voice", "style": "gentle folk song", "prompted_key": "E minor", "seed": 23003}
+{"id": "v05_contralto_female_jazz", "voice": "dark contralto female voice", "style": "smoky jazz ballad", "prompted_key": "C minor", "seed": 23004}
+{"id": "v06_alto_female_rnb", "voice": "smooth alto female voice", "style": "R&B slow jam with melismas", "prompted_key": "Bb major", "seed": 23005}
+{"id": "v07_mezzo_female_theatre", "voice": "strong mezzo-soprano female voice", "style": "musical theatre", "prompted_key": "G major", "seed": 23006}
+{"id": "v08_soprano_female_classical", "voice": "clear soprano female voice", "style": "classical art song", "prompted_key": "Eb major", "seed": 23007}
+{"id": "v09_baritone_male_country", "voice": "twangy baritone male voice", "style": "country ballad", "prompted_key": "G major", "seed": 23008}
+{"id": "v10_tenor_male_rock", "voice": "gritty tenor male voice", "style": "rock anthem sung", "prompted_key": "E minor", "seed": 23009}
+{"id": "v11_alto_female_lullaby", "voice": "soft breathy alto female voice", "style": "lullaby", "prompted_key": "F major", "seed": 23010}
+{"id": "v12_soprano_female_pop", "voice": "airy soprano female voice", "style": "dreamy pop", "prompted_key": "B minor", "seed": 23011}
+{"id": "v13_bass_male_folk", "voice": "low bass male voice", "style": "sea shanty", "prompted_key": "A minor", "seed": 23012}
+{"id": "v14_tenor_male_rnb", "voice": "falsetto-heavy tenor male voice", "style": "neo-soul", "prompted_key": "Db major", "seed": 23013}
+{"id": "v15_mezzo_female_soul", "voice": "powerful mezzo female voice", "style": "gospel soul with vibrato", "prompted_key": "C major", "seed": 23014}
+{"id": "v16_child_like_female", "voice": "young bright female voice", "style": "simple children's song", "prompted_key": "D major", "seed": 23015}
+{"id": "v17_baritone_male_jazz", "voice": "velvet crooner baritone male voice", "style": "jazz standard", "prompted_key": "Ab major", "seed": 23016}
+{"id": "v18_soprano_female_opera", "voice": "operatic soprano female voice with wide vibrato", "style": "aria", "prompted_key": "F# minor", "seed": 23017}
+{"id": "v19_alto_female_blues", "voice": "raspy alto female voice", "style": "slow blues", "prompted_key": "G minor", "seed": 23018}
+{"id": "v20_tenor_male_kpop", "voice": "clean light tenor male voice", "style": "K-pop ballad", "prompted_key": "E major", "seed": 23019}
+{"id": "v21_mezzo_female_folk", "voice": "plain unornamented mezzo female voice", "style": "Irish folk air", "prompted_key": "D minor", "seed": 23020}
+{"id": "v22_baritone_male_pop", "voice": "conversational baritone male voice", "style": "indie pop", "prompted_key": "C major", "seed": 23021}
+{"id": "v23_soprano_female_rnb", "voice": "agile soprano female voice", "style": "R&B runs and riffs", "prompted_key": "A minor", "seed": 23022}
+{"id": "v24_tenor_male_musical", "voice": "legit tenor male voice", "style": "musical theatre ballad", "prompted_key": "B major", "seed": 23023}

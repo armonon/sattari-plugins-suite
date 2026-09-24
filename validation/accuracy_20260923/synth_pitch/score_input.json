@@ -1,0 +1,17 @@
+{
+ "tag": "input",
+ "notes": 288,
+ "within_10c_pct": 1.39,
+ "within_5c_pct": 0.0,
+ "median_abs_c": 29.48,
+ "p95_abs_c": 43.19,
+ "worst_c": 51.2,
+ "per_voice_within_10c": {
+  "bass": 0.0,
+  "baritone": 2.1,
+  "tenor": 0.0,
+  "alto": 0.0,
+  "mezzo": 0.0,
+  "soprano": 6.2
+ }
+}
