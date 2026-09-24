@@ -165,8 +165,8 @@ private:
     std::array<float, fftSize * 2> scratch {};
     std::array<float, fftSize> hann {};
     std::array<float, fftSize> liveKeyInput {};
-    std::atomic<int> writePos { 0 };
     std::atomic<juce::int64> totalSamplesWritten { 0 };
+    juce::int64 liveSongKeyFedSamples = 0;         // worker-thread-only
     double running[12] = { 0 };                    // background-thread-only
     double runningBass[12] = { 0 };                // low-band tonic evidence
     std::array<double, 12> liveChordRootEvidence {};

@@ -54,8 +54,8 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
 
     for (int i = 0; i < fftSize; ++i)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (fftSize - 1));
-    writePos.store (0);
     totalSamplesWritten.store (0);
+    liveSongKeyFedSamples = 0;
     std::fill (running, running + 12, 0.0);
 
     // HPCP accumulator: warm its whitening buffer here so accumulate() never
@@ -104,17 +104,17 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     // Feed the analysis ring with a mono sum. Audio is NOT modified — Sattari Key
     // is a transparent analyser that just listens to the master.
-    int wp = writePos.load (std::memory_order_relaxed);
+    // The ring position is derived from the single 64-bit sample counter, so the
+    // worker can never pair a write position with a count from a different block.
+    const auto written = totalSamplesWritten.load (std::memory_order_relaxed);
     for (int i = 0; i < n; ++i)
     {
         float m = 0.0f;
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch) m += buffer.getSample (ch, i);
         m /= (float) nc;
-        ring[(size_t) wp].store (m, std::memory_order_relaxed);
-        wp = (wp + 1) % fftSize;
+        ring[(size_t) ((written + i) % fftSize)].store (m, std::memory_order_relaxed);
     }
-    writePos.store (wp, std::memory_order_release);
-    totalSamplesWritten.fetch_add ((juce::int64) n, std::memory_order_release);
+    totalSamplesWritten.store (written + (juce::int64) n, std::memory_order_release);
 }
 
 void SattariSongKeyAudioProcessor::analyseNow()
@@ -140,7 +140,8 @@ void SattariSongKeyAudioProcessor::analyseNow()
         resetDynamicDecision();
     }
 
-    const int wp = writePos.load (std::memory_order_acquire);
+    const auto written = totalSamplesWritten.load (std::memory_order_acquire);
+    const int wp = (int) (written % fftSize);
     for (int i = 0; i < fftSize; ++i)
     {
         const float sample = ring[(size_t) ((wp + i) % fftSize)].load (
@@ -239,9 +240,15 @@ void SattariSongKeyAudioProcessor::analyseNow()
     }
 
     // Feed the same fixed 16 kHz/4096-frame path used for dropped song files.
-    // The worker snapshots overlap, which preserves continuity and improves the
-    // live warm-up time without ever touching the realtime audio callback.
-    liveSongKey.addSamples (liveKeyInput.data(), fftSize);
+    // SongKeyEstimator is a continuous-stream estimator (it resamples and frames
+    // internally), so it must see every input sample exactly once. The analysis
+    // snapshots above overlap by half a window; feeding whole snapshots made the
+    // estimator hear most audio twice with a splice at every seam. Only the
+    // samples that arrived since the previous feed are passed on.
+    const int fresh = (int) juce::jlimit<juce::int64> (
+        0, fftSize, written - liveSongKeyFedSamples);
+    liveSongKeyFedSamples = written;
+    liveSongKey.addSamples (liveKeyInput.data() + (fftSize - fresh), fresh);
     auto k = liveSongKey.result();
     auto alternative = liveSongKey.alternative();
     const auto cleanTonal = keyAnalysis.analyseChroma (running);
