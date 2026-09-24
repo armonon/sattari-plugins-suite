@@ -25,8 +25,10 @@ double noteHz (int pitchClass, int octave = 4)
     return 440.0 * std::pow (2.0, ((double) midi - 69.0) / 12.0);
 }
 
-std::vector<float> progression (int root, bool minor, double sampleRate)
+std::vector<float> progression (int root, bool minor, double sampleRate,
+                                double detuneCents = 0.0)
 {
+    const double detune = std::pow (2.0, detuneCents / 1200.0);
     constexpr double chordSeconds = 1.25;
     const int chordSamples = (int) std::round (chordSeconds * sampleRate);
     const int roots[8] = {
@@ -51,7 +53,7 @@ std::vector<float> progression (int root, bool minor, double sampleRate)
             double sample = 0.0;
             for (int note : notes)
             {
-                const double frequency = noteHz (note, note < 5 ? 4 : 3);
+                const double frequency = detune * noteHz (note, note < 5 ? 4 : 3);
                 sample += 0.20 * std::sin (2.0 * juce::MathConstants<double>::pi
                                            * frequency * time);
                 sample += 0.05 * std::sin (4.0 * juce::MathConstants<double>::pi
@@ -65,9 +67,12 @@ std::vector<float> progression (int root, bool minor, double sampleRate)
 }
 
 KeyAnalysisResult analyseChunked (const std::vector<float>& audio,
-                                  double sampleRate, int chunk)
+                                  double sampleRate, int chunk,
+                                  const double* tuningOffsetCents = nullptr)
 {
     SongKeyEstimator estimator;
+    if (tuningOffsetCents != nullptr)
+        estimator.setTuningOffsetCents (*tuningOffsetCents);
     estimator.prepare (sampleRate, (std::int64_t) audio.size());
     for (size_t position = 0; position < audio.size(); position += (size_t) chunk)
     {
@@ -111,6 +116,33 @@ int main()
     const auto boundaryResult = analyseChunked (boundaryBass, 44100.0, 4096);
     check ("25 Hz boundary sub-bass cannot pull the tonic to its dominant",
            boundaryResult.valid && boundaryResult.root == 9 && ! boundaryResult.minor);
+
+    // Tuning compensation is opt-in: an explicit 0-cent offset is bit-identical
+    // to the historical A440 mapping used by every other caller.
+    {
+        const double zero = 0.0;
+        const auto explicitZero = analyseChunked (audio, 44100.0, 4096, &zero);
+        check ("a 0-cent tuning offset is identical to the A440 default",
+               whole.valid && explicitZero.valid
+               && whole.root == explicitZero.root && whole.minor == explicitZero.minor
+               && std::fabs (whole.confidence - explicitZero.confidence) < 1.0e-15);
+    }
+
+    // A song tuned almost a quarter-tone off A440 is recovered in every key
+    // once the measured offset is supplied.
+    for (double cents : { 48.0, -48.0 })
+    {
+        int correct = 0;
+        for (int root = 0; root < 12; ++root)
+            for (bool minor : { false, true })
+            {
+                const auto detuned = progression (root, minor, 48000.0, cents);
+                const auto result = analyseChunked (detuned, 48000.0, 16384, &cents);
+                correct += result.valid && result.root == root && result.minor == minor;
+            }
+        check ("all 24 keys survive a +/-48 cent tuning with compensation",
+               correct == 24);
+    }
 
     std::vector<float> silence (44100, 0.0f);
     check ("silence has no invented key",
