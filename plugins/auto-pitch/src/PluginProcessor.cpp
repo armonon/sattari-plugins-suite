@@ -4636,6 +4636,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // 48 kHz / 64-sample callback deadline. Neural fusion still needs the Studio
     // frame, so only the deterministic YIN-only Live path elides the duplicate.
     const bool useLiveTrackerOnly = liveModeActive() && ! polyOn && ! neuralHist;
+    // With neural fusion the frame that drives correction is the FUSED one, rebuilt
+    // once per block below. Target hysteresis must run once, on that final frame,
+    // with the block's real elapsed time. Running it on the YIN frame every hop AND
+    // again on the fused frame every block advanced the hold clock by up to five
+    // hops per real hop at 64-sample blocks (a 120 ms hold acted like ~25 ms).
+    const bool neuralFusionThisBlock = neuralHist && (int) scMonoScratch.size() >= numSamples;
     if (! useLiveTrackerOnly)
     {
         for (int i = 0; i < numSamples; ++i)
@@ -4654,7 +4660,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 if (! keyMapDriving() && ! sidechainSeenAudio)
                     updateAutoKeyHistogram (detected);
                 lastPitchFrame = buildCorrectionFrame (detected);
-                applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
+                if (! neuralFusionThisBlock)
+                    applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
                 // Intent Engine v2: override targetMidi when mode != PRODUCTION
                 if (intentMode.load (std::memory_order_relaxed) != 0)
                 {
@@ -4673,7 +4680,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // can rescue high-confidence breathy/noisy frames that YIN declines. It does
     // not blindly override YIN: conflicting or octave-displaced estimates are
     // rejected by the conservative shared fusion state below.
-    if (neuralHist && (int) scMonoScratch.size() >= numSamples)
+    if (neuralFusionThisBlock)
     {
         // Audio thread: only feed the ring (lock-free) — the worker thread runs
         // the ONNX inference and publishes its result into the atomics we read.
@@ -4727,12 +4734,13 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             nf.confidence  = fused.confidence;
             nf.voiced      = true;
             lastPitchFrame = buildCorrectionFrame (nf);
-            applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
         }
         else
         {
             lastPitchFrame.voiced = false;
         }
+        // The one hysteresis update for this block (see neuralFusionThisBlock).
+        applyTargetHysteresis (lastPitchFrame, (double) numSamples / juce::jmax (1.0, currentSampleRate));
     }
     else if (! neuralHist)
     {

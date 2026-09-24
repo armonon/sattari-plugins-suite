@@ -248,6 +248,67 @@ double bypassReengageMaxError (int blockSize, int& latencyOut)
     return worst;
 }
 
+// Seconds from a step in sung pitch until the correction target (debug frame)
+// reaches `wantedTarget`; -1 when it never does. The tone is harmonic so the
+// neural detector sees a voice-like spectrum.
+struct TargetStepRun
+{
+    double seconds = -1.0;
+    bool   neuralLoaded = true;
+};
+
+TargetStepRun targetStepSeconds (bool neural, bool hold, int blockSize,
+                                 double fromMidi, double toMidi, int wantedTarget)
+{
+    constexpr double sampleRate = 48000.0;
+    SattariAutoPitchAudioProcessor processor;
+    processor.setTargetHysteresisEnabled (hold);
+    processor.setNonRealtime (true);   // CREPE runs synchronously: deterministic
+    auto& apvts = processor.parameters();
+    setParameter (apvts, "keyRoot", 0.0f);
+    setParameter (apvts, "scale", 2.0f);      // chromatic
+    setParameter (apvts, "scaleMode", 2.0f);
+    setParameter (apvts, "style", 1.0f);      // Classic
+    setParameter (apvts, "amount", 1.0f);
+    setParameter (apvts, "speed", 1.0f);
+    setParameter (apvts, "enableCorrection", 1.0f);
+    setParameter (apvts, "doNoHarm", 0.0f);
+    setParameter (apvts, "neuralPitch", neural ? 1.0f : 0.0f);
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    TargetStepRun result;
+    result.neuralLoaded = ! neural || processor.neuralModelPresent();
+    if (! result.neuralLoaded)
+        return result;
+
+    const int stepAt = (int) (0.6 * sampleRate);
+    const int total  = (int) (1.2 * sampleRate);
+    double phase = 0.0;
+    for (int start = 0; start < total; start += blockSize)
+    {
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const double midi = (start + i) < stepAt ? fromMidi : toMidi;
+            const float s = (float) (0.16 * std::sin (phase) + 0.08 * std::sin (2.0 * phase)
+                                   + 0.04 * std::sin (3.0 * phase));
+            phase += juce::MathConstants<double>::twoPi * 440.0 * std::pow (2.0, (midi - 69.0) / 12.0) / sampleRate;
+            for (int ch = 0; ch < 2; ++ch)
+                buffer.setSample (ch, i, s);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+        const int end = start + blockSize;
+        const auto debug = processor.getDebugFrame();
+        if (end > stepAt && debug.voiced && (int) std::llround (debug.targetMidi) == wantedTarget)
+        {
+            result.seconds = (double) (end - stepAt) / sampleRate;
+            return result;
+        }
+    }
+    return result;
+}
+
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
 {
     double real = 0.0, imag = 0.0, phase = 0.0;
@@ -968,6 +1029,37 @@ int main (int argc, char** argv)
         }
     }
     std::cout << "  bypassReengage=PASS (dry input delayed by latency at every sample, 64 + 512)\n";
+
+    // --- Target hold timing, YIN and neural, small and large blocks ----------
+    //  A +62 c step (A3 -> A3+62 c) is nearer A#3 by less than the 0.5 st switch
+    //  margin, so only the 120 ms hold may move the target. The hold must last
+    //  the same wall time at every block size and with Neural Pitch on; it used
+    //  to be advanced once per YIN hop AND once per block on the fused frame.
+    {
+        std::string holdReport;
+        for (const bool neural : { false, true })
+            for (const int holdBlock : { 64, 512 })
+            {
+                const auto held = targetStepSeconds (neural, true,  holdBlock, 57.0, 57.62, 58);
+                const auto free = targetStepSeconds (neural, false, holdBlock, 57.0, 57.62, 58);
+                if (! held.neuralLoaded)
+                {
+                    std::cerr << "Neural Pitch hold test: CREPE model not loaded\n";
+                    return 1;
+                }
+                const double holdSec = held.seconds - free.seconds;
+                if (held.seconds < 0.0 || free.seconds < 0.0 || holdSec < 0.095 || holdSec > 0.150)
+                {
+                    std::cerr << "target hold is not 120 ms (neural " << neural << ", block " << holdBlock
+                              << "): switch " << held.seconds << " s vs " << free.seconds
+                              << " s without hold = " << holdSec * 1000.0 << " ms\n";
+                    return 1;
+                }
+                holdReport += juce::String ((neural ? " neural/" : " yin/") + juce::String (holdBlock)
+                                            + "=" + juce::String (holdSec * 1000.0, 0) + "ms").toStdString();
+            }
+        std::cout << "  targetHold=PASS" << holdReport << "\n";
+    }
 
     const double liveClassicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (true);
     if (liveClassicB3ErrorCents > 25.0)

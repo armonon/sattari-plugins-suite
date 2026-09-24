@@ -751,6 +751,8 @@ private:
     int    heldTargetMidi      = -1;
     double heldTargetAwaySec   = 0.0;
     double heldTargetSilentSec = 0.0;
+    // hopSec is the time elapsed since the previous call. Call it exactly once per
+    // analysis update, on the FINAL frame of that update.
     void applyTargetHysteresis (PitchFrame& frame, double hopSec);
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
