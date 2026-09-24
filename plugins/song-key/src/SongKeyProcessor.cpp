@@ -1083,6 +1083,14 @@ void SattariSongKeyAudioProcessor::workerLoop()
 SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() const
 {
     Detected d;
+    // Read the file-scan state FIRST. The file worker publishes its verdict and
+    // then releases fileAnalysing=false, so a reader that sees "finished" is
+    // guaranteed to see that verdict. Reading the verdict first could pair a
+    // stale "no verdict" with "finished" (SongKeyRender --analyse-file then
+    // reported a spurious failure).
+    d.source = analysisSource.load (std::memory_order_acquire);
+    d.analysing = fileAnalysing.load (std::memory_order_acquire);
+    d.progress = fileProgress.load (std::memory_order_acquire);
     const auto verdict = loadVerdict();                 // one consistent decision
     d.valid = verdict.valid;
     d.root = verdict.root;
@@ -1126,9 +1134,6 @@ SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() 
             ? (double) (nextDynamicScanSample - liveAnalysedSamples) / currentSampleRate
             : 0.0;
     }
-    d.source = analysisSource.load();
-    d.analysing = fileAnalysing.load();
-    d.progress = fileProgress.load();
     d.segmentAgreement = detSegmentAgreement.load();
     d.segments = detSegments.load();
     d.possibleModulation = detPossibleModulation.load();
