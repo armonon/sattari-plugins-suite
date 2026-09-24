@@ -132,3 +132,30 @@ Keep production. Onset error on real singers is mostly the singer not yet being 
 annotation onset uncertainty. Once the target is right, the correction is fast and accurate. The
 steady-state vibrato gain from E1/E2 did not transfer to held-out singers.
 Known issue: the CSD "detuned" variant barely detuned (bug in prep); don't use it.
+
+## Round 5 (2026-09-24): where the gap actually is
+`causal_ceiling.py`, `key_ceiling.py`, `key_ema_ceiling.py` score target choices analytically (the
+output is assumed to land exactly on the chosen target), which separates target choice from shifting.
+
+- **Correction amount/timing costs ~0.** Scoring R0's own chosen targets as if the shift were perfect
+  gives 70.9%, vs 71.2% measured. The whole chromatic-mode gap is target choice.
+- **Realtime (causal) ceiling, chromatic, perfect detector:** nearest note with no hold 61.3%, with the
+  production hold 73.6%, with a 100 ms average 76.0%. The 95.5% oracle knows the intended note; no
+  realtime nearest-note tuner can get there on these singers.
+- **Key/scale mode (the piece's key from its score, `csd_keys.json`: ER F major, LI C major,
+  ND G minor), production code unchanged:**
+  | | dev | holdout |
+  |---|---|---|
+  | chromatic R0 | 71.2% | 76.7% |
+  | key mode R0 | **79.6%** | **82.0%** |
+  | key mode, perfect-detector ceiling | 82.4% | 84.2% |
+  In-key intended notes (91.5%): 86.4% (dev). Out-of-key notes (accidentals, 8.5%): 6%, because key
+  mode forces them to the neighbouring scale note. p95 rises to ~63 c from those notes.
+- Accidental-aware key mode (accept an out-of-key note when the singer is within 15–30 c of it):
+  the ceiling drops (82.4 → 73.5–76.9%). Rejected on paper, not built.
+- Averaging inside key mode: ceiling 80.9–81.7% vs 82.4%. Rejected on paper.
+- Neural detector in key mode: 79.2% vs 79.6%. No gain.
+
+Conclusion: with the key set, production is within ~2–3 points of the realtime ceiling. The lever
+that matters most is getting the KEY right (Auto Key, fixed in 9f6d57b) and using key mode. After
+that, the remaining engineering lever is detector accuracy (~3 points).

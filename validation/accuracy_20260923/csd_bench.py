@@ -155,7 +155,11 @@ if __name__ == "__main__":
             out = WORK / f"{stem}_{mode}_{tag}.wav"; tr = WORK / f"{stem}_{mode}_{tag}.json"
             if out.exists(): out.unlink()
             env = dict(os.environ, SATTARI_SESSION_ID=f"csd-{tag}-{stem}-{os.getpid()}")
-            subprocess.run([str(BENCH), str(src), "--output", str(out), "--trace", str(tr), "--key", "C", "--scale", "chromatic",
+            # CSD_KEYED=1: correct each piece in its own key (csd_keys.json, from the score) instead of chromatic.
+            key, scale = "C", "chromatic"
+            if os.environ.get("CSD_KEYED") == "1":
+                k = json.load(open(HERE / "csd_keys.json"))[stem.split("_")[1]]; key, scale = k["root"], k["scale"]
+            subprocess.run([str(BENCH), str(src), "--output", str(out), "--trace", str(tr), "--key", key, "--scale", scale,
                             "--amount", "1", "--speed", "1", "--block", "512", *args], check=True, capture_output=True, env=env)
             return stem, json.load(open(tr))["reportedLatencySamples"]
         with ThreadPoolExecutor(8) as ex:
