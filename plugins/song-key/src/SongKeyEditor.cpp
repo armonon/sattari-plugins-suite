@@ -111,13 +111,18 @@ SattariSongKeyAudioProcessorEditor::~SattariSongKeyAudioProcessorEditor()
 }
 
 juce::String SattariSongKeyAudioProcessorEditor::rootName (
-    int pitchClass)
+    int pitchClass, bool minor)
 {
-    static const char* names[] = {
-        "C", "C#", "D", "D#", "E", "F",
-        "F#", "G", "G#", "A", "A#", "B"
+    static const char* majorNames[] = {
+        "C", "Db", "D", "Eb", "E", "F",
+        "Gb", "G", "Ab", "A", "Bb", "B"
     };
-    return names[((pitchClass % 12) + 12) % 12];
+    static const char* minorNames[] = {
+        "C", "C#", "D", "Eb", "E", "F",
+        "F#", "G", "G#", "A", "Bb", "B"
+    };
+    const int pc = ((pitchClass % 12) + 12) % 12;
+    return minor ? minorNames[pc] : majorNames[pc];
 }
 
 juce::String SattariSongKeyAudioProcessorEditor::camelotName (
@@ -219,18 +224,20 @@ void SattariSongKeyAudioProcessorEditor::updateManualControls()
 juce::String SattariSongKeyAudioProcessorEditor::currentRoot() const
 {
     if (snapshot.dynamicActive)
-        return rootName (snapshot.dynamicRoot);
+        return rootName (snapshot.dynamicRoot, snapshot.dynamicMinor);
     if (snapshot.dynamicEnabled)
         return "--";
     if (snapshot.sessionLocked)
-        return rootName (snapshot.lockedRoot);
+        return rootName (snapshot.lockedRoot, snapshot.lockedMinor);
     if (manualToggle.getToggleState())
         return rootName ((int) std::round (
-            audioProcessor.parameters()
-                .getRawParameterValue ("manualRoot")->load()));
+                             audioProcessor.parameters()
+                                 .getRawParameterValue ("manualRoot")->load()),
+                         audioProcessor.parameters()
+                                 .getRawParameterValue ("manualScale")->load() > 0.5f);
     const bool trusted = snapshot.valid
         && snapshot.confidence >= sattari::dsp::kReleaseKeyConfidence;
-    return trusted ? rootName (snapshot.root) : juce::String ("--");
+    return trusted ? rootName (snapshot.root, snapshot.minor) : juce::String ("--");
 }
 
 juce::String SattariSongKeyAudioProcessorEditor::currentMode() const
@@ -307,8 +314,8 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
                                .getRawParameterValue ("manualScale")->load() > 0.5f;
         const int relativeRoot = minor ? (root + 3) % 12 : (root + 9) % 12;
         alternativeMetric.setValue (
-            rootName (relativeRoot) + (minor ? " MAJOR" : " MINOR"), {},
-            "relative · " + camelotName (relativeRoot, ! minor));
+            rootName (relativeRoot, ! minor) + (minor ? " MAJOR" : " MINOR"), {},
+            juce::String::fromUTF8 ("relative · ") + camelotName (relativeRoot, ! minor));
     }
     else if (snapshot.alternativeValid)
     {
@@ -317,12 +324,12 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
         const bool isRelative = snapshot.alternativeRoot == relativeRoot
             && snapshot.alternativeMinor != snapshot.minor;
         alternativeMetric.setValue (
-            rootName (snapshot.alternativeRoot)
+            rootName (snapshot.alternativeRoot, snapshot.alternativeMinor)
                 + (snapshot.alternativeMinor ? " MINOR" : " MAJOR"), {},
             isRelative
-                ? "relative · " + camelotName (
+                ? juce::String::fromUTF8 ("relative · ") + camelotName (
                     snapshot.alternativeRoot, snapshot.alternativeMinor)
-                : "runner-up · relative " + rootName (relativeRoot)
+                : juce::String::fromUTF8 ("runner-up · relative ") + rootName (relativeRoot, ! snapshot.minor)
                     + (snapshot.minor ? " major" : " minor"));
     }
     else
@@ -363,7 +370,7 @@ void SattariSongKeyAudioProcessorEditor::updateSnapshot()
     else if (snapshot.dynamicEnabled && snapshot.dynamicPending)
     {
         status = "DYNAMIC / CONFIRMING "
-            + rootName (snapshot.dynamicPendingRoot)
+            + rootName (snapshot.dynamicPendingRoot, snapshot.dynamicPendingMinor)
             + (snapshot.dynamicPendingMinor ? " MINOR " : " MAJOR ")
             + juce::String (snapshot.dynamicPendingConfirmations)
             + "/" + juce::String (snapshot.dynamicRequiredConfirmations);

@@ -42,7 +42,10 @@ private:
     void chooseSong();
     void beginFileAnalysis (const juce::File&);
 
-    static juce::String rootName (int pitchClass);
+    // Display spelling only: conventional flat keys (Db/Eb/Gb/Ab/Bb major,
+    // Eb/Bb minor) are shown with flats. The processor, parameters and suite
+    // bus keep the 0..11 pitch-class representation.
+    static juce::String rootName (int pitchClass, bool minor);
     static juce::String camelotName (int pitchClass, bool minor);
 
     SattariSongKeyAudioProcessor& audioProcessor;
