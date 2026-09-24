@@ -16,14 +16,18 @@
 // --corpus is the honest end-to-end measurement: it streams each track through
 // SattariSongKeyAudioProcessor::processBlock exactly as a host would, then reads
 // detected() and scores MIREX. SattariKeyDatasetEval scores the shared detector
-// core; this scores what the plugin actually ships, including its ring buffers,
-// worker cadence and shared Aarden/chroma decision.
+// core; this scores what the plugin actually ships: its audio -> worker FIFO,
+// hop analysis, SongKeyEstimator (balanced 16 kHz full-mix) verdict with the
+// high-margin HPCP chroma override, and tuning compensation. Every labelled
+// track counts: a track with no valid verdict is a miss, and an unparseable
+// label or unreadable file is reported on stderr and in the summary.
 #include "SongKeyProcessor.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <sattari_audio_core/SattariEditorRender.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -391,29 +395,40 @@ bool dynamicFollowSmoke()
 
 namespace
 {
-// "C minor" / "Eb major" / "F# minor" -> root 0..11 + minor flag. Returns false on
-// anything unparseable so a malformed label is skipped rather than scored as wrong.
-bool parseKeyLabel (std::string s, int& root, bool& minor)
+// "C minor" / "Eb major" / "F# minor" / "Am" / "A m" / "C:maj" -> root 0..11 +
+// minor flag. Whitespace (and a ':' separator) anywhere is ignored. The mode must
+// be empty/"maj"/"major"/"M" or "m"/"min"/"minor"; anything else is rejected so
+// the caller can report it instead of silently scoring it as major.
+bool parseKeyLabel (const std::string& label, int& root, bool& minor)
 {
-    while (! s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r')) s.erase (s.begin());
-    while (! s.empty() && (s.back()  == ' ' || s.back()  == '\t' || s.back()  == '\r')) s.pop_back();
-    if (s.size() < 2) return false;
-    static const char* N[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+    std::string s;
+    for (const char ch : label)
+        if (! std::isspace ((unsigned char) ch) && ch != ':')
+            s.push_back (ch);
+    if (s.empty()) return false;
     int pc = -1;
-    switch (s[0]) { case 'C': pc=0; break; case 'D': pc=2; break; case 'E': pc=4; break;
-                    case 'F': pc=5; break; case 'G': pc=7; break; case 'A': pc=9; break;
-                    case 'B': pc=11; break; default: return false; }
+    switch (std::toupper ((unsigned char) s[0]))
+    {
+        case 'C': pc = 0; break;  case 'D': pc = 2; break;  case 'E': pc = 4; break;
+        case 'F': pc = 5; break;  case 'G': pc = 7; break;  case 'A': pc = 9; break;
+        case 'B': pc = 11; break;
+        default: return false;
+    }
     std::size_t i = 1;
     if (i < s.size() && (s[i] == '#' || s[i] == 's')) { pc = (pc + 1) % 12; ++i; }
     else if (i < s.size() && (s[i] == 'b' || s[i] == 'f')) { pc = (pc + 11) % 12; ++i; }
-    std::string mode = s.substr (i);
-    std::transform (mode.begin(), mode.end(), mode.begin(), [] (unsigned char c) { return (char) std::tolower (c); });
-    // "C major" contains " m", so a bare-"m" test must match the whole mode token
-    // ("Am", "A m"); matching " m" anywhere scored every major label as minor.
-    mode.erase (std::remove (mode.begin(), mode.end(), ' '), mode.end());
-    minor = (mode.find ("min") != std::string::npos) || mode == "m";
+
+    const std::string mode = s.substr (i);
+    std::string lower = mode;
+    std::transform (lower.begin(), lower.end(), lower.begin(),
+                    [] (unsigned char c) { return (char) std::tolower (c); });
+    if (mode == "M" || lower.empty() || lower == "maj" || lower == "major")
+        minor = false;
+    else if (lower == "m" || lower == "min" || lower == "minor")
+        minor = true;
+    else
+        return false;
     root = pc;
-    (void) N;
     return true;
 }
 
@@ -539,22 +554,38 @@ int main (int argc, char** argv)
         if (! labels) { std::fprintf (stderr, "FAIL: no labels.csv in %s\n", argv[2]); return 2; }
 
         juce::AudioFormatManager fm; fm.registerBasicFormats();
+        static const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
         const int block = 512;
-        int n = 0, exact = 0; double mirex = 0.0;
+        int n = 0, exact = 0, noVerdict = 0, badLabels = 0, unreadable = 0, lineNumber = 0;
+        double mirex = 0.0;
         std::string line;
         while (std::getline (labels, line))
         {
+            ++lineNumber;
             if (limit > 0 && n >= limit) break;
+            line.erase (std::remove (line.begin(), line.end(), '\r'), line.end());
+            if (line.find_first_not_of (" \t") == std::string::npos) continue;   // blank line
             const auto comma = line.find (',');
-            if (comma == std::string::npos) continue;
-            std::string fname = line.substr (0, comma);
-            fname.erase (std::remove (fname.begin(), fname.end(), '\r'), fname.end());
             int tRoot = 0; bool tMin = false;
-            if (! parseKeyLabel (line.substr (comma + 1), tRoot, tMin)) continue;
+            if (comma == std::string::npos
+                || ! parseKeyLabel (line.substr (comma + 1), tRoot, tMin))
+            {
+                ++badLabels;
+                std::fprintf (stderr, "WARNING: labels.csv:%d: unparseable key label, track NOT scored: \"%s\"\n",
+                              lineNumber, line.c_str());
+                continue;
+            }
+            const std::string fname = line.substr (0, comma);
 
             const auto wav = dir.getChildFile ("wav").getChildFile (juce::String::fromUTF8 (fname.c_str()));
             std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (wav));
-            if (rd == nullptr) continue;
+            if (rd == nullptr)
+            {
+                ++unreadable;
+                std::fprintf (stderr, "WARNING: labels.csv:%d: cannot read %s, track NOT scored\n",
+                              lineNumber, wav.getFullPathName().toRawUTF8());
+                continue;
+            }
 
             const double sr = rd->sampleRate;
             SattariSongKeyAudioProcessor proc;
@@ -564,34 +595,55 @@ int main (int argc, char** argv)
 
             juce::AudioBuffer<float> buf (2, block);
             const juce::int64 total = rd->lengthInSamples;
-            // Drive analysis at the SAME cadence as the plugin's worker: workerLoop()
-            // runs serviceLiveAnalysis() every fftSize / 2 (2048) new samples. This
-            // used to be every 700 ms, which analysed only ~12% of each track and
-            // scored 15/48 on a corpus the plugin gets 48/48 on.
+            // processBlock queues every sample in the plugin's audio -> worker FIFO
+            // and analyseNow() drains it in fixed hops, exactly as the plugin's
+            // worker does; the verdict does not depend on how often it is called
+            // (see --cadence-smoke). Call it every fftSize / 2 samples like a
+            // worker that keeps up, so the FIFO never overflows.
             constexpr juce::int64 analysePeriod = 4096 / 2;
             juce::int64 sinceAnalyse = 0;
-            for (juce::int64 pos = 0; pos + block <= total; pos += block)
+            for (juce::int64 pos = 0; pos < total; pos += block)
             {
+                const int count = (int) juce::jmin ((juce::int64) block, total - pos);
+                buf.setSize (2, count, false, false, true);
                 buf.clear();
-                rd->read (&buf, 0, block, pos, true, true);
+                rd->read (&buf, 0, count, pos, true, true);
                 juce::MidiBuffer midi;
                 proc.processBlock (buf, midi);
-                sinceAnalyse += block;
+                sinceAnalyse += count;
                 if (sinceAnalyse >= analysePeriod) { sinceAnalyse = 0; proc.analyseNow(); }
             }
-            proc.analyseNow();                                 // final settle
+            proc.analyseNow();                                 // drain the tail
 
             const auto d = proc.detected();
-            if (! d.valid) continue;
-            const double s = mirexScore (d.root % 12, d.minor, tRoot, tMin);
-            mirex += s; if (s >= 1.0) ++exact; ++n;
+            ++n;
+            double s = 0.0;
+            if (d.valid)
+            {
+                s = mirexScore (d.root % 12, d.minor, tRoot, tMin);
+                mirex += s;
+                if (s >= 1.0) ++exact;
+            }
+            else
+                ++noVerdict;                                   // no verdict is a miss, not a skip
+            std::printf ("TRACK %s,%s%s,%s%s,%d,%.3f\n", fname.c_str(),
+                         names[tRoot], tMin ? "m" : "",
+                         d.valid ? names[d.root % 12] : "none",
+                         d.valid && d.minor ? "m" : "",
+                         s >= 1.0 ? 1 : 0, d.valid ? d.confidence : 0.0);
             if (n % 25 == 0) std::printf ("  ... %d tracks, running MIREX %.2f, exact %.1f%%\n",
                                           n, 100.0 * mirex / n, 100.0 * exact / n);
         }
+        if (badLabels > 0 || unreadable > 0)
+            std::fprintf (stderr, "WARNING: %d unparseable label(s) and %d unreadable file(s) were NOT scored\n",
+                          badLabels, unreadable);
         if (n == 0) { std::fprintf (stderr, "FAIL: no scorable tracks\n"); return 2; }
         std::printf ("\n== Sattari Key PLUGIN end-to-end on %d tracks ==\n", n);
-        std::printf ("   MIREXx100 = %.2f     exact = %.1f%%  (%d/%d)\n",
-                     100.0 * mirex / n, 100.0 * exact / n, exact, n);
+        std::printf ("   MIREXx100 = %.2f     exact = %.1f%%  (%d/%d)   no verdict = %d\n",
+                     100.0 * mirex / n, 100.0 * exact / n, exact, n, noVerdict);
+        if (badLabels > 0 || unreadable > 0)
+            std::printf ("   NOT SCORED: %d unparseable label(s), %d unreadable file(s)\n",
+                         badLabels, unreadable);
         return 0;
     }
 
