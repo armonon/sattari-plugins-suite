@@ -128,6 +128,17 @@ bool fileAnalysisSmoke()
         return false;
     writer.reset();
 
+    // Lock + publish on a private session bus. On the shared bus another
+    // Sattari process (e.g. BrainContract run just before this in ctest) can
+    // own the key lease, and the publish assertion below then fails.
+    const auto sessionId = "song-key-file-" + juce::String (
+        sattari::xplugin::currentTimeMs());
+   #if JUCE_WINDOWS
+    _putenv_s ("SATTARI_SESSION_ID", sessionId.toRawUTF8());
+   #else
+    setenv ("SATTARI_SESSION_ID", sessionId.toRawUTF8(), 1);
+   #endif
+
     SattariSongKeyAudioProcessor processor;
     if (! processor.analyseFileAsync (file))
     {
@@ -164,6 +175,7 @@ bool fileAnalysisSmoke()
     const bool returnedLive = processor.detected().source
         == SattariSongKeyAudioProcessor::AnalysisSource::Live;
     file.deleteFile();
+    sattari::xplugin::keyBusFile().deleteFile();
     return passed && lockedCorrectly && returnedLive;
 }
 
