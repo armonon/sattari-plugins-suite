@@ -13,12 +13,12 @@ def load(path):
     return y
 
 
-def f0(y, fmin=60.0, fmax=1100.0):
+def f0(y, fmin=60.0, fmax=1100.0, model="full"):
     """Returns (midi, periodicity) at 10 ms hops; midi is NaN where unvoiced."""
     import librosa
     y16 = librosa.resample(y, orig_sr=SR, target_sr=16000)
     audio = torch.tensor(y16)[None]
-    pitch, per = torchcrepe.predict(audio, 16000, hop_length=160, fmin=fmin, fmax=fmax, model="full",
+    pitch, per = torchcrepe.predict(audio, 16000, hop_length=160, fmin=fmin, fmax=fmax, model=model,
                                     decoder=torchcrepe.decode.viterbi, return_periodicity=True,
                                     batch_size=2048, device="mps")
     per = torchcrepe.filter.median(per, 3)

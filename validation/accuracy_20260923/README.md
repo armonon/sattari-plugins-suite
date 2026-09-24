@@ -64,3 +64,71 @@ per half is needed to see gains above noise. Baseline (9f6d57b): tune 81.3%, hol
 
 Takeaway: synthetic singers find real bugs but can over-reward timing changes. Every pitch change
 must also pass the real-voice holdout before it ships.
+
+## Round 4 (2026-09-24): real-singer benchmark and onset diagnosis
+
+### Data (Phase 1)
+| Dataset | Source | License | Singers | Material | Note labels | Used |
+|---|---|---|---|---|---|---|
+| **Choral Singing Dataset** (Cuesta et al. 2018) | zenodo.org/records/2649950 (md5 7a9643609a1c3902b5255d78dbba3303) | **CC BY 4.0** | 16 (4 S/A/T/B), professional | 3 SATB pieces, 48 individual-mic tracks, 44.1 kHz | per-section note onsets/pitch (Tony, manually corrected) + per-track f0 (manually corrected) + MIDI score | **yes** |
+| Dagstuhl ChoirSet | zenodo.org/records/4618287 | CC BY 4.0 | amateur choir | 5.1 GB | f0 + score sync | downloading; planned stress-test singers |
+| MedleyDB, MIR-1K, GTSinger, M4Singer, Opencpop | various | NC / research-only | — | — | — | rejected: licence doesn't clearly permit company development use |
+| `validation/live_pitch_p2/vocal_*.wav` (repo) | agent-generated Aug 2026 | — | — | test signals | none | rejected: not real singing, no labels |
+| `~/Sattari/VocalStems/` | drop folder for Armon's stems (+ optional MIDI/key) | — | — | — | — | empty so far |
+
+Ground truth: intended note = the rounded section note pitch, kept only when that note exists in the
+MIDI score (1496 of 1560 notes, 96%). The rest sit on a boundary and are excluded.
+Reference pitch: CREPE-tiny (median 2.5 c from the manual annotations; CREPE-full 2.2 c; 50x faster).
+My fast spectral note-centre shortcut (`notecentre.py`) was 8 c off, so it was rejected.
+
+### Split (Phase 2): by SINGER, `csd_split.json`
+dev = singers 1–3 of each section (12 singers, 36 tracks, 3919 notes);
+holdout = singer 4 of each section (4 singers, 12 tracks, 1283 notes), evaluated once at the end.
+
+### Baseline R0 = production (bit-identical to the verified build, latency 2885)
+| | dev | holdout |
+|---|---|---|
+| notes within 10 c (core mean) | 71.2% | 76.7% |
+| within 5 c | 43.1% | 40.0% |
+| perfect per-note correction (ceiling) | 95.5% | 95.4% |
+| singers uncorrected | 31.7% | 37.4% |
+| frames within 10 c: 0–100 ms / 100–200 / 200+ | 34.0 / 46.9 / 54.8% | 35.6 / 48.6 / 58.7% |
+| wrong-target frames 0–25 / 75–100 / 150–200 / 300+ ms | 50 / 28 / 14 / 4.6% | 48 / 27 / 16.5 / 3.9% |
+| octave-target frames | 0.1% | ~0% |
+
+### Diagnosis (Phases 3, 4, 6); tools `csd_onset.py`, `csd_onset2.py`, `csd_onset3.py`; traces in `csd_onset/examples`
+- **Note entry is a target-selection problem.** Wrong-target frames are 50% at 0–25 ms and 28% at
+  75–100 ms. When the target IS right, the correction is accurate (requested − needed ≈ −2 c; 24% of
+  the error remains at 0–25 ms, 6% by 150 ms).
+- **Much of it is inherent to causal correction.** The singer is not yet nearest the intended note on
+  40% of frames at 0–25 ms, 22% at 75–100 ms and 13% at 150–200 ms. R0's wrong-target rate is only ~10
+  points above that at 0–25 ms and ~1 point above it by 150 ms. On 38% of failed notes the singer is
+  >50 c away for the whole first 200 ms (long scoop, late arrival, or the section-level annotation
+  being early for that singer).
+- Wrong-target frames: ~44% are the singer's own nearest note (a scoop being followed), ~5–13% hold
+  the previous note, and ~48% are "other" (almost always ±1 semitone). Of the "other" frames, 55% are
+  the hysteresis hold keeping a neighbour after a scoop, and 45% are detector vs reference
+  disagreement near transitions (median 21 c).
+- Not the cause: confidence (0.98 on wrong frames), the intent gate (Classic Mode made no change),
+  correction magnitude (see above), voicing (plugin unvoiced ≤4% at 0–25 ms, ~0% after 100 ms),
+  octave errors (0.1% of frames).
+- Failed-note categories (dev / holdout): transition ambiguity 20/27%, late with correct target
+  21/25%, vibrato-related wrong target 17/16%, under-corrected 19/9%, scorer ceiling 8/10%, detector
+  7/4%, wrong target 4/5%, octave <0.5%. The classifier labels some long scoops as "vibrato"; see the
+  example plots.
+
+### Experiments (Phase 7), dev singers only unless stated; code in `experiments_real_vocal_round4.patch`
+| | Change | dev within 10 c | onset wrong-target 0–100 ms | Verdict |
+|---|---|---|---|---|
+| R0 | production | 71.2% | 37.7% | baseline |
+| E1 | target from 100 ms moving-average pitch | 74.3% | 41.1% (worse) | gain is steady-state only; onset worse. Rejected |
+| E2 | E1 with a fast (20 ms → 100 ms over 150 ms) start | 75.9% (CI +2.6..+7.1, 28/36 tracks up) | 40.6% (worse) | **holdout 76.7 → 77.2% (+0.5, noise), p95 39.7 → 47.8 c.** Did not generalize. Rejected |
+| E3 | existing Intent v2 slide prediction | 58.6% | 42.8% | much worse. Rejected |
+| E4 | 30 ms target confirmation in the first 200 ms (vs 120 ms) | 70.8% | 37.3% | no change. Rejected |
+Earlier rejected (Round 3): Studio look-ahead (real voices 86 → 71%), onset-aware hold, retune speed.
+
+### Conclusion
+Keep production. Onset error on real singers is mostly the singer not yet being on the note plus
+annotation onset uncertainty. Once the target is right, the correction is fast and accurate. The
+steady-state vibrato gain from E1/E2 did not transfer to held-out singers.
+Known issue: the CSD "detuned" variant barely detuned (bug in prep); don't use it.

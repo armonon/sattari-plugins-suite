@@ -7,3 +7,4 @@ synth_pitch/*.json
 !synth_pitch/score_*.json
 synth_pitch/*_oracle.txt
 __pycache__/
+csd_work/

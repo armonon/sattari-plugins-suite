@@ -1,0 +1,371 @@
+{
+ "tag": "e2_ramp",
+ "split": "dev",
+ "notes": 3921,
+ "note_pass_pct": 75.92,
+ "failures": 944,
+ "failure_categories": {
+  "vibrato-related wrong target": {
+   "count": 216,
+   "pct_of_failures": 22.9
+  },
+  "correct target / correction arrived late": {
+   "count": 207,
+   "pct_of_failures": 21.9
+  },
+  "transition ambiguity (singer >=35 c off)": {
+   "count": 185,
+   "pct_of_failures": 19.6
+  },
+  "correct target / under-corrected": {
+   "count": 85,
+   "pct_of_failures": 9.0
+  },
+  "wrong target": {
+   "count": 76,
+   "pct_of_failures": 8.1
+  },
+  "annotation/scorer uncertainty (oracle also fails)": {
+   "count": 76,
+   "pct_of_failures": 8.1
+  },
+  "pitch detector error (right target)": {
+   "count": 60,
+   "pct_of_failures": 6.4
+  },
+  "other": {
+   "count": 22,
+   "pct_of_failures": 2.3
+  },
+  "correct target / over-corrected": {
+   "count": 14,
+   "pct_of_failures": 1.5
+  },
+  "unvoiced/voiced boundary": {
+   "count": 3,
+   "pct_of_failures": 0.3
+  }
+ },
+ "windows": [
+  {
+   "window_ms": "0-25",
+   "input": {
+    "n": 8646,
+    "mean": 60.26,
+    "median": 38.57,
+    "p90": 137.2,
+    "p95": 195.3,
+    "w5": 7.9,
+    "w10": 15.6,
+    "w20": 28.8,
+    "octave": 5
+   },
+   "output": {
+    "n": 8630,
+    "mean": 62.52,
+    "median": 32.13,
+    "p90": 140.0,
+    "p95": 199.1,
+    "w5": 12.5,
+    "w10": 24.8,
+    "w20": 41.1,
+    "octave": 9
+   },
+   "oracle": {
+    "n": 8727,
+    "mean": 55.45,
+    "median": 34.06,
+    "p90": 124.4,
+    "p95": 182.5,
+    "w5": 9.6,
+    "w10": 18.3,
+    "w20": 33.4,
+    "octave": 4
+   },
+   "A_wrong_target_pct": 50.9,
+   "octave_target_pct": 0.16,
+   "B_right_target_but_off_pct": 27.3,
+   "plugin_unvoiced_while_singing_pct": 4.2
+  },
+  {
+   "window_ms": "25-50",
+   "input": {
+    "n": 9223,
+    "mean": 49.51,
+    "median": 31.39,
+    "p90": 109.7,
+    "p95": 158.9,
+    "w5": 9.7,
+    "w10": 19.1,
+    "w20": 34.9,
+    "octave": 1
+   },
+   "output": {
+    "n": 9193,
+    "mean": 51.34,
+    "median": 20.8,
+    "p90": 120.5,
+    "p95": 168.2,
+    "w5": 16.3,
+    "w10": 30.9,
+    "w20": 49.1,
+    "octave": 0
+   },
+   "oracle": {
+    "n": 9267,
+    "mean": 44.41,
+    "median": 27.2,
+    "p90": 101.5,
+    "p95": 140.3,
+    "w5": 11.2,
+    "w10": 21.8,
+    "w20": 40.2,
+    "octave": 2
+   },
+   "A_wrong_target_pct": 43.5,
+   "octave_target_pct": 0.1,
+   "B_right_target_but_off_pct": 28.6,
+   "plugin_unvoiced_while_singing_pct": 2.0
+  },
+  {
+   "window_ms": "50-75",
+   "input": {
+    "n": 9387,
+    "mean": 40.59,
+    "median": 28.28,
+    "p90": 87.1,
+    "p95": 118.5,
+    "w5": 10.2,
+    "w10": 20.1,
+    "w20": 37.6,
+    "octave": 0
+   },
+   "output": {
+    "n": 9355,
+    "mean": 41.68,
+    "median": 15.87,
+    "p90": 109.1,
+    "p95": 129.1,
+    "w5": 18.5,
+    "w10": 36.1,
+    "w20": 56.5,
+    "octave": 0
+   },
+   "oracle": {
+    "n": 9408,
+    "mean": 34.69,
+    "median": 22.04,
+    "p90": 78.1,
+    "p95": 104.2,
+    "w5": 12.9,
+    "w10": 25.9,
+    "w20": 46.5,
+    "octave": 0
+   },
+   "A_wrong_target_pct": 37.3,
+   "octave_target_pct": 0.08,
+   "B_right_target_but_off_pct": 29.3,
+   "plugin_unvoiced_while_singing_pct": 1.1
+  },
+  {
+   "window_ms": "75-100",
+   "input": {
+    "n": 9603,
+    "mean": 35.04,
+    "median": 25.7,
+    "p90": 73.0,
+    "p95": 95.9,
+    "w5": 11.4,
+    "w10": 22.1,
+    "w20": 41.0,
+    "octave": 2
+   },
+   "output": {
+    "n": 9564,
+    "mean": 34.76,
+    "median": 13.71,
+    "p90": 102.1,
+    "p95": 115.6,
+    "w5": 20.5,
+    "w10": 39.4,
+    "w20": 62.2,
+    "octave": 1
+   },
+   "oracle": {
+    "n": 9597,
+    "mean": 27.51,
+    "median": 18.1,
+    "p90": 59.7,
+    "p95": 84.1,
+    "w5": 15.5,
+    "w10": 30.5,
+    "w20": 53.7,
+    "octave": 0
+   },
+   "A_wrong_target_pct": 31.7,
+   "octave_target_pct": 0.06,
+   "B_right_target_but_off_pct": 31.5,
+   "plugin_unvoiced_while_singing_pct": 0.7
+  },
+  {
+   "window_ms": "100-150",
+   "input": {
+    "n": 19249,
+    "mean": 29.93,
+    "median": 23.52,
+    "p90": 61.4,
+    "p95": 78.1,
+    "w5": 12.1,
+    "w10": 23.6,
+    "w20": 44.0,
+    "octave": 0
+   },
+   "output": {
+    "n": 19154,
+    "mean": 27.73,
+    "median": 11.89,
+    "p90": 93.5,
+    "p95": 107.0,
+    "w5": 22.9,
+    "w10": 43.6,
+    "w20": 68.6,
+    "octave": 0
+   },
+   "oracle": {
+    "n": 19232,
+    "mean": 21.36,
+    "median": 15.07,
+    "p90": 45.6,
+    "p95": 60.6,
+    "w5": 18.2,
+    "w10": 35.0,
+    "w20": 61.4,
+    "octave": 0
+   },
+   "A_wrong_target_pct": 24.1,
+   "octave_target_pct": 0.05,
+   "B_right_target_but_off_pct": 34.2,
+   "plugin_unvoiced_while_singing_pct": 0.2
+  },
+  {
+   "window_ms": "150-200",
+   "input": {
+    "n": 18844,
+    "mean": 26.14,
+    "median": 21.06,
+    "p90": 54.4,
+    "p95": 66.8,
+    "w5": 13.1,
+    "w10": 26.2,
+    "w20": 48.1,
+    "octave": 0
+   },
+   "output": {
+    "n": 18763,
+    "mean": 22.05,
+    "median": 10.46,
+    "p90": 83.0,
+    "p95": 98.3,
+    "w5": 24.9,
+    "w10": 48.2,
+    "w20": 75.0,
+    "octave": 0
+   },
+   "oracle": {
+    "n": 18827,
+    "mean": 17.43,
+    "median": 12.88,
+    "p90": 37.4,
+    "p95": 47.7,
+    "w5": 20.8,
+    "w10": 40.1,
+    "w20": 68.8,
+    "octave": 0
+   },
+   "A_wrong_target_pct": 17.5,
+   "octave_target_pct": 0.03,
+   "B_right_target_but_off_pct": 35.8,
+   "plugin_unvoiced_while_singing_pct": 0.2
+  },
+  {
+   "window_ms": "200-300",
+   "input": {
+    "n": 34939,
+    "mean": 24.81,
+    "median": 20.22,
+    "p90": 51.9,
+    "p95": 63.5,
+    "w5": 14.0,
+    "w10": 27.5,
+    "w20": 49.6,
+    "octave": 0
+   },
+   "output": {
+    "n": 34807,
+    "mean": 17.77,
+    "median": 9.55,
+    "p90": 40.1,
+    "p95": 91.2,
+    "w5": 27.3,
+    "w10": 51.9,
+    "w20": 80.2,
+    "octave": 0
+   },
+   "oracle": {
+    "n": 34907,
+    "mean": 16.49,
+    "median": 12.38,
+    "p90": 35.8,
+    "p95": 46.3,
+    "w5": 21.7,
+    "w10": 41.7,
+    "w20": 70.8,
+    "octave": 0
+   },
+   "A_wrong_target_pct": 11.6,
+   "octave_target_pct": 0.09,
+   "B_right_target_but_off_pct": 37.5,
+   "plugin_unvoiced_while_singing_pct": 0.1
+  },
+  {
+   "window_ms": "300-",
+   "input": {
+    "n": 212180,
+    "mean": 23.63,
+    "median": 19.17,
+    "p90": 49.0,
+    "p95": 59.7,
+    "w5": 14.3,
+    "w10": 28.1,
+    "w20": 51.7,
+    "octave": 0
+   },
+   "output": {
+    "n": 211538,
+    "mean": 12.75,
+    "median": 8.74,
+    "p90": 22.4,
+    "p95": 31.2,
+    "w5": 29.3,
+    "w10": 55.9,
+    "w20": 86.3,
+    "octave": 1
+   },
+   "oracle": {
+    "n": 212119,
+    "mean": 15.6,
+    "median": 11.69,
+    "p90": 33.3,
+    "p95": 43.2,
+    "w5": 22.6,
+    "w10": 43.8,
+    "w20": 73.3,
+    "octave": 1
+   },
+   "A_wrong_target_pct": 3.3,
+   "octave_target_pct": 0.06,
+   "B_right_target_but_off_pct": 41.0,
+   "plugin_unvoiced_while_singing_pct": 0.2
+  }
+ ]
+}
