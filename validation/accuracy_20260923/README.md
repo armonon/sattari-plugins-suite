@@ -159,3 +159,29 @@ output is assumed to land exactly on the chosen target), which separates target 
 Conclusion: with the key set, production is within ~2–3 points of the realtime ceiling. The lever
 that matters most is getting the KEY right (Auto Key, fixed in 9f6d57b) and using key mode. After
 that, the remaining engineering lever is detector accuracy (~3 points).
+
+## Round 6 (2026-09-24): review fixes (branch fix/autopitch-review-20260924)
+Scorer: `pitchref.f0` now seeds torchcrepe's per-frame +-20 c dither; unseeded, the same wav
+scored twice moved CSD results by up to +-0.5 points (R0 read 71.2/76.7 before, 71.6/75.8 on a
+rescore of bit-identical audio). All numbers below use the seeded scorer (`*.s0.npy` caches).
+
+CSD within 10 c, dev / holdout (`csd_bench.py`, Classic, 512 blocks):
+| | production (469106f) | branch |
+|---|---|---|
+| YIN chromatic | 71.1 / 76.8 | bit-identical output (all 48 renders) |
+| YIN key mode | 79.2 / 81.6 | bit-identical output |
+| Neural chromatic (`--param neuralPitch=1 --nonrealtime`) | 70.3 / 76.0 | 71.2 / 76.1 |
+| Neural key mode | 79.1 / 80.8 | 79.2 / 81.5 |
+
+AutoKey, `score_autokey_rt.py` (raw verdict vs the gated key correction USES; fallback A minor):
+- synth_key: raw 85/96 (a cappella 48/48); used at the end 65/96 (the 0.10 gate withholds 6 a
+  cappella and 15 voice+chords correct verdicts). Unchanged by the branch.
+- CSD real singers (48 tracks, sung-note path): raw final 22/48; time used right 19.0%, wrong
+  27.1%, fallback 53.8%. Right and wrong verdicts have the same margins (median 0.085 vs 0.083),
+  so a lower gate adds wrong-key time (0.06: right 26.0 / wrong 36.9; 0: 40.1 / 58.3). Gate kept.
+  For reference, Aarden on this path: raw 24/48, used wrong only 9.5% (right 20.1%).
+- Poly chroma path on CSD (`--param polyphonic=1`): used wrong 58.2% -> 37.5%, right 19.0 -> 15.3%
+  with the chroma histogram back on Aarden (fed3ca3).
+- Histogram memory (`--autokey-memory`, `key_change.py`): 6-10 s follows a modulation sooner
+  (half step, key B right 10-20 s after the change: 50% at 15 s, 81% at 10 s, 89% at 6 s) but real
+  singers lose: CSD raw right time 40.3% (15 s) -> 35.1% (10 s) -> 26.8% (6 s). Kept 15 s.
