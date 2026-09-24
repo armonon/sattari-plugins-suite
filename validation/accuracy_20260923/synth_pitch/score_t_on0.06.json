@@ -1,0 +1,18 @@
+{
+ "tag": "t_on0.06",
+ "subset": "tune",
+ "notes": 192,
+ "within_10c_pct": 81.25,
+ "within_5c_pct": 50.52,
+ "median_abs_c": 4.96,
+ "p95_abs_c": 23.45,
+ "worst_c": 37.7,
+ "per_voice_within_10c": {
+  "bass": 84.4,
+  "baritone": 78.1,
+  "tenor": 81.2,
+  "alto": 71.9,
+  "mezzo": 81.2,
+  "soprano": 90.6
+ }
+}

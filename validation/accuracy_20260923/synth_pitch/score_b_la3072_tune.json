@@ -1,0 +1,18 @@
+{
+ "tag": "b_la3072_tune",
+ "subset": "tune",
+ "notes": 288,
+ "within_10c_pct": 92.71,
+ "within_5c_pct": 70.49,
+ "median_abs_c": 2.87,
+ "p95_abs_c": 14.07,
+ "worst_c": 36.0,
+ "per_voice_within_10c": {
+  "bass": 85.4,
+  "baritone": 87.5,
+  "tenor": 95.8,
+  "alto": 95.8,
+  "mezzo": 93.8,
+  "soprano": 97.9
+ }
+}

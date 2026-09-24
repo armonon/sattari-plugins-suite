@@ -1,0 +1,18 @@
+{
+ "tag": "final_holdout",
+ "subset": "holdout",
+ "notes": 288,
+ "within_10c_pct": 90.62,
+ "within_5c_pct": 69.1,
+ "median_abs_c": 3.26,
+ "p95_abs_c": 14.29,
+ "worst_c": 39.4,
+ "per_voice_within_10c": {
+  "bass": 87.5,
+  "baritone": 100.0,
+  "tenor": 81.2,
+  "alto": 87.5,
+  "mezzo": 87.5,
+  "soprano": 100.0
+ }
+}

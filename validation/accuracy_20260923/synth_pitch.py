@@ -22,7 +22,7 @@ VOWELS = "aeiou"
 def make():
     manifest = []
     for vi, (voice, (lo, hi)) in enumerate(RANGES.items()):
-        for s in range(3):
+        for s in range(6):
             rng = np.random.default_rng(1000 * vi + s)
             notes, cur = [], rng.integers(lo + 3, hi - 3)
             for i in range(16):
@@ -39,6 +39,14 @@ def make():
                                        for (a, b, c) in spans]})
     json.dump(manifest, open(OUT / "manifest.json", "w"), indent=1)
     print("made", len(manifest), "singers,", sum(len(m["notes"]) for m in manifest), "notes")
+
+
+SUBSET = os.environ.get("SUBSET", "all")   # all | tune (singers _0.._2) | holdout (_3.._5)
+
+
+def in_subset(name):
+    k = int(name.rsplit("_", 1)[1])
+    return SUBSET == "all" or (SUBSET == "tune" and k in (0, 1, 2)) or (SUBSET == "holdout" and k in (3, 4, 5))
 
 
 def core_centres(midi10, notes):
@@ -60,12 +68,14 @@ def crepe_cached(path, lat=0):
 def score(tag, get_midi, tol=10.0):
     man = json.load(open(OUT / "manifest.json")); errs = []; per_voice = {}
     for m in man:
+        if not in_subset(m["name"]):
+            continue
         centres = core_centres(get_midi(m["name"]), m["notes"])
         for n, c in zip(m["notes"], centres):
             if np.isfinite(c):
                 e = 100 * (c - n["target"]); errs.append(e); per_voice.setdefault(m["voice"], []).append(e)
     a = np.abs(np.array(errs))
-    summary = {"tag": tag, "notes": int(len(a)), "within_10c_pct": round(100 * float(np.mean(a <= tol)), 2),
+    summary = {"tag": tag, "subset": SUBSET, "notes": int(len(a)), "within_10c_pct": round(100 * float(np.mean(a <= tol)), 2),
                "within_5c_pct": round(100 * float(np.mean(a <= 5)), 2), "median_abs_c": round(float(np.median(a)), 2),
                "p95_abs_c": round(float(np.percentile(a, 95)), 2), "worst_c": round(float(a.max()), 1),
                "per_voice_within_10c": {v: round(100 * float(np.mean(np.abs(e) <= tol)), 1) for v, e in per_voice.items()}}
@@ -88,12 +98,18 @@ if __name__ == "__main__":
                             str(OUT / f"{m['name']}.wav"), str(OUT / f"{m['name']}_oracle.wav")], check=True, capture_output=True)
         score("oracle", lambda n: crepe_cached(OUT / f"{n}_oracle.wav"))
     elif cmd == "score":
+        from concurrent.futures import ThreadPoolExecutor
         tag, args = sys.argv[2], sys.argv[3:] or ["--style", "Classic"]
         man = json.load(open(OUT / "manifest.json")); lats = {}
-        for m in man:
+        def run(m):
             outp = OUT / f"{m['name']}_{tag}.wav"; tr = OUT / f"{m['name']}_{tag}.json"
+            # Private session bus per run: parallel instances (or an open DAW) must not
+            # publish keys/state into each other's correction.
+            env = dict(os.environ, SATTARI_SESSION_ID=f"acc-{tag}-{m['name']}-{os.getpid()}")
             subprocess.run([str(BENCH), str(OUT / f"{m['name']}.wav"), "--output", str(outp), "--trace", str(tr),
                             "--key", "C", "--scale", "chromatic", "--amount", "1", "--speed", "1", "--block", "512", *args],
-                           check=True, capture_output=True)
-            lats[m["name"]] = json.load(open(tr))["reportedLatencySamples"]
+                           check=True, capture_output=True, env=env)
+            t = json.load(open(tr)); return m["name"], t["reportedLatencySamples"] + int(t.get("prototypeLookahead", 0))
+        with ThreadPoolExecutor(8) as ex:
+            lats = dict(ex.map(run, [m for m in man if in_subset(m["name"])]))
         score(tag, lambda n: crepe_cached(OUT / f"{n}_{tag}.wav", lats[n]))

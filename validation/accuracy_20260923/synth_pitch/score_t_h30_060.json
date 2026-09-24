@@ -1,0 +1,18 @@
+{
+ "tag": "t_h30_060",
+ "subset": "tune",
+ "notes": 192,
+ "within_10c_pct": 80.21,
+ "within_5c_pct": 54.17,
+ "median_abs_c": 4.79,
+ "p95_abs_c": 25.56,
+ "worst_c": 38.5,
+ "per_voice_within_10c": {
+  "bass": 84.4,
+  "baritone": 78.1,
+  "tenor": 81.2,
+  "alto": 68.8,
+  "mezzo": 81.2,
+  "soprano": 87.5
+ }
+}

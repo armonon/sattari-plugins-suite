@@ -45,3 +45,22 @@ very low bass notes below the voicing threshold, and the intent gate in Classic 
 | Sattari Key live (`--corpus`) | 78/96 | | |
 | Auto Pitch AutoKey, origin/main | 25/96 | 19/48 | 6/48 |
 | Auto Pitch AutoKey, 9f6d57b | 85/96 | 48/48 | 37/48 |
+
+## Round 3 (evening): bigger synthetic set and rejected experiments
+The synthetic set is now 36 singers / 576 notes (tune = seeds 0–2, holdout = seeds 3–5); 288 notes
+per half is needed to see gains above noise. Baseline (9f6d57b): tune 81.3%, holdout 77.8%.
+
+- Almost the whole gap to the oracle is the first 100–200 ms of each note: scoring the core from
+  200 ms instead of 100 ms gives 95.5% vs the oracle's 97.9%.
+- Onset-aware hold (follow the nearest note during note starts): tune +0, holdout +1. Rejected.
+- Retune speed (Classic Mode, Transition = 1): no change. Rejected.
+- Studio look-ahead (delay audio into Rubber Band so analysis runs ahead): synthetic holdout
+  77.8% → 90.6%, BUT held-out real voices 86.2% → 71.0%. Synthetic notes are steady with step
+  changes, so early correction catches the steps. Real voices move continuously, and applying a
+  correction ~60 ms before the audio it was measured on adds error. Rejected; code kept in
+  `experiments_onset_lookahead.patch`.
+- Frame-level metrics on real voices are not usable: a perfect per-frame hard-tune scores 39.8%
+  (Auto Pitch 54%) because CREPE on shifted audio is noisy (`frame_metric.py`, `flat_oracle.py`).
+
+Takeaway: synthetic singers find real bugs but can over-reward timing changes. Every pitch change
+must also pass the real-voice holdout before it ships.

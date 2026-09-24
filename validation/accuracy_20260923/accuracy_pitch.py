@@ -77,7 +77,7 @@ for vid, r in sorted(REF.items()):
     subprocess.run([str(BENCH), str(src_wav), "--output", str(out_wav), "--trace", str(trace),
                     "--key", "C", "--scale", "chromatic", "--amount", "1", "--speed", "1", "--block", "512",
                     *bench_args], check=True, capture_output=True)
-    lat = int(json.load(open(trace)).get("reportedLatencySamples", 0))
+    _t = json.load(open(trace)); lat = int(_t.get("reportedLatencySamples", 0)) + int(_t.get("prototypeLookahead", 0))
     y = load(out_wav)[lat:]
     m_out, _ = f0(y)
     m_in = cached_f0(src_wav)
