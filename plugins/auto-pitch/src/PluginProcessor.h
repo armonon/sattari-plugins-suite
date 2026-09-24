@@ -768,8 +768,11 @@ private:
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
     // Dry signal delayed by the reported latency so host bypass stays in time.
     // Sized in prepare to cover the largest latency this instance can report.
+    // Fed with the dry input on EVERY block (bypassed or not), so engaging bypass
+    // plays the audio of one latency ago rather than the tail of the last bypass.
     juce::AudioBuffer<float> bypassDelay;
     int bypassDelayWrite = 0;
+    void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
 
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
