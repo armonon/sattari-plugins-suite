@@ -63,7 +63,9 @@ public:
     static juce::StringArray rootChoices();
     static juce::StringArray scaleChoices();   // Major / Minor
 
-    // Run one detection pass over the current ring (FFT -> chroma -> key). Called
+    // Drain every sample the audio thread has queued since the previous call and
+    // analyse it in fixed fftSize/2 hops (FFT -> chroma -> key). The result is a
+    // function of the audio stream only, not of how often this is called. Called
     // by the background publisher thread and by the offline render proof.
     void analyseNow();
     void serviceLiveAnalysis();
@@ -150,6 +152,11 @@ private:
     bool analyseFile (const juce::File&, OfflineResult&, juce::String& error);
     static float onsetStrength (const float* magnitude, int numBins,
                                 std::vector<float>& previous);
+    bool pullLiveHop();
+    void analyseLiveHop();
+    void updateLiveDecision();
+    void stepDynamicFollow();
+    bool dynamicFollowRequested() const;
     void stopFileWorker();
     void clearPublishedDecision();
     void resetLiveKeyWindow();
@@ -160,13 +167,29 @@ private:
     double currentSampleRate = 44100.0;
     static constexpr int fftOrder = 12;            // 4096-point
     static constexpr int fftSize  = 1 << fftOrder;
+    static constexpr int liveHop  = fftSize / 2;
     std::unique_ptr<juce::dsp::FFT> fft;
-    std::array<std::atomic<float>, fftSize> ring;
+
+    // Audio thread -> analysis worker: a lock-free single-producer/single-consumer
+    // FIFO of the mono input. It is sized in prepareToPlay for two seconds at the
+    // highest supported rate, so a worker that falls behind (offline bounce faster
+    // than realtime, 192 kHz) catches up instead of skipping audio. If it ever
+    // overflows, the audio thread drops the excess and counts it; it never blocks
+    // or allocates.
+    static constexpr double kLiveFifoSeconds = 2.0;
+    static constexpr double kLiveFifoMinRate = 192000.0;
+    juce::AbstractFifo liveFifo { 1 };
+    std::vector<float> liveFifoBuffer;
+    std::atomic<juce::int64> liveFifoDroppedSamples { 0 };
+
+    // Worker-thread-only analysis state (guarded by analysisStateMutex).
     std::array<float, fftSize * 2> scratch {};
     std::array<float, fftSize> hann {};
-    std::array<float, fftSize> liveKeyInput {};
-    std::atomic<juce::int64> totalSamplesWritten { 0 };
-    juce::int64 liveSongKeyFedSamples = 0;         // worker-thread-only
+    std::array<float, fftSize> liveKeyInput {};     // sliding analysis window
+    std::array<float, liveHop> liveHopInput {};     // next hop being collected
+    int liveHopFill = 0;
+    juce::int64 liveAnalysedSamples = 0;           // samples consumed from the FIFO
+    bool dynamicAcceptedPending = false;           // tracker accepted, not yet published
     double running[12] = { 0 };                    // background-thread-only
     double runningBass[12] = { 0 };                // low-band tonic evidence
     std::array<double, 12> liveChordRootEvidence {};
