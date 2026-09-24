@@ -195,6 +195,59 @@ double renderVibratoNearBoundaryErrorCents (bool targetHysteresis)
     return hz > 0.0 ? std::abs ((hzToMidi (hz) - (double) targetMidi) * 100.0) : 999.0;
 }
 
+// A deterministic, never-repeating-within-a-second test signal, so any stale audio
+// replayed from an earlier moment is caught sample for sample.
+float bypassProbeSample (juce::int64 n)
+{
+    const double t = (double) n / 48000.0;
+    return (float) (0.2 * std::sin (juce::MathConstants<double>::twoPi * 173.0 * t)
+                  + 0.1 * std::sin (juce::MathConstants<double>::twoPi * 0.37 * t * t * 480.0));
+}
+
+// Host bypass must be the dry input delayed by the reported latency at EVERY
+// sample, including the first latency's worth after bypass is re-engaged. The
+// delay ring used to be written only while bypassed, so re-engaging replayed the
+// tail of the previous bypass. Returns the worst sample error.
+double bypassReengageMaxError (int blockSize, int& latencyOut)
+{
+    SattariAutoPitchAudioProcessor processor;
+    processor.prepareToPlay (48000.0, blockSize);
+    const int latency = processor.getLatencySamples();
+    latencyOut = latency;
+    if (latency <= 0)
+        return 999.0;
+
+    juce::int64 n = 0;
+    double worst = 0.0;
+    auto run = [&] (int blocks, bool bypassed, bool check)
+    {
+        for (int b = 0; b < blocks; ++b)
+        {
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    buffer.setSample (ch, i, bypassProbeSample (n + i));
+            juce::MidiBuffer midi;
+            if (bypassed) processor.processBlockBypassed (buffer, midi);
+            else          processor.processBlock (buffer, midi);
+            if (check)
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    const juce::int64 src = n + i - latency;
+                    const float expected = src >= 0 ? bypassProbeSample (src) : 0.0f;
+                    for (int ch = 0; ch < 2; ++ch)
+                        worst = std::max (worst, (double) std::abs (buffer.getSample (ch, i) - expected));
+                }
+            n += blockSize;
+        }
+    };
+    const int blocksPerSecond = 48000 / blockSize;
+    run (blocksPerSecond, true, true);        // first bypass
+    run (blocksPerSecond, false, false);      // processing
+    run (blocksPerSecond / 2, true, true);    // bypass re-engaged
+    return worst;
+}
+
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
 {
     double real = 0.0, imag = 0.0, phase = 0.0;
@@ -901,6 +954,20 @@ int main (int argc, char** argv)
                   << vibratoBoundaryErrorCents << " (without target hold: " << vibratoBoundaryNoHoldCents << ")\n";
         return 1;
     }
+
+    // --- Host bypass re-engage -----------------------------------------------
+    for (const int bypassBlock : { 64, 512 })
+    {
+        int latency = 0;
+        const double err = bypassReengageMaxError (bypassBlock, latency);
+        if (err > 1.0e-6)
+        {
+            std::cerr << "bypass re-engage replayed stale audio (block " << bypassBlock
+                      << ", latency " << latency << "): max error " << err << "\n";
+            return 1;
+        }
+    }
+    std::cout << "  bypassReengage=PASS (dry input delayed by latency at every sample, 64 + 512)\n";
 
     const double liveClassicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (true);
     if (liveClassicB3ErrorCents > 25.0)

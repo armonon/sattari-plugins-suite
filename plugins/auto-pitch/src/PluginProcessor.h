@@ -742,8 +742,11 @@ private:
     // until the pitch is clearly nearer another note or stays there long enough.
     // Dry signal delayed by the reported latency so host bypass stays in time.
     // Sized in prepare to cover the largest latency this instance can report.
+    // Fed with the dry input on EVERY block (bypassed or not), so engaging bypass
+    // plays the audio of one latency ago rather than the tail of the last bypass.
     juce::AudioBuffer<float> bypassDelay;
     int bypassDelayWrite = 0;
+    void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
     bool   targetHysteresisEnabled = true;
     int    heldTargetMidi      = -1;
     double heldTargetAwaySec   = 0.0;

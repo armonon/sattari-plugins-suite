@@ -4390,22 +4390,37 @@ void SattariAutoPitchAudioProcessor::processBlockBypassed (juce::AudioBuffer<flo
     // still compensating for the reported latency, so a bypassed vocal played
     // ~60 ms early. Delay the dry signal by the same amount instead.
     auto main = getBusBuffer (buffer, false, 0);
-    const int size = bypassDelay.getNumSamples();
-    const int latency = getLatencySamples();
-    if (size <= 0 || latency <= 0 || latency >= size)
-        return;
+    writeBypassDelay (main, true);
+}
 
-    const int numChannels = juce::jmin (main.getNumChannels(), bypassDelay.getNumChannels());
+void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed)
+{
+    // The ring is written on every block, processed or bypassed. It used to be
+    // written only while bypassed, so engaging bypass after a stretch of normal
+    // processing replayed ~one latency of audio left over from the PREVIOUS bypass.
+    const int size = bypassDelay.getNumSamples();
     const int n = main.getNumSamples();
-    for (int ch = 0; ch < numChannels; ++ch)
+    if (size <= 0 || n <= 0)
+        return;
+    const int latency = getLatencySamples();
+    const bool canDelay = latency > 0 && latency < size;
+
+    for (int ch = 0; ch < bypassDelay.getNumChannels(); ++ch)
     {
-        auto* data = main.getWritePointer (ch);
         auto* line = bypassDelay.getWritePointer (ch);
+        if (ch >= main.getNumChannels())
+        {
+            for (int i = 0; i < n; ++i)
+                line[(bypassDelayWrite + i) % size] = 0.0f;
+            continue;
+        }
+        auto* data = main.getWritePointer (ch);
         for (int i = 0; i < n; ++i)
         {
             const int w = (bypassDelayWrite + i) % size;
             line[w] = data[i];
-            data[i] = line[(w - latency + size) % size];
+            if (replaceWithDelayed && canDelay)
+                data[i] = line[(w - latency + size) % size];
         }
     }
     bypassDelayWrite = (bypassDelayWrite + n) % size;
@@ -4481,6 +4496,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Capture the untouched insert input before analysis or any DSP mutates it.
     // The reference ring runs continuously so Correction Off can become a true,
     // sample-identical bypass without changing the plugin's declared latency.
+    // The host-bypass ring is fed here too, so engaging bypass is seamless.
+    writeBypassDelay (mainBuffer, false);
     renderDelayedDryReference (mainBuffer);
     // Keep an untouched vocal source for harmony. Pitching an already-corrected
     // lead again compounds formant/phase processing; every generated singer is
