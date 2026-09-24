@@ -60,6 +60,8 @@ struct Args
     bool   liveMode    = false;
     bool noHysteresis = false;
     bool realtime = false;
+    bool nonRealtime = false;   // --nonrealtime: host bounce (neural pitch inference runs in-line, deterministic)
+    double keyMemorySec = -1.0;   // --autokey-memory S (sung-note histogram time constant)
     int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
     std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
     bool   enableCorrection = true;
@@ -180,7 +182,9 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--live-mode")   { a.liveMode = true; }
         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
         else if (arg == "--realtime") { a.realtime = true; }
+        else if (arg == "--nonrealtime") { a.nonRealtime = true; }
         else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
+        else if (arg == "--autokey-memory" && hasNext) { a.keyMemorySec = std::stod (argv[++i]); }
         else if (arg == "--param" && hasNext)
         {
             const juce::String kv (argv[++i]);
@@ -267,6 +271,10 @@ int main (int argc, char** argv)
     proc.setTargetHysteresisEnabled (! a.noHysteresis);
     if (a.keyProfile >= 0)
         proc.setAutoKeyHistogramProfile (a.keyProfile);
+    if (a.keyMemorySec > 0.0)
+        proc.setAutoKeyMemorySeconds (a.keyMemorySec);
+    if (a.nonRealtime)
+        proc.setNonRealtime (true);
     proc.prepareToPlay (sr, a.block);
 
     // --- Render block by block ---
@@ -307,6 +315,15 @@ int main (int argc, char** argv)
         obj->setProperty ("confidence",      (double) snap.confidence);
         obj->setProperty ("detectedRoot",    snap.detectedRoot);
         obj->setProperty ("detectedScale",   snap.detectedScale);
+        // The key correction actually USES (after the confidence gate and the
+        // manual-key fallback), plus the raw verdict's margin.
+        {
+            const auto origin = proc.currentKeyOrigin();
+            obj->setProperty ("usedRoot",    origin.root);
+            obj->setProperty ("usedScale",   origin.scale);
+            obj->setProperty ("keyConf",     (double) origin.confidence);
+            obj->setProperty ("keySource",   (int) origin.source);
+        }
         obj->setProperty ("intentTarget",    is.v2Target);
         obj->setProperty ("intentConf",      (double) is.intentConf);
         obj->setProperty ("intentReason",    (int) is.reason);

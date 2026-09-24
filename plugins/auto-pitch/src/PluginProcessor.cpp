@@ -1942,8 +1942,7 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
     // 0.995 per analysis hop (every 5.3 ms) forgot in ~1 s, so the "key" followed
     // the harmony bar by bar (a I-IV-V-I melody read as IV half the time).
     // Time-based decay: ~15 s time constant regardless of hop size or sample rate.
-    constexpr double kAutoKeyMemorySec = 15.0;
-    const double decay = std::exp (-((double) pitchHopSize / juce::jmax (1.0, currentSampleRate)) / kAutoKeyMemorySec);
+    const double decay = std::exp (-((double) pitchHopSize / juce::jmax (1.0, currentSampleRate)) / autoKeyMemorySec);
     for (auto& value : autoKeyHistogram)
         value *= decay;
     autoKeyHistogram[(size_t) note] += weight;

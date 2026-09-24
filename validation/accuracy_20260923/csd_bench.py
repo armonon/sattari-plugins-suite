@@ -9,7 +9,7 @@ of its core (onset + 80 ms .. end - 50 ms) in the output lands within 10 c of th
 Modes: natural = the singers' own intonation; detuned = each note pushed a further +-20..45 c.
 Splits (by SINGER, csd_split.json): dev = singers 1-3 of each section (12), holdout = singer 4 of each section (4).
 
-usage: csd_bench.py prep | score <tag> <natural|detuned> <tune|holdout|all> [bench args] | oracle <mode> <split>
+usage: csd_bench.py prep | score <tag> <natural|detuned> <tune|holdout|all> [bench args] | rescore <tag> <mode> <split> | oracle <mode> <split>
 """
 import json, os, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -103,7 +103,9 @@ def prep():
 
 def crepe_cached(path, lat=0):
     # CREPE-tiny: within 2.5 c (median) of the manually corrected annotations, ~50x faster than full.
-    c = Path(str(path) + f".lat{lat}.crepetiny.npy")
+    # ".s0": reference computed with the fixed dither seed (see pitchref.f0); older unseeded
+    # caches are not reproducible and are not reused.
+    c = Path(str(path) + f".lat{lat}.crepetiny.s0.npy")
     if c.exists():
         return np.load(c)
     m, _ = f0(load(path)[lat:], model="tiny"); np.save(c, m); return m
@@ -148,6 +150,10 @@ if __name__ == "__main__":
             subprocess.run(["rubberband", "-3", "-F", "-q", "--pitchmap", str(WORK / f"{stem}_{mode}_oracle.txt"), str(src),
                             str(WORK / f"{stem}_{mode}_oracle.wav")], check=True, capture_output=True)
         score_outputs("oracle", mode, split, lambda st: crepe_cached(WORK / f"{st}_{mode}_oracle.wav"))
+    elif cmd == "rescore":   # score existing renders of <tag> again (e.g. with CREPE_DEVICE=cpu)
+        tag, mode, split = sys.argv[2], sys.argv[3], sys.argv[4]
+        lats = {st: json.load(open(WORK / f"{st}_{mode}_{tag}.json"))["reportedLatencySamples"] for st in tracks(split)}
+        score_outputs(tag, mode, split, lambda st: crepe_cached(WORK / f"{st}_{mode}_{tag}.wav", lats[st]))
     elif cmd == "score":
         tag, mode, split, args = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:] or ["--style", "Classic"]
         def run(stem):

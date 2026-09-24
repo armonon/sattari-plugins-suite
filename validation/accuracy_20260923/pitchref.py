@@ -18,6 +18,10 @@ def f0(y, fmin=60.0, fmax=1100.0, model="full"):
     import librosa
     y16 = librosa.resample(y, orig_sr=SR, target_sr=16000)
     audio = torch.tensor(y16)[None]
+    # torchcrepe dithers every frame by a triangular +-20 c draw from NumPy's global RNG, so
+    # the same wav scored twice differed by up to ~35 c per frame and +-0.5 points on the CSD
+    # benchmark. A fixed seed makes the reference (and paired A/B comparisons) reproducible.
+    np.random.seed(0)
     pitch, per = torchcrepe.predict(audio, 16000, hop_length=160, fmin=fmin, fmax=fmax, model=model,
                                     decoder=torchcrepe.decode.viterbi, return_periodicity=True,
                                     batch_size=2048, device="mps")

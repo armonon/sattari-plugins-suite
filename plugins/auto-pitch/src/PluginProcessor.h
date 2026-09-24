@@ -295,6 +295,8 @@ public:
     void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
     // Key profile for the sung-note AutoKey histogram (bench A/B).
     void setAutoKeyHistogramProfile (int profile) noexcept { autoKeyHistogramProfile = (sattari::dsp::KeyProfile) profile; }
+    // Sung-note AutoKey histogram memory in seconds (bench A/B only).
+    void setAutoKeyMemorySeconds (double seconds) noexcept { autoKeyMemorySec = juce::jmax (0.5, seconds); }
     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
 
     // --- Track Key Map -------------------------------------------------------
@@ -818,6 +820,8 @@ private:
     // turns a tonic-heavy melody into the key a fourth up. Krumhansl (tonic-led):
     // generated-voice key corpus 52% -> 89% exact, a cappella 48/48 (2026-09-23).
     sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Krumhansl;
+    // Time constant of the sung-note histogram (see updateAutoKeyHistogram).
+    double autoKeyMemorySec = 15.0;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
