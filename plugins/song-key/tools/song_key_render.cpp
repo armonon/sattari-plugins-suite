@@ -10,6 +10,7 @@
 //   song_key_render --live-tempo-smoke # live 120 BPM onset/tempo contract
 //   song_key_render --dynamic-follow-smoke # C->G bus update + silence hold
 //   song_key_render --cadence-smoke # verdict independent of worker cadence/rate
+//   song_key_render --nonfinite-smoke # NaN/Inf input cannot poison the analysis
 //   song_key_render --analyse-file <audio> # print the production file verdict
 //   song_key_render --corpus <dir> [N]   # score the REAL PLUGIN on a labelled corpus
 //
@@ -33,6 +34,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -285,6 +287,65 @@ bool cadenceInvarianceSmoke (double sampleRate)
     return same && prompt.root == 9 && prompt.minor;
 }
 
+// A host (or an upstream plugin) can hand us NaN/Inf. They must not reach the
+// analysis: a 120 BPM pulsed C major triad with non-finite samples spliced in
+// must still read C major at 120 BPM with a finite margin and tuning. (Before
+// the input guard an Inf latched the internal onset baseline at infinity, which
+// silently flattened the chord-evidence weighting used by Dynamic Follow.)
+bool nonFiniteInputSmoke()
+{
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 512;
+    SattariSongKeyAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+    processor.releaseResources();
+    setParam (processor.parameters(), "publish", 0.0f);
+
+    const double frequencies[] = { 261.6256, 329.6276, 391.9954 };
+    double phases[3] {};
+    const int blocks = (int) (14.0 * sampleRate / blockSize);
+    int absoluteSample = 0;
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::AudioBuffer<float> audio (2, blockSize);
+        for (int i = 0; i < blockSize; ++i, ++absoluteSample)
+        {
+            const int beatPosition = absoluteSample % (int) (sampleRate * 0.5);
+            const double envelope = 0.18 + 0.82 * std::exp (-beatPosition / (sampleRate * 0.035));
+            float value = 0.0f;
+            for (int tone = 0; tone < 3; ++tone)
+            {
+                value += (float) (0.22 * envelope * std::sin (phases[tone]));
+                phases[tone] += juce::MathConstants<double>::twoPi
+                    * frequencies[tone] / sampleRate;
+            }
+            audio.setSample (0, i, value);
+            audio.setSample (1, i, value);
+        }
+        if (block % 40 == 7)
+        {
+            audio.setSample (0, 11, std::numeric_limits<float>::quiet_NaN());
+            audio.setSample (1, 200, std::numeric_limits<float>::infinity());
+            audio.setSample (0, 300, -std::numeric_limits<float>::infinity());
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (audio, midi);
+        if (block % 4 == 3)
+            processor.analyseNow();
+    }
+    processor.analyseNow();
+    const auto d = processor.detected();
+    const bool ok = d.valid && d.root == 0 && ! d.minor
+        && std::isfinite (d.confidence) && d.confidence > 0.0
+        && std::isfinite (d.detuneCents)
+        && d.tempoValid && std::abs (d.bpm - 120.0) <= 2.0;
+    if (! ok)
+        std::fprintf (stderr, "Non-finite input: valid %d root %d%s margin %f tuning %f tempo %d %f\n",
+                      d.valid ? 1 : 0, d.root, d.minor ? "m" : "", d.confidence, d.detuneCents,
+                      d.tempoValid ? 1 : 0, d.bpm);
+    return ok;
+}
+
 bool dynamicFollowSmoke()
 {
     constexpr double sampleRate = 48000.0;
@@ -508,6 +569,17 @@ int main (int argc, char** argv)
             return 1;
         }
         std::printf ("Sattari Key live tempo smoke ok\n");
+        return 0;
+    }
+
+    if (argc == 2 && std::strcmp (argv[1], "--nonfinite-smoke") == 0)
+    {
+        if (! nonFiniteInputSmoke())
+        {
+            std::fprintf (stderr, "FAIL: non-finite input reached the analysis\n");
+            return 1;
+        }
+        std::printf ("Sattari Key non-finite input smoke ok\n");
         return 0;
     }
 

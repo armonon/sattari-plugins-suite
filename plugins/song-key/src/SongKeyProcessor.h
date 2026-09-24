@@ -14,6 +14,7 @@
 #include <sattari_audio_core/SattariDynamicKeyTracker.h>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -181,6 +182,7 @@ private:
     juce::AbstractFifo liveFifo { 1 };
     std::vector<float> liveFifoBuffer;
     std::atomic<juce::int64> liveFifoDroppedSamples { 0 };
+    static constexpr float kMaxAnalysisSample = 1000.0f;   // +60 dBFS analysis clamp
 
     // Worker-thread-only analysis state (guarded by analysisStateMutex).
     std::array<float, fftSize * 2> scratch {};
@@ -223,12 +225,30 @@ private:
     sattari::dsp::ChordAnalyzer chordAnalysis;
     sattari::dsp::DynamicKeyTracker dynamicTracker;
 
-    std::atomic<int>   detRoot { 0 };
-    std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
-    std::atomic<double> detConf { 0.0 };
-    std::atomic<bool>   detAlternativeValid { false };
-    std::atomic<int>    detAlternativeRoot { 0 };
-    std::atomic<bool>   detAlternativeMinor { false };
+    // The detector verdict (key, margin and runner-up) is published as ONE
+    // 64-bit atomic so the editor and the publisher can never read a root from
+    // one decision with the mode or margin of another. The margin is stored as a
+    // float, which is ample for a 0..1 winner-vs-runner-up difference.
+    struct KeyVerdict
+    {
+        bool valid = false;
+        int root = 0;
+        bool minor = false;
+        float confidence = 0.0f;
+        bool alternativeValid = false;
+        int alternativeRoot = 0;
+        bool alternativeMinor = false;
+    };
+    static std::uint64_t packVerdict (const KeyVerdict&) noexcept;
+    static KeyVerdict unpackVerdict (std::uint64_t) noexcept;
+    void storeVerdict (const KeyVerdict& v) noexcept { detVerdict.store (packVerdict (v), std::memory_order_release); }
+    KeyVerdict loadVerdict() const noexcept { return unpackVerdict (detVerdict.load (std::memory_order_acquire)); }
+    void clearVerdict() noexcept { storeVerdict ({}); }
+    std::atomic<std::uint64_t> detVerdict { 0 };
+    static_assert (std::atomic<std::uint64_t>::is_always_lock_free,
+                   "the verdict must be readable without a lock");
+
+    std::atomic<bool>  rescan { false }, publishingNow { false };
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
     std::atomic<bool>   detTempoValid { false };
     std::atomic<double> detBpm { 0.0 };

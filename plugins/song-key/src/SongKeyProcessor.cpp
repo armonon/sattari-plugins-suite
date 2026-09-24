@@ -59,37 +59,39 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
     liveFifo.reset();
     liveFifoDroppedSamples.store (0);
 
-    scratch.fill (0.0f);
-    liveKeyInput.fill (0.0f);
-    liveHopInput.fill (0.0f);
-    liveHopFill = 0;
-    liveAnalysedSamples = 0;
-    dynamicAcceptedPending = false;
-
     for (int i = 0; i < fftSize; ++i)
         hann[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) (fftSize - 1));
-    std::fill (running, running + 12, 0.0);
 
-    // HPCP accumulator: warm its whitening buffer here so accumulate() never
-    // allocates, and clear any state carried over from the previous sample rate.
-    hpcp.reserveBins (fftSize / 2 + 1);
-    bassHpcp.reserveBins (fftSize / 2 + 1);
-    frameHpcp.reserveBins (fftSize / 2 + 1);
-    hpcp.reset();
-    bassHpcp.reset();
-    frameHpcp.reset();
-    liveSongKey.prepare (currentSampleRate);
-    runningDetune = 0.0;
-    tuningHpcp.reserveBins (fftSize / 2 + 1);
-    tuningHpcp.reset();
-    liveTuningAnalysedSamples = 0;
-    liveTuningOffsetCents = 0.0;
-    liveSongKey.setTuningOffsetCents (0.0);
-    livePreviousSpectrum.assign ((size_t) fftSize / 2 + 1, 0.0f);
-    liveOnsetEnvelope.clear();
-    liveOnsetEnvelope.reserve ((size_t) std::ceil (
-        currentSampleRate / (double) (fftSize / 2) * 120.0));
-    resetDynamicDecision();
+    {
+        // Start every stream from a clean analysis state: nothing measured at the
+        // previous sample rate or before a transport restart may leak into the
+        // new key window (chroma, chord-root evidence, RMS, detune, tempo).
+        const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
+        scratch.fill (0.0f);
+        liveKeyInput.fill (0.0f);
+        liveHopInput.fill (0.0f);
+        liveHopFill = 0;
+        liveAnalysedSamples = 0;
+
+        // HPCP accumulators: warm their whitening buffers here so accumulate()
+        // never allocates.
+        hpcp.reserveBins (fftSize / 2 + 1);
+        bassHpcp.reserveBins (fftSize / 2 + 1);
+        frameHpcp.reserveBins (fftSize / 2 + 1);
+        tuningHpcp.reserveBins (fftSize / 2 + 1);
+        frameHpcp.reset();
+        resetLiveKeyWindow();          // running/bass chroma, chord evidence, RMS, song key
+        runningDetune = 0.0;
+        tuningHpcp.reset();
+        liveTuningAnalysedSamples = 0;
+        liveTuningOffsetCents = 0.0;
+        liveSongKey.setTuningOffsetCents (0.0);
+        livePreviousSpectrum.assign ((size_t) fftSize / 2 + 1, 0.0f);
+        liveOnsetEnvelope.clear();
+        liveOnsetEnvelope.reserve ((size_t) std::ceil (
+            currentSampleRate / (double) liveHop * 120.0) + 256);
+        resetDynamicDecision();        // also clears the onset baseline
+    }
 
     workerRunning.store (true, std::memory_order_release);
     worker = std::thread ([this] { workerLoop(); });
@@ -134,7 +136,13 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             float m = 0.0f;
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                 m += buffer.getSample (ch, source + i);
-            liveFifoBuffer[(size_t) (destination + i)] = m / (float) nc;
+            // Never let a non-finite (or absurd) sample into the analysis: one
+            // NaN would poison the onset baseline, chord evidence and tempo
+            // envelope for the rest of the stream. Audio output is untouched.
+            m /= (float) nc;
+            liveFifoBuffer[(size_t) (destination + i)] =
+                std::isfinite (m) ? juce::jlimit (-kMaxAnalysisSample, kMaxAnalysisSample, m)
+                                  : 0.0f;
         }
     };
     writeMono (start1, 0, size1);
@@ -143,6 +151,35 @@ void SattariSongKeyAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     if (size1 + size2 < n)
         liveFifoDroppedSamples.fetch_add ((juce::int64) (n - size1 - size2),
                                           std::memory_order_relaxed);
+}
+
+std::uint64_t SattariSongKeyAudioProcessor::packVerdict (const KeyVerdict& v) noexcept
+{
+    std::uint32_t confidenceBits = 0;
+    const float confidence = std::isfinite (v.confidence) ? v.confidence : 0.0f;
+    std::memcpy (&confidenceBits, &confidence, sizeof (confidenceBits));
+    return (std::uint64_t) confidenceBits
+         | ((std::uint64_t) (((v.root % 12) + 12) % 12) << 32)
+         | ((std::uint64_t) (v.minor ? 1 : 0) << 36)
+         | ((std::uint64_t) (v.valid ? 1 : 0) << 37)
+         | ((std::uint64_t) (((v.alternativeRoot % 12) + 12) % 12) << 40)
+         | ((std::uint64_t) (v.alternativeMinor ? 1 : 0) << 44)
+         | ((std::uint64_t) (v.alternativeValid ? 1 : 0) << 45);
+}
+
+SattariSongKeyAudioProcessor::KeyVerdict
+SattariSongKeyAudioProcessor::unpackVerdict (std::uint64_t bits) noexcept
+{
+    KeyVerdict v;
+    const auto confidenceBits = (std::uint32_t) (bits & 0xffffffffu);
+    std::memcpy (&v.confidence, &confidenceBits, sizeof (confidenceBits));
+    v.root = (int) ((bits >> 32) & 0xfu);
+    v.minor = ((bits >> 36) & 1u) != 0;
+    v.valid = ((bits >> 37) & 1u) != 0;
+    v.alternativeRoot = (int) ((bits >> 40) & 0xfu);
+    v.alternativeMinor = ((bits >> 44) & 1u) != 0;
+    v.alternativeValid = ((bits >> 45) & 1u) != 0;
+    return v;
 }
 
 void SattariSongKeyAudioProcessor::analyseNow()
@@ -167,8 +204,7 @@ void SattariSongKeyAudioProcessor::analyseNow()
             liveTuningOffsetCents = 0.0;
             liveSongKey.setTuningOffsetCents (0.0);
             clearPublishedDecision();
-            detValid.store (false);
-            detAlternativeValid.store (false);
+            clearVerdict();
             detTempoValid.store (false);
             detBpm.store (0.0);
             detTempoConfidence.store (0.0);
@@ -263,8 +299,9 @@ void SattariSongKeyAudioProcessor::analyseLiveHop()
     double frameChroma[12] {};
     frameHpcp.finish (frameChroma);
 
-    const float currentOnset = onsetStrength (
+    float currentOnset = onsetStrength (
         scratch.data(), fftSize / 2 + 1, livePreviousSpectrum);
+    if (! std::isfinite (currentOnset)) currentOnset = 0.0f;
     liveOnsetEnvelope.push_back (currentOnset);
     liveOnsetBaseline += 0.06 * ((double) currentOnset - liveOnsetBaseline);
     const auto maxLiveFrames = (size_t) std::ceil (
@@ -380,17 +417,9 @@ void SattariSongKeyAudioProcessor::updateLiveDecision()
     }
     if (k.valid)
     {
-        detRoot.store (k.root);
-        detMinor.store (k.minor);
-        detConf.store (k.confidence);
-        detValid.store (true);
+        storeVerdict ({ true, k.root, k.minor, (float) k.confidence,
+                        alternative.valid, alternative.root, alternative.minor });
         liveWindowHasValidDecision = true;
-        detAlternativeValid.store (alternative.valid);
-        if (alternative.valid)
-        {
-            detAlternativeRoot.store (alternative.root);
-            detAlternativeMinor.store (alternative.minor);
-        }
     }
 }
 
@@ -424,11 +453,12 @@ void SattariSongKeyAudioProcessor::stepDynamicFollow()
         return;
 
     sattari::dsp::DynamicKeyObservation observation;
-    if (liveWindowHasValidDecision && detValid.load())
+    const auto verdict = loadVerdict();
+    if (liveWindowHasValidDecision && verdict.valid)
     {
-        observation.detector.root = juce::jlimit (0, 11, detRoot.load());
-        observation.detector.minor = detMinor.load();
-        observation.detector.confidence = detConf.load();
+        observation.detector.root = juce::jlimit (0, 11, verdict.root);
+        observation.detector.minor = verdict.minor;
+        observation.detector.confidence = verdict.confidence;
         observation.detector.valid = true;
         observation.detector.source = sattari::dsp::KeyAnalysisSource::Chroma;
     }
@@ -610,7 +640,7 @@ void SattariSongKeyAudioProcessor::listenLive()
         const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
         clearPublishedDecision();
         resetDynamicDecision();
-        detValid.store (false);
+        clearVerdict();
         detSegmentAgreement.store (0.0);
         detSegments.store (0);
         detPossibleModulation.store (false);
@@ -655,8 +685,7 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
         const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
         clearPublishedDecision();
         resetDynamicDecision();
-        detValid.store (false);
-        detAlternativeValid.store (false);
+        clearVerdict();
         detTempoValid.store (false);
         detBpm.store (0.0);
         detTempoConfidence.store (0.0);
@@ -698,15 +727,6 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
             const std::lock_guard<std::mutex> stateLock (analysisStateMutex);
             if (analysisSource.load (std::memory_order_acquire) != AnalysisSource::File)
                 return;
-            detRoot.store (result.key.root);
-            detMinor.store (result.key.minor);
-            detConf.store (result.key.confidence);
-            detAlternativeValid.store (result.alternative.valid);
-            if (result.alternative.valid)
-            {
-                detAlternativeRoot.store (result.alternative.root);
-                detAlternativeMinor.store (result.alternative.minor);
-            }
             detDetuneCents.store (result.detuneCents);
             detTempoValid.store (result.tempo.valid);
             detBpm.store (result.tempo.valid ? result.tempo.bpm : 0.0);
@@ -715,7 +735,9 @@ bool SattariSongKeyAudioProcessor::analyseFileAsync (const juce::File& file)
             detSegmentAgreement.store (result.segmentAgreement);
             detSegments.store (result.segments);
             detPossibleModulation.store (result.possibleModulation);
-            detValid.store (true);
+            storeVerdict ({ true, result.key.root, result.key.minor,
+                            (float) result.key.confidence, result.alternative.valid,
+                            result.alternative.root, result.alternative.minor });
             clearPublishedDecision();
         }
         fileProgress.store (1.0, std::memory_order_release);
@@ -988,10 +1010,11 @@ void SattariSongKeyAudioProcessor::publishCurrent()
         }
         else
         {
-            if (! detValid.load() || detConf.load() < kMinPublishConfidence)
+            const auto verdict = loadVerdict();
+            if (! verdict.valid || verdict.confidence < kMinPublishConfidence)
                 return;
-            lockedRoot = detRoot.load();
-            lockedMinor = detMinor.load();
+            lockedRoot = verdict.root;
+            lockedMinor = verdict.minor;
         }
 
         lockedReferenceHz = 440.0 * std::pow (
@@ -1060,13 +1083,14 @@ void SattariSongKeyAudioProcessor::workerLoop()
 SattariSongKeyAudioProcessor::Detected SattariSongKeyAudioProcessor::detected() const
 {
     Detected d;
-    d.valid = detValid.load();
-    d.root = detRoot.load();
-    d.minor = detMinor.load();
-    d.confidence = detConf.load();
-    d.alternativeValid = detAlternativeValid.load();
-    d.alternativeRoot = detAlternativeRoot.load();
-    d.alternativeMinor = detAlternativeMinor.load();
+    const auto verdict = loadVerdict();                 // one consistent decision
+    d.valid = verdict.valid;
+    d.root = verdict.root;
+    d.minor = verdict.minor;
+    d.confidence = verdict.confidence;
+    d.alternativeValid = verdict.alternativeValid;
+    d.alternativeRoot = verdict.alternativeRoot;
+    d.alternativeMinor = verdict.alternativeMinor;
     d.publishing = publishingNow.load();
     d.detuneCents = detDetuneCents.load();
     const bool isFile = analysisSource.load() == AnalysisSource::File;
