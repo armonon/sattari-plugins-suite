@@ -596,8 +596,9 @@ private:
     bool keyMapDriving() const;
     void updateAutoKeyHistogram (const PitchFrame& frame);
     // Polyphonic AutoKey path: spectral chroma of the sidechain (master) audio
-    // feeds the histogram instead of the monophonic vocal pitch. Both paths share
-    // correlateAutoKeyHistogram() so the Krumhansl decision logic stays one place.
+    // feeds its own chroma histogram instead of the monophonic vocal pitch. Both
+    // paths share correlateAutoKeyHistogram(), which picks the live source's
+    // histogram and profile (Krumhansl for sung notes, Aarden for audio chroma).
     void pushSidechainBlock (const float* mono, int numSamples);
     void runChromaAnalysis();
     void correlateAutoKeyHistogram();
@@ -691,7 +692,14 @@ private:
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
     bool   lastXposeActive    = false; // Transpose mode ran last block (flush engines on toggle)
+    // Sung-note (f0) AutoKey histogram: one pitch class per detected fundamental.
     std::array<double, 12> autoKeyHistogram {};
+    // Audio-chroma AutoKey histogram (sidechain / polyphonic main input, HPCP).
+    // Kept apart from the f0 histogram because the two need different key
+    // profiles (see autoKeyHistogramProfile / kAutoKeyChromaProfile) and live on
+    // very different scales (f0 weights sum to thousands, chroma frames to ~1),
+    // so a shared array was dominated by whichever source had fed it last.
+    std::array<double, 12> chromaKeyHistogram {};
     // Live Mode may be called with 64..2048-sample host blocks. Decimate its
     // AutoKey observations onto the same pitch-hop clock as Studio so histogram
     // decay and key confidence do not change with a DAW's buffer size.
@@ -833,6 +841,10 @@ private:
     sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Krumhansl;
     // Time constant of the sung-note histogram (see updateAutoKeyHistogram).
     double autoKeyMemorySec = 15.0;
+    // Audio chroma (sidechain / polyphonic path) keeps the profile it was
+    // validated with: Aarden's raised 5th compensates the harmonic leakage that
+    // real chroma has and a fundamentals-only histogram does not.
+    static constexpr sattari::dsp::KeyProfile kAutoKeyChromaProfile = sattari::dsp::KeyProfile::Aarden;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)

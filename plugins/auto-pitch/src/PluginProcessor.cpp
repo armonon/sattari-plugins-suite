@@ -1432,6 +1432,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
         smoothedXposeScale = std::pow (2.0, (double) seedSemis / 12.0);
     }
     autoKeyHistogram.fill (0.0);
+    chromaKeyHistogram.fill (0.0);
     publishDetectedAutoKey (9, 1, 0.0f);
     //  The live estimator accumulates whole-session chroma, so everything that
     //  clears the histogram must clear it too — via the flag, because it is
@@ -1956,6 +1957,13 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
 
+    //  Which evidence is live decides both the histogram and its profile. While
+    //  sidechain / polyphonic chroma is flowing (sidechainSeenAudio) the f0
+    //  histogram is not updated at all, so the chroma one is the only fresh source;
+    //  otherwise the sung-note histogram is.
+    const bool chromaSource = sidechainSeenAudio;
+    const auto& histogram = chromaSource ? chromaKeyHistogram : autoKeyHistogram;
+
     int bestRoot = 9;
     //  Staged verdict: filled by whichever detector wins below, published as one
     //  unit at the end. Seeded from the current values so a branch that only
@@ -2026,8 +2034,8 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         else
         {
             sattari::dsp::KeyAnalysisConfig histogramCfg;
-            histogramCfg.profile = autoKeyHistogramProfile;
-            const auto kr = keyAnalysis.analyseChroma (autoKeyHistogram.data(), histogramCfg);
+            histogramCfg.profile = chromaSource ? kAutoKeyChromaProfile : autoKeyHistogramProfile;
+            const auto kr = keyAnalysis.analyseChroma (histogram.data(), histogramCfg);
             if (kr.valid)
             {
                 bestRoot = kr.root;
@@ -2054,7 +2062,7 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
             for (int noteIndex = 0; noteIndex < 12; ++noteIndex)
             {
                 const int degree = ((noteIndex - root) % 12 + 12) % 12;
-                score += autoKeyHistogram[(size_t) noteIndex]
+                score += histogram[(size_t) noteIndex]
                        * (scaleAllowsDegree (degree, scaleName) ? 1.0 : -0.18);
             }
             if (score > bestScore) { secondScore = bestScore; bestScore = score; bestRoot = root; }
@@ -2238,8 +2246,8 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     if (total < 1.0e-9) return;   // silent window -> leave the histogram untouched
 
     constexpr double blend = 0.35;
-    for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
-        autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
+    for (size_t i = 0; i < chromaKeyHistogram.size(); ++i)
+        chromaKeyHistogram[i] = (1.0 - blend) * chromaKeyHistogram[i] + blend * pcAccum[i];
 
     // --- Live neural key: decayed mean + covariance of the L1-normalised chroma.
     // Same feature as the offline Key Map / training (chroma summed to 1 per frame),
