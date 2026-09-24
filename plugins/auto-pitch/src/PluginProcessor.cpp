@@ -1447,6 +1447,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     // or a stale bias survives a re-prepare.
     hysteresisAltTarget = -1000;
     heldTargetMidi = -1;
+    heldTargetContext = -1;
     heldTargetAwaySec = 0.0;
     heldTargetSilentSec = 0.0;
     hysteresisAge       = 999.0;
@@ -3734,6 +3735,9 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
 
     detected.targetMidi = (double) targetMidi;
     detected.correctionCents = (detected.targetMidi - detected.midi) * 100.0;
+    detected.targetContext = (juce::jlimit (0, 11, rootIndex))
+                           | (juce::jlimit (0, 31, scaleIndex) << 4)
+                           | (mask << 9);
     return detected;
 }
 
@@ -3756,6 +3760,15 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
         return;
     }
     heldTargetSilentSec = 0.0;
+
+    // A key, scale or Edit-Notes change redefines which notes are legal. The held
+    // target was chosen under the old rules and may now be out of scale or
+    // blocked, so drop it instead of letting it sit there for up to 120 ms.
+    if (frame.targetContext != heldTargetContext)
+    {
+        heldTargetContext = frame.targetContext;
+        heldTargetMidi = -1;
+    }
 
     const int nearest = juce::roundToInt (frame.targetMidi);
     if (heldTargetMidi < 0 || nearest == heldTargetMidi)

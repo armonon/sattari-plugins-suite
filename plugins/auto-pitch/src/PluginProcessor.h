@@ -568,6 +568,9 @@ private:
         bool objectActive = false;
         bool objectEnabled = true;
         bool voiced = false;
+        // Packed key root / scale / Edit-Notes mask the target was chosen under
+        // (set by buildCorrectionFrame; -1 when no target was chosen).
+        int  targetContext = -1;
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -749,6 +752,9 @@ private:
     void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
     bool   targetHysteresisEnabled = true;
     int    heldTargetMidi      = -1;
+    // Key / scale / Edit-Notes mask the held target was chosen under. A held note
+    // is only valid inside the context that produced it.
+    int    heldTargetContext   = -1;
     double heldTargetAwaySec   = 0.0;
     double heldTargetSilentSec = 0.0;
     // hopSec is the time elapsed since the previous call. Call it exactly once per

@@ -309,6 +309,55 @@ TargetStepRun targetStepSeconds (bool neural, bool hold, int blockSize,
     return result;
 }
 
+// Seconds from a key / Edit-Notes change until the target leaves a note the new
+// rules no longer allow. The sung pitch never moves, so only the hold can delay it.
+double retargetAfterRuleChangeSeconds (bool changeMask, int blockSize)
+{
+    constexpr double sampleRate = 48000.0;
+    SattariAutoPitchAudioProcessor processor;
+    auto& apvts = processor.parameters();
+    setParameter (apvts, "keyRoot", 0.0f);    // C major
+    setParameter (apvts, "scale", 0.0f);
+    setParameter (apvts, "scaleMode", 0.0f);
+    setParameter (apvts, "style", 1.0f);
+    setParameter (apvts, "amount", 1.0f);
+    setParameter (apvts, "speed", 1.0f);
+    setParameter (apvts, "enableCorrection", 1.0f);
+    setParameter (apvts, "doNoHarm", 0.0f);
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    const double sungHz = midiToHz (64) * std::pow (2.0, 30.0 / 1200.0);   // E4 +30 c
+    const int changeAt = (int) (0.6 * sampleRate);
+    const int total    = (int) (1.2 * sampleRate);
+    double phase = 0.0;
+    bool changed = false;
+    for (int start = 0; start < total; start += blockSize)
+    {
+        if (! changed && start >= changeAt)
+        {
+            // Target must be E4 before the change, or the test proves nothing.
+            if ((int) std::llround (processor.getDebugFrame().targetMidi) != 64)
+                return -2.0;
+            if (changeMask) setParameter (apvts, "enabledNotes", (float) (4095 & ~(1 << 4)));   // block E
+            else            setParameter (apvts, "keyRoot", 3.0f);                             // Eb major: no E
+            changed = true;
+        }
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const float s = (float) (0.16 * std::sin (phase) + 0.08 * std::sin (2.0 * phase));
+            phase += juce::MathConstants<double>::twoPi * sungHz / sampleRate;
+            for (int ch = 0; ch < 2; ++ch)
+                buffer.setSample (ch, i, s);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+        if (changed && (int) std::llround (processor.getDebugFrame().targetMidi) == 65)   // F4
+            return (double) (start + blockSize - changeAt) / sampleRate;
+    }
+    return -1.0;
+}
+
 double tonePower (const std::vector<float>& audio, int start, double sampleRate, double hz)
 {
     double real = 0.0, imag = 0.0, phase = 0.0;
@@ -1060,6 +1109,19 @@ int main (int argc, char** argv)
             }
         std::cout << "  targetHold=PASS" << holdReport << "\n";
     }
+
+    // --- Held target dropped when the key or Edit-Notes mask changes ---------
+    for (const bool changeMask : { false, true })
+    {
+        const double sec = retargetAfterRuleChangeSeconds (changeMask, 64);
+        if (sec < 0.0 || sec > 0.030)
+        {
+            std::cerr << "held target outlived a " << (changeMask ? "note-mask" : "key")
+                      << " change: " << sec << " s (E4 no longer allowed)\n";
+            return 1;
+        }
+    }
+    std::cout << "  heldTargetRuleChange=PASS (key + Edit Notes change retarget within one hop)\n";
 
     const double liveClassicB3ErrorCents = renderClassicStrongB3Plus45ErrorCents (true);
     if (liveClassicB3ErrorCents > 25.0)
