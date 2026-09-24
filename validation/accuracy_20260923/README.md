@@ -185,3 +185,17 @@ AutoKey, `score_autokey_rt.py` (raw verdict vs the gated key correction USES; fa
 - Histogram memory (`--autokey-memory`, `key_change.py`): 6-10 s follows a modulation sooner
   (half step, key B right 10-20 s after the change: 50% at 15 s, 81% at 10 s, 89% at 6 s) but real
   singers lose: CSD raw right time 40.3% (15 s) -> 35.1% (10 s) -> 26.8% (6 s). Kept 15 s.
+
+## Round 7 (2026-09-24): detector work, measured before changing anything
+`det_diag.py`, `det_proto.py`, `det_manual.py`. Key mode, CSD real singers, analytic target-choice score.
+- Production detector vs CREPE reference, per frame: bias +0.5 c, median |err| 9.1 c, p90 24 c,
+  8.7% of frames > 25 c (13.4% in the first 150 ms of notes, bass section worst). Timing is already
+  aligned (best shift 10 ms).
+- Causal smoothing of the production readings (median 3/5 blocks, EMA 0.5/0.3, outlier rejection):
+  80.0–80.7% vs 80.5%. No effect.
+- **Circularity check:** with the dataset's MANUALLY CORRECTED f0 as a "perfect detector", target
+  choice scores 78.6% dev / 79.9% holdout. That is LOWER than the production detector (80.5 / 81.7%).
+  The CREPE "perfect detector" (82.3 / 83.4%) is inflated because the scorer is also CREPE.
+- Conclusion: the detector is not a bottleneck for target choice. The "~3 points from the detector"
+  in Round 5 was an artifact of the reference. No detector change is justified by this evidence.
+  Remaining key-mode loss to shifting is ~1.3 points (analytic 80.5 vs measured 79.2, seeded scorer).

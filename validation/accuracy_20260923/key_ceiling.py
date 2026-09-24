@@ -23,17 +23,18 @@ def targets(m, root, sc, thr, margin=0.5, hold=0.12, hop=0.01):
             if abs(v-held)-abs(v-near)>margin or away>=hold: held=near; away=0.0
         out[i]=held
     return out
-split=sys.argv[1] if len(sys.argv)>1 else 'dev'
-for thr in [0,15,20,25,30]:
-    r={'in':[0,0],'out':[0,0]}
-    for stem in tracks(split):
-        k=keys[stem.split('_')[1]]; root=N.index(k['root']); sc=MAJ if k['scale']=='major' else MIN
-        mi=crepe_cached(WORK/f'{stem}.wav'); ti=np.arange(len(mi))*0.01; ts=targets(mi,root,sc,thr)
-        for s,e,tg in section_notes(stem):
-            ci=note_centre(ti,mi,s,e)
-            if not np.isfinite(ci) or abs(100*(ci-tg))>48: continue
-            c=note_centre(ti,ts.astype(float),s,e)
-            if np.isfinite(c):
-                g='in' if (tg-root)%12 in sc else 'out'; r[g][0]+=1; r[g][1]+=abs(100*(c-tg))<=10
-    tot=r['in'][0]+r['out'][0]; ok=r['in'][1]+r['out'][1]
-    print(f"accidental threshold {thr:2d}c: all {100*ok/tot:5.1f}% | in-key {100*r['in'][1]/r['in'][0]:5.1f}% | out-of-key {100*r['out'][1]/r['out'][0]:5.1f}%")
+if __name__ == '__main__':
+    split=sys.argv[1] if len(sys.argv)>1 else 'dev'
+    for thr in [0,15,20,25,30]:
+        r={'in':[0,0],'out':[0,0]}
+        for stem in tracks(split):
+            k=keys[stem.split('_')[1]]; root=N.index(k['root']); sc=MAJ if k['scale']=='major' else MIN
+            mi=crepe_cached(WORK/f'{stem}.wav'); ti=np.arange(len(mi))*0.01; ts=targets(mi,root,sc,thr)
+            for s,e,tg in section_notes(stem):
+                ci=note_centre(ti,mi,s,e)
+                if not np.isfinite(ci) or abs(100*(ci-tg))>48: continue
+                c=note_centre(ti,ts.astype(float),s,e)
+                if np.isfinite(c):
+                    g='in' if (tg-root)%12 in sc else 'out'; r[g][0]+=1; r[g][1]+=abs(100*(c-tg))<=10
+        tot=r['in'][0]+r['out'][0]; ok=r['in'][1]+r['out'][1]
+        print(f"accidental threshold {thr:2d}c: all {100*ok/tot:5.1f}% | in-key {100*r['in'][1]/r['in'][0]:5.1f}% | out-of-key {100*r['out'][1]/r['out'][0]:5.1f}%")

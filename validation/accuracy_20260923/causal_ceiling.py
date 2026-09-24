@@ -38,22 +38,23 @@ def ema_targets(m, tau, hop=0.01):
         out[i] = held
     return out
 
-strategies = {"follow singer (nearest note, no hold)": lambda m: np.where(np.isfinite(m), np.round(m), np.nan),
-              "follow singer + production hold (0.5 st / 120 ms)": lambda m: hyst_targets(m),
-              "follow singer + 100 ms average (E1 logic)": lambda m: ema_targets(m, 0.10)}
-res = {k: [0, 0] for k in list(strategies) + ["R0 chosen targets (from trace)"]}
-for stem in tracks(split):
-    mi = crepe_cached(WORK / f"{stem}.wav"); ti = np.arange(len(mi)) * 0.01
-    tg_series = {k: f(mi) for k, f in strategies.items()}
-    lat, B, t0, voiced, target, detected, corr, conf, reason = trace_frames("r0", stem)
-    j = np.clip(np.searchsorted(t0, ti, side="right") - 1, 0, len(t0) - 1)
-    tg_series["R0 chosen targets (from trace)"] = np.where(voiced[j], target[j], np.nan)
-    for s, e, tg in section_notes(stem):
-        ci = note_centre(ti, mi, s, e)
-        if not np.isfinite(ci) or abs(100 * (ci - tg)) > 48: continue
-        for k, ser in tg_series.items():
-            c = note_centre(ti, ser.astype(float), s, e)
-            if np.isfinite(c):
-                res[k][0] += 1; res[k][1] += abs(100 * (c - tg)) <= 10
-for k, (n, ok) in res.items():
-    print(f"{k:52} {100 * ok / n:5.1f}%  (n={n})")
+if __name__ == '__main__':
+    strategies = {"follow singer (nearest note, no hold)": lambda m: np.where(np.isfinite(m), np.round(m), np.nan),
+                  "follow singer + production hold (0.5 st / 120 ms)": lambda m: hyst_targets(m),
+                  "follow singer + 100 ms average (E1 logic)": lambda m: ema_targets(m, 0.10)}
+    res = {k: [0, 0] for k in list(strategies) + ["R0 chosen targets (from trace)"]}
+    for stem in tracks(split):
+        mi = crepe_cached(WORK / f"{stem}.wav"); ti = np.arange(len(mi)) * 0.01
+        tg_series = {k: f(mi) for k, f in strategies.items()}
+        lat, B, t0, voiced, target, detected, corr, conf, reason = trace_frames("r0", stem)
+        j = np.clip(np.searchsorted(t0, ti, side="right") - 1, 0, len(t0) - 1)
+        tg_series["R0 chosen targets (from trace)"] = np.where(voiced[j], target[j], np.nan)
+        for s, e, tg in section_notes(stem):
+            ci = note_centre(ti, mi, s, e)
+            if not np.isfinite(ci) or abs(100 * (ci - tg)) > 48: continue
+            for k, ser in tg_series.items():
+                c = note_centre(ti, ser.astype(float), s, e)
+                if np.isfinite(c):
+                    res[k][0] += 1; res[k][1] += abs(100 * (c - tg)) <= 10
+    for k, (n, ok) in res.items():
+        print(f"{k:52} {100 * ok / n:5.1f}%  (n={n})")
