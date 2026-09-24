@@ -626,11 +626,12 @@ int main (int argc, char** argv)
             }
             else
                 ++noVerdict;                                   // no verdict is a miss, not a skip
-            std::printf ("TRACK %s,%s%s,%s%s,%d,%.3f\n", fname.c_str(),
+            std::printf ("TRACK %s,%s%s,%s%s,%d,%.3f,%+.1f\n", fname.c_str(),
                          names[tRoot], tMin ? "m" : "",
                          d.valid ? names[d.root % 12] : "none",
                          d.valid && d.minor ? "m" : "",
-                         s >= 1.0 ? 1 : 0, d.valid ? d.confidence : 0.0);
+                         s >= 1.0 ? 1 : 0, d.valid ? d.confidence : 0.0,
+                         d.detuneCents);
             if (n % 25 == 0) std::printf ("  ... %d tracks, running MIREX %.2f, exact %.1f%%\n",
                                           n, 100.0 * mirex / n, 100.0 * exact / n);
         }

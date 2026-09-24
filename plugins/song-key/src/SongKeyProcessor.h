@@ -198,6 +198,16 @@ private:
     double liveOnsetBaseline = 0.0;
     juce::int64 lastHostBeatIndex = std::numeric_limits<juce::int64>::min();
     double runningDetune = 0.0;                    // background-thread-only (cents)
+
+    // Tuning compensation for SongKeyEstimator (Sattari Key only; the shared
+    // estimator defaults to A440 for every other plugin). Below this offset the
+    // A440 map is kept, so in-tune material keeps its exact historical verdict.
+    static constexpr double kTuningCompensationMinCents = 10.0;
+    // Live: seconds of audio before the long-horizon tuning estimate is used.
+    static constexpr double kLiveTuningSettleSeconds = 3.0;
+    sattari::dsp::HpcpChromagram tuningHpcp;       // whole-stream tuning (worker-only)
+    juce::int64 liveTuningAnalysedSamples = 0;
+    double liveTuningOffsetCents = 0.0;            // offset applied to liveSongKey
     std::vector<float> livePreviousSpectrum;       // worker-thread-only
     std::vector<float> liveOnsetEnvelope;          // worker-thread-only
 

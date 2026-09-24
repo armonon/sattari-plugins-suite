@@ -79,6 +79,12 @@ void SattariSongKeyAudioProcessor::prepareToPlay (double sampleRate, int)
     bassHpcp.reset();
     frameHpcp.reset();
     liveSongKey.prepare (currentSampleRate);
+    runningDetune = 0.0;
+    tuningHpcp.reserveBins (fftSize / 2 + 1);
+    tuningHpcp.reset();
+    liveTuningAnalysedSamples = 0;
+    liveTuningOffsetCents = 0.0;
+    liveSongKey.setTuningOffsetCents (0.0);
     livePreviousSpectrum.assign ((size_t) fftSize / 2 + 1, 0.0f);
     liveOnsetEnvelope.clear();
     liveOnsetEnvelope.reserve ((size_t) std::ceil (
@@ -156,6 +162,10 @@ void SattariSongKeyAudioProcessor::analyseNow()
             std::fill (livePreviousSpectrum.begin(), livePreviousSpectrum.end(), 0.0f);
             liveOnsetEnvelope.clear();
             runningDetune = 0.0;
+            tuningHpcp.reset();
+            liveTuningAnalysedSamples = 0;
+            liveTuningOffsetCents = 0.0;
+            liveSongKey.setTuningOffsetCents (0.0);
             clearPublishedDecision();
             detValid.store (false);
             detAlternativeValid.store (false);
@@ -318,6 +328,28 @@ void SattariSongKeyAudioProcessor::analyseLiveHop()
             runningDetune += 0.2 * (est - runningDetune);
             detDetuneCents.store (runningDetune);
         }
+    }
+
+    // Reference the live song-key pitch map to the song's measured A. The
+    // readout blend above follows the last few frames and swings by tens of
+    // cents on sung material, so compensation uses a long-horizon estimate: the
+    // same whole-stream HPCP tuning accumulator the file scan uses, which is not
+    // cleared by Dynamic Follow's one-second windows. It is applied only after
+    // kLiveTuningSettleSeconds of evidence and only when the song is clearly
+    // detuned; otherwise the A440 map (and the historical verdict) is kept.
+    tuningHpcp.accumulate (
+        scratch.data(), fftSize / 2 + 1, currentSampleRate / (double) fftSize);
+    liveTuningAnalysedSamples += liveHop;
+    if ((double) liveTuningAnalysedSamples >= kLiveTuningSettleSeconds * currentSampleRate)
+    {
+        // Stay on the same side of +/-50 c as the offset already in use, so a
+        // song tuned near a quarter-tone cannot flip the map by a semitone as
+        // evidence accumulates.
+        double cents = tuningHpcp.tuningOffsetSemitones() * 100.0;
+        cents += 100.0 * std::round ((liveTuningOffsetCents - cents) / 100.0);
+        liveTuningOffsetCents = std::abs (cents) >= kTuningCompensationMinCents
+            ? juce::jlimit (-50.0, 50.0, cents) : 0.0;
+        liveSongKey.setTuningOffsetCents (liveTuningOffsetCents);
     }
 
     // Feed the same fixed 16 kHz/4096-frame path used for dropped song files.
@@ -785,8 +817,8 @@ bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
                           (size_t) carried * sizeof (float));
 
         readPosition += count;
-        fileProgress.store (0.98 * (double) readPosition
-                                  / (double) reader->lengthInSamples,
+        fileProgress.store (0.7 * (double) readPosition
+                                 / (double) reader->lengthInSamples,
                             std::memory_order_release);
     }
 
@@ -804,6 +836,45 @@ bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
         return false;
     }
 
+    result.detuneCents = globalHpcp.tuningOffsetSemitones() * 100.0;
+
+    // SongKeyEstimator maps pitch against A440 by default. The whole-song tuning
+    // is only known after the first pass, so a clearly detuned song is decoded
+    // once more with the pitch-class map referenced to its measured A. In-tune
+    // songs skip this pass and keep the exact historical verdict.
+    if (std::isfinite (result.detuneCents)
+        && std::abs (result.detuneCents) >= kTuningCompensationMinCents)
+    {
+        songKey.setTuningOffsetCents (result.detuneCents);
+        songKey.prepare (reader->sampleRate, (std::int64_t) reader->lengthInSamples);
+        for (juce::int64 position = 0; position < reader->lengthInSamples;)
+        {
+            if (fileCancel.load (std::memory_order_acquire))
+                return false;
+            const int count = (int) juce::jmin ((juce::int64) chunkSamples,
+                                                reader->lengthInSamples - position);
+            decoded.clear();
+            if (! reader->read (&decoded, 0, count, position, true, true))
+            {
+                error = "The song could not be decoded completely";
+                return false;
+            }
+            for (int i = 0; i < count; ++i)
+            {
+                float sum = 0.0f;
+                for (int channel = 0; channel < channels; ++channel)
+                    sum += decoded.getSample (channel, i);
+                mono[(size_t) i] = sum / (float) channels;
+            }
+            songKey.addSamples (mono.data(), count);
+            position += count;
+            fileProgress.store (0.7 + 0.28 * (double) position
+                                           / (double) reader->lengthInSamples,
+                                std::memory_order_release);
+        }
+        songKey.finalise();
+    }
+
     result.key = songKey.result();
     if (! result.key.valid)
     {
@@ -813,7 +884,6 @@ bool SattariSongKeyAudioProcessor::analyseFile (const juce::File& file,
     result.alternative = songKey.alternative();
     result.tempo = sattari::dsp::TempoEstimator::analyse (
         onsetEnvelope, reader->sampleRate / (double) hop);
-    result.detuneCents = globalHpcp.tuningOffsetSemitones() * 100.0;
     const auto& sectionKeys = songKey.sections();
     result.segments = (int) sectionKeys.size();
 
