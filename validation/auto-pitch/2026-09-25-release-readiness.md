@@ -1,5 +1,12 @@
 # Auto Pitch + Auto Key: release readiness, 2026-09-25
 
+**Release rule (owner, 2026-09-25):** the exact TAGGED candidate commit must be the one that passes
+listening, DAW validation, plugin validation, clean-machine install, signing/notarization and the
+final real-singer accuracy run. Evidence from other commits, even adjacent ones, does not count.
+Machine evidence for a commit: `scripts/qualify_auto_pitch.sh` ->
+`validation/auto-pitch/qualification/<date>-<sha>.md` (latest: `2026-09-25-cbd1ce4.md`, all pass).
+The correction engine is frozen unless a release test finds a regression.
+
 Branch `fix/autopitch-accuracy-20260923` (PR #4). Machine gates are run locally, because GitHub
 Actions refuses to start the jobs: "recent account payments have failed or your spending limit
 needs to be increased". Each result names the commit it was built from.
@@ -34,6 +41,19 @@ needs to be increased". Each result names the commit it was built from.
   load/unload cycles, and reported latency 2885 samples (unchanged).
 - Not run (disk space): the full 71-target `verify_all.sh` build and run, and the universal root
   build.
+
+## No-harm matrix (`AutoPitchNoHarm`, added 2026-09-25): all 8 checks PASS at cbd1ce4
+
+It found five real defects, all fixed in cbd1ce4 with no change to steady-state output (48/48
+real-singer renders bit-identical, AutoKey off and on):
+- Humanize was not reproducible between bounces.
+- Saved state grew on every save/load, and deleted pitch notes came back.
+- Presets carried harmony pan/level over, and three preset names showed mojibake.
+- Enable Correction switched with a click.
+- Re-engaging host bypass replayed pre-bypass audio and clicked. The engine now keeps running
+  while bypassed, which costs CPU during bypass.
+
+Soak: 60 min verified here; the 120-min soak is an operator run (see the qualification report).
 
 ## Accuracy on real singers
 
