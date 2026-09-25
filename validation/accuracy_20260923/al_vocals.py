@@ -14,6 +14,7 @@ import json, os, re, struct, subprocess, sys, collections
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np, soundfile as sf
+from diskguard import require_free
 HERE = Path(__file__).parent; WORK = HERE / 'al_work'; WORK.mkdir(exist_ok=True)
 ROOT = Path('/Library/Audio/Apple Loops'); SR = 48000
 B = Path(os.environ.get('BENCH', str(HERE.parents[1] / 'build/auto-pitch-neural/AutoPitchBench')))
@@ -43,6 +44,7 @@ def meta(path):
     return d
 
 def prep():
+    require_free()
     songs = collections.defaultdict(list)
     for dp, _, fs in os.walk(ROOT):
         for fn in sorted(fs):
@@ -72,6 +74,7 @@ def prep():
     print('songs', len(items), collections.Counter(x['split'] for x in items), collections.Counter(x['sex'] for x in items))
 
 def key(tag, split, extra):
+    require_free()
     items = [x for x in json.load(open(HERE / 'al_manifest.json')) if split in ('all', x['split'])]
     def one(m):
         tr = f'/tmp/al_{tag}_{m["name"]}_{os.getpid()}.json'

@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np, soundfile as sf
 from pitchref import load, f0, SR
+from diskguard import require_free
 
 HERE = Path(__file__).parent
 DS = Path.home() / "datasets/choral_singing/ChoralSingingDataset"
@@ -156,6 +157,7 @@ if __name__ == "__main__":
         score_outputs(tag, mode, split, lambda st: crepe_cached(WORK / f"{st}_{mode}_{tag}.wav", lats[st]))
     elif cmd == "score":
         tag, mode, split, args = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:] or ["--style", "Classic"]
+        require_free()
         def run(stem):
             src = WORK / (f"{stem}.wav" if mode == "natural" else f"{stem}_detuned.wav")
             out = WORK / f"{stem}_{mode}_{tag}.wav"; tr = WORK / f"{stem}_{mode}_{tag}.json"
@@ -171,8 +173,8 @@ if __name__ == "__main__":
         with ThreadPoolExecutor(8) as ex:
             lats = dict(ex.map(run, tracks(split)))
         score_outputs(tag, mode, split, lambda st: crepe_cached(WORK / f"{st}_{mode}_{tag}.wav", lats[st]))
-        # CSD_PRUNE=1: delete the renders once scored (~26 MB each, 48 per tag filled the disk on
-        # 2026-09-25). Traces and the CREPE caches stay, so the score is still reproducible.
-        if os.environ.get("CSD_PRUNE") == "1":
+        # Renders are deleted once scored (~26 MB each, 48 per tag filled the disk on 2026-09-25).
+        # Traces and the CREPE caches stay, so the score is still reproducible. CSD_KEEP=1 keeps them.
+        if os.environ.get("CSD_KEEP") != "1":
             for st in tracks(split):
                 (WORK / f"{st}_{mode}_{tag}.wav").unlink(missing_ok=True)

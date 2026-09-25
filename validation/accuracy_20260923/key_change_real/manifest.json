@@ -1,0 +1,3624 @@
+[
+ {
+  "name": "dev_half_M_F#m-Gm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "half",
+  "a": [
+   6,
+   true
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "F#m",
+  "b_name": "Gm",
+  "splice_sec": 29.5,
+  "dur": 70.785,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Verse_F_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Hook_F_minor",
+    "start": 24.9
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Timeless_Oh_Ah_Gminor",
+    "start": 29.5
+   },
+   {
+    "name": "Vox_Melodics_Max_Timeless_Verse_Gminor",
+    "start": 43.851
+   }
+  ]
+ },
+ {
+  "name": "dev_half_M_Eb-E_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "half",
+  "a": [
+   3,
+   false
+  ],
+  "b": [
+   4,
+   false
+  ],
+  "a_name": "Eb",
+  "b_name": "E",
+  "splice_sec": 35.9085,
+  "dur": 70.609,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Ebmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Ebmajor",
+    "start": 3.327
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Ebmajor",
+    "start": 15.436
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Improv_Ebmajor",
+    "start": 18.511
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Ebmajor",
+    "start": 22.037
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Hiding_05_Harmony_Mid_Emajor",
+    "start": 35.909
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_04_Harmony_Mid_Emajor",
+    "start": 42.909
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_07_Harmony_Mid_Emajor",
+    "start": 49.909
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_07_Harmony_Mid_Double_Emajor",
+    "start": 56.909
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_Oh_Ah_02_Harmony_Mid_High_Emajor",
+    "start": 63.909
+   }
+  ]
+ },
+ {
+  "name": "dev_half_M_Dm-Ebm_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "half",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "Dm",
+  "b_name": "Ebm",
+  "splice_sec": 25.425,
+  "dur": 64.96,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 13.751
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 16.904
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 20.057
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Ebminor",
+    "start": 25.425
+   }
+  ]
+ },
+ {
+  "name": "dev_half_M_D-Eb_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "half",
+  "a": [
+   2,
+   false
+  ],
+  "b": [
+   3,
+   false
+  ],
+  "a_name": "D",
+  "b_name": "Eb",
+  "splice_sec": 38.6363,
+  "dur": 86.711,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_World_Music_Irish_Frost_Voice_Dmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_World_Music_Irish_Frost_Voice_01_Dmajor",
+    "start": 9.327
+   },
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Dmajor",
+    "start": 14.291
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 22.164
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_World_Music_African_Mist_Voice_Ebmajor",
+    "start": 38.636
+   },
+   {
+    "name": "Vox_Melodics_Max_Spin_Verse_D_major",
+    "start": 53.954
+   }
+  ]
+ },
+ {
+  "name": "dev_half_M_F#m-Gm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "half",
+  "a": [
+   6,
+   true
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "F#m",
+  "b_name": "Gm",
+  "splice_sec": 29.5,
+  "dur": 69.995,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Hook_F_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Verse_F_minor",
+    "start": 4.6
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Timeless_Verse_Gminor",
+    "start": 29.5
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_M_Cm-Dm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "whole",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Dm",
+  "splice_sec": 27.645,
+  "dur": 62.67,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Vocoder_Lyric_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Cody_Melody_Cminor",
+    "start": 22.071
+   },
+   {
+    "name": "Jam_Pack_Voices_Fynn_Lyric_Cminor",
+    "start": 24.918
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 27.645
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 30.798
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 44.549
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 47.702
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_M_D-E_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "whole",
+  "a": [
+   2,
+   false
+  ],
+  "b": [
+   4,
+   false
+  ],
+  "a_name": "D",
+  "b_name": "E",
+  "splice_sec": 27.5181,
+  "dur": 64.418,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Stone_Improv_Dmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Improv_Dmajor",
+    "start": 4.991
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 11.045
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Hiding_Oh_Ah_02_Harmony_Mid_High_Emajor",
+    "start": 27.518
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_06_Harmony_Mid_Double_Emajor",
+    "start": 34.518
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_Ad_Lib_Emajor",
+    "start": 41.518
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_02_Harmony_Mid_High_Emajor",
+    "start": 43.718
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_07_Harmony_Mid_High_Emajor",
+    "start": 50.718
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_07_Harmony_Mid_Emajor",
+    "start": 57.718
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_M_E-F#_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "whole",
+  "a": [
+   4,
+   false
+  ],
+  "b": [
+   6,
+   false
+  ],
+  "a_name": "E",
+  "b_name": "F#",
+  "splice_sec": 28.0,
+  "dur": 67.515,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Max_Hiding_06_Harmony_Mid_Double_Emajor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_03_Harmony_Low_Mid_Emajor",
+    "start": 7.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_01_Harmony_Mid_High_Emajor",
+    "start": 14.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_07_Harmony_Mid_Double_Emajor",
+    "start": 21.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Gbmajor",
+    "start": 28.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Improv_Gbmajor",
+    "start": 30.782
+   },
+   {
+    "name": "Vox_Melodics_Max_Morning_Hook_F_major",
+    "start": 33.564
+   },
+   {
+    "name": "Vox_Melodics_Max_Morning_Verse_F_major",
+    "start": 48.097
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_M_C-D_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "whole",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   2,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "D",
+  "splice_sec": 33.005,
+  "dur": 68.459,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Devon_Lyric_Cmajor",
+    "start": 14.473
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_World_Music_Irish_Frost_Voice_01_Dmajor",
+    "start": 33.005
+   },
+   {
+    "name": "Jam_Pack_World_Music_Irish_Frost_Voice_Dmajor",
+    "start": 37.969
+   },
+   {
+    "name": "Jam_Pack_Voices_Stone_Improv_Dmajor",
+    "start": 47.296
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 52.287
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_M_Cm-Dm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "whole",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Dm",
+  "splice_sec": 26.965,
+  "dur": 62.104,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Fynn_Lyric_Cminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 26.965
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 30.118
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 43.869
+   },
+   {
+    "name": "Vox_Melodics_Zane_Calls_Oh_Ah_Dminor",
+    "start": 47.022
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Oh_Ah_Dminor",
+    "start": 59.899
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_M_Gm-Cm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "fourth",
+  "a": [
+   7,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Gm",
+  "b_name": "Cm",
+  "splice_sec": 29.775,
+  "dur": 66.379,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Max_Timeless_Ad_Lib_Gminor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Timeless_Verse_Gminor",
+    "start": 16.295
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Cminor",
+    "start": 29.775
+   },
+   {
+    "name": "Jam_Pack_Voices_Verdi_Lyric_Cminor",
+    "start": 39.975
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_M_Dm-Gm_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "fourth",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "Dm",
+  "b_name": "Gm",
+  "splice_sec": 25.425,
+  "dur": 60.45,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 3.153
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 6.306
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 20.057
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Timeless_Oh_Ah_Gminor",
+    "start": 25.425
+   },
+   {
+    "name": "Vox_Melodics_Max_Timeless_Ad_Lib_Gminor",
+    "start": 39.776
+   },
+   {
+    "name": "Vox_Melodics_Max_Timeless_Verse_Gminor",
+    "start": 56.07
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_M_E-A_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "fourth",
+  "a": [
+   4,
+   false
+  ],
+  "b": [
+   9,
+   false
+  ],
+  "a_name": "E",
+  "b_name": "A",
+  "splice_sec": 28.0,
+  "dur": 73.292,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Max_Hiding_Oh_Ah_02_Harmony_Mid_High_Emajor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_04_Harmony_Mid_High_Double_Emajor",
+    "start": 7.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_05_Harmony_Mid_Emajor",
+    "start": 14.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_02_Harmony_Mid_High_Emajor",
+    "start": 21.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Amajor",
+    "start": 28.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Vinnie_Lyric_Amajor",
+    "start": 61.767
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_M_A-D_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "fourth",
+  "a": [
+   9,
+   false
+  ],
+  "b": [
+   2,
+   false
+  ],
+  "a_name": "A",
+  "b_name": "D",
+  "splice_sec": 33.7667,
+  "dur": 68.858,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Amajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tom_Improv_Dmajor",
+    "start": 33.767
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 39.822
+   },
+   {
+    "name": "Jam_Pack_Voices_Stone_Improv_Dmajor",
+    "start": 56.294
+   },
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Dmajor",
+    "start": 61.285
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_M_Am-Dm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "fourth",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Am",
+  "b_name": "Dm",
+  "splice_sec": 28.3209,
+  "dur": 82.998,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Byron_Melody_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Melody_Aminor",
+    "start": 10.813
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Aminor",
+    "start": 16.261
+   },
+   {
+    "name": "Jam_Pack_World_Music_Cuban_Fun_Voices_Aminor",
+    "start": 23.357
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Patience_Oh_Ah_Dminor",
+    "start": 28.321
+   },
+   {
+    "name": "Vox_Melodics_Zane_Calls_Oh_Ah_Dminor",
+    "start": 30.826
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 43.703
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_M_Ebm-F#_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   3,
+   true
+  ],
+  "b": [
+   6,
+   false
+  ],
+  "a_name": "Ebm",
+  "b_name": "F#",
+  "splice_sec": 27.855,
+  "dur": 62.88,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Ebminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Ebminor",
+    "start": 3.424
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Gbmajor",
+    "start": 27.855
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Improv_Gbmajor",
+    "start": 30.637
+   },
+   {
+    "name": "Vox_Melodics_Max_Morning_Verse_F_major",
+    "start": 33.419
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_M_F#m-A_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   6,
+   true
+  ],
+  "b": [
+   9,
+   false
+  ],
+  "a_name": "F#m",
+  "b_name": "A",
+  "splice_sec": 29.5,
+  "dur": 74.792,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Verse_F_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Hook_F_minor",
+    "start": 24.9
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Amajor",
+    "start": 29.5
+   },
+   {
+    "name": "Jam_Pack_Voices_Vinnie_Lyric_Amajor",
+    "start": 63.267
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_M_F#-Ebm_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   6,
+   false
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "F#",
+  "b_name": "Ebm",
+  "splice_sec": 38.6302,
+  "dur": 74.265,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Improv_Gbmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Gbmajor",
+    "start": 2.782
+   },
+   {
+    "name": "Vox_Melodics_Max_Morning_Hook_F_major",
+    "start": 5.564
+   },
+   {
+    "name": "Vox_Melodics_Max_Morning_Oh_Ah_F_major",
+    "start": 20.097
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Jax_Lyric_Ebminor",
+    "start": 38.63
+   },
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Ebminor",
+    "start": 53.136
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Ebminor",
+    "start": 56.559
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_M_Eb-Cm_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   3,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Eb",
+  "b_name": "Cm",
+  "splice_sec": 33.055,
+  "dur": 71.68,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Max_Spin_Verse_D_major",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Andre_Lyric_Cminor",
+    "start": 33.055
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_M_Am-C_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Am",
+  "b_name": "C",
+  "splice_sec": 28.3209,
+  "dur": 63.346,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Clyde_Melody_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Byron_Melody_Aminor",
+    "start": 5.448
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Aminor",
+    "start": 16.261
+   },
+   {
+    "name": "Jam_Pack_World_Music_Cuban_Fun_Voices_Aminor",
+    "start": 23.357
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Devon_Background_Cmajor",
+    "start": 28.321
+   },
+   {
+    "name": "Jam_Pack_Voices_Devon_Improv_Cmajor",
+    "start": 55.921
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_M_Dm-D_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   2,
+   false
+  ],
+  "a_name": "Dm",
+  "b_name": "D",
+  "splice_sec": 26.335,
+  "dur": 61.426,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Calls_Oh_Ah_Dminor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 12.877
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 26.335
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Improv_Dmajor",
+    "start": 42.808
+   },
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Dmajor",
+    "start": 48.862
+   },
+   {
+    "name": "Jam_Pack_Voices_Stone_Improv_Dmajor",
+    "start": 56.735
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_M_C-Cm_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Cm",
+  "splice_sec": 30.6571,
+  "dur": 72.622,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Byron_Improv_Cmajor",
+    "start": 19.622
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Fynn_Improv_Cminor",
+    "start": 30.657
+   },
+   {
+    "name": "Jam_Pack_Voices_Dustin_Improv_Cminor",
+    "start": 64.975
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_M_F#m-F#_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   6,
+   true
+  ],
+  "b": [
+   6,
+   false
+  ],
+  "a_name": "F#m",
+  "b_name": "F#",
+  "splice_sec": 29.5,
+  "dur": 67.615,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Verse_F_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zane_Pockets_Hook_F_minor",
+    "start": 24.9
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Max_Morning_Verse_F_major",
+    "start": 29.5
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_M_Am-A_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   9,
+   false
+  ],
+  "a_name": "Am",
+  "b_name": "A",
+  "splice_sec": 28.3209,
+  "dur": 73.613,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Byron_Melody_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Melody_Aminor",
+    "start": 10.813
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Aminor",
+    "start": 16.261
+   },
+   {
+    "name": "Jam_Pack_World_Music_Cuban_Fun_Voices_Aminor",
+    "start": 23.357
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Amajor",
+    "start": 28.321
+   },
+   {
+    "name": "Jam_Pack_Voices_Vinnie_Lyric_Amajor",
+    "start": 62.088
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_M_D-Dm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   2,
+   false
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "D",
+  "b_name": "Dm",
+  "splice_sec": 35.3909,
+  "dur": 70.53,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Dmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Improv_Dmajor",
+    "start": 7.873
+   },
+   {
+    "name": "Jam_Pack_Voices_Stone_Improv_Dmajor",
+    "start": 13.927
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Dmajor",
+    "start": 18.918
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 35.391
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 38.544
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 52.295
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Oh_Ah_Dminor",
+    "start": 55.448
+   },
+   {
+    "name": "Vox_Melodics_Zane_Calls_Oh_Ah_Dminor",
+    "start": 57.953
+   }
+  ]
+ },
+ {
+  "name": "dev_none_M_C-C_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "C",
+  "splice_sec": 32.045,
+  "dur": 68.75,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Fynn_Improv_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Cody_Lyric_Cmajor",
+    "start": 2.012
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Earl_Lyric_Cmajor",
+    "start": 32.045
+   }
+  ]
+ },
+ {
+  "name": "dev_none_M_Eb-Eb_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   3,
+   false
+  ],
+  "b": [
+   3,
+   false
+  ],
+  "a_name": "Eb",
+  "b_name": "Eb",
+  "splice_sec": 26.9231,
+  "dur": 74.998,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Ebmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Ebmajor",
+    "start": 3.074
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Ebmajor",
+    "start": 6.401
+   },
+   {
+    "name": "Jam_Pack_Voices_Clyde_Improv_Ebmajor",
+    "start": 18.511
+   },
+   {
+    "name": "Jam_Pack_Voices_Mozart_Lyric_Ebmajor",
+    "start": 22.037
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_World_Music_African_Mist_Voice_Ebmajor",
+    "start": 26.923
+   },
+   {
+    "name": "Vox_Melodics_Max_Spin_Verse_D_major",
+    "start": 42.241
+   }
+  ]
+ },
+ {
+  "name": "dev_none_M_E-E_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   4,
+   false
+  ],
+  "b": [
+   4,
+   false
+  ],
+  "a_name": "E",
+  "b_name": "E",
+  "splice_sec": 28.0,
+  "dur": 82.591,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Max_Hiding_05_Harmony_Mid_High_Emajor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_03_Harmony_Low_Mid_Emajor",
+    "start": 7.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_02_Harmony_Mid_High_Emajor",
+    "start": 14.0
+   },
+   {
+    "name": "Vox_Melodics_Max_Hiding_01_Harmony_Mid_Double_Emajor",
+    "start": 21.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Emajor",
+    "start": 28.0
+   }
+  ]
+ },
+ {
+  "name": "dev_none_M_Cm-Cm_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Cm",
+  "splice_sec": 25.325,
+  "dur": 62.95,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Dustin_Improv_Cminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Jeron_Melody_Cminor",
+    "start": 25.325
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cminor",
+    "start": 30.725
+   }
+  ]
+ },
+ {
+  "name": "dev_none_M_Dm-Dm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Dm",
+  "b_name": "Dm",
+  "splice_sec": 35.4388,
+  "dur": 74.734,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Clyde_Lyric_Dminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Dminor",
+    "start": 13.751
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Lyric_Dminor",
+    "start": 16.904
+   },
+   {
+    "name": "Vox_Melodics_Zane_Patience_Oh_Ah_Dminor",
+    "start": 20.057
+   },
+   {
+    "name": "Vox_Melodics_Zane_Calls_Oh_Ah_Dminor",
+    "start": 22.562
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zane_Patience_Verse_Dminor",
+    "start": 35.439
+   }
+  ]
+ },
+ {
+  "name": "dev_half_F_Cm-C#m_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   1,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "C#m",
+  "splice_sec": 35.6022,
+  "dur": 70.627,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Lyric_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tia_Improv_Cminor",
+    "start": 10.2
+   },
+   {
+    "name": "Jam_Pack_Voices_Kayla_Melody_Cminor",
+    "start": 11.425
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Ad_Lib_Dbminor",
+    "start": 35.602
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Verse_Dbminor",
+    "start": 42.449
+   }
+  ]
+ },
+ {
+  "name": "dev_half_F_E-F_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   4,
+   false
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "E",
+  "b_name": "F",
+  "splice_sec": 34.6388,
+  "dur": 72.439,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Emajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Inara_Melody_Fmajor",
+    "start": 34.639
+   },
+   {
+    "name": "Jam_Pack_Voices_Inara_Lyric_Fmajor",
+    "start": 43.239
+   }
+  ]
+ },
+ {
+  "name": "dev_half_F_Dm-Ebm_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "Dm",
+  "b_name": "Ebm",
+  "splice_sec": 27.945,
+  "dur": 72.795,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Improv_Dminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Heartbeat_Verse_D_minor",
+    "start": 27.945
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Story_Verse_D_minor",
+    "start": 47.895
+   }
+  ]
+ },
+ {
+  "name": "dev_half_F_C#m-Dm_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   1,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "C#m",
+  "b_name": "Dm",
+  "splice_sec": 28.285,
+  "dur": 64.47,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Ad_Lib_Dbminor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Hook_Dbminor",
+    "start": 6.847
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Verse_Dbminor",
+    "start": 20.247
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tia_Lyric_Dminor",
+    "start": 28.285
+   },
+   {
+    "name": "Jam_Pack_Voices_Christy_Lyric_Dminor",
+    "start": 30.637
+   },
+   {
+    "name": "Jam_Pack_Voices_Christy_Background_Dminor",
+    "start": 40.896
+   },
+   {
+    "name": "Jam_Pack_Voices_Leena_Improv_Dminor",
+    "start": 44.999
+   }
+  ]
+ },
+ {
+  "name": "dev_half_F_Am-Bbm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   10,
+   true
+  ],
+  "a_name": "Am",
+  "b_name": "Bbm",
+  "splice_sec": 32.8044,
+  "dur": 77.01,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Kayla_Melody_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Carla_Melody_Aminor",
+    "start": 21.77
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_High_A_minor",
+    "start": 32.804
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_High_A_minor",
+    "start": 41.825
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Mid_High_A_minor",
+    "start": 50.846
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_01_Harmony_Mid_Low_A_minor",
+    "start": 59.867
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_F_C#m-Ebm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   1,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "C#m",
+  "b_name": "Ebm",
+  "splice_sec": 26.2,
+  "dur": 62.231,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Verse_Dbminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Hook_D_minor",
+    "start": 26.2
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Story_Verse_D_minor",
+    "start": 37.331
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_F_Cm-Dm_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Dm",
+  "splice_sec": 25.325,
+  "dur": 71.08,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Bailey_Improv_Cminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Improv_Dminor",
+    "start": 25.325
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_F_C-D_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   2,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "D",
+  "splice_sec": 25.825,
+  "dur": 66.795,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Pearl_Melody_Cmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Oh_Ah_Dmajor",
+    "start": 25.825
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Verse_Dmajor",
+    "start": 29.903
+   },
+   {
+    "name": "Jam_Pack_Voices_Yasmin_Melody_Dmajor",
+    "start": 51.973
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_F_F-G_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   5,
+   false
+  ],
+  "b": [
+   7,
+   false
+  ],
+  "a_name": "F",
+  "b_name": "G",
+  "splice_sec": 25.762,
+  "dur": 69.562,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Fmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Oh_Ah_Gmajor",
+    "start": 25.762
+   },
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Ad_Lib_Gmajor",
+    "start": 50.362
+   }
+  ]
+ },
+ {
+  "name": "dev_whole_F_Bbm-Cm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   10,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Bbm",
+  "b_name": "Cm",
+  "splice_sec": 35.4842,
+  "dur": 75.559,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_05_Harmony_Mid_High_A_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_High_A_minor",
+    "start": 9.021
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_01_Harmony_Low_A_minor",
+    "start": 18.042
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Melody_Cminor",
+    "start": 35.484
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_F_D-G_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   2,
+   false
+  ],
+  "b": [
+   7,
+   false
+  ],
+  "a_name": "D",
+  "b_name": "G",
+  "splice_sec": 26.1478,
+  "dur": 80.166,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Oh_Ah_Dmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Verse_Dmajor",
+    "start": 4.078
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Carla_Improv_Gmajor",
+    "start": 26.148
+   },
+   {
+    "name": "Jam_Pack_Voices_Leena_Improv_Gmajor",
+    "start": 30.568
+   },
+   {
+    "name": "Jam_Pack_Voices_Katie_Background_Gmajor",
+    "start": 33.544
+   },
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Oh_Ah_Gmajor",
+    "start": 36.366
+   },
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Ad_Lib_Gmajor",
+    "start": 60.966
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_F_Bbm-Ebm_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   10,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "Bbm",
+  "b_name": "Ebm",
+  "splice_sec": 27.0632,
+  "dur": 82.005,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Mid_Low_A_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Mid_Low_A_minor",
+    "start": 9.021
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Mid_High_A_minor",
+    "start": 18.042
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Oh_Ah_D_minor",
+    "start": 27.063
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Heartbeat_Verse_D_minor",
+    "start": 41.804
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Heartbeat_Hook_D_minor",
+    "start": 61.754
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_F_Am-Dm_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "Am",
+  "b_name": "Dm",
+  "splice_sec": 28.715,
+  "dur": 70.512,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Candy_Lyric_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Carla_Melody_Aminor",
+    "start": 6.916
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Aminor",
+    "start": 17.951
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Donna_Improv_Dminor",
+    "start": 28.715
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Dminor",
+    "start": 49.741
+   },
+   {
+    "name": "Jam_Pack_Voices_Christy_Lyric_Dminor",
+    "start": 60.553
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_F_G-C_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   7,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "G",
+  "b_name": "C",
+  "splice_sec": 29.7181,
+  "dur": 66.082,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Improv_Gmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Katie_Background_Gmajor",
+    "start": 2.976
+   },
+   {
+    "name": "Jam_Pack_Voices_Carla_Improv_Gmajor",
+    "start": 5.798
+   },
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Ad_Lib_Gmajor",
+    "start": 10.218
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Improv_Cmajor",
+    "start": 29.718
+   },
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Cmajor",
+    "start": 40.753
+   },
+   {
+    "name": "Jam_Pack_Voices_Kayla_Melody_Cmajor",
+    "start": 44.882
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Lyric_Cmajor",
+    "start": 53.482
+   }
+  ]
+ },
+ {
+  "name": "dev_fourth_F_C-F_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "F",
+  "splice_sec": 27.475,
+  "dur": 65.275,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Janice_Improv_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Cmajor",
+    "start": 8.9
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Inara_Lyric_Fmajor",
+    "start": 27.475
+   },
+   {
+    "name": "Jam_Pack_Voices_Inara_Melody_Fmajor",
+    "start": 56.975
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_F_F-Dm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   5,
+   false
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "F",
+  "b_name": "Dm",
+  "splice_sec": 29.5,
+  "dur": 67.545,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Inara_Lyric_Fmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Christy_Background_Dminor",
+    "start": 29.5
+   },
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Dminor",
+    "start": 33.604
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_F_E-C#m_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   4,
+   false
+  ],
+  "b": [
+   1,
+   true
+  ],
+  "a_name": "E",
+  "b_name": "C#m",
+  "splice_sec": 34.6388,
+  "dur": 72.164,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Emajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Verse_Dbminor",
+    "start": 34.639
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Verse_Dbminor",
+    "start": 60.839
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_F_Am-C_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Am",
+  "b_name": "C",
+  "splice_sec": 28.6857,
+  "dur": 70.271,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Candy_Lyric_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Kayla_Melody_Aminor",
+    "start": 6.916
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Cmajor",
+    "start": 28.686
+   },
+   {
+    "name": "Jam_Pack_Voices_Darcy_Melody_Cmajor",
+    "start": 32.815
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_F_Dm-F_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "Dm",
+  "b_name": "F",
+  "splice_sec": 33.8,
+  "dur": 88.762,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Nevermore_Verse_Dminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Inara_Lyric_Fmajor",
+    "start": 33.8
+   },
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Fmajor",
+    "start": 63.3
+   }
+  ]
+ },
+ {
+  "name": "dev_relative_F_C-Am_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   9,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Am",
+  "splice_sec": 28.485,
+  "dur": 66.285,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Vera_Improv_Cmajor",
+    "start": 4.129
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ava_Heatwave_Oh_Ah_Aminor",
+    "start": 28.485
+   },
+   {
+    "name": "Vox_Melodics_Ava_Heatwave_Hook_Aminor",
+    "start": 37.085
+   },
+   {
+    "name": "Vox_Melodics_Ava_Heatwave_Verse_Aminor",
+    "start": 49.985
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_F_C-Cm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Cm",
+  "splice_sec": 26.875,
+  "dur": 69.97,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Cmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Donna_Melody_Cminor",
+    "start": 26.875
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Lyric_Cminor",
+    "start": 37.475
+   },
+   {
+    "name": "Jam_Pack_Voices_Rachel_Lyric_Cminor",
+    "start": 55.534
+   },
+   {
+    "name": "Jam_Pack_Voices_Sophie_Improv_Cminor",
+    "start": 59.944
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_F_Dm-D_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   2,
+   true
+  ],
+  "b": [
+   2,
+   false
+  ],
+  "a_name": "Dm",
+  "b_name": "D",
+  "splice_sec": 34.1901,
+  "dur": 75.16,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Donna_Improv_Dminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tia_Lyric_Dminor",
+    "start": 21.026
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Dminor",
+    "start": 23.377
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Yasmin_Melody_Dmajor",
+    "start": 34.19
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Oh_Ah_Dmajor",
+    "start": 49.312
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Verse_Dmajor",
+    "start": 53.39
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_F_Cm-C_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Cm",
+  "b_name": "C",
+  "splice_sec": 32.2191,
+  "dur": 72.244,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Kayla_Improv_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Bailey_Melody_Cminor",
+    "start": 8.159
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Janice_Lyric_Cmajor",
+    "start": 32.219
+   },
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Cmajor",
+    "start": 60.086
+   },
+   {
+    "name": "Jam_Pack_Voices_Rachel_Melody_Cmajor",
+    "start": 64.215
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_F_D-Dm_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   2,
+   false
+  ],
+  "b": [
+   2,
+   true
+  ],
+  "a_name": "D",
+  "b_name": "Dm",
+  "splice_sec": 26.1478,
+  "dur": 65.593,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Oh_Ah_Dmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Sunbreak_Verse_Dmajor",
+    "start": 4.078
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Donna_Improv_Dminor",
+    "start": 26.148
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Dminor",
+    "start": 47.174
+   },
+   {
+    "name": "Jam_Pack_Voices_Janice_Lyric_Dminor",
+    "start": 57.986
+   }
+  ]
+ },
+ {
+  "name": "dev_parallel_F_C-Cm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Cm",
+  "splice_sec": 33.5,
+  "dur": 72.059,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Rachel_Melody_Cmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Lyric_Cminor",
+    "start": 33.5
+   },
+   {
+    "name": "Jam_Pack_Voices_Donna_Melody_Cminor",
+    "start": 43.7
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Lyric_Cminor",
+    "start": 54.3
+   }
+  ]
+ },
+ {
+  "name": "dev_none_F_Cm-Cm_0",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Cm",
+  "splice_sec": 25.285,
+  "dur": 63.39,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Bailey_Melody_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tia_Improv_Cminor",
+    "start": 24.06
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Kayla_Improv_Cminor",
+    "start": 25.285
+   },
+   {
+    "name": "Jam_Pack_Voices_Donna_Melody_Cminor",
+    "start": 33.444
+   },
+   {
+    "name": "Jam_Pack_Voices_Donna_Improv_Cminor",
+    "start": 44.044
+   }
+  ]
+ },
+ {
+  "name": "dev_none_F_C-C_1",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "C",
+  "splice_sec": 29.655,
+  "dur": 71.19,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Gospel_Lyric_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Janice_Improv_Cmajor",
+    "start": 4.129
+   },
+   {
+    "name": "Jam_Pack_Voices_Janice_Lyric_Cmajor",
+    "start": 13.029
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Improv_Cmajor",
+    "start": 29.655
+   },
+   {
+    "name": "Jam_Pack_Voices_Bailey_Improv_Cmajor",
+    "start": 40.69
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Lyric_Cmajor",
+    "start": 49.29
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Cmajor",
+    "start": 62.19
+   }
+  ]
+ },
+ {
+  "name": "dev_none_F_C#m-C#m_2",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   1,
+   true
+  ],
+  "b": [
+   1,
+   true
+  ],
+  "a_name": "C#m",
+  "b_name": "C#m",
+  "splice_sec": 25.8942,
+  "dur": 63.509,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Hook_Dbminor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Oh_Ah_Dbminor",
+    "start": 13.4
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Ad_Lib_Dbminor",
+    "start": 25.894
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Ad_Lib_Dbminor",
+    "start": 32.741
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Verse_Dbminor",
+    "start": 38.441
+   }
+  ]
+ },
+ {
+  "name": "dev_none_F_Bbm-Bbm_3",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   10,
+   true
+  ],
+  "b": [
+   10,
+   true
+  ],
+  "a_name": "Bbm",
+  "b_name": "Bbm",
+  "splice_sec": 27.0632,
+  "dur": 79.187,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Mid_A_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_05_Harmony_Mid_High_A_minor",
+    "start": 9.021
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_High_A_minor",
+    "start": 18.042
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Rachel_Improv_Bbminor",
+    "start": 27.063
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_High_A_minor",
+    "start": 35.582
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_01_Harmony_High_A_minor",
+    "start": 44.603
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_01_Harmony_Mid_High_A_minor",
+    "start": 62.045
+   }
+  ]
+ },
+ {
+  "name": "dev_none_F_Ebm-Ebm_4",
+  "source": "al",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   3,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "Ebm",
+  "b_name": "Ebm",
+  "splice_sec": 37.15,
+  "dur": 87.872,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Heartbeat_Verse_D_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Story_Hook_D_minor",
+    "start": 19.95
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Hook_D_minor",
+    "start": 37.15
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Story_Ad_Lib_D_minor",
+    "start": 48.281
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Oh_Ah_D_minor",
+    "start": 52.881
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Heartbeat_Hook_D_minor",
+    "start": 67.622
+   }
+  ]
+ },
+ {
+  "name": "holdout_relative_M_Am-C_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Am",
+  "b_name": "C",
+  "splice_sec": 29.6275,
+  "dur": 78.385,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Mozart_Lyric_Aminor",
+    "start": 10.374
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Aminor",
+    "start": 18.593
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Devon_Melody_Cmajor",
+    "start": 29.628
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cmajor",
+    "start": 39.828
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Cmajor",
+    "start": 64.328
+   }
+  ]
+ },
+ {
+  "name": "holdout_relative_M_C-Am_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   9,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Am",
+  "splice_sec": 35.0,
+  "dur": 73.385,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Cody_Improv_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cmajor",
+    "start": 10.5
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Aminor",
+    "start": 35.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Aminor",
+    "start": 46.035
+   }
+  ]
+ },
+ {
+  "name": "holdout_relative_M_Am-C_2",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "relative",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Am",
+  "b_name": "C",
+  "splice_sec": 29.6275,
+  "dur": 83.369,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Mozart_Lyric_Aminor",
+    "start": 10.374
+   },
+   {
+    "name": "Jam_Pack_Voices_Dustin_Improv_Aminor",
+    "start": 18.593
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Cody_Improv_Cmajor",
+    "start": 29.628
+   },
+   {
+    "name": "Jam_Pack_Voices_Fynn_Lyric_Cmajor",
+    "start": 40.128
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cmajor",
+    "start": 59.169
+   }
+  ]
+ },
+ {
+  "name": "holdout_parallel_M_C-Cm_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Cm",
+  "splice_sec": 39.8,
+  "dur": 78.135,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Cody_Melody_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cmajor",
+    "start": 15.3
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Cminor",
+    "start": 39.8
+   },
+   {
+    "name": "Jam_Pack_Voices_Byron_Lyric_Cminor",
+    "start": 42.275
+   },
+   {
+    "name": "Jam_Pack_Voices_Devon_Improv_Cminor",
+    "start": 69.007
+   }
+  ]
+ },
+ {
+  "name": "holdout_parallel_M_Cm-C_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "Cm",
+  "b_name": "C",
+  "splice_sec": 26.7319,
+  "dur": 76.432,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Byron_Lyric_Cminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Devon_Melody_Cmajor",
+    "start": 26.732
+   },
+   {
+    "name": "Jam_Pack_Voices_Cody_Melody_Cmajor",
+    "start": 36.932
+   },
+   {
+    "name": "Jam_Pack_Voices_Andre_Improv_Cmajor",
+    "start": 52.232
+   }
+  ]
+ },
+ {
+  "name": "holdout_parallel_M_C-Cm_2",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "parallel",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Cm",
+  "splice_sec": 28.015,
+  "dur": 75.565,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Cody_Improv_Cmajor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tom_Lyric_Cmajor",
+    "start": 10.5
+   },
+   {
+    "name": "Jam_Pack_Voices_Fynn_Lyric_Cmajor",
+    "start": 24.858
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Byron_Lyric_Cminor",
+    "start": 28.015
+   },
+   {
+    "name": "Jam_Pack_Voices_Seth_Lyric_Cminor",
+    "start": 54.747
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Cminor",
+    "start": 57.222
+   }
+  ]
+ },
+ {
+  "name": "holdout_none_M_Am-Am_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   9,
+   true
+  ],
+  "b": [
+   9,
+   true
+  ],
+  "a_name": "Am",
+  "b_name": "Am",
+  "splice_sec": 30.2886,
+  "dur": 68.014,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Dustin_Improv_Aminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Mozart_Lyric_Aminor",
+    "start": 11.035
+   },
+   {
+    "name": "Jam_Pack_Voices_Tristan_Melody_Aminor",
+    "start": 19.254
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Nathan_Improv_Aminor",
+    "start": 30.289
+   },
+   {
+    "name": "Jam_Pack_Voices_Ricky_Lyric_Aminor",
+    "start": 40.663
+   }
+  ]
+ },
+ {
+  "name": "holdout_none_M_Cm-Cm_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "none",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Cm",
+  "splice_sec": 29.0918,
+  "dur": 64.957,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Emery_Melody_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Nathan_Lyric_Cminor",
+    "start": 10.449
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Byron_Lyric_Cminor",
+    "start": 29.092
+   },
+   {
+    "name": "Jam_Pack_Voices_Devon_Improv_Cminor",
+    "start": 55.824
+   }
+  ]
+ },
+ {
+  "name": "holdout_half_F_Cm-C#m_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   1,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "C#m",
+  "splice_sec": 28.815,
+  "dur": 68.974,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Carla_Improv_Cminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Hook_Dbminor",
+    "start": 28.815
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Oh_Ah_Dbminor",
+    "start": 62.274
+   }
+  ]
+ },
+ {
+  "name": "holdout_half_F_Cm-C#m_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "half",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   1,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "C#m",
+  "splice_sec": 31.215,
+  "dur": 71.374,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Bailey_Background_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Rachel_Improv_Cminor",
+    "start": 5.086
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Hook_Dbminor",
+    "start": 31.215
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Mind_Games_Oh_Ah_Dbminor",
+    "start": 64.674
+   }
+  ]
+ },
+ {
+  "name": "holdout_whole_F_C#m-Ebm_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   1,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "C#m",
+  "b_name": "Ebm",
+  "splice_sec": 33.459,
+  "dur": 76.038,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Automatic_Hook_Dbminor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Verse_D_minor",
+    "start": 33.459
+   }
+  ]
+ },
+ {
+  "name": "holdout_whole_F_Bbm-Cm_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "whole",
+  "a": [
+   10,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Bbm",
+  "b_name": "Cm",
+  "splice_sec": 29.6632,
+  "dur": 69.518,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Ice_Chill_Hook_A_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Low_A_minor",
+    "start": 2.6
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Low_A_minor",
+    "start": 11.621
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_A_minor",
+    "start": 20.642
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Christy_Improv_Cminor",
+    "start": 29.663
+   },
+   {
+    "name": "Jam_Pack_Voices_Rachel_Improv_Cminor",
+    "start": 43.685
+   }
+  ]
+ },
+ {
+  "name": "holdout_fourth_F_G-C_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   7,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "G",
+  "b_name": "C",
+  "splice_sec": 25.325,
+  "dur": 65.369,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Hook_Gmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Carla_Melody_Cmajor",
+    "start": 25.325
+   },
+   {
+    "name": "Jam_Pack_Voices_Jessi_Improv_Cmajor",
+    "start": 44.169
+   },
+   {
+    "name": "Jam_Pack_Voices_Kayla_Lyric_Cmajor",
+    "start": 57.069
+   }
+  ]
+ },
+ {
+  "name": "holdout_fourth_F_Bbm-Ebm_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "fourth",
+  "a": [
+   10,
+   true
+  ],
+  "b": [
+   3,
+   true
+  ],
+  "a_name": "Bbm",
+  "b_name": "Ebm",
+  "splice_sec": 27.0632,
+  "dur": 69.643,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_A_minor",
+    "start": 0.0
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Low_A_minor",
+    "start": 9.021
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_05_Harmony_High_A_minor",
+    "start": 18.042
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Playtime_Verse_D_minor",
+    "start": 27.063
+   }
+  ]
+ },
+ {
+  "name": "holdout_relative_F_C#-Bbm_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   1,
+   false
+  ],
+  "b": [
+   10,
+   true
+  ],
+  "a_name": "C#",
+  "b_name": "Bbm",
+  "splice_sec": 28.4727,
+  "dur": 66.857,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Dbmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Zoe_Ice_Chill_Hook_A_minor",
+    "start": 28.473
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Low_A_minor",
+    "start": 31.073
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Low_A_minor",
+    "start": 40.094
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_05_Harmony_High_A_minor",
+    "start": 49.115
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_A_minor",
+    "start": 58.136
+   }
+  ]
+ },
+ {
+  "name": "holdout_relative_F_C#-Bbm_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "relative",
+  "a": [
+   1,
+   false
+  ],
+  "b": [
+   10,
+   true
+  ],
+  "a_name": "C#",
+  "b_name": "Bbm",
+  "splice_sec": 28.4727,
+  "dur": 66.857,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Leena_Melody_Dbmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_03_Harmony_Mid_A_minor",
+    "start": 28.473
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_02_Harmony_Low_A_minor",
+    "start": 37.494
+   },
+   {
+    "name": "Vox_Melodics_Zoe_Ice_Chill_Hook_A_minor",
+    "start": 46.515
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_04_Harmony_Low_A_minor",
+    "start": 49.115
+   },
+   {
+    "name": "Vox_Melodics_Ruby_Sunrise_05_Harmony_High_A_minor",
+    "start": 58.136
+   }
+  ]
+ },
+ {
+  "name": "holdout_parallel_F_G-Gm_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   7,
+   false
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "G",
+  "b_name": "Gm",
+  "splice_sec": 25.325,
+  "dur": 64.578,
+  "a_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Hook_Gmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Darcy_Improv_Gminor",
+    "start": 25.325
+   }
+  ]
+ },
+ {
+  "name": "holdout_parallel_F_Gm-G_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "parallel",
+  "a": [
+   7,
+   true
+  ],
+  "b": [
+   7,
+   false
+  ],
+  "a_name": "Gm",
+  "b_name": "G",
+  "splice_sec": 33.585,
+  "dur": 74.985,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Jessi_Melody_Gminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Darcy_Improv_Gminor",
+    "start": 11.386
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Vox_Melodics_Ruby_No_Fight_Hook_Gmajor",
+    "start": 33.585
+   }
+  ]
+ },
+ {
+  "name": "holdout_none_F_C-C_0",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "C",
+  "splice_sec": 30.155,
+  "dur": 80.255,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Vera_Melody_Cmajor",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Kayla_Lyric_Cmajor",
+    "start": 30.155
+   },
+   {
+    "name": "Jam_Pack_Voices_Bailey_Melody_Cmajor",
+    "start": 38.755
+   }
+  ]
+ },
+ {
+  "name": "holdout_none_F_Cm-Cm_1",
+  "source": "al",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "none",
+  "a": [
+   0,
+   true
+  ],
+  "b": [
+   0,
+   true
+  ],
+  "a_name": "Cm",
+  "b_name": "Cm",
+  "splice_sec": 27.545,
+  "dur": 63.98,
+  "a_songs": [
+   {
+    "name": "Jam_Pack_Voices_Bailey_Background_Cminor",
+    "start": 0.0
+   },
+   {
+    "name": "Jam_Pack_Voices_Tia_Lyric_Cminor",
+    "start": 5.086
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "Jam_Pack_Voices_Carla_Improv_Cminor",
+    "start": 27.545
+   }
+  ]
+ },
+ {
+  "name": "dev_csd_LI_soprano_1-ND_soprano_2",
+  "source": "csd:other",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "csd",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Gm",
+  "splice_sec": 36.055,
+  "dur": 76.63,
+  "a_songs": [
+   {
+    "name": "CSD_LI_soprano_1",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_ND_soprano_2",
+    "start": 36.055
+   }
+  ]
+ },
+ {
+  "name": "dev_csd_ER_soprano_2-LI_soprano_3",
+  "source": "csd:other",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "csd",
+  "a": [
+   5,
+   false
+  ],
+  "b": [
+   0,
+   false
+  ],
+  "a_name": "F",
+  "b_name": "C",
+  "splice_sec": 35.235,
+  "dur": 70.8,
+  "a_songs": [
+   {
+    "name": "CSD_ER_soprano_2",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_LI_soprano_3",
+    "start": 35.235
+   }
+  ]
+ },
+ {
+  "name": "dev_csd_LI_tenor_1-ER_tenor_2",
+  "source": "csd:fourth",
+  "split": "dev",
+  "sex": "Male",
+  "kind": "csd",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "F",
+  "splice_sec": 29.635,
+  "dur": 64.66,
+  "a_songs": [
+   {
+    "name": "CSD_LI_tenor_1",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_ER_tenor_2",
+    "start": 29.635
+   }
+  ]
+ },
+ {
+  "name": "dev_csd_ND_soprano_3-ER_soprano_1",
+  "source": "csd:other",
+  "split": "dev",
+  "sex": "Female",
+  "kind": "csd",
+  "a": [
+   7,
+   true
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "Gm",
+  "b_name": "F",
+  "splice_sec": 26.685,
+  "dur": 72.09,
+  "a_songs": [
+   {
+    "name": "CSD_ND_soprano_3",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_ER_soprano_1",
+    "start": 26.685
+   }
+  ]
+ },
+ {
+  "name": "holdout_csd_LI_soprano_4-ND_soprano_4",
+  "source": "csd:other",
+  "split": "holdout",
+  "sex": "Female",
+  "kind": "csd",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   7,
+   true
+  ],
+  "a_name": "C",
+  "b_name": "Gm",
+  "splice_sec": 35.795,
+  "dur": 81.1,
+  "a_songs": [
+   {
+    "name": "CSD_LI_soprano_4",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_ND_soprano_4",
+    "start": 35.795
+   }
+  ]
+ },
+ {
+  "name": "holdout_csd_LI_tenor_4-ER_tenor_4",
+  "source": "csd:fourth",
+  "split": "holdout",
+  "sex": "Male",
+  "kind": "csd",
+  "a": [
+   0,
+   false
+  ],
+  "b": [
+   5,
+   false
+  ],
+  "a_name": "C",
+  "b_name": "F",
+  "splice_sec": 39.845,
+  "dur": 74.89,
+  "a_songs": [
+   {
+    "name": "CSD_LI_tenor_4",
+    "start": 0.0
+   }
+  ],
+  "b_songs": [
+   {
+    "name": "CSD_ER_tenor_4",
+    "start": 39.845
+   }
+  ]
+ }
+]

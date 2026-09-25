@@ -330,3 +330,47 @@ Singers uncorrected: 25.6 / 29.9% within 10 c (CSD choir: 31.7 / 37.4%).
   a neighbouring scale tone), so key mode gives no clear gain here, unlike the choir. AutoKey on is
   within noise of Chromatic (-1.9 dev / +0.7 holdout) with a longer tail than Chromatic.
 - Small set (1,024 notes): read differences under ~2 points as noise.
+
+## Round 14 (2026-09-25): real-vocal key changes
+`key_change_real.py` (make | run <tag>), replacing reliance on the synthetic `key_change.py`. Each clip
+splices REAL lead vocals from `al_manifest.json` (Round 12), one singer sex: key A section (>= 25 s,
+songs labelled key A, same pack preferred) then key B section (>= 35 s, other songs), cut at the
+quietest point below 40 / 55 s, 0.3 s gaps, levelled; no pitch shifting. Types: up half / whole /
+fourth (same mode), parallel, relative, and a no-change control (key A -> other songs in key A).
+Dev 60 clips (5 per type x sex), holdout 20 (only dev or only holdout songs per clip; holdout male
+has no material for half / whole / fourth). Plus 6 CSD clips (choir piece -> another singer's
+piece in another key; 4 dev, 2 holdout). 86 WAVs, 561 MB in `key_change_real/` (ignored).
+Traces only (AutoKey on, manual key untouched, block 512, Classic); scored on the NOTE SET, so
+relative and none are 'no set change'. Delay = until the used key is B's set to the end (strict)
+or B's set with no wrong set afterwards, chromatic allowed (lenient); wrong = a set that is neither
+the current section's nor chromatic.
+Production (7a8dd57+), AL clips (set change = half/whole/fourth/parallel; no change = relative/none):
+| | dev change (40) | dev no change (20) | holdout change (11) | holdout no change (9) |
+|---|---|---|---|---|
+| followed strict / lenient | 17 / 27 | - | 1 / 5 | - |
+| delay median strict / lenient | 25.1 / 18.2 s | - | 34.9 / 20.2 s | - |
+| fail-safe (old set gone) median / p90 | 1.4 / 16.4 s | - | 11.7 / 21.6 s | - |
+| wrong % pre / 0-10 / 10-30 / 30+ s | 10.0 / 34.1 / 10.8 / 5.8 | 10.8 / 7.8 / 0.1 / 0.0 | 13.6 / 44.1 / 26.8 / 14.4 | 24.6 / 29.7 / 9.1 / 11.7 |
+| false transitions / clip, pre / post | 2.3 / 1.9 | 2.4 / 0.3 | 2.1 / 3.6 | 5.1 / 3.0 |
+| chatter (set changes / min) | 15.0 | 16.9 | 16.7 | 15.9 |
+| coverage (right set) pre / post | 19.9 / 22.7% | 25.2 / 54.5% | 24.0 / 6.9% | 9.8 / 24.8% |
+- By type (dev, strict followed, lenient median): fourth 8/10, 20.6 s; whole 4/10, 17.8 s;
+  parallel 4/10, 7.8 s; half 1/10, 24.0 s (wrong 63.9% of the first 10 s, mostly the old key held,
+  which shares only 2 notes with the new one). CSD dev 2/4 followed, lenient 25.4 s.
+- No-change controls: 17/20 dev clips have at least one switch to a wrong set, nearly all before the
+  splice (2.4 vs 0.3 per clip after it); dev wrong time is ~0 from 10 s after the splice on.
+- Memory 30 s (reference only): dev set change lenient followed 23/40 (27), median 20.3 s (18.2),
+  wrong 0-10 / 10-30 s 39.0 / 18.5% (34.1 / 10.8), coverage post 16.9% (22.7); no-change coverage
+  post 60.7% (54.5), chatter 14.2 / min (16.9). Slower on modulations again, as in Round 11.
+- Takeaways: on real vocals AutoKey mostly abstains (~20% right-set coverage before the splice); a
+  modulation leaves the old set applied for several seconds (mean 2.1 s per clip dev, 4.3 s holdout)
+  and a half-step change is rarely followed within 35-55 s. Chatter ~15 used-set changes / min
+  (chromatic counted as a state), vs ~2-5 switches into a wrong set per clip. Holdout is worse on
+  every metric (raw verdict right before the splice 50 / 22% vs 57 / 54% dev); it is small (20
+  clips, several share songs) and male-poor.
+- Caveats: Apple key labels are unverified and the loops may be pre-tuned. A check independent of
+  the key detector (share of sung notes inside the labelled set vs the best-fitting diatonic set)
+  agrees within ~1-2 points on average (only 1/86 clips > 10 points worse), but melodies often fit a
+  neighbouring set almost as well. Material is thin: few keys have >= 25-35 s per sex, so dev clips
+  reuse songs and some key pairs; splices are song boundaries (new singer, timbre, level), not a
+  modulation within one performance. The strict delay is harsh (any later chromatic frame resets it).

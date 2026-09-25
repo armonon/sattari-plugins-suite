@@ -13,6 +13,7 @@ import csv, json, os, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np
+from diskguard import require_free
 from pitchref import load, f0, SR
 HERE = Path(__file__).parent; DS = Path.home() / 'datasets/vocadito'; WORK = HERE / 'vocadito_work'; WORK.mkdir(exist_ok=True)
 B = Path(os.environ.get('BENCH', str(HERE.parents[1] / 'build/auto-pitch-neural/AutoPitchBench')))
@@ -52,6 +53,7 @@ def ref(path, lat=0):
     m, _ = f0(load(path)[lat:], model='tiny'); np.save(c, m); return m
 
 def score(tag, split, mode, extra):
+    require_free()
     def run(t):
         src = WORK / f'v{t}.wav'
         if not src.exists():
