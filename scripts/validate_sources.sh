@@ -10,8 +10,9 @@ from pathlib import Path
 required = [
     'plugins/sub-conjurer/CMakeLists.txt',
     'plugins/stemdeck/CMakeLists.txt',
-    'plugins/stemdeck/src/PluginHostManager.cpp',
-    'plugins/stemdeck/src/PluginHostManager.h',
+    # PluginHostManager.{h,cpp} were removed as dead code in 3384c63; HostGraph is the host scaffold.
+    'plugins/stemdeck/src/HostGraph.cpp',
+    'plugins/stemdeck/src/HostGraph.h',
     'plugins/stemdeck/docs/stemdeck-sale-readiness-gates.md',
     'scripts/stemdeck_manual_validation_template.sh',
     'scripts/validate_stemdeck_app_bundle.sh',

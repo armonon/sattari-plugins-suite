@@ -8,3 +8,4 @@ synth_pitch/*.json
 synth_pitch/*_oracle.txt
 __pycache__/
 csd_work/
+key_change/
