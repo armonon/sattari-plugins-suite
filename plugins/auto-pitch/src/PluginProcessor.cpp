@@ -193,6 +193,8 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     apvts.addParameterListener ("extremeLive", this);
     apvts.addParameterListener ("lowLatency", this);
     apvts.addParameterListener ("scale", this);
+    apvts.addParameterListener ("keyRoot", this);
+    apvts.addParameterListener ("scaleMode", this);
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
     // the mono engines — listen so a toggle refreshes the host delay-comp figure.
     apvts.addParameterListener ("polyphonic", this);
@@ -218,6 +220,8 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     apvts.removeParameterListener ("extremeLive", this);
     apvts.removeParameterListener ("lowLatency", this);
     apvts.removeParameterListener ("scale", this);
+    apvts.removeParameterListener ("keyRoot", this);
+    apvts.removeParameterListener ("scaleMode", this);
     apvts.removeParameterListener ("polyphonic", this);
     apvts.removeParameterListener ("xposeMode", this);
     apvts.removeParameterListener ("enableCorrection", this);
@@ -1230,6 +1234,14 @@ int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
 
 void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
 {
+    // A manual Key / Scale choice by the user or host (not a session restore and not
+    // the internal Scale -> scaleMode mirror) makes the manual key an explicit
+    // decision that AutoKey may fall back to.
+    if ((parameterID == "keyRoot" || parameterID == "scale" || parameterID == "scaleMode")
+        && ! restoringKeyState.load (std::memory_order_acquire)
+        && ! scaleMirrorInProgress.load (std::memory_order_acquire))
+        manualKeyExplicit.store (true, std::memory_order_relaxed);
+
     // Preserve automation/session compatibility for the original 3-choice Scale
     // parameter. New UI selections write scaleMode immediately afterwards, while
     // old hosts/presets that only know Scale still select the expected base mode.
@@ -1250,7 +1262,11 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
         if (juce::MessageManager::existsAndIsCurrentThread())
         {
             if (auto* extended = apvts.getParameter ("scaleMode"))
+            {
+                scaleMirrorInProgress.store (true, std::memory_order_release);
                 extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+                scaleMirrorInProgress.store (false, std::memory_order_release);
+            }
         }
         else
         {
@@ -1313,7 +1329,11 @@ void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
         const int wantScaleMode = pendingScaleMirror.exchange (-1, std::memory_order_acquire);
         if (wantScaleMode >= 0)
             if (auto* extended = apvts.getParameter ("scaleMode"))
+            {
+                scaleMirrorInProgress.store (true, std::memory_order_release);
                 extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+                scaleMirrorInProgress.store (false, std::memory_order_release);
+            }
     }
 
     // If the Low Latency floor changed, build a fresh PSOLA set on THIS (message)
@@ -1857,7 +1877,17 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
         && (userScale == 0 || userScale == 1))
         return juce::jlimit (0, 1, detectedScale);
 
+    if (autoKeyFallsBackToChromatic (detectedConfidence))
+        return 2;   // chromatic: no trusted key and no key the user chose
+
     return juce::jlimit (0, scaleChoices.size() - 1, userScale);
+}
+
+bool SattariAutoPitchAudioProcessor::autoKeyFallsBackToChromatic (float detectedConfidence) const
+{
+    return apvts.getRawParameterValue ("autoKey")->load() > 0.5f
+        && detectedConfidence < kMinBusKeyConfidence
+        && ! manualKeyExplicit.load (std::memory_order_relaxed);
 }
 
 bool SattariAutoPitchAudioProcessor::keyMapDriving() const
@@ -1921,7 +1951,7 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
         o.scale = detectedConfidence >= kMinBusKeyConfidence
                   && (userScale == 0 || userScale == 1)
                 ? juce::jlimit (0, 1, detectedScale)
-                : userScale;
+                : (autoKeyFallsBackToChromatic (detectedConfidence) ? 2 : userScale);
         o.confidence = detectedConfidence;
         return o;
     }
@@ -6175,6 +6205,7 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 {
     auto state = apvts.copyState();
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+    state.setProperty ("manualKeyExplicit", manualKeyExplicit.load (std::memory_order_relaxed), nullptr);
 
     // Persist the Track Key Map so reloading a project restores the timeline.
     juce::ValueTree km ("KeyMap");
@@ -6360,6 +6391,10 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
 
         midiLearn.loadFrom (restored);
 
+        // Restoring a session is not a user key choice; the saved flag decides.
+        // Sessions saved before the flag existed keep their manual key as the
+        // fallback, exactly as they behaved when saved.
+        restoringKeyState.store (true, std::memory_order_release);
         apvts.replaceState (restored);
         if (! hasExtendedScale)
         {
@@ -6367,6 +6402,10 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                 juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
             setParameterValue ("scaleMode", (float) legacy);
         }
+        manualKeyExplicit.store (restored.hasProperty ("manualKeyExplicit")
+                                     ? (bool) restored.getProperty ("manualKeyExplicit") : true,
+                                 std::memory_order_relaxed);
+        restoringKeyState.store (false, std::memory_order_release);
     }
 }
 

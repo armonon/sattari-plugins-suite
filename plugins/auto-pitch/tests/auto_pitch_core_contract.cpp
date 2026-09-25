@@ -1292,11 +1292,13 @@ int main (int argc, char** argv)
     //  hold: a real key must clear the gate, and noise must not. Testing only
     //  the second would pass trivially if the gate rejected everything.
     {
-        auto runKey = [&] (const juce::AudioBuffer<float>& in)
+        auto runKey = [&] (const juce::AudioBuffer<float>& in, int manualRoot = -1, int manualScaleMode = -1)
         {
             SattariAutoPitchAudioProcessor p;
             auto& a = p.parameters();
             setParameter (a, "autoKey", 1.0f);
+            if (manualRoot >= 0)      setParameter (a, "keyRoot", (float) manualRoot);
+            if (manualScaleMode >= 0) setParameter (a, "scaleMode", (float) manualScaleMode);
             setParameter (a, "followSongKey", 0.0f);
             setParameter (a, "enableCorrection", 1.0f);
             p.setNonRealtime (true);
@@ -1353,15 +1355,66 @@ int main (int argc, char** argv)
                       << noiseKey.confidence << " >= " << gate << "\n";
             return 1;
         }
-        if (noiseKey.root != 9 || noiseKey.scale != 1)
+        //  Fallback rules below the gate (2026-09-24):
+        //    confident                          -> detected key
+        //    not confident + explicit manual key -> that manual key
+        //    not confident + untouched default   -> Chromatic (A minor is not a decision)
+        if (! (tonalKey.root == 0 && tonalKey.scale == 0))
         {
-            std::cerr << "AutoKey No Result did not retain the manual A minor fallback: "
-                      << noiseKey.root << "/" << noiseKey.scale << "\n";
+            std::cerr << "Confident AutoKey did not use the detected C major: "
+                      << tonalKey.root << "/" << tonalKey.scale << "\n";
             return 1;
+        }
+        if (noiseKey.scale != 2)
+        {
+            std::cerr << "AutoKey No Result with an untouched manual key did not fall back to Chromatic: scale "
+                      << noiseKey.scale << "\n";
+            return 1;
+        }
+        const auto explicitAMinor = runKey (noise, 9, 1);    // same VALUE as the default, chosen on purpose
+        if (explicitAMinor.root != 9 || explicitAMinor.scale != 1)
+        {
+            std::cerr << "AutoKey No Result ignored an explicitly chosen A minor: "
+                      << explicitAMinor.root << "/" << explicitAMinor.scale << "\n";
+            return 1;
+        }
+        const auto explicitDMajor = runKey (noise, 2, 0);
+        if (explicitDMajor.root != 2 || explicitDMajor.scale != 0)
+        {
+            std::cerr << "AutoKey No Result ignored an explicitly chosen D major: "
+                      << explicitDMajor.root << "/" << explicitDMajor.scale << "\n";
+            return 1;
+        }
+
+        //  The explicit/untouched distinction is session state: it survives save and
+        //  reload, a restore is not itself a choice, and pre-flag sessions keep their
+        //  manual key as the fallback.
+        {
+            auto roundTrip = [] (SattariAutoPitchAudioProcessor& from, bool stripFlag)
+            {
+                juce::MemoryBlock mb; from.getStateInformation (mb);
+                if (stripFlag)
+                {
+                    auto xml = juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize());
+                    xml->removeAttribute ("manualKeyExplicit");
+                    mb.reset(); juce::AudioProcessor::copyXmlToBinary (*xml, mb);
+                }
+                auto to = std::make_unique<SattariAutoPitchAudioProcessor>();
+                to->setStateInformation (mb.getData(), (int) mb.getSize());
+                return to->manualKeyIsExplicit();
+            };
+            SattariAutoPitchAudioProcessor untouched, chosen;
+            setParameter (chosen.parameters(), "keyRoot", 4.0f);
+            if (untouched.manualKeyIsExplicit() || ! chosen.manualKeyIsExplicit()
+                || roundTrip (untouched, false) || ! roundTrip (chosen, false) || ! roundTrip (untouched, true))
+            {
+                std::cerr << "Manual-key intent did not persist correctly through save/restore\n";
+                return 1;
+            }
         }
         std::cout << "  autoKeyGate=tonal " << tonalKey.confidence
                   << " >= " << gate << " > noise " << noiseKey.confidence
-                  << " (manual fallback retained)\n";
+                  << " (untouched -> Chromatic; explicit manual key kept; persists)\n";
     }
 
     // --- Dynamic Sattari Key -> Auto Pitch handoff -------------------------

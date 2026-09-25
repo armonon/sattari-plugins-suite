@@ -431,8 +431,17 @@ public:
     //  swap can promote a runner-up, so below zero it has overridden its own
     //  ranking and is guessing outright.
     static constexpr float kMinBusKeyConfidence = (float) sattari::dsp::kReleaseKeyConfidence;
+    std::atomic<bool> manualKeyExplicit { false };
+    std::atomic<bool> restoringKeyState { false };
+    std::atomic<bool> scaleMirrorInProgress { false };
+    bool autoKeyFallsBackToChromatic (float detectedConfidence) const;
 
     KeyOrigin currentKeyOrigin() const;
+    // True once the user (or host automation / an imported trace) has chosen the
+    // manual Key / Scale. Below the AutoKey confidence gate an explicit manual key is
+    // the fallback; the untouched factory default (A minor) is not a decision, so
+    // the fallback is Chromatic instead. Persisted with the session.
+    bool manualKeyIsExplicit() const noexcept { return manualKeyExplicit.load (std::memory_order_relaxed); }
 
     //  Full-song drop analysis (ported from Sattari Key): decode + finalised
     //  SongKeyEstimator + TempoEstimator on a background thread. The finalised

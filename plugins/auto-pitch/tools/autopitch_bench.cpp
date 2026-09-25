@@ -60,6 +60,7 @@ struct Args
     bool   liveMode    = false;
     bool noHysteresis = false;
     bool realtime = false;
+    bool manualKeyUntouched = false;   // leave Key/Scale at the factory default (not a user choice)
     bool nonRealtime = false;   // --nonrealtime: host bounce (neural pitch inference runs in-line, deterministic)
     double keyMemorySec = -1.0;   // --autokey-memory S (sung-note histogram time constant)
     int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
@@ -182,6 +183,7 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--live-mode")   { a.liveMode = true; }
         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
         else if (arg == "--realtime") { a.realtime = true; }
+        else if (arg == "--manual-key-untouched") { a.manualKeyUntouched = true; }
         else if (arg == "--nonrealtime") { a.nonRealtime = true; }
         else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
         else if (arg == "--autokey-memory" && hasNext) { a.keyMemorySec = std::stod (argv[++i]); }
@@ -245,9 +247,9 @@ int main (int argc, char** argv)
     const int styleIndex = styleStringToIndex (a.style);
     const float scaleIndex = a.scale == "minor" ? 1.0f : a.scale == "chromatic" ? 2.0f : 0.0f;
     bool paramsOk = true;
-    paramsOk &= setParam (apvts, "keyRoot",          (float) rootStringToIndex (a.key));
-    paramsOk &= setParam (apvts, "scale",            scaleIndex);
-    paramsOk &= setParam (apvts, "scaleMode",        scaleIndex);
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "keyRoot", (float) rootStringToIndex (a.key));
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "scale", scaleIndex);
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "scaleMode", scaleIndex);
     paramsOk &= setParam (apvts, "style",            (float) styleIndex);
     paramsOk &= setParam (apvts, "autoKey",          a.autoKey ? 1.0f : 0.0f);
     paramsOk &= setParam (apvts, "amount",           a.amount);

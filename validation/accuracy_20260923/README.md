@@ -220,3 +220,28 @@ uses after the 0.10 confidence gate; fallback = manual key). Split by singer as 
 - No-harm: contract (incl. AutoKey fixtures), auval, pluginval 5, 20 load/unload cycles, latency 2885.
 - Open: fallback is ~70% of the time and falls back to the MANUAL key (plugin default A minor), which
   is itself a wrong key for most songs. Consider falling back to chromatic instead (product decision).
+
+## Round 9 (2026-09-24): Auto Key low-confidence fallback
+Decision (Armon): keep Temperley and the 0.10 gate. Below the gate, a manual key the user actually
+chose is kept; an untouched default falls back to **Chromatic** instead of A minor.
+- Intent is stored explicitly, not inferred from "value == A minor": `manualKeyExplicit` is set by
+  any host/UI change to keyRoot / scale / scaleMode. Our own Scale→scaleMode mirror writes and
+  `setStateInformation` do not set it. It is saved in state. Sessions saved before this change have
+  no flag and load as explicit, so their behaviour does not change.
+- Regression (`AutoPitchCoreContract`, autoKeyGate): tonal → detected C major; noise + untouched →
+  Chromatic; noise + explicit A minor → A minor; noise + explicit D major → D major; the flag survives
+  a state round trip (untouched stays untouched, chosen stays chosen, legacy → explicit).
+- Bench: `AutoPitchBench --manual-key-untouched` leaves the key parameters at their defaults.
+- Real singers, pitch (Classic, AutoKey on, `csd_bench.py score … --auto-key`), notes within 10 c:
+  | fallback | dev 10 c / 5 c / p95 | holdout 10 c / 5 c / p95 |
+  |---|---|---|
+  | A minor (old: untouched default) | 58.6 / 33.3% / 48.2 c | 63.0 / 34.9% / 50.5 c |
+  | **Chromatic (new)** | **59.2 / 33.7% / 40.5 c** | **64.5 / 35.2% / 40.4 c** |
+  Traces confirmed `autoKey: true` for both (an earlier run was invalid: zsh passed the flags as one
+  argument, AutoKey stayed off and both outputs were identical. Discarded.)
+- No-harm: all 48 AutoKey-off renders are bit-identical to R0. Contract, auval, pluginval 5, 30 + 20
+  (after librosa) load/unload cycles and latency 2885 all pass.
+- Note for context: with AutoKey on, real singers score below plain Chromatic (R0 71.2 / 76.7%) and
+  below the correct manual key (Round 5). AutoKey is confident only ~30% of the time and is wrong for
+  part of that time (Round 8). The chromatic fallback limits the damage but does not close that gap.
+- The synthetic key corpus stays a secondary regression check only (biased toward Krumhansl, Round 8).
