@@ -171,3 +171,8 @@ if __name__ == "__main__":
         with ThreadPoolExecutor(8) as ex:
             lats = dict(ex.map(run, tracks(split)))
         score_outputs(tag, mode, split, lambda st: crepe_cached(WORK / f"{st}_{mode}_{tag}.wav", lats[st]))
+        # CSD_PRUNE=1: delete the renders once scored (~26 MB each, 48 per tag filled the disk on
+        # 2026-09-25). Traces and the CREPE caches stay, so the score is still reproducible.
+        if os.environ.get("CSD_PRUNE") == "1":
+            for st in tracks(split):
+                (WORK / f"{st}_{mode}_{tag}.wav").unlink(missing_ok=True)

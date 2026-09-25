@@ -276,3 +276,27 @@ although the trace showed an identical target and correction. Tenors and basses 
 - Process note: `cmake --build build/auto-pitch-neural` (default target) does NOT rebuild
   AutoPitchBench / AutoPitchCoreContract / AutoPitchRender / AutoPitchObjectiveBench. Build them
   with `--target` explicitly or they run stale code.
+
+## Round 11 (2026-09-25): AutoKey coverage experiments (none shipped)
+Goal: more right-key time without more wrong-key time, gate kept at 0.10. Scored on the note set
+(C major == A minor for correction). Tools: `veto_proto.py` (replays bench traces offline),
+`ak_conf_features.py`, `key_change.py` (synthetic modulations), `ak_decomp.py`.
+- Relative-key ambiguity is NOT the problem: only 7% of raw verdict frames are the relative key;
+  41% are a genuinely wrong note set.
+- By section (all 48 tracks, used key after the fix): soprano (the melody, closest to a lead vocal)
+  right 48.2% / wrong 3.6% / chromatic 48.2%, raw verdict right 77.6%. Alto, tenor, bass: used right
+  14–18%, wrong 7–9%, raw right 48–58%. Inner choir parts are the hard case.
+- Histogram memory 30 s / 60 s (dev): right-key notes 26.7 -> 33.0 / 37.5%, wrong 7.7 -> 3.8 / 2.5%,
+  pitch 72.5 -> 72.8 / 72.8%. Holdout 30 s: right 27.4 -> 34.8%, wrong 6.0 -> 2.2%, pitch 77.6 -> 77.5%.
+  But modulations are followed later (used key, median: half step 13.6 -> 20.7 s, up a fourth
+  14.5 -> 20.2 s) and the old key is applied for 23.6% of the 20 s after a change (15 s: 16.5%).
+  Flat on pitch, worse on modulations: kept 15 s.
+- Out-of-key veto (Chromatic while > TAU of the last W s of singing is outside the key), W 4/8 s,
+  TAU 0.1/0.2, memory 15/30 s: cuts wrong-key time (best: 30 s, W 8, TAU 0.2 -> dev wrong 1.8%,
+  after-modulation wrong 15.2%) but cuts right-key time about as much (dev 32.4 -> 21.8%), because real
+  intonation puts plenty of frames outside the right key too. Rejected on paper, not built.
+- Verdict persistence as confidence (same verdict for >= P s): at equal wrong-key time it adds only
+  ~2–3 points of right-key time over the margin (dev: margin 0.12 R18.8/W4.1 vs persist 10 s + margin
+  0.03 R21.7/W4.4). Not worth a behaviour change.
+- Conclusion: after the Round 10 fix the correction side is sound; AutoKey on beats Chromatic. More
+  coverage needs a better raw estimator (right ~60% of the time on these singers), not gating tricks.
