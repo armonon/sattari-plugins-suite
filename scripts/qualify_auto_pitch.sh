@@ -13,7 +13,7 @@
 #
 #  Usage: scripts/qualify_auto_pitch.sh [build dir]   (default build/auto-pitch-neural)
 #  Env:   MIN_FREE_GB (default 8)   EXPECTED_LATENCY (default 2885)   LOAD_CYCLES (default 30)
-#         NOHARM_MINUTES (default 120: AutoPitchNoHarm playback soak, ~15 min wall clock)
+#         NOHARM_MINUTES (default 120: AutoPitchNoHarm playback soak, ~15 min wall clock; 0 = checks 1-7 only; -1 = skip, run separately)
 #         PYTHON (default ~/.venvs/sattari-audio/bin/python if present, else python3)
 # =============================================================================
 set -uo pipefail
@@ -65,7 +65,13 @@ gate "AutoPitchRender --nulltest"          "$(bin AutoPitchRender)" --nulltest
 gate "AutoPitchRender --livetest"          "$(bin AutoPitchRender)" --livetest
 rm -f "$HOME/Library/Sattari Audio/cross-plugin/key-bus.json"   # --livetest leaves a bus key behind
 gate "AutoPitchObjectiveBench"             "$(bin AutoPitchObjectiveBench)"
-gate "AutoPitchNoHarm (no-harm matrix, ${NOHARM_MINUTES} min soak)" "$(bin AutoPitchNoHarm)" --long-minutes "$NOHARM_MINUTES"
+if [ "$NOHARM_MINUTES" -lt 0 ]; then   # -1: no-harm matrix run separately (cite its logs + binary sha)
+  rows+=("| AutoPitchNoHarm | run separately (NOHARM_MINUTES=-1); see the no-harm logs cited in this report's commit | - |")
+elif [ "$NOHARM_MINUTES" -gt 0 ]; then
+  gate "AutoPitchNoHarm (no-harm matrix, ${NOHARM_MINUTES} min soak)" "$(bin AutoPitchNoHarm)" --long-minutes "$NOHARM_MINUTES"
+else   # NOHARM_MINUTES=0: checks 1-7 here; run the soak separately (--check 8) and cite its log
+  gate "AutoPitchNoHarm checks 1-7 (soak run separately)" "$(bin AutoPitchNoHarm)" --check 1 --check 2 --check 3 --check 4 --check 5 --check 6 --check 7
+fi
 gate "auval aufx Ap01 Satr"                sh -c 'auval -v aufx Ap01 Satr 2>&1 | tee /dev/stderr | grep -q "AU VALIDATION SUCCEEDED"'
 if [ -x /Applications/pluginval.app/Contents/MacOS/pluginval ]; then
   gate "pluginval strictness 5 (VST3)"     /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --skip-gui-tests --validate "$VST3"

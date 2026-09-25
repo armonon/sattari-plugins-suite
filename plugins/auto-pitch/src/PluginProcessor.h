@@ -766,7 +766,23 @@ private:
     // plays the audio of one latency ago rather than the tail of the last bypass.
     juce::AudioBuffer<float> bypassDelay;
     int bypassDelayWrite = 0;
+    int bypassDelayBlockStart = 0;     // ring position of the current block's first sample
     void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
+    // The current block's input delayed by the reported latency, read from the bypass ring
+    // (valid after writeBypassDelay ran for this block).
+    void readBypassDelayed (juce::AudioBuffer<float>& out, int numSamples) const;
+
+    // Host bypass. processBlockBypassed keeps the whole engine running on a scratch copy
+    // (output discarded) so re-engaging never replays pre-bypass audio, and both
+    // directions crossfade over kHostBypassFadeSeconds between the processed and the
+    // latency-delayed dry signal. 1 = processed, 0 = bypassed, -1 = snap on next block.
+    void processBlockCore (juce::AudioBuffer<float>&, juce::MidiBuffer&);
+    void fadeHostBypass (juce::AudioBuffer<float>& out, const juce::AudioBuffer<float>& processed,
+                         float target, int numSamples);
+    static constexpr double kHostBypassFadeSeconds = 0.010;
+    float hostBypassMix = -1.0f;
+    juce::AudioBuffer<float> bypassProcessScratch, bypassDryScratch;
+    juce::MidiBuffer bypassMidiScratch;
     bool   targetHysteresisEnabled = true;
     int    heldTargetMidi      = -1;
     // Key / scale / Edit-Notes mask the held target was chosen under. A held note
@@ -824,6 +840,13 @@ private:
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
     // only insofar as Random is seeded the same way.
+    // Humanize must be reproducible: two bounces of one session have to match. Each instance
+    // draws its own seed once (doubled vocals on two instances still humanize differently),
+    // saves it with the session, and resetPitchState() reseeds from it on every prepare.
+    // Correction on/off crossfade: 1 = engine output, 0 = delayed dry. -1 = snap on next block.
+    static constexpr double kCorrectionFadeSeconds = 0.010;
+    float correctionMix = -1.0f;
+    juce::int64 humanizeSeed = juce::Random::getSystemRandom().nextInt64();
     juce::Random humanizeRng;
     double humanizeTargetCents = 0.0;
     double humanizeSmoothedCents = 0.0;

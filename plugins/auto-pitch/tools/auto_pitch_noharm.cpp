@@ -912,48 +912,61 @@ void checkAutomationStress()
     int scaleModes = 0;
     { Proc probe; scaleModes = numChoices (probe, "scaleMode"); }
 
-    // Baseline: static renders spanning the automated space. No automation, so every
-    // curvature spike here is the material + DSP itself.
-    double baseline = 0.0;
-    std::string worstStatic;
-    struct Static { const char* name; std::function<void (Proc&)> apply; };
+    // Baseline: static renders spanning the automated space, one per style x formant extreme
+    // (Robot's sample-and-hold staircase grows with a brighter input: Robot + formant +12 is the
+    // roughest static render at ~0.83), plus correction off and a slow exotic scale. No
+    // automation, so every curvature spike here is the material + DSP itself. Each run is
+    // judged against 2x the worst static it can actually reach, so a click stands out even in
+    // the gentle styles instead of hiding under Robot's grit.
+    struct Static { std::string name; int style; float formant; std::function<void (Proc&)> apply; double curvature = 0.0; };
     std::vector<Static> statics;
     for (int s = 0; s < 5; ++s)
-        statics.push_back ({ "style", [s] (Proc& p) { setParam (p, "style", (float) s); setParam (p, "amount", 1.0f);
-                                                       setParam (p, "speed", 1.0f); } });
-    statics.push_back ({ "formant -12", [] (Proc& p) { setParam (p, "formantShift", -12.0f); } });
-    statics.push_back ({ "formant +12", [] (Proc& p) { setParam (p, "formantShift", 12.0f); } });
-    statics.push_back ({ "correction off", [] (Proc& p) { setParam (p, "enableCorrection", 0.0f); } });
-    statics.push_back ({ "F# blues, speed 0.05", [] (Proc& p) { setParam (p, "keyRoot", 6.0f); setParam (p, "scaleMode", 12.0f);
-                                                                   setParam (p, "speed", 0.05f); } });
+        for (float f : { -12.0f, 0.0f, 12.0f })
+            statics.push_back ({ fmt ("style%d fmt%+d", s, (int) f), s, f,
+                                 [s, f] (Proc& p) { setParam (p, "style", (float) s); setParam (p, "amount", 1.0f);
+                                                    setParam (p, "speed", 1.0f); setParam (p, "formantShift", f); } });
+    statics.push_back ({ "correction off", 0, 0.0f, [] (Proc& p) { setParam (p, "enableCorrection", 0.0f); } });
+    statics.push_back ({ "F# blues, speed 0.05", 0, 0.0f, [] (Proc& p) { setParam (p, "keyRoot", 6.0f); setParam (p, "scaleMode", 12.0f);
+                                                                          setParam (p, "speed", 0.05f); } });
     std::string staticRow;
-    double staticPeak = 0.0;
-    for (size_t k = 0; k < statics.size(); ++k)
+    for (auto& st0 : statics)
     {
         Proc p;
-        statics[k].apply (p);
+        st0.apply (p);
         RenderSpec spec;
         RenderStats st;
         const auto out = render (p, in, spec, &st);
-        const double c = maxCurvature (out);
-        const std::string label = statics[k].name + (k < 5 ? std::to_string (k) : std::string());
-        staticRow += fmt (" %s %.4f/%.2f;", label.c_str(), c, st.peak);
-        staticPeak = std::max (staticPeak, (double) st.peak);
-        if (c > baseline) { baseline = c; worstStatic = label; }
+        st0.curvature = maxCurvature (out);
+        staticRow += fmt (" %s %.4f/%.2f;", st0.name.c_str(), st0.curvature, st.peak);
     }
-    const double threshold = 2.0 * baseline;
     info ("static renders (curvature/peak):%s", staticRow.c_str());
-    info ("baseline: worst static curvature %.4f (%s); click threshold = 2x = %.4f", baseline,
-          worstStatic.c_str(), threshold);
+    auto thresholdFor = [&statics] (bool anyStyle, int style, bool anyFormant, std::string& from)
+    {
+        double worst = 0.0;
+        for (const auto& st0 : statics)
+            if ((anyStyle || st0.style == style) && (anyFormant || st0.formant == 0.0f) && st0.curvature > worst)
+            { worst = st0.curvature; from = st0.name; }
+        return 2.0 * worst;
+    };
 
     // mask bits: 1 amount, 2 speed, 4 formant, 8 style, 16 key/scale, 32 correction on/off
-    struct Run { const char* name; int mask; };
+    struct Run { const char* name; int mask; int fixedStyle = -1; };
     const Run runs[] = { { "ALL per block (gate)", 63 }, { "amount only", 1 }, { "speed only", 2 },
                          { "formant only", 4 }, { "style only", 8 }, { "key/scale only", 16 },
-                         { "enableCorrection only", 32 } };
+                         { "enableCorrection only", 32 },
+                         // pairs / triples, attribution only (not gated)
+                         { "style + correction", 40 }, { "style + key", 24 }, { "key + correction", 48 },
+                         { "style + key + correction", 56 }, { "formant + style", 12 },
+                         { "all but correction", 31 },
+                         { "formant @ Natural", 4, 0 }, { "formant @ Classic", 4, 1 }, { "formant @ Modern Rap", 4, 2 },
+                         { "formant @ Robot", 4, 3 }, { "formant @ Big Harmony", 4, 4 } };
     bool gatePass = true;
     for (const auto& run : runs)
     {
+        std::string from;
+        const double threshold = thresholdFor ((run.mask & 8) != 0, run.fixedStyle >= 0 ? run.fixedStyle : 0,
+                                               (run.mask & 4) != 0, from);
+        const double baseline = threshold / 2.0;
         struct Row { float amount, speed, formant; int style, key, scale, corr; };
         std::vector<Row> rows;
         Rng rng (0x5A77A41ull + (std::uint64_t) run.mask);
@@ -976,12 +989,13 @@ void checkAutomationStress()
             return false;
         };
         Proc p;
+        if (run.fixedStyle >= 0) setParam (p, "style", (float) run.fixedStyle);
         RenderStats st;
         const auto out = render (p, in, spec, &st);
         long where = 0;
         const double c = maxCurvature (out, 0, -1, &where);
         const bool pass = st.finite && st.peak <= 1.5f && c <= threshold;
-        if (run.mask == 63) gatePass = pass;
+        gatePass = gatePass && pass;
         // Count blocks whose curvature exceeds the threshold, for scale.
         int loud = 0;
         for (long b0 = 0; b0 + 512 <= out.getNumSamples(); b0 += 512)
@@ -990,14 +1004,14 @@ void checkAutomationStress()
         auto rowText = [] (const Row& r)
         { return fmt ("amt %.2f spd %.2f fmt %+.1f style %d key %d/%d corr %d", r.amount, r.speed, r.formant,
                       r.style, r.key, r.scale, r.corr); };
-        info ("%-4s %-22s finite %s, peak %.3f, worst curvature %.4f (%.2fx baseline) at %.4f s (+%ld in block), %d blocks > threshold, latency %s",
-              pass ? "ok" : "BAD", run.name, st.finite ? "yes" : "NO", st.peak, c, c / baseline,
+        info ("%-4s %-24s finite %s, peak %.3f, worst curvature %.4f (%.2fx its baseline %s) at %.4f s (+%ld in block), %d blocks > threshold, latency %s",
+              pass ? "ok" : "BAD", run.name, st.finite ? "yes" : "NO", st.peak, c, c / baseline, from.c_str(),
               (double) where / sr, where % 512, loud, st.latencyChanges == 0 ? "constant" : "CHANGED");
         if (c > threshold)
             info ("     worst block params: prev [%s] -> this [%s]", rowText (rows[blk - 1]).c_str(), rowText (rows[blk]).c_str());
     }
     verdict (4, "automation stress (60 s)", gatePass, secondsSince (t0),
-             fmt ("ALL-parameter run is the gate (finite, peak <= 1.5, curvature <= %.3f); single-parameter runs attribute", threshold));
+             "every run gated: finite, peak <= 1.5, curvature <= 2x the worst static render reachable by that run");
 }
 
 // ==========================================================================================
@@ -1111,7 +1125,11 @@ void checkBypass()
             const long end = k + 1 < segments.size() ? segments[k + 1].first : in.getNumSamples();
             if (segments[k].second)
             {
-                for (long i = start; i < end; ++i)
+                //  Engaging bypass crossfades processed -> dry over 10 ms (the plugin's
+                //  kHostBypassFadeSeconds); from then on the output must be the dry input,
+                //  delayed by latency, sample for sample. The fade itself is gated below.
+                const long fadeLen = start > 0 ? (long) std::ceil (0.010 * sr) + 1 : 0;
+                for (long i = start + fadeLen; i < end; ++i)
                 {
                     const long src = i - latency;
                     const float expected = src >= 0 ? in.getSample (0, (int) src) : 0.0f;
@@ -1119,7 +1137,7 @@ void checkBypass()
                         worstBypassErr = std::max (worstBypassErr, (double) std::abs (out.getSample (ch, (int) i) - expected));
                 }
                 if (start > 0)   // processed -> bypassed
-                    worstEngage = std::max (worstEngage, maxCurvature (out, start - 4, std::min (end, start + 64)));
+                    worstEngage = std::max (worstEngage, maxCurvature (out, start - 4, std::min (end, start + fadeLen + 64)));
             }
             else if (start > 0)   // bypassed -> processed (re-engage)
             {
@@ -1150,16 +1168,17 @@ void checkBypass()
                 }
             }
         }
-        const bool pass = st.finite && worstBypassErr <= 1e-6 && worstReengage <= threshold;
+        const bool pass = st.finite && worstBypassErr <= 1e-6 && worstReengage <= threshold
+                       && worstEngage <= threshold && staleReplays == 0;
         allPass = allPass && pass;
-        info ("%-4s block %d, latency %d: %d re-engages; bypassed == input delayed by latency: max err %.3g; re-engage worst curvature %.4f (%.2fx continuous, limit 2x); engage-bypass worst %.4f (%.2fx, report only); finite %s",
+        info ("%-4s block %d, latency %d: %d re-engages; bypassed == input delayed by latency: max err %.3g; re-engage worst curvature %.4f (%.2fx continuous, limit 2x); engage-bypass worst %.4f (%.2fx, limit 2x); finite %s",
               pass ? "ok" : "BAD", blockSize, latency, reengages, worstBypassErr, worstReengage,
               worstReengage / baseline, worstEngage, worstEngage / baseline, st.finite ? "yes" : "NO");
         info ("     stale-audio probe: %d of %d evaluable re-engages replay the pre-bypass pipeline for the first latency (best corr with pre-bypass render %.2f vs %.2f with the continuous render)",
               staleReplays, staleEvaluable, staleWorst, staleNowAtWorst);
     }
     verdict (6, "host bypass toggling", allPass, secondsSince (t0),
-             "bypassed = dry delayed by latency; re-engage finite, no click > 2x continuous");
+             "bypassed = dry delayed by latency after the 10 ms fade; no click > 2x continuous either way; no stale replay");
 }
 
 // ==========================================================================================

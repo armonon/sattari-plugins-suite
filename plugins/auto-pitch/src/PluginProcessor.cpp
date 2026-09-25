@@ -121,6 +121,34 @@ juce::var readObjectVar (const juce::var& object, const juce::Identifier& key)
     return {};
 }
 
+//  Session sections that live beside the parameters in the saved state. apvts.copyState() hands
+//  back whatever the last restore put into the parameter tree, so each save used to append a
+//  fresh copy after the old one (4210 -> 4262 -> 4314 bytes per cycle), and restore read the
+//  FIRST, i.e. oldest, copy: pitch notes deleted since the last reload came back. Keep exactly
+//  one copy of each: the newest.
+constexpr const char* kSessionSections[] = { "KeyMap", "PitchEdits", "MidiLearn" };
+
+void keepOnlyNewestSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+    {
+        int newest = -1;
+        for (int i = 0; i < state.getNumChildren(); ++i)
+            if (state.getChild (i).hasType (name)) newest = i;
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (i != newest && state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+    }
+}
+
+void removeSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+}
+
 double midiFromHz (double frequencyHz, double referenceHz = 440.0)
 {
     if (frequencyHz <= 0.0 || referenceHz <= 0.0)
@@ -827,6 +855,13 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     formantScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     harmonyScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     harmonyWetScratch.setSize (2, preparedBlockSize, false, false, true);
+    {
+        const int allChannels = juce::jmax (2, getTotalNumInputChannels(), getTotalNumOutputChannels());
+        bypassProcessScratch.setSize (allChannels, preparedBlockSize, false, false, true);
+        bypassDryScratch.setSize (allChannels, preparedBlockSize, false, false, true);
+        bypassMidiScratch.ensureSize (2048);
+        hostBypassMix = -1.0f;
+    }
     formantScratch.clear();
     harmonyScratch.clear();
     harmonyWetScratch.clear();
@@ -1427,6 +1462,11 @@ void SattariAutoPitchAudioProcessor::reset()
 
 void SattariAutoPitchAudioProcessor::resetPitchState (int)
 {
+    correctionMix = -1.0f;
+    humanizeRng.setSeed (humanizeSeed);
+    humanizeTargetCents = 0.0;
+    humanizeSmoothedCents = 0.0;
+    humanizeBlocksUntilNewTarget = 0;
     pitchFrameBuffer.assign ((size_t) pitchFrameSize, 0.0f);
     pitchWriteIndex = 0;
     pitchSamplesUntilAnalysis = pitchHopSize;
@@ -4437,8 +4477,79 @@ void SattariAutoPitchAudioProcessor::processBlockBypassed (juce::AudioBuffer<flo
     // JUCE's default bypass passes audio through undelayed while the host is
     // still compensating for the reported latency, so a bypassed vocal played
     // ~60 ms early. Delay the dry signal by the same amount instead.
+    //
+    // The engine keeps running on a scratch copy while bypassed. It used to stop, and
+    // re-engaging then played its pre-bypass pipeline (up to 7 of 14 re-engages replayed
+    // old audio, correlation 1.00) with a click 54-87x the continuous baseline.
+    const int n = buffer.getNumSamples();
+    if (n > bypassProcessScratch.getNumSamples() || buffer.getNumChannels() > bypassProcessScratch.getNumChannels())
+    {
+        // Host broke its declared block size: plain delayed bypass, and flush the engine
+        // so the next processed block cannot replay stale audio.
+        auto main = getBusBuffer (buffer, false, 0);
+        writeBypassDelay (main, true);
+        reset();
+        hostBypassMix = 0.0f;
+        return;
+    }
+    juce::AudioBuffer<float> scratch (bypassProcessScratch.getArrayOfWritePointers(),
+                                      buffer.getNumChannels(), n);
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        scratch.copyFrom (ch, 0, buffer, ch, 0, n);
+    bypassMidiScratch.clear();
+    processBlockCore (scratch, bypassMidiScratch);   // writes this block into the bypass ring
+
     auto main = getBusBuffer (buffer, false, 0);
-    writeBypassDelay (main, true);
+    readBypassDelayed (main, n);
+    fadeHostBypass (main, getBusBuffer (scratch, false, 0), 0.0f, n);
+}
+
+void SattariAutoPitchAudioProcessor::readBypassDelayed (juce::AudioBuffer<float>& out, int numSamples) const
+{
+    const int size = bypassDelay.getNumSamples();
+    const int latency = getLatencySamples();
+    const bool canDelay = size > 0 && latency > 0 && latency < size;
+    for (int ch = 0; ch < out.getNumChannels(); ++ch)
+    {
+        auto* data = out.getWritePointer (ch);
+        if (! canDelay || ch >= bypassDelay.getNumChannels())
+        {
+            if (! canDelay && ch < bypassDelay.getNumChannels() && size > 0)
+                for (int i = 0; i < numSamples; ++i)
+                    data[i] = bypassDelay.getSample (ch, (bypassDelayBlockStart + i) % size);
+            else
+                juce::FloatVectorOperations::clear (data, numSamples);
+            continue;
+        }
+        const auto* line = bypassDelay.getReadPointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            data[i] = line[(bypassDelayBlockStart + i - latency + size) % size];
+    }
+}
+
+void SattariAutoPitchAudioProcessor::fadeHostBypass (juce::AudioBuffer<float>& out,
+                                                     const juce::AudioBuffer<float>& processed,
+                                                     float target, int numSamples)
+{
+    // out holds the side we are fading TO for target 0 (dry) and FROM for target 1 is
+    // handled by the caller passing the processed block as `processed`.
+    if (hostBypassMix < 0.0f)
+        hostBypassMix = target;
+    if (hostBypassMix == target)
+        return;
+    const float step = 1.0f / (float) juce::jmax (1.0, kHostBypassFadeSeconds * getSampleRate());
+    const int channels = juce::jmin (out.getNumChannels(), processed.getNumChannels());
+    float mix = hostBypassMix;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        mix = target > mix ? juce::jmin (target, mix + step) : juce::jmax (target, mix - step);
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            const float dry = out.getSample (ch, i);
+            out.setSample (ch, i, dry + mix * (processed.getSample (ch, i) - dry));
+        }
+    }
+    hostBypassMix = mix;
 }
 
 void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed)
@@ -4448,6 +4559,7 @@ void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>&
     // processing replayed ~one latency of audio left over from the PREVIOUS bypass.
     const int size = bypassDelay.getNumSamples();
     const int n = main.getNumSamples();
+    bypassDelayBlockStart = bypassDelayWrite;
     if (size <= 0 || n <= 0)
         return;
     const int latency = getLatencySamples();
@@ -4475,6 +4587,30 @@ void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>&
 }
 
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    const int n = buffer.getNumSamples();
+    processBlockCore (buffer, midi);
+    //  Coming back from host bypass: fade from the latency-delayed dry (what bypass was
+    //  playing) into the processed output instead of cutting over.
+    if (hostBypassMix >= 0.0f && hostBypassMix < 1.0f
+        && n <= bypassDryScratch.getNumSamples() && buffer.getNumChannels() <= bypassDryScratch.getNumChannels())
+    {
+        auto main = getBusBuffer (buffer, false, 0);
+        juce::AudioBuffer<float> dry (bypassDryScratch.getArrayOfWritePointers(), main.getNumChannels(), n);
+        readBypassDelayed (dry, n);
+        // fadeHostBypass blends `out` (from) toward `processed` (to); here out = dry.
+        juce::AudioBuffer<float> processedView (bypassProcessScratch.getArrayOfWritePointers(), main.getNumChannels(), n);
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+            processedView.copyFrom (ch, 0, main, ch, 0, n);
+        fadeHostBypass (dry, processedView, 1.0f, n);
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+            main.copyFrom (ch, 0, dry, ch, 0, n);
+    }
+    else
+        hostBypassMix = 1.0f;
+}
+
+void SattariAutoPitchAudioProcessor::processBlockCore (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 #if JucePlugin_Enable_ARA
@@ -5178,6 +5314,16 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         && (! correctionOn || objectDisablesCorrection
             || (! classicActive && selectedAmount <= 1.0e-6f));
 
+    //  Switching correction off/on (Enable Correction, Amount reaching 0, a disabled note
+    //  object) used to swap engine output and the delayed dry reference at a block edge.
+    //  They are not sample-identical, so every switch clicked (up to 0.48 on a 0.23-peak
+    //  tone). Crossfade the two over kCorrectionFadeSeconds instead. No switch, no fade:
+    //  steady-state output is unchanged.
+    const float correctionMixTarget = pitchEngineBypassed ? 0.0f : 1.0f;
+    if (correctionMix < 0.0f)
+        correctionMix = correctionMixTarget;       // first block after prepare/reset: no fade
+    const bool correctionFading = correctionMix != correctionMixTarget;
+
     if (pitchEngineBypassed)
     {
         // Keep the print engine warm at unity so re-enabling correction does not
@@ -5208,9 +5354,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
 #endif
         }
-        copyDelayedDryReferenceTo (mainBuffer);
-        if (std::abs (inputGain - 1.0f) > 1.0e-6f)
-            mainBuffer.applyGain (inputGain);
+        if (! correctionFading)                    // mid-fade the warm output is the wet side
+        {
+            copyDelayedDryReferenceTo (mainBuffer);
+            if (std::abs (inputGain - 1.0f) > 1.0e-6f)
+                mainBuffer.applyGain (inputGain);
+        }
     }
     else if (xposeActive)
     {
@@ -5262,6 +5411,25 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 #else
         processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
 #endif
+    }
+    if (correctionFading)
+    {
+        const float step = 1.0f / (float) juce::jmax (1.0, kCorrectionFadeSeconds * currentSampleRate);
+        const int channels = juce::jmin (mainBuffer.getNumChannels(), dryDelayOutput.getNumChannels());
+        const int samples = juce::jmin (mainBuffer.getNumSamples(), dryDelayOutput.getNumSamples());
+        float mix = correctionMix;
+        for (int i = 0; i < samples; ++i)
+        {
+            mix = correctionMixTarget > mix ? juce::jmin (correctionMixTarget, mix + step)
+                                            : juce::jmax (correctionMixTarget, mix - step);
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                const float wet = mainBuffer.getSample (ch, i);
+                const float dry = dryDelayOutput.getSample (ch, i) * inputGain;
+                mainBuffer.setSample (ch, i, dry + mix * (wet - dry));
+            }
+        }
+        correctionMix = mix;
     }
     applyModeCharacter (mainBuffer);
     renderHarmonyInto (mainBuffer, harmonyScratch, hostTimeSeconds);
@@ -6204,8 +6372,10 @@ juce::AudioProcessorEditor* SattariAutoPitchAudioProcessor::createEditor()
 void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    removeSessionSections (state);   // re-written fresh below
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
     state.setProperty ("manualKeyExplicit", manualKeyExplicit.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("humanizeSeed", humanizeSeed, nullptr);
 
     // Persist the Track Key Map so reloading a project restores the timeline.
     juce::ValueTree km ("KeyMap");
@@ -6293,6 +6463,7 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        keepOnlyNewestSessionSections (restored);   // repairs sessions saved with duplicates
         bool hasExtendedScale = false;
         std::function<void (const juce::ValueTree&)> findExtendedScale = [&] (const juce::ValueTree& tree)
         {
@@ -6395,6 +6566,7 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
         // Sessions saved before the flag existed keep their manual key as the
         // fallback, exactly as they behaved when saved.
         restoringKeyState.store (true, std::memory_order_release);
+        removeSessionSections (restored);           // loaded above; not parameter state
         apvts.replaceState (restored);
         if (! hasExtendedScale)
         {
@@ -6406,6 +6578,9 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                                      ? (bool) restored.getProperty ("manualKeyExplicit") : true,
                                  std::memory_order_relaxed);
         restoringKeyState.store (false, std::memory_order_release);
+        // Sessions saved before the seed existed keep this instance's fresh seed.
+        if (restored.hasProperty ("humanizeSeed"))
+            humanizeSeed = (juce::int64) restored.getProperty ("humanizeSeed");
     }
 }
 
