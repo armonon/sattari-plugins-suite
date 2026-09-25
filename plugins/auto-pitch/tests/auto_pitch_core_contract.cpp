@@ -91,7 +91,9 @@ double estimateFrequencyFromPositiveCrossings (const std::vector<float>& samples
     return period > 0.0 ? sampleRate / period : 0.0;
 }
 
-double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode)
+// keySetup: 0 = manual C chromatic (the historical fixture), 1 = AutoKey on with the
+// manual key left untouched, 2 = AutoKey on with an explicitly chosen C major.
+double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode, int keySetup = 0)
 {
     constexpr int blockSize = 512;
     constexpr int blocks = 170;
@@ -104,9 +106,13 @@ double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode)
     setParameter (apvts, "liveMode", productionLiveMode ? 1.0f : 0.0f);
     setParameter (apvts, "liveProfile", 0.0f);
     setParameter (apvts, "extremeLive", productionLiveMode ? 1.0f : 0.0f);
-    setParameter (apvts, "keyRoot", 0.0f); // C
-    setParameter (apvts, "scale", 2.0f); // chromatic
-    setParameter (apvts, "scaleMode", 2.0f); // chromatic
+    if (keySetup != 1)
+    {
+        setParameter (apvts, "keyRoot", 0.0f); // C
+        setParameter (apvts, "scale", keySetup == 2 ? 0.0f : 2.0f);     // major / chromatic
+        setParameter (apvts, "scaleMode", keySetup == 2 ? 0.0f : 2.0f);
+    }
+    setParameter (apvts, "autoKey", keySetup != 0 ? 1.0f : 0.0f);
     setParameter (apvts, "style", 1.0f); // Classic style must hard-correct.
     setParameter (apvts, "amount", 1.0f);
     setParameter (apvts, "speed", 1.0f);
@@ -1056,6 +1062,23 @@ int main (int argc, char** argv)
         return 1;
     }
 
+    //  AutoKey No Result must correct exactly as hard as the key it falls back to.
+    //  A steady tone carries no key, so AutoKey stays below the gate and the note set
+    //  is Chromatic (untouched) or the chosen manual key - neither is a guess. The
+    //  intent gate used to scale these corrections by the REJECTED detection's
+    //  confidence (floor 0.35): +45 c landed ~29 c sharp, and real tenors/basses lost
+    //  up to 40 points of notes-within-10-c with AutoKey on (accuracy Round 10).
+    const double autoKeyUntouchedB3Cents = renderClassicStrongB3Plus45ErrorCents (false, 1);
+    const double autoKeyExplicitB3Cents  = renderClassicStrongB3Plus45ErrorCents (false, 2);
+    if (std::abs (autoKeyUntouchedB3Cents - classicB3ErrorCents) > 3.0
+        || std::abs (autoKeyExplicitB3Cents - classicB3ErrorCents) > 3.0)
+    {
+        std::cerr << "AutoKey No Result weakened correction: B3 +45c abs error manual "
+                  << classicB3ErrorCents << ", AutoKey untouched " << autoKeyUntouchedB3Cents
+                  << ", AutoKey explicit C major " << autoKeyExplicitB3Cents << "\n";
+        return 1;
+    }
+
     const double vibratoBoundaryErrorCents = renderVibratoNearBoundaryErrorCents (true);
     const double vibratoBoundaryNoHoldCents = renderVibratoNearBoundaryErrorCents (false);
     if (vibratoBoundaryErrorCents > 12.0)
@@ -1490,7 +1513,9 @@ int main (int argc, char** argv)
     std::cout << "  status=" << status << "\n";
     std::cout << "  keyTab=" << keyTabSummary << "\n";
     std::cout << "  changedEnergy=" << changedEnergy << "\n";
-    std::cout << "  classicB3Plus45AbsErrorCents=" << classicB3ErrorCents << "\n";
+    std::cout << "  classicB3Plus45AbsErrorCents=" << classicB3ErrorCents
+              << " (AutoKey No Result: untouched " << autoKeyUntouchedB3Cents
+              << ", explicit " << autoKeyExplicitB3Cents << ")\n";
     std::cout << "  vibratoNearBoundaryAbsErrorCents=" << vibratoBoundaryErrorCents
               << " (no target hold: " << vibratoBoundaryNoHoldCents << ")\n";
     std::cout << "  productionLiveClassicB3Plus45AbsErrorCents=" << liveClassicB3ErrorCents << "\n";

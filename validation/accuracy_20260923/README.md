@@ -245,3 +245,34 @@ chose is kept; an untouched default falls back to **Chromatic** instead of A min
   below the correct manual key (Round 5). AutoKey is confident only ~30% of the time and is wrong for
   part of that time (Round 8). The chromatic fallback limits the damage but does not close that gap.
 - The synthetic key corpus stays a secondary regression check only (biased toward Krumhansl, Round 8).
+
+## Round 10 (2026-09-25): AutoKey No Result was under-correcting (fixed)
+Found by splitting Round 9's AutoKey score per note by the key actually in use (`ak_decomp.py`):
+notes in the chromatic fallback scored 49.4% vs 69.7% for the SAME notes with manual Chromatic,
+although the trace showed an identical target and correction. Tenors and basses lost up to 40 points.
+- Repro: steady C5 +30 c, Classic, Chromatic. Manual: output -0.2 c. AutoKey on (untouched OR an
+  explicit key): output +19.5 c, i.e. only ~35% of the correction applied.
+- Cause: `estimateIntentConfidence` multiplied strength by a "key trust" factor
+  `clamp(conf / 0.10, 0.35, 1)` whenever the key origin was AutoKey. Since the 0.10 gate was
+  introduced, a below-gate AutoKey never supplies the key (the manual key or Chromatic does), so the
+  factor only ever weakened the fallback, at every No Result moment. Present since 2026-08-19 (ee4d4cc).
+- Fix: factor removed (it is identically 1 whenever the detected key is actually used). The status
+  line now says "Chromatic until a key is detected" when that is the fallback.
+- Regression (`AutoPitchCoreContract`): B3 +45 c abs error manual 0.011 c; AutoKey No Result
+  untouched / explicit C major was 29.25 c before, now 0.013 c (must stay within 3 c of manual).
+- Real singers, Classic, AutoKey on, chromatic fallback (notes within 10 c):
+  | | dev 10 c / 5 c / p95 | holdout 10 c / 5 c / p95 |
+  |---|---|---|
+  | R0 manual Chromatic, AutoKey off | 71.2 / 43.1% / — | 76.7 / 40.0% / — |
+  | AutoKey on, before fix (Round 9) | 59.2 / 33.7% / 40.5 c | 64.5 / 35.2% / 40.4 c |
+  | **AutoKey on, fixed** | **72.5 / 44.6% / 41.8 c** | **77.6 / 42.5% / 42.4 c** |
+  Per key state (dev): fallback notes 69.5% (manual Chromatic on the same notes 69.7%); right-key
+  notes 81.6% (75.1%); wrong-key notes 66.6% (69.2%). Holdout: 73.4 / 86.3 / 83.1%.
+- AutoKey on is now better than Chromatic on both splits, instead of 12 points worse. The ceiling
+  with the correct key everywhere is 79.6 / 82.0% (Round 5): the remaining gap is coverage (AutoKey is
+  confident on ~33% of notes), not the correction.
+- No-harm: AutoKey-off renders 48/48 bit-identical to R0; contract, auval, pluginval 5, 30 load/unload
+  cycles pass; latency 2885.
+- Process note: `cmake --build build/auto-pitch-neural` (default target) does NOT rebuild
+  AutoPitchBench / AutoPitchCoreContract / AutoPitchRender / AutoPitchObjectiveBench. Build them
+  with `--target` explicitly or they run stale code.

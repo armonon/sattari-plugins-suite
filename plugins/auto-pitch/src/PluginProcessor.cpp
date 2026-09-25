@@ -4081,17 +4081,14 @@ double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFram
     const double motion = juce::jlimit (0.0, 1.0, (transitionBoost - 0.55) / 0.45);
     const double stability = 1.0 - 0.30 * motion;
 
-    //  4. KEY TRUST. If the note set itself came from a low-confidence DETECTION,
-    //     every target derived from it inherits that doubt. Crucially this must
-    //     key off where the correction key ACTUALLY came from, not merely whether
-    //     the AutoKey switch is on: a manual, bus, or song-map key is not made
-    //     doubtful by an unrelated AutoKey estimate running alongside it.
-    const auto origin = currentKeyOrigin();
-    const double keyTrust = origin.source == KeyOrigin::Source::AutoKey
-        ? juce::jlimit (0.35, 1.0, (double) origin.confidence / (double) kMinBusKeyConfidence)
-        : 1.0;
-
-    return juce::jlimit (0.0, 1.0, distance * detector * stability * keyTrust);
+    //  There is deliberately NO key-trust factor. AutoKey never hands correction a
+    //  low-confidence key: below kMinBusKeyConfidence the note set is the user's
+    //  manual key or Chromatic, neither of which is a guess; at or above it the
+    //  detection is accepted. The old factor (confidence / gate, floor 0.35) could
+    //  therefore only ever weaken the FALLBACK key, scaling a No Result vocal's
+    //  correction to as little as 35% - measured on real choir singers as up to
+    //  40 points fewer notes within 10 c with AutoKey on (accuracy Round 10).
+    return juce::jlimit (0.0, 1.0, distance * detector * stability);
 }
 
 // ---------------------------------------------------------------------------
@@ -6084,7 +6081,10 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
     if (origin.source == KeyOrigin::Source::AutoKey
         && origin.confidence < kMinBusKeyConfidence)
         return "Key   No Result"
-            + juce::String::fromUTF8 ("   \xc2\xb7   ") + "manual " + root + " " + scale + " retained"
+            + juce::String::fromUTF8 ("   \xc2\xb7   ")
+            + (autoKeyFallsBackToChromatic (origin.confidence)
+                   ? juce::String ("Chromatic until a key is detected")
+                   : "manual " + root + " " + scale + " retained")
             + juce::String::fromUTF8 ("   \xc2\xb7   ") + engine;
     return "Key   " + root + " " + scale
         + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence"
