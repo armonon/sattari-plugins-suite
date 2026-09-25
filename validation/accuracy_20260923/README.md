@@ -314,3 +314,19 @@ is Apple's label, not independently verified.
   By length: < 8 s raw 33.6%, final 35/81; 16–40 s raw 63.3%, final 31/42; > 40 s raw 56.4%, 18/30.
 - Takeaway: on short lead-vocal phrases AutoKey mostly (correctly) abstains; when it commits it is
   wrong about a third of the time (7.4 vs 13.6). This is the benchmark for any key-detector work.
+
+## Round 13 (2026-09-25): vocadito, a second real-singer pitch benchmark
+`vocadito_bench.py`. vocadito (CC BY 4.0, zenodo 5578807, in ~/datasets/vocadito): 40 solo excerpts,
+7 languages, singers of mixed training on various devices. Only notes both annotators agree on;
+split by singer (dev 26 tracks / 716 notes, holdout 14 / 308). Classic, production at 7a8dd57+.
+Singers uncorrected: 25.6 / 29.9% within 10 c (CSD choir: 31.7 / 37.4%).
+| mode | dev 10 c / 5 c / p95 | holdout 10 c / 5 c / p95 |
+|---|---|---|
+| Chromatic | 62.0 / 33.5% / 54.9 c | 64.6 / 32.5% / 57.6 c |
+| Key from the notes (Temperley fit, oracle) | 60.4 / 32.1% / 85.3 c | 67.4 / 33.6% / 89.2 c |
+| AutoKey on, untouched fallback | 60.1 / 32.3% / 63.7 c | 65.3 / 34.4% / 61.7 c |
+- Harder than CSD (untrained singers, phone-quality recordings, wider pitch errors).
+- A single major/minor key does not fit several excerpts (p95 85–89 c in keyed mode: notes snapped to
+  a neighbouring scale tone), so key mode gives no clear gain here, unlike the choir. AutoKey on is
+  within noise of Chromatic (-1.9 dev / +0.7 holdout) with a longer tail than Chromatic.
+- Small set (1,024 notes): read differences under ~2 points as noise.
