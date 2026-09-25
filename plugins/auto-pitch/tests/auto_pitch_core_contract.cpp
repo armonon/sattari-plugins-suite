@@ -1559,6 +1559,162 @@ int main (int argc, char** argv)
                   << " (untouched -> Chromatic; explicit manual key kept; persists)\n";
     }
 
+    // --- Session state + Humanize persistence (permanent release regressions) -----------
+    //  Both defects were found by the 2026-09-25 no-harm matrix and fixed in cbd1ce4:
+    //  (1) every save appended another KeyMap / PitchEdits / MidiLearn section and restore read
+    //      the OLDEST copy, so the blob grew and deleted pitch notes came back;
+    //  (2) Humanize drew from an unseeded RNG, so two bounces of one session differed.
+    {
+        using Xml = std::unique_ptr<juce::XmlElement>;
+        auto saveXml = [] (SattariAutoPitchAudioProcessor& p)
+        {
+            juce::MemoryBlock mb; p.getStateInformation (mb);
+            return Xml (juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize()));
+        };
+        auto blobOf = [] (const juce::XmlElement& x) { juce::MemoryBlock mb; juce::AudioProcessor::copyXmlToBinary (x, mb); return mb; };
+        auto loadXml = [&blobOf] (SattariAutoPitchAudioProcessor& p, const juce::XmlElement& x)
+        { const auto mb = blobOf (x); p.setStateInformation (mb.getData(), (int) mb.getSize()); };
+        auto count = [] (const juce::XmlElement& x, const char* name)
+        { int n = 0; for (auto* c : x.getChildIterator()) n += c->hasTagName (name); return n; };
+        auto keyMapXml = [] (int segments)
+        {
+            auto* km = new juce::XmlElement ("KeyMap");
+            km->setAttribute ("file", "song.wav"); km->setAttribute ("dur", 120.0);
+            for (int i = 0; i < segments; ++i)
+            { auto* sg = km->createNewChildElement ("Seg"); sg->setAttribute ("t", 30.0 * i); sg->setAttribute ("r", 2 + i);
+              sg->setAttribute ("s", 0); sg->setAttribute ("c", 0.4); }
+            return km;
+        };
+        auto editsXml = [] (std::initializer_list<int> ids)
+        {
+            auto* pe = new juce::XmlElement ("PitchEdits");
+            for (int id : ids)
+            { auto* n = pe->createNewChildElement ("Note"); n->setAttribute ("id", id); n->setAttribute ("start", 1.0 * id);
+              n->setAttribute ("end", 1.0 * id + 0.5); n->setAttribute ("source", 60 + id); n->setAttribute ("target", 60 + id);
+              n->setAttribute ("confidence", 0.9); n->setAttribute ("enabled", 1); }
+            return pe;
+        };
+        auto midiXml = [] (int cc, const char* param)
+        { auto* ml = new juce::XmlElement ("MidiLearn"); auto* m = ml->createNewChildElement ("Map");
+          m->setAttribute ("cc", cc); m->setAttribute ("p", param); return ml; };
+        auto midiCc = [] (const juce::XmlElement& x)
+        { if (auto* ml = x.getChildByName ("MidiLearn")) if (auto* m = ml->getChildByName ("Map")) return m->getIntAttribute ("cc", -1); return -1; };
+        auto ids = [] (SattariAutoPitchAudioProcessor& p)
+        { std::vector<juce::int64> v; for (const auto& e : p.getPitchEdits()) v.push_back (e.id); return v; };
+        auto fail = [] (const juce::String& why) { std::cerr << "State persistence: " << why << "\n"; return 1; };
+
+        // Base session with one of each section.
+        SattariAutoPitchAudioProcessor seed;
+        auto base = saveXml (seed);
+        for (const char* n : { "KeyMap", "PitchEdits", "MidiLearn" }) base->deleteAllChildElementsWithTagName (n);
+        base->addChildElement (keyMapXml (2)); base->addChildElement (editsXml ({ 1, 2, 3 }));
+        base->addChildElement (midiXml (7, "amount"));
+
+        // 1. Five save/load cycles through fresh instances: stable size, one copy of each, content intact.
+        juce::MemoryBlock first;
+        {
+            auto doc = std::make_unique<juce::XmlElement> (*base);
+            for (int cycle = 0; cycle < 5; ++cycle)
+            {
+                SattariAutoPitchAudioProcessor p;
+                loadXml (p, *doc);
+                doc = saveXml (p);
+                const auto mb = blobOf (*doc);
+                if (cycle == 0) first = mb;
+                else if (mb.getSize() != first.getSize())
+                    return fail ("blob grew across save/load cycles: " + juce::String ((int) first.getSize()) + " -> " + juce::String ((int) mb.getSize()));
+                if (count (*doc, "KeyMap") != 1 || count (*doc, "PitchEdits") != 1 || count (*doc, "MidiLearn") != 1)
+                    return fail ("save wrote duplicate session sections");
+                if (ids (p) != std::vector<juce::int64> { 1, 2, 3 } || p.getKeyMapSegments().size() != 2 || midiCc (*doc) != 7)
+                    return fail ("pitch edits / key map / MIDI Learn changed across cycles");
+            }
+        }
+        // 2. A deleted pitch note stays deleted through two save/load cycles.
+        {
+            SattariAutoPitchAudioProcessor a; loadXml (a, *base);
+            if (! a.deletePitchEdit (2)) return fail ("could not delete pitch note 2");
+            auto x = saveXml (a);
+            SattariAutoPitchAudioProcessor b; loadXml (b, *x);
+            auto y = saveXml (b);
+            SattariAutoPitchAudioProcessor c; loadXml (c, *y);
+            if (ids (c) != std::vector<juce::int64> { 1, 3 })
+                return fail ("a deleted pitch note came back after save/load");
+        }
+        // 3. A document saved by the defective build (old sections first, newest last) repairs:
+        //    the NEWEST copy wins and the next save is canonical (one copy each, then stable).
+        {
+            auto legacy = std::make_unique<juce::XmlElement> (*base);
+            for (const char* n : { "KeyMap", "PitchEdits", "MidiLearn" }) legacy->deleteAllChildElementsWithTagName (n);
+            legacy->addChildElement (keyMapXml (1)); legacy->addChildElement (editsXml ({ 1, 2, 3 }));
+            legacy->addChildElement (midiXml (7, "amount"));
+            legacy->addChildElement (keyMapXml (3)); legacy->addChildElement (editsXml ({ 1, 3 }));
+            legacy->addChildElement (midiXml (11, "speed"));
+            SattariAutoPitchAudioProcessor p; loadXml (p, *legacy);
+            if (ids (p) != std::vector<juce::int64> { 1, 3 } || p.getKeyMapSegments().size() != 3)
+                return fail ("duplicate-section session did not restore the newest copy");
+            auto saved = saveXml (p);
+            if (count (*saved, "KeyMap") != 1 || count (*saved, "PitchEdits") != 1 || count (*saved, "MidiLearn") != 1
+                || midiCc (*saved) != 11)
+                return fail ("repaired session did not save back in canonical form");
+            SattariAutoPitchAudioProcessor q; loadXml (q, *saved);
+            if (blobOf (*saveXml (q)) != blobOf (*saved))
+                return fail ("repaired session is not stable on the next save/load");
+        }
+
+        // Humanize: a vocal-like tone with slow vibrato, Natural style, Humanize 0.4.
+        auto renderHumanized = [] (SattariAutoPitchAudioProcessor& p)
+        {
+            setParameter (p.parameters(), "style", 0.0f);
+            setParameter (p.parameters(), "humanize", 0.4f);
+            setParameter (p.parameters(), "keyRoot", 0.0f);
+            setParameter (p.parameters(), "scaleMode", 2.0f);
+            p.prepareToPlay (48000.0, 512);
+            std::vector<float> out;
+            double phase = 0.0;
+            for (int b = 0; b < 300; ++b)
+            {
+                juce::AudioBuffer<float> buf (2, 512);
+                for (int i = 0; i < 512; ++i)
+                {
+                    const double t = (b * 512 + i) / 48000.0;
+                    const double hz = midiToHz (57) * std::pow (2.0, (30.0 + 25.0 * std::sin (2.0 * juce::MathConstants<double>::pi * 5.0 * t)) / 1200.0);
+                    const float v = 0.18f * (float) std::sin (phase);
+                    phase += juce::MathConstants<double>::twoPi * hz / 48000.0;
+                    buf.setSample (0, i, v); buf.setSample (1, i, v);
+                }
+                juce::MidiBuffer m; p.processBlock (buf, m);
+                for (int i = 0; i < 512; ++i) out.push_back (buf.getSample (0, i));
+            }
+            return out;
+        };
+        auto seedOf = [&saveXml] (SattariAutoPitchAudioProcessor& p) { return saveXml (p)->getStringAttribute ("humanizeSeed"); };
+        {
+            SattariAutoPitchAudioProcessor a;
+            const auto first = renderHumanized (a);
+            const auto again = renderHumanized (a);                 // same instance, bounced again
+            auto st = saveXml (a);
+            SattariAutoPitchAudioProcessor b; loadXml (b, *st);
+            const auto reopened = renderHumanized (b);              // saved + reopened session
+            if (again != first) return fail ("Humanize: bouncing the same session twice differs");
+            if (reopened != first) return fail ("Humanize: save/reopen changes the bounce");
+            SattariAutoPitchAudioProcessor c;                       // a second instance (doubled vocal)
+            if (seedOf (c) == seedOf (a)) return fail ("Humanize: two instances got the same seed");
+            if (renderHumanized (c) == first) return fail ("Humanize: two instances on a doubled vocal render identically");
+            // A project saved before the seed existed loads, renders, and from its next save on is reproducible.
+            auto legacy = saveXml (a); legacy->removeAttribute ("humanizeSeed");
+            SattariAutoPitchAudioProcessor d; loadXml (d, *legacy);
+            const auto legacyOut = renderHumanized (d);
+            if (std::any_of (legacyOut.begin(), legacyOut.end(), [] (float v) { return ! std::isfinite (v); }))
+                return fail ("Humanize: legacy project renders non-finite audio");
+            auto resaved = saveXml (d);
+            if (resaved->getStringAttribute ("humanizeSeed").isEmpty()) return fail ("Humanize: legacy project did not gain a seed on save");
+            SattariAutoPitchAudioProcessor e1, e2; loadXml (e1, *resaved); loadXml (e2, *resaved);
+            if (renderHumanized (e1) != renderHumanized (e2)) return fail ("Humanize: migrated legacy project is not reproducible");
+        }
+        std::cout << "  statePersistence=PASS (5 save/load cycles stable, deletes persist, legacy duplicates repair to "
+                     "canonical; Humanize reproducible across re-bounce and reopen, distinct per instance, legacy migrates)\n";
+    }
+
     // --- Dynamic Sattari Key -> Auto Pitch handoff -------------------------
     // Prove the actual realtime-safe SessionReader follows successive accepted
     // revisions and preserves the publisher's gated margin for the UI.
