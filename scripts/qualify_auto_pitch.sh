@@ -13,14 +13,16 @@
 #
 #  Usage: scripts/qualify_auto_pitch.sh [build dir]   (default build/auto-pitch-neural)
 #  Env:   MIN_FREE_GB (default 8)   EXPECTED_LATENCY (default 2885)   LOAD_CYCLES (default 30)
+#         NOHARM_MINUTES (default 120: AutoPitchNoHarm playback soak, ~15 min wall clock)
 #         PYTHON (default ~/.venvs/sattari-audio/bin/python if present, else python3)
 # =============================================================================
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 B="${1:-build/auto-pitch-neural}"
 MIN_FREE_GB="${MIN_FREE_GB:-8}"; EXPECTED_LATENCY="${EXPECTED_LATENCY:-2885}"; LOAD_CYCLES="${LOAD_CYCLES:-30}"
+NOHARM_MINUTES="${NOHARM_MINUTES:-120}"
 PY="${PYTHON:-}"; [ -z "$PY" ] && { [ -x "$HOME/.venvs/sattari-audio/bin/python" ] && PY="$HOME/.venvs/sattari-audio/bin/python" || PY=python3; }
-TOOLS=(AutoPitchCoreContract AutoPitchRender AutoPitchObjectiveBench AutoPitchBench)
+TOOLS=(AutoPitchCoreContract AutoPitchRender AutoPitchObjectiveBench AutoPitchBench AutoPitchNoHarm)
 VST3="$HOME/Library/Audio/Plug-Ins/VST3/Sattari Auto Pitch.vst3"
 AU="$HOME/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component"
 SHA="$(git rev-parse --short HEAD)"; DATE="$(date +%Y-%m-%d)"
@@ -63,6 +65,7 @@ gate "AutoPitchRender --nulltest"          "$(bin AutoPitchRender)" --nulltest
 gate "AutoPitchRender --livetest"          "$(bin AutoPitchRender)" --livetest
 rm -f "$HOME/Library/Sattari Audio/cross-plugin/key-bus.json"   # --livetest leaves a bus key behind
 gate "AutoPitchObjectiveBench"             "$(bin AutoPitchObjectiveBench)"
+gate "AutoPitchNoHarm (no-harm matrix, ${NOHARM_MINUTES} min soak)" "$(bin AutoPitchNoHarm)" --long-minutes "$NOHARM_MINUTES"
 gate "auval aufx Ap01 Satr"                sh -c 'auval -v aufx Ap01 Satr 2>&1 | tee /dev/stderr | grep -q "AU VALIDATION SUCCEEDED"'
 if [ -x /Applications/pluginval.app/Contents/MacOS/pluginval ]; then
   gate "pluginval strictness 5 (VST3)"     /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --skip-gui-tests --validate "$VST3"
