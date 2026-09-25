@@ -836,9 +836,12 @@ private:
     // The AutoKey histogram counts detected FUNDAMENTALS (one pitch class per sung
     // note, no harmonics). Aarden weights the 5th above the tonic to offset the
     // harmonic leakage in audio chroma; on a harmonic-free note histogram that bias
-    // turns a tonic-heavy melody into the key a fourth up. Krumhansl (tonic-led):
-    // generated-voice key corpus 52% -> 89% exact, a cappella 48/48 (2026-09-23).
-    sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Krumhansl;
+    // turns a tonic-heavy melody into the key a fourth up. Temperley (tonic-led):
+    // on real singers (Choral Singing Dataset, split by singer) it puts the WRONG key
+    // in use 7.9% / 5.4% of the time (dev / held-out) vs 28.1% / 24.4% for Krumhansl,
+    // with more right-key time. Krumhansl only won on the synthetic key corpus, whose
+    // melodies were selected by Krumhansl agreement (2026-09-24).
+    sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Temperley;
     // Time constant of the sung-note histogram (see updateAutoKeyHistogram).
     double autoKeyMemorySec = 15.0;
     // Audio chroma (sidechain / polyphonic path) keeps the profile it was

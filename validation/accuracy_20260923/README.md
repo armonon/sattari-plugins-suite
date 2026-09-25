@@ -199,3 +199,24 @@ AutoKey, `score_autokey_rt.py` (raw verdict vs the gated key correction USES; fa
 - Conclusion: the detector is not a bottleneck for target choice. The "~3 points from the detector"
   in Round 5 was an artifact of the reference. No detector change is justified by this evidence.
   Remaining key-mode loss to shifting is ~1.3 points (analytic 80.5 vs measured 79.2, seeded scorer).
+
+## Round 8 (2026-09-24): Auto Key for real singers
+Scorer: `score_autokey_rt.py --corpus csd` (realtime pace; "used" = the key correction actually
+uses after the 0.10 confidence gate; fallback = manual key). Split by singer as in Round 4.
+
+- **The synthetic key corpus is biased toward Krumhansl.** `synth_key.py` keeps only melodies whose
+  notes Krumhansl-Schmuckler agrees with, so it rewards Krumhansl by construction. On REAL music
+  (each CSD part's exact notes from the MIDI score): Krumhansl 8/12, Aarden 10/12, Temperley 10/12.
+- Plugin, sung-note path, real singers:
+  | profile | dev final | dev used right / WRONG / fallback | holdout final | holdout used right / WRONG |
+  |---|---|---|---|---|
+  | Krumhansl (9f6d57b) | 16/36 | 18.1 / 28.1 / 53.9% | 6/12 | 21.9 / 24.4% |
+  | Aarden | 18/36 | 19.9 / 9.6 / 70.4% | — | — |
+  | **Temperley (shipped)** | **20/36** | **23.1 / 7.9 / 69.1%** | **7/12** | **24.8 / 5.4%** |
+- Gate sweep (Temperley, dev): lowering the gate adds wrong-key time about as fast as right (0.06:
+  33.1 / 17.9%; 0.02: 43.9 / 33.6%). Kept 0.10.
+- Synthetic regression: Temperley 78/96 (a cappella 46/48) vs Krumhansl 85/96. Accepted: real
+  singers take priority, and that corpus favours Krumhansl by construction.
+- No-harm: contract (incl. AutoKey fixtures), auval, pluginval 5, 20 load/unload cycles, latency 2885.
+- Open: fallback is ~70% of the time and falls back to the MANUAL key (plugin default A minor), which
+  is itself a wrong key for most songs. Consider falling back to chromatic instead (product decision).
