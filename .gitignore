@@ -25,6 +25,8 @@ __pycache__/
 *.dmg
 *.zip
 *.tar.gz
+# Candidate kits from scripts/make_candidate_kit.sh (binaries; hand-carried, never committed)
+dist/
 
 # Swift build cache
 apps/sattari-hub/.build/
