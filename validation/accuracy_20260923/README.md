@@ -300,3 +300,17 @@ Goal: more right-key time without more wrong-key time, gate kept at 0.10. Scored
   0.03 R21.7/W4.4). Not worth a behaviour change.
 - Conclusion: after the Round 10 fix the correction side is sound; AutoKey on beats Chromatic. More
   coverage needs a better raw estimator (right ~60% of the time on these singers), not gating tricks.
+
+## Round 12 (2026-09-25): real LEAD vocals for AutoKey (Apple Loops)
+Source found on this machine: Logic Pro's Apple Loops carry Apple's own labels (category Vocals,
+Male/Female, key signature, key type, descriptors) in a CAF metadata chunk. `al_vocals.py` selects
+Male/Female + Single + Melodic + major/minor: 970 phrases, grouped by song into 282 clips (93 min;
+146 male, 136 female), split BY SONG (dev 212 / holdout 70). Audio stays in /Library (Logic licence:
+internal evaluation only, never redistributed); converted copies in `al_work/` (ignored).
+Caveats: most clips are a single ~6 s phrase (median 1 phrase/song); loops may be pre-tuned; the key
+is Apple's label, not independently verified.
+- Production (7a8dd57 behaviour), dev, note-set scoring: used key right 13.6% / wrong 7.4% /
+  chromatic 79.0% of voiced time; raw verdict right 43.9%; final verdict right 110/212.
+  By length: < 8 s raw 33.6%, final 35/81; 16–40 s raw 63.3%, final 31/42; > 40 s raw 56.4%, 18/30.
+- Takeaway: on short lead-vocal phrases AutoKey mostly (correctly) abstains; when it commits it is
+  wrong about a third of the time (7.4 vs 13.6). This is the benchmark for any key-detector work.
