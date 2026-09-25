@@ -152,6 +152,83 @@ double renderClassicStrongB3Plus45ErrorCents (bool productionLiveMode, int keySe
     return std::abs ((hzToMidi (outputFrequency) - (double) targetMidi) * 100.0);
 }
 
+// Correction-strength parity (release gate): AutoKey decides WHICH note set is legal, never HOW
+// HARD a note is pulled. Each AutoKey configuration is rendered next to the non-AutoKey setup that
+// produces the same effective key; the steady-state output must match.
+//   keySource 0 manual C chromatic      | 2 AutoKey, key untouched (No Result -> Chromatic)
+//   keySource 1 manual C major          | 3 AutoKey, explicit C major (No Result -> C major)
+//   keySource 5 manual key + melody     | 4 AutoKey after a C-major melody (detected key)
+// The manual twins use keyRoot/keyScale (default C major); for 4 vs 5 the twin is given exactly
+// the key AutoKey ended up detecting, so the pair differs only in where the key came from.
+struct ParityRender { double errorCents; float keyConfidence; int keyRoot; int keyScale; };
+
+ParityRender renderSteadyToneParity (int targetMidi, double detuneCents, int keySource,
+                                     int style, float amount, bool productionLiveMode,
+                                     int keyRoot = 0, int keyScale = 0)
+{
+    constexpr int blockSize = 512;
+    constexpr double sampleRate = 48000.0;
+    const bool prefix = keySource == 4 || keySource == 5;
+    const int prefixSamples = prefix ? (int) (sampleRate * 6.0) : 0;
+    const int toneBlocks = 235;
+    const int blocks = (prefixSamples + blockSize - 1) / blockSize + toneBlocks;
+    const double toneHz = midiToHz (targetMidi) * std::pow (2.0, detuneCents / 1200.0);
+
+    SattariAutoPitchAudioProcessor processor;
+    auto& apvts = processor.parameters();
+    setParameter (apvts, "liveMode", productionLiveMode ? 1.0f : 0.0f);
+    setParameter (apvts, "liveProfile", 0.0f);
+    setParameter (apvts, "extremeLive", productionLiveMode ? 1.0f : 0.0f);
+    if (keySource == 0 || keySource == 1 || keySource == 3 || keySource == 5)
+    {
+        const float sc = keySource == 0 ? 2.0f : (float) keyScale;
+        setParameter (apvts, "keyRoot", keySource == 0 ? 0.0f : (float) keyRoot);
+        setParameter (apvts, "scale", sc);
+        setParameter (apvts, "scaleMode", sc);
+    }
+    setParameter (apvts, "autoKey", (keySource == 2 || keySource == 3 || keySource == 4) ? 1.0f : 0.0f);
+    setParameter (apvts, "followSongKey", 0.0f);
+    setParameter (apvts, "style", (float) style);
+    setParameter (apvts, "amount", amount);
+    setParameter (apvts, "speed", 1.0f);
+    setParameter (apvts, "enableCorrection", 1.0f);
+    setParameter (apvts, "doNoHarm", 0.0f);
+    setParameter (apvts, "formantPreserve", 1.0f);
+    setParameter (apvts, "classicMode", 0.0f);
+    processor.prepareToPlay (sampleRate, blockSize);
+
+    static const int deg[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    static const int seq[] = { 0,2,4,2,0, 4,5,4,2,0, 0,2,4,4,2,0, 4,2,0,0 };
+    const int noteLen = (int) (sampleRate * 0.26);
+    std::vector<float> steadyOutput;
+    double phase = 0.0;
+    long n = 0;
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i, ++n)
+        {
+            const double hz = n < prefixSamples
+                ? midiToHz (60 + deg[seq[(n / noteLen) % 20]])
+                : toneHz;
+            const float sample = 0.18f * std::sin ((float) phase);
+            phase += juce::MathConstants<double>::twoPi * hz / sampleRate;
+            for (int channel = 0; channel < 2; ++channel)
+                buffer.setSample (channel, i, sample);
+        }
+        juce::MidiBuffer midi;
+        processor.processBlock (buffer, midi);
+        if (block >= blocks - 16)
+            for (int i = 0; i < blockSize; ++i)
+                steadyOutput.push_back (buffer.getSample (0, i));
+    }
+
+    const auto origin = processor.currentKeyOrigin();
+    const double outHz = estimateFrequencyFromPositiveCrossings (steadyOutput, sampleRate);
+    return { outHz > 0.0 ? std::abs ((hzToMidi (outHz) - (double) targetMidi) * 100.0) : 999.0,
+             origin.confidence, origin.root, origin.scale };
+}
+
 // A note sung +42 c sharp with +-20 c vibrato crosses the half-semitone line
 // every cycle. Classic must still pull its centre to the intended note instead of
 // flipping the target between B3 and C4 frame by frame.
@@ -1079,6 +1156,48 @@ int main (int argc, char** argv)
         return 1;
     }
 
+    //  The full parity matrix: low / mid / high voices, hard and gentle correction, Studio and
+    //  Live engines, and every key source AutoKey can hand correction. A difference > 1 c between
+    //  an AutoKey render and its non-AutoKey twin means AutoKey changed correction strength.
+    int parityRenders = 0;
+    double parityWorstCents = 0.0;
+    {
+        struct Case { int midi; int style; float amount; bool live; const char* name; };
+        const Case cases[] = {
+            { 43, 1, 1.0f, false, "G2 Classic 100%" }, { 59, 1, 1.0f, false, "B3 Classic 100%" },
+            { 76, 1, 1.0f, false, "E5 Classic 100%" }, { 43, 0, 0.5f, false, "G2 Natural 50%" },
+            { 59, 0, 0.5f, false, "B3 Natural 50%" },  { 76, 0, 0.5f, false, "E5 Natural 50%" },
+            { 59, 1, 1.0f, true,  "B3 Classic 100% Live" } };
+        const int pairs[3][2] = { { 2, 0 }, { 3, 1 }, { 4, 5 } };
+        const char* pairNames[3] = { "AutoKey No Result (untouched) vs manual Chromatic",
+                                     "AutoKey No Result (explicit C major) vs manual C major",
+                                     "AutoKey detected key vs the same key set manually" };
+        for (const auto& c : cases)
+            for (int p = 0; p < 3; ++p)
+            {
+                const auto ak  = renderSteadyToneParity (c.midi, 45.0, pairs[p][0], c.style, c.amount, c.live);
+                const auto ref = renderSteadyToneParity (c.midi, 45.0, pairs[p][1], c.style, c.amount, c.live,
+                                                         p == 2 ? ak.keyRoot : 0, p == 2 ? ak.keyScale : 0);
+                parityRenders += 2;
+                if (p == 2 && ! (ak.keyConfidence >= SattariAutoPitchAudioProcessor::kMinBusKeyConfidence
+                                 && (ak.keyScale == 0 || ak.keyScale == 1)))
+                {
+                    std::cerr << "Parity fixture did not reach a confident detected key (" << c.name
+                              << "): root " << ak.keyRoot << " scale " << ak.keyScale
+                              << " confidence " << ak.keyConfidence << "\n";
+                    return 1;
+                }
+                const double diff = std::abs (ak.errorCents - ref.errorCents);
+                parityWorstCents = juce::jmax (parityWorstCents, diff);
+                if (diff > 1.0 || ref.errorCents > 900.0)
+                {
+                    std::cerr << "AutoKey changed correction strength: " << c.name << ", " << pairNames[p]
+                              << ": abs error " << ak.errorCents << " c vs " << ref.errorCents << " c\n";
+                    return 1;
+                }
+            }
+    }
+
     const double vibratoBoundaryErrorCents = renderVibratoNearBoundaryErrorCents (true);
     const double vibratoBoundaryNoHoldCents = renderVibratoNearBoundaryErrorCents (false);
     if (vibratoBoundaryErrorCents > 12.0)
@@ -1516,6 +1635,8 @@ int main (int argc, char** argv)
     std::cout << "  classicB3Plus45AbsErrorCents=" << classicB3ErrorCents
               << " (AutoKey No Result: untouched " << autoKeyUntouchedB3Cents
               << ", explicit " << autoKeyExplicitB3Cents << ")\n";
+    std::cout << "  autoKeyStrengthParity=PASS (" << parityRenders << " renders, worst AutoKey-vs-twin "
+              << parityWorstCents << " c; 3 voices x 2 strengths + Live x 3 key sources)\n";
     std::cout << "  vibratoNearBoundaryAbsErrorCents=" << vibratoBoundaryErrorCents
               << " (no target hold: " << vibratoBoundaryNoHoldCents << ")\n";
     std::cout << "  productionLiveClassicB3Plus45AbsErrorCents=" << liveClassicB3ErrorCents << "\n";
