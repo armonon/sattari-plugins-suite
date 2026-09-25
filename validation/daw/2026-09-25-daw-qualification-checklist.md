@@ -7,9 +7,10 @@ binaries, so the setup below is done before any row.
 
 1. Quit every DAW.
 2. Run `scripts/install_candidate.sh cbd1ce4`.
-   - It verifies the installed Auto Pitch against the candidate report and installs the candidate
-     Sattari Key.
-   - It prints four sha256 lines. Paste them here:
+   - It installs the packaged candidate from `dist/candidate-cbd1ce4/` (build it with
+     `scripts/package_candidate.sh cbd1ce4`): self-contained bundles, which is what a user gets.
+   - It verifies every installed bundle is byte-identical to the package, runs auval, and prints
+     four sha256 lines. Paste them here:
 
    ```
    (paste)
@@ -32,7 +33,7 @@ Plugin format: Logic uses AU; Live and FL use VST3. Also run Live with AU once, 
 | 1 | Insert / load on a vocal track | appears under Sattari; UI opens; no error or crash | | | |
 | 2 | Mono track | processes, no silence, no channel duplication artefacts | | | |
 | 3 | Stereo track | L and R both processed; the image is not collapsed | | | |
-| 4 | Latency reporting | a click or transient printed through the plugin lines up with the dry track after bounce; host shows 2885 samples at 48 kHz | | | |
+| 4 | Latency reporting | a sustained vocal printed through the plugin lines up with the dry track after bounce (within ~1 ms); host shows 2885 samples at 48 kHz. Also listen to hard consonants and plosives: the engine smears sharp attacks about 7-10 ms later than the vowel body (measured 2026-09-25). Note whether that is audible against the dry track or the beat | | | |
 | 5 | Host bypass on/off during playback, 10 times | no click, no old audio replayed, bypassed = dry in time | | | |
 | 6 | Enable Correction on/off during playback, 10 times | no click; off = dry | | | |
 | 7 | Manual key (e.g. D major, then Chromatic) | notes snap to the chosen scale; the status line shows it | | | |

@@ -101,6 +101,27 @@ candidate. The candidate build is `build/song-key-rc`, built from the cbd1ce4 so
 `f67c04d5`, VST3 `fa448044`). It passes its estimator contract, render smoke and pluginval
 strictness 5. `install_candidate.sh` installs it; quit all DAWs first.
 
+**Candidate artefact = the PACKAGED bundles**, not the raw build.
+- The clean-machine kit found that the fingerprinted build in `build/auto-pitch-neural` links ONNX
+  Runtime through an absolute rpath into this repo, so its bundles load only on this Mac. The
+  earlier auval and pluginval passes worked only because that folder exists here.
+- `scripts/package_candidate.sh cbd1ce4` runs CI's embed step on copies (runtime into
+  Contents/Frameworks, `@loader_path` rpath, absolute rpaths removed, permissions fixed from the
+  build's 700, ad-hoc signed). Output: `dist/candidate-cbd1ce4/` and its .tar.gz.
+- All 6 bundles are self-contained. Both packaged VST3s pass pluginval at strictness 5.
+- Raw and signature-stripped sha256 values are in the qualification report. The stripped hash
+  survives Developer ID re-signing.
+- DSP is unchanged: same Mach-O code, only load commands and signatures differ.
+- auval on the packaged AUs runs at install (`scripts/install_candidate.sh`, DAWs closed).
+
+**Timing (measured 2026-09-25, no DSP change):**
+- Whole real vocals through the wet path line up within about 1 ms of the reported 2885 samples
+  (5 of 7 clips at -0.75 to -1.1 ms). This matches the 08-16 calibration.
+- Hard transients (clicks, sharp attacks) come out 7-10 ms later than reported at 48 kHz, 11 ms at
+  44.1 kHz and 15 ms at 96 kHz. This is identical in the 08-16 build, so it is not a regression.
+  It is Rubber Band R3 transient smearing, not a delay-compensation error.
+- DAW row 4 and the listening test check whether it is audible on consonants.
+
 Permanent regressions added after cbd1ce4 (tests only; plugin sources unchanged). Both fail if
 their bug is reinserted:
 - `AutoPitchCoreContract` statePersistence: 5 save/load cycles stay stable; deleted pitch notes
