@@ -39,8 +39,21 @@ needs to be increased". Each result names the commit it was built from.
 - Root tree: cross-plugin session bus contract and `ctest -L ui` (20/20): PASS.
 - Plugin validation of the installed build (311c045): auval, pluginval strictness 5, 30 pedalboard
   load/unload cycles, and reported latency 2885 samples (unchanged).
-- Not run (disk space): the full 71-target `verify_all.sh` build and run, and the universal root
-  build.
+- Full suite (`verify_all.sh --full` equivalent, 2026-09-26, HEAD 329b73a, isolated tree):
+  - Every non-StemDeck product builds: 48 VST3 + 48 AU.
+  - 83 contract targets build.
+  - `verify_all.sh` contracts: 69/69 after the test-harness fix in the following commit. The one
+    failure was `AutoPitchCoreContract` in the default (ONNX-off) configure: the Neural Pitch hold
+    test required a model the build cannot load. It now skips its neural half only in non-ONNX
+    builds; the ONNX build still runs it and passes.
+  - Strict golden null, `--smoke`, `--gainstage`, `--hitracktest` and the objective bench pass.
+  - `ctest -L ui` 20/20; the rest of the CTest suite 87/88, with the only failure the same contract.
+  - Suite gate, brand sync and `validate_sources.sh` pass.
+  - Hygiene note: `BrainContract` writes `key-bus.json` into the real
+    `~/Library/Sattari Audio/cross-plugin`, even with HOME redirected (the bus path ignores HOME).
+    It was cleaned up. This is suite test code, not a release defect.
+- Not run: the universal (x86_64) root build. The release x86_64 slices are built and verified
+  inside the packaged candidate.
 
 ## No-harm matrix (`AutoPitchNoHarm`, added 2026-09-25): all 8 checks PASS at cbd1ce4
 

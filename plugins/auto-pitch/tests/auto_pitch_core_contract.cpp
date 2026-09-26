@@ -1231,6 +1231,16 @@ int main (int argc, char** argv)
         for (const bool neural : { false, true })
             for (const int holdBlock : { 64, 512 })
             {
+               #if ! SATTARI_HAS_ONNX
+                //  A build without ONNX has no neural pitch path at all (verify_all.sh's default
+                //  configure), so the neural half cannot run there. In ONNX builds a missing model
+                //  still fails below.
+                if (neural)
+                {
+                    holdReport += " neural/" + std::to_string (holdBlock) + "=skipped(no ONNX in this build)";
+                    continue;
+                }
+               #endif
                 const auto held = targetStepSeconds (neural, true,  holdBlock, 57.0, 57.62, 58);
                 const auto free = targetStepSeconds (neural, false, holdBlock, 57.0, 57.62, 58);
                 if (! held.neuralLoaded)
