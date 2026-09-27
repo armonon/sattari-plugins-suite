@@ -192,6 +192,47 @@ sattari_enable_elastique(AutoPitchNoHarm SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(AutoPitchNoHarm SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 sattari_configure_auto_pitch_print_engine(AutoPitchNoHarm)
 
+# Live Mode / sample-rate x buffer qualification matrix: reported vs measured delay,
+# per-block CPU against the real-time budget, accuracy, artifacts and buffer
+# dependence for Studio and every Live profile. Same engine configuration as
+# AutoPitchNoHarm. Writes raw JSON; --merge applies the gates.
+add_executable(AutoPitchLiveMatrix
+    EXCLUDE_FROM_ALL
+        tools/auto_pitch_live_matrix.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+
+add_dependencies(AutoPitchLiveMatrix SattariAutoPitch)
+
+target_include_directories(AutoPitchLiveMatrix
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
+
+target_compile_definitions(AutoPitchLiveMatrix
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+target_link_libraries(AutoPitchLiveMatrix
+    PRIVATE
+        SattariAutoPitchModelData
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+
+sattari_enable_rubberband(AutoPitchLiveMatrix SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(AutoPitchLiveMatrix SATTARI_HAS_ONNX)
+sattari_enable_elastique(AutoPitchLiveMatrix SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchLiveMatrix SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchLiveMatrix)
+
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
     EXCLUDE_FROM_ALL
