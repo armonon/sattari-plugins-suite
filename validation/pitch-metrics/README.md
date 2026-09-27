@@ -55,3 +55,27 @@ Classic style, rendered at 48 kHz from the 16 kHz sources (pitch metrics only).
 - AutoPitchBench, and every benchmark above (all rendered at 48 kHz), did not show it.
   AutoPitchLiveMatrix did. Diagnostic switches were added to both tools: `AP_DUMP_PARAMS`,
   `LM_VIB_FIRST`, `LM_NO_DRAIN`, `LM_NO_RATEDETAILS`, `LM_2CH`, `LM_NO_VR`, `LM_NO_XL`, `LM_NO_NP`.
+
+### 44.1 kHz root-cause status (2026-09-27, afternoon)
+
+- **Not host-only.** AutoPitchBench reproduces it once the input matches (a 0.18-peak tone,
+  measured 1-3 s in). My first counter-test used a louder tone over a later window, which happened
+  to be clean. The widening depends erratically on level and time at 44.1 kHz; 48 kHz is stable
+  (+-20 c).
+- **Not our control logic.** The requested correction per block is the same at 44.1 and 48 kHz:
+  -0.91 x vibrato with a 12 ms lag, against -0.93 x with 11 ms; residual 2.5 / 2.1 c.
+- **It is the Rubber Band R3 realtime render of that curve.** At 44.1 kHz the output envelope dips
+  to 4% of its mean (48 kHz: 69%) and a spurious sideband appears at -14 dB (48 kHz: -32 dB). That is
+  interference between components, which frequency trackers read as +-70 c "vibrato".
+- **Standalone Rubber Band** (vendored 3.3 and brew 4.0, plugin options, a vibrato-cancelling
+  curve) shows the same kind of rate-dependent irregularity. OptionWindowShort is involved: the
+  standard window behaves smoothly. But the standard window costs 4616 samples of latency and
+  breaks the plugin's correction timing at every rate, so it is not a fix.
+- **Real singers (vocadito dev), native 44.1 vs 48 kHz:**
+  - Within 10 c: 61.8 vs 62.0%. Target correct: 93.8 vs 93.6%.
+  - Vibrato depth out/in p90: 1.64 vs 1.44.
+  - Legato settle p90: 400 vs 294 ms.
+  - Onset shift p90: +2.0 vs +0.7 ms.
+  - Real material is affected mildly, in the tails; the pure-sine case is extreme.
+- Tool bug fixed: AutoPitchBench appended to an existing --output file (JUCE createOutputStream
+  appends), which produced "No RIFF chunk" files. It now deletes the file first.

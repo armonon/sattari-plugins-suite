@@ -319,6 +319,10 @@ Render render (Proc& p, const Mono& in, double sr, int block)
         drainMessageThread (p);
         juce::MidiBuffer midi;
         p.processBlock (slice, midi);
+        if (std::getenv ("LM_SNAPSHOT")) { const auto sn = p.getLiveSnapshot();
+            std::fprintf (stderr, "SNAP %ld %d %.3f %.3f %.3f %d\n", pos / block, sn.detectedMidi, (double) sn.correctionCents, (double) sn.confidence, (double) sn.appliedScale, (int) sn.voiced); }
+        if (std::getenv ("LM_ORIGIN"))   (void) p.currentKeyOrigin();
+        if (std::getenv ("LM_INTENT"))   (void) p.getIntentV2State();
         for (int ch = 0; ch < outCh; ++ch)
         {
             const float* d = slice.getReadPointer (ch);

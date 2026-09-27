@@ -84,7 +84,12 @@ def ref(path, lat=0):
     c = Path(str(path) + f'.lat{lat}.crepetiny.s0.npy')
     if c.exists():
         return np.load(c)
-    m, _ = f0(load(path)[lat:], model='tiny'); np.save(c, m); return m
+    y, sr = sf.read(str(path), dtype='float32', always_2d=False)
+    y = (y if y.ndim == 1 else y.mean(1))[lat:]
+    if sr != SR:                                   # native-rate render: resample for scoring only
+        import librosa
+        y = librosa.resample(y, orig_sr=sr, target_sr=SR)
+    m, _ = f0(y, model='tiny'); np.save(c, m); return m
 
 def core(t, m, s, e):
     sel = (t >= s + 0.08) & (t <= e - 0.05) & np.isfinite(m)
@@ -129,11 +134,14 @@ def run(tag, set_name, split, extra, shard=None):
     items = SETS[set_name](split)
     if shard:
         i, n = shard; items = items[i::n]
+    native = os.environ.get('PM_NATIVE_SR') == '1'     # render at the file's own rate (e.g. 44.1 kHz)
     def render(it):
-        src = WORK / f"{it['id']}.wav"
+        src = WORK / (f"{it['id']}_native.wav" if native else f"{it['id']}.wav")
         if not src.exists():
             x, sr = sf.read(it['wav']); x = x if x.ndim == 1 else x.mean(1)
-            if sr != SR:
+            if native:
+                sf.write(src, x, sr, subtype='FLOAT')
+            elif sr != SR:
                 subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-i', it['wav'], '-ac', '1', '-ar', str(SR), str(src)], check=True)
             else:
                 sf.write(src, x, SR)
@@ -147,7 +155,7 @@ def run(tag, set_name, split, extra, shard=None):
 
     rows, onset_rows = [], []
     for it in items:
-        src = WORK / f"{it['id']}.wav"; out = WORK / f"{it['id']}_{tag}.wav"; lat = lats[it['id']]
+        src = WORK / (f"{it['id']}_native.wav" if native else f"{it['id']}.wav"); out = WORK / f"{it['id']}_{tag}.wav"; lat = lats[it['id']]
         mi, mo = ref(src), ref(out, lat); ti = np.arange(len(mi)) * 0.01; to = np.arange(len(mo)) * 0.01
         notes = it['notes']
         for k, (s, e, tgt) in enumerate(notes):
@@ -182,18 +190,20 @@ def run(tag, set_name, split, extra, shard=None):
                          'vib_depth_ratio': dep_out / dep_in if dep_in > 25 and 4 <= rate_in <= 8 else None,
                          'vib_rate_ratio': rate_out / rate_in if dep_in > 25 and 4 <= rate_in <= 8 else None})
         # onset / consonant timing on the full signal
-        x, _ = sf.read(src); y, _ = sf.read(out); y = y if y.ndim == 1 else y[:, 0]; y = y[lat:]
-        n = min(len(x), len(y)); x, y = x[:n], y[:n]; hx, hy = hf_env(x, SR), hf_env(y, SR)
-        for o in onsets(x, SR):
-            a, b = o - int(0.02 * SR), o + int(0.06 * SR)
+        x, fsr = sf.read(src); y, _ = sf.read(out); y = y if y.ndim == 1 else y[:, 0]; y = y[lat:]
+        x = x if x.ndim == 1 else x[:, 0]
+        n = min(len(x), len(y)); x, y = x[:n], y[:n]; hx, hy = hf_env(x, fsr), hf_env(y, fsr)
+        SRl = fsr
+        for o in onsets(x, fsr):
+            a, b = o - int(0.02 * SRl), o + int(0.06 * SRl)
             if a < 0 or b > n: continue
             ex, ey = hx[a:b], hy[a:b]
             c = np.correlate(ey - ey.mean(), ex - ex.mean(), 'full'); lagi = int(np.argmax(c)) - (len(ex) - 1)
-            w = int(0.03 * SR); pk_in = ex[int(0.02 * SR):int(0.02 * SR) + w].max(); pk_out = ey[int(0.02 * SR):int(0.02 * SR) + w].max()
+            w = int(0.03 * SRl); pk_in = ex[int(0.02 * SRl):int(0.02 * SRl) + w].max(); pk_out = ey[int(0.02 * SRl):int(0.02 * SRl) + w].max()
             def rise(env):
-                seg = env[int(0.01 * SR):int(0.02 * SR) + w]; lo, hi = seg.min(), seg.max()
-                i10 = np.argmax(seg >= lo + 0.1 * (hi - lo)); i90 = np.argmax(seg >= lo + 0.9 * (hi - lo)); return 1000 * (i90 - i10) / SR
-            onset_rows.append({'shift_ms': 1000 * lagi / SR, 'atten_db': 20 * np.log10(pk_out / pk_in), 'rise_in': rise(ex), 'rise_out': rise(ey)})
+                seg = env[int(0.01 * SRl):int(0.02 * SRl) + w]; lo, hi = seg.min(), seg.max()
+                i10 = np.argmax(seg >= lo + 0.1 * (hi - lo)); i90 = np.argmax(seg >= lo + 0.9 * (hi - lo)); return 1000 * (i90 - i10) / SRl
+            onset_rows.append({'shift_ms': 1000 * lagi / SRl, 'atten_db': 20 * np.log10(pk_out / pk_in), 'rise_in': rise(ex), 'rise_out': rise(ey)})
         if os.environ.get('PM_KEEP') != '1':
             out.unlink(missing_ok=True)
 

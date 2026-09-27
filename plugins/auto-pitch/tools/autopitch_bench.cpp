@@ -372,6 +372,9 @@ int main (int argc, char** argv)
     {
         a.outputWav.getParentDirectory().createDirectory();
         juce::WavAudioFormat wav;
+        // juce::File::createOutputStream APPENDS to an existing file: re-running with the same
+        // --output wrote a second WAV after the first one (corrupt, "No RIFF chunk"). Replace it.
+        a.outputWav.deleteFile();
         std::unique_ptr<juce::OutputStream> stream (a.outputWav.createOutputStream());
         if (stream != nullptr)
         {
