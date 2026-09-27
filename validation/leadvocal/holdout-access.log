@@ -1,0 +1,2 @@
+# Lead-vocal holdout-sealed access log (append-only; written by validation/leadvocal/corpus.py items()).
+# columns: utc_timestamp<TAB>reason (LEADVOCAL_MILESTONE)<TAB>caller file:line:function argv<TAB>user@host<TAB>items

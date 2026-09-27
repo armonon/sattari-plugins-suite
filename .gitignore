@@ -78,3 +78,6 @@ validation/auto-pitch/renders/
 validation/corpus/**/*.wav
 validation/corpus/**/*.m4a
 validation/listening/**/*.wav
+
+# Lead-vocal corpus: the holdout access log is an audit trail and must be committed
+!validation/leadvocal/holdout-access.log

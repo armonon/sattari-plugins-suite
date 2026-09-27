@@ -1,0 +1,2163 @@
+{
+ "split_source": {
+  "primary:al": {
+   "dev": [
+    140,
+    38.69966666666669
+   ],
+   "validation": [
+    26,
+    12.419166666666667
+   ],
+   "holdout-sealed": [
+    14,
+    9.605666666666668
+   ]
+  },
+  "primary:n20emv2": {
+   "dev": [
+    85,
+    252.1141666666667
+   ],
+   "validation": [
+    10,
+    41.723499999999994
+   ],
+   "holdout-sealed": [
+    18,
+    65.5445
+   ]
+  },
+  "primary:vocadito": {
+   "dev": [
+    25,
+    9.134666666666668
+   ],
+   "validation": [
+    6,
+    2.132333333333333
+   ],
+   "holdout-sealed": [
+    9,
+    2.352
+   ]
+  },
+  "secondary:al": {
+   "dev": [
+    62,
+    8.223000000000003
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "secondary:csd": {
+   "dev": [
+    12,
+    28.773333333333337
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  }
+ },
+ "singers": {
+  "dev": 69,
+  "validation": 18,
+  "holdout-sealed": 24
+ },
+ "songs": {
+  "dev": 104,
+  "validation": 20,
+  "holdout-sealed": 28
+ },
+ "sex_register": {
+  "F high": {
+   "dev": [
+    16,
+    2.6461666666666663
+   ],
+   "validation": [
+    1,
+    0.21033333333333332
+   ],
+   "holdout-sealed": [
+    2,
+    0.7789999999999999
+   ]
+  },
+  "F low": {
+   "dev": [
+    7,
+    1.744
+   ],
+   "validation": [
+    1,
+    0.2718333333333333
+   ],
+   "holdout-sealed": [
+    2,
+    2.4755
+   ]
+  },
+  "F mid": {
+   "dev": [
+    50,
+    18.9495
+   ],
+   "validation": [
+    11,
+    7.350333333333333
+   ],
+   "holdout-sealed": [
+    2,
+    2.6820000000000004
+   ]
+  },
+  "F* low": {
+   "dev": [
+    4,
+    1.2888333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    2,
+    4.314666666666667
+   ]
+  },
+  "F* mid": {
+   "dev": [
+    42,
+    110.34150000000001
+   ],
+   "validation": [
+    6,
+    16.479
+   ],
+   "holdout-sealed": [
+    8,
+    25.190833333333334
+   ]
+  },
+  "M high": {
+   "dev": [
+    50,
+    10.8765
+   ],
+   "validation": [
+    10,
+    4.198333333333334
+   ],
+   "holdout-sealed": [
+    7,
+    2.560166666666666
+   ]
+  },
+  "M low": {
+   "dev": [
+    3,
+    0.20233333333333334
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M mid": {
+   "dev": [
+    14,
+    4.281166666666667
+   ],
+   "validation": [
+    3,
+    0.38833333333333336
+   ],
+   "holdout-sealed": [
+    1,
+    1.1090000000000002
+   ]
+  },
+  "M* high": {
+   "dev": [
+    17,
+    33.494333333333344
+   ],
+   "validation": [
+    1,
+    0.38716666666666666
+   ],
+   "holdout-sealed": [
+    5,
+    13.677333333333333
+   ]
+  },
+  "M* low": {
+   "dev": [
+    3,
+    0.9891666666666667
+   ],
+   "validation": [
+    4,
+    12.126333333333333
+   ],
+   "holdout-sealed": [
+    4,
+    1.0376666666666665
+   ]
+  },
+  "M* mid": {
+   "dev": [
+    44,
+    115.13499999999999
+   ],
+   "validation": [
+    5,
+    14.863333333333335
+   ],
+   "holdout-sealed": [
+    8,
+    23.675999999999995
+   ]
+  }
+ },
+ "genre": {
+  "al: country-folk": {
+   "dev": [
+    8,
+    1.8851666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    2,
+    1.5786666666666669
+   ]
+  },
+  "al: electronic": {
+   "dev": [
+    2,
+    0.21650000000000003
+   ],
+   "validation": [
+    1,
+    0.36333333333333334
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "al: hip-hop": {
+   "dev": [
+    10,
+    2.243666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "al: jazz": {
+   "dev": [
+    2,
+    1.029
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    1.6271666666666667
+   ]
+  },
+  "al: orchestral": {
+   "dev": [
+    4,
+    0.7883333333333333
+   ],
+   "validation": [
+    1,
+    0.4405
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "al: r&b": {
+   "dev": [
+    41,
+    13.711833333333335
+   ],
+   "validation": [
+    4,
+    0.6591666666666667
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "al: rock": {
+   "dev": [
+    40,
+    9.248833333333334
+   ],
+   "validation": [
+    2,
+    0.294
+   ],
+   "holdout-sealed": [
+    5,
+    1.9403333333333332
+   ]
+  },
+  "al: unknown": {
+   "dev": [
+    5,
+    2.457666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    4,
+    3.1703333333333337
+   ]
+  },
+  "al: urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    19,
+    5.946833333333333
+   ],
+   "validation": [
+    16,
+    10.291166666666665
+   ],
+   "holdout-sealed": [
+    2,
+    1.2891666666666666
+   ]
+  },
+  "al: world": {
+   "dev": [
+    9,
+    1.1718333333333333
+   ],
+   "validation": [
+    2,
+    0.371
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: children": {
+   "dev": [
+    7,
+    13.859
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: country-folk": {
+   "dev": [
+    7,
+    18.426
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: electronic": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    3,
+    12.913833333333333
+   ]
+  },
+  "n20emv2: indie": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    4,
+    20.446333333333335
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: musical-theatre": {
+   "dev": [
+    14,
+    31.30366666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: pop": {
+   "dev": [
+    28,
+    99.16199999999999
+   ],
+   "validation": [
+    6,
+    21.277166666666666
+   ],
+   "holdout-sealed": [
+    15,
+    52.63066666666667
+   ]
+  },
+  "n20emv2: rock": {
+   "dev": [
+    7,
+    24.154833333333336
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: standard": {
+   "dev": [
+    7,
+    28.146166666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "n20emv2: traditional-holiday": {
+   "dev": [
+    15,
+    37.06249999999999
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "vocadito: children": {
+   "dev": [
+    3,
+    0.9259999999999999
+   ],
+   "validation": [
+    1,
+    0.24433333333333335
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "vocadito: country-folk": {
+   "dev": [
+    6,
+    1.8595000000000002
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "vocadito: pop": {
+   "dev": [
+    2,
+    0.5621666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "vocadito: standard": {
+   "dev": [
+    2,
+    1.0361666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "vocadito: traditional-holiday": {
+   "dev": [
+    1,
+    0.464
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.1451666666666667
+   ]
+  },
+  "vocadito: unknown": {
+   "dev": [
+    11,
+    4.286833333333333
+   ],
+   "validation": [
+    5,
+    1.8880000000000001
+   ],
+   "holdout-sealed": [
+    8,
+    2.2068333333333334
+   ]
+  }
+ },
+ "vibrato": {
+  "medium": {
+   "dev": [
+    56,
+    84.3703333333333
+   ],
+   "validation": [
+    8,
+    10.759333333333334
+   ],
+   "holdout-sealed": [
+    9,
+    19.900333333333336
+   ]
+  },
+  "narrow": {
+   "dev": [
+    50,
+    120.9385
+   ],
+   "validation": [
+    3,
+    4.261333333333333
+   ],
+   "holdout-sealed": [
+    6,
+    20.15133333333333
+   ]
+  },
+  "none": {
+   "dev": [
+    41,
+    69.84133333333331
+   ],
+   "validation": [
+    10,
+    34.84466666666666
+   ],
+   "holdout-sealed": [
+    10,
+    30.188166666666667
+   ]
+  },
+  "unknown": {
+   "dev": [
+    84,
+    16.862999999999996
+   ],
+   "validation": [
+    17,
+    3.493333333333333
+   ],
+   "holdout-sealed": [
+    12,
+    3.4923333333333333
+   ]
+  },
+  "wide": {
+   "dev": [
+    19,
+    7.935333333333333
+   ],
+   "validation": [
+    4,
+    2.916333333333333
+   ],
+   "holdout-sealed": [
+    4,
+    3.77
+   ]
+  }
+ },
+ "note_length": {
+  "0.25-0.5 s": {
+   "dev": [
+    43,
+    113.38866666666668
+   ],
+   "validation": [
+    12,
+    37.72199999999999
+   ],
+   "holdout-sealed": [
+    16,
+    54.56916666666666
+   ]
+  },
+  "<0.25 s": {
+   "dev": [
+    37,
+    66.22050000000002
+   ],
+   "validation": [
+    4,
+    6.133833333333333
+   ],
+   "holdout-sealed": [
+    11,
+    13.327333333333332
+   ]
+  },
+  ">0.5 s": {
+   "dev": [
+    30,
+    81.63966666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "no notes": {
+   "dev": [
+    140,
+    38.69966666666669
+   ],
+   "validation": [
+    26,
+    12.419166666666667
+   ],
+   "holdout-sealed": [
+    14,
+    9.605666666666668
+   ]
+  }
+ },
+ "pace": {
+  "fast": {
+   "dev": [
+    37,
+    66.22050000000002
+   ],
+   "validation": [
+    4,
+    6.133833333333333
+   ],
+   "holdout-sealed": [
+    11,
+    13.327333333333332
+   ]
+  },
+  "moderate": {
+   "dev": [
+    31,
+    73.2563333333333
+   ],
+   "validation": [
+    12,
+    37.72199999999999
+   ],
+   "holdout-sealed": [
+    9,
+    27.036833333333337
+   ]
+  },
+  "no notes": {
+   "dev": [
+    140,
+    38.69966666666669
+   ],
+   "validation": [
+    26,
+    12.419166666666667
+   ],
+   "holdout-sealed": [
+    14,
+    9.605666666666668
+   ]
+  },
+  "slow": {
+   "dev": [
+    30,
+    81.63966666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "sustained": {
+   "dev": [
+    34,
+    105.09933333333335
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    7,
+    27.532333333333334
+   ]
+  }
+ },
+ "ornaments": {
+  "none / not measurable": {
+   "dev": [
+    206,
+    162.49816666666672
+   ],
+   "validation": [
+    35,
+    30.838333333333335
+   ],
+   "holdout-sealed": [
+    29,
+    35.109500000000004
+   ]
+  },
+  "portamento": {
+   "dev": [
+    23,
+    69.34333333333333
+   ],
+   "validation": [
+    5,
+    17.507166666666667
+   ],
+   "holdout-sealed": [
+    6,
+    21.09416666666667
+   ]
+  },
+  "scoops": {
+   "dev": [
+    27,
+    84.75066666666667
+   ],
+   "validation": [
+    4,
+    14.446666666666667
+   ],
+   "holdout-sealed": [
+    8,
+    26.8575
+   ]
+  }
+ },
+ "key_quality": {
+  "ambiguous (margin < 0.05)": {
+   "dev": [
+    35,
+    76.97316666666664
+   ],
+   "validation": [
+    6,
+    10.684333333333333
+   ],
+   "holdout-sealed": [
+    8,
+    10.817333333333334
+   ]
+  },
+  "clear": {
+   "dev": [
+    75,
+    184.2756666666667
+   ],
+   "validation": [
+    10,
+    33.171499999999995
+   ],
+   "holdout-sealed": [
+    19,
+    57.07916666666667
+   ]
+  },
+  "label": {
+   "dev": [
+    140,
+    38.69966666666669
+   ],
+   "validation": [
+    26,
+    12.419166666666667
+   ],
+   "holdout-sealed": [
+    14,
+    9.605666666666668
+   ]
+  }
+ },
+ "sample_rate": {
+  "16000 Hz": {
+   "dev": [
+    85,
+    252.1141666666667
+   ],
+   "validation": [
+    10,
+    41.723499999999994
+   ],
+   "holdout-sealed": [
+    18,
+    65.5445
+   ]
+  },
+  "44100 Hz": {
+   "dev": [
+    25,
+    9.134666666666668
+   ],
+   "validation": [
+    6,
+    2.132333333333333
+   ],
+   "holdout-sealed": [
+    9,
+    2.352
+   ]
+  },
+  "44100 Hz (lossy AAC)": {
+   "dev": [
+    140,
+    38.69966666666669
+   ],
+   "validation": [
+    26,
+    12.419166666666667
+   ],
+   "holdout-sealed": [
+    14,
+    9.605666666666668
+   ]
+  }
+ },
+ "sex_register_genre": {
+  "F high | country-folk": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.4696666666666667
+   ]
+  },
+  "F high | electronic": {
+   "dev": [
+    1,
+    0.0685
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | hip-hop": {
+   "dev": [
+    1,
+    0.20516666666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | jazz": {
+   "dev": [
+    1,
+    0.2773333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | r&b": {
+   "dev": [
+    5,
+    0.8734999999999999
+   ],
+   "validation": [
+    1,
+    0.21033333333333332
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | rock": {
+   "dev": [
+    3,
+    0.48916666666666664
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | unknown": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.3093333333333333
+   ]
+  },
+  "F high | urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    4,
+    0.6686666666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F high | world": {
+   "dev": [
+    1,
+    0.06383333333333334
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F low | jazz": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    1.6271666666666667
+   ]
+  },
+  "F low | r&b": {
+   "dev": [
+    5,
+    1.0813333333333333
+   ],
+   "validation": [
+    1,
+    0.2718333333333333
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F low | rock": {
+   "dev": [
+    2,
+    0.6626666666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F low | urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.8483333333333333
+   ]
+  },
+  "F mid | jazz": {
+   "dev": [
+    1,
+    0.7516666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F mid | r&b": {
+   "dev": [
+    18,
+    7.017166666666666
+   ],
+   "validation": [
+    2,
+    0.17700000000000002
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F mid | rock": {
+   "dev": [
+    19,
+    5.790499999999998
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F mid | unknown": {
+   "dev": [
+    5,
+    2.457666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    2,
+    2.6820000000000004
+   ]
+  },
+  "F mid | urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    5,
+    2.5178333333333334
+   ],
+   "validation": [
+    7,
+    6.802333333333333
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F mid | world": {
+   "dev": [
+    2,
+    0.41466666666666663
+   ],
+   "validation": [
+    2,
+    0.371
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* low | children": {
+   "dev": [
+    1,
+    0.3055
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* low | country-folk": {
+   "dev": [
+    1,
+    0.338
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* low | pop": {
+   "dev": [
+    1,
+    0.2525
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    4.026666666666666
+   ]
+  },
+  "F* low | unknown": {
+   "dev": [
+    1,
+    0.3928333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.28800000000000003
+   ]
+  },
+  "F* mid | children": {
+   "dev": [
+    3,
+    5.9535
+   ],
+   "validation": [
+    1,
+    0.24433333333333335
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | country-folk": {
+   "dev": [
+    3,
+    7.129666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | electronic": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    2,
+    8.4875
+   ]
+  },
+  "F* mid | indie": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    2,
+    8.938
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | musical-theatre": {
+   "dev": [
+    6,
+    14.447333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | pop": {
+   "dev": [
+    14,
+    46.60616666666666
+   ],
+   "validation": [
+    2,
+    6.8995
+   ],
+   "holdout-sealed": [
+    4,
+    16.039166666666667
+   ]
+  },
+  "F* mid | rock": {
+   "dev": [
+    2,
+    6.511833333333334
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | standard": {
+   "dev": [
+    4,
+    11.664333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | traditional-holiday": {
+   "dev": [
+    8,
+    16.796166666666668
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "F* mid | unknown": {
+   "dev": [
+    2,
+    1.2325
+   ],
+   "validation": [
+    1,
+    0.3971666666666666
+   ],
+   "holdout-sealed": [
+    2,
+    0.6641666666666666
+   ]
+  },
+  "M high | country-folk": {
+   "dev": [
+    4,
+    1.2831666666666668
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M high | electronic": {
+   "dev": [
+    1,
+    0.14800000000000002
+   ],
+   "validation": [
+    1,
+    0.36333333333333334
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M high | hip-hop": {
+   "dev": [
+    2,
+    0.4371666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M high | orchestral": {
+   "dev": [
+    4,
+    0.7883333333333333
+   ],
+   "validation": [
+    1,
+    0.4405
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M high | r&b": {
+   "dev": [
+    10,
+    2.7186666666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M high | rock": {
+   "dev": [
+    13,
+    2.0475000000000003
+   ],
+   "validation": [
+    1,
+    0.25266666666666665
+   ],
+   "holdout-sealed": [
+    5,
+    1.9403333333333332
+   ]
+  },
+  "M high | unknown": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.179
+   ]
+  },
+  "M high | urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    10,
+    2.760333333333333
+   ],
+   "validation": [
+    7,
+    3.1418333333333335
+   ],
+   "holdout-sealed": [
+    1,
+    0.4408333333333333
+   ]
+  },
+  "M high | world": {
+   "dev": [
+    6,
+    0.6933333333333332
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M low | hip-hop": {
+   "dev": [
+    2,
+    0.15716666666666668
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M low | rock": {
+   "dev": [
+    1,
+    0.04516666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M mid | country-folk": {
+   "dev": [
+    4,
+    0.6020000000000001
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    1.1090000000000002
+   ]
+  },
+  "M mid | hip-hop": {
+   "dev": [
+    5,
+    1.4441666666666664
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M mid | r&b": {
+   "dev": [
+    3,
+    2.021166666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M mid | rock": {
+   "dev": [
+    2,
+    0.21383333333333335
+   ],
+   "validation": [
+    1,
+    0.04133333333333333
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M mid | urban (apple label: r&b/hip-hop)": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    2,
+    0.347
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* high | children": {
+   "dev": [
+    2,
+    0.6205
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* high | country-folk": {
+   "dev": [
+    2,
+    0.6305000000000001
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* high | pop": {
+   "dev": [
+    4,
+    15.506666666666666
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    4,
+    13.532166666666667
+   ]
+  },
+  "M* high | rock": {
+   "dev": [
+    3,
+    11.078333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* high | traditional-holiday": {
+   "dev": [
+    3,
+    4.930333333333333
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    0.1451666666666667
+   ]
+  },
+  "M* high | unknown": {
+   "dev": [
+    3,
+    0.728
+   ],
+   "validation": [
+    1,
+    0.38716666666666666
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* low | country-folk": {
+   "dev": [
+    1,
+    0.15166666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* low | indie": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    2,
+    11.508333333333333
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* low | unknown": {
+   "dev": [
+    2,
+    0.8374999999999999
+   ],
+   "validation": [
+    2,
+    0.618
+   ],
+   "holdout-sealed": [
+    4,
+    1.0376666666666665
+   ]
+  },
+  "M* mid | children": {
+   "dev": [
+    4,
+    7.9055
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | country-folk": {
+   "dev": [
+    6,
+    12.035666666666668
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | electronic": {
+   "dev": [
+    0,
+    0.0
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    1,
+    4.426333333333333
+   ]
+  },
+  "M* mid | musical-theatre": {
+   "dev": [
+    8,
+    16.856333333333332
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | pop": {
+   "dev": [
+    11,
+    37.35883333333334
+   ],
+   "validation": [
+    4,
+    14.377666666666668
+   ],
+   "holdout-sealed": [
+    6,
+    19.032666666666664
+   ]
+  },
+  "M* mid | rock": {
+   "dev": [
+    2,
+    6.564666666666667
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | standard": {
+   "dev": [
+    5,
+    17.518
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | traditional-holiday": {
+   "dev": [
+    5,
+    15.799999999999999
+   ],
+   "validation": [
+    0,
+    0.0
+   ],
+   "holdout-sealed": [
+    0,
+    0.0
+   ]
+  },
+  "M* mid | unknown": {
+   "dev": [
+    3,
+    1.096
+   ],
+   "validation": [
+    1,
+    0.4856666666666667
+   ],
+   "holdout-sealed": [
+    1,
+    0.217
+   ]
+  }
+ },
+ "requirements": {
+  "male low": {
+   "status": "covered",
+   "counts": {
+    "dev": 6,
+    "validation": 4,
+    "holdout-sealed": 4
+   },
+   "minutes": 14.4,
+   "note": ""
+  },
+  "male mid": {
+   "status": "covered",
+   "counts": {
+    "dev": 58,
+    "validation": 8,
+    "holdout-sealed": 9
+   },
+   "minutes": 159.5,
+   "note": ""
+  },
+  "male high": {
+   "status": "covered",
+   "counts": {
+    "dev": 67,
+    "validation": 11,
+    "holdout-sealed": 12
+   },
+   "minutes": 65.2,
+   "note": ""
+  },
+  "female low": {
+   "status": "covered",
+   "counts": {
+    "dev": 11,
+    "validation": 1,
+    "holdout-sealed": 4
+   },
+   "minutes": 10.1,
+   "note": ""
+  },
+  "female mid": {
+   "status": "covered",
+   "counts": {
+    "dev": 92,
+    "validation": 17,
+    "holdout-sealed": 10
+   },
+   "minutes": 181.0,
+   "note": ""
+  },
+  "female high": {
+   "status": "thin",
+   "counts": {
+    "dev": 16,
+    "validation": 1,
+    "holdout-sealed": 2
+   },
+   "minutes": 3.6,
+   "note": ""
+  },
+  "breathy": {
+   "status": "unknown (not derivable from these sources)",
+   "counts": null,
+   "minutes": 0.0,
+   "note": "no source labels breathiness; needs annotation or an HNR measure"
+  },
+  "bright": {
+   "status": "unknown (not derivable from these sources)",
+   "counts": null,
+   "minutes": 0.0,
+   "note": "Apple has no \"Bright\" descriptor on these items"
+  },
+  "dark": {
+   "status": "thin",
+   "counts": {
+    "dev": 8,
+    "validation": 1,
+    "holdout-sealed": 0
+   },
+   "minutes": 1.6,
+   "note": "Apple descriptor label only"
+  },
+  "powerful": {
+   "status": "covered",
+   "counts": {
+    "dev": 16,
+    "validation": 14,
+    "holdout-sealed": 2
+   },
+   "minutes": 12.8,
+   "note": "proxy: Apple descriptor \"Intense\""
+  },
+  "inexperienced": {
+   "status": "covered",
+   "counts": {
+    "dev": 110,
+    "validation": 16,
+    "holdout-sealed": 27
+   },
+   "minutes": 373.0,
+   "note": "dataset-level: N20EM untrained-to-amateur, vocadito mixed"
+  },
+  "sustained": {
+   "status": "covered",
+   "counts": {
+    "dev": 34,
+    "validation": 0,
+    "holdout-sealed": 7
+   },
+   "minutes": 132.6,
+   "note": ""
+  },
+  "fast": {
+   "status": "covered",
+   "counts": {
+    "dev": 37,
+    "validation": 4,
+    "holdout-sealed": 11
+   },
+   "minutes": 85.7,
+   "note": ""
+  },
+  "slow": {
+   "status": "thin",
+   "counts": {
+    "dev": 30,
+    "validation": 0,
+    "holdout-sealed": 0
+   },
+   "minutes": 81.6,
+   "note": ""
+  },
+  "vibrato wide": {
+   "status": "covered",
+   "counts": {
+    "dev": 19,
+    "validation": 4,
+    "holdout-sealed": 4
+   },
+   "minutes": 14.6,
+   "note": ""
+  },
+  "vibrato narrow": {
+   "status": "covered",
+   "counts": {
+    "dev": 50,
+    "validation": 3,
+    "holdout-sealed": 6
+   },
+   "minutes": 145.4,
+   "note": ""
+  },
+  "scoops": {
+   "status": "covered",
+   "counts": {
+    "dev": 27,
+    "validation": 4,
+    "holdout-sealed": 8
+   },
+   "minutes": 126.1,
+   "note": "heuristic from notes + f0"
+  },
+  "slides / portamento": {
+   "status": "covered",
+   "counts": {
+    "dev": 23,
+    "validation": 5,
+    "holdout-sealed": 6
+   },
+   "minutes": 107.9,
+   "note": "heuristic from notes + f0"
+  },
+  "hard / soft consonants": {
+   "status": "unknown (not derivable from these sources)",
+   "counts": null,
+   "minutes": 0.0,
+   "note": "needs phonetic annotation"
+  },
+  "falsetto / chest / mixed": {
+   "status": "unknown (not derivable from these sources)",
+   "counts": null,
+   "minutes": 0.0,
+   "note": "register mechanism is not labelled anywhere"
+  },
+  "genre pop": {
+   "status": "covered",
+   "counts": {
+    "dev": 30,
+    "validation": 6,
+    "holdout-sealed": 15
+   },
+   "minutes": 173.6,
+   "note": ""
+  },
+  "genre R&B": {
+   "status": "covered",
+   "counts": {
+    "dev": 60,
+    "validation": 20,
+    "holdout-sealed": 2
+   },
+   "minutes": 31.9,
+   "note": ""
+  },
+  "genre rock": {
+   "status": "covered",
+   "counts": {
+    "dev": 47,
+    "validation": 2,
+    "holdout-sealed": 5
+   },
+   "minutes": 35.6,
+   "note": ""
+  },
+  "genre electronic": {
+   "status": "covered",
+   "counts": {
+    "dev": 2,
+    "validation": 1,
+    "holdout-sealed": 3
+   },
+   "minutes": 13.5,
+   "note": ""
+  },
+  "genre indie": {
+   "status": "thin",
+   "counts": {
+    "dev": 0,
+    "validation": 4,
+    "holdout-sealed": 0
+   },
+   "minutes": 20.4,
+   "note": ""
+  },
+  "genre rap-sung": {
+   "status": "thin",
+   "counts": {
+    "dev": 10,
+    "validation": 0,
+    "holdout-sealed": 0
+   },
+   "minutes": 2.2,
+   "note": "proxy: melodic Apple Loops labelled Hip Hop; no rap-sung lead"
+  },
+  "genre jazz": {
+   "status": "thin",
+   "counts": {
+    "dev": 2,
+    "validation": 0,
+    "holdout-sealed": 1
+   },
+   "minutes": 2.7,
+   "note": ""
+  },
+  "genre acoustic": {
+   "status": "covered",
+   "counts": {
+    "dev": 85,
+    "validation": 21,
+    "holdout-sealed": 12
+   },
+   "minutes": 42.9,
+   "note": "proxy: Apple descriptor \"Acoustic\" (instrumentation tag, not genre)"
+  },
+  "genre musical theatre": {
+   "status": "thin",
+   "counts": {
+    "dev": 14,
+    "validation": 0,
+    "holdout-sealed": 0
+   },
+   "minutes": 31.3,
+   "note": ""
+  },
+  "has bleed": {
+   "status": "missing",
+   "counts": {
+    "dev": 0,
+    "validation": 0,
+    "holdout-sealed": 0
+   },
+   "minutes": 0.0,
+   "note": ""
+  },
+  "full-band 44.1/48 kHz whole songs": {
+   "status": "thin",
+   "counts": {
+    "dev": 0,
+    "validation": 1,
+    "holdout-sealed": 0
+   },
+   "minutes": 2.2,
+   "note": ""
+  }
+ },
+ "built": "2026-09-27"
+}
