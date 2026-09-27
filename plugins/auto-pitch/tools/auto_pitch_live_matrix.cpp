@@ -86,7 +86,7 @@ void setParam (Proc& p, const juce::String& id, float value)
     parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
 }
 
-void drainMessageThread (Proc& p) { ((juce::AsyncUpdater&) p).handleUpdateNowIfNeeded(); }
+void drainMessageThread (Proc& p) { if (! std::getenv ("LM_NO_DRAIN")) ((juce::AsyncUpdater&) p).handleUpdateNowIfNeeded(); }
 
 double midiToHz (double midi) { return 440.0 * std::pow (2.0, (midi - 69.0) / 12.0); }
 double hzToMidi (double hz)   { return 69.0 + 12.0 * std::log2 (hz / 440.0); }
@@ -129,8 +129,8 @@ void configureMode (Proc& p, const Mode& m)
 {
     setParam (p, "liveMode", m.live ? 1.0f : 0.0f);
     setParam (p, "liveProfile", m.extendedRange ? 1.0f : 0.0f);
-    setParam (p, "extremeLive", m.extreme ? 1.0f : 0.0f);
-    setParam (p, "neuralPitch", 0.0f);
+    if (! std::getenv ("LM_NO_XL")) setParam (p, "extremeLive", m.extreme ? 1.0f : 0.0f);
+    if (! std::getenv ("LM_NO_NP")) setParam (p, "neuralPitch", 0.0f);
     setParam (p, "autoKey", 0.0f);
     setParam (p, "followSongKey", 0.0f);
     setParam (p, "enableCorrection", 1.0f);
@@ -150,7 +150,7 @@ void configureTone (Proc& p)
     setParam (p, "classicMode", 0.0f);
     // Sound Source "Wide" (55-1100 Hz): the default "Alto / Tenor" (90-850 Hz) leaves
     // Studio blind to E2 by design; Wide is the setting that claims the E2-C5 span.
-    setParam (p, "vocalRange", 0.0f);
+    if (! std::getenv ("LM_NO_VR")) setParam (p, "vocalRange", 0.0f);
 }
 
 // A realistic vocal setting: C major, Natural, 100 %, speed 0.9 (the objective bench's CPU setting).
@@ -293,12 +293,17 @@ struct Render
 Render render (Proc& p, const Mono& in, double sr, int block)
 {
     p.setNonRealtime (false);
-    p.setRateAndBufferSizeDetails (sr, block);
+    if (! std::getenv ("LM_NO_RATEDETAILS")) p.setRateAndBufferSizeDetails (sr, block);
     p.prepareToPlay (sr, block);
     drainMessageThread (p);
     const int mainIn = p.getMainBusNumInputChannels();
     const int outCh = p.getTotalNumOutputChannels();
-    const int bufCh = juce::jmax (p.getTotalNumInputChannels(), outCh);
+    const int bufCh = std::getenv ("LM_2CH") ? outCh : juce::jmax (p.getTotalNumInputChannels(), outCh);
+    if (std::getenv ("LM_VIB_FIRST")) std::printf ("layout: totalIn %d totalOut %d mainIn %d bufCh %d\n", p.getTotalNumInputChannels(), outCh, mainIn, bufCh);
+    if (std::getenv ("AP_DUMP_PARAMS"))
+        for (auto* prm : p.getParameters())
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                std::fprintf (stderr, "PARAM %s=%g\n", rp->getParameterID().toRawUTF8(), (double) rp->convertFrom0to1 (rp->getValue()));
     Render r;
     r.out.assign ((size_t) outCh, Mono (in.size(), 0.0f));
     r.latency = p.getLatencySamples();
@@ -676,6 +681,16 @@ juce::var runConfig (const Mode& m, double sr, int block, const std::string& voc
     const double ms = 1000.0 / sr;
 
     // ---- latency -----------------------------------------------------------------------
+    if (std::getenv ("LM_VIB_FIRST"))   // diagnostic: the vibrato case alone, first in a fresh process
+    {
+        const auto in = sineTone (sr, 3.0, [] (double t) { return 57.0 + 0.40 * std::sin (juce::MathConstants<double>::twoPi * 5.5 * t); });
+        const auto r = toneProc (in, "vibrato_first");
+        const long n = (long) r.out[0].size();
+        const auto tr = pitchTrack (r.out[0], n - (long) (2.0 * sr), n, sr);
+        std::vector<double> err;
+        for (const auto& e : tr) err.push_back (std::abs (e.second - 57.0) * 100.0);
+        std::printf ("VIB_FIRST sr %.0f block %d p95 %.1f c\n", sr, block, pctile (err, 0.95));
+    }
     auto* lat = new juce::DynamicObject();
     {
         // (a) Broadband clicks on silence: single-sample impulses, 0.5, every 0.3 s.

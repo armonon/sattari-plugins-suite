@@ -22,7 +22,8 @@ Onset / consonant timing (s6): strong broadband onsets in the input (spectral-fl
 input, after the reported latency), attack attenuation (dB, 2-8 kHz energy in the first 30 ms), and
 onset sharpness (10-90% rise time of the 2-8 kHz envelope, ms).
 
-usage: pitch_metrics.py <tag> <set: vocadito> <split: dev|holdout|all> [bench args...]
+usage: pitch_metrics.py <tag> <set: vocadito|n20em> <split> [--shard i/n] [bench args...]
+       pitch_metrics.py merge <tag> <set> <split>        (combine shards and report)
        BENCH=<AutoPitchBench>  (default: the FROZEN candidate build, read-only)
 """
 import csv, json, os, subprocess, sys
@@ -62,7 +63,21 @@ def vocadito_items(split):
                     'singer': meta[t]['singer_id']})
     return out
 
-SETS = {'vocadito': vocadito_items}
+def leadvocal_items(split, source='n20emv2'):
+    """Lead-vocal corpus via the sealed loader (validation/leadvocal/corpus.py). N20EM notes come from
+    its expert annotations; holdout-sealed is refused unless the loader's milestone rules are met."""
+    sys.path.insert(0, str(Path(__file__).parents[1] / 'leadvocal'))
+    import corpus
+    ann = json.load(open(Path.home() / 'datasets/n20emv2/annotations.json'))
+    out = []
+    for it in corpus.items(split, allow_holdout=(split == 'holdout-sealed'), source=source, set='primary'):
+        key = it['id'].split(':', 1)[1]
+        notes = [(float(s), float(e), int(round(m))) for s, e, m in ann[key]['midi'] if e - s > 0.0]
+        out.append({'id': it['id'].replace(':', '_'), 'wav': os.path.expanduser(it['path']), 'notes': notes,
+                    'singer': it['singer_id'], 'sex': it.get('sex') or it.get('sex_inferred'), 'genre': it.get('genre')})
+    return out
+
+SETS = {'vocadito': vocadito_items, 'n20em': leadvocal_items}
 
 # ---------------------------------------------------------------------------- analysis
 def ref(path, lat=0):
@@ -109,9 +124,11 @@ def seg_interval(k):
                         'fourth-fifth', 'sixth+', 'sixth+', 'sixth+', 'sixth+'][k] if k < 12 else 'octave+'
 
 # ---------------------------------------------------------------------------- run
-def run(tag, set_name, split, extra):
+def run(tag, set_name, split, extra, shard=None):
     require_free()
     items = SETS[set_name](split)
+    if shard:
+        i, n = shard; items = items[i::n]
     def render(it):
         src = WORK / f"{it['id']}.wav"
         if not src.exists():
@@ -157,7 +174,7 @@ def run(tag, set_name, split, extra):
                     if ok[i:i + 5].all(): settle = 10.0 * i; break
                 settle = 400.0 if settle is None else min(settle, 400.0)
             dep_in, rate_in = vibrato(ci); dep_out, rate_out = vibrato(co)
-            rows.append({'item': it['id'], 'err': eout, 'err_in': ein, 'tgt': tgt, 'len': e - s,
+            rows.append({'item': it['id'], 'sex': it.get('sex') or '-', 'genre': it.get('genre') or '-', 'err': eout, 'err_in': ein, 'tgt': tgt, 'len': e - s,
                          'register': seg_register(tgt), 'length': seg_len(e - s), 'vibrato': seg_vib(dep_in),
                          'interval': interval, 'direction': ('up' if legato and tgt > prev[2] else 'down' if legato and tgt < prev[2] else '-'),
                          'target_ok': abs(eout) < 50, 'octave': abs(eout) > 600, 'false_corr': abs(ein) <= 10 and abs(eout) > 20,
@@ -180,8 +197,16 @@ def run(tag, set_name, split, extra):
         if os.environ.get('PM_KEEP') != '1':
             out.unlink(missing_ok=True)
 
-    json.dump({'rows': rows, 'onsets': onset_rows}, open(WORK / f'metrics_{tag}_{set_name}_{split}.json', 'w'), default=lambda v: v.item() if hasattr(v, 'item') else str(v))
-    report(tag, set_name, split, rows, onset_rows)
+    part = f'_part{shard[0]}of{shard[1]}' if shard else ''
+    json.dump({'rows': rows, 'onsets': onset_rows}, open(WORK / f'metrics_{tag}_{set_name}_{split}{part}.json', 'w'), default=lambda v: v.item() if hasattr(v, 'item') else str(v))
+    if not shard:
+        report(tag, set_name, split, rows, onset_rows)
+
+def merge(tag, set_name, split):
+    rows, ons = [], []
+    for f in sorted(WORK.glob(f'metrics_{tag}_{set_name}_{split}_part*.json')):
+        d = json.load(open(f)); rows += d['rows']; ons += d['onsets']
+    report(tag, set_name, split, rows, ons)
 
 def summary(rs):
     a = np.abs([r['err'] for r in rs]); settle = [r['settle'] for r in rs if r['settle'] is not None]
@@ -193,9 +218,10 @@ def summary(rs):
 def report(tag, set_name, split, rows, onset_rows):
     print(f'== {tag} on {set_name}/{split} ==')
     print('ALL            ', summary(rows))
-    for key in ('register', 'length', 'vibrato', 'interval', 'direction'):
-        for v in sorted({r[key] for r in rows}):
-            rs = [r for r in rows if r[key] == v]
+    for key in ('sex', 'genre', 'register', 'length', 'vibrato', 'interval', 'direction'):
+        for v in sorted({r.get(key, '-') for r in rows}):
+            if key in ('sex', 'genre') and v == '-': continue
+            rs = [r for r in rows if r.get(key, '-') == v]
             if len(rs) >= 10:
                 print(f'{key[:8]:8s} {v:12s}', summary(rs))
     vd = [r['vib_depth_ratio'] for r in rows if r['vib_depth_ratio'] is not None]
@@ -209,4 +235,10 @@ def report(tag, set_name, split, rows, onset_rows):
               f'2-8 kHz attack {np.median(at):+.1f} dB median; rise time in {np.median(ri):.1f} ms -> out {np.median(ro):.1f} ms')
 
 if __name__ == '__main__':
-    run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:])
+    if sys.argv[1] == 'merge':
+        merge(sys.argv[2], sys.argv[3], sys.argv[4])
+    else:
+        a = sys.argv[1:]; shard = None
+        if '--shard' in a:
+            k = a.index('--shard'); i, n = a[k + 1].split('/'); shard = (int(i), int(n)); del a[k:k + 2]
+        run(a[0], a[1], a[2], a[3:], shard)

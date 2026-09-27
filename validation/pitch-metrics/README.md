@@ -29,3 +29,29 @@ Findings:
 - Caveats: vocadito is small, the singers are untrained, and the recordings are phone quality. The
   scorer (CREPE-tiny) is the same model for input and output. The register split is by pitch only
   (vocadito has no sex labels). The lead-vocal corpus (validation/leadvocal/) will replace this set.
+
+## Baseline (frozen cbd1ce4), N20EMv2 lead-vocal dev split (85 songs, 12,869 scored notes, 2026-09-27)
+
+Classic style, rendered at 48 kHz from the 16 kHz sources (pitch metrics only).
+- Within 5 / 10 / 20 c: 33.1 / 62.0 / 76.8%. Median 7.1 c, p95 50.9 c. Target semitone correct
+  94.8%, 0 octave errors, 206 false corrections (1.6%).
+- Notes with target flips: 9.9%. Legato settle: median 60 ms, p90 280 ms.
+- Onsets (n = 10,182): shift -0.9 ms median; high-frequency attack -1.0 dB; rise time 19.1 -> 19.8 ms.
+- Weakest segments:
+  - Wide vibrato (> 40 c): 28.2% within 10 c, 45% of those notes flip target.
+  - Sixth-or-wider leaps: 35% within 10 c; settle median 190 ms.
+  - Low register: 54.5% within 10 c; settle p90 372 ms.
+  - Long notes (> 400 ms) flip target 23% of the time.
+- By sex (inferred from pitch, F / M): 65.9 / 58.9% within 10 c.
+- Vibrato depth out/in: median 0.92 (p10 0.53, p90 1.45), i.e. flattened on some notes and
+  exaggerated on others.
+
+## 44.1 kHz defect found 2026-09-27 (release-blocking; under root-cause)
+
+- In a real VST3 host (pedalboard, installed candidate), Studio mode at 44.1 kHz widens a +-40 c
+  vibrato to -75 / +51 c (Classic) and -39 / +23 c (Natural).
+- At 32, 48 and 96 kHz the same input comes out at +-17 to 29 c. Steady notes are perfect at every
+  rate.
+- AutoPitchBench, and every benchmark above (all rendered at 48 kHz), did not show it.
+  AutoPitchLiveMatrix did. Diagnostic switches were added to both tools: `AP_DUMP_PARAMS`,
+  `LM_VIB_FIRST`, `LM_NO_DRAIN`, `LM_NO_RATEDETAILS`, `LM_2CH`, `LM_NO_VR`, `LM_NO_XL`, `LM_NO_NP`.

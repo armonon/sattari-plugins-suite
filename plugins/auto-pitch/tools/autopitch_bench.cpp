@@ -277,6 +277,10 @@ int main (int argc, char** argv)
         proc.setAutoKeyMemorySeconds (a.keyMemorySec);
     if (a.nonRealtime)
         proc.setNonRealtime (true);
+    if (std::getenv ("AP_DUMP_PARAMS"))
+        for (auto* prm : proc.getParameters())
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                std::fprintf (stderr, "PARAM %s=%g\n", rp->getParameterID().toRawUTF8(), (double) rp->convertFrom0to1 (rp->getValue()));
     proc.prepareToPlay (sr, a.block);
 
     // --- Render block by block ---
