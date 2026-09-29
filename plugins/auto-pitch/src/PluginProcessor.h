@@ -1073,7 +1073,7 @@ private:
     //  exact, so the FIFO no longer floats extra samples: under heavy automation (ratio jumps) the
     //  lag peaked at 3011 samples at 48 kHz against a 2848-sample calibrated delay -> 257 underrun
     //  clicks in AutoPitchNoHarm check 4. 6 ms keeps >= one 128-sample sub-chunk of margin over the
-    //  observed peak. (Owner decision pending: this raises Studio latency by 6 ms.)
+    //  observed peak. This raises Studio latency by 6 ms (reported to the owner before merge, 2026-09-29).
     static constexpr double kRbHeadroomSeconds = 0.006;
     juce::AudioBuffer<float> rbEngineIn, rbHostOut;
     static double qualifiedEngineRate (double hostRate) noexcept;
