@@ -8,6 +8,7 @@
 #include <sattari_audio_core/SattariRealtime.h>
 
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <memory>
@@ -65,6 +66,11 @@ private:
         // editor-facing copy, the undo stack and the file bookkeeping — none of
         // that is audio-thread state and none of it belongs here.
         std::shared_ptr<const sattari::dsp::SourceSample> sourceDsp;
+        juce::SpinLock sourceLock;
+        // Message-thread ownership keeps engine replacement from deleting a
+        // sample buffer in the audio callback. Unused sources are collected on
+        // the next publication, not retained for the lifetime of the plug-in.
+        std::vector<std::shared_ptr<const sattari::dsp::SourceSample>> retainedSources;
     };
 
 
@@ -671,8 +677,8 @@ public:
             auto& ls = layers[(size_t) i];
             ls.engine.prepare (sr, samplesPerBlock, 2);
             // Re-hand the current source to the engine (prepare() reset its pools).
-            if (auto s = std::atomic_load (&ls.sourceDsp))
-                ls.engine.setSource (s);
+            const juce::SpinLock::ScopedLockType lock (ls.sourceLock);
+            ls.engine.setSource (ls.sourceDsp);
         }
 
         // Preallocate the per-layer render scratch (2 ch, max block) so processBlock
@@ -728,7 +734,19 @@ public:
     // MESSAGE THREAD. The shell decodes/edits and hands over the dsp view only.
     void setSource (Layer layer, std::shared_ptr<const SourceSample> src)
     {
-        std::atomic_store (&layers[(size_t) layer].sourceDsp, std::move (src));
+        auto& ls = layers[(size_t) layer];
+        if (src && std::find (ls.retainedSources.begin(), ls.retainedSources.end(), src)
+                       == ls.retainedSources.end())
+            ls.retainedSources.push_back (src);
+        {
+            const juce::SpinLock::ScopedLockType lock (ls.sourceLock);
+            ls.sourceDsp = std::move (src);
+        }
+        // Only the message thread accesses this list. A count of one means the
+        // source is neither published nor held by the rendering engine, so no
+        // audio callback can acquire it now.
+        ls.retainedSources.erase (std::remove_if (ls.retainedSources.begin(), ls.retainedSources.end(),
+            [] (const auto& source) { return source.use_count() == 1; }), ls.retainedSources.end());
     }
 
     void process (juce::AudioBuffer<float>& buffer,
@@ -910,8 +928,13 @@ public:
             EngineParams eParams = gatherParams (layer);
             ls.engine.setParams (eParams);
 
-            std::shared_ptr<const DspSource> src = std::atomic_load (&ls.sourceDsp);
-            ls.engine.setSource (src);
+            {
+                // C++17 atomic shared_ptr loads may block internally. If the
+                // publisher is busy, keep this engine's previous source for one
+                // block. Its retained owner also prevents callback-side frees.
+                const juce::SpinLock::ScopedTryLockType lock (ls.sourceLock);
+                if (lock.isLocked()) ls.engine.setSource (ls.sourceDsp);
+            }
             ls.engine.setBusState (busRoot, busScaleOrdinal, bpm, ppq, playing);
 
             // Transient bus accent: re-fire the cloud at block start (gated + scaled).

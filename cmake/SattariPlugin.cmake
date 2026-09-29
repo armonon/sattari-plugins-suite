@@ -25,6 +25,7 @@
 # =============================================================================
 
 include_guard(GLOBAL)
+option(SATTARI_COPY_PLUGINS_AFTER_BUILD "Install plugin bundles after building" ON)
 
 # Repo root resolved from this file's location (<root>/cmake/SattariPlugin.cmake).
 get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -54,6 +55,9 @@ function(sattari_add_plugin)
     endif()
     if(NOT SAP_FORMATS)
         set(SAP_FORMATS AU VST3 Standalone)
+    endif()
+    if(NOT APPLE)
+        list(REMOVE_ITEM SAP_FORMATS AU AUv3)
     endif()
     if(NOT SAP_PRODUCT_NAME)
         set(SAP_PRODUCT_NAME "${SAP_TARGET}")
@@ -131,7 +135,7 @@ function(sattari_add_plugin)
         IS_MIDI_EFFECT              ${IS_MIDI_EFFECT_VAL}
         EDITOR_WANTS_KEYBOARD_FOCUS ${EDITOR_WANTS_KEYBOARD_FOCUS_VAL}
         IS_ARA_EFFECT               ${IS_ARA_EFFECT_VAL}
-        COPY_PLUGIN_AFTER_BUILD     TRUE
+        COPY_PLUGIN_AFTER_BUILD     ${SATTARI_COPY_PLUGINS_AFTER_BUILD}
         PLUGIN_MANUFACTURER_CODE    ${SAP_MANUFACTURER_CODE}
         PLUGIN_CODE                 ${SAP_PLUGIN_CODE}
         FORMATS                     ${SAP_FORMATS}

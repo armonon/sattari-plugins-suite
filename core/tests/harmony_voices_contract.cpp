@@ -10,6 +10,7 @@
 //   6. with no chord known it falls back to the scale AND says so via a lower
 //      confidence, rather than inventing harmony.
 #include "sattari_audio_core/SattariHarmonyVoices.h"
+#include "HarmonyRendererContract.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -149,6 +150,9 @@ int main()
                && plan.voices[1].midi == lead - 12);
     }
 
+    check ("out-of-range MIDI keeps requested pitch class",
+           fitHarmonyMidiToRange (95, 60) == 71 && fitHarmonyMidiToRange (25, 60) == 49);
+    failures += harmony_render_test::run();
     std::printf (failures == 0 ? "harmony voices contract ok\n"
                                : "harmony voices contract FAILED\n");
     return failures == 0 ? 0 : 1;

@@ -52,6 +52,7 @@ namespace sattari::rack
 {
 
 class SattariInstrumentRack : public juce::AudioProcessor,
+                              public juce::ChangeBroadcaster,
                               private juce::AsyncUpdater
 {
 public:
@@ -182,6 +183,16 @@ public:
         const int n  = buffer.getNumSamples();
         const int ch = juce::jmin (2, buffer.getNumChannels());
         if (n <= 0 || ch <= 0) return;
+        // State restoration decodes files on the message thread. Never render
+        // the previous project's samples while that replacement is pending.
+        if (sourceRestoreInProgress_.load (std::memory_order_acquire))
+        {
+            buffer.clear();
+            midi.clear();
+            return;
+        }
+        if (sourceResetPending_.exchange (false, std::memory_order_acq_rel))
+            reset(); // Voice/alignment state is reset only by the audio thread.
 
         // prepareToPlay's block size is a HINT — hosts may exceed it. layerBuf_ is
         // sized to that hint, and `view` below is built over its pointers with the
@@ -293,16 +304,26 @@ public:
     {
         if (auto xml = getXmlFromBinary (data, size))
         {
+            if (! xml->hasTagName (apvts.state.getType().toString())) return;
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
             {
                 const juce::ScopedLock lock (sourcePathsLock_);
+                bool needsSourceReload = sourceRestoreInProgress_.load (std::memory_order_acquire);
                 for (int layer = 0; layer < kNumLayers; ++layer)
                     for (int sourceSlot = 0; sourceSlot < 2; ++sourceSlot)
+                    {
+                        needsSourceReload = needsSourceReload
+                            || sourcePaths_[(size_t) layer][(size_t) sourceSlot].isNotEmpty()
+                            || xml->getStringAttribute (sourcePathAttribute (layer, sourceSlot)).isNotEmpty();
                         sourcePaths_[(size_t) layer][(size_t) sourceSlot] =
                             xml->getStringAttribute (
                                 sourcePathAttribute (layer, sourceSlot));
+                        sourceUnavailable_[(size_t) layer][(size_t) sourceSlot] = false;
+                    }
+                sourceRestoreInProgress_.store (needsSourceReload, std::memory_order_release);
+                sourceReloadPending_.store (needsSourceReload, std::memory_order_release);
+                sourceResetPending_.store (true, std::memory_order_release);
             }
-            sourceReloadPending_.store (true, std::memory_order_release);
             triggerAsyncUpdate();
         }
     }
@@ -355,7 +376,8 @@ public:
     // MESSAGE THREAD: decode and publish a source into the selected Chop or
     // Granulator instance for this Stack layer. Granulator exposes its A/B source
     // slots; Chop has one onset-sliced source.
-    bool loadSourceForLayer (int layer, int sourceSlot, const juce::File& file)
+    bool loadSourceForLayer (int layer, int sourceSlot, const juce::File& file,
+                             bool rememberPath = true)
     {
         if (! juce::isPositiveAndBelow (layer, kNumLayers)
             || ! juce::isPositiveAndBelow (sourceSlot, 2)
@@ -378,13 +400,22 @@ public:
                 file);
         }
 
-        if (loaded)
+        if (loaded && rememberPath)
         {
             const juce::ScopedLock lock (sourcePathsLock_);
             sourcePaths_[(size_t) layer][(size_t) sourceSlot] =
                 file.getFullPathName();
+            sourceUnavailable_[(size_t) layer][(size_t) sourceSlot] = false;
         }
         return loaded;
+    }
+
+    bool sourceUnavailableForLayer (int layer, int sourceSlot) const
+    {
+        if (! juce::isPositiveAndBelow (layer, kNumLayers)
+            || ! juce::isPositiveAndBelow (sourceSlot, 2)) return false;
+        const juce::ScopedLock lock (sourcePathsLock_);
+        return sourceUnavailable_[(size_t) layer][(size_t) sourceSlot];
     }
 
     static juce::String layerParamId      (int L) { return "layer" + juce::String (L + 1); }
@@ -574,13 +605,36 @@ protected:
                 paths = sourcePaths_;
             }
             for (int layer = 0; layer < kNumLayers; ++layer)
+            {
+                // Empty/missing restored references must replace old sources,
+                // including sources in currently unselected sampler modules.
+                for (auto& module : layerModules[(size_t) layer])
+                {
+                    if (auto* chop = dynamic_cast<dsp::ChopModule*> (module.get()))
+                        chop->setSource ({});
+                    if (auto* granulator = dynamic_cast<dsp::GranulatorModule*> (module.get()))
+                    {
+                        granulator->setSource (dsp::GranulatorModule::Layer::A, {});
+                        granulator->setSource (dsp::GranulatorModule::Layer::B, {});
+                    }
+                }
                 for (int sourceSlot = 0; sourceSlot < 2; ++sourceSlot)
                 {
-                    const juce::File file (
-                        paths[(size_t) layer][(size_t) sourceSlot]);
-                    if (file.existsAsFile())
-                        loadSourceForLayer (layer, sourceSlot, file);
+                    const auto& path = paths[(size_t) layer][(size_t) sourceSlot];
+                    const bool loaded = path.isNotEmpty() && juce::File::isAbsolutePath (path)
+                        && loadSourceForLayer (layer, sourceSlot, juce::File (path), false);
+                    const juce::ScopedLock lock (sourcePathsLock_);
+                    if (sourcePaths_[(size_t) layer][(size_t) sourceSlot] == path)
+                        sourceUnavailable_[(size_t) layer][(size_t) sourceSlot] = path.isNotEmpty() && ! loaded;
                 }
+            }
+            const juce::ScopedLock lock (sourcePathsLock_);
+            sourceResetPending_.store (true, std::memory_order_release);
+            // A newer state may have arrived while files were decoding. Keep
+            // the output muted until that queued restoration has completed too.
+            if (! sourceReloadPending_.load (std::memory_order_acquire))
+                sourceRestoreInProgress_.store (false, std::memory_order_release);
+            sendChangeMessage();
         }
     }
 
@@ -616,7 +670,7 @@ protected:
         source->audio.setSize ((int) juce::jmax (
                                    1u, juce::jmin (2u, reader->numChannels)),
                                length);
-        reader->read (&source->audio, 0, length, 0, true, true);
+        if (! reader->read (&source->audio, 0, length, 0, true, true)) return false;
 
         std::vector<float> mono ((size_t) length, 0.0f);
         for (int channel = 0; channel < source->audio.getNumChannels(); ++channel)
@@ -664,7 +718,7 @@ protected:
         auto source = std::make_shared<dsp::SourceSample>();
         source->audio.setSize (channels, length);
         source->audio.clear();
-        reader->read (&source->audio, 0, length, 0, true, channels > 1);
+        if (! reader->read (&source->audio, 0, length, 0, true, channels > 1)) return false;
         source->sourceSampleRate =
             reader->sampleRate > 0.0 ? reader->sampleRate : 44100.0;
         source->lengthSamples = length;
@@ -730,7 +784,10 @@ private:
     juce::AudioFormatManager sourceFormats_;
     mutable juce::CriticalSection sourcePathsLock_;
     std::array<std::array<juce::String, 2>, kNumLayers> sourcePaths_;
+    std::array<std::array<bool, 2>, kNumLayers> sourceUnavailable_ {};
     std::atomic<bool> sourceReloadPending_ { false };
+    std::atomic<bool> sourceRestoreInProgress_ { false };
+    std::atomic<bool> sourceResetPending_ { false };
 
     juce::AudioBuffer<float> layerBuf_;                       // one layer's render
     juce::MidiBuffer chunkMidi_;                              // oversized-block slicing

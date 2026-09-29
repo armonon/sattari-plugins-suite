@@ -12,6 +12,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SattariBranding.h"
 #include "SattariPresetManager.h"
+#include "SattariReleaseUI.h"
 
 namespace sattari::ui
 {
@@ -19,7 +20,7 @@ namespace sattari::ui
 class SattariABRow final : public juce::Component
 {
 public:
-    explicit SattariABRow (sattari::presets::SattariPresetManager& mgr)
+    explicit SattariABRow (sattari::presets::SattariPresetManager& mgr, bool releaseStyle = false)
         : manager (mgr)
     {
         auto stylePill = [] (juce::Button& button) {
@@ -34,6 +35,9 @@ public:
         a.setDescription ("Capture or recall parameter state A");
         b.setDescription ("Capture or recall parameter state B");
         swap.setDescription ("Exchange parameter states A and B");
+        a.setTooltip ("Capture or recall comparison A");
+        b.setTooltip ("Capture or recall comparison B");
+        if (releaseStyle) releaseui::icon (swap, releaseui::Icon::swap, "Swap comparison states");
 
         a.onClick = [this] {
             if (active != 1 && manager.hasSlotA()) { manager.recallSlotA(); active = 1; }

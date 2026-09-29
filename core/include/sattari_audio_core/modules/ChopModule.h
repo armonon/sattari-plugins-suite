@@ -27,8 +27,8 @@
 //  REALTIME CONTRACT: the audio thread never allocates, locks or does file I/O.
 //  It takes a reference to the published Source under a TRY-lock and reads it; if
 //  the lock is contended it simply keeps playing what it already had. Every
-//  published Source is RETAINED for the session, so a buffer is never freed on
-//  the audio thread — freeing the last reference there would deallocate mid-block.
+//  published Source is retained while a voice may use it, so a buffer is never
+//  freed on the audio thread. Unused buffers are reclaimed on the message thread.
 // =============================================================================
 
 namespace sattari::dsp
@@ -82,18 +82,29 @@ public:
 
     void reset() override
     {
-        for (auto& v : voices) { v.active = false; v.releasing = false; v.env = 0.0f; v.pos = 0.0; }
+        for (auto& v : voices) { v.active = false; v.releasing = false; v.env = 0.0f; v.pos = 0.0; v.src = nullptr; }
         voiceCounter = 0;
     }
 
     // MESSAGE THREAD ONLY. Publishes a new source for the audio thread to pick up,
-    // and retains it for the session so the audio thread can never drop the last
-    // reference to a buffer it is reading.
+    // and retains it so the audio thread can never drop the last reference to a
+    // buffer it is reading. The retained list is owned by the message thread.
     void setSource (Source::Ptr s)
     {
-        const juce::SpinLock::ScopedLockType sl (sourceLock);
-        if (s != nullptr) retained.add (s);
-        current = std::move (s);
+        {
+            const juce::SpinLock::ScopedLockType sl (sourceLock);
+            if (s != nullptr && ! retained.contains (s)) retained.add (s);
+            current = std::move (s);
+        }
+        // JUCE's move assignment swaps pointers; drop the previous current
+        // source now, before checking whether only the retained list owns it.
+        s = nullptr;
+        // A count of one means only this list owns the source: neither current
+        // nor any voice can acquire it now. Release it here, outside the publish
+        // lock, rather than keeping every imported song until plug-in shutdown.
+        for (int i = retained.size(); --i >= 0;)
+            if (retained.getObjectPointerUnchecked (i)->getReferenceCount() == 1)
+                retained.remove (i);
     }
 
     Source::Ptr snapshot() const
@@ -149,6 +160,9 @@ public:
                 }
                 v.pos += rate;
             }
+            // The retained list still owns this source; releasing a finished
+            // voice cannot deallocate the buffer on the audio thread.
+            if (! v.active) v.src = nullptr;
         }
     }
 

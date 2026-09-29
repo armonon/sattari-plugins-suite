@@ -1,0 +1,58 @@
+name: Candidate Platforms
+on:
+  push:
+    branches: ['codex/release-candidates-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: candidate-platforms-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    name: Windows x64 candidates
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch pinned JUCE
+        run: git submodule update --init --depth 1 third_party/JUCE
+      - name: Configure
+        run: cmake -S packaging/candidates -B build/candidates -G "Visual Studio 17 2022" -A x64
+      - name: Build all five plugins and contracts
+        run: cmake --build build/candidates --config Release --target SattariCandidateBuild --parallel 2
+      - name: Processor and native editor contracts
+        run: ctest --test-dir build/candidates -C Release --output-on-failure --timeout 180 --output-junit validation/contracts.xml
+      - name: Validate VST3 plugins
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile "$env:RUNNER_TEMP/pluginval.zip"
+          if ((Get-FileHash "$env:RUNNER_TEMP/pluginval.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c08e61ce3b96db41636f8ec7e76f4c7e2c13ebdac7fa1b5a1f52b4f32ec715ab') {
+            throw 'pluginval download checksum mismatch'
+          }
+          Expand-Archive "$env:RUNNER_TEMP/pluginval.zip" "$env:RUNNER_TEMP/pluginval"
+          $validator = (Get-ChildItem "$env:RUNNER_TEMP/pluginval" -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
+          if (-not $validator) { throw 'pluginval executable not found' }
+          $products = Get-Content packaging/candidates/products.json -Raw | ConvertFrom-Json
+          foreach ($product in $products) {
+            $bundle = "build/candidates/$($product.slug)/$($product.target)_artefacts/Release/VST3/$($product.name).vst3"
+            & $validator --validate-in-process --strictness-level 5 $bundle 2>&1 | Tee-Object "build/candidates/validation/$($product.slug)-pluginval.log"
+            if ($LASTEXITCODE -ne 0) { throw "pluginval failed: $($product.name)" }
+          }
+      - name: Package Windows builds
+        run: python scripts/package_release_candidates.py --platform windows-x64 --build-dir build/candidates --output-dir build/packages --require-tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sattari-windows-x64
+          path: build/packages/*.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-validation
+          path: |
+            build/candidates/validation
+            build/candidates/Testing/Temporary
+            build/candidates/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 30

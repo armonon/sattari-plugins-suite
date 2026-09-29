@@ -13,6 +13,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <vector>
 
 namespace
@@ -505,15 +507,32 @@ int main()
         settings.preserveVibrato = 0.5;
         std::vector<double> milliseconds;
         milliseconds.reserve (input.size() / cpuBlock);
+        double maximumWallMs = 0.0;
+        auto threadCpuMs = []
+        {
+            timespec time {};
+            if (clock_gettime (CLOCK_THREAD_CPUTIME_ID, &time) != 0)
+            {
+                std::fprintf (stderr, "Thread CPU clock unavailable; CPU budget NOT VERIFIED\n");
+                std::exit (1);
+            }
+            return (double) time.tv_sec * 1000.0 + (double) time.tv_nsec * 1.0e-6;
+        };
         for (int start = 0; start < (int) input.size(); start += cpuBlock)
         {
             const int count = std::min (cpuBlock, (int) input.size() - start);
-            const auto before = std::chrono::steady_clock::now();
+            const auto wallBefore = std::chrono::steady_clock::now();
+            const auto before = threadCpuMs();
             engine.processCorrected (input.data() + start, output.data() + start,
                                      count, settings);
-            const auto after = std::chrono::steady_clock::now();
+            const auto after = threadCpuMs();
+            const auto wallAfter = std::chrono::steady_clock::now();
             if (start > (int) sr)
-                milliseconds.push_back (std::chrono::duration<double, std::milli> (after - before).count());
+            {
+                milliseconds.push_back (after - before);
+                maximumWallMs = std::max (maximumWallMs,
+                    std::chrono::duration<double, std::milli> (wallAfter - wallBefore).count());
+            }
         }
         std::sort (milliseconds.begin(), milliseconds.end());
         const double p95 = milliseconds[(size_t) (0.95 * (double) (milliseconds.size() - 1))];
@@ -523,11 +542,12 @@ int main()
         for (double value : milliseconds) mean += value;
         mean /= (double) milliseconds.size();
         const double callbackMs = 1000.0 * cpuBlock / sr;
-        std::printf ("cpu 48k/64: mean %.4f ms (%.1f%%), p95 %.4f ms (%.1f%%), p99 %.4f ms (%.1f%%), max %.3f ms\n",
+        std::printf ("thread CPU 48k/64: mean %.4f ms (%.1f%%), p95 %.4f ms (%.1f%%), p99 %.4f ms (%.1f%%), max %.3f ms; wall max %.3f ms\n",
                      mean, 100.0 * mean / callbackMs, p95, 100.0 * p95 / callbackMs,
-                     p99, 100.0 * p99 / callbackMs, maximum);
-        // Max is reported but not gated because an ordinary user-space test can
-        // be descheduled by the OS. p99 still exposes recurrent engine spikes.
+                     p99, 100.0 * p99 / callbackMs, maximum, maximumWallMs);
+        // Keep the CPU thresholds unchanged. Wall time is separately reported:
+        // a heavily loaded machine can deschedule a non-real-time test process;
+        // a passing CPU gate is not evidence of dropout-free host monitoring.
         if (mean > 0.25 || p95 > 0.25 || p99 > 0.75) ++failures;
     }
 

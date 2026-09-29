@@ -5,10 +5,11 @@
 #include <sattari_audio_core/SattariModuleInspector.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include <sattari_audio_core/SattariRackProcessor.h>
-#include <sattari_audio_core/SattariStudio.h>
+#include <sattari_audio_core/SattariReleaseUI.h>
 
 #include <array>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace sattari::ui
@@ -38,8 +39,8 @@ public:
           lookAndFeel (sattari::brand::productAccent (brandSlug)),
           header (productName, category, accent),
           presetManager (p.parameters(), juce::String (brandSlug)),
-          abRow (presetManager),
-          inspector (p.parameters())
+          abRow (presetManager, true),
+          inspector (p.parameters(), true)
     {
         setLookAndFeel (&lookAndFeel);
         setTitle (productName);
@@ -56,11 +57,10 @@ public:
         {
             auto& row = slots[(size_t) slot];
             const auto number = juce::String (slot + 1).paddedLeft ('0', 2);
-            row.number.setText (number, juce::dontSendNotification);
+            row.number.setButtonText (number);
             row.number.setTitle ("Slot " + juce::String (slot + 1));
-            row.number.setJustificationType (juce::Justification::centred);
-            row.number.setColour (
-                juce::Label::textColourId, studio::colour::secondary);
+            row.number.setTooltip ("Select slot " + juce::String (slot + 1));
+            row.number.onClick = [this, slot] { selectSlot (slot); };
             addAndMakeVisible (row.number);
 
             row.chooser.addItemList (menu, 1);
@@ -74,6 +74,9 @@ public:
 
             row.bypass.setTitle ("Slot " + juce::String (slot + 1) + " bypass");
             row.bypass.setDescription ("Temporarily bypass this rack slot");
+            releaseui::icon (row.bypass, releaseui::Icon::power, "Bypass slot " + juce::String (slot + 1));
+            row.bypass.getProperties().set ("releaseInvertToggle", true);
+            row.bypass.setClickingTogglesState (true);
             addAndMakeVisible (row.bypass);
             row.bypassAtt = std::make_unique<ButtonAttachment> (
                 audioProcessor.parameters(),
@@ -86,13 +89,20 @@ public:
                 updateHeaderStatus();
             };
             row.bypass.onStateChange = [this] { updateHeaderStatus(); };
+            releaseui::icon (row.up, releaseui::Icon::up, "Move slot " + juce::String (slot + 1) + " up");
+            releaseui::icon (row.down, releaseui::Icon::down, "Move slot " + juce::String (slot + 1) + " down");
+            row.up.onClick = [this, slot] { moveSlot (slot, slot - 1); };
+            row.down.onClick = [this, slot] { moveSlot (slot, slot + 1); };
+            row.up.setEnabled (slot > 0); row.down.setEnabled (slot + 1 < rack::SattariRackProcessor::kNumSlots);
+            addAndMakeVisible (row.up); addAndMakeVisible (row.down);
         }
 
         duplicateNotice.setColour (
-            juce::Label::textColourId, studio::colour::secondary);
+            juce::Label::textColourId, releaseui::muted);
         duplicateNotice.setFont (sattari::brand::fontOptions (10.5f));
         duplicateNotice.setJustificationType (juce::Justification::centredLeft);
         duplicateNotice.setAccessible (true);
+        duplicateNotice.setTitle ("Chain compatibility notice");
         addAndMakeVisible (duplicateNotice);
 
         inspectorViewport.setViewedComponent (&inspector, false);
@@ -119,18 +129,12 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        studio::paintCanvas (g, getLocalBounds(), accent);
-        studio::paintSurface (g, chainArea.toFloat(), true);
-        studio::paintSurface (g, inspectorArea.toFloat(), true);
-        studio::paintSectionTitle (
-            g, chainArea.reduced (16).removeFromTop (18),
-            "Signal chain", "top to bottom");
-        studio::paintSectionTitle (
-            g, inspectorArea.reduced (16).removeFromTop (18),
-            "Focused module",
-            inspectorArea.getWidth() < 430
-                ? juce::String ("automation")
-                : juce::String ("automation-ready controls"));
+        g.fillAll (releaseui::canvas);
+        g.setColour (releaseui::surface); g.fillRect (chainArea);
+        g.setColour (releaseui::line);
+        g.drawHorizontalLine (124, 0, (float) getWidth());
+        g.drawVerticalLine (chainArea.getRight(), (float) chainArea.getY(), (float) chainArea.getBottom());
+        releaseui::section (g, chainArea.reduced (18, 12).removeFromTop (22), "Signal chain", "8 slots");
 
         for (int slot = 0; slot < rack::SattariRackProcessor::kNumSlots; ++slot)
         {
@@ -138,14 +142,11 @@ public:
             const bool selected = slot == selectedSlot;
             const bool occupied = row.chooser.getSelectedId() > 1;
 
-            g.setColour (selected ? accent.withAlpha (0.11f)
-                                  : studio::colour::surfaceHigh);
-            g.fillRoundedRectangle (row.bounds.toFloat(), 10.0f);
-            g.setColour (selected ? accent.withAlpha (0.85f)
-                                  : studio::colour::separator);
-            g.drawRoundedRectangle (
-                row.bounds.toFloat().reduced (0.5f), 10.0f,
-                selected ? 1.5f : 1.0f);
+            g.setColour (selected ? accent.withAlpha (0.10f) : releaseui::surface);
+            g.fillRect (row.bounds);
+            g.setColour (releaseui::line.withAlpha (0.6f));
+            g.drawHorizontalLine (row.bounds.getBottom() - 1, (float) row.bounds.getX(), (float) row.bounds.getRight());
+            if (selected) { g.setColour (accent); g.fillRect (row.bounds.getX(), row.bounds.getY(), 2, row.bounds.getHeight()); }
 
             if (occupied)
             {
@@ -153,7 +154,7 @@ public:
                 const auto dot = dotArea.removeFromLeft (5)
                                      .withSizeKeepingCentre (4, 4).toFloat();
                 g.setColour (row.bypass.getToggleState()
-                                 ? studio::colour::tertiary : accent);
+                                 ? releaseui::faint : accent);
                 g.fillEllipse (dot);
             }
 
@@ -162,7 +163,7 @@ public:
                 const int x = row.bounds.getCentreX();
                 const int y1 = row.bounds.getBottom() + 1;
                 const int y2 = slots[(size_t) slot + 1].bounds.getY() - 1;
-                g.setColour (studio::colour::separator);
+                g.setColour (releaseui::line);
                 g.drawVerticalLine (x, (float) y1, (float) y2);
             }
         }
@@ -170,31 +171,27 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced ((int) studio::metric::outerMargin);
-        header.setBounds (area.removeFromTop (studio::metric::headerHeight));
-
-        auto command = area.removeFromTop (studio::metric::commandHeight);
+        auto area = getLocalBounds();
+        header.setBounds (area.removeFromTop (72));
+        auto command = area.removeFromTop (52).reduced (22, 9);
         factoryPreset.setBounds (command.removeFromLeft (190));
         command.removeFromLeft (8);
         userPresets.setBounds (command.removeFromLeft (170));
         command.removeFromLeft (8);
-        savePresetButton.setBounds (command.removeFromLeft (96));
+        savePresetButton.setBounds (command.removeFromLeft (34));
         command.removeFromLeft (8);
-        abRow.setBounds (command.removeFromLeft (124));
-
-        area.removeFromTop ((int) studio::metric::gap);
+        abRow.setBounds (command.removeFromLeft (108));
         chainArea = area.removeFromLeft (
-            juce::jlimit (370, 470, (int) std::round (getWidth() * 0.43)));
-        area.removeFromLeft ((int) studio::metric::gap);
+            juce::jlimit (330, 410, (int) std::round (getWidth() * 0.35)));
         inspectorArea = area;
 
         auto chain = chainArea.reduced (14);
-        chain.removeFromTop (28);
+        chain.removeFromTop (36);
         auto notice = chain.removeFromBottom (42);
         chain.removeFromBottom (6);
-        const int rowGap = 6;
+        const int rowGap = 2;
         const int rowHeight = juce::jlimit (
-            32, 44,
+            32, 54,
             (chain.getHeight() - rowGap * (rack::SattariRackProcessor::kNumSlots - 1))
                 / rack::SattariRackProcessor::kNumSlots);
 
@@ -202,9 +199,11 @@ public:
         {
             row.bounds = chain.removeFromTop (rowHeight);
             auto controls = row.bounds.reduced (8, 5);
-            row.number.setBounds (controls.removeFromLeft (34));
+            row.number.setBounds (controls.removeFromLeft (26));
             controls.removeFromLeft (4);
-            row.bypass.setBounds (controls.removeFromRight (96));
+            row.down.setBounds (controls.removeFromRight (22)); controls.removeFromRight (2);
+            row.up.setBounds (controls.removeFromRight (22)); controls.removeFromRight (4);
+            row.bypass.setBounds (controls.removeFromRight (28));
             controls.removeFromRight (6);
             row.chooser.setBounds (controls);
             chain.removeFromTop (rowGap);
@@ -212,10 +211,9 @@ public:
         duplicateNotice.setBounds (notice);
 
         auto focused = inspectorArea.reduced (14);
-        focused.removeFromTop (28);
         inspectorViewport.setBounds (focused);
         inspector.setSize (
-            juce::jmax (320, inspectorViewport.getWidth() - 10),
+            juce::jmax (1, inspectorViewport.getWidth() - 10),
             inspector.getHeight());
         repaint();
     }
@@ -225,6 +223,22 @@ private:
         juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment =
         juce::AudioProcessorValueTreeState::ButtonAttachment;
+
+    void moveSlot (int from, int to)
+    {
+        if (to < 0 || to >= rack::SattariRackProcessor::kNumSlots) return;
+        auto& state = audioProcessor.parameters();
+        for (bool bypass : { false, true })
+        {
+            auto* a = state.getParameter (bypass ? rack::SattariRackProcessor::slotBypassParamId (from) : rack::SattariRackProcessor::slotParamId (from));
+            auto* b = state.getParameter (bypass ? rack::SattariRackProcessor::slotBypassParamId (to) : rack::SattariRackProcessor::slotParamId (to));
+            const float av = a->getValue(), bv = b->getValue();
+            a->beginChangeGesture(); b->beginChangeGesture();
+            a->setValueNotifyingHost (bv); b->setValueNotifyingHost (av);
+            a->endChangeGesture(); b->endChangeGesture();
+        }
+        selectSlot (to); updateHeaderStatus();
+    }
 
     void setupPresets()
     {
@@ -258,24 +272,32 @@ private:
             const auto name = userPresets.getText();
             if (name.isNotEmpty())
             {
-                presetManager.loadUserPreset (name);
+                if (! presetManager.loadUserPreset (name))
+                {
+                    userPresets.setSelectedId (0, juce::dontSendNotification);
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                        "Could not load preset", "The preset is missing, unreadable, invalid, or belongs to another product. Your current settings have not changed.");
+                    return;
+                }
                 selectSlot (selectedSlot);
                 updateHeaderStatus();
             }
         };
         addAndMakeVisible (userPresets);
 
-        savePresetButton.setTitle ("Save rack preset");
+        releaseui::icon (savePresetButton, releaseui::Icon::save, "Save rack preset");
         savePresetButton.setDescription ("Save the current chain and module controls");
         savePresetButton.onClick = [this]
         {
-            const auto name = "User "
-                + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+            const auto name = presetManager.newUserPresetName();
             if (presetManager.saveUserPreset (name))
             {
                 refreshUserPresets();
                 userPresets.setText (name, juce::dontSendNotification);
             }
+            else
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                    "Could not save preset", "Check that your preset folder is writable and that the disk has free space. Your current settings remain active.");
         };
         addAndMakeVisible (savePresetButton);
         addAndMakeVisible (abRow);
@@ -294,6 +316,8 @@ private:
     {
         selectedSlot = juce::jlimit (
             0, rack::SattariRackProcessor::kNumSlots - 1, slot);
+        for (int i = 0; i < rack::SattariRackProcessor::kNumSlots; ++i)
+            slots[(size_t) i].number.setToggleState (i == selectedSlot, juce::dontSendNotification);
         const int selection = (int) audioProcessor.parameters()
                                   .getRawParameterValue (
                                       rack::SattariRackProcessor::slotParamId (
@@ -302,6 +326,16 @@ private:
         inspector.showModule (
             module != nullptr ? module->moduleId() : nullptr,
             module != nullptr ? module->displayName() : nullptr);
+
+        updateNotice();
+        resized();
+    }
+
+    void updateNotice()
+    {
+        const int selection = (int) audioProcessor.parameters().getRawParameterValue (
+            rack::SattariRackProcessor::slotParamId (selectedSlot))->load();
+        auto* module = audioProcessor.moduleAt (selection - 1);
 
         bool duplicate = false;
         if (selection > 0)
@@ -318,33 +352,33 @@ private:
             duplicate
                 ? "This duplicate is inactive; the first active slot owns its DSP state."
                 : module != nullptr
-                    ? "Slot " + juce::String (selectedSlot + 1)
-                        + " selected / edit its controls on the right."
-                    : "Choose a module to add it to the signal path.",
+                    ? "Slot " + juce::String (selectedSlot + 1) + " / " + juce::String (module->displayName())
+                    : "Slot " + juce::String (selectedSlot + 1) + " / Empty",
             juce::dontSendNotification);
-        resized();
     }
 
     void updateHeaderStatus()
     {
-        int active = 0;
+        std::set<int> activeModules;
         for (const auto& row : slots)
             if (row.chooser.getSelectedId() > 1
                 && ! row.bypass.getToggleState())
-                ++active;
+                activeModules.insert (row.chooser.getSelectedId());
+        const auto active = activeModules.size();
         header.setStatus (
             active > 0
                 ? juce::String (active) + (active == 1 ? " MODULE ACTIVE"
                                                        : " MODULES ACTIVE")
                 : "EMPTY CHAIN",
             active > 0);
+        updateNotice();
         repaint();
     }
 
     rack::SattariRackProcessor& audioProcessor;
     const juce::Colour accent;
-    studio::LookAndFeel lookAndFeel;
-    studio::Header header;
+    releaseui::LookAndFeel lookAndFeel;
+    releaseui::Header header;
     sattari::presets::SattariPresetManager presetManager;
     SattariABRow abRow;
     SattariModuleInspector inspector;
@@ -356,9 +390,10 @@ private:
     struct SlotRow
     {
         juce::Rectangle<int> bounds;
-        juce::Label number;
+        juce::TextButton number;
         juce::ComboBox chooser;
-        juce::ToggleButton bypass { "Bypass" };
+        juce::TextButton bypass;
+        juce::TextButton up, down;
         std::unique_ptr<ComboAttachment> chooserAtt;
         std::unique_ptr<ButtonAttachment> bypassAtt;
     };
@@ -366,6 +401,7 @@ private:
 
     juce::Rectangle<int> chainArea, inspectorArea;
     int selectedSlot = 0;
+    juce::TooltipWindow tooltip { this, 600 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SattariRackEditor)
 };
