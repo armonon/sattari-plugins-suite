@@ -12,14 +12,22 @@
 #  in the release-readiness file, not proven here.
 #
 #  Usage: scripts/qualify_auto_pitch.sh [build dir]   (default build/auto-pitch-neural)
-#  Env:   MIN_FREE_GB (default 8)   EXPECTED_LATENCY (default 2885)   LOAD_CYCLES (default 30)
+#  Env:   MIN_FREE_GB (default 8)   EXPECTED_LATENCY (default 3173 = 48 kHz Studio, since the
+#         2026-09-29 release fix; cbd1ce4 was 2885)   LOAD_CYCLES (default 30)
+#         UNDER_TEST=build : validate the BUILT bundles (pluginval, load cycles) instead of the
+#                            installed ones, and do not require installed == built. auval needs an
+#                            installed AU, so it is recorded as NOT RUN. Use this before the owner
+#                            installs a new candidate.
+#  CAUTION: every plugin build copies its bundles into $HOME/Library/Audio (COPY_PLUGIN_AFTER_BUILD in
+#  cmake/SattariPlugin.cmake; the destination is fixed from HOME at configure time). Configure a new
+#  candidate build dir with HOME=/tmp/<x>-home unless installing it is intended.
 #         NOHARM_MINUTES (default 120: AutoPitchNoHarm playback soak, ~15 min wall clock; 0 = checks 1-7 only; -1 = skip, run separately)
 #         PYTHON (default ~/.venvs/sattari-audio/bin/python if present, else python3)
 # =============================================================================
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 B="${1:-build/auto-pitch-neural}"
-MIN_FREE_GB="${MIN_FREE_GB:-8}"; EXPECTED_LATENCY="${EXPECTED_LATENCY:-2885}"; LOAD_CYCLES="${LOAD_CYCLES:-30}"
+MIN_FREE_GB="${MIN_FREE_GB:-8}"; EXPECTED_LATENCY="${EXPECTED_LATENCY:-3173}"; LOAD_CYCLES="${LOAD_CYCLES:-30}"
 NOHARM_MINUTES="${NOHARM_MINUTES:-120}"
 PY="${PYTHON:-}"; [ -z "$PY" ] && { [ -x "$HOME/.venvs/sattari-audio/bin/python" ] && PY="$HOME/.venvs/sattari-audio/bin/python" || PY=python3; }
 TOOLS=(AutoPitchCoreContract AutoPitchRender AutoPitchObjectiveBench AutoPitchBench AutoPitchNoHarm)
@@ -52,10 +60,15 @@ echo "$second" | grep -q 'ninja: no work to do' || { echo "ABORT: build not up t
 bin() { find "$B" -type f -name "$1" -perm +111 -not -path '*.dSYM*' | head -n1; }
 fp=(); for t in "${TOOLS[@]}"; do p="$(bin "$t")"; [ -z "$p" ] && { echo "ABORT: $t not built"; exit 2; }; fp+=("| $t | \`$(shasum -a 256 "$p" | cut -c1-16)\` | $(stat -f %Sm -t '%Y-%m-%d %H:%M:%S' "$p") |"); done
 built_vst3="$(find "$B" -path '*Release/VST3/Sattari Auto Pitch.vst3/Contents/MacOS/Sattari Auto Pitch' | head -n1)"
+if [ "${UNDER_TEST:-installed}" = "build" ]; then
+  VST3="$(cd "$(dirname "$built_vst3")/../.." && pwd)"
+  fp+=("| built VST3 (under test) | \`$(shasum -a 256 "$built_vst3" | cut -c1-16)\` | not installed: UNDER_TEST=build validates this bundle |")
+else
 inst_vst3="$VST3/Contents/MacOS/Sattari Auto Pitch"
 if [ -f "$built_vst3" ] && [ -f "$inst_vst3" ] && cmp -s "$built_vst3" "$inst_vst3"; then inst_ok="installed VST3 == built VST3"
 else inst_ok="**installed VST3 differs from this build**"; fail=1; fi
 fp+=("| installed VST3 | \`$(shasum -a 256 "$inst_vst3" 2>/dev/null | cut -c1-16)\` | $inst_ok |")
+fi
 
 # --- 2. gates -------------------------------------------------------------------
 gate "AutoPitchCoreContract (incl. AutoKey strength parity)" "$(bin AutoPitchCoreContract)"
@@ -72,7 +85,11 @@ elif [ "$NOHARM_MINUTES" -gt 0 ]; then
 else   # NOHARM_MINUTES=0: checks 1-7 here; run the soak separately (--check 8) and cite its log
   gate "AutoPitchNoHarm checks 1-7 (soak run separately)" "$(bin AutoPitchNoHarm)" --check 1 --check 2 --check 3 --check 4 --check 5 --check 6 --check 7
 fi
+if [ "${UNDER_TEST:-installed}" = "build" ]; then
+  rows+=("| auval aufx Ap01 Satr | NOT RUN (AU validation needs the candidate installed) | - |")
+else
 gate "auval aufx Ap01 Satr"                sh -c 'auval -v aufx Ap01 Satr 2>&1 | tee /dev/stderr | grep -q "AU VALIDATION SUCCEEDED"'
+fi
 if [ -x /Applications/pluginval.app/Contents/MacOS/pluginval ]; then
   gate "pluginval strictness 5 (VST3)"     /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --skip-gui-tests --validate "$VST3"
 else rows+=("| pluginval strictness 5 | SKIPPED (pluginval not installed) | - |"); fi

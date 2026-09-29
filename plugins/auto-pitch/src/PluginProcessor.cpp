@@ -1031,14 +1031,20 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
               | RubberBand::RubberBandStretcher::OptionPitchHighQuality
               | RubberBand::RubberBandStretcher::OptionWindowShort;
 
+    rbEngineRate = qualifiedEngineRate (currentSampleRate);
+    rbResampling = std::abs (rbEngineRate - currentSampleRate) > 0.5;
+    rbUp.clear(); rbDown.clear();
+    rbReportedHost = 0; rbHeadroomHost = 0; rbStreamOffsetHost = 0; rbFlushLen = 0; rbZeros.clear();
     for (int channel = 0; channel < numChannels; ++channel)
     {
         auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
-            currentSampleRate, 1, opts, 1.0, 1.0);
+            (size_t) rbEngineRate, 1, opts, 1.0, 1.0);
         jassert (stretcher->getEngineVersion() >= 3);
         // Stationary ratios use chunks up to 512 samples; moving ratios use the
         // finer automation grid below. This cap is independent of host buffers.
-        stretcher->setMaxProcessSize (512);
+        //  Resampled mode feeds ceil(512 * engine/host) samples per leaf call.
+        stretcher->setMaxProcessSize (rbResampling
+            ? (size_t) std::ceil (512.0 * rbEngineRate / currentSampleRate) + 64 : (size_t) 512);
         stretcher->setPitchScale (1.0);
         rubberBand.push_back (std::move (stretcher));
     }
@@ -1046,6 +1052,60 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // it headroom for one full block of Rubber Band output at a time.
     rubberBandOutput.setSize (numChannels, preparedBlockSize);
     rubberBandScratch.resize ((size_t) preparedBlockSize, 0.0f);
+
+    rbResamplerDelayHost = 0;
+    if (rbResampling)
+    {
+        const double up = rbEngineRate / currentSampleRate;          // host -> engine
+        const int maxLeaf = 512;                                     // processWithRubberBand leaf cap
+        auto makeResampler = [] (double rate, int maxIn)
+        {
+            RubberBand::Resampler::Parameters rp;
+            rp.quality = RubberBand::Resampler::Best;
+            rp.dynamism = RubberBand::Resampler::RatioMostlyFixed;
+            rp.ratioChange = RubberBand::Resampler::SuddenRatioChange;
+            rp.initialSampleRate = rate;
+            rp.maxBufferSize = maxIn;
+            return std::make_unique<RubberBand::Resampler> (rp, 1);
+        };
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            rbUp.push_back (makeResampler (currentSampleRate, maxLeaf));
+            rbDown.push_back (makeResampler (rbEngineRate, maxLeaf));
+        }
+        rbEngineIn.setSize (numChannels, (int) std::ceil (maxLeaf * up) + 256, false, true, false);
+        rbHostOut.setSize (numChannels, (int) std::ceil (maxLeaf / up) + 256, false, true, false);
+
+        //  Measure the up+down resampling delay once, here (allocation is fine in prepare):
+        //  an impulse through a fresh pair, in leaf-sized blocks, then find the output peak.
+        auto u = makeResampler (currentSampleRate, maxLeaf);
+        auto d = makeResampler (rbEngineRate, maxLeaf);
+        const int probeLen = (int) currentSampleRate / 4;
+        std::vector<float> probeIn ((size_t) probeLen, 0.0f), mid ((size_t) std::ceil (maxLeaf * up) + 256),
+                           outBlk ((size_t) std::ceil (maxLeaf / up) + 256), probeOut;
+        probeIn[(size_t) (probeLen / 4)] = 1.0f;
+        for (int pos = 0; pos < probeLen; pos += maxLeaf)
+        {
+            const int n = juce::jmin (maxLeaf, probeLen - pos);
+            const float* ip = probeIn.data() + pos; float* mp = mid.data();
+            const int m = u->resample (&mp, (int) mid.size(), &ip, n, up, false);
+            const float* mcp = mid.data(); float* op = outBlk.data();
+            const int o = d->resample (&op, (int) outBlk.size(), &mcp, m, 1.0 / up, false);
+            probeOut.insert (probeOut.end(), outBlk.begin(), outBlk.begin() + o);
+        }
+        int peak = 0;
+        for (int i = 1; i < (int) probeOut.size(); ++i)
+            if (std::abs (probeOut[(size_t) i]) > std::abs (probeOut[(size_t) peak])) peak = i;
+        // The pair is index-aligned (the impulse lands at the same stream index: measured offset 0) but
+        // it runs behind: it withholds its filter length of frames. That withholding is production lag,
+        // which the counted priming below must allow for.
+        rbResamplerDelayHost = juce::jmax (0, probeLen - (int) probeOut.size());
+        jassert (peak == probeLen / 4);
+        //  Flush length for resetRbFifo: well past both filters' history (their withheld frames are
+        //  about half a filter length each).
+        rbFlushLen = juce::jmax (1024, 4 * rbResamplerDelayHost);
+        rbZeros.assign ((size_t) maxLeaf, 0.0f);
+    }
 
     // --- Output FIFO ---------------------------------------------------------
     // We keep a one-block cushion in the ring so Rubber Band's per-call
@@ -1057,14 +1117,54 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // samples). Sizing the cushion to RB's own start delay gives ample headroom
     // so the pop path never starves — starvation would zero-pad the block tail
     // and click. A one-block floor covers the trivial (unity) case.
-    const int startDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
-    rbLatency = startDelay;
+    const int engineStartDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
+    const int startDelay = rbResampling
+        ? (int) std::lround (engineStartDelay * currentSampleRate / rbEngineRate) : engineStartDelay;
+    rbGroupBase = startDelay;
+    rbLatency = startDelay + rbResamplerDelayHost;
+    if (! rbResampling)
+    {
+        //  (rbCushion is assigned just below; use its definition here.)
+        const int nativeReported = rbLatency + juce::jmax (512, startDelay)
+            + (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction);
+        const int off = -(int) std::lround (0.00077 * currentSampleRate);
+        const int headroom = (int) std::lround (kRbHeadroomSeconds * currentSampleRate);
+        rbRealDelayHost = nativeReported + off + headroom;
+        rbHeadroomHost = headroom;
+        rbStreamOffsetHost = 0;
+    }
+    if (rbResampling)
+    {
+        //  Mirror the native engine's calibrated timing, scaled to the host rate. Native at the
+        //  engine rate: reported = S + cushion + group, and the real delay sits ~0.77 ms earlier (the
+        //  documented midpoint between unity and tuned onsets). Measured 2026-09-29: Rubber Band's
+        //  output stream is index-aligned with its input (stream offset 0; its start delay shows up
+        //  as production lag, 2015-2517 host samples at 44.1 kHz, block-independent), and the
+        //  resampler pair withholds rbResamplerDelayHost more. Both targets include that withholding
+        //  so the counted priming keeps a margin over the lag similar to the native path's.
+        const double scale = currentSampleRate / rbEngineRate;
+        const int engineCushion = juce::jmax (512, engineStartDelay);
+        const int engineGroup = (int) std::ceil ((double) engineStartDelay * rubberBandR3GroupDelayFraction);
+        const int nativeReported = engineStartDelay + engineCushion + engineGroup;
+        const int nativeReal = nativeReported - (int) std::lround (0.00077 * rbEngineRate);
+        const int headroomHost = (int) std::lround (kRbHeadroomSeconds * currentSampleRate);
+        rbHeadroomHost     = headroomHost;
+        rbReportedHost     = (int) std::lround (nativeReported * scale) + rbResamplerDelayHost + headroomHost;
+        rbRealDelayHost    = (int) std::lround (nativeReal * scale) + rbResamplerDelayHost + headroomHost;
+        //  resetRbFifo flushes the resamplers with zeros (never reset(), see there), leaving them in
+        //  steady state: they no longer withhold their frames but emit the zeros still in flight
+        //  first, so the output stream runs rbResamplerDelayHost samples behind the input index
+        //  instead of lagging in production. Measured: +2.77 ms at 44.1 kHz until this was set.
+        rbStreamOffsetHost = rbResamplerDelayHost;
+        juce::ignoreUnused (engineCushion);
+    }
     // Fixed latency floor: a host's declared buffer size must not change the
     // engine's delay or the amount of automation queued ahead of playback.
     rbCushion = juce::jmax (512, startDelay);
     rbFifoCap = rbCushion + startDelay + 8 * preparedBlockSize + 16384;
     rbFifo.setSize (numChannels, rbFifoCap);
     resetRbFifo();
+    rbStats = {};
 #endif
 
     // Always run a sample-identical dry reference at the exact monophonic engine
@@ -1259,8 +1359,12 @@ int SattariAutoPitchAudioProcessor::printEngineLatencySamples() const noexcept
 int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
 {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    if (rbResampling)
+        return rbReportedHost;
+    if (rbHeadroomHost > 0)
+        return rbLatency + rbCushion + (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction) + rbHeadroomHost;
     const int reconstructionGroupDelay =
-        (int) std::ceil ((double) rbLatency * rubberBandR3GroupDelayFraction);
+        (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction);
     return rbLatency + rbCushion + reconstructionGroupDelay;
 #else
     return 0;   // no Rubber Band: the formant-guide fallback is block-local
@@ -5803,7 +5907,20 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
         stretcher.setFormantScale (formantPreserve ? formantScale : 0.0);
         stretcher.setPitchScale (pitchScale);
         const float* input = buffer.getReadPointer (channel);
-        stretcher.process (&input, (size_t) numSamples, false);
+        if (rbResampling)
+        {
+            if (channel == 0) rbConsumedTotal += numSamples;
+            float* engineIn = rbEngineIn.getWritePointer (channel);
+            const int m = rbUp[(size_t) channel]->resample (&engineIn, rbEngineIn.getNumSamples(), &input, numSamples,
+                                                            rbEngineRate / currentSampleRate, false);
+            const float* ep = engineIn;
+            stretcher.process (&ep, (size_t) m, false);
+        }
+        else
+        {
+            if (channel == 0) rbConsumedTotal += numSamples;
+            stretcher.process (&input, (size_t) numSamples, false);
+        }
     }
 
     // 2. Drain everything Rubber Band produced into the FIFO. All channels share
@@ -5823,33 +5940,63 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
             float* dst = rubberBandOutput.getWritePointer (channel);
             rubberBand[(size_t) channel]->retrieve (&dst, (size_t) chunk);
         }
-        pushRbFifo (rubberBandOutput, 0, chunk);
+        if (rbResampling)
+        {
+            int produced = 0;
+            for (int channel = 0; channel < numChannels; ++channel)
+            {
+                const float* src = rubberBandOutput.getReadPointer (channel);
+                float* hostOut = rbHostOut.getWritePointer (channel);
+                produced = rbDown[(size_t) channel]->resample (&hostOut, rbHostOut.getNumSamples(), &src, chunk,
+                                                               currentSampleRate / rbEngineRate, false);
+            }
+            if (produced > 0)
+            {
+                pushRbFifo (rbHostOut, 0, produced);
+                rbPushedTotal += produced;
+            }
+        }
+        else
+        {
+            pushRbFifo (rubberBandOutput, 0, chunk);
+            rbPushedTotal += chunk;
+        }
     }
 
     // 3. Pop exactly numSamples from the ring. Hold silence until the one-block
     //    cushion has filled (this is the reported start-up latency); after that
     //    the ring always has enough, so output is continuous — no dry splices.
-    if (! rbPrimed && rbFifoCount >= rbCushion)
+    //  COUNTED PRIMING (2026-09-29). The output read head is placed from sample counters so the real
+    //  delay equals rbRealDelayHost exactly, at every sample rate and host buffer. The old rule ("start
+    //  once the FIFO holds a cushion, drop the overshoot") made the delay depend on the buffer size and
+    //  on what the signal was doing at that instant: at 48 kHz it ran +8.5 ms late at 64 samples, and
+    //  +10 ms late at 88.2/96 kHz at every buffer (AutoPitchNoHarm check 10). Rubber Band's output
+    //  stream is index-aligned with its input (stream offset 0); its start delay is production lag.
+    if (! rbPrimed)
     {
-        // Drop the overshoot so the REAL delay equals the REPORTED one. This
-        // threshold can only be tested at block boundaries, and Rubber Band's output
-        // is bursty, so the ring typically crosses rbCushion by a few hundred
-        // samples. In steady state we pop exactly numSamples per block, so whatever
-        // surplus is sitting here at priming never drains — it becomes permanent
-        // latency on top of activeEngineLatencySamples()'s startDelay + rbCushion.
-        // Measured at 48k/512 that was ~239 samples (~5 ms) of UNDER-report, i.e. the
-        // host under-compensated and the tuned track sat late against the dry.
-        // Discarding the surplus (rather than inflating the reported figure) keeps
-        // the pipeline as short as it claims to be.
-        const int overshoot = rbFifoCount - rbCushion;
-        if (overshoot > 0)
+        const juce::int64 t0 = rbConsumedTotal - numSamples;                 // input index of this block
+        const juce::int64 r  = t0 - rbRealDelayHost + rbStreamOffsetHost;    // stream index due now
+        const juce::int64 head = rbPushedTotal - rbFifoCount;                // stream index at the read head
+        if (r >= head && rbPushedTotal - r >= numSamples)
         {
-            rbFifoRead   = (rbFifoRead + overshoot) % rbFifoCap;
-            rbFifoCount -= overshoot;
+            const int drop = (int) (r - head);
+            rbFifoRead   = (rbFifoRead + drop) % rbFifoCap;
+            rbFifoCount -= drop;
+            rbPrimed = true;
         }
-        rbPrimed = true;
+        else if (t0 > (juce::int64) rbRealDelayHost + 4 * (juce::int64) rbCushion && rbFifoCount >= numSamples)
+        {
+            //  Fail-safe: the chain lags more than the target allows (not seen in qualification).
+            //  Output late rather than stay silent; the delay then exceeds the reported latency.
+            //  Keep the headroom margin in the FIFO so the bursty engine output does not underrun
+            //  on the next blocks.
+            const int drop = juce::jmax (0, rbFifoCount - numSamples - rbHeadroomHost);
+            rbFifoRead   = (rbFifoRead + drop) % rbFifoCap;
+            rbFifoCount -= drop;
+            rbPrimed = true;
+            ++rbStats.failSafePrimes;
+        }
     }
-
     if (! rbPrimed)
     {
         buffer.clear();
@@ -5871,6 +6018,7 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
                 out[i] = 0.0f;
         }
         const int consumed = juce::jmin (numSamples, rbFifoCount);
+        rbStats.underrunSamples += numSamples - consumed;
         rbFifoRead = (rbFifoRead + consumed) % rbFifoCap;
         rbFifoCount -= consumed;
     }
@@ -5883,8 +6031,37 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
 }
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+double SattariAutoPitchAudioProcessor::qualifiedEngineRate (double hostRate) noexcept
+{
+    //  Rates at which the Rubber Band R3 short-window engine passes AutoPitchNoHarm check 9.
+    for (const double r : { 32000.0, 48000.0, 88200.0, 96000.0 })
+        if (std::abs (hostRate - r) < 0.5)
+            return r;
+    return hostRate >= 64000.0 ? 96000.0 : 48000.0;
+}
+
 void SattariAutoPitchAudioProcessor::resetRbFifo()
 {
+    //  Clear the resamplers' history by pushing zeros through them, NOT with Resampler::reset():
+    //  in this Rubber Band build reset() discards the filter, and the next resample() call rebuilds
+    //  it (tens of thousands of Kaiser taps, heap allocation). resetRbFifo runs on the audio thread
+    //  (transport reset, Live/Poly/Transpose toggles), so that rebuild was a realtime violation.
+    //  Here the filter is built once, in prepareToPlay (whose resetRbFifo call initialises it), and
+    //  the flush reuses the preallocated scratch buffers. Timing is unchanged: a flushed resampler
+    //  withholds the same frames as a fresh one, within its fractional phase (< 1 sample).
+    for (size_t ch = 0; ch < rbUp.size(); ++ch)
+    {
+        for (int done = 0; done < rbFlushLen; done += (int) rbZeros.size())
+        {
+            const float* zp = rbZeros.data();
+            float* mp = rbEngineIn.getWritePointer ((int) ch);
+            rbUp[ch]->resample (&mp, rbEngineIn.getNumSamples(), &zp, (int) rbZeros.size(), rbEngineRate / currentSampleRate, false);
+            float* hp = rbHostOut.getWritePointer ((int) ch);
+            rbDown[ch]->resample (&hp, rbHostOut.getNumSamples(), &zp, (int) rbZeros.size(), currentSampleRate / rbEngineRate, false);
+        }
+    }
+    rbConsumedTotal = 0;
+    rbPushedTotal = 0;
     rbFifo.clear();
     rbFifoRead  = 0;
     rbFifoCount = 0;

@@ -9,7 +9,8 @@
 #  records raw + signature-stripped sha256 so a later Developer-ID-signed copy can still be tied
 #  to this candidate. DSP is untouched: the Mach-O code is the candidate build's.
 #
-#  Usage: scripts/package_candidate.sh <candidate sha>      -> dist/candidate-<sha>/ + .tar.gz
+#  Usage: [AP_BUILD=<auto pitch build dir>] scripts/package_candidate.sh <candidate sha>
+#           -> dist/candidate-<sha>/ + .tar.gz   (AP_BUILD default build/auto-pitch-neural = cbd1ce4)
 # =============================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
@@ -17,8 +18,8 @@ C="$(git rev-parse --short "${1:?usage: package_candidate.sh <candidate sha>}")"
 REPORT="$(ls validation/auto-pitch/qualification/*-"$C".md | head -n1)"
 changed="$(git diff --name-only "$C" HEAD -- plugins core cmake CMakeLists.txt third_party | grep -v -E '^plugins/[^/]+/(tests|tools)/' || true)"
 [ -z "$changed" ] || { echo "ABORT: plugin sources differ from $C"; exit 2; }
-AP="build/auto-pitch-neural/SattariAutoPitch_artefacts/Release"; SK="build/song-key-rc/SattariSongKey_artefacts/Release"
-want="$(grep -E '^\| installed VST3 \| `' "$REPORT" | head -n1 | sed -E 's/.*`([0-9a-f]+)`.*/\1/')"
+AP="${AP_BUILD:-build/auto-pitch-neural}/SattariAutoPitch_artefacts/Release"   # AP_BUILD: candidate build dir; SK="build/song-key-rc/SattariSongKey_artefacts/Release"
+want="$(grep -E '^\| (installed|built) VST3[^|]*\| `' "$REPORT" | head -n1 | sed -E 's/.*`([0-9a-f]+)`.*/\1/')"
 have="$(shasum -a 256 "$AP/VST3/Sattari Auto Pitch.vst3/Contents/MacOS/Sattari Auto Pitch" | cut -c1-16)"
 [ "$want" = "$have" ] || { echo "ABORT: built Auto Pitch VST3 $have != candidate $want"; exit 2; }
 OUT="dist/candidate-$C"; rm -rf "$OUT"; mkdir -p "$OUT/Auto Pitch" "$OUT/Sattari Key"

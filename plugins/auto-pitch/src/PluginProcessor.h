@@ -217,6 +217,7 @@ struct IntentV2State
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
+ #include <src/common/Resampler.h>
 #endif
 
 class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
@@ -554,6 +555,12 @@ public:
         d.confidence   = frame.confidence;
         return d;
     }
+
+    //  Studio-engine output FIFO health since prepareToPlay (read by the offline no-harm tools on the
+    //  processing thread; not for the UI). underrunSamples > 0 means the output was zero-padded (a
+    //  click); failSafePrimes > 0 means the real delay exceeded the reported latency.
+    struct StudioFifoStats { juce::int64 underrunSamples = 0; int failSafePrimes = 0; };
+    StudioFifoStats getStudioFifoStats() const noexcept { return rbStats; }
 
 private:
     //  Intent estimation. Returns 0..1: how strongly Auto Pitch believes the
@@ -1042,6 +1049,34 @@ private:
     int  rbCushion   = 0;             // samples buffered before popping begins
     bool rbPrimed    = false;         // has the cushion filled yet?
     int  rbLatency   = 0;             // Rubber Band start delay (samples)
+    //  QUALIFIED ENGINE RATE. Rubber Band R3 (short window) renders a moving pitch curve wrongly at
+    //  some sample rates: at 44.1 kHz a +-40 c vibrato came out -75/+51 c with interfering partials
+    //  (2026-09-27; the requested correction was identical to 48 kHz). The engine therefore runs only
+    //  at rates qualified by AutoPitchNoHarm check 9 (32 / 48 / 88.2 / 96 kHz); any other host rate is
+    //  resampled into the nearest qualified rate and back (Rubber Band's own anti-aliased resampler).
+    //  At a qualified host rate none of this is active and the audio path is unchanged.
+    double rbEngineRate  = 0.0;       // rate the stretchers run at (== host rate when native)
+    bool   rbResampling  = false;
+    int    rbGroupBase   = 0;         // engine start delay in HOST samples (group-delay basis)
+    int    rbResamplerDelayHost = 0;  // measured up+down resampler delay, host samples
+    std::vector<std::unique_ptr<RubberBand::Resampler>> rbUp, rbDown;
+    //  Resampled mode primes by COUNTING, not by cushion level: Rubber Band fed resampled chunks
+    //  holds a block-size-dependent amount internally, so "prime when the FIFO holds a cushion"
+    //  made the real delay depend on the host buffer (+276 samples at 512, +532 at 256). The read
+    //  head is placed from sample counters so the delay is exact by construction.
+    juce::int64 rbConsumedTotal = 0, rbPushedTotal = 0;
+    StudioFifoStats rbStats;
+    std::vector<float> rbZeros;       // resampler flush input (resetRbFifo), sized in prepare
+    int rbFlushLen = 0;
+    int rbReportedHost = 0, rbRealDelayHost = 0, rbStreamOffsetHost = 0, rbHeadroomHost = 0;
+    //  FIFO safety margin on top of Rubber Band's production lag. Counted priming makes the delay
+    //  exact, so the FIFO no longer floats extra samples: under heavy automation (ratio jumps) the
+    //  lag peaked at 3011 samples at 48 kHz against a 2848-sample calibrated delay -> 257 underrun
+    //  clicks in AutoPitchNoHarm check 4. 6 ms keeps >= one 128-sample sub-chunk of margin over the
+    //  observed peak. This raises Studio latency by 6 ms (reported to the owner before merge, 2026-09-29).
+    static constexpr double kRbHeadroomSeconds = 0.006;
+    juce::AudioBuffer<float> rbEngineIn, rbHostOut;
+    static double qualifiedEngineRate (double hostRate) noexcept;
     double rubberBandEnginePitchScale = 1.0; // last ratio delivered on the fixed control grid
     int rubberBandAutomationHoldSamples = 0; // hysteresis: finish a moving-ratio glide on-grid
     void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);
