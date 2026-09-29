@@ -35,6 +35,24 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <new>
+
+// Heap-allocation counter for check 12: counts allocations made on a thread while it is armed
+// (the audio callback below). Everything else allocates normally.
+static thread_local bool gCountAllocs = false;
+static std::atomic<long> gAllocCount { 0 };
+void* operator new (std::size_t n)
+{
+    if (gCountAllocs) gAllocCount.fetch_add (1, std::memory_order_relaxed);
+    if (void* p = std::malloc (n != 0 ? n : 1)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[] (std::size_t n) { return ::operator new (n); }
+void operator delete (void* p) noexcept { std::free (p); }
+void operator delete[] (void* p) noexcept { std::free (p); }
+void operator delete (void* p, std::size_t) noexcept { std::free (p); }
+void operator delete[] (void* p, std::size_t) noexcept { std::free (p); }
 
 namespace
 {
@@ -1008,7 +1026,9 @@ void checkAutomationStress()
             }
         long where = 0;
         const double c = maxCurvature (out, 0, -1, &where);
-        const bool pass = st.finite && st.peak <= 1.5f && c <= threshold;
+        const auto fifo = p.getStudioFifoStats();   // zero-padded output = a click the curvature may miss
+        const bool pass = st.finite && st.peak <= 1.5f && c <= threshold
+                          && fifo.underrunSamples == 0 && fifo.failSafePrimes == 0;
         gatePass = gatePass && pass;
         // Count blocks whose curvature exceeds the threshold, for scale.
         int loud = 0;
@@ -1018,14 +1038,15 @@ void checkAutomationStress()
         auto rowText = [] (const Row& r)
         { return fmt ("amt %.2f spd %.2f fmt %+.1f style %d key %d/%d corr %d", r.amount, r.speed, r.formant,
                       r.style, r.key, r.scale, r.corr); };
-        info ("%-4s %-24s finite %s, peak %.3f, worst curvature %.4f (%.2fx its baseline %s) at %.4f s (+%ld in block), %d blocks > threshold, latency %s",
+        info ("%-4s %-24s finite %s, peak %.3f, worst curvature %.4f (%.2fx its baseline %s) at %.4f s (+%ld in block), %d blocks > threshold, latency %s, FIFO underrun %lld fail-safe %d",
               pass ? "ok" : "BAD", run.name, st.finite ? "yes" : "NO", st.peak, c, c / baseline, from.c_str(),
-              (double) where / sr, where % 512, loud, st.latencyChanges == 0 ? "constant" : "CHANGED");
+              (double) where / sr, where % 512, loud, st.latencyChanges == 0 ? "constant" : "CHANGED",
+              (long long) fifo.underrunSamples, fifo.failSafePrimes);
         if (c > threshold)
             info ("     worst block params: prev [%s] -> this [%s]", rowText (rows[blk - 1]).c_str(), rowText (rows[blk]).c_str());
     }
     verdict (4, "automation stress (60 s)", gatePass, secondsSince (t0),
-             "every run gated: finite, peak <= 1.5, curvature <= 2x the worst static render reachable by that run");
+             "every run gated: finite, peak <= 1.5, curvature <= 2x the worst static render reachable by that run, no Studio FIFO underrun");
 }
 
 // ==========================================================================================
@@ -1497,7 +1518,7 @@ void checkVibratoRates()
 //  32 kHz 4 ms early. The host compensates the REPORTED value, so the vocal sat off the grid.
 //  Broadband noise goes through the Studio engine at unity (unvoiced -> ratio 1, but still through
 //  Rubber Band); the delay is found by cross-correlation near the reported latency.
-double measuredDelayMs (double sr, int block, int& reported)
+double measuredDelayMs (double sr, int block, int& reported, bool hostResetMidway = false)
 {
     const long n = (long) (3.0 * sr);
     juce::AudioBuffer<float> in (1, (int) n);
@@ -1508,6 +1529,8 @@ double measuredDelayMs (double sr, int block, int& reported)
     configureClassicB3 (p);
     setParam (p, "style", 0.0f);
     RenderSpec spec; spec.sr = sr; spec.maxBlock = block;
+    if (hostResetMidway)   // a transport reset while running: the engine must re-prime to the same delay
+        spec.before = [sr, block] (Proc& pp, long pos, int, long) { if (pos / block == (long) (0.4 * sr) / block) pp.reset(); return false; };
     RenderStats st;
     const auto out = render (p, in, spec, &st);
     reported = st.latency;
@@ -1549,9 +1572,184 @@ void checkLatencyTruth()
         const bool ok = std::max (std::abs (lo), std::abs (hi)) <= 2.0 && (hi - lo) <= 0.25;
         allPass = allPass && ok;
         info ("%-4s %6.0f Hz reported %d: actual minus reported (ms) per buffer%s", ok ? "ok" : "BAD", sr, reported, row.c_str());
+        //  Same measurement after a host reset() mid-stream (resamplers flushed, FIFO re-primed).
+        for (const int block : { 64, 512 })
+        {
+            const double ms = measuredDelayMs (sr, block, reported, true);
+            const bool okReset = std::abs (ms - lo) <= 0.25 && std::abs (ms) <= 2.0;
+            allPass = allPass && okReset;
+            info ("%-4s %6.0f Hz after a mid-stream host reset, buffer %d: %+.2f ms", okReset ? "ok" : "BAD", sr, block, ms);
+        }
     }
     verdict (10, "reported latency == actual delay", allPass, secondsSince (t0),
              "every rate x buffer within 2 ms of reported, spread <= 0.25 ms");
+}
+
+// ==========================================================================================
+//  11. Studio FIFO headroom at extreme pitch ratios (Transpose to Key, -12..+12 st)
+// ==========================================================================================
+//  Rubber Band's production lag grows as the pitch scale falls (R3 resamples after stretching, so
+//  its start delay scales with 1/pitchScale). The 6 ms headroom was sized on correction-range
+//  ratios; Transpose to Key reaches 0.5 (a shipping feature, not a synthetic case). Gates: no output
+//  underrun and no fail-safe prime (= unreported extra delay), primed while already transposed and
+//  with live changes. Measured 2026-09-29: none at any rate or buffer.
+//  REPORTED, NOT GATED: the transposed output's delay against the reported latency (gated-noise
+//  envelope cross-correlation, since a transposed waveform does not correlate with its input). It
+//  moves ~1.5 ms per semitone (about +19 ms at -12 st, -17 ms at +12 st at 48 kHz). This predates
+//  the qualified-rate fix (cbd1ce4: +8.7 ms at -1 st, +26.7 ms at -12 st) and is an open
+//  Transpose-to-Key defect: fixing it needs ratio-dependent latency (owner decision).
+double envelopeDelayMs (const juce::AudioBuffer<float>& in, const juce::AudioBuffer<float>& out, double sr, int reported)
+{
+    auto env = [sr] (const float* d, long n)
+    {
+        std::vector<double> e ((size_t) n);
+        const double a = std::exp (-1.0 / (0.001 * sr));
+        double v = 0.0;
+        for (long i = 0; i < n; ++i) { v = a * v + (1.0 - a) * std::abs ((double) d[i]); e[(size_t) i] = v; }
+        return e;
+    };
+    const long n = in.getNumSamples();
+    const auto ex = env (in.getReadPointer (0), n), ey = env (out.getReadPointer (0), n);
+    const long a0 = (long) (0.5 * sr), len = (long) (2.0 * sr), range = (long) (0.03 * sr);
+    double best = -1.0; long bestLag = 0;
+    for (long lag = -range; lag <= range; ++lag)
+    {
+        const long off = a0 + reported + lag;
+        if (off < 1 || off + len >= n) continue;
+        double c = 0.0, xx = 0.0, yy = 0.0;
+        for (long i = 0; i < len; i += 2)
+        {
+            const double xi = ex[(size_t) (a0 + i)] - ex[(size_t) (a0 + i - 1)];
+            const double yi = ey[(size_t) (off + i)] - ey[(size_t) (off + i - 1)];
+            c += xi * yi; xx += xi * xi; yy += yi * yi;
+        }
+        const double r = c / std::sqrt (xx * yy + 1e-30);
+        if (r > best) { best = r; bestLag = lag; }
+    }
+    return 1000.0 * (double) bestLag / sr;
+}
+
+void checkTransposeHeadroom()
+{
+    const auto t0 = Clock::now();
+    bool allPass = true;
+    std::vector<double> rates { 44100.0, 48000.0, 96000.0 };
+    if (const char* e = std::getenv ("NOHARM_XPOSE_SR")) rates = { std::atof (e) };
+    for (const double sr : rates)
+    {
+        const auto voice = vocalMaterial (sr, 20.0);
+        //  Gated noise bursts (sharp 40 ms bursts every 170 ms) for the delay measurement.
+        juce::AudioBuffer<float> bursts (1, (int) (3.5 * sr));
+        { Rng rng (0xB0B5ull); for (int i = 0; i < bursts.getNumSamples(); ++i)
+            bursts.setSample (0, i, (std::fmod ((double) i / sr, 0.17) < 0.04 ? 0.25f : 0.0f) * rng.bipolar()); }
+        std::vector<int> blocks { 64, 256, 512 };
+        if (std::getenv ("NOHARM_XPOSE_QUICK")) blocks = { 512 };
+        for (const int block : blocks)
+        {
+            std::string row; bool ok = true;
+            std::vector<int> semisList { 0, -12, -7, 7, 12 };
+            if (const char* e = std::getenv ("NOHARM_XPOSE_SEMIS"))
+            { semisList.clear(); for (auto& t : juce::StringArray::fromTokens (e, ",", "")) semisList.push_back (t.getIntValue()); }
+            for (const int semis : semisList)
+            {
+                Proc p;
+                setParam (p, "xposeMode", 1.0f);
+                setParam (p, "xposeSemis", (float) semis);   // primed while already transposed
+                RenderSpec spec; spec.sr = sr; spec.maxBlock = block;
+                render (p, voice, spec);
+                const auto fs = p.getStudioFifoStats();
+                Proc q;
+                setParam (q, "xposeMode", 1.0f);
+                setParam (q, "xposeSemis", (float) semis);
+                RenderStats st;
+                const auto out = render (q, bursts, spec, &st);
+                const auto qs = q.getStudioFifoStats();
+                const double ms = envelopeDelayMs (bursts, out, sr, st.latency);
+                const bool good = fs.underrunSamples == 0 && fs.failSafePrimes == 0 && qs.underrunSamples == 0
+                                  && qs.failSafePrimes == 0;
+                ok = ok && good;
+                row += fmt (" %+d:%s u%lld f%d %+.2fms", semis, good ? "" : "BAD", (long long) (fs.underrunSamples + qs.underrunSamples),
+                            fs.failSafePrimes + qs.failSafePrimes, ms);
+            }
+            //  Live changes: 0 -> -12 -> +12 -> -12 st while playing (the 60 ms glide per change).
+            Proc p;
+            setParam (p, "xposeMode", 1.0f);
+            RenderSpec spec; spec.sr = sr; spec.maxBlock = block;
+            spec.before = [sr] (Proc& pp, long pos, int, long)
+            {
+                const double t = (double) pos / sr;
+                setParam (pp, "xposeSemis", t < 5.0 ? 0.0f : t < 10.0 ? -12.0f : t < 15.0 ? 12.0f : -12.0f);
+                return false;
+            };
+            render (p, voice, spec);
+            const auto fs = p.getStudioFifoStats();
+            const bool good = fs.underrunSamples == 0 && fs.failSafePrimes == 0;
+            ok = ok && good;
+            row += fmt ("; moving 0/-12/+12/-12:%s u%lld f%d", good ? "" : "BAD", (long long) fs.underrunSamples, fs.failSafePrimes);
+            allPass = allPass && ok;
+            info ("%-4s %6.0f Hz / %4d: underrun samples u, fail-safe primes f, delay vs reported (not gated):%s", ok ? "ok" : "BAD", sr, block, row.c_str());
+        }
+    }
+    verdict (11, "Studio FIFO headroom at transpose extremes", allPass, secondsSince (t0),
+             "Transpose -12..+12 st: no underrun, no fail-safe prime (delay reported only: open defect)");
+}
+
+// ==========================================================================================
+//  12. No heap allocation added on the audio thread by the resampled Studio path
+// ==========================================================================================
+//  Rubber Band's Resampler::reset() discards its filter and the next resample() rebuilds it with
+//  heap allocation; the resampled path must never do that inside processBlock. Counted: heap
+//  allocations inside processBlock / reset() while playing, across a host reset and Transpose
+//  on/off (both re-prime the Studio FIFO). Gate: a resampled rate allocates no more than the
+//  native 48 kHz path does for the same events.
+long audioThreadAllocations (double sr, std::string& detail)
+{
+    const int block = 256;
+    Proc p;
+    p.setNonRealtime (false);
+    p.setRateAndBufferSizeDetails (sr, block);
+    p.prepareToPlay (sr, block);
+    drainMessageThread (p);
+    const auto in = vocalMaterial (sr, 4.0);
+    juce::AudioBuffer<float> buf (juce::jmax (p.getTotalNumInputChannels(), p.getTotalNumOutputChannels()), block);
+    long counted = 0;
+    for (long pos = 0; pos + block <= in.getNumSamples(); pos += block)
+    {
+        const double t = (double) pos / sr;
+        const bool hostReset = t >= 1.5 && t < 1.5 + block / sr;
+        if (t >= 2.0 && t < 2.0 + block / sr) setParam (p, "xposeMode", 1.0f);
+        if (t >= 2.7 && t < 2.7 + block / sr) setParam (p, "xposeMode", 0.0f);
+        drainMessageThread (p);
+        buf.clear();
+        for (int ch = 0; ch < p.getMainBusNumInputChannels(); ++ch)
+            buf.copyFrom (ch, 0, in, 0, (int) pos, block);
+        juce::MidiBuffer midi;
+        const long before = gAllocCount.load();
+        gCountAllocs = t >= 1.0;
+        if (hostReset) p.reset();
+        p.processBlock (buf, midi);
+        gCountAllocs = false;
+        counted += gAllocCount.load() - before;
+    }
+    detail = fmt ("%.0f Hz: %ld", sr, counted);
+    return counted;
+}
+
+void checkAudioThreadAllocations()
+{
+    const auto t0 = Clock::now();
+    std::string d; std::string row;
+    const long native = audioThreadAllocations (48000.0, d); row += " " + d + " (native reference);";
+    bool pass = true;
+    for (const double sr : { 44100.0, 22050.0, 176400.0 })
+    {
+        const long n = audioThreadAllocations (sr, d);
+        pass = pass && n <= native;
+        row += " " + d + (n <= native ? ";" : " BAD;");
+    }
+    info ("heap allocations in processBlock/reset after warm-up:%s", row.c_str());
+    verdict (12, "no audio-thread allocation added by resampling", pass, secondsSince (t0),
+             "resampled rates allocate no more than native 48 kHz across host reset + Transpose toggles");
 }
 
 int main (int argc, char** argv)
@@ -1582,6 +1780,8 @@ int main (int argc, char** argv)
     if (want (8)) checkLongPlayback (longMinutes);
     if (want (9)) checkVibratoRates();
     if (want (10)) checkLatencyTruth();
+    if (want (11)) checkTransposeHeadroom();
+    if (want (12)) checkAudioThreadAllocations();
     std::printf ("%s: %d failing check(s), %.0f s total\n", failures == 0 ? "NO-HARM MATRIX PASS" : "NO-HARM MATRIX FAIL",
                  failures, secondsSince (t0));
     return failures == 0 ? 0 : 1;

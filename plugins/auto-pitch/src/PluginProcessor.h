@@ -556,6 +556,12 @@ public:
         return d;
     }
 
+    //  Studio-engine output FIFO health since prepareToPlay (read by the offline no-harm tools on the
+    //  processing thread; not for the UI). underrunSamples > 0 means the output was zero-padded (a
+    //  click); failSafePrimes > 0 means the real delay exceeded the reported latency.
+    struct StudioFifoStats { juce::int64 underrunSamples = 0; int failSafePrimes = 0; };
+    StudioFifoStats getStudioFifoStats() const noexcept { return rbStats; }
+
 private:
     //  Intent estimation. Returns 0..1: how strongly Auto Pitch believes the
     //  detected pitch is heading for `targetMidi` rather than being an
@@ -1059,6 +1065,9 @@ private:
     //  made the real delay depend on the host buffer (+276 samples at 512, +532 at 256). The read
     //  head is placed from sample counters so the delay is exact by construction.
     juce::int64 rbConsumedTotal = 0, rbPushedTotal = 0;
+    StudioFifoStats rbStats;
+    std::vector<float> rbZeros;       // resampler flush input (resetRbFifo), sized in prepare
+    int rbFlushLen = 0;
     int rbReportedHost = 0, rbRealDelayHost = 0, rbStreamOffsetHost = 0, rbHeadroomHost = 0;
     //  FIFO safety margin on top of Rubber Band's production lag. Counted priming makes the delay
     //  exact, so the FIFO no longer floats extra samples: under heavy automation (ratio jumps) the
