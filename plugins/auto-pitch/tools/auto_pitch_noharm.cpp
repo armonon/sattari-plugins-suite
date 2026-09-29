@@ -14,7 +14,7 @@
 //   8 long playback           2 h @ 48 kHz / 512, AutoKey on, modulating melody
 //
 // Usage: AutoPitchNoHarm [--check N]... [--long-minutes M]
-//   --check N          run only check N (repeatable). Default: all eight.
+//   --check N          run only check N (repeatable). Default: all ten.
 //   --long-minutes M   length of check 8 (default 120; the gate uses 120).
 //
 // Host emulation: parameters are set from the message thread (this one) and the
@@ -906,9 +906,10 @@ void checkAutoKeyNoPerturb()
 void checkAutomationStress()
 {
     const auto t0 = Clock::now();
-    const double sr = 48000.0;
+    const double sr = std::getenv ("NOHARM_STRESS_SR") ? std::atof (std::getenv ("NOHARM_STRESS_SR")) : 48000.0;
+    const int transpose = std::getenv ("NOHARM_STRESS_TRANSPOSE") ? std::atoi (std::getenv ("NOHARM_STRESS_TRANSPOSE")) : 0;
     const double seconds = 60.0;
-    const auto in = vocalMaterial (sr, seconds);
+    const auto in = vocalMaterial (sr, seconds, transpose);
     int scaleModes = 0;
     { Proc probe; scaleModes = numChoices (probe, "scaleMode"); }
 
@@ -933,7 +934,7 @@ void checkAutomationStress()
     {
         Proc p;
         st0.apply (p);
-        RenderSpec spec;
+        RenderSpec spec; spec.sr = sr;
         RenderStats st;
         const auto out = render (p, in, spec, &st);
         st0.curvature = maxCurvature (out);
@@ -970,7 +971,7 @@ void checkAutomationStress()
         struct Row { float amount, speed, formant; int style, key, scale, corr; };
         std::vector<Row> rows;
         Rng rng (0x5A77A41ull + (std::uint64_t) run.mask);
-        RenderSpec spec;
+        RenderSpec spec; spec.sr = sr;
         spec.before = [&] (Proc& p, long, int, long)
         {
             if (run.mask & 1)  setParam (p, "amount", (float) rng.uniform());
@@ -992,6 +993,19 @@ void checkAutomationStress()
         if (run.fixedStyle >= 0) setParam (p, "style", (float) run.fixedStyle);
         RenderStats st;
         const auto out = render (p, in, spec, &st);
+        if (const char* dump = std::getenv ("NOHARM_DUMP"))
+            if (juce::String (run.name) == juce::String (dump))
+            {
+                juce::WavAudioFormat wav; juce::File f ("/tmp/noharm_dump.wav"); f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                juce::AudioBuffer<float> both (2, out.getNumSamples());
+                both.copyFrom (0, 0, out, 0, 0, out.getNumSamples()); both.copyFrom (1, 0, in, 0, 0, out.getNumSamples());
+                if (auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (32)))
+                    w->writeFromAudioSampleBuffer (both, 0, both.getNumSamples());
+                std::FILE* rf = std::fopen ("/tmp/noharm_dump_rows.txt", "w");
+                for (const auto& r : rows) std::fprintf (rf, "%d\n", r.corr);
+                std::fclose (rf);
+            }
         long where = 0;
         const double c = maxCurvature (out, 0, -1, &where);
         const bool pass = st.finite && st.peak <= 1.5f && c <= threshold;
@@ -1353,6 +1367,193 @@ void checkLongPlayback (double minutes)
 }
 } // namespace
 
+// ==========================================================================================
+//  9. Sample-rate vibrato integrity (owner spec 2026-09-27; found 2026-09-27 at 44.1 kHz)
+// ==========================================================================================
+//  A steady +-40 c, 5.5 Hz vibrato must come out NO WIDER than it went in, symmetric about the
+//  note, with no amplitude drop-outs, at every sample rate, level and register. At 44.1 kHz
+//  cbd1ce4 turned it into -75/+51 c (Classic): Rubber Band R3 (short window) rendered the moving
+//  correction curve with interfering components (envelope dips to 4 % of its mean). 48 kHz is
+//  the control. Also a semitone step: settling at each rate must stay within 1.5x of 48 kHz.
+struct VibResult { double p5, p95, envMin, settleMs; };
+
+VibResult measureVibrato (int style, double sr, int block, double amp, double note, bool step)
+{
+    const double seconds = 8.0;
+    const long n = (long) (seconds * sr);
+    juce::AudioBuffer<float> in (1, (int) n);
+    double phase = 0.0;
+    for (long i = 0; i < n; ++i)
+    {
+        const double t = (double) i / sr;
+        const double midi = step ? (t < 4.0 ? note : note + 1.0) + 0.30              // +30 c, then a semitone up
+                                 : note + 0.40 * std::sin (juce::MathConstants<double>::twoPi * 5.5 * t);
+        phase += juce::MathConstants<double>::twoPi * midiToHz (midi) / sr;
+        in.setSample (0, (int) i, (float) (amp * std::sin (phase)));
+    }
+    Proc p;
+    configureClassicB3 (p);
+    setParam (p, "style", (float) style);
+    RenderSpec spec; spec.sr = sr; spec.maxBlock = block;
+    RenderStats st;
+    const auto out = render (p, in, spec, &st);
+    const long lat = st.latency;
+    const float* y = out.getReadPointer (0);
+    // 4-period zero-crossing pitch track
+    std::vector<double> cr;
+    for (long i = lat + (long) sr + 1; i < n; ++i)
+        if (y[i - 1] < 0.0f && y[i] >= 0.0f)
+        {
+            const double d = (double) y[i] - (double) y[i - 1];
+            cr.push_back ((double) (i - 1) + (std::abs (d) > 1e-12 ? -(double) y[i - 1] / d : 0.0));
+        }
+    VibResult r { 0, 0, 1, 0 };
+    if (! step)
+    {
+        std::vector<double> c;
+        for (size_t i = 0; i + 4 < cr.size(); ++i)
+        {
+            const double hz = 4.0 * sr / (cr[i + 4] - cr[i]);
+            c.push_back ((hzToMidi (hz) - note) * 100.0);
+        }
+        std::sort (c.begin(), c.end());
+        if (c.size() > 20) { r.p5 = c[c.size() / 20]; r.p95 = c[c.size() * 19 / 20]; }
+        // 5 ms RMS envelope, min / mean over the analysed span
+        const long w = (long) (0.005 * sr);
+        double sum = 0.0, mn = 1e9; int k = 0;
+        for (long i = lat + (long) sr; i + w < n; i += w)
+        {
+            double e = 0.0; for (long j = 0; j < w; ++j) e += (double) y[i + j] * y[i + j];
+            e = std::sqrt (e / (double) w); sum += e; mn = std::min (mn, e); ++k;
+        }
+        r.envMin = k > 0 ? mn / (sum / k) : 0.0;
+    }
+    else
+    {
+        // time after the step until the output stays within 20 c of the new note for 50 ms
+        const double target = note + 1.0;
+        const double stepOut = 4.0 * sr + (double) lat;
+        double settled = -1.0; long okSince = -1;
+        for (size_t i = 0; i + 4 < cr.size(); ++i)
+        {
+            if (cr[i] < stepOut) continue;
+            const double c = (hzToMidi (4.0 * sr / (cr[i + 4] - cr[i])) - target) * 100.0;
+            if (std::abs (c) <= 20.0) { if (okSince < 0) okSince = (long) cr[i]; if (cr[i] - okSince >= 0.05 * sr) { settled = (okSince - stepOut) / sr * 1000.0; break; } }
+            else okSince = -1;
+        }
+        r.settleMs = settled < 0 ? 999.0 : settled;
+    }
+    return r;
+}
+
+void checkVibratoRates()
+{
+    const auto t0 = Clock::now();
+    bool allPass = true;
+    int fails = 0, runs = 0;
+    const double notes[] = { 45.0, 57.0, 72.0 };            // A2, A3, C5
+    const double amps[]  = { 0.10, 0.18, 0.25, 0.35 };
+    for (const int style : { 1, 0 })
+    {
+        double settle48 = 0.0;
+        for (const double sr : { 48000.0, 32000.0, 44100.0, 88200.0, 96000.0 })   // 48 kHz first: the control
+        {
+            double worstWide = 0.0, worstAsym = 0.0, worstEnv = 1.0; std::string where;
+            for (const double note : notes)
+                for (const double amp : amps)
+                    for (const int block : { 512, 256 })
+                    {
+                        if (block == 256 && ! (sr == 44100.0 || sr == 48000.0)) continue;
+                        const auto r = measureVibrato (style, sr, block, amp, note, false);
+                        ++runs;
+                        const double wide = std::max (std::abs (r.p5), std::abs (r.p95));
+                        const double asym = std::abs (r.p95 + r.p5);
+                        if (wide > worstWide) { worstWide = wide; where = fmt ("note %.0f amp %.2f block %d: %.1f/%.1f c", note, amp, block, r.p5, r.p95); }
+                        worstAsym = std::max (worstAsym, asym); worstEnv = std::min (worstEnv, r.envMin);
+                    }
+            const auto st = measureVibrato (style, sr, 512, 0.18, 57.0, true);
+            if (sr == 48000.0) settle48 = st.settleMs;
+            //  Gates: never wider than the +-40 c input (+5 c tolerance for the tracker), symmetric
+            //  within 12 c, step settles within 1.5x of 48 kHz
+            //  (+10 ms), and never later than 250 ms.
+            //  (Envelope dips are REPORTED, not gated: pure-sine renders dip at untouched 48 kHz too.)
+            const bool ok = worstWide <= 45.0 && worstAsym <= 12.0
+                         && st.settleMs <= std::max (250.0, 0.0) && st.settleMs <= 1.5 * settle48 + 10.0;
+            if (! ok) { allPass = false; ++fails; }
+            info ("%-4s %s %6.0f Hz: widest %.1f c (%s), worst asymmetry %.1f c, envelope min %.2f of mean, semitone settle %.0f ms (48k %.0f)",
+                  ok ? "ok" : "BAD", style == 1 ? "Classic" : "Natural", sr, worstWide, where.c_str(), worstAsym, worstEnv, st.settleMs, settle48);
+        }
+    }
+    verdict (9, "sample-rate vibrato integrity", allPass, secondsSince (t0),
+             fmt ("%d renders; %d rate/style rows failing (never wider than input, symmetric, settle ~ 48k)", runs, fails));
+}
+
+// ==========================================================================================
+//  10. Reported latency == actual delay, every rate and buffer (found 2026-09-29)
+// ==========================================================================================
+//  cbd1ce4 primed its output FIFO by "cushion level", so the real delay depended on the host
+//  buffer and on what the signal was doing at the priming instant: at 48 kHz it was +8.5 ms late at
+//  64 samples, +4.5 ms at 256, exact only at 512+; at 88.2/96 kHz +10 ms late at every buffer; at
+//  32 kHz 4 ms early. The host compensates the REPORTED value, so the vocal sat off the grid.
+//  Broadband noise goes through the Studio engine at unity (unvoiced -> ratio 1, but still through
+//  Rubber Band); the delay is found by cross-correlation near the reported latency.
+double measuredDelayMs (double sr, int block, int& reported)
+{
+    const long n = (long) (3.0 * sr);
+    juce::AudioBuffer<float> in (1, (int) n);
+    Rng rng (0x1A7E4Cull);
+    float lp = 0.0f;
+    for (long i = 0; i < n; ++i) { lp = 0.7f * lp + 0.3f * rng.bipolar(); in.setSample (0, (int) i, 0.2f * lp); }
+    Proc p;
+    configureClassicB3 (p);
+    setParam (p, "style", 0.0f);
+    RenderSpec spec; spec.sr = sr; spec.maxBlock = block;
+    RenderStats st;
+    const auto out = render (p, in, spec, &st);
+    reported = st.latency;
+    const float* x = in.getReadPointer (0);
+    const float* y = out.getReadPointer (0);
+    const long a0 = (long) (1.2 * sr), len = 16384, range = (long) (0.05 * sr);
+    double best = -1.0; long bestLag = 0;
+    for (long lag = -range; lag <= range; ++lag)
+    {
+        const long off = a0 + reported + lag;
+        if (off < 0 || off + len >= n) continue;
+        double c = 0.0, ex = 0.0, ey = 0.0;
+        for (long i = 0; i < len; ++i)
+        {
+            const double xi = (double) x[a0 + i] - (double) x[a0 + i - 1];
+            const double yi = (double) y[off + i] - (double) y[off + i - 1];
+            c += xi * yi; ex += xi * xi; ey += yi * yi;
+        }
+        const double r = c / std::sqrt (ex * ey + 1e-30);
+        if (r > best) { best = r; bestLag = lag; }
+    }
+    return 1000.0 * (double) bestLag / sr;
+}
+
+void checkLatencyTruth()
+{
+    const auto t0 = Clock::now();
+    bool allPass = true;
+    for (const double sr : { 32000.0, 44100.0, 48000.0, 88200.0, 96000.0 })
+    {
+        double lo = 1e9, hi = -1e9; int reported = 0; std::string row;
+        for (const int block : { 64, 128, 256, 512, 1024 })
+        {
+            const double ms = measuredDelayMs (sr, block, reported);
+            lo = std::min (lo, ms); hi = std::max (hi, ms);
+            row += fmt (" %d:%+.2f", block, ms);
+        }
+        //  Gates: actual within 2 ms of reported at every buffer; spread across buffers <= 0.25 ms.
+        const bool ok = std::max (std::abs (lo), std::abs (hi)) <= 2.0 && (hi - lo) <= 0.25;
+        allPass = allPass && ok;
+        info ("%-4s %6.0f Hz reported %d: actual minus reported (ms) per buffer%s", ok ? "ok" : "BAD", sr, reported, row.c_str());
+    }
+    verdict (10, "reported latency == actual delay", allPass, secondsSince (t0),
+             "every rate x buffer within 2 ms of reported, spread <= 0.25 ms");
+}
+
 int main (int argc, char** argv)
 {
     std::set<int> only;
@@ -1379,6 +1580,8 @@ int main (int argc, char** argv)
     if (want (6)) checkBypass();
     if (want (7)) checkMonoStereo();
     if (want (8)) checkLongPlayback (longMinutes);
+    if (want (9)) checkVibratoRates();
+    if (want (10)) checkLatencyTruth();
     std::printf ("%s: %d failing check(s), %.0f s total\n", failures == 0 ? "NO-HARM MATRIX PASS" : "NO-HARM MATRIX FAIL",
                  failures, secondsSince (t0));
     return failures == 0 ? 0 : 1;
