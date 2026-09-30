@@ -80,8 +80,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::cr
 void RoyalChainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
+    compassTap.setSampleRate (sampleRate);
+    compassInTap.setSampleRate (sampleRate);
     cleanModule.prepare (sampleRate);
     tuneModule.prepare (sampleRate, samplesPerBlock);
+    // The Tune stage (Auto Pitch's Extreme Live engine) is the chain's only
+    // latency: a constant 2 ms, independent of the Tune amount, so host delay
+    // compensation never moves when Tune is automated.
+    setLatencySamples (tuneModule.getLatencySamples());
     controlModule.prepare (sampleRate);
     toneModule.prepare (sampleRate);
     deEsserModule.prepare (sampleRate);
@@ -129,6 +135,8 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         buffer.clear (ch, 0, buffer.getNumSamples());
 
     updateMeter (inputMeter, measurePeak (buffer));
+    // Compass: the chain's INPUT, so the dish's rim can show what the effects changed.
+    compassInTap.push (buffer.getArrayOfReadPointers(), buffer.getNumChannels(), buffer.getNumSamples());
 
     const auto macros = MacroController::readMacros (apvts);
     const float inputDb = apvts.getRawParameterValue ("input")->load();
@@ -159,7 +167,11 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         }
     }
 
-    tuneModule.process (buffer, macros.tune, tuneKey, (sattari::dsp::ScaleId) tuneScaleIdx);
+    const int vocalStyle = (int) apvts.getRawParameterValue ("style")->load();
+    tuneModule.process (buffer, macros.tune, tuneKey, (sattari::dsp::ScaleId) tuneScaleIdx, vocalStyle);
+    pitchHz.store (tuneModule.getLastHz(), std::memory_order_relaxed);
+    effectiveTuneKey.store (tuneKey, std::memory_order_relaxed);         // after the Auto Pitch sync override
+    effectiveTuneScale.store (tuneScaleIdx, std::memory_order_relaxed);
     controlModule.process (buffer, macros.control, macros.royal);
     toneModule.process (buffer, macros.tone, macros.air, macros.royal);
     deEsserModule.process (buffer, macros.smooth, macros.royal);
@@ -169,6 +181,8 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     finishModule.process (buffer, outputDb, macros.royal);
 
     updateMeter (outputMeter, measurePeak (buffer));
+    // Compass water dish: publish the processed output (lock-free, no allocation).
+    compassTap.push (buffer.getArrayOfReadPointers(), buffer.getNumChannels(), buffer.getNumSamples());
     tuneConfidence.store (tuneModule.getConfidence());
     controlMeter.store (juce::jlimit (0.0f, 1.0f, controlModule.getGainReductionDb() / 12.0f));
     sibilanceMeter.store (deEsserModule.getSibilance());

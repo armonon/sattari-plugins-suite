@@ -1,47 +1,75 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <sattari_audio_core/SattariLivePitchEngine.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
-#include <memory>
-#include <vector>
+#include <array>
 
-namespace RubberBand { class RubberBandStretcher; }
-
-// Real-time monophonic pitch correction for the Royal Chain Tune stage. It shares
-// the suite's Rubber Band realtime engine (the same one Auto Pitch uses) and the
-// shared sattari::dsp::PitchDetector: detect the sung pitch, snap to the nearest
-// equal-tempered note, and pitch-shift toward it by the Tune amount. When Rubber
-// Band is not compiled in, it passes audio through unchanged (still reporting
-// input confidence) so the chain always builds.
+// Real-time monophonic pitch correction for the Royal Chain Tune stage.
+//
+// This runs the SAME correction engine as Auto Pitch's Live Mode with its default
+// "Extreme Live (2 ms)" profile: sattari::dsp::ExtremeLivePitchEngine from
+// sattari_audio_core (dual causal YIN trackers with voiced hysteresis, the
+// LiveCorrectionPlanner's note/vibrato decomposition with retune + transition
+// time constants, and the fixed-2 ms pitch-synchronous shifter). Channel 0 plans
+// the correction; further channels follow its exact ratio, as in Auto Pitch.
+//
+// Latency is a constant engine property (2 ms, e.g. 96 samples at 48 kHz),
+// independent of the Tune amount, so the host's delay compensation never moves
+// while the macro is automated. Tune 0 returns the exact delayed input.
 class TuneModule
 {
 public:
-    TuneModule();
-    ~TuneModule();
+    TuneModule() = default;
 
     void prepare (double sampleRate, int maxBlockSize);
     void reset();
-    // Pitch correction with optional key/scale awareness. With ScaleId::ChromaticOff
-    // the snap is to the nearest equal-tempered semitone (the previous behaviour);
-    // other scales snap to the nearest in-key tone (root 0=C..11=B).
+    // tuneAmount 0..1 (the Tune macro). keyRoot 0=C..11=B. ScaleId::ChromaticOff
+    // snaps to all 12 semitones. vocalStyle is the Royal Chain "style" choice index
+    // (0=Modern Rap .. 9=Live) and picks the retune character.
     void process (juce::AudioBuffer<float>& buffer, float tuneAmount,
                   int keyRoot = 0,
-                  sattari::dsp::ScaleId scale = sattari::dsp::ScaleId::ChromaticOff);
-    float getConfidence() const { return confidence; }
+                  sattari::dsp::ScaleId scale = sattari::dsp::ScaleId::ChromaticOff,
+                  int vocalStyle = 2);
+
+    // Constant for a prepared sample rate; safe to call from prepareToPlay.
+    int getLatencySamples() const noexcept { return latencySamples; }
+
+    float getConfidence() const noexcept { return confidence; }
+    // Last detected (sung, pre-correction) fundamental in Hz when the engine's
+    // tracker calls it voiced, else 0. Read on the audio thread right after
+    // process(); the processor republishes it through a relaxed atomic for the
+    // editor's Compass.
+    float getLastHz() const noexcept { return lastVoiced ? lastHz : 0.0f; }
+    // Correction currently applied by the planner (cents) and its target note.
+    float getCorrectionCents() const noexcept { return correctionCents; }
+    int getTargetMidi() const noexcept { return targetMidi; }
+
+    // Style -> Auto Pitch Live parameter mapping (exposed for tests/docs).
+    struct StyleProfile
+    {
+        double hardRetuneMs;      // retune time constant at Tune = 1
+        double softRetuneMs;      // retune time constant as Tune -> 0
+        double preserveVibrato;   // Auto Pitch "Preserve Vibrato" (0..1)
+        double transition;        // Auto Pitch "Transition" (0..1)
+        double amountScale;       // ceiling on correction strength
+    };
+    static StyleProfile profileForStyle (int vocalStyle) noexcept;
+    static sattari::dsp::LiveCorrectionPlanner::Settings
+        settingsFor (float tuneAmount, int keyRoot, sattari::dsp::ScaleId scale, int vocalStyle) noexcept;
 
 private:
+    static constexpr int kMaxChannels = 2;
+
     double sr = 44100.0;
-    int maxBlock = 512;
+    int latencySamples = 0;
+    int preparedChannels = 0;
+    int controlQuantum = 64;   // engine control grid, ~1.33 ms (see process())
     float confidence = 0.0f;
+    float lastHz = 0.0f;
+    bool lastVoiced = false;
+    float correctionCents = 0.0f;
+    int targetMidi = -1;
 
-    sattari::dsp::PitchDetector pitchDetector;   // shared suite detector
-    std::vector<float> monoScratch;
-    int samplesSinceAnalysis = 0;
-
-    double smoothedScale = 1.0;   // glided correction ratio
-
-#if SATTARI_ROYALCHAIN_HAS_RUBBERBAND
-    std::vector<std::unique_ptr<RubberBand::RubberBandStretcher>> stretchers;
-    juce::AudioBuffer<float> rbOut;
-#endif
+    std::array<sattari::dsp::ExtremeLivePitchEngine, kMaxChannels> engines;
 };

@@ -6,10 +6,61 @@
 #include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariPresetManager.h>
 #include "RoyalChainProcessor.h"
+#include "RoyalChainLookAndFeel.h"
+#include "RoyalChainPanels.h"
 #include "VocalCrownCompass.h"
 
-class RoyalChainAudioProcessorEditor final : public juce::AudioProcessorEditor,
-                                             private juce::Timer
+#include <vector>
+
+// =============================================================================
+//  RoyalChainView — every control at a fixed logical rect on a 1100 x 760 canvas.
+//  The editor scales it with one AffineTransform, so the layout never reflows
+//  and the Compass keeps its 1:1 field blit at the default size.
+// =============================================================================
+class RoyalChainView final : public juce::Component,
+                             private juce::Timer
+{
+public:
+    RoyalChainView (RoyalChainAudioProcessor&, sattari::presets::SattariPresetManager&);
+    ~RoyalChainView() override;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+    void poll();
+    VocalCrownCompass& compass() noexcept { return compassComp; }
+    RoyalSpine& spine() noexcept { return spineComp; }
+    ModuleDeck& deck() noexcept { return deckComp; }
+    void appendCaptionChecks (std::vector<rc::theme::CaptionCheck>&) const;
+
+    static constexpr int kWidth = 1100, kHeight = 760;
+
+private:
+    void timerCallback() override { poll(); }
+    void focusMacro (rc::theme::MacroId);
+    void applyPreset (int presetIndex);
+    void stepPreset (int delta);
+    void refreshUserPresets();
+    void saveCurrentAsUserPreset();
+
+    RoyalChainAudioProcessor& processor;
+    sattari::presets::SattariPresetManager& presetManager;
+
+    juce::Label title;
+    juce::TextButton presetPrev, presetNext;
+    juce::ComboBox presetBox, userPresets;
+    juce::TextButton savePresetButton { "SAVE" };
+    sattari::ui::SattariABRow abRow;
+    juce::TextButton midiLearnButton { "MIDI" };
+
+    VocalCrownCompass compassComp;
+    RoyalSpine spineComp;
+    ModuleDeck deckComp;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RoyalChainView)
+};
+
+class RoyalChainAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
 public:
     explicit RoyalChainAudioProcessorEditor (RoyalChainAudioProcessor&);
@@ -18,36 +69,18 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    RoyalChainView& viewForTesting() noexcept { return view; }
+
 private:
-    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-
+    // Deliberately named like AudioProcessorEditor::processor (typed access).
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wshadow-field")
     RoyalChainAudioProcessor& processor;
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 
-    // Shared suite UI + cross-plugin preset system.
-    sattari::ui::SattariLookAndFeel lookAndFeel { sattari::brand::productAccent ("royal-chain") };
+    RoyalChainLookAndFeel lookAndFeel;
     sattari::presets::SattariPresetManager presetManager;
-    sattari::ui::SattariABRow abRow { presetManager };
-
-    juce::Label title, subtitle, inputMeterLabel, outputMeterLabel;
-    juce::ComboBox presetBox, styleBox, userPresets;
-    juce::TextButton savePresetButton { "Save Preset" };
-    juce::TextButton midiLearnButton { "MIDI Learn..." };
-    juce::Slider inputSlider, outputSlider;
-    juce::Slider cleanSlider, tuneSlider, controlSlider, toneSlider, airSlider, smoothSlider, glowSlider, widthSlider, spaceSlider, royalSlider;
-    VocalCrownCompass compass;
-
-    std::unique_ptr<ComboAttachment> styleAttachment;
-    std::vector<std::unique_ptr<SliderAttachment>> sliderAttachments;
-
-    void setupSlider (juce::Slider& slider, const juce::String& name, const juce::String& suffix = {});
-    void setupCombo (juce::ComboBox& combo);
-    void applyPreset (int presetIndex);
-    void refreshUserPresets();
-    void saveCurrentAsUserPreset();
-    void timerCallback() override;
-    void drawChainFlow (juce::Graphics& g, juce::Rectangle<int> area);
-    void drawSliderLabel (juce::Graphics& g, const juce::Slider& slider);
+    juce::TooltipWindow tooltips { this, 700 };
+    RoyalChainView view;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RoyalChainAudioProcessorEditor)
 };

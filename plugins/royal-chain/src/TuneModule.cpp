@@ -1,149 +1,143 @@
 #include "TuneModule.h"
 
-#if SATTARI_ROYALCHAIN_HAS_RUBBERBAND
- #include <rubberband/RubberBandStretcher.h>
-#endif
-
 #include <cmath>
 
-TuneModule::TuneModule() = default;
-TuneModule::~TuneModule() = default;
+namespace
+{
+// Auto Pitch Live Mode tracks 70 Hz .. 1.1 kHz with the Extreme profile (the dual
+// tracker's 100 Hz fast path handles ordinary vocal notes, the full-range one
+// takes over for low baritone/bass notes).
+constexpr double kMinHz = 70.0;
+constexpr double kMaxHz = 1100.0;
+}
 
 void TuneModule::prepare (double sampleRate, int maxBlockSize)
 {
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
-    maxBlock = juce::jmax (1, maxBlockSize);
-
-    // Vocal fundamental range (~70 Hz - 1 kHz), shared detector owns the ring.
-    pitchDetector.prepare (sr, 70.0f, 1000.0f, 0.045f);
-    monoScratch.assign ((size_t) maxBlock, 0.0f);
-    samplesSinceAnalysis = 0;
-
+    const int block = juce::jmax (1, maxBlockSize);
+    for (auto& e : engines)
+        e.prepare (sr, block, kMinHz, kMaxHz);   // all allocation happens here
+    latencySamples = engines[0].getLatencySamples();
+    controlQuantum = juce::jmax (16, (int) std::lround (sr / 750.0));   // ~1.33 ms
+    preparedChannels = kMaxChannels;
     reset();
-
-#if SATTARI_ROYALCHAIN_HAS_RUBBERBAND
-    stretchers.clear();
-    for (int ch = 0; ch < 2; ++ch)
-    {
-        auto s = std::make_unique<RubberBand::RubberBandStretcher> (
-            (size_t) sr, 1,
-            RubberBand::RubberBandStretcher::OptionProcessRealTime
-                | RubberBand::RubberBandStretcher::OptionPitchHighQuality
-                | RubberBand::RubberBandStretcher::OptionFormantPreserved
-                | RubberBand::RubberBandStretcher::OptionTransientsMixed,
-            1.0, 1.0);
-        s->setMaxProcessSize ((size_t) maxBlock);
-        s->setPitchScale (1.0);
-        stretchers.push_back (std::move (s));
-    }
-    rbOut.setSize (2, maxBlock);
-#endif
 }
 
 void TuneModule::reset()
 {
+    for (auto& e : engines)
+        e.reset();
     confidence = 0.0f;
-    smoothedScale = 1.0;
-    pitchDetector.reset();
-    samplesSinceAnalysis = 0;
+    lastHz = 0.0f;
+    lastVoiced = false;
+    correctionCents = 0.0f;
+    targetMidi = -1;
+}
+
+// Vocal Style -> Auto Pitch Live parameters. Retune times sit on Auto Pitch's own
+// Speed scale (Speed 0.05..1 maps to 120..3 ms; its default Speed 0.85 = 21.5 ms).
+// Styles that live on ornament and vibrato (R&B runs, Persian tahrir, Indie) keep
+// slower retunes, more vibrato and gentler note transitions; hard, modern styles
+// (Rap, Hook) reach Auto Pitch's Classic-like 3 ms snap at full Tune.
+TuneModule::StyleProfile TuneModule::profileForStyle (int vocalStyle) noexcept
+{
+    switch (vocalStyle)
+    {
+        case 0:  return {  3.0,  40.0, 0.00, 0.90, 1.0 };   // Modern Rap: hard, flat
+        case 1:  return { 12.0,  80.0, 0.60, 0.40, 1.0 };   // R&B: keep runs + vibrato
+        case 2:  return {  6.0,  60.0, 0.35, 0.60, 1.0 };   // Pop: tight but natural
+        case 3:  return { 18.0, 100.0, 0.80, 0.30, 1.0 };   // Persian/World Pop: ornaments
+        case 4:  return { 20.0, 110.0, 0.70, 0.35, 1.0 };   // Indie: loose, human
+        case 5:  return { 40.0, 120.0, 1.00, 0.20, 0.5 };   // Podcast/Spoken: barely
+        case 6:  return {  5.0,  50.0, 0.20, 0.70, 1.0 };   // Background: locked stacks
+        case 7:  return {  3.0,  45.0, 0.10, 0.85, 1.0 };   // Hook: hard, glossy
+        case 8:  return {  8.0,  60.0, 0.40, 0.60, 1.0 };   // Demo Rescue
+        case 9:  return { 10.0,  70.0, 0.50, 0.60, 1.0 };   // Live
+        default: return {  6.0,  60.0, 0.35, 0.60, 1.0 };
+    }
+}
+
+sattari::dsp::LiveCorrectionPlanner::Settings
+TuneModule::settingsFor (float tuneAmount, int keyRoot, sattari::dsp::ScaleId scale, int vocalStyle) noexcept
+{
+    sattari::dsp::LiveCorrectionPlanner::Settings s;
+    const double tune = juce::jlimit (0.0, 1.0, (double) tuneAmount);
+    const auto p = profileForStyle (vocalStyle);
+
+    // Strength reaches full correction at 60 % of the macro; the rest of the throw
+    // only speeds the retune toward the style's hard setting (log-interpolated so
+    // the knob feels even from slow-natural to snap).
+    s.amount = juce::jlimit (0.0, 1.0, tune / 0.6) * p.amountScale;
+    s.retuneMilliseconds = p.softRetuneMs * std::pow (p.hardRetuneMs / p.softRetuneMs, tune);
+    s.preserveVibrato = p.preserveVibrato;
+    s.transitionAmount = p.transition;
+    s.noteHysteresisCents = 18.0;   // Auto Pitch Live default
+    s.referenceHz = 440.0;
+    s.pitchOffsetCents = 0.0;
+    s.forcedTargetMidi = -1;
+
+    // Legal pitch classes: same key/scale tables as snapMidiToScale.
+    const int root = ((keyRoot % 12) + 12) % 12;
+    int count = 0;
+    const int* intervals = sattari::dsp::scaleIntervals (scale, count);
+    if (intervals == nullptr || count <= 0)
+    {
+        s.enabledNotes.fill (true);
+    }
+    else
+    {
+        s.enabledNotes.fill (false);
+        for (int i = 0; i < count; ++i)
+            s.enabledNotes[(size_t) ((root + intervals[i]) % 12)] = true;
+    }
+    return s;
 }
 
 void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
-                          int keyRoot,
-                          sattari::dsp::ScaleId scale)
+                          int keyRoot, sattari::dsp::ScaleId scale, int vocalStyle)
 {
     const int numSamples = buffer.getNumSamples();
-    const int numChannels = buffer.getNumChannels();
+    const int numChannels = juce::jmin (buffer.getNumChannels(), preparedChannels);
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
-    if (numSamples > maxBlock)
+    const auto settings = settingsFor (tuneAmount, keyRoot, scale, vocalStyle);
+
+    // Drive the engine on a fixed ~1.33 ms control grid (64 samples at 48 kHz)
+    // whatever the host buffer is. The planner's poles are time-normalised, but the
+    // Extreme shifter adapts its cycle period once per process() call; fed a whole
+    // 512-sample host block it re-locks to a new note's period ~8x slower, and the
+    // output audibly glides into every note (measured: 48k/512 onsets took ~100 ms
+    // to settle vs ~30 ms at 48k/64). A fixed grid makes Tune block-size invariant.
+    // Sub-buffers alias the host buffer, so this stays allocation-free.
+    auto& lead = engines[0];
+    double cents = lead.getCorrectionCents();
+    for (int start = 0; start < numSamples; start += controlQuantum)
     {
-        for (int start = 0; start < numSamples; start += maxBlock)
+        const int n = juce::jmin (controlQuantum, numSamples - start);
+
+        // Channel 0 plans; the other channel follows its exact ratio (Auto Pitch's
+        // processWithLiveEngine contract), so a stereo vocal never splits in pitch.
+        lead.processCorrected (buffer.getReadPointer (0, start), buffer.getWritePointer (0, start), n, settings);
+        cents = lead.getCorrectionCents();
+        if (numChannels > 1)
         {
-            const int count = juce::jmin (maxBlock, numSamples - start);
-            juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(),
-                                            numChannels, start, count);
-            process (chunk, tuneAmount, keyRoot, scale);
+            const double ratio = std::pow (2.0, cents / 1200.0);
+            for (int ch = 1; ch < numChannels; ++ch)
+                engines[(size_t) ch].process (buffer.getReadPointer (ch, start),
+                                              buffer.getWritePointer (ch, start), n, ratio);
         }
-        return;
     }
 
-    // Mono sum into the shared detector's ring (always, so detection stays live).
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float mono = 0.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
-            mono += buffer.getSample (ch, i);
-        monoScratch[(size_t) i] = mono / (float) numChannels;
-    }
-    pitchDetector.pushBlock (monoScratch.data(), numSamples);
-    samplesSinceAnalysis += numSamples;
+    const auto pitch = lead.getPitchResult();
+    lastVoiced = pitch.voiced && pitch.frequencyHz > 0.0;
+    lastHz = lastVoiced ? (float) pitch.frequencyHz : 0.0f;
+    correctionCents = lastVoiced ? (float) cents : 0.0f;
+    targetMidi = lastVoiced ? lead.getTargetMidi() : -1;
 
-#if SATTARI_ROYALCHAIN_HAS_RUBBERBAND
-    if (tuneAmount <= 1.0e-4f || stretchers.empty())
-    {
-        if (samplesSinceAnalysis >= juce::jmax (256, maxBlock))
-        {
-            samplesSinceAnalysis = 0;
-            const auto r = pitchDetector.analyse (0.30f);
-            confidence += 0.1f * (r.confidence - confidence);
-        }
-        smoothedScale = 1.0;
-        return;   // Tune fully down: pass audio through untouched.
-    }
-
-    if (samplesSinceAnalysis >= juce::jmax (256, maxBlock))
-    {
-        samplesSinceAnalysis = 0;
-        const auto r = pitchDetector.analyse (0.30f);
-        confidence += 0.1f * (r.confidence - confidence);
-
-        double targetScale = 1.0;
-        if (r.voiced && r.frequencyHz > 0.0f)
-        {
-            // Key-aware snap: go via MIDI, choose the nearest in-key tone (or the
-            // nearest chromatic semitone when scale = ChromaticOff). Same shared
-            // helper as Auto Pitch, so the two engines now share snap behaviour.
-            const float midi = sattari::dsp::hzToMidi (r.frequencyHz);
-            const int nearestMidi = (int) std::lround (midi);
-            const int snappedMidi = sattari::dsp::snapMidiToScale (nearestMidi, keyRoot, scale);
-            const float targetHz = sattari::dsp::midiToHz ((float) snappedMidi);
-            targetScale = juce::jlimit (0.5, 2.0, (double) targetHz / (double) r.frequencyHz);
-        }
-        // Blend toward the target by the Tune amount (0 = none, 1 = full snap).
-        const double blended = std::pow (targetScale, (double) juce::jlimit (0.0f, 1.0f, tuneAmount));
-        smoothedScale += 0.35 * (blended - smoothedScale);
-    }
-
-    const int useChannels = juce::jmin (numChannels, (int) stretchers.size());
-    for (int ch = 0; ch < useChannels; ++ch)
-    {
-        auto& stretcher = *stretchers[(size_t) ch];
-        stretcher.setPitchScale (smoothedScale);
-        const float* in = buffer.getReadPointer (ch);
-        stretcher.process (&in, (size_t) numSamples, false);
-
-        int written = 0;
-        while (written < numSamples && stretcher.available() > 0)
-        {
-            const int count = juce::jmin (numSamples - written, (int) stretcher.available());
-            float* out = rbOut.getWritePointer (ch, written);
-            stretcher.retrieve (&out, (size_t) count);
-            written += count;
-        }
-        if (written < numSamples)
-            rbOut.copyFrom (ch, written, buffer, ch, written, numSamples - written);
-
-        buffer.copyFrom (ch, 0, rbOut, ch, 0, numSamples);
-    }
-#else
-    juce::ignoreUnused (tuneAmount);
-    if (samplesSinceAnalysis >= juce::jmax (256, maxBlock))
-    {
-        samplesSinceAnalysis = 0;
-        const auto r = pitchDetector.analyse (0.30f);
-        confidence += 0.1f * (r.confidence - confidence);
-    }
-#endif
+    // Periodicity confidence, time-normalised (~50 ms) so the meter behaves the
+    // same at every buffer size. Silence reads as zero, not the last note's value.
+    const float target = pitch.rms > 1.0e-5f ? juce::jlimit (0.0f, 1.0f, pitch.confidence) : 0.0f;
+    const float a = 1.0f - (float) std::exp (-(double) numSamples / (0.05 * sr));
+    confidence += a * (target - confidence);
 }

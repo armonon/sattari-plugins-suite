@@ -22,10 +22,12 @@ auval -v aufx Rc01 Satr
 
 ## Current limitations
 
-- The Tune module now performs real chromatic pitch correction via the suite's
-  shared Rubber Band realtime engine (the same engine as Auto Pitch). It is alpha:
-  chromatic-only (no key/scale snap yet), not tuned against real vocals, and — like
-  Auto Pitch. The suite ships under **GPLv3** (see LICENSING.md), which covers Rubber Band;
-  a future closed-source/paid-exclusive release would need a commercial Rubber Band licence.
+- The Tune module runs Auto Pitch's Live Mode engine with its default Extreme
+  Live (2 ms) profile (`sattari::dsp::ExtremeLivePitchEngine`), key/scale aware,
+  with the Vocal Style choosing retune speed, vibrato retention and note
+  transitions. It adds a constant 2 ms latency, reported to the host. It is alpha:
+  no formant correction (Auto Pitch's Live path has none either), no neural pitch
+  guide, and not yet listened against real vocals. Offline gate:
+  `RoyalChainTuneRenderContract`.
 - Needs real-vocal DAW/manual listening validation, preset tuning, CPU checks, and product UX polish.
 - Not sale-ready.

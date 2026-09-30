@@ -14,6 +14,7 @@
 #include "SpaceModule.h"
 #include "FinishModule.h"
 #include "MacroController.h"
+#include "AudioTap.h"
 
 class RoyalChainAudioProcessor final : public juce::AudioProcessor
 {
@@ -56,6 +57,13 @@ public:
     float getSibilanceMeter() const { return sibilanceMeter.load(); }
     float getWidthMeter() const { return widthMeter.load(); }
     float getLimiterMeter() const { return limiterMeter.load(); }
+    // Compass feed (relaxed loads; published once per block by processBlock).
+    float getPitchHz() const noexcept { return pitchHz.load (std::memory_order_relaxed); }
+    int getEffectiveTuneKey() const noexcept { return effectiveTuneKey.load (std::memory_order_relaxed); }
+    int getEffectiveTuneScale() const noexcept { return effectiveTuneScale.load (std::memory_order_relaxed); }
+    // Lock-free mono tap of the processed output for the Compass water dish.
+    const rc::AudioTap& getCompassTap() const noexcept { return compassTap; }
+    const rc::AudioTap& getCompassInputTap() const noexcept { return compassInTap; }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -93,6 +101,9 @@ private:
     std::atomic<float> sibilanceMeter { 0.0f };
     std::atomic<float> widthMeter { 0.0f };
     std::atomic<float> limiterMeter { 0.0f };
+    rc::AudioTap compassTap, compassInTap;
+    std::atomic<float> pitchHz { 0.0f };
+    std::atomic<int> effectiveTuneKey { 0 }, effectiveTuneScale { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RoyalChainAudioProcessor)
 };

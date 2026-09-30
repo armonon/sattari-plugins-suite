@@ -1,78 +1,192 @@
 #pragma once
 
+// =============================================================================
+//  Vocal Crown Compass — the "portal plate"
+// -----------------------------------------------------------------------------
+//  A vibrating circular plate seen through a dark Portal aperture. The sung
+//  note, read as a scale degree of the effective key, selects a Bessel mode
+//  pair (the tonic is a 5-fold crown whose lobes point at the five pucks), and
+//  ~6k grains of sand are Newton-projected onto its nodal lines with short
+//  additive trails. Warp streaks flicker along the figure's nodal diameters and
+//  outward from a vanishing point that leans toward high-valued nodes; a hit
+//  shatters the figure; silence is a calm inward vortex drawing the tonic.
+//
+//  It is still a macro controller: five pucks on a regular pentagon (clockwise
+//  in signal-chain order) sit at radius R * (0.10 + 0.84 v). Mouse, wheel and
+//  keyboard all go through one gesture path (begin / set / end).
+//
+//  Cost model: physics + light are computed into a low-res premultiplied image
+//  (CymaticPlate + PortalRenderer, no Graphics calls); paint() is one cached
+//  native stage blit, one 1:1 field blit and a handful of vectors. Frames are
+//  paced by the display's VBlank (60 Hz, 30 Hz when calm) and only the ring box
+//  is repainted. Nothing in advanceFrame() allocates.
+// =============================================================================
+
 #include <JuceHeader.h>
+#include "CymaticPlate.h"
+#include "PortalRenderer.h"
+#include "WaterDish.h"
+#include "CompassFeed.h"
+#include "RoyalChainTheme.h"
+
 #include <array>
+#include <functional>
+#include <vector>
 
 class RoyalChainAudioProcessor;
 
-// =============================================================================
-//  Vocal Crown Compass  —  "Portal × Cymatics"
-// -----------------------------------------------------------------------------
-//  An interactive, audio-reactive map of the Royal Chain. Visually it is a
-//  deep-space *portal* (radial tunnel receding into the centre, swirling dust)
-//  crossed with a *cymatic* standing-wave field (concentric Bessel-style ripple
-//  rings + rotating Chladni nodal spokes that pulse with the output level).
-//
-//  Functionally it is unchanged: five module nodes sit at fixed angles around
-//  the centre; each node's radial distance equals its macro value (0 at centre,
-//  1 at the outer ring). Drag a node radially to set its macro. The five macros
-//  also draw a translucent "membrane" polygon so the chain's shape reads at a
-//  glance. Everything is deterministic per-frame so it never flickers.
-// =============================================================================
-class VocalCrownCompass final : public juce::Component, private juce::Timer
+class VocalCrownCompass final : public juce::Component,
+                                public juce::TooltipClient
 {
 public:
-    explicit VocalCrownCompass (RoyalChainAudioProcessor& processorRef);
-    ~VocalCrownCompass() override;
+    explicit VocalCrownCompass (RoyalChainAudioProcessor&);
+    ~VocalCrownCompass() override;                 // ends any open gesture
 
-    void paint (juce::Graphics& g) override;
+    void paint (juce::Graphics&) override;
     void resized() override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp   (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
-    void timerCallback() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+    void focusGained (FocusChangeType) override;
+    void focusLost (FocusChangeType) override;
+    juce::String getTooltip() override;
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+
+    std::function<void (rc::theme::MacroId)> onFocusMacro;
+    void setHighlightedNode (int nodeOrMinus1);
+
+    // Shared gesture path (mouse / wheel / keys / tests).
+    bool beginNodeDrag (int node);
+    void dragNodeToValue (int node, float v);
+    void endNodeDrag (int node);
+    juce::Point<float> nodePosition (int node) const;
+
+    // Deterministic driving + hooks.
+    void advanceFrames (int n, double dt = 1.0 / 60.0);   // no repaint
+    void prepareForScale (float physicalScale);
+    void setHoverForTesting (int node);
+    const rc::CymaticPlate& plateForTesting() const noexcept     { return plate; }
+    const rc::PortalRenderer& rendererForTesting() const noexcept { return renderer; }
+    const rc::WaterDish& dishForTesting() const noexcept           { return dish; }
+    const rc::CompassState& stateForTesting() const noexcept     { return conditioner.state(); }
+
+    struct Perf
+    {
+        double simMs, renderMs, paintMs; int ladder; bool calm;
+        double paintStageMs, paintFieldMs, paintVectorMs, paintTextMs;   // last paint, by section
+    };
+    Perf perf() const noexcept;
+    void appendCaptionChecks (std::vector<rc::theme::CaptionCheck>&) const;
+
+    // Geometry (compass-local, logical px).
+    static constexpr int kWidth = 744, kHeight = 508;
+    static constexpr float kCx = 372.0f, kCy = 262.0f, kR = 200.0f;
 
 private:
-    struct Node
+    struct TextLayer
     {
-        juce::String label;
-        juce::String paramId;
-        juce::Colour colour;
-        float angleRad;       // fixed angle around the ring
+        juce::Rectangle<int> rect;          // logical, compass-local
+        juce::Image image;                  // native, physical scale
+        bool needsRebuild = true;
     };
 
-    static constexpr int kNumNodes     = 5;
-    static constexpr int kNumParticles = 130;   // swirling portal dust
-    static constexpr int kNumRipples   = 30;    // concentric cymatic rings
-    static constexpr int kNodalSpokes  = 5;     // Chladni angular nodal lines
+    struct LabelLayout
+    {
+        juce::Rectangle<int> box;           // the resolved label box
+        juce::Rectangle<float> name, value, pill;
+        juce::Justification valueJust { juce::Justification::centredLeft };
+    };
 
-    Node nodes[kNumNodes];
+    struct ReadoutKey
+    {
+        bool idle = false, voiced = false, rich = false;
+        int note = -2, cents = 0, lock = 0, degree = -1, style = -1, key = -1, scale = -1;
+        int modeN = -1, modeS = -1, modeHz = 0;   // the water-dish mode actually ringing
+        bool operator== (const ReadoutKey& o) const noexcept
+        {
+            return idle == o.idle && voiced == o.voiced && rich == o.rich && note == o.note && cents == o.cents
+                && lock == o.lock && degree == o.degree && style == o.style && key == o.key && scale == o.scale
+                && modeN == o.modeN && modeS == o.modeS && modeHz == o.modeHz;
+        }
+        bool operator!= (const ReadoutKey& o) const noexcept { return ! (*this == o); }
+    };
 
-    // Portal dust: each particle spirals slowly inward toward the centre and is
-    // recycled to the outer edge, giving the "falling into the portal" parallax.
-    float partAngle  [kNumParticles] {};
-    float partRadius [kNumParticles] {};   // 0..~1.15 of ringRadius
-    float partSpin   [kNumParticles] {};   // angular drift per tick
-    float partSpeed  [kNumParticles] {};   // inward drift factor
-    float partSize   [kNumParticles] {};
-
-    int   draggingNode = -1;
-    int   hoveredNode  = -1;
-    juce::Point<float> centre;
-    float ringRadius = 1.0f;
-
-    // Animation / audio-reactive state (advanced in timerCallback).
-    float phase = 0.0f;     // master phase: ripple travel + slow vortex spin
-    float level = 0.0f;     // smoothed output level, 0..1
+    void tick (double timestampSec);
+    void advanceFrame (float dt, bool render);
+    rc::CompassFeed readFeed() const;
+    void prepareInternal (float physicalScale, bool rewarm);
+    void rebuildStageCache();
+    void rebuildArcPath (int node, float value);
+    void renderLabelLayer (int node);
+    void renderPitchLayer();
+    void renderFigureLayer();
+    juce::Image& prepareLayerImage (TextLayer&);
+    void drawLayer (juce::Graphics&, const TextLayer&) const;
+    int hitTestNode (juce::Point<float>) const;
+    int hitTestSpoke (juce::Point<float>, float& valueOut) const;
+    float projectToValue (int node, juce::Point<float>) const;
+    void setNodeValueGesture (int node, float v);
+    void resetNodeToDefault (int node);
+    void setHoverNode (int node);
+    void focusNode (int node);
+    void applyLadder();
+    juce::Rectangle<int> labelRepaintRect (int node) const;
 
     RoyalChainAudioProcessor& processor;
 
-    float getMacro (const juce::String& id) const;
-    void  setMacro (const juce::String& id, float value);
-    juce::Point<float> nodePosition (int idx) const;
-    int   hitTestNode (juce::Point<float> p) const;
+    // Cached parameter pointers (read with relaxed loads every tick).
+    std::atomic<float>* pStyle = nullptr;
+    std::atomic<float>* pMacro[10] {};    // clean,tune,control,tone,air,smooth,glow,width,space,royal
+    std::atomic<float>* pNode[rc::theme::kNumNodes] {};
+    juce::RangedAudioParameter* nodeParam[rc::theme::kNumNodes] {};
+
+    rc::CymaticPlate plate;
+    rc::PortalRenderer renderer;
+    rc::WaterDish dish;                 // the aperture: the Cymatic Generator's water dish
+    std::vector<float> tapOutMid, tapOutSide, tapInMid;   // latest samples for the dish FFTs
+    rc::FeedConditioner conditioner;
+    rc::Rng rng;
+    rc::CompassFeed lastFeed;
+
+    // Node state.
+    std::array<juce::Point<float>, rc::theme::kNumNodes> dir {};
+    std::array<float, rc::theme::kNumNodes> value {}, hoverAmt {}, dragAmt {}, arcValue {}, arcPathValue {};
+    std::array<int, rc::theme::kNumNodes> shownPct {};
+    std::array<juce::Path, rc::theme::kNumNodes> arcPath;
+    juce::Path membrane;
+    int hoverNode = -1, highlightNode = -1, focusedNode = 0, dragNode = -1, gestureNode = -1;
+    bool pillShown[rc::theme::kNumNodes] {};
+    float dragV0 = 0.0f, dragProj0 = 0.0f;
+    bool dragFine = false;
+    juce::Point<float> vp, vpVel;
+
+    // Caches.
+    juce::Image stageCache;
+    float preparedScale = 0.0f, pendingScale = 0.0f;
+    std::array<LabelLayout, rc::theme::kNumNodes> labels;
+    std::array<TextLayer, rc::theme::kNumNodes> labelLayers;
+    TextLayer pitchLayer, figureLayer;
+    ReadoutKey readout, readoutShown;
+    int labelRepaintMask = 0;
+    bool pitchRepaint = false, figureRepaint = false;
+    int readoutThrottle = 0;
+
+    // Pacing + budget.
+    double lastTickTs = 0.0;
+    double simMs = 0.0, renderMs = 0.0, paintMs = 0.0;
+    double paintSection[4] {};
+    float frameCost[60] {};
+    int frameCostIndex = 0, framesSinceLadder = 0, ladder = 0;
+    bool calm = false;
+
+    static const juce::Rectangle<int> ringBox, fieldRect;
+
+    juce::VBlankAttachment vblank;   // declared LAST: destroyed first
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VocalCrownCompass)
 };
