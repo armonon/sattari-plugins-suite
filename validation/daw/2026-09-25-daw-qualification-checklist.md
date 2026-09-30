@@ -53,8 +53,8 @@ Plugin format: Logic uses AU; Live and FL use VST3. Also run Live with AU once, 
 | 18 | Buffer size change, 64 / 256 / 1024 | no dropouts at 256+; 64 may be CPU-limited, so record CPU | | | |
 | 19 | Remove plugin, re-insert, undo the removal | no crash; the undo restores the state | | | |
 | 20 | Long playback: loop the 3-minute song for 30 minutes or more | no drift, no rising CPU, no crash; note CPU at start and end | | | |
-| 22 | Transpose to Key −5 st on a drum loop, printed next to the dry loop | KNOWN OPEN DEFECT (predates the fix): the transposed audio sits off the grid by about 1.5 ms per semitone. Record how audible it is; not a pass/fail row until the owner decides the fix | | | |
 | 21 | CPU observation: host CPU meter with 1 instance and with 4; and 1 instance host-bypassed | record the numbers. Bypass keeps the engine running (full CPU while bypassed) by design | | | |
+| 22 | Transpose to Key −5 st on a drum loop, printed next to the dry loop | KNOWN OPEN DEFECT (predates the fix): the transposed audio sits off the grid by about 1.5 ms per semitone. Record how audible it is; not a pass/fail row until the owner decides the fix | | | |
 
 ## Sattari Key
 

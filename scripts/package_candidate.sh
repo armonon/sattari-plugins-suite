@@ -18,7 +18,8 @@ C="$(git rev-parse --short "${1:?usage: package_candidate.sh <candidate sha>}")"
 REPORT="$(ls validation/auto-pitch/qualification/*-"$C".md | head -n1)"
 changed="$(git diff --name-only "$C" HEAD -- plugins core cmake CMakeLists.txt third_party | grep -v -E '^plugins/[^/]+/(tests|tools)/' || true)"
 [ -z "$changed" ] || { echo "ABORT: plugin sources differ from $C"; exit 2; }
-AP="${AP_BUILD:-build/auto-pitch-neural}/SattariAutoPitch_artefacts/Release"   # AP_BUILD: candidate build dir; SK="build/song-key-rc/SattariSongKey_artefacts/Release"
+AP="${AP_BUILD:-build/auto-pitch-neural}/SattariAutoPitch_artefacts/Release"   # AP_BUILD: candidate build dir
+SK="build/song-key-rc/SattariSongKey_artefacts/Release"
 want="$(grep -E '^\| (installed|built) VST3[^|]*\| `' "$REPORT" | head -n1 | sed -E 's/.*`([0-9a-f]+)`.*/\1/')"
 have="$(shasum -a 256 "$AP/VST3/Sattari Auto Pitch.vst3/Contents/MacOS/Sattari Auto Pitch" | cut -c1-16)"
 [ "$want" = "$have" ] || { echo "ABORT: built Auto Pitch VST3 $have != candidate $want"; exit 2; }
