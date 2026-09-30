@@ -801,6 +801,27 @@ private:
     // analysis update, on the FINAL frame of that update.
     void applyTargetHysteresis (PitchFrame& frame, double hopSec);
 
+    //  Vibrato-aware target (Track B, 2026-09-29). A wide vibrato whose centre sits off a semitone
+    //  crossed the instantaneous-pitch hysteresis every half cycle: the target flipped 11-23 times a
+    //  second, the note centre was left uncorrected and the vibrato widened (validation/wide-vibrato).
+    //  While a sustained periodic oscillation is present, the target is chosen from its centre (the
+    //  mean over one measured period) instead of the instantaneous pitch.
+    struct VibratoTrack { bool active = false; double centre = 0.0, halfExtent = 0.0, period = 0.0; };
+    static constexpr int kVibRing = 128;                 // >= 0.5 s at the smallest analysis hop
+    std::array<double, kVibRing> vibMidi {}, vibDt {};
+    int    vibCount = 0, vibHead = 0;
+    double vibAwaySec = 0.0;
+    bool   vibEngaged = false;
+    VibratoTrack vibLast;
+    bool   vibratoTargetEnabled = false;   // R&D, default off: see validation/wide-vibrato/README.md
+    void   vibPush (double midi, double dt) noexcept;
+    VibratoTrack vibAnalyse() const noexcept;
+public:
+    void setVibratoTargetEnabled (bool on) noexcept { vibratoTargetEnabled = on; }
+    bool vibratoTargetEngaged() const noexcept { return vibEngaged; }   // diagnostics (bench trace)
+    VibratoTrack lastVibratoTrack() const noexcept { return vibLast; }
+private:
+
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
     std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION
     IntentV2State    intentState;

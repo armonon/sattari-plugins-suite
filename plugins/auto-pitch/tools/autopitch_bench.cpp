@@ -59,6 +59,7 @@ struct Args
     bool   lowLatency  = false;   // --low-latency: sets lowLatency param → OptionWindowShort
     bool   liveMode    = false;
     bool noHysteresis = false;
+    bool vibratoTarget = false;
     bool realtime = false;
     bool manualKeyUntouched = false;   // leave Key/Scale at the factory default (not a user choice)
     bool nonRealtime = false;   // --nonrealtime: host bounce (neural pitch inference runs in-line, deterministic)
@@ -182,6 +183,7 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--low-latency") { a.lowLatency = true; }
         else if (arg == "--live-mode")   { a.liveMode = true; }
         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+        else if (arg == "--vibrato-target") { a.vibratoTarget = true; }   // R&D: vibrato-centre target (default off)
         else if (arg == "--realtime") { a.realtime = true; }
         else if (arg == "--manual-key-untouched") { a.manualKeyUntouched = true; }
         else if (arg == "--nonrealtime") { a.nonRealtime = true; }
@@ -271,6 +273,7 @@ int main (int argc, char** argv)
 
     proc.setIntentMode (a.intentMode);
     proc.setTargetHysteresisEnabled (! a.noHysteresis);
+    proc.setVibratoTargetEnabled (a.vibratoTarget);
     if (a.keyProfile >= 0)
         proc.setAutoKeyHistogramProfile (a.keyProfile);
     if (a.keyMemorySec > 0.0)
@@ -318,6 +321,14 @@ int main (int argc, char** argv)
         obj->setProperty ("voiced",          snap.voiced);
         obj->setProperty ("detectedMidi",    snap.voiced ? snap.detectedMidi : -1);
         obj->setProperty ("correctionCents", (double) snap.correctionCents);
+        {   // the chosen correction target after hysteresis (detectedMidi is only the nearest note of the input)
+            const auto dbg = proc.getDebugFrame();
+            obj->setProperty ("targetMidi", dbg.voiced ? dbg.targetMidi : -1.0);
+            obj->setProperty ("appliedCents", dbg.appliedCents);   // shift actually fed to the engine
+            obj->setProperty ("inputMidi", dbg.detectedMidi);
+            obj->setProperty ("vibEngaged", proc.vibratoTargetEngaged());
+            obj->setProperty ("vibActive", proc.lastVibratoTrack().active);
+        }
         obj->setProperty ("confidence",      (double) snap.confidence);
         obj->setProperty ("detectedRoot",    snap.detectedRoot);
         obj->setProperty ("detectedScale",   snap.detectedScale);

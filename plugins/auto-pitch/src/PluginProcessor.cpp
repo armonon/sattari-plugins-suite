@@ -1613,6 +1613,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     hysteresisAltTarget = -1000;
     heldTargetMidi = -1;
     heldTargetContext = -1;
+    vibCount = 0; vibHead = 0; vibAwaySec = 0.0;
     heldTargetAwaySec = 0.0;
     heldTargetSilentSec = 0.0;
     hysteresisAge       = 999.0;
@@ -3923,6 +3924,76 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
     return detected;
 }
 
+void SattariAutoPitchAudioProcessor::vibPush (double midi, double dt) noexcept
+{
+    vibMidi[(size_t) vibHead] = midi;
+    vibDt[(size_t) vibHead] = dt;
+    vibHead = (vibHead + 1) % kVibRing;
+    vibCount = juce::jmin (vibCount + 1, kVibRing);
+}
+
+SattariAutoPitchAudioProcessor::VibratoTrack SattariAutoPitchAudioProcessor::vibAnalyse() const noexcept
+{
+    //  Newest-first view of the last 0.5 s of detected pitch.
+    constexpr double windowSec = 0.5;
+    double x[kVibRing], t[kVibRing];
+    int n = 0; double age = 0.0;
+    for (int k = 0; k < vibCount; ++k)
+    {
+        const int i = ((vibHead - 1 - k) % kVibRing + kVibRing) % kVibRing;
+        x[n] = vibMidi[(size_t) i]; t[n] = age; ++n;
+        age += vibDt[(size_t) i];
+        if (age >= windowSec) break;
+    }
+    VibratoTrack v;
+    if (n < 8 || age < windowSec * 0.9)
+        return v;
+    double mean = 0.0, lo = 1.0e9, hi = -1.0e9;
+    for (int k = 0; k < n; ++k) { mean += x[k]; lo = juce::jmin (lo, x[k]); hi = juce::jmax (hi, x[k]); }
+    mean /= n;
+    v.halfExtent = 0.5 * (hi - lo);
+    if (v.halfExtent < 0.2 || v.halfExtent > 1.6)
+        return v;
+    //  Crossings of the window mean, with a 5 c dead band so detector jitter does not count.
+    double crossings[kVibRing]; int nc = 0; int sign = 0;
+    for (int k = n - 1; k >= 0; --k)                     // oldest -> newest
+    {
+        const double d = x[k] - mean;
+        const int s = d > 0.05 ? 1 : (d < -0.05 ? -1 : 0);
+        if (s != 0 && sign != 0 && s != sign) crossings[nc++] = t[k];
+        if (s != 0) sign = s;
+    }
+    //  A vibrato is a regular, sine-like oscillation. Alternating short notes (a trill, a fast
+    //  melody) also cross their mean every 100-150 ms, but they are square-shaped and irregular;
+    //  treating them as vibrato held the average of two notes (real-singer A/B, 2026-09-29).
+    if (nc < 5)                                          // two full cycles
+        return v;
+    double sum = 0.0, shortest = 1.0, longest = 0.0;
+    for (int k = 1; k < nc; ++k)
+    {
+        const double half = crossings[k - 1] - crossings[k];   // ages decrease towards the newest
+        if (half < 0.05 || half > 0.15)                         // 3.3 .. 10 Hz
+            return v;
+        sum += half;
+        shortest = juce::jmin (shortest, half);
+        longest  = juce::jmax (longest, half);
+    }
+    if (longest > 1.6 * shortest)                        // irregular: not a vibrato
+        return v;
+    double ss = 0.0;
+    for (int k = 0; k < n; ++k) ss += (x[k] - mean) * (x[k] - mean);
+    const double shape = std::sqrt (ss / n) / v.halfExtent;   // sine 0.71, square 1.0, triangle 0.58
+    if (shape > 0.80 || shape < 0.50)
+        return v;
+    v.period = 2.0 * sum / (nc - 1);
+    //  Centre: mean over the most recent full period.
+    double c = 0.0; int m = 0;
+    for (int k = 0; k < n && t[k] < v.period; ++k) { c += x[k]; ++m; }
+    v.centre = m > 0 ? c / m : mean;
+    v.active = true;
+    return v;
+}
+
 void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, double hopSec)
 {
     // Explicit targets (MIDI / graph edits) are exact requests, never held.
@@ -3938,7 +4009,10 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
     {
         heldTargetSilentSec += hopSec;
         if (heldTargetSilentSec > 0.150)
+        {
             heldTargetMidi = -1;             // a new phrase starts fresh
+            vibCount = 0;
+        }
         return;
     }
     heldTargetSilentSec = 0.0;
@@ -3951,6 +4025,47 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
         heldTargetContext = frame.targetContext;
         heldTargetMidi = -1;
     }
+
+    //  Vibrato-aware target: while a sustained vibrato is present, choose and hold the note from the
+    //  oscillation's centre. A pitch that leaves the vibrato envelope by more than 75 c is a real note
+    //  change and falls through to the instantaneous rules below.
+    vibPush (frame.midi, hopSec);
+    vibEngaged = false;
+    vibLast = vibAnalyse();
+    if (vibratoTargetEnabled)
+    {
+        const auto& v = vibLast;
+        if (v.active && (heldTargetMidi < 0 || std::abs (frame.midi - (double) heldTargetMidi) <= v.halfExtent + 0.75))
+        {
+            PitchFrame c = frame;
+            c.midi = v.centre;
+            const int centreTarget = juce::roundToInt (buildCorrectionFrame (c).targetMidi);
+            if (heldTargetMidi < 0)
+                heldTargetMidi = centreTarget;
+            if (centreTarget != heldTargetMidi)
+            {
+                //  Switch once the centre is 15 c past the midpoint, or has stayed nearer the other
+                //  note for 250 ms (a slow drift, or a step made while vibrating).
+                const double margin = std::abs (v.centre - (double) heldTargetMidi) - std::abs (v.centre - (double) centreTarget);
+                vibAwaySec += hopSec;
+                if (margin > 0.3 || vibAwaySec >= 0.250)
+                {
+                    heldTargetMidi = centreTarget;
+                    vibAwaySec = 0.0;
+                }
+            }
+            else
+            {
+                vibAwaySec = 0.0;
+            }
+            heldTargetAwaySec = 0.0;
+            vibEngaged = true;
+            frame.targetMidi = (double) heldTargetMidi;
+            frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
+            return;
+        }
+    }
+    vibAwaySec = 0.0;
 
     const int nearest = juce::roundToInt (frame.targetMidi);
     if (heldTargetMidi < 0 || nearest == heldTargetMidi)
