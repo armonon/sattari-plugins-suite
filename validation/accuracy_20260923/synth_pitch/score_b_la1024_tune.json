@@ -1,0 +1,18 @@
+{
+ "tag": "b_la1024_tune",
+ "subset": "tune",
+ "notes": 288,
+ "within_10c_pct": 86.11,
+ "within_5c_pct": 67.01,
+ "median_abs_c": 3.47,
+ "p95_abs_c": 20.6,
+ "worst_c": 41.6,
+ "per_voice_within_10c": {
+  "bass": 79.2,
+  "baritone": 87.5,
+  "tenor": 89.6,
+  "alto": 79.2,
+  "mezzo": 83.3,
+  "soprano": 97.9
+ }
+}

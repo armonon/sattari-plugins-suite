@@ -1,0 +1,18 @@
+{
+ "tag": "b_la2048_holdout",
+ "subset": "holdout",
+ "notes": 288,
+ "within_10c_pct": 89.24,
+ "within_5c_pct": 70.14,
+ "median_abs_c": 2.7,
+ "p95_abs_c": 16.19,
+ "worst_c": 37.8,
+ "per_voice_within_10c": {
+  "bass": 85.4,
+  "baritone": 97.9,
+  "tenor": 77.1,
+  "alto": 89.6,
+  "mezzo": 85.4,
+  "soprano": 100.0
+ }
+}

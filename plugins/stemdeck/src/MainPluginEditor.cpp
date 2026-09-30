@@ -2785,7 +2785,7 @@ MainPluginEditor::MainPluginEditor (MainPluginProcessor& p)
             {
                 const auto id = DeckPlayer::stemLaneId (DeckPlayer::drumsStem + s);
                 setupSlider (dc.stemFilt[(size_t) s], true);
-                dc.stemFilt[(size_t) s].setTooltip (juce::String (stemShort[s]) + " filter (LP ↔ HP)");
+                dc.stemFilt[(size_t) s].setTooltip (juce::String (stemShort[s]) + u8 (" filter (LP \xe2\x86\x94 HP)"));
                 dc.stemFilt[(size_t) s].setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
                 dc.stemFilt[(size_t) s].setPopupDisplayEnabled (true, true, this);
                 addAndMakeVisible (dc.stemFilt[(size_t) s]);
@@ -3745,7 +3745,7 @@ void MainPluginEditor::reloadLastRecordingIntoDecks()
         ++loaded;
     }
     recordStatus.setText (loaded > 0
-                              ? "Reloaded " + juce::String (loaded) + " deck capture" + (loaded == 1 ? "" : "s") + " into decks A–D"
+                              ? "Reloaded " + juce::String (loaded) + " deck capture" + (loaded == 1 ? "" : "s") + u8 (" into decks A\xe2\x80\x93" "D")
                               : u8 ("No deck captures to reload \xe2\x80\x94 record a set first"),
                           juce::dontSendNotification);
 }
@@ -4503,7 +4503,7 @@ void MainPluginEditor::syncKeyAll()
     const auto refA = processorRef.getDeckAnalysis (masterDeckIndex);
     if (! refA.hasKey())
     {
-        recordStatus.setText ("KEY SYNC: Deck " + masterLetter + " has no analyzed key yet — load/analyze audio first",
+        recordStatus.setText ("KEY SYNC: Deck " + masterLetter + u8 (" has no analyzed key yet \xe2\x80\x94 load/analyze audio first"),
                               juce::dontSendNotification);
         return;
     }
@@ -4558,7 +4558,7 @@ void MainPluginEditor::setShowcaseMode (bool on)
         deckControls[(size_t) i].play.setToggleState (on ? true : realPlaying, juce::dontSendNotification);
     }
     arrangementView.setShowDemoBlocks (on);
-    recordStatus.setText (on ? "Showcase demo content ON" : "Showcase off — showing live loaded audio",
+    recordStatus.setText (on ? "Showcase demo content ON" : u8 ("Showcase off \xe2\x80\x94 showing live loaded audio"),
                           juce::dontSendNotification);
     resized();
     repaint();

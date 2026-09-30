@@ -1,0 +1,13 @@
+*.wav
+*.mp3
+*.npy
+work/
+synth_pitch/*.json
+!synth_pitch/manifest.json
+!synth_pitch/score_*.json
+synth_pitch/*_oracle.txt
+__pycache__/
+csd_work/
+key_change/
+al_work/
+vocadito_work/

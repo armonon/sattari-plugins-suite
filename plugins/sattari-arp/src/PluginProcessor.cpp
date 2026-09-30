@@ -18,8 +18,17 @@ int clampVelocity (int velocity)
 }
 }
 
+// VST3 has no MIDI-effect type, so hosts like Ableton reject a VST3 without
+// audio buses. Give the VST3 a (silent) stereo output; other formats stay MIDI-only.
+juce::AudioProcessor::BusesProperties SattariArpAudioProcessor::makeBusesProperties()
+{
+    if (juce::PluginHostType::getPluginLoadedAs() == wrapperType_VST3)
+        return BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+    return {};
+}
+
 SattariArpAudioProcessor::SattariArpAudioProcessor()
-    : AudioProcessor (BusesProperties()),
+    : AudioProcessor (makeBusesProperties()),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     registerFactoryPresets();

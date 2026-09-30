@@ -1,0 +1,14 @@
+Sattari Auto Pitch no-harm matrix
+      ...  10 min, 75 s elapsed, RSS 70.6 MB
+      ...  20 min, 150 s elapsed, RSS 70.6 MB
+      ...  30 min, 225 s elapsed, RSS 70.6 MB
+      ...  40 min, 300 s elapsed, RSS 70.6 MB
+      ...  50 min, 374 s elapsed, RSS 70.6 MB
+      ...  60 min, 449 s elapsed, RSS 70.6 MB
+      48000 Hz; Studio FIFO underrun samples 0, fail-safe primes 0
+      60 min audio in 449 s (8x realtime); latency 3173, changes 0; finite yes; peak 0.344
+      mean block time first 10 min 1288.3 us, last 10 min 1280.6 us (ratio 0.99, limit 1.5)
+      RSS min 10 70.6 MB -> end 70.6 MB (growth +0.1 MB, limit 50); phys_footprint 51.6 -> 51.7 MB
+      AutoKey at end of each 5-min section (expected circle of fifths from C, major): C G D A E B F# C# Ab Eb Bb F  [12/12 matched, report only]
+PASS  [8] long playback                      ( 449.1 s)  60 min at 48.0 kHz: finite, latency constant, no FIFO underrun, block-time ratio 0.99, RSS growth +0.1 MB
+NO-HARM MATRIX PASS: 0 failing check(s), 449 s total

@@ -121,6 +121,34 @@ juce::var readObjectVar (const juce::var& object, const juce::Identifier& key)
     return {};
 }
 
+//  Session sections that live beside the parameters in the saved state. apvts.copyState() hands
+//  back whatever the last restore put into the parameter tree, so each save used to append a
+//  fresh copy after the old one (4210 -> 4262 -> 4314 bytes per cycle), and restore read the
+//  FIRST, i.e. oldest, copy: pitch notes deleted since the last reload came back. Keep exactly
+//  one copy of each: the newest.
+constexpr const char* kSessionSections[] = { "KeyMap", "PitchEdits", "MidiLearn" };
+
+void keepOnlyNewestSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+    {
+        int newest = -1;
+        for (int i = 0; i < state.getNumChildren(); ++i)
+            if (state.getChild (i).hasType (name)) newest = i;
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (i != newest && state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+    }
+}
+
+void removeSessionSections (juce::ValueTree& state)
+{
+    for (const char* name : kSessionSections)
+        for (int i = state.getNumChildren(); --i >= 0;)
+            if (state.getChild (i).hasType (name))
+                state.removeChild (i, nullptr);
+}
+
 double midiFromHz (double frequencyHz, double referenceHz = 440.0)
 {
     if (frequencyHz <= 0.0 || referenceHz <= 0.0)
@@ -193,6 +221,8 @@ SattariAutoPitchAudioProcessor::SattariAutoPitchAudioProcessor()
     apvts.addParameterListener ("extremeLive", this);
     apvts.addParameterListener ("lowLatency", this);
     apvts.addParameterListener ("scale", this);
+    apvts.addParameterListener ("keyRoot", this);
+    apvts.addParameterListener ("scaleMode", this);
     // Polyphonic engages the phase-vocoder path, whose STFT latency differs from
     // the mono engines — listen so a toggle refreshes the host delay-comp figure.
     apvts.addParameterListener ("polyphonic", this);
@@ -218,6 +248,8 @@ SattariAutoPitchAudioProcessor::~SattariAutoPitchAudioProcessor()
     apvts.removeParameterListener ("extremeLive", this);
     apvts.removeParameterListener ("lowLatency", this);
     apvts.removeParameterListener ("scale", this);
+    apvts.removeParameterListener ("keyRoot", this);
+    apvts.removeParameterListener ("scaleMode", this);
     apvts.removeParameterListener ("polyphonic", this);
     apvts.removeParameterListener ("xposeMode", this);
     apvts.removeParameterListener ("enableCorrection", this);
@@ -687,6 +719,11 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const juce::ScopedLock l (pitchEditLock);
         pitchEdits.reserve (4096);
     }
+    // Covers the engine latency plus the 500 ms graph-time look-ahead.
+    bypassDelay.setSize (juce::jmax (2, getTotalNumOutputChannels()),
+                         (int) std::ceil (currentSampleRate * 0.5) + 16384);
+    bypassDelay.clear();
+    bypassDelayWrite = 0;
     resetPitchState (preparedBlockSize);
     {
         const auto offsetText = juce::SystemStats::getEnvironmentVariable (
@@ -818,6 +855,13 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     formantScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     harmonyScratch.setSize (scratchChannels, preparedBlockSize, false, false, true);
     harmonyWetScratch.setSize (2, preparedBlockSize, false, false, true);
+    {
+        const int allChannels = juce::jmax (2, getTotalNumInputChannels(), getTotalNumOutputChannels());
+        bypassProcessScratch.setSize (allChannels, preparedBlockSize, false, false, true);
+        bypassDryScratch.setSize (allChannels, preparedBlockSize, false, false, true);
+        bypassMidiScratch.ensureSize (2048);
+        hostBypassMix = -1.0f;
+    }
     formantScratch.clear();
     harmonyScratch.clear();
     harmonyWetScratch.clear();
@@ -926,13 +970,15 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         const bool lowLat = apvts.getRawParameterValue ("lowLatency") != nullptr
                             && apvts.getRawParameterValue ("lowLatency")->load() > 0.5f;
 
-        // Live mode: small window for low latency (~23ms total at 44100Hz).
+        // Legacy low-latency Signalsmith mode: keep enough window for the
+        // qualified +45c low-register correction while staying below Studio.
         // Standard mode: larger window for higher quality studio correction.
         if (lowLat)
-            ssStretch.configure (numCh, 1024, 256);
+            ssStretch.configure (numCh, 3072, 768);
         else
             ssStretch.configure (numCh, 4096, 1024);
 
+        ssConfigured = true;
         ssStretch.reset();
         ssOutput.setSize (numCh, preparedBlockSize);
         ssInputPtrs.resize  ((size_t) numCh);
@@ -985,14 +1031,20 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
               | RubberBand::RubberBandStretcher::OptionPitchHighQuality
               | RubberBand::RubberBandStretcher::OptionWindowShort;
 
+    rbEngineRate = qualifiedEngineRate (currentSampleRate);
+    rbResampling = std::abs (rbEngineRate - currentSampleRate) > 0.5;
+    rbUp.clear(); rbDown.clear();
+    rbReportedHost = 0; rbHeadroomHost = 0; rbStreamOffsetHost = 0; rbFlushLen = 0; rbZeros.clear();
     for (int channel = 0; channel < numChannels; ++channel)
     {
         auto stretcher = std::make_unique<RubberBand::RubberBandStretcher> (
-            currentSampleRate, 1, opts, 1.0, 1.0);
+            (size_t) rbEngineRate, 1, opts, 1.0, 1.0);
         jassert (stretcher->getEngineVersion() >= 3);
         // Stationary ratios use chunks up to 512 samples; moving ratios use the
         // finer automation grid below. This cap is independent of host buffers.
-        stretcher->setMaxProcessSize (512);
+        //  Resampled mode feeds ceil(512 * engine/host) samples per leaf call.
+        stretcher->setMaxProcessSize (rbResampling
+            ? (size_t) std::ceil (512.0 * rbEngineRate / currentSampleRate) + 64 : (size_t) 512);
         stretcher->setPitchScale (1.0);
         rubberBand.push_back (std::move (stretcher));
     }
@@ -1000,6 +1052,60 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // it headroom for one full block of Rubber Band output at a time.
     rubberBandOutput.setSize (numChannels, preparedBlockSize);
     rubberBandScratch.resize ((size_t) preparedBlockSize, 0.0f);
+
+    rbResamplerDelayHost = 0;
+    if (rbResampling)
+    {
+        const double up = rbEngineRate / currentSampleRate;          // host -> engine
+        const int maxLeaf = 512;                                     // processWithRubberBand leaf cap
+        auto makeResampler = [] (double rate, int maxIn)
+        {
+            RubberBand::Resampler::Parameters rp;
+            rp.quality = RubberBand::Resampler::Best;
+            rp.dynamism = RubberBand::Resampler::RatioMostlyFixed;
+            rp.ratioChange = RubberBand::Resampler::SuddenRatioChange;
+            rp.initialSampleRate = rate;
+            rp.maxBufferSize = maxIn;
+            return std::make_unique<RubberBand::Resampler> (rp, 1);
+        };
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            rbUp.push_back (makeResampler (currentSampleRate, maxLeaf));
+            rbDown.push_back (makeResampler (rbEngineRate, maxLeaf));
+        }
+        rbEngineIn.setSize (numChannels, (int) std::ceil (maxLeaf * up) + 256, false, true, false);
+        rbHostOut.setSize (numChannels, (int) std::ceil (maxLeaf / up) + 256, false, true, false);
+
+        //  Measure the up+down resampling delay once, here (allocation is fine in prepare):
+        //  an impulse through a fresh pair, in leaf-sized blocks, then find the output peak.
+        auto u = makeResampler (currentSampleRate, maxLeaf);
+        auto d = makeResampler (rbEngineRate, maxLeaf);
+        const int probeLen = (int) currentSampleRate / 4;
+        std::vector<float> probeIn ((size_t) probeLen, 0.0f), mid ((size_t) std::ceil (maxLeaf * up) + 256),
+                           outBlk ((size_t) std::ceil (maxLeaf / up) + 256), probeOut;
+        probeIn[(size_t) (probeLen / 4)] = 1.0f;
+        for (int pos = 0; pos < probeLen; pos += maxLeaf)
+        {
+            const int n = juce::jmin (maxLeaf, probeLen - pos);
+            const float* ip = probeIn.data() + pos; float* mp = mid.data();
+            const int m = u->resample (&mp, (int) mid.size(), &ip, n, up, false);
+            const float* mcp = mid.data(); float* op = outBlk.data();
+            const int o = d->resample (&op, (int) outBlk.size(), &mcp, m, 1.0 / up, false);
+            probeOut.insert (probeOut.end(), outBlk.begin(), outBlk.begin() + o);
+        }
+        int peak = 0;
+        for (int i = 1; i < (int) probeOut.size(); ++i)
+            if (std::abs (probeOut[(size_t) i]) > std::abs (probeOut[(size_t) peak])) peak = i;
+        // The pair is index-aligned (the impulse lands at the same stream index: measured offset 0) but
+        // it runs behind: it withholds its filter length of frames. That withholding is production lag,
+        // which the counted priming below must allow for.
+        rbResamplerDelayHost = juce::jmax (0, probeLen - (int) probeOut.size());
+        jassert (peak == probeLen / 4);
+        //  Flush length for resetRbFifo: well past both filters' history (their withheld frames are
+        //  about half a filter length each).
+        rbFlushLen = juce::jmax (1024, 4 * rbResamplerDelayHost);
+        rbZeros.assign ((size_t) maxLeaf, 0.0f);
+    }
 
     // --- Output FIFO ---------------------------------------------------------
     // We keep a one-block cushion in the ring so Rubber Band's per-call
@@ -1011,14 +1117,54 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     // samples). Sizing the cushion to RB's own start delay gives ample headroom
     // so the pop path never starves — starvation would zero-pad the block tail
     // and click. A one-block floor covers the trivial (unity) case.
-    const int startDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
-    rbLatency = startDelay;
+    const int engineStartDelay = rubberBand.empty() ? 0 : (int) rubberBand.front()->getStartDelay();
+    const int startDelay = rbResampling
+        ? (int) std::lround (engineStartDelay * currentSampleRate / rbEngineRate) : engineStartDelay;
+    rbGroupBase = startDelay;
+    rbLatency = startDelay + rbResamplerDelayHost;
+    if (! rbResampling)
+    {
+        //  (rbCushion is assigned just below; use its definition here.)
+        const int nativeReported = rbLatency + juce::jmax (512, startDelay)
+            + (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction);
+        const int off = -(int) std::lround (0.00077 * currentSampleRate);
+        const int headroom = (int) std::lround (kRbHeadroomSeconds * currentSampleRate);
+        rbRealDelayHost = nativeReported + off + headroom;
+        rbHeadroomHost = headroom;
+        rbStreamOffsetHost = 0;
+    }
+    if (rbResampling)
+    {
+        //  Mirror the native engine's calibrated timing, scaled to the host rate. Native at the
+        //  engine rate: reported = S + cushion + group, and the real delay sits ~0.77 ms earlier (the
+        //  documented midpoint between unity and tuned onsets). Measured 2026-09-29: Rubber Band's
+        //  output stream is index-aligned with its input (stream offset 0; its start delay shows up
+        //  as production lag, 2015-2517 host samples at 44.1 kHz, block-independent), and the
+        //  resampler pair withholds rbResamplerDelayHost more. Both targets include that withholding
+        //  so the counted priming keeps a margin over the lag similar to the native path's.
+        const double scale = currentSampleRate / rbEngineRate;
+        const int engineCushion = juce::jmax (512, engineStartDelay);
+        const int engineGroup = (int) std::ceil ((double) engineStartDelay * rubberBandR3GroupDelayFraction);
+        const int nativeReported = engineStartDelay + engineCushion + engineGroup;
+        const int nativeReal = nativeReported - (int) std::lround (0.00077 * rbEngineRate);
+        const int headroomHost = (int) std::lround (kRbHeadroomSeconds * currentSampleRate);
+        rbHeadroomHost     = headroomHost;
+        rbReportedHost     = (int) std::lround (nativeReported * scale) + rbResamplerDelayHost + headroomHost;
+        rbRealDelayHost    = (int) std::lround (nativeReal * scale) + rbResamplerDelayHost + headroomHost;
+        //  resetRbFifo flushes the resamplers with zeros (never reset(), see there), leaving them in
+        //  steady state: they no longer withhold their frames but emit the zeros still in flight
+        //  first, so the output stream runs rbResamplerDelayHost samples behind the input index
+        //  instead of lagging in production. Measured: +2.77 ms at 44.1 kHz until this was set.
+        rbStreamOffsetHost = rbResamplerDelayHost;
+        juce::ignoreUnused (engineCushion);
+    }
     // Fixed latency floor: a host's declared buffer size must not change the
     // engine's delay or the amount of automation queued ahead of playback.
     rbCushion = juce::jmax (512, startDelay);
     rbFifoCap = rbCushion + startDelay + 8 * preparedBlockSize + 16384;
     rbFifo.setSize (numChannels, rbFifoCap);
     resetRbFifo();
+    rbStats = {};
 #endif
 
     // Always run a sample-identical dry reference at the exact monophonic engine
@@ -1213,8 +1359,12 @@ int SattariAutoPitchAudioProcessor::printEngineLatencySamples() const noexcept
 int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
 {
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+    if (rbResampling)
+        return rbReportedHost;
+    if (rbHeadroomHost > 0)
+        return rbLatency + rbCushion + (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction) + rbHeadroomHost;
     const int reconstructionGroupDelay =
-        (int) std::ceil ((double) rbLatency * rubberBandR3GroupDelayFraction);
+        (int) std::ceil ((double) rbGroupBase * rubberBandR3GroupDelayFraction);
     return rbLatency + rbCushion + reconstructionGroupDelay;
 #else
     return 0;   // no Rubber Band: the formant-guide fallback is block-local
@@ -1223,6 +1373,14 @@ int SattariAutoPitchAudioProcessor::monoEngineLatencySamples() const noexcept
 
 void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
 {
+    // A manual Key / Scale choice by the user or host (not a session restore and not
+    // the internal Scale -> scaleMode mirror) makes the manual key an explicit
+    // decision that AutoKey may fall back to.
+    if ((parameterID == "keyRoot" || parameterID == "scale" || parameterID == "scaleMode")
+        && ! restoringKeyState.load (std::memory_order_acquire)
+        && ! scaleMirrorInProgress.load (std::memory_order_acquire))
+        manualKeyExplicit.store (true, std::memory_order_relaxed);
+
     // Preserve automation/session compatibility for the original 3-choice Scale
     // parameter. New UI selections write scaleMode immediately afterwards, while
     // old hosts/presets that only know Scale still select the expected base mode.
@@ -1243,7 +1401,11 @@ void SattariAutoPitchAudioProcessor::parameterChanged (const juce::String& param
         if (juce::MessageManager::existsAndIsCurrentThread())
         {
             if (auto* extended = apvts.getParameter ("scaleMode"))
+            {
+                scaleMirrorInProgress.store (true, std::memory_order_release);
                 extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+                scaleMirrorInProgress.store (false, std::memory_order_release);
+            }
         }
         else
         {
@@ -1306,7 +1468,11 @@ void SattariAutoPitchAudioProcessor::handleAsyncUpdate()
         const int wantScaleMode = pendingScaleMirror.exchange (-1, std::memory_order_acquire);
         if (wantScaleMode >= 0)
             if (auto* extended = apvts.getParameter ("scaleMode"))
+            {
+                scaleMirrorInProgress.store (true, std::memory_order_release);
                 extended->setValueNotifyingHost (extended->convertTo0to1 ((float) wantScaleMode));
+                scaleMirrorInProgress.store (false, std::memory_order_release);
+            }
     }
 
     // If the Low Latency floor changed, build a fresh PSOLA set on THIS (message)
@@ -1350,7 +1516,8 @@ void SattariAutoPitchAudioProcessor::releaseResources()
 #endif
 
 #if SATTARI_AUTOPITCH_HAS_SIGNALSMITH
-    ssStretch.reset();
+    if (ssConfigured)
+        ssStretch.reset();
     ssOutput.setSize (0, 0);
     ssInputPtrs.clear();
     ssOutputPtrs.clear();
@@ -1399,6 +1566,11 @@ void SattariAutoPitchAudioProcessor::reset()
 
 void SattariAutoPitchAudioProcessor::resetPitchState (int)
 {
+    correctionMix = -1.0f;
+    humanizeRng.setSeed (humanizeSeed);
+    humanizeTargetCents = 0.0;
+    humanizeSmoothedCents = 0.0;
+    humanizeBlocksUntilNewTarget = 0;
     pitchFrameBuffer.assign ((size_t) pitchFrameSize, 0.0f);
     pitchWriteIndex = 0;
     pitchSamplesUntilAnalysis = pitchHopSize;
@@ -1424,6 +1596,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
         smoothedXposeScale = std::pow (2.0, (double) seedSemis / 12.0);
     }
     autoKeyHistogram.fill (0.0);
+    chromaKeyHistogram.fill (0.0);
     publishDetectedAutoKey (9, 1, 0.0f);
     //  The live estimator accumulates whole-session chroma, so everything that
     //  clears the histogram must clear it too — via the flag, because it is
@@ -1438,6 +1611,10 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     // Vibrato-boundary hysteresis + Intent v2 state clear with everything else,
     // or a stale bias survives a re-prepare.
     hysteresisAltTarget = -1000;
+    heldTargetMidi = -1;
+    heldTargetContext = -1;
+    heldTargetAwaySec = 0.0;
+    heldTargetSilentSec = 0.0;
     hysteresisAge       = 999.0;
     intentState.reset();
     // Synthetic vibrato generator: clear phase + onset ramp.
@@ -1844,7 +2021,17 @@ int SattariAutoPitchAudioProcessor::effectiveScaleIndex() const
         && (userScale == 0 || userScale == 1))
         return juce::jlimit (0, 1, detectedScale);
 
+    if (autoKeyFallsBackToChromatic (detectedConfidence))
+        return 2;   // chromatic: no trusted key and no key the user chose
+
     return juce::jlimit (0, scaleChoices.size() - 1, userScale);
+}
+
+bool SattariAutoPitchAudioProcessor::autoKeyFallsBackToChromatic (float detectedConfidence) const
+{
+    return apvts.getRawParameterValue ("autoKey")->load() > 0.5f
+        && detectedConfidence < kMinBusKeyConfidence
+        && ! manualKeyExplicit.load (std::memory_order_relaxed);
 }
 
 bool SattariAutoPitchAudioProcessor::keyMapDriving() const
@@ -1908,7 +2095,7 @@ SattariAutoPitchAudioProcessor::KeyOrigin SattariAutoPitchAudioProcessor::curren
         o.scale = detectedConfidence >= kMinBusKeyConfidence
                   && (userScale == 0 || userScale == 1)
                 ? juce::jlimit (0, 1, detectedScale)
-                : userScale;
+                : (autoKeyFallsBackToChromatic (detectedConfidence) ? 2 : userScale);
         o.confidence = detectedConfidence;
         return o;
     }
@@ -1927,8 +2114,13 @@ void SattariAutoPitchAudioProcessor::updateAutoKeyHistogram (const PitchFrame& f
 
     const int note = ((int) std::round (frame.midi) % 12 + 12) % 12;
     const double weight = juce::jlimit (0.0, 1.0, frame.confidence) * juce::jlimit (0.0, 1.0, frame.rms * 30.0);
+    // A key needs a memory of phrases, not of the current chord. The old fixed
+    // 0.995 per analysis hop (every 5.3 ms) forgot in ~1 s, so the "key" followed
+    // the harmony bar by bar (a I-IV-V-I melody read as IV half the time).
+    // Time-based decay: ~15 s time constant regardless of hop size or sample rate.
+    const double decay = std::exp (-((double) pitchHopSize / juce::jmax (1.0, currentSampleRate)) / autoKeyMemorySec);
     for (auto& value : autoKeyHistogram)
-        value *= 0.995;
+        value *= decay;
     autoKeyHistogram[(size_t) note] += weight;
 
     correlateAutoKeyHistogram();
@@ -1938,6 +2130,13 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
 {
     const int scaleIndex = juce::roundToInt (apvts.getRawParameterValue ("scaleMode")->load());
     const auto scaleName = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
+
+    //  Which evidence is live decides both the histogram and its profile. While
+    //  sidechain / polyphonic chroma is flowing (sidechainSeenAudio) the f0
+    //  histogram is not updated at all, so the chroma one is the only fresh source;
+    //  otherwise the sung-note histogram is.
+    const bool chromaSource = sidechainSeenAudio;
+    const auto& histogram = chromaSource ? chromaKeyHistogram : autoKeyHistogram;
 
     int bestRoot = 9;
     //  Staged verdict: filled by whichever detector wins below, published as one
@@ -2008,7 +2207,9 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
         }
         else
         {
-            const auto kr = keyAnalysis.analyseChroma (autoKeyHistogram.data());
+            sattari::dsp::KeyAnalysisConfig histogramCfg;
+            histogramCfg.profile = chromaSource ? kAutoKeyChromaProfile : autoKeyHistogramProfile;
+            const auto kr = keyAnalysis.analyseChroma (histogram.data(), histogramCfg);
             if (kr.valid)
             {
                 bestRoot = kr.root;
@@ -2035,7 +2236,7 @@ void SattariAutoPitchAudioProcessor::correlateAutoKeyHistogram()
             for (int noteIndex = 0; noteIndex < 12; ++noteIndex)
             {
                 const int degree = ((noteIndex - root) % 12 + 12) % 12;
-                score += autoKeyHistogram[(size_t) noteIndex]
+                score += histogram[(size_t) noteIndex]
                        * (scaleAllowsDegree (degree, scaleName) ? 1.0 : -0.18);
             }
             if (score > bestScore) { secondScore = bestScore; bestScore = score; bestRoot = root; }
@@ -2219,8 +2420,8 @@ void SattariAutoPitchAudioProcessor::runChromaAnalysis()
     if (total < 1.0e-9) return;   // silent window -> leave the histogram untouched
 
     constexpr double blend = 0.35;
-    for (size_t i = 0; i < autoKeyHistogram.size(); ++i)
-        autoKeyHistogram[i] = (1.0 - blend) * autoKeyHistogram[i] + blend * pcAccum[i];
+    for (size_t i = 0; i < chromaKeyHistogram.size(); ++i)
+        chromaKeyHistogram[i] = (1.0 - blend) * chromaKeyHistogram[i] + blend * pcAccum[i];
 
     // --- Live neural key: decayed mean + covariance of the L1-normalised chroma.
     // Same feature as the offline Key Map / training (chroma summed to 1 per frame),
@@ -3716,7 +3917,65 @@ SattariAutoPitchAudioProcessor::PitchFrame SattariAutoPitchAudioProcessor::build
 
     detected.targetMidi = (double) targetMidi;
     detected.correctionCents = (detected.targetMidi - detected.midi) * 100.0;
+    detected.targetContext = (juce::jlimit (0, 11, rootIndex))
+                           | (juce::jlimit (0, 31, scaleIndex) << 4)
+                           | (mask << 9);
     return detected;
+}
+
+void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, double hopSec)
+{
+    // Explicit targets (MIDI / graph edits) are exact requests, never held.
+    if (! targetHysteresisEnabled
+        || apvts.getRawParameterValue ("midiTarget")->load() > 0.5f
+        || apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f)
+    {
+        heldTargetMidi = -1;
+        return;
+    }
+
+    if (! frame.voiced)
+    {
+        heldTargetSilentSec += hopSec;
+        if (heldTargetSilentSec > 0.150)
+            heldTargetMidi = -1;             // a new phrase starts fresh
+        return;
+    }
+    heldTargetSilentSec = 0.0;
+
+    // A key, scale or Edit-Notes change redefines which notes are legal. The held
+    // target was chosen under the old rules and may now be out of scale or
+    // blocked, so drop it instead of letting it sit there for up to 120 ms.
+    if (frame.targetContext != heldTargetContext)
+    {
+        heldTargetContext = frame.targetContext;
+        heldTargetMidi = -1;
+    }
+
+    const int nearest = juce::roundToInt (frame.targetMidi);
+    if (heldTargetMidi < 0 || nearest == heldTargetMidi)
+    {
+        heldTargetMidi = nearest;
+        heldTargetAwaySec = 0.0;
+        return;
+    }
+
+    // Switch once the new note is nearer by more than half a semitone (25 c past
+    // the midpoint between neighbouring semitones) or the pitch has stayed nearer
+    // it for 120 ms. Real note changes (>= 100 c) switch immediately.
+    constexpr double switchMarginSemis = 0.5;
+    constexpr double switchAfterSec    = 0.120;
+    const double margin = std::abs (frame.midi - (double) heldTargetMidi) - std::abs (frame.midi - (double) nearest);
+    heldTargetAwaySec += hopSec;
+    if (margin > switchMarginSemis || heldTargetAwaySec >= switchAfterSec)
+    {
+        heldTargetMidi = nearest;
+        heldTargetAwaySec = 0.0;
+        return;
+    }
+
+    frame.targetMidi = (double) heldTargetMidi;
+    frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
 }
 
 void SattariAutoPitchAudioProcessor::setRegionKey (int regionIndex, int root, bool minor)
@@ -3966,17 +4225,14 @@ double SattariAutoPitchAudioProcessor::estimateIntentConfidence (const PitchFram
     const double motion = juce::jlimit (0.0, 1.0, (transitionBoost - 0.55) / 0.45);
     const double stability = 1.0 - 0.30 * motion;
 
-    //  4. KEY TRUST. If the note set itself came from a low-confidence DETECTION,
-    //     every target derived from it inherits that doubt. Crucially this must
-    //     key off where the correction key ACTUALLY came from, not merely whether
-    //     the AutoKey switch is on: a manual, bus, or song-map key is not made
-    //     doubtful by an unrelated AutoKey estimate running alongside it.
-    const auto origin = currentKeyOrigin();
-    const double keyTrust = origin.source == KeyOrigin::Source::AutoKey
-        ? juce::jlimit (0.35, 1.0, (double) origin.confidence / (double) kMinBusKeyConfidence)
-        : 1.0;
-
-    return juce::jlimit (0.0, 1.0, distance * detector * stability * keyTrust);
+    //  There is deliberately NO key-trust factor. AutoKey never hands correction a
+    //  low-confidence key: below kMinBusKeyConfidence the note set is the user's
+    //  manual key or Chromatic, neither of which is a guess; at or above it the
+    //  detection is accepted. The old factor (confidence / gate, floor 0.35) could
+    //  therefore only ever weaken the FALLBACK key, scaling a No Result vocal's
+    //  correction to as little as 35% - measured on real choir singers as up to
+    //  40 points fewer notes within 10 c with AutoKey on (accuracy Round 10).
+    return juce::jlimit (0.0, 1.0, distance * detector * stability);
 }
 
 // ---------------------------------------------------------------------------
@@ -4320,7 +4576,145 @@ double SattariAutoPitchAudioProcessor::pitchScaleForFrame (const PitchFrame& fra
     return std::pow (2.0, limitedCents / 1200.0);
 }
 
+void SattariAutoPitchAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    // JUCE's default bypass passes audio through undelayed while the host is
+    // still compensating for the reported latency, so a bypassed vocal played
+    // ~60 ms early. Delay the dry signal by the same amount instead.
+    //
+    // The engine keeps running on a scratch copy while bypassed. It used to stop, and
+    // re-engaging then played its pre-bypass pipeline (up to 7 of 14 re-engages replayed
+    // old audio, correlation 1.00) with a click 54-87x the continuous baseline.
+    const int n = buffer.getNumSamples();
+    if (n > bypassProcessScratch.getNumSamples() || buffer.getNumChannels() > bypassProcessScratch.getNumChannels())
+    {
+        // Host broke its declared block size: plain delayed bypass, and flush the engine
+        // so the next processed block cannot replay stale audio.
+        auto main = getBusBuffer (buffer, false, 0);
+        writeBypassDelay (main, true);
+        reset();
+        hostBypassMix = 0.0f;
+        return;
+    }
+    juce::AudioBuffer<float> scratch (bypassProcessScratch.getArrayOfWritePointers(),
+                                      buffer.getNumChannels(), n);
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        scratch.copyFrom (ch, 0, buffer, ch, 0, n);
+    bypassMidiScratch.clear();
+    processBlockCore (scratch, bypassMidiScratch);   // writes this block into the bypass ring
+
+    auto main = getBusBuffer (buffer, false, 0);
+    readBypassDelayed (main, n);
+    fadeHostBypass (main, getBusBuffer (scratch, false, 0), 0.0f, n);
+}
+
+void SattariAutoPitchAudioProcessor::readBypassDelayed (juce::AudioBuffer<float>& out, int numSamples) const
+{
+    const int size = bypassDelay.getNumSamples();
+    const int latency = getLatencySamples();
+    const bool canDelay = size > 0 && latency > 0 && latency < size;
+    for (int ch = 0; ch < out.getNumChannels(); ++ch)
+    {
+        auto* data = out.getWritePointer (ch);
+        if (! canDelay || ch >= bypassDelay.getNumChannels())
+        {
+            if (! canDelay && ch < bypassDelay.getNumChannels() && size > 0)
+                for (int i = 0; i < numSamples; ++i)
+                    data[i] = bypassDelay.getSample (ch, (bypassDelayBlockStart + i) % size);
+            else
+                juce::FloatVectorOperations::clear (data, numSamples);
+            continue;
+        }
+        const auto* line = bypassDelay.getReadPointer (ch);
+        for (int i = 0; i < numSamples; ++i)
+            data[i] = line[(bypassDelayBlockStart + i - latency + size) % size];
+    }
+}
+
+void SattariAutoPitchAudioProcessor::fadeHostBypass (juce::AudioBuffer<float>& out,
+                                                     const juce::AudioBuffer<float>& processed,
+                                                     float target, int numSamples)
+{
+    // out holds the side we are fading TO for target 0 (dry) and FROM for target 1 is
+    // handled by the caller passing the processed block as `processed`.
+    if (hostBypassMix < 0.0f)
+        hostBypassMix = target;
+    if (hostBypassMix == target)
+        return;
+    const float step = 1.0f / (float) juce::jmax (1.0, kHostBypassFadeSeconds * getSampleRate());
+    const int channels = juce::jmin (out.getNumChannels(), processed.getNumChannels());
+    float mix = hostBypassMix;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        mix = target > mix ? juce::jmin (target, mix + step) : juce::jmax (target, mix - step);
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            const float dry = out.getSample (ch, i);
+            out.setSample (ch, i, dry + mix * (processed.getSample (ch, i) - dry));
+        }
+    }
+    hostBypassMix = mix;
+}
+
+void SattariAutoPitchAudioProcessor::writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed)
+{
+    // The ring is written on every block, processed or bypassed. It used to be
+    // written only while bypassed, so engaging bypass after a stretch of normal
+    // processing replayed ~one latency of audio left over from the PREVIOUS bypass.
+    const int size = bypassDelay.getNumSamples();
+    const int n = main.getNumSamples();
+    bypassDelayBlockStart = bypassDelayWrite;
+    if (size <= 0 || n <= 0)
+        return;
+    const int latency = getLatencySamples();
+    const bool canDelay = latency > 0 && latency < size;
+
+    for (int ch = 0; ch < bypassDelay.getNumChannels(); ++ch)
+    {
+        auto* line = bypassDelay.getWritePointer (ch);
+        if (ch >= main.getNumChannels())
+        {
+            for (int i = 0; i < n; ++i)
+                line[(bypassDelayWrite + i) % size] = 0.0f;
+            continue;
+        }
+        auto* data = main.getWritePointer (ch);
+        for (int i = 0; i < n; ++i)
+        {
+            const int w = (bypassDelayWrite + i) % size;
+            line[w] = data[i];
+            if (replaceWithDelayed && canDelay)
+                data[i] = line[(w - latency + size) % size];
+        }
+    }
+    bypassDelayWrite = (bypassDelayWrite + n) % size;
+}
+
 void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    const int n = buffer.getNumSamples();
+    processBlockCore (buffer, midi);
+    //  Coming back from host bypass: fade from the latency-delayed dry (what bypass was
+    //  playing) into the processed output instead of cutting over.
+    if (hostBypassMix >= 0.0f && hostBypassMix < 1.0f
+        && n <= bypassDryScratch.getNumSamples() && buffer.getNumChannels() <= bypassDryScratch.getNumChannels())
+    {
+        auto main = getBusBuffer (buffer, false, 0);
+        juce::AudioBuffer<float> dry (bypassDryScratch.getArrayOfWritePointers(), main.getNumChannels(), n);
+        readBypassDelayed (dry, n);
+        // fadeHostBypass blends `out` (from) toward `processed` (to); here out = dry.
+        juce::AudioBuffer<float> processedView (bypassProcessScratch.getArrayOfWritePointers(), main.getNumChannels(), n);
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+            processedView.copyFrom (ch, 0, main, ch, 0, n);
+        fadeHostBypass (dry, processedView, 1.0f, n);
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+            main.copyFrom (ch, 0, dry, ch, 0, n);
+    }
+    else
+        hostBypassMix = 1.0f;
+}
+
+void SattariAutoPitchAudioProcessor::processBlockCore (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 #if JucePlugin_Enable_ARA
@@ -4390,6 +4784,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // Capture the untouched insert input before analysis or any DSP mutates it.
     // The reference ring runs continuously so Correction Off can become a true,
     // sample-identical bypass without changing the plugin's declared latency.
+    // The host-bypass ring is fed here too, so engaging bypass is seamless.
+    writeBypassDelay (mainBuffer, false);
     renderDelayedDryReference (mainBuffer);
     // Keep an untouched vocal source for harmony. Pitching an already-corrected
     // lead again compounds formant/phase processing; every generated singer is
@@ -4528,6 +4924,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // 48 kHz / 64-sample callback deadline. Neural fusion still needs the Studio
     // frame, so only the deterministic YIN-only Live path elides the duplicate.
     const bool useLiveTrackerOnly = liveModeActive() && ! polyOn && ! neuralHist;
+    // With neural fusion the frame that drives correction is the FUSED one, rebuilt
+    // once per block below. Target hysteresis must run once, on that final frame,
+    // with the block's real elapsed time. Running it on the YIN frame every hop AND
+    // again on the fused frame every block advanced the hold clock by up to five
+    // hops per real hop at 64-sample blocks (a 120 ms hold acted like ~25 ms).
+    const bool neuralFusionThisBlock = neuralHist && (int) scMonoScratch.size() >= numSamples;
     if (! useLiveTrackerOnly)
     {
         for (int i = 0; i < numSamples; ++i)
@@ -4546,6 +4948,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
                 if (! keyMapDriving() && ! sidechainSeenAudio)
                     updateAutoKeyHistogram (detected);
                 lastPitchFrame = buildCorrectionFrame (detected);
+                if (! neuralFusionThisBlock)
+                    applyTargetHysteresis (lastPitchFrame, (double) pitchHopSize / currentSampleRate);
                 // Intent Engine v2: override targetMidi when mode != PRODUCTION
                 if (intentMode.load (std::memory_order_relaxed) != 0)
                 {
@@ -4564,7 +4968,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
     // can rescue high-confidence breathy/noisy frames that YIN declines. It does
     // not blindly override YIN: conflicting or octave-displaced estimates are
     // rejected by the conservative shared fusion state below.
-    if (neuralHist && (int) scMonoScratch.size() >= numSamples)
+    if (neuralFusionThisBlock)
     {
         // Audio thread: only feed the ring (lock-free) — the worker thread runs
         // the ONNX inference and publishes its result into the atomics we read.
@@ -4623,6 +5027,8 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         {
             lastPitchFrame.voiced = false;
         }
+        // The one hysteresis update for this block (see neuralFusionThisBlock).
+        applyTargetHysteresis (lastPitchFrame, (double) numSamples / juce::jmax (1.0, currentSampleRate));
     }
     else if (! neuralHist)
     {
@@ -5012,6 +5418,16 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         && (! correctionOn || objectDisablesCorrection
             || (! classicActive && selectedAmount <= 1.0e-6f));
 
+    //  Switching correction off/on (Enable Correction, Amount reaching 0, a disabled note
+    //  object) used to swap engine output and the delayed dry reference at a block edge.
+    //  They are not sample-identical, so every switch clicked (up to 0.48 on a 0.23-peak
+    //  tone). Crossfade the two over kCorrectionFadeSeconds instead. No switch, no fade:
+    //  steady-state output is unchanged.
+    const float correctionMixTarget = pitchEngineBypassed ? 0.0f : 1.0f;
+    if (correctionMix < 0.0f)
+        correctionMix = correctionMixTarget;       // first block after prepare/reset: no fade
+    const bool correctionFading = correctionMix != correctionMixTarget;
+
     if (pitchEngineBypassed)
     {
         // Keep the print engine warm at unity so re-enabling correction does not
@@ -5042,9 +5458,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
             processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
 #endif
         }
-        copyDelayedDryReferenceTo (mainBuffer);
-        if (std::abs (inputGain - 1.0f) > 1.0e-6f)
-            mainBuffer.applyGain (inputGain);
+        if (! correctionFading)                    // mid-fade the warm output is the wet side
+        {
+            copyDelayedDryReferenceTo (mainBuffer);
+            if (std::abs (inputGain - 1.0f) > 1.0e-6f)
+                mainBuffer.applyGain (inputGain);
+        }
     }
     else if (xposeActive)
     {
@@ -5096,6 +5515,25 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
 #else
         processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
 #endif
+    }
+    if (correctionFading)
+    {
+        const float step = 1.0f / (float) juce::jmax (1.0, kCorrectionFadeSeconds * currentSampleRate);
+        const int channels = juce::jmin (mainBuffer.getNumChannels(), dryDelayOutput.getNumChannels());
+        const int samples = juce::jmin (mainBuffer.getNumSamples(), dryDelayOutput.getNumSamples());
+        float mix = correctionMix;
+        for (int i = 0; i < samples; ++i)
+        {
+            mix = correctionMixTarget > mix ? juce::jmin (correctionMixTarget, mix + step)
+                                            : juce::jmax (correctionMixTarget, mix - step);
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                const float wet = mainBuffer.getSample (ch, i);
+                const float dry = dryDelayOutput.getSample (ch, i) * inputGain;
+                mainBuffer.setSample (ch, i, dry + mix * (wet - dry));
+            }
+        }
+        correctionMix = mix;
     }
     applyModeCharacter (mainBuffer);
     renderHarmonyInto (mainBuffer, harmonyScratch, hostTimeSeconds);
@@ -5469,7 +5907,20 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
         stretcher.setFormantScale (formantPreserve ? formantScale : 0.0);
         stretcher.setPitchScale (pitchScale);
         const float* input = buffer.getReadPointer (channel);
-        stretcher.process (&input, (size_t) numSamples, false);
+        if (rbResampling)
+        {
+            if (channel == 0) rbConsumedTotal += numSamples;
+            float* engineIn = rbEngineIn.getWritePointer (channel);
+            const int m = rbUp[(size_t) channel]->resample (&engineIn, rbEngineIn.getNumSamples(), &input, numSamples,
+                                                            rbEngineRate / currentSampleRate, false);
+            const float* ep = engineIn;
+            stretcher.process (&ep, (size_t) m, false);
+        }
+        else
+        {
+            if (channel == 0) rbConsumedTotal += numSamples;
+            stretcher.process (&input, (size_t) numSamples, false);
+        }
     }
 
     // 2. Drain everything Rubber Band produced into the FIFO. All channels share
@@ -5489,33 +5940,63 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
             float* dst = rubberBandOutput.getWritePointer (channel);
             rubberBand[(size_t) channel]->retrieve (&dst, (size_t) chunk);
         }
-        pushRbFifo (rubberBandOutput, 0, chunk);
+        if (rbResampling)
+        {
+            int produced = 0;
+            for (int channel = 0; channel < numChannels; ++channel)
+            {
+                const float* src = rubberBandOutput.getReadPointer (channel);
+                float* hostOut = rbHostOut.getWritePointer (channel);
+                produced = rbDown[(size_t) channel]->resample (&hostOut, rbHostOut.getNumSamples(), &src, chunk,
+                                                               currentSampleRate / rbEngineRate, false);
+            }
+            if (produced > 0)
+            {
+                pushRbFifo (rbHostOut, 0, produced);
+                rbPushedTotal += produced;
+            }
+        }
+        else
+        {
+            pushRbFifo (rubberBandOutput, 0, chunk);
+            rbPushedTotal += chunk;
+        }
     }
 
     // 3. Pop exactly numSamples from the ring. Hold silence until the one-block
     //    cushion has filled (this is the reported start-up latency); after that
     //    the ring always has enough, so output is continuous — no dry splices.
-    if (! rbPrimed && rbFifoCount >= rbCushion)
+    //  COUNTED PRIMING (2026-09-29). The output read head is placed from sample counters so the real
+    //  delay equals rbRealDelayHost exactly, at every sample rate and host buffer. The old rule ("start
+    //  once the FIFO holds a cushion, drop the overshoot") made the delay depend on the buffer size and
+    //  on what the signal was doing at that instant: at 48 kHz it ran +8.5 ms late at 64 samples, and
+    //  +10 ms late at 88.2/96 kHz at every buffer (AutoPitchNoHarm check 10). Rubber Band's output
+    //  stream is index-aligned with its input (stream offset 0); its start delay is production lag.
+    if (! rbPrimed)
     {
-        // Drop the overshoot so the REAL delay equals the REPORTED one. This
-        // threshold can only be tested at block boundaries, and Rubber Band's output
-        // is bursty, so the ring typically crosses rbCushion by a few hundred
-        // samples. In steady state we pop exactly numSamples per block, so whatever
-        // surplus is sitting here at priming never drains — it becomes permanent
-        // latency on top of activeEngineLatencySamples()'s startDelay + rbCushion.
-        // Measured at 48k/512 that was ~239 samples (~5 ms) of UNDER-report, i.e. the
-        // host under-compensated and the tuned track sat late against the dry.
-        // Discarding the surplus (rather than inflating the reported figure) keeps
-        // the pipeline as short as it claims to be.
-        const int overshoot = rbFifoCount - rbCushion;
-        if (overshoot > 0)
+        const juce::int64 t0 = rbConsumedTotal - numSamples;                 // input index of this block
+        const juce::int64 r  = t0 - rbRealDelayHost + rbStreamOffsetHost;    // stream index due now
+        const juce::int64 head = rbPushedTotal - rbFifoCount;                // stream index at the read head
+        if (r >= head && rbPushedTotal - r >= numSamples)
         {
-            rbFifoRead   = (rbFifoRead + overshoot) % rbFifoCap;
-            rbFifoCount -= overshoot;
+            const int drop = (int) (r - head);
+            rbFifoRead   = (rbFifoRead + drop) % rbFifoCap;
+            rbFifoCount -= drop;
+            rbPrimed = true;
         }
-        rbPrimed = true;
+        else if (t0 > (juce::int64) rbRealDelayHost + 4 * (juce::int64) rbCushion && rbFifoCount >= numSamples)
+        {
+            //  Fail-safe: the chain lags more than the target allows (not seen in qualification).
+            //  Output late rather than stay silent; the delay then exceeds the reported latency.
+            //  Keep the headroom margin in the FIFO so the bursty engine output does not underrun
+            //  on the next blocks.
+            const int drop = juce::jmax (0, rbFifoCount - numSamples - rbHeadroomHost);
+            rbFifoRead   = (rbFifoRead + drop) % rbFifoCap;
+            rbFifoCount -= drop;
+            rbPrimed = true;
+            ++rbStats.failSafePrimes;
+        }
     }
-
     if (! rbPrimed)
     {
         buffer.clear();
@@ -5537,6 +6018,7 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
                 out[i] = 0.0f;
         }
         const int consumed = juce::jmin (numSamples, rbFifoCount);
+        rbStats.underrunSamples += numSamples - consumed;
         rbFifoRead = (rbFifoRead + consumed) % rbFifoCap;
         rbFifoCount -= consumed;
     }
@@ -5549,8 +6031,37 @@ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<fl
 }
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
+double SattariAutoPitchAudioProcessor::qualifiedEngineRate (double hostRate) noexcept
+{
+    //  Rates at which the Rubber Band R3 short-window engine passes AutoPitchNoHarm check 9.
+    for (const double r : { 32000.0, 48000.0, 88200.0, 96000.0 })
+        if (std::abs (hostRate - r) < 0.5)
+            return r;
+    return hostRate >= 64000.0 ? 96000.0 : 48000.0;
+}
+
 void SattariAutoPitchAudioProcessor::resetRbFifo()
 {
+    //  Clear the resamplers' history by pushing zeros through them, NOT with Resampler::reset():
+    //  in this Rubber Band build reset() discards the filter, and the next resample() call rebuilds
+    //  it (tens of thousands of Kaiser taps, heap allocation). resetRbFifo runs on the audio thread
+    //  (transport reset, Live/Poly/Transpose toggles), so that rebuild was a realtime violation.
+    //  Here the filter is built once, in prepareToPlay (whose resetRbFifo call initialises it), and
+    //  the flush reuses the preallocated scratch buffers. Timing is unchanged: a flushed resampler
+    //  withholds the same frames as a fresh one, within its fractional phase (< 1 sample).
+    for (size_t ch = 0; ch < rbUp.size(); ++ch)
+    {
+        for (int done = 0; done < rbFlushLen; done += (int) rbZeros.size())
+        {
+            const float* zp = rbZeros.data();
+            float* mp = rbEngineIn.getWritePointer ((int) ch);
+            rbUp[ch]->resample (&mp, rbEngineIn.getNumSamples(), &zp, (int) rbZeros.size(), rbEngineRate / currentSampleRate, false);
+            float* hp = rbHostOut.getWritePointer ((int) ch);
+            rbDown[ch]->resample (&hp, rbHostOut.getNumSamples(), &zp, (int) rbZeros.size(), currentSampleRate / rbEngineRate, false);
+        }
+    }
+    rbConsumedTotal = 0;
+    rbPushedTotal = 0;
     rbFifo.clear();
     rbFifoRead  = 0;
     rbFifoCount = 0;
@@ -5915,7 +6426,10 @@ juce::String SattariAutoPitchAudioProcessor::getKeyDetectionTabSummary() const
     if (origin.source == KeyOrigin::Source::AutoKey
         && origin.confidence < kMinBusKeyConfidence)
         return "Key   No Result"
-            + juce::String::fromUTF8 ("   \xc2\xb7   ") + "manual " + root + " " + scale + " retained"
+            + juce::String::fromUTF8 ("   \xc2\xb7   ")
+            + (autoKeyFallsBackToChromatic (origin.confidence)
+                   ? juce::String ("Chromatic until a key is detected")
+                   : "manual " + root + " " + scale + " retained")
             + juce::String::fromUTF8 ("   \xc2\xb7   ") + engine;
     return "Key   " + root + " " + scale
         + juce::String::fromUTF8 ("   \xc2\xb7   ") + juce::String (confidence) + "% confidence"
@@ -6035,7 +6549,10 @@ juce::AudioProcessorEditor* SattariAutoPitchAudioProcessor::createEditor()
 void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    removeSessionSections (state);   // re-written fresh below
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+    state.setProperty ("manualKeyExplicit", manualKeyExplicit.load (std::memory_order_relaxed), nullptr);
+    state.setProperty ("humanizeSeed", humanizeSeed, nullptr);
 
     // Persist the Track Key Map so reloading a project restores the timeline.
     juce::ValueTree km ("KeyMap");
@@ -6123,6 +6640,7 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        keepOnlyNewestSessionSections (restored);   // repairs sessions saved with duplicates
         bool hasExtendedScale = false;
         std::function<void (const juce::ValueTree&)> findExtendedScale = [&] (const juce::ValueTree& tree)
         {
@@ -6221,6 +6739,11 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
 
         midiLearn.loadFrom (restored);
 
+        // Restoring a session is not a user key choice; the saved flag decides.
+        // Sessions saved before the flag existed keep their manual key as the
+        // fallback, exactly as they behaved when saved.
+        restoringKeyState.store (true, std::memory_order_release);
+        removeSessionSections (restored);           // loaded above; not parameter state
         apvts.replaceState (restored);
         if (! hasExtendedScale)
         {
@@ -6228,6 +6751,13 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                 juce::roundToInt (apvts.getRawParameterValue ("scale")->load()));
             setParameterValue ("scaleMode", (float) legacy);
         }
+        manualKeyExplicit.store (restored.hasProperty ("manualKeyExplicit")
+                                     ? (bool) restored.getProperty ("manualKeyExplicit") : true,
+                                 std::memory_order_relaxed);
+        restoringKeyState.store (false, std::memory_order_release);
+        // Sessions saved before the seed existed keep this instance's fresh seed.
+        if (restored.hasProperty ("humanizeSeed"))
+            humanizeSeed = (juce::int64) restored.getProperty ("humanizeSeed");
     }
 }
 

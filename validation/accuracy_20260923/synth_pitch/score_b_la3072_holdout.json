@@ -1,0 +1,18 @@
+{
+ "tag": "b_la3072_holdout",
+ "subset": "holdout",
+ "notes": 288,
+ "within_10c_pct": 90.97,
+ "within_5c_pct": 67.71,
+ "median_abs_c": 3.1,
+ "p95_abs_c": 13.82,
+ "worst_c": 38.6,
+ "per_voice_within_10c": {
+  "bass": 89.6,
+  "baritone": 97.9,
+  "tenor": 87.5,
+  "alto": 87.5,
+  "mezzo": 85.4,
+  "soprano": 97.9
+ }
+}

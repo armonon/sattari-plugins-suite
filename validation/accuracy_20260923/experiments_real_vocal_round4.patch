@@ -1,0 +1,187 @@
+diff --git a/plugins/auto-pitch/src/PluginProcessor.cpp b/plugins/auto-pitch/src/PluginProcessor.cpp
+index 9752b60..cc91e1e 100644
+--- a/plugins/auto-pitch/src/PluginProcessor.cpp
++++ b/plugins/auto-pitch/src/PluginProcessor.cpp
+@@ -3756,6 +3756,60 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
+             heldTargetMidi = -1;             // a new phrase starts fresh
+         return;
+     }
++
++    if (targetEmaTauSec > 0.0)
++    {
++        // Target from the note's recent average pitch: vibrato and wobble around a
++        // note sung well off-centre average out instead of crossing the half-
++        // semitone line. A clear move away (> 0.75 st for 40 ms) restarts the average
++        // at the new note; during those 40 ms the instantaneous nearest note is used.
++        const bool restart = heldTargetMidi < 0 || heldTargetSilentSec > 0.040;
++        heldTargetSilentSec = 0.0;
++        if (restart)
++        {
++            targetEma = frame.midi;
++            targetEmaAwaySec = 0.0;
++            targetEmaAgeSec = 0.0;
++        }
++        else if (std::abs (frame.midi - targetEma) > 0.75)
++        {
++            targetEmaAwaySec += hopSec;
++            if (targetEmaAwaySec < 0.040)
++                return;                      // keep the instantaneous nearest-note target
++            targetEma = frame.midi;
++            targetEmaAwaySec = 0.0;
++            targetEmaAgeSec = 0.0;
++            heldTargetMidi = -1;
++        }
++        else
++        {
++            targetEmaAwaySec = 0.0;
++            targetEmaAgeSec += hopSec;
++            // Optional onset ramp: follow quickly while the note is being acquired,
++            // then settle to the full smoothing time.
++            const double ramp = targetEmaRampSec > 0.0 ? juce::jmin (1.0, targetEmaAgeSec / targetEmaRampSec) : 1.0;
++            const double tau = targetEmaStartTauSec + (targetEmaTauSec - targetEmaStartTauSec) * ramp;
++            targetEma += (1.0 - std::exp (-hopSec / juce::jmax (1.0e-3, tau))) * (frame.midi - targetEma);
++        }
++
++        auto probe = frame;
++        probe.midi = targetEma;
++        const int candidate = juce::roundToInt (buildCorrectionFrame (probe).targetMidi);
++        if (heldTargetMidi < 0)
++            heldTargetMidi = candidate;
++        else if (candidate != heldTargetMidi
++                 && std::abs (targetEma - (double) heldTargetMidi) - std::abs (targetEma - (double) candidate) > 0.2)
++            heldTargetMidi = candidate;
++
++        frame.targetMidi = (double) heldTargetMidi;
++        frame.correctionCents = (frame.targetMidi - frame.midi) * 100.0;
++        return;
++    }
++    // Note-entry tracking for the optional faster confirmation during onsets.
++    if (heldTargetSilentSec > 0.040
++        || (heldTargetMidi >= 0 && std::abs (frame.midi - (double) heldTargetMidi) >= 1.5))
++        heldTargetNoteAgeSec = 0.0;
++    heldTargetNoteAgeSec += hopSec;
+     heldTargetSilentSec = 0.0;
+ 
+     const int nearest = juce::roundToInt (frame.targetMidi);
+@@ -3770,7 +3824,8 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
+     // the midpoint between neighbouring semitones) or the pitch has stayed nearer
+     // it for 120 ms. Real note changes (>= 100 c) switch immediately.
+     constexpr double switchMarginSemis = 0.5;
+-    constexpr double switchAfterSec    = 0.120;
++    const double switchAfterSec    = (targetOnsetHoldSec > 0.0 && heldTargetNoteAgeSec < targetOnsetWindowSec)
++                                         ? targetOnsetHoldSec : 0.120;
+     const double margin = std::abs (frame.midi - (double) heldTargetMidi) - std::abs (frame.midi - (double) nearest);
+     heldTargetAwaySec += hopSec;
+     if (margin > switchMarginSemis || heldTargetAwaySec >= switchAfterSec)
+@@ -5186,7 +5241,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
+ #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+         processWithSignalsmith (mainBuffer, engineScale, inputGain);
+ #elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
+-        processWithRubberBand (mainBuffer, engineScale, inputGain);
++        processWithRubberBand (mainBuffer, correctionDelaySamples > 0 ? delayedCorrectionScale (engineScale, numSamples) : engineScale, inputGain);
+ #else
+         processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
+ #endif
+@@ -5456,6 +5511,20 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
+         buffer.applyGain (linearGain);
+ }
+ 
++double SattariAutoPitchAudioProcessor::delayedCorrectionScale (double scale, int numSamples)
++{
++    const int size = (int) correctionScaleHistory.size();
++    if (size == 0) return scale;
++    const int lookBack = juce::jmin (correctionDelaySamples, size - 1) - numSamples / 2;
++    const double out = lookBack > 0 ? correctionScaleHistory[(size_t) ((correctionScaleWrite - lookBack + size) % size)] : scale;
++    for (int i = 0; i < juce::jmin (numSamples, size); ++i)
++    {
++        correctionScaleHistory[(size_t) correctionScaleWrite] = scale;
++        correctionScaleWrite = (correctionScaleWrite + 1) % size;
++    }
++    return out;
++}
++
+ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
+                                                             bool straightTranspose)
+ {
+diff --git a/plugins/auto-pitch/src/PluginProcessor.h b/plugins/auto-pitch/src/PluginProcessor.h
+index 2bf845f..95665b6 100644
+--- a/plugins/auto-pitch/src/PluginProcessor.h
++++ b/plugins/auto-pitch/src/PluginProcessor.h
+@@ -293,6 +293,13 @@ public:
+     IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
+     // Target-note hysteresis on/off (bench A/B only; always on in the plugin).
+     void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
++    // Choose the target from a smoothed pitch (EMA, seconds; 0 = instantaneous hold).
++    void setTargetSmoothingSec (double tau) noexcept { targetEmaTauSec = tau; }
++    void setTargetOnsetHold (double holdSec, double windowSec) noexcept { targetOnsetHoldSec = holdSec; targetOnsetWindowSec = windowSec; }
++    void setTargetSmoothingRamp (double startTau, double rampSec) noexcept { targetEmaStartTauSec = startTau; targetEmaRampSec = rampSec; }
++    // Delay the correction ratio by this many samples before the print engine
++    // (bench A/B only; 0 = off, the shipped behaviour).
++    void setCorrectionDelaySamples (int samples) { correctionDelaySamples = juce::jmax (0, samples); correctionScaleHistory.assign (16384, 1.0); correctionScaleWrite = 0; }
+     // Key profile for the sung-note AutoKey histogram (bench A/B).
+     void setAutoKeyHistogramProfile (int profile) noexcept { autoKeyHistogramProfile = (sattari::dsp::KeyProfile) profile; }
+     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
+@@ -742,7 +749,20 @@ private:
+     // Sized in prepare to cover the largest latency this instance can report.
+     juce::AudioBuffer<float> bypassDelay;
+     int bypassDelayWrite = 0;
++    int correctionDelaySamples = 0;
++    std::vector<double> correctionScaleHistory;
++    int correctionScaleWrite = 0;
++    double delayedCorrectionScale (double scale, int numSamples);
+     bool   targetHysteresisEnabled = true;
++    double targetEmaTauSec = 0.0;
++    double targetEma = 0.0;
++    double targetEmaAwaySec = 0.0;
++    double targetEmaAgeSec = 0.0;
++    double heldTargetNoteAgeSec = 0.0;
++    double targetOnsetHoldSec = 0.0;
++    double targetOnsetWindowSec = 0.200;
++    double targetEmaStartTauSec = 0.0;
++    double targetEmaRampSec = 0.0;
+     int    heldTargetMidi      = -1;
+     double heldTargetAwaySec   = 0.0;
+     double heldTargetSilentSec = 0.0;
+diff --git a/plugins/auto-pitch/tools/autopitch_bench.cpp b/plugins/auto-pitch/tools/autopitch_bench.cpp
+index ea94f94..19e12bb 100644
+--- a/plugins/auto-pitch/tools/autopitch_bench.cpp
++++ b/plugins/auto-pitch/tools/autopitch_bench.cpp
+@@ -60,7 +60,9 @@ struct Args
+     bool   liveMode    = false;
+     bool noHysteresis = false;
+     bool realtime = false;
+-    int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
++    int  keyProfile = -1;
++    int  correctionDelay = 0;
++    double targetTau = -1.0, targetStartTau = 0.0, targetRamp = 0.0, onsetHold = 0.0, onsetWin = 0.2;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
+     std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
+     bool   enableCorrection = true;
+     bool   valid       = false;
+@@ -181,6 +183,12 @@ static Args parseArgs (int argc, char** argv)
+         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+         else if (arg == "--realtime") { a.realtime = true; }
+         else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
++        else if (arg == "--correction-delay" && hasNext) { a.correctionDelay = std::stoi (argv[++i]); }
++        else if (arg == "--target-ema-tau" && hasNext) { a.targetTau = std::stod (argv[++i]); }
++        else if (arg == "--target-ema-start" && hasNext) { a.targetStartTau = std::stod (argv[++i]); }
++        else if (arg == "--target-ema-ramp" && hasNext) { a.targetRamp = std::stod (argv[++i]); }
++        else if (arg == "--onset-hold" && hasNext) { a.onsetHold = std::stod (argv[++i]); }
++        else if (arg == "--onset-hold-window" && hasNext) { a.onsetWin = std::stod (argv[++i]); }
+         else if (arg == "--param" && hasNext)
+         {
+             const juce::String kv (argv[++i]);
+@@ -267,6 +275,14 @@ int main (int argc, char** argv)
+     proc.setTargetHysteresisEnabled (! a.noHysteresis);
+     if (a.keyProfile >= 0)
+         proc.setAutoKeyHistogramProfile (a.keyProfile);
++    if (a.correctionDelay > 0)
++        proc.setCorrectionDelaySamples (a.correctionDelay);
++    if (a.targetTau >= 0.0)
++        proc.setTargetSmoothingSec (a.targetTau);
++    if (a.targetRamp > 0.0)
++        proc.setTargetSmoothingRamp (a.targetStartTau, a.targetRamp);
++    if (a.onsetHold > 0.0)
++        proc.setTargetOnsetHold (a.onsetHold, a.onsetWin);
+     proc.prepareToPlay (sr, a.block);
+ 
+     // --- Render block by block ---

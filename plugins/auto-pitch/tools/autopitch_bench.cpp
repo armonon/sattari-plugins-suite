@@ -1,12 +1,19 @@
+#include <thread>
+#include <chrono>
+#include <vector>
 // autopitch_bench.cpp — offline per-frame trace renderer for AutoPitch
 //
 // Usage:
 //   autopitch_bench input.wav --output out.wav --trace trace.json [options]
 //   --key C|C#|...|B         root note (default: A)
 //   --scale major|minor|chromatic (default: minor)
+//   --style Natural|Classic|Modern Rap|Robot|Big Harmony|0..4 (default: Classic)
 //   --amount 0..1            correction amount (default: 0.82)
 //   --speed  0..1            retune speed (default: 0.70)
 //   --block  N               block size in samples (default: 512)
+//   --auto-key               enable AutoKey Follow while rendering
+//   --live-mode              enable the production Live Mode engine
+//   --disable-correction     set Enable Correction false for baseline renders
 //   --intent-mode production|v2_shadow|v2_active  (default: production)
 //   --smoke                  finite+non-silent check only, no trace required
 //
@@ -42,22 +49,37 @@ struct Args
     juce::File traceJson;
     juce::String key   = "A";
     juce::String scale = "minor";
+    juce::String style = "Classic";
     float  amount      = 0.82f;
     float  speed       = 0.70f;
     int    block       = 512;
     IntentMode intentMode = IntentMode::PRODUCTION;
     bool   smoke       = false;
+    bool   autoKey     = false;
     bool   lowLatency  = false;   // --low-latency: sets lowLatency param → OptionWindowShort
+    bool   liveMode    = false;
+    bool noHysteresis = false;
+    bool realtime = false;
+    bool manualKeyUntouched = false;   // leave Key/Scale at the factory default (not a user choice)
+    bool nonRealtime = false;   // --nonrealtime: host bounce (neural pitch inference runs in-line, deterministic)
+    double keyMemorySec = -1.0;   // --autokey-memory S (sung-note histogram time constant)
+    int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
+    std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
+    bool   enableCorrection = true;
     bool   valid       = false;
 };
 
-static void setParam (juce::AudioProcessorValueTreeState& apvts,
+static bool setParam (juce::AudioProcessorValueTreeState& apvts,
                       const juce::String& id, float value)
 {
     if (auto* p = apvts.getParameter (id))
+    {
         p->setValueNotifyingHost (p->convertTo0to1 (value));
-    else
-        std::fprintf (stderr, "WARNING: unknown parameter '%s'\n", id.toRawUTF8());
+        return true;
+    }
+
+    std::fprintf (stderr, "FAIL: unknown parameter '%s'\n", id.toRawUTF8());
+    return false;
 }
 
 static const char* reasonName (IntentReasonCode c)
@@ -83,6 +105,36 @@ static int rootStringToIndex (const juce::String& root)
     return idx >= 0 ? idx : 9; // default A
 }
 
+static int styleStringToIndex (const juce::String& style)
+{
+    const juce::StringArray names { "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" };
+    if (style.containsOnly ("0123456789"))
+        return juce::jlimit (0, names.size() - 1, style.getIntValue());
+
+    const auto normalized = style.trim().toLowerCase().replace ("_", "-").replace (" ", "-");
+    for (int i = 0; i < names.size(); ++i)
+    {
+        const auto choice = names[i].toLowerCase().replace (" ", "-");
+        if (choice == normalized)
+            return i;
+    }
+
+    if (normalized == "modern" || normalized == "hard")
+        return 2;
+    if (normalized == "natural")
+        return 0;
+    if (normalized == "classic")
+        return 1;
+
+    return 1; // default Classic
+}
+
+static juce::String styleIndexToString (int style)
+{
+    const juce::StringArray names { "Natural", "Classic", "Modern Rap", "Robot", "Big Harmony" };
+    return names[juce::jlimit (0, names.size() - 1, style)];
+}
+
 static Args parseArgs (int argc, char** argv)
 {
     Args a;
@@ -92,9 +144,13 @@ static Args parseArgs (int argc, char** argv)
             "usage: autopitch_bench input.wav --output out.wav --trace trace.json [options]\n"
             "  --key C|C#|...|B     root note (default: A)\n"
             "  --scale major|minor|chromatic (default: minor)\n"
+            "  --style Natural|Classic|Modern Rap|Robot|Big Harmony|0..4 (default: Classic)\n"
             "  --amount 0..1        correction amount (default: 0.82)\n"
             "  --speed  0..1        retune speed (default: 0.70)\n"
             "  --block N            block size in samples (default: 512)\n"
+            "  --auto-key           enable AutoKey Follow while rendering\n"
+            "  --live-mode          enable the production Live Mode engine\n"
+            "  --disable-correction set Enable Correction false for baseline renders\n"
             "  --intent-mode production|v2_shadow|v2_active  (default: production)\n"
             "  --smoke              finite+non-silent only, no --trace required\n");
         return a;
@@ -110,6 +166,7 @@ static Args parseArgs (int argc, char** argv)
         else if (arg == "--trace" && hasNext) { a.traceJson  = juce::File (juce::String (argv[++i])); }
         else if (arg == "--key"   && hasNext) { a.key        = juce::String (argv[++i]); }
         else if (arg == "--scale" && hasNext) { a.scale      = juce::String (argv[++i]); }
+        else if (arg == "--style" && hasNext) { a.style      = juce::String (argv[++i]); }
         else if (arg == "--amount"&& hasNext) { a.amount     = std::stof (argv[++i]); }
         else if (arg == "--speed" && hasNext) { a.speed      = std::stof (argv[++i]); }
         else if (arg == "--block" && hasNext) { a.block      = std::stoi (argv[++i]); }
@@ -121,7 +178,22 @@ static Args parseArgs (int argc, char** argv)
             else                       a.intentMode = IntentMode::PRODUCTION;
         }
         else if (arg == "--smoke")       { a.smoke = true; }
+        else if (arg == "--auto-key")    { a.autoKey = true; }
         else if (arg == "--low-latency") { a.lowLatency = true; }
+        else if (arg == "--live-mode")   { a.liveMode = true; }
+        else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+        else if (arg == "--realtime") { a.realtime = true; }
+        else if (arg == "--manual-key-untouched") { a.manualKeyUntouched = true; }
+        else if (arg == "--nonrealtime") { a.nonRealtime = true; }
+        else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
+        else if (arg == "--autokey-memory" && hasNext) { a.keyMemorySec = std::stod (argv[++i]); }
+        else if (arg == "--param" && hasNext)
+        {
+            const juce::String kv (argv[++i]);
+            a.extraParams.push_back ({ kv.upToFirstOccurrenceOf ("=", false, false),
+                                       kv.fromFirstOccurrenceOf ("=", false, false).getFloatValue() });
+        }
+        else if (arg == "--disable-correction") { a.enableCorrection = false; }
     }
 
     if (! a.inputWav.existsAsFile())
@@ -172,22 +244,39 @@ int main (int argc, char** argv)
     SattariAutoPitchAudioProcessor proc;
     auto& apvts = proc.parameters();
 
-    setParam (apvts, "keyRoot",          (float) rootStringToIndex (a.key));
-    setParam (apvts, "scale",            a.scale == "minor" ? 1.0f
-                                       : a.scale == "chromatic" ? 2.0f : 0.0f);
-    setParam (apvts, "amount",           a.amount);
-    setParam (apvts, "speed",            a.speed);
-    setParam (apvts, "enableCorrection", 1.0f);
-    setParam (apvts, "doNoHarm",         0.0f);
-    setParam (apvts, "formantPreserve",  1.0f);
-    setParam (apvts, "classicMode",      0.0f);
-    setParam (apvts, "flexTune",         0.0f);
-    setParam (apvts, "transition",       0.5f);
-    setParam (apvts, "throat",           1.0f);
-    setParam (apvts, "humanize",         0.0f);
-    setParam (apvts, "lowLatency",       a.lowLatency ? 1.0f : 0.0f);
+    const int styleIndex = styleStringToIndex (a.style);
+    const float scaleIndex = a.scale == "minor" ? 1.0f : a.scale == "chromatic" ? 2.0f : 0.0f;
+    bool paramsOk = true;
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "keyRoot", (float) rootStringToIndex (a.key));
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "scale", scaleIndex);
+    if (! a.manualKeyUntouched) paramsOk &= setParam (apvts, "scaleMode", scaleIndex);
+    paramsOk &= setParam (apvts, "style",            (float) styleIndex);
+    paramsOk &= setParam (apvts, "autoKey",          a.autoKey ? 1.0f : 0.0f);
+    paramsOk &= setParam (apvts, "amount",           a.amount);
+    paramsOk &= setParam (apvts, "speed",            a.speed);
+    paramsOk &= setParam (apvts, "enableCorrection", a.enableCorrection ? 1.0f : 0.0f);
+    paramsOk &= setParam (apvts, "doNoHarm",         0.0f);
+    paramsOk &= setParam (apvts, "formantPreserve",  1.0f);
+    paramsOk &= setParam (apvts, "classicMode",      0.0f);
+    paramsOk &= setParam (apvts, "flexTune",         0.0f);
+    paramsOk &= setParam (apvts, "transition",       0.5f);
+    paramsOk &= setParam (apvts, "throat",           1.0f);
+    paramsOk &= setParam (apvts, "humanize",         0.0f);
+    paramsOk &= setParam (apvts, "lowLatency",       a.lowLatency ? 1.0f : 0.0f);
+    paramsOk &= setParam (apvts, "liveMode",         a.liveMode ? 1.0f : 0.0f);
+    for (const auto& [id, value] : a.extraParams)
+        paramsOk &= setParam (apvts, id, value);
+    if (! paramsOk)
+        return 1;
 
     proc.setIntentMode (a.intentMode);
+    proc.setTargetHysteresisEnabled (! a.noHysteresis);
+    if (a.keyProfile >= 0)
+        proc.setAutoKeyHistogramProfile (a.keyProfile);
+    if (a.keyMemorySec > 0.0)
+        proc.setAutoKeyMemorySeconds (a.keyMemorySec);
+    if (a.nonRealtime)
+        proc.setNonRealtime (true);
     proc.prepareToPlay (sr, a.block);
 
     // --- Render block by block ---
@@ -199,9 +288,12 @@ int main (int argc, char** argv)
     int blockIdx = 0;
     double timeSec = 0.0;
 
+    const auto wallStart = std::chrono::steady_clock::now();
     for (int start = 0; start < tot; start += a.block)
     {
         const int n = std::min (a.block, tot - start);
+        if (a.realtime)
+            std::this_thread::sleep_until (wallStart + std::chrono::microseconds ((long long) (1.0e6 * start / sr)));
         juce::AudioBuffer<float> block (nch, n);
         for (int c = 0; c < nch; ++c)
             block.copyFrom (c, 0, inBuf, c, start, n);
@@ -224,6 +316,16 @@ int main (int argc, char** argv)
         obj->setProperty ("correctionCents", (double) snap.correctionCents);
         obj->setProperty ("confidence",      (double) snap.confidence);
         obj->setProperty ("detectedRoot",    snap.detectedRoot);
+        obj->setProperty ("detectedScale",   snap.detectedScale);
+        // The key correction actually USES (after the confidence gate and the
+        // manual-key fallback), plus the raw verdict's margin.
+        {
+            const auto origin = proc.currentKeyOrigin();
+            obj->setProperty ("usedRoot",    origin.root);
+            obj->setProperty ("usedScale",   origin.scale);
+            obj->setProperty ("keyConf",     (double) origin.confidence);
+            obj->setProperty ("keySource",   (int) origin.source);
+        }
         obj->setProperty ("intentTarget",    is.v2Target);
         obj->setProperty ("intentConf",      (double) is.intentConf);
         obj->setProperty ("intentReason",    (int) is.reason);
@@ -266,6 +368,9 @@ int main (int argc, char** argv)
     {
         a.outputWav.getParentDirectory().createDirectory();
         juce::WavAudioFormat wav;
+        // juce::File::createOutputStream APPENDS to an existing file: re-running with the same
+        // --output wrote a second WAV after the first one (corrupt, "No RIFF chunk"). Replace it.
+        a.outputWav.deleteFile();
         std::unique_ptr<juce::OutputStream> stream (a.outputWav.createOutputStream());
         if (stream != nullptr)
         {
@@ -284,11 +389,19 @@ int main (int argc, char** argv)
     rootObj->setProperty ("inputFile",  a.inputWav.getFullPathName());
     rootObj->setProperty ("key",        a.key);
     rootObj->setProperty ("scale",      a.scale);
+    rootObj->setProperty ("style",      styleIndexToString (styleIndex));
+    rootObj->setProperty ("styleIndex", styleIndex);
+    rootObj->setProperty ("autoKey",    a.autoKey);
+    rootObj->setProperty ("lowLatency", a.lowLatency);
+    rootObj->setProperty ("liveMode",   a.liveMode);
+    rootObj->setProperty ("enableCorrection", a.enableCorrection);
     rootObj->setProperty ("amount",     (double) a.amount);
     rootObj->setProperty ("speed",      (double) a.speed);
     rootObj->setProperty ("intentMode", (int) a.intentMode);
     rootObj->setProperty ("sampleRate", sr);
     rootObj->setProperty ("blockSize",  a.block);
+    rootObj->setProperty ("processorStatus", proc.getLiveStatusSummary());
+    rootObj->setProperty ("reportedLatencySamples", proc.getLatencySamples());
 
     const juce::String traceStr = juce::JSON::toString (juce::var (rootObj.get()), false);
     a.traceJson.getParentDirectory().createDirectory();

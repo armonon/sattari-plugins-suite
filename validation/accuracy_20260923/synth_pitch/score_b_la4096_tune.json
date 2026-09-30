@@ -1,0 +1,18 @@
+{
+ "tag": "b_la4096_tune",
+ "subset": "tune",
+ "notes": 288,
+ "within_10c_pct": 87.5,
+ "within_5c_pct": 64.24,
+ "median_abs_c": 3.23,
+ "p95_abs_c": 14.88,
+ "worst_c": 35.0,
+ "per_voice_within_10c": {
+  "bass": 77.1,
+  "baritone": 77.1,
+  "tenor": 93.8,
+  "alto": 85.4,
+  "mezzo": 91.7,
+  "soprano": 100.0
+ }
+}

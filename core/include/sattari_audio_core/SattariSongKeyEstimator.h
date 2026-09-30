@@ -73,6 +73,19 @@ public:
         reset();
     }
 
+    // Optional tuning compensation. Pitch classes are measured against
+    // A = 440 * 2^(cents / 1200) instead of A440, so a song tuned e.g. 45 cents
+    // sharp is not folded half into the neighbouring semitone. The default of 0
+    // keeps the historical A440 mapping (and every existing caller) unchanged.
+    // Only frames analysed after the call use the new reference; reset() and
+    // prepare() keep it.
+    void setTuningOffsetCents (double cents) noexcept
+    {
+        tuningOffsetSemitones_ = std::isfinite (cents)
+            ? std::clamp (cents, -50.0, 50.0) / 100.0 : 0.0;
+    }
+    double tuningOffsetCents() const noexcept { return tuningOffsetSemitones_ * 100.0; }
+
     void reset()
     {
         inputSamples_ = 0;
@@ -304,14 +317,17 @@ private:
 
             // Harmonics 1, 2 and 4 reinforce the same pitch class. Harmonics 3
             // and 5 contribute their own sub-semitone hypotheses.
-            addPitchContribution (peak.frequency, whitenedMagnitude, 0.0, 3.0, framePcp);
+            addPitchContribution (peak.frequency, whitenedMagnitude, 0.0, 3.0,
+                                  tuningOffsetSemitones_, framePcp);
             addPitchContribution (peak.frequency, whitenedMagnitude,
-                                  12.0 * std::log2 (3.0) - 12.0, 1.0, framePcp);
+                                  12.0 * std::log2 (3.0) - 12.0, 1.0,
+                                  tuningOffsetSemitones_, framePcp);
             const double fifthSemitone = 12.0 * std::log2 (5.0) - 24.0;
             const double fifthStrength = 1.0
                 / std::max (1.0, 0.5 * std::log2 (5.0));
             addPitchContribution (peak.frequency, whitenedMagnitude,
-                                  fifthSemitone, fifthStrength, framePcp);
+                                  fifthSemitone, fifthStrength,
+                                  tuningOffsetSemitones_, framePcp);
         }
 
         for (int pitch = 0; pitch < 12; ++pitch)
@@ -328,12 +344,14 @@ private:
                                       double magnitude,
                                       double harmonicSemitones,
                                       double harmonicStrength,
+                                      double tuningOffsetSemitones,
                                       std::array<double, 12>& pcp) noexcept
     {
         const double frequency = peakFrequency
                                * std::pow (2.0, -harmonicSemitones / 12.0);
         if (! (frequency > 0.0)) return;
-        const double binPosition = 12.0 * std::log2 (frequency / 440.0);
+        const double binPosition = 12.0 * std::log2 (frequency / 440.0)
+                                 - tuningOffsetSemitones;
         const int left = (int) std::ceil (binPosition - 0.5);
         const int right = (int) std::floor (binPosition + 0.5);
         const double energy = magnitude * magnitude
@@ -481,6 +499,7 @@ private:
     std::array<double, 12> sectionPcp_ {};
     std::vector<KeyAnalysisResult> sections_;
 
+    double tuningOffsetSemitones_ = 0.0;
     double inputSampleRate_ = 44100.0;
     double ratio_ = inputSampleRate_ / kAnalysisSampleRate;
     std::int64_t targetOutputSamples_ = 0;

@@ -54,3 +54,20 @@ target_link_libraries(SongKeyRender
 
 # Same release shape for the render tool (it compiles the processor directly).
 target_compile_definitions(SongKeyRender PRIVATE SATTARI_HAS_ONNX=0)
+
+# CI's focused song-key job (config/ci-matrix.generated.json) builds THIS tree and runs
+# the estimator contract, which the root CMakeLists defines for the suite build. Define it
+# here only when this is the top-level project, so the root build keeps its single copy.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(SattariSongKeyEstimatorContract
+        EXCLUDE_FROM_ALL
+        ${SATTARI_REPO_ROOT}/core/tests/song_key_estimator_contract.cpp)
+    target_compile_definitions(SattariSongKeyEstimatorContract
+        PRIVATE SATTARI_HAS_ONNX=0)
+    target_link_libraries(SattariSongKeyEstimatorContract
+        PRIVATE
+            SattariAudioCore
+            juce::juce_dsp
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+endif()

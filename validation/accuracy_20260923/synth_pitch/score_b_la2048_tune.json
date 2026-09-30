@@ -1,0 +1,18 @@
+{
+ "tag": "b_la2048_tune",
+ "subset": "tune",
+ "notes": 288,
+ "within_10c_pct": 90.28,
+ "within_5c_pct": 72.22,
+ "median_abs_c": 2.77,
+ "p95_abs_c": 15.02,
+ "worst_c": 40.0,
+ "per_voice_within_10c": {
+  "bass": 83.3,
+  "baritone": 91.7,
+  "tenor": 93.8,
+  "alto": 87.5,
+  "mezzo": 87.5,
+  "soprano": 97.9
+ }
+}

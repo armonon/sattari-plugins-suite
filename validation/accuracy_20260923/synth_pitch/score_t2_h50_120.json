@@ -1,0 +1,18 @@
+{
+ "tag": "t2_h50_120",
+ "subset": "tune",
+ "notes": 192,
+ "within_10c_pct": 80.21,
+ "within_5c_pct": 49.48,
+ "median_abs_c": 5.09,
+ "p95_abs_c": 26.59,
+ "worst_c": 38.4,
+ "per_voice_within_10c": {
+  "bass": 84.4,
+  "baritone": 75.0,
+  "tenor": 81.2,
+  "alto": 68.8,
+  "mezzo": 81.2,
+  "soprano": 90.6
+ }
+}

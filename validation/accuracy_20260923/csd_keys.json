@@ -1,0 +1,20 @@
+{
+ "ER": {
+  "root": "F",
+  "scale": "major",
+  "margin": 0.347,
+  "runner_up": "C major"
+ },
+ "LI": {
+  "root": "C",
+  "scale": "major",
+  "margin": 0.077,
+  "runner_up": "G major"
+ },
+ "ND": {
+  "root": "G",
+  "scale": "minor",
+  "margin": 0.113,
+  "runner_up": "G major"
+ }
+}

@@ -14,6 +14,7 @@
 #include <sattari_audio_core/SattariDynamicKeyTracker.h>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -63,7 +64,9 @@ public:
     static juce::StringArray rootChoices();
     static juce::StringArray scaleChoices();   // Major / Minor
 
-    // Run one detection pass over the current ring (FFT -> chroma -> key). Called
+    // Drain every sample the audio thread has queued since the previous call and
+    // analyse it in fixed fftSize/2 hops (FFT -> chroma -> key). The result is a
+    // function of the audio stream only, not of how often this is called. Called
     // by the background publisher thread and by the offline render proof.
     void analyseNow();
     void serviceLiveAnalysis();
@@ -150,6 +153,11 @@ private:
     bool analyseFile (const juce::File&, OfflineResult&, juce::String& error);
     static float onsetStrength (const float* magnitude, int numBins,
                                 std::vector<float>& previous);
+    bool pullLiveHop();
+    void analyseLiveHop();
+    void updateLiveDecision();
+    void stepDynamicFollow();
+    bool dynamicFollowRequested() const;
     void stopFileWorker();
     void clearPublishedDecision();
     void resetLiveKeyWindow();
@@ -160,13 +168,30 @@ private:
     double currentSampleRate = 44100.0;
     static constexpr int fftOrder = 12;            // 4096-point
     static constexpr int fftSize  = 1 << fftOrder;
+    static constexpr int liveHop  = fftSize / 2;
     std::unique_ptr<juce::dsp::FFT> fft;
-    std::array<std::atomic<float>, fftSize> ring;
+
+    // Audio thread -> analysis worker: a lock-free single-producer/single-consumer
+    // FIFO of the mono input. It is sized in prepareToPlay for two seconds at the
+    // highest supported rate, so a worker that falls behind (offline bounce faster
+    // than realtime, 192 kHz) catches up instead of skipping audio. If it ever
+    // overflows, the audio thread drops the excess and counts it; it never blocks
+    // or allocates.
+    static constexpr double kLiveFifoSeconds = 2.0;
+    static constexpr double kLiveFifoMinRate = 192000.0;
+    juce::AbstractFifo liveFifo { 1 };
+    std::vector<float> liveFifoBuffer;
+    std::atomic<juce::int64> liveFifoDroppedSamples { 0 };
+    static constexpr float kMaxAnalysisSample = 1000.0f;   // +60 dBFS analysis clamp
+
+    // Worker-thread-only analysis state (guarded by analysisStateMutex).
     std::array<float, fftSize * 2> scratch {};
     std::array<float, fftSize> hann {};
-    std::array<float, fftSize> liveKeyInput {};
-    std::atomic<int> writePos { 0 };
-    std::atomic<juce::int64> totalSamplesWritten { 0 };
+    std::array<float, fftSize> liveKeyInput {};     // sliding analysis window
+    std::array<float, liveHop> liveHopInput {};     // next hop being collected
+    int liveHopFill = 0;
+    juce::int64 liveAnalysedSamples = 0;           // samples consumed from the FIFO
+    bool dynamicAcceptedPending = false;           // tracker accepted, not yet published
     double running[12] = { 0 };                    // background-thread-only
     double runningBass[12] = { 0 };                // low-band tonic evidence
     std::array<double, 12> liveChordRootEvidence {};
@@ -175,6 +200,16 @@ private:
     double liveOnsetBaseline = 0.0;
     juce::int64 lastHostBeatIndex = std::numeric_limits<juce::int64>::min();
     double runningDetune = 0.0;                    // background-thread-only (cents)
+
+    // Tuning compensation for SongKeyEstimator (Sattari Key only; the shared
+    // estimator defaults to A440 for every other plugin). Below this offset the
+    // A440 map is kept, so in-tune material keeps its exact historical verdict.
+    static constexpr double kTuningCompensationMinCents = 10.0;
+    // Live: seconds of audio before the long-horizon tuning estimate is used.
+    static constexpr double kLiveTuningSettleSeconds = 3.0;
+    sattari::dsp::HpcpChromagram tuningHpcp;       // whole-stream tuning (worker-only)
+    juce::int64 liveTuningAnalysedSamples = 0;
+    double liveTuningOffsetCents = 0.0;            // offset applied to liveSongKey
     std::vector<float> livePreviousSpectrum;       // worker-thread-only
     std::vector<float> liveOnsetEnvelope;          // worker-thread-only
 
@@ -190,12 +225,30 @@ private:
     sattari::dsp::ChordAnalyzer chordAnalysis;
     sattari::dsp::DynamicKeyTracker dynamicTracker;
 
-    std::atomic<int>   detRoot { 0 };
-    std::atomic<bool>  detMinor { false }, detValid { false }, rescan { false }, publishingNow { false };
-    std::atomic<double> detConf { 0.0 };
-    std::atomic<bool>   detAlternativeValid { false };
-    std::atomic<int>    detAlternativeRoot { 0 };
-    std::atomic<bool>   detAlternativeMinor { false };
+    // The detector verdict (key, margin and runner-up) is published as ONE
+    // 64-bit atomic so the editor and the publisher can never read a root from
+    // one decision with the mode or margin of another. The margin is stored as a
+    // float, which is ample for a 0..1 winner-vs-runner-up difference.
+    struct KeyVerdict
+    {
+        bool valid = false;
+        int root = 0;
+        bool minor = false;
+        float confidence = 0.0f;
+        bool alternativeValid = false;
+        int alternativeRoot = 0;
+        bool alternativeMinor = false;
+    };
+    static std::uint64_t packVerdict (const KeyVerdict&) noexcept;
+    static KeyVerdict unpackVerdict (std::uint64_t) noexcept;
+    void storeVerdict (const KeyVerdict& v) noexcept { detVerdict.store (packVerdict (v), std::memory_order_release); }
+    KeyVerdict loadVerdict() const noexcept { return unpackVerdict (detVerdict.load (std::memory_order_acquire)); }
+    void clearVerdict() noexcept { storeVerdict ({}); }
+    std::atomic<std::uint64_t> detVerdict { 0 };
+    static_assert (std::atomic<std::uint64_t>::is_always_lock_free,
+                   "the verdict must be readable without a lock");
+
+    std::atomic<bool>  rescan { false }, publishingNow { false };
     std::atomic<double> detDetuneCents { 0.0 };    // tuning-reference deviation vs A440
     std::atomic<bool>   detTempoValid { false };
     std::atomic<double> detBpm { 0.0 };

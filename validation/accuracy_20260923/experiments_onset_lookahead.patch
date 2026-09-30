@@ -1,0 +1,201 @@
+diff --git a/plugins/auto-pitch/src/PluginProcessor.cpp b/plugins/auto-pitch/src/PluginProcessor.cpp
+index 9752b60..425d31a 100644
+--- a/plugins/auto-pitch/src/PluginProcessor.cpp
++++ b/plugins/auto-pitch/src/PluginProcessor.cpp
+@@ -682,6 +682,17 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
+ {
+     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+     preparedBlockSize = juce::jmax (samplesPerBlock, 512);
++#if SATTARI_AUTOPITCH_HAS_RUBBERBAND && ! (SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
++    correctionLookaheadSamples = correctionLookaheadOverride >= 0
++        ? correctionLookaheadOverride
++        : (int) std::round (kCorrectionLookaheadSec * currentSampleRate);
++#else
++    correctionLookaheadSamples = 0;
++#endif
++    lookaheadRing.setSize (juce::jmax (2, getTotalNumOutputChannels()),
++                           correctionLookaheadSamples + juce::jmax (preparedBlockSize, 8192) + 1);
++    lookaheadRing.clear();
++    lookaheadWrite = 0;
+     sessionReader.start();   // Follow Song Key reads the bus published by Sattari Key
+     {
+         const juce::ScopedLock l (pitchEditLock);
+@@ -1137,7 +1148,7 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
+ #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+         signalsmithLatencySamples;
+ #else
+-        rbLat;
++        rbLat + correctionLookaheadSamples;
+ #endif
+     // Mirror processBlock's engine precedence EXACTLY, or the host is delay-compensated
+     // for the wrong engine:
+@@ -1213,7 +1224,7 @@ int SattariAutoPitchAudioProcessor::printEngineLatencySamples() const noexcept
+ #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+     return signalsmithLatencySamples;
+ #else
+-    return monoEngineLatencySamples();
++    return monoEngineLatencySamples() + correctionLookaheadSamples;
+ #endif
+ }
+ 
+@@ -1449,6 +1460,7 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
+     heldTargetMidi = -1;
+     heldTargetAwaySec = 0.0;
+     heldTargetSilentSec = 0.0;
++    heldTargetOnsetSec = 0.0;
+     hysteresisAge       = 999.0;
+     intentState.reset();
+     // Synthetic vibrato generator: clear phase + onset ramp.
+@@ -3756,10 +3768,18 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
+             heldTargetMidi = -1;             // a new phrase starts fresh
+         return;
+     }
++    // A gap (even a short breath) or a clear jump starts a new note onset.
++    if (heldTargetSilentSec > 0.040
++        || (heldTargetMidi >= 0 && std::abs (frame.midi - (double) heldTargetMidi) >= 1.5))
++        heldTargetOnsetSec = 0.0;
+     heldTargetSilentSec = 0.0;
++    heldTargetOnsetSec += hopSec;
+ 
+     const int nearest = juce::roundToInt (frame.targetMidi);
+-    if (heldTargetMidi < 0 || nearest == heldTargetMidi)
++    // Onsets scoop or glide through neighbouring semitones on the way in. Holding
++    // one of those would pin the note to the wrong target for the hold time, so
++    // follow the nearest note freely until the onset window has passed.
++    if (heldTargetMidi < 0 || nearest == heldTargetMidi || heldTargetOnsetSec < heldTargetOnsetWindowSec)
+     {
+         heldTargetMidi = nearest;
+         heldTargetAwaySec = 0.0;
+@@ -3769,8 +3789,8 @@ void SattariAutoPitchAudioProcessor::applyTargetHysteresis (PitchFrame& frame, d
+     // Switch once the new note is nearer by more than half a semitone (25 c past
+     // the midpoint between neighbouring semitones) or the pitch has stayed nearer
+     // it for 120 ms. Real note changes (>= 100 c) switch immediately.
+-    constexpr double switchMarginSemis = 0.5;
+-    constexpr double switchAfterSec    = 0.120;
++    const double switchMarginSemis = heldTargetMarginSemis;
++    const double switchAfterSec    = heldTargetHoldSec;
+     const double margin = std::abs (frame.midi - (double) heldTargetMidi) - std::abs (frame.midi - (double) nearest);
+     heldTargetAwaySec += hopSec;
+     if (margin > switchMarginSemis || heldTargetAwaySec >= switchAfterSec)
+@@ -5131,6 +5151,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
+ #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+             processWithSignalsmith (mainBuffer, 1.0, inputGain);
+ #elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
++            applyCorrectionLookahead (mainBuffer);   // keep the look-ahead line primed too
+             processWithRubberBand (mainBuffer, 1.0, inputGain);
+ #else
+             processFallbackFormantGuide (mainBuffer, 1.0, inputGain);
+@@ -5186,6 +5207,7 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
+ #if SATTARI_AUTOPITCH_PRINT_SIGNALSMITH && SATTARI_AUTOPITCH_HAS_SIGNALSMITH
+         processWithSignalsmith (mainBuffer, engineScale, inputGain);
+ #elif SATTARI_AUTOPITCH_HAS_RUBBERBAND
++        applyCorrectionLookahead (mainBuffer);
+         processWithRubberBand (mainBuffer, engineScale, inputGain);
+ #else
+         processFallbackFormantGuide (mainBuffer, engineScale, inputGain);
+@@ -5456,6 +5478,28 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
+         buffer.applyGain (linearGain);
+ }
+ 
++void SattariAutoPitchAudioProcessor::applyCorrectionLookahead (juce::AudioBuffer<float>& buffer) noexcept
++{
++    const int size = lookaheadRing.getNumSamples();
++    if (correctionLookaheadSamples <= 0 || size <= correctionLookaheadSamples)
++        return;
++
++    const int n = buffer.getNumSamples();
++    const int numChannels = juce::jmin (buffer.getNumChannels(), lookaheadRing.getNumChannels());
++    for (int ch = 0; ch < numChannels; ++ch)
++    {
++        auto* data = buffer.getWritePointer (ch);
++        auto* line = lookaheadRing.getWritePointer (ch);
++        for (int i = 0; i < n; ++i)
++        {
++            const int w = (lookaheadWrite + i) % size;
++            line[w] = data[i];
++            data[i] = line[(w - correctionLookaheadSamples + size) % size];
++        }
++    }
++    lookaheadWrite = (lookaheadWrite + n) % size;
++}
++
+ void SattariAutoPitchAudioProcessor::processWithRubberBand (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain,
+                                                             bool straightTranspose)
+ {
+diff --git a/plugins/auto-pitch/src/PluginProcessor.h b/plugins/auto-pitch/src/PluginProcessor.h
+index 2bf845f..97dd423 100644
+--- a/plugins/auto-pitch/src/PluginProcessor.h
++++ b/plugins/auto-pitch/src/PluginProcessor.h
+@@ -293,6 +293,11 @@ public:
+     IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
+     // Target-note hysteresis on/off (bench A/B only; always on in the plugin).
+     void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
++    void setTargetHysteresis (double marginSemis, double holdSec) noexcept { heldTargetMarginSemis = marginSemis; heldTargetHoldSec = holdSec; }
++    void setTargetOnsetWindow (double sec) noexcept { heldTargetOnsetWindowSec = sec; }
++    // Override the Studio correction look-ahead (samples; -1 = default). Call before
++    // prepareToPlay so the reported latency includes it (bench A/B only).
++    void setCorrectionLookaheadOverride (int samples) noexcept { correctionLookaheadOverride = samples; }
+     // Key profile for the sung-note AutoKey histogram (bench A/B).
+     void setAutoKeyHistogramProfile (int profile) noexcept { autoKeyHistogramProfile = (sattari::dsp::KeyProfile) profile; }
+     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
+@@ -742,7 +747,21 @@ private:
+     // Sized in prepare to cover the largest latency this instance can report.
+     juce::AudioBuffer<float> bypassDelay;
+     int bypassDelayWrite = 0;
++    // Studio look-ahead: the audio entering the print engine is delayed so pitch
++    // analysis (on the undelayed input) sees each note before it is shifted. Note
++    // onsets then land on the right target instead of converging ~100 ms late.
++    // Reported as latency; Live Mode and Transpose-to-Key are unaffected.
++    static constexpr double kCorrectionLookaheadSec = 0.064;
++    int correctionLookaheadOverride = -1;
++    int correctionLookaheadSamples = 0;
++    juce::AudioBuffer<float> lookaheadRing;
++    int lookaheadWrite = 0;
++    void applyCorrectionLookahead (juce::AudioBuffer<float>& buffer) noexcept;
+     bool   targetHysteresisEnabled = true;
++    double heldTargetMarginSemis = 0.5;
++    double heldTargetHoldSec     = 0.120;
++    double heldTargetOnsetWindowSec = 0.0;
++    double heldTargetOnsetSec    = 0.0;
+     int    heldTargetMidi      = -1;
+     double heldTargetAwaySec   = 0.0;
+     double heldTargetSilentSec = 0.0;
+diff --git a/plugins/auto-pitch/tools/autopitch_bench.cpp b/plugins/auto-pitch/tools/autopitch_bench.cpp
+index ea94f94..2c51bd9 100644
+--- a/plugins/auto-pitch/tools/autopitch_bench.cpp
++++ b/plugins/auto-pitch/tools/autopitch_bench.cpp
+@@ -60,7 +60,9 @@ struct Args
+     bool   liveMode    = false;
+     bool noHysteresis = false;
+     bool realtime = false;
+-    int  keyProfile = -1;   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
++    int  keyProfile = -1;
++    double holdMargin = -1.0, holdSec = -1.0, onsetWindow = -1.0;
++    int lookahead = -1;   // --lookahead N overrides the Studio look-ahead (samples)   // --autokey-profile N (sattari::dsp::KeyProfile)   // pace blocks at 1x so background detectors see audio as a DAW would
+     std::vector<std::pair<juce::String, float>> extraParams;   // --param id=value
+     bool   enableCorrection = true;
+     bool   valid       = false;
+@@ -181,6 +183,10 @@ static Args parseArgs (int argc, char** argv)
+         else if (arg == "--no-target-hysteresis") { a.noHysteresis = true; }
+         else if (arg == "--realtime") { a.realtime = true; }
+         else if (arg == "--autokey-profile" && hasNext) { a.keyProfile = std::stoi (argv[++i]); }
++        else if (arg == "--hold-margin" && hasNext) { a.holdMargin = std::stod (argv[++i]); }
++        else if (arg == "--hold-sec" && hasNext) { a.holdSec = std::stod (argv[++i]); }
++        else if (arg == "--onset-window" && hasNext) { a.onsetWindow = std::stod (argv[++i]); }
++        else if (arg == "--lookahead" && hasNext) { a.lookahead = std::stoi (argv[++i]); }
+         else if (arg == "--param" && hasNext)
+         {
+             const juce::String kv (argv[++i]);
+@@ -267,6 +273,12 @@ int main (int argc, char** argv)
+     proc.setTargetHysteresisEnabled (! a.noHysteresis);
+     if (a.keyProfile >= 0)
+         proc.setAutoKeyHistogramProfile (a.keyProfile);
++    if (a.holdMargin >= 0.0 || a.holdSec >= 0.0)
++        proc.setTargetHysteresis (a.holdMargin >= 0.0 ? a.holdMargin : 0.5, a.holdSec >= 0.0 ? a.holdSec : 0.120);
++    if (a.onsetWindow >= 0.0)
++        proc.setTargetOnsetWindow (a.onsetWindow);
++    if (a.lookahead >= 0)
++        proc.setCorrectionLookaheadOverride (a.lookahead);
+     proc.prepareToPlay (sr, a.block);
+ 
+     // --- Render block by block ---

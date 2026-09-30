@@ -1,0 +1,17 @@
+{
+ "tag": "hyst_cm",
+ "notes": 288,
+ "within_10c_pct": 84.03,
+ "within_5c_pct": 28.82,
+ "median_abs_c": 5.93,
+ "p95_abs_c": 25.48,
+ "worst_c": 41.1,
+ "per_voice_within_10c": {
+  "bass": 81.2,
+  "baritone": 85.4,
+  "tenor": 87.5,
+  "alto": 77.1,
+  "mezzo": 79.2,
+  "soprano": 93.8
+ }
+}

@@ -217,6 +217,7 @@ struct IntentV2State
 
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
  #include <rubberband/RubberBandStretcher.h>
+ #include <src/common/Resampler.h>
 #endif
 
 class SattariAutoPitchAudioProcessor final : public juce::AudioProcessor,
@@ -254,6 +255,7 @@ public:
 
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -290,6 +292,12 @@ public:
     // Intent Engine v2 mode control (bench / DAW experimentation only)
     void setIntentMode (IntentMode m) noexcept { intentMode.store ((int) m, std::memory_order_relaxed); }
     IntentMode getIntentMode() const noexcept  { return (IntentMode) intentMode.load (std::memory_order_relaxed); }
+    // Target-note hysteresis on/off (bench A/B only; always on in the plugin).
+    void setTargetHysteresisEnabled (bool on) noexcept { targetHysteresisEnabled = on; }
+    // Key profile for the sung-note AutoKey histogram (bench A/B).
+    void setAutoKeyHistogramProfile (int profile) noexcept { autoKeyHistogramProfile = (sattari::dsp::KeyProfile) profile; }
+    // Sung-note AutoKey histogram memory in seconds (bench A/B only).
+    void setAutoKeyMemorySeconds (double seconds) noexcept { autoKeyMemorySec = juce::jmax (0.5, seconds); }
     const IntentV2State& getIntentV2State() const noexcept { return intentState; }
 
     // --- Track Key Map -------------------------------------------------------
@@ -375,6 +383,7 @@ public:
         float correctionCents = 0.0f;
         float confidence = 0.0f;
         int   detectedRoot = 0;      // 0..11, AutoKey output (or selected key)
+        int   detectedScale = 0;     // scale index of the AutoKey output (0 major, 1 minor)
         //  INPUT / INTENT / OUTPUT transparency: what was sung, what Auto Pitch
         //  believes was meant, and how sure it is. intentConfidence scales the
         //  correction, so this readout explains the amount actually applied.
@@ -423,8 +432,17 @@ public:
     //  swap can promote a runner-up, so below zero it has overridden its own
     //  ranking and is guessing outright.
     static constexpr float kMinBusKeyConfidence = (float) sattari::dsp::kReleaseKeyConfidence;
+    std::atomic<bool> manualKeyExplicit { false };
+    std::atomic<bool> restoringKeyState { false };
+    std::atomic<bool> scaleMirrorInProgress { false };
+    bool autoKeyFallsBackToChromatic (float detectedConfidence) const;
 
     KeyOrigin currentKeyOrigin() const;
+    // True once the user (or host automation / an imported trace) has chosen the
+    // manual Key / Scale. Below the AutoKey confidence gate an explicit manual key is
+    // the fallback; the untouched factory default (A minor) is not a decision, so
+    // the fallback is Chromatic instead. Persisted with the session.
+    bool manualKeyIsExplicit() const noexcept { return manualKeyExplicit.load (std::memory_order_relaxed); }
 
     //  Full-song drop analysis (ported from Sattari Key): decode + finalised
     //  SongKeyEstimator + TempoEstimator on a background thread. The finalised
@@ -511,6 +529,7 @@ public:
         s.correctionCents = (float) juce::jlimit (-200.0, 200.0, frame.correctionCents);
         s.confidence = (float) juce::jlimit (0.0, 1.0, frame.confidence);
         s.detectedRoot = frame.detectedRoot;
+        s.detectedScale = frame.detectedScale;
         s.intentMidi = frame.intentMidi;
         s.intentConfidence = frame.intentConfidence;
         //  How much of the requested correction actually survived the intent
@@ -537,6 +556,12 @@ public:
         return d;
     }
 
+    //  Studio-engine output FIFO health since prepareToPlay (read by the offline no-harm tools on the
+    //  processing thread; not for the UI). underrunSamples > 0 means the output was zero-padded (a
+    //  click); failSafePrimes > 0 means the real delay exceeded the reported latency.
+    struct StudioFifoStats { juce::int64 underrunSamples = 0; int failSafePrimes = 0; };
+    StudioFifoStats getStudioFifoStats() const noexcept { return rbStats; }
+
 private:
     //  Intent estimation. Returns 0..1: how strongly Auto Pitch believes the
     //  detected pitch is heading for `targetMidi` rather than being an
@@ -559,6 +584,9 @@ private:
         bool objectActive = false;
         bool objectEnabled = true;
         bool voiced = false;
+        // Packed key root / scale / Edit-Notes mask the target was chosen under
+        // (set by buildCorrectionFrame; -1 when no target was chosen).
+        int  targetContext = -1;
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -584,8 +612,9 @@ private:
     bool keyMapDriving() const;
     void updateAutoKeyHistogram (const PitchFrame& frame);
     // Polyphonic AutoKey path: spectral chroma of the sidechain (master) audio
-    // feeds the histogram instead of the monophonic vocal pitch. Both paths share
-    // correlateAutoKeyHistogram() so the Krumhansl decision logic stays one place.
+    // feeds its own chroma histogram instead of the monophonic vocal pitch. Both
+    // paths share correlateAutoKeyHistogram(), which picks the live source's
+    // histogram and profile (Krumhansl for sung notes, Aarden for audio chroma).
     void pushSidechainBlock (const float* mono, int numSamples);
     void runChromaAnalysis();
     void correlateAutoKeyHistogram();
@@ -679,7 +708,14 @@ private:
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
     bool   lastXposeActive    = false; // Transpose mode ran last block (flush engines on toggle)
+    // Sung-note (f0) AutoKey histogram: one pitch class per detected fundamental.
     std::array<double, 12> autoKeyHistogram {};
+    // Audio-chroma AutoKey histogram (sidechain / polyphonic main input, HPCP).
+    // Kept apart from the f0 histogram because the two need different key
+    // profiles (see autoKeyHistogramProfile / kAutoKeyChromaProfile) and live on
+    // very different scales (f0 weights sum to thousands, chroma frames to ~1),
+    // so a shared array was dominated by whichever source had fed it last.
+    std::array<double, 12> chromaKeyHistogram {};
     // Live Mode may be called with 64..2048-sample host blocks. Decimate its
     // AutoKey observations onto the same pitch-hop clock as Studio so histogram
     // decay and key confidence do not change with a DAW's buffer size.
@@ -727,6 +763,43 @@ private:
     // repeatedly spiking transitionBoost=1.0 on every crossing.
     int    hysteresisAltTarget = -1000;  // target before lastTargetMidiForTransition
     double hysteresisAge       = 999.0;  // seconds elapsed since last target change
+    // Target-note hysteresis: a note sung 30-45 c off with vibrato crosses the
+    // half-semitone line every cycle, and a per-frame nearest-note target then
+    // flips between two notes so the corrections cancel. Hold the current target
+    // until the pitch is clearly nearer another note or stays there long enough.
+    // Dry signal delayed by the reported latency so host bypass stays in time.
+    // Sized in prepare to cover the largest latency this instance can report.
+    // Fed with the dry input on EVERY block (bypassed or not), so engaging bypass
+    // plays the audio of one latency ago rather than the tail of the last bypass.
+    juce::AudioBuffer<float> bypassDelay;
+    int bypassDelayWrite = 0;
+    int bypassDelayBlockStart = 0;     // ring position of the current block's first sample
+    void writeBypassDelay (juce::AudioBuffer<float>& main, bool replaceWithDelayed);
+    // The current block's input delayed by the reported latency, read from the bypass ring
+    // (valid after writeBypassDelay ran for this block).
+    void readBypassDelayed (juce::AudioBuffer<float>& out, int numSamples) const;
+
+    // Host bypass. processBlockBypassed keeps the whole engine running on a scratch copy
+    // (output discarded) so re-engaging never replays pre-bypass audio, and both
+    // directions crossfade over kHostBypassFadeSeconds between the processed and the
+    // latency-delayed dry signal. 1 = processed, 0 = bypassed, -1 = snap on next block.
+    void processBlockCore (juce::AudioBuffer<float>&, juce::MidiBuffer&);
+    void fadeHostBypass (juce::AudioBuffer<float>& out, const juce::AudioBuffer<float>& processed,
+                         float target, int numSamples);
+    static constexpr double kHostBypassFadeSeconds = 0.010;
+    float hostBypassMix = -1.0f;
+    juce::AudioBuffer<float> bypassProcessScratch, bypassDryScratch;
+    juce::MidiBuffer bypassMidiScratch;
+    bool   targetHysteresisEnabled = true;
+    int    heldTargetMidi      = -1;
+    // Key / scale / Edit-Notes mask the held target was chosen under. A held note
+    // is only valid inside the context that produced it.
+    int    heldTargetContext   = -1;
+    double heldTargetAwaySec   = 0.0;
+    double heldTargetSilentSec = 0.0;
+    // hopSec is the time elapsed since the previous call. Call it exactly once per
+    // analysis update, on the FINAL frame of that update.
+    void applyTargetHysteresis (PitchFrame& frame, double hopSec);
 
     // Intent Engine v2 (shadow/active experiment — Strategy G DSP: FROZEN)
     std::atomic<int> intentMode { 0 };   // IntentMode::PRODUCTION
@@ -774,6 +847,13 @@ private:
     // by up to a few tens of cents. Re-evaluated once per block. State is just
     // two filtered scalars and a juce::Random; deterministic across plugin loads
     // only insofar as Random is seeded the same way.
+    // Humanize must be reproducible: two bounces of one session have to match. Each instance
+    // draws its own seed once (doubled vocals on two instances still humanize differently),
+    // saves it with the session, and resetPitchState() reseeds from it on every prepare.
+    // Correction on/off crossfade: 1 = engine output, 0 = delayed dry. -1 = snap on next block.
+    static constexpr double kCorrectionFadeSeconds = 0.010;
+    float correctionMix = -1.0f;
+    juce::int64 humanizeSeed = juce::Random::getSystemRandom().nextInt64();
     juce::Random humanizeRng;
     double humanizeTargetCents = 0.0;
     double humanizeSmoothedCents = 0.0;
@@ -792,6 +872,21 @@ private:
     // winning Aarden chroma configuration; the optional neural key model stays
     // quarantined until it beats that path on representative held-out genres.
     sattari::dsp::KeyAnalysisEngine keyAnalysis;
+    // The AutoKey histogram counts detected FUNDAMENTALS (one pitch class per sung
+    // note, no harmonics). Aarden weights the 5th above the tonic to offset the
+    // harmonic leakage in audio chroma; on a harmonic-free note histogram that bias
+    // turns a tonic-heavy melody into the key a fourth up. Temperley (tonic-led):
+    // on real singers (Choral Singing Dataset, split by singer) it puts the WRONG key
+    // in use 7.9% / 5.4% of the time (dev / held-out) vs 28.1% / 24.4% for Krumhansl,
+    // with more right-key time. Krumhansl only won on the synthetic key corpus, whose
+    // melodies were selected by Krumhansl agreement (2026-09-24).
+    sattari::dsp::KeyProfile autoKeyHistogramProfile = sattari::dsp::KeyProfile::Temperley;
+    // Time constant of the sung-note histogram (see updateAutoKeyHistogram).
+    double autoKeyMemorySec = 15.0;
+    // Audio chroma (sidechain / polyphonic path) keeps the profile it was
+    // validated with: Aarden's raised 5th compensates the harmonic leakage that
+    // real chroma has and a fundamentals-only histogram does not.
+    static constexpr sattari::dsp::KeyProfile kAutoKeyChromaProfile = sattari::dsp::KeyProfile::Aarden;
     std::vector<float> chromaRing;                        // mono ring of incoming sidechain samples
     std::vector<float> chromaFftScratch;                  // size 2 * fftSize for performFrequencyOnlyForwardTransform
     std::vector<float> chromaHannWindow;                  // Hann window (precomputed)
@@ -926,6 +1021,9 @@ private:
     // signalsmith-stretch — MIT, secondary low-latency engine (active when
     // elastique SDK is absent). Single instance manages all channels.
     signalsmith::stretch::SignalsmithStretch<float> ssStretch;
+    // reset() on an unconfigured stretch dereferences null, and hosts may call
+    // releaseResources() without a prior prepareToPlay() (scan, remove, teardown).
+    bool ssConfigured = false;
     juce::AudioBuffer<float> ssOutput;
     std::vector<const float*> ssInputPtrs;
     std::vector<float*>       ssOutputPtrs;
@@ -951,6 +1049,34 @@ private:
     int  rbCushion   = 0;             // samples buffered before popping begins
     bool rbPrimed    = false;         // has the cushion filled yet?
     int  rbLatency   = 0;             // Rubber Band start delay (samples)
+    //  QUALIFIED ENGINE RATE. Rubber Band R3 (short window) renders a moving pitch curve wrongly at
+    //  some sample rates: at 44.1 kHz a +-40 c vibrato came out -75/+51 c with interfering partials
+    //  (2026-09-27; the requested correction was identical to 48 kHz). The engine therefore runs only
+    //  at rates qualified by AutoPitchNoHarm check 9 (32 / 48 / 88.2 / 96 kHz); any other host rate is
+    //  resampled into the nearest qualified rate and back (Rubber Band's own anti-aliased resampler).
+    //  At a qualified host rate none of this is active and the audio path is unchanged.
+    double rbEngineRate  = 0.0;       // rate the stretchers run at (== host rate when native)
+    bool   rbResampling  = false;
+    int    rbGroupBase   = 0;         // engine start delay in HOST samples (group-delay basis)
+    int    rbResamplerDelayHost = 0;  // measured up+down resampler delay, host samples
+    std::vector<std::unique_ptr<RubberBand::Resampler>> rbUp, rbDown;
+    //  Resampled mode primes by COUNTING, not by cushion level: Rubber Band fed resampled chunks
+    //  holds a block-size-dependent amount internally, so "prime when the FIFO holds a cushion"
+    //  made the real delay depend on the host buffer (+276 samples at 512, +532 at 256). The read
+    //  head is placed from sample counters so the delay is exact by construction.
+    juce::int64 rbConsumedTotal = 0, rbPushedTotal = 0;
+    StudioFifoStats rbStats;
+    std::vector<float> rbZeros;       // resampler flush input (resetRbFifo), sized in prepare
+    int rbFlushLen = 0;
+    int rbReportedHost = 0, rbRealDelayHost = 0, rbStreamOffsetHost = 0, rbHeadroomHost = 0;
+    //  FIFO safety margin on top of Rubber Band's production lag. Counted priming makes the delay
+    //  exact, so the FIFO no longer floats extra samples: under heavy automation (ratio jumps) the
+    //  lag peaked at 3011 samples at 48 kHz against a 2848-sample calibrated delay -> 257 underrun
+    //  clicks in AutoPitchNoHarm check 4. 6 ms keeps >= one 128-sample sub-chunk of margin over the
+    //  observed peak. This raises Studio latency by 6 ms (reported to the owner before merge, 2026-09-29).
+    static constexpr double kRbHeadroomSeconds = 0.006;
+    juce::AudioBuffer<float> rbEngineIn, rbHostOut;
+    static double qualifiedEngineRate (double hostRate) noexcept;
     double rubberBandEnginePitchScale = 1.0; // last ratio delivered on the fixed control grid
     int rubberBandAutomationHoldSamples = 0; // hysteresis: finish a moving-ratio glide on-grid
     void pushRbFifo (const juce::AudioBuffer<float>& src, int chSrcBase, int n);

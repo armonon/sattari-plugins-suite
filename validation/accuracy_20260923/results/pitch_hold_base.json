@@ -1,0 +1,439 @@
+{
+ "summary": {
+  "tag": "hold_base",
+  "voices": "holdout",
+  "bench_args": [
+   "--style",
+   "Classic",
+   "--no-target-hysteresis"
+  ],
+  "tolerance_c": 10.0,
+  "notes_measured": 226,
+  "notes_pass": 178,
+  "accuracy_pct": 78.76,
+  "within_5c_pct": 43.36,
+  "median_abs_c": 6.05,
+  "p95_abs_c": 22.5
+ },
+ "voices": [
+  {
+   "voice": "v02_baritone_male_soul",
+   "notes": 23,
+   "measured": 20,
+   "pass": 14,
+   "in_median_abs_c": 30.5,
+   "out_median_abs_c": 5.1,
+   "out_worst_c": 98.6,
+   "failures": [
+    {
+     "note": 9,
+     "target_midi": 58,
+     "err_c": 11.1,
+     "detune_c": 33.9
+    },
+    {
+     "note": 11,
+     "target_midi": 54,
+     "err_c": 22.0,
+     "detune_c": 31.8
+    },
+    {
+     "note": 14,
+     "target_midi": 52,
+     "err_c": 15.4,
+     "detune_c": 36.7
+    },
+    {
+     "note": 17,
+     "target_midi": 54,
+     "err_c": -49.1,
+     "detune_c": -40.7
+    },
+    {
+     "note": 19,
+     "target_midi": 54,
+     "err_c": 98.6,
+     "detune_c": 29.6
+    },
+    {
+     "note": 21,
+     "target_midi": 56,
+     "err_c": -20.5,
+     "detune_c": -43.0
+    }
+   ]
+  },
+  {
+   "voice": "v04_countertenor_folk",
+   "notes": 23,
+   "measured": 21,
+   "pass": 20,
+   "in_median_abs_c": 25.7,
+   "out_median_abs_c": 4.6,
+   "out_worst_c": 10.6,
+   "failures": [
+    {
+     "note": 17,
+     "target_midi": 57,
+     "err_c": 10.6,
+     "detune_c": 26.1
+    }
+   ]
+  },
+  {
+   "voice": "v06_alto_female_rnb",
+   "notes": 27,
+   "measured": 20,
+   "pass": 20,
+   "in_median_abs_c": 27.3,
+   "out_median_abs_c": 6.4,
+   "out_worst_c": 9.8,
+   "failures": []
+  },
+  {
+   "voice": "v08_soprano_female_classical",
+   "notes": 21,
+   "measured": 21,
+   "pass": 20,
+   "in_median_abs_c": 30.4,
+   "out_median_abs_c": 7.0,
+   "out_worst_c": 10.1,
+   "failures": [
+    {
+     "note": 14,
+     "target_midi": 63,
+     "err_c": -10.1,
+     "detune_c": -39.9
+    }
+   ]
+  },
+  {
+   "voice": "v10_tenor_male_rock",
+   "notes": 21,
+   "measured": 18,
+   "pass": 8,
+   "in_median_abs_c": 31.2,
+   "out_median_abs_c": 14.5,
+   "out_worst_c": 66.3,
+   "failures": [
+    {
+     "note": 0,
+     "target_midi": 54,
+     "err_c": 66.3,
+     "detune_c": 40.4
+    },
+    {
+     "note": 1,
+     "target_midi": 52,
+     "err_c": -26.7,
+     "detune_c": -40.4
+    },
+    {
+     "note": 3,
+     "target_midi": 55,
+     "err_c": 19.8,
+     "detune_c": 43.5
+    },
+    {
+     "note": 5,
+     "target_midi": 52,
+     "err_c": 14.2,
+     "detune_c": 21.2
+    },
+    {
+     "note": 7,
+     "target_midi": 52,
+     "err_c": 25.3,
+     "detune_c": 33.8
+    },
+    {
+     "note": 10,
+     "target_midi": 52,
+     "err_c": -15.6,
+     "detune_c": -28.5
+    },
+    {
+     "note": 11,
+     "target_midi": 55,
+     "err_c": 16.8,
+     "detune_c": -21.0
+    },
+    {
+     "note": 13,
+     "target_midi": 52,
+     "err_c": -15.0,
+     "detune_c": -44.7
+    },
+    {
+     "note": 15,
+     "target_midi": 55,
+     "err_c": 22.7,
+     "detune_c": 34.6
+    },
+    {
+     "note": 20,
+     "target_midi": 52,
+     "err_c": -14.7,
+     "detune_c": -33.7
+    }
+   ]
+  },
+  {
+   "voice": "v12_soprano_female_pop",
+   "notes": 25,
+   "measured": 23,
+   "pass": 14,
+   "in_median_abs_c": 27.5,
+   "out_median_abs_c": 8.1,
+   "out_worst_c": 45.6,
+   "failures": [
+    {
+     "note": 2,
+     "target_midi": 59,
+     "err_c": -10.6,
+     "detune_c": -27.9
+    },
+    {
+     "note": 5,
+     "target_midi": 62,
+     "err_c": -45.6,
+     "detune_c": -38.1
+    },
+    {
+     "note": 7,
+     "target_midi": 62,
+     "err_c": -41.7,
+     "detune_c": -31.9
+    },
+    {
+     "note": 8,
+     "target_midi": 62,
+     "err_c": 12.8,
+     "detune_c": 23.8
+    },
+    {
+     "note": 11,
+     "target_midi": 62,
+     "err_c": 15.9,
+     "detune_c": 28.7
+    },
+    {
+     "note": 14,
+     "target_midi": 61,
+     "err_c": 12.0,
+     "detune_c": 24.1
+    },
+    {
+     "note": 15,
+     "target_midi": 62,
+     "err_c": 10.1,
+     "detune_c": 34.2
+    },
+    {
+     "note": 16,
+     "target_midi": 62,
+     "err_c": 10.5,
+     "detune_c": 25.6
+    },
+    {
+     "note": 24,
+     "target_midi": 59,
+     "err_c": -25.9,
+     "detune_c": -42.5
+    }
+   ]
+  },
+  {
+   "voice": "v14_tenor_male_rnb",
+   "notes": 26,
+   "measured": 21,
+   "pass": 14,
+   "in_median_abs_c": 29.3,
+   "out_median_abs_c": 5.3,
+   "out_worst_c": 55.9,
+   "failures": [
+    {
+     "note": 0,
+     "target_midi": 62,
+     "err_c": 10.3,
+     "detune_c": -21.6
+    },
+    {
+     "note": 2,
+     "target_midi": 62,
+     "err_c": 55.9,
+     "detune_c": 35.5
+    },
+    {
+     "note": 7,
+     "target_midi": 57,
+     "err_c": -10.0,
+     "detune_c": -38.0
+    },
+    {
+     "note": 11,
+     "target_midi": 62,
+     "err_c": 11.1,
+     "detune_c": 41.8
+    },
+    {
+     "note": 19,
+     "target_midi": 62,
+     "err_c": -19.9,
+     "detune_c": -39.5
+    },
+    {
+     "note": 24,
+     "target_midi": 57,
+     "err_c": 10.8,
+     "detune_c": 41.9
+    },
+    {
+     "note": 25,
+     "target_midi": 57,
+     "err_c": 15.6,
+     "detune_c": 41.2
+    }
+   ]
+  },
+  {
+   "voice": "v16_child_like_female",
+   "notes": 21,
+   "measured": 21,
+   "pass": 20,
+   "in_median_abs_c": 26.5,
+   "out_median_abs_c": 5.6,
+   "out_worst_c": 14.6,
+   "failures": [
+    {
+     "note": 13,
+     "target_midi": 65,
+     "err_c": -14.6,
+     "detune_c": -41.2
+    }
+   ]
+  },
+  {
+   "voice": "v18_soprano_female_opera",
+   "notes": 13,
+   "measured": 12,
+   "pass": 7,
+   "in_median_abs_c": 27.7,
+   "out_median_abs_c": 8.5,
+   "out_worst_c": 38.9,
+   "failures": [
+    {
+     "note": 1,
+     "target_midi": 69,
+     "err_c": 12.1,
+     "detune_c": 38.7
+    },
+    {
+     "note": 6,
+     "target_midi": 72,
+     "err_c": -17.1,
+     "detune_c": -39.2
+    },
+    {
+     "note": 7,
+     "target_midi": 72,
+     "err_c": -12.6,
+     "detune_c": -20.5
+    },
+    {
+     "note": 9,
+     "target_midi": 66,
+     "err_c": 38.9,
+     "detune_c": 40.4
+    },
+    {
+     "note": 11,
+     "target_midi": 67,
+     "err_c": -28.1,
+     "detune_c": -43.5
+    }
+   ]
+  },
+  {
+   "voice": "v20_tenor_male_kpop",
+   "notes": 19,
+   "measured": 16,
+   "pass": 15,
+   "in_median_abs_c": 30.6,
+   "out_median_abs_c": 4.1,
+   "out_worst_c": 15.7,
+   "failures": [
+    {
+     "note": 6,
+     "target_midi": 55,
+     "err_c": -15.7,
+     "detune_c": -41.5
+    }
+   ]
+  },
+  {
+   "voice": "v22_baritone_male_pop",
+   "notes": 18,
+   "measured": 17,
+   "pass": 15,
+   "in_median_abs_c": 25.1,
+   "out_median_abs_c": 5.7,
+   "out_worst_c": 15.3,
+   "failures": [
+    {
+     "note": 10,
+     "target_midi": 53,
+     "err_c": 14.8,
+     "detune_c": 30.0
+    },
+    {
+     "note": 15,
+     "target_midi": 48,
+     "err_c": 15.3,
+     "detune_c": 20.7
+    }
+   ]
+  },
+  {
+   "voice": "v24_tenor_male_musical",
+   "notes": 18,
+   "measured": 16,
+   "pass": 11,
+   "in_median_abs_c": 27.3,
+   "out_median_abs_c": 6.6,
+   "out_worst_c": 21.3,
+   "failures": [
+    {
+     "note": 3,
+     "target_midi": 61,
+     "err_c": -16.7,
+     "detune_c": -25.3
+    },
+    {
+     "note": 4,
+     "target_midi": 63,
+     "err_c": 11.7,
+     "detune_c": 43.5
+    },
+    {
+     "note": 9,
+     "target_midi": 59,
+     "err_c": -21.3,
+     "detune_c": -39.5
+    },
+    {
+     "note": 11,
+     "target_midi": 59,
+     "err_c": -10.2,
+     "detune_c": -23.6
+    },
+    {
+     "note": 16,
+     "target_midi": 59,
+     "err_c": 11.4,
+     "detune_c": 35.3
+    }
+   ]
+  }
+ ]
+}

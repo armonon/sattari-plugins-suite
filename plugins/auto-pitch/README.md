@@ -124,8 +124,13 @@ Auto Pitch and Sattari Key now use the same Aarden/chroma `KeyAnalysisEngine`,
 the same release confidence threshold, and the same **No Result** semantics.
 The optional neural key models are deliberately quarantined: `keynet_spec`
 scored 37.5% exact on its only held-out evaluation versus 85.4% for Aarden.
-Low-confidence AutoKey never drives correction; the visible manual key remains
-in force. This quarantine does not affect Neural Pitch, whose embedded CREPE
+Auto Pitch's sung-note AutoKey path uses the Temperley profile (best on real
+singers: `validation/accuracy_20260923/README.md`, Round 8). Low-confidence
+AutoKey never drives correction: below the 0.10 margin a manual key the user
+actually chose stays in force, and an untouched default falls back to
+Chromatic. Which of the two applies is saved session state
+(`manualKeyExplicit`), not inferred from the key's value, and the fallback
+corrects exactly as hard as that key would without AutoKey. This quarantine does not affect Neural Pitch, whose embedded CREPE
 model is fused conservatively with YIN and remains opt-in because it costs more
 CPU.
 

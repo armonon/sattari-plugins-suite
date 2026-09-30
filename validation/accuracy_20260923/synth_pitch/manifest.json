@@ -1,0 +1,3674 @@
+[
+ {
+  "name": "bass_0",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 31636,
+    "target": 53,
+    "offset_c": 21.02
+   },
+   {
+    "start": 47305,
+    "end": 78456,
+    "target": 54,
+    "offset_c": 38.24
+   },
+   {
+    "start": 82331,
+    "end": 118393,
+    "target": 55,
+    "offset_c": -20.84
+   },
+   {
+    "start": 118393,
+    "end": 143105,
+    "target": 50,
+    "offset_c": 33.54
+   },
+   {
+    "start": 143105,
+    "end": 176990,
+    "target": 49,
+    "offset_c": -36.77
+   },
+   {
+    "start": 185802,
+    "end": 220700,
+    "target": 50,
+    "offset_c": 44.52
+   },
+   {
+    "start": 229580,
+    "end": 260249,
+    "target": 53,
+    "offset_c": 38.04
+   },
+   {
+    "start": 260249,
+    "end": 301707,
+    "target": 52,
+    "offset_c": -42.24
+   },
+   {
+    "start": 309718,
+    "end": 336856,
+    "target": 50,
+    "offset_c": 28.45
+   },
+   {
+    "start": 343639,
+    "end": 382420,
+    "target": 53,
+    "offset_c": 22.1
+   },
+   {
+    "start": 382420,
+    "end": 408093,
+    "target": 55,
+    "offset_c": 21.46
+   },
+   {
+    "start": 408093,
+    "end": 430981,
+    "target": 55,
+    "offset_c": -39.91
+   },
+   {
+    "start": 437393,
+    "end": 462078,
+    "target": 50,
+    "offset_c": 34.51
+   },
+   {
+    "start": 468503,
+    "end": 488088,
+    "target": 54,
+    "offset_c": 29.13
+   },
+   {
+    "start": 497635,
+    "end": 525661,
+    "target": 55,
+    "offset_c": -32.5
+   },
+   {
+    "start": 542397,
+    "end": 579201,
+    "target": 55,
+    "offset_c": 31.5
+   }
+  ]
+ },
+ {
+  "name": "bass_1",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 56244,
+    "target": 48,
+    "offset_c": 23.6
+   },
+   {
+    "start": 56244,
+    "end": 83846,
+    "target": 53,
+    "offset_c": -40.69
+   },
+   {
+    "start": 83846,
+    "end": 109350,
+    "target": 55,
+    "offset_c": 33.45
+   },
+   {
+    "start": 117119,
+    "end": 144561,
+    "target": 51,
+    "offset_c": -23.35
+   },
+   {
+    "start": 144561,
+    "end": 174170,
+    "target": 48,
+    "offset_c": -27.01
+   },
+   {
+    "start": 190473,
+    "end": 214582,
+    "target": 44,
+    "offset_c": 33.53
+   },
+   {
+    "start": 225110,
+    "end": 262414,
+    "target": 40,
+    "offset_c": -35.59
+   },
+   {
+    "start": 278142,
+    "end": 307068,
+    "target": 40,
+    "offset_c": -33.21
+   },
+   {
+    "start": 321958,
+    "end": 360930,
+    "target": 40,
+    "offset_c": -26.5
+   },
+   {
+    "start": 371391,
+    "end": 409829,
+    "target": 47,
+    "offset_c": 23.7
+   },
+   {
+    "start": 416152,
+    "end": 435104,
+    "target": 50,
+    "offset_c": 24.78
+   },
+   {
+    "start": 450106,
+    "end": 474140,
+    "target": 55,
+    "offset_c": 31.8
+   },
+   {
+    "start": 487310,
+    "end": 509791,
+    "target": 50,
+    "offset_c": -27.05
+   },
+   {
+    "start": 524064,
+    "end": 553594,
+    "target": 55,
+    "offset_c": 23.76
+   },
+   {
+    "start": 565073,
+    "end": 606136,
+    "target": 55,
+    "offset_c": 36.84
+   },
+   {
+    "start": 621452,
+    "end": 658540,
+    "target": 50,
+    "offset_c": 26.14
+   }
+  ]
+ },
+ {
+  "name": "bass_2",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 33626,
+    "target": 47,
+    "offset_c": -40.36
+   },
+   {
+    "start": 46908,
+    "end": 70967,
+    "target": 54,
+    "offset_c": -21.38
+   },
+   {
+    "start": 76751,
+    "end": 104712,
+    "target": 55,
+    "offset_c": 36.73
+   },
+   {
+    "start": 121089,
+    "end": 142832,
+    "target": 55,
+    "offset_c": 29.79
+   },
+   {
+    "start": 158222,
+    "end": 199421,
+    "target": 53,
+    "offset_c": 27.95
+   },
+   {
+    "start": 212252,
+    "end": 234382,
+    "target": 55,
+    "offset_c": -22.61
+   },
+   {
+    "start": 249228,
+    "end": 279665,
+    "target": 55,
+    "offset_c": 30.16
+   },
+   {
+    "start": 294678,
+    "end": 327680,
+    "target": 52,
+    "offset_c": -42.31
+   },
+   {
+    "start": 340495,
+    "end": 363003,
+    "target": 55,
+    "offset_c": 33.07
+   },
+   {
+    "start": 363003,
+    "end": 391852,
+    "target": 55,
+    "offset_c": -37.55
+   },
+   {
+    "start": 400682,
+    "end": 437701,
+    "target": 55,
+    "offset_c": 34.8
+   },
+   {
+    "start": 444083,
+    "end": 476823,
+    "target": 55,
+    "offset_c": -24.53
+   },
+   {
+    "start": 476823,
+    "end": 505518,
+    "target": 51,
+    "offset_c": 22.49
+   },
+   {
+    "start": 517396,
+    "end": 554006,
+    "target": 53,
+    "offset_c": 43.43
+   },
+   {
+    "start": 564410,
+    "end": 599400,
+    "target": 55,
+    "offset_c": 25.67
+   },
+   {
+    "start": 603784,
+    "end": 641296,
+    "target": 55,
+    "offset_c": -43.18
+   }
+  ]
+ },
+ {
+  "name": "bass_3",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 46569,
+    "target": 45,
+    "offset_c": -40.03
+   },
+   {
+    "start": 46569,
+    "end": 67586,
+    "target": 43,
+    "offset_c": -31.98
+   },
+   {
+    "start": 67586,
+    "end": 95754,
+    "target": 47,
+    "offset_c": -32.92
+   },
+   {
+    "start": 109156,
+    "end": 143077,
+    "target": 51,
+    "offset_c": 27.11
+   },
+   {
+    "start": 143077,
+    "end": 167754,
+    "target": 54,
+    "offset_c": 44.34
+   },
+   {
+    "start": 167754,
+    "end": 196996,
+    "target": 49,
+    "offset_c": 34.63
+   },
+   {
+    "start": 196996,
+    "end": 216194,
+    "target": 53,
+    "offset_c": -29.36
+   },
+   {
+    "start": 232105,
+    "end": 256776,
+    "target": 55,
+    "offset_c": -35.75
+   },
+   {
+    "start": 263450,
+    "end": 298275,
+    "target": 55,
+    "offset_c": -36.44
+   },
+   {
+    "start": 307669,
+    "end": 327170,
+    "target": 55,
+    "offset_c": 41.96
+   },
+   {
+    "start": 327170,
+    "end": 362408,
+    "target": 55,
+    "offset_c": 23.66
+   },
+   {
+    "start": 362408,
+    "end": 394039,
+    "target": 55,
+    "offset_c": 26.88
+   },
+   {
+    "start": 400427,
+    "end": 437085,
+    "target": 54,
+    "offset_c": 38.67
+   },
+   {
+    "start": 452862,
+    "end": 474123,
+    "target": 55,
+    "offset_c": -41.27
+   },
+   {
+    "start": 485828,
+    "end": 523481,
+    "target": 55,
+    "offset_c": 39.68
+   },
+   {
+    "start": 523481,
+    "end": 545390,
+    "target": 55,
+    "offset_c": -22.12
+   }
+  ]
+ },
+ {
+  "name": "bass_4",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 33334,
+    "target": 55,
+    "offset_c": 44.41
+   },
+   {
+    "start": 42053,
+    "end": 81864,
+    "target": 55,
+    "offset_c": 24.36
+   },
+   {
+    "start": 91887,
+    "end": 134668,
+    "target": 55,
+    "offset_c": 39.72
+   },
+   {
+    "start": 134668,
+    "end": 156159,
+    "target": 55,
+    "offset_c": 43.23
+   },
+   {
+    "start": 172217,
+    "end": 202160,
+    "target": 55,
+    "offset_c": -23.33
+   },
+   {
+    "start": 212482,
+    "end": 235189,
+    "target": 54,
+    "offset_c": 28.75
+   },
+   {
+    "start": 251199,
+    "end": 292545,
+    "target": 55,
+    "offset_c": 26.7
+   },
+   {
+    "start": 305143,
+    "end": 340226,
+    "target": 51,
+    "offset_c": -25.42
+   },
+   {
+    "start": 340226,
+    "end": 361533,
+    "target": 55,
+    "offset_c": 29.05
+   },
+   {
+    "start": 361533,
+    "end": 388425,
+    "target": 55,
+    "offset_c": 42.11
+   },
+   {
+    "start": 388425,
+    "end": 426880,
+    "target": 55,
+    "offset_c": -33.43
+   },
+   {
+    "start": 426880,
+    "end": 469352,
+    "target": 55,
+    "offset_c": -28.7
+   },
+   {
+    "start": 485581,
+    "end": 510495,
+    "target": 54,
+    "offset_c": 29.88
+   },
+   {
+    "start": 515727,
+    "end": 556752,
+    "target": 50,
+    "offset_c": -41.91
+   },
+   {
+    "start": 556752,
+    "end": 579822,
+    "target": 47,
+    "offset_c": -35.54
+   },
+   {
+    "start": 584587,
+    "end": 619989,
+    "target": 54,
+    "offset_c": 33.17
+   }
+  ]
+ },
+ {
+  "name": "bass_5",
+  "voice": "bass",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 38745,
+    "target": 53,
+    "offset_c": -32.88
+   },
+   {
+    "start": 38745,
+    "end": 56740,
+    "target": 51,
+    "offset_c": -30.21
+   },
+   {
+    "start": 69034,
+    "end": 111552,
+    "target": 46,
+    "offset_c": 30.87
+   },
+   {
+    "start": 126333,
+    "end": 160997,
+    "target": 42,
+    "offset_c": -32.33
+   },
+   {
+    "start": 168355,
+    "end": 203085,
+    "target": 40,
+    "offset_c": -21.61
+   },
+   {
+    "start": 209871,
+    "end": 227159,
+    "target": 41,
+    "offset_c": 41.8
+   },
+   {
+    "start": 227159,
+    "end": 249324,
+    "target": 44,
+    "offset_c": -30.92
+   },
+   {
+    "start": 249324,
+    "end": 270058,
+    "target": 42,
+    "offset_c": 27.91
+   },
+   {
+    "start": 284252,
+    "end": 322168,
+    "target": 45,
+    "offset_c": 27.99
+   },
+   {
+    "start": 332570,
+    "end": 374007,
+    "target": 52,
+    "offset_c": -20.36
+   },
+   {
+    "start": 382614,
+    "end": 424136,
+    "target": 47,
+    "offset_c": 29.99
+   },
+   {
+    "start": 431088,
+    "end": 465951,
+    "target": 45,
+    "offset_c": 36.86
+   },
+   {
+    "start": 465951,
+    "end": 501025,
+    "target": 46,
+    "offset_c": -22.68
+   },
+   {
+    "start": 509744,
+    "end": 536852,
+    "target": 44,
+    "offset_c": 24.85
+   },
+   {
+    "start": 536852,
+    "end": 578494,
+    "target": 48,
+    "offset_c": -35.31
+   },
+   {
+    "start": 591712,
+    "end": 627332,
+    "target": 47,
+    "offset_c": 23.82
+   }
+  ]
+ },
+ {
+  "name": "baritone_0",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 36565,
+    "target": 50,
+    "offset_c": 31.77
+   },
+   {
+    "start": 42880,
+    "end": 74244,
+    "target": 51,
+    "offset_c": -38.84
+   },
+   {
+    "start": 81302,
+    "end": 115789,
+    "target": 56,
+    "offset_c": 44.6
+   },
+   {
+    "start": 115789,
+    "end": 149817,
+    "target": 55,
+    "offset_c": -35.63
+   },
+   {
+    "start": 155651,
+    "end": 172913,
+    "target": 60,
+    "offset_c": 31.18
+   },
+   {
+    "start": 172913,
+    "end": 214596,
+    "target": 60,
+    "offset_c": -28.03
+   },
+   {
+    "start": 214596,
+    "end": 235316,
+    "target": 60,
+    "offset_c": -40.3
+   },
+   {
+    "start": 235316,
+    "end": 273447,
+    "target": 56,
+    "offset_c": -30.5
+   },
+   {
+    "start": 284527,
+    "end": 302747,
+    "target": 51,
+    "offset_c": 27.44
+   },
+   {
+    "start": 318776,
+    "end": 349945,
+    "target": 56,
+    "offset_c": 41.41
+   },
+   {
+    "start": 363305,
+    "end": 393823,
+    "target": 55,
+    "offset_c": -42.31
+   },
+   {
+    "start": 393823,
+    "end": 415493,
+    "target": 53,
+    "offset_c": -40.89
+   },
+   {
+    "start": 415493,
+    "end": 454042,
+    "target": 50,
+    "offset_c": 32.92
+   },
+   {
+    "start": 454042,
+    "end": 482813,
+    "target": 51,
+    "offset_c": 29.82
+   },
+   {
+    "start": 482813,
+    "end": 501635,
+    "target": 49,
+    "offset_c": -30.78
+   },
+   {
+    "start": 501635,
+    "end": 542419,
+    "target": 53,
+    "offset_c": -37.69
+   }
+  ]
+ },
+ {
+  "name": "baritone_1",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 53848,
+    "target": 58,
+    "offset_c": 24.69
+   },
+   {
+    "start": 53848,
+    "end": 73250,
+    "target": 57,
+    "offset_c": -35.75
+   },
+   {
+    "start": 73250,
+    "end": 110250,
+    "target": 53,
+    "offset_c": 44.6
+   },
+   {
+    "start": 110250,
+    "end": 136566,
+    "target": 49,
+    "offset_c": -25.28
+   },
+   {
+    "start": 136566,
+    "end": 178613,
+    "target": 56,
+    "offset_c": 26.65
+   },
+   {
+    "start": 183859,
+    "end": 209345,
+    "target": 59,
+    "offset_c": 29.5
+   },
+   {
+    "start": 209345,
+    "end": 236113,
+    "target": 54,
+    "offset_c": 29.74
+   },
+   {
+    "start": 236113,
+    "end": 256195,
+    "target": 50,
+    "offset_c": -28.95
+   },
+   {
+    "start": 256195,
+    "end": 278391,
+    "target": 45,
+    "offset_c": 37.95
+   },
+   {
+    "start": 285217,
+    "end": 323223,
+    "target": 52,
+    "offset_c": -32.79
+   },
+   {
+    "start": 336027,
+    "end": 355476,
+    "target": 51,
+    "offset_c": -35.61
+   },
+   {
+    "start": 360668,
+    "end": 395321,
+    "target": 50,
+    "offset_c": -36.26
+   },
+   {
+    "start": 408813,
+    "end": 432402,
+    "target": 49,
+    "offset_c": 22.81
+   },
+   {
+    "start": 440905,
+    "end": 482137,
+    "target": 54,
+    "offset_c": 33.15
+   },
+   {
+    "start": 490024,
+    "end": 525954,
+    "target": 57,
+    "offset_c": 44.09
+   },
+   {
+    "start": 525954,
+    "end": 552836,
+    "target": 60,
+    "offset_c": 23.17
+   }
+  ]
+ },
+ {
+  "name": "baritone_2",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 41482,
+    "target": 52,
+    "offset_c": 38.69
+   },
+   {
+    "start": 41482,
+    "end": 61440,
+    "target": 47,
+    "offset_c": 24.68
+   },
+   {
+    "start": 77317,
+    "end": 120246,
+    "target": 52,
+    "offset_c": -29.15
+   },
+   {
+    "start": 120246,
+    "end": 158617,
+    "target": 55,
+    "offset_c": -20.07
+   },
+   {
+    "start": 158617,
+    "end": 184200,
+    "target": 51,
+    "offset_c": -38.93
+   },
+   {
+    "start": 184200,
+    "end": 201627,
+    "target": 49,
+    "offset_c": -34.86
+   },
+   {
+    "start": 201627,
+    "end": 242895,
+    "target": 46,
+    "offset_c": -37.89
+   },
+   {
+    "start": 242895,
+    "end": 263242,
+    "target": 45,
+    "offset_c": -35.11
+   },
+   {
+    "start": 272430,
+    "end": 301566,
+    "target": 45,
+    "offset_c": -34.09
+   },
+   {
+    "start": 314172,
+    "end": 334826,
+    "target": 48,
+    "offset_c": -30.28
+   },
+   {
+    "start": 334826,
+    "end": 368428,
+    "target": 51,
+    "offset_c": -23.57
+   },
+   {
+    "start": 376817,
+    "end": 399025,
+    "target": 58,
+    "offset_c": 21.45
+   },
+   {
+    "start": 399025,
+    "end": 441230,
+    "target": 54,
+    "offset_c": -36.28
+   },
+   {
+    "start": 445098,
+    "end": 470414,
+    "target": 50,
+    "offset_c": 43.87
+   },
+   {
+    "start": 477579,
+    "end": 506476,
+    "target": 54,
+    "offset_c": 39.78
+   },
+   {
+    "start": 506476,
+    "end": 535941,
+    "target": 59,
+    "offset_c": -40.93
+   }
+  ]
+ },
+ {
+  "name": "baritone_3",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 48644,
+    "target": 47,
+    "offset_c": 32.37
+   },
+   {
+    "start": 61855,
+    "end": 104278,
+    "target": 45,
+    "offset_c": -34.94
+   },
+   {
+    "start": 104278,
+    "end": 143858,
+    "target": 48,
+    "offset_c": -37.68
+   },
+   {
+    "start": 143858,
+    "end": 174597,
+    "target": 45,
+    "offset_c": -33.39
+   },
+   {
+    "start": 174597,
+    "end": 193640,
+    "target": 50,
+    "offset_c": -37.78
+   },
+   {
+    "start": 203667,
+    "end": 224032,
+    "target": 49,
+    "offset_c": 32.67
+   },
+   {
+    "start": 224032,
+    "end": 250722,
+    "target": 54,
+    "offset_c": 32.97
+   },
+   {
+    "start": 266630,
+    "end": 288310,
+    "target": 53,
+    "offset_c": -34.82
+   },
+   {
+    "start": 296146,
+    "end": 328567,
+    "target": 56,
+    "offset_c": -28.24
+   },
+   {
+    "start": 328567,
+    "end": 346626,
+    "target": 60,
+    "offset_c": 31.31
+   },
+   {
+    "start": 362594,
+    "end": 396809,
+    "target": 60,
+    "offset_c": -25.52
+   },
+   {
+    "start": 401238,
+    "end": 443708,
+    "target": 56,
+    "offset_c": 20.77
+   },
+   {
+    "start": 456120,
+    "end": 477134,
+    "target": 54,
+    "offset_c": -33.61
+   },
+   {
+    "start": 477134,
+    "end": 497793,
+    "target": 53,
+    "offset_c": 40.63
+   },
+   {
+    "start": 497793,
+    "end": 530588,
+    "target": 52,
+    "offset_c": 20.9
+   },
+   {
+    "start": 530588,
+    "end": 555665,
+    "target": 56,
+    "offset_c": -23.79
+   }
+  ]
+ },
+ {
+  "name": "baritone_4",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 41249,
+    "target": 49,
+    "offset_c": -23.46
+   },
+   {
+    "start": 55937,
+    "end": 79977,
+    "target": 48,
+    "offset_c": -34.01
+   },
+   {
+    "start": 86599,
+    "end": 111970,
+    "target": 53,
+    "offset_c": -32.29
+   },
+   {
+    "start": 125913,
+    "end": 163053,
+    "target": 56,
+    "offset_c": 44.92
+   },
+   {
+    "start": 171944,
+    "end": 209525,
+    "target": 60,
+    "offset_c": 20.9
+   },
+   {
+    "start": 219098,
+    "end": 239716,
+    "target": 58,
+    "offset_c": -40.01
+   },
+   {
+    "start": 251476,
+    "end": 269131,
+    "target": 60,
+    "offset_c": -30.32
+   },
+   {
+    "start": 282601,
+    "end": 308138,
+    "target": 58,
+    "offset_c": -33.23
+   },
+   {
+    "start": 318149,
+    "end": 350094,
+    "target": 59,
+    "offset_c": -34.65
+   },
+   {
+    "start": 363836,
+    "end": 396277,
+    "target": 56,
+    "offset_c": -28.03
+   },
+   {
+    "start": 412722,
+    "end": 444598,
+    "target": 60,
+    "offset_c": 44.62
+   },
+   {
+    "start": 444598,
+    "end": 476272,
+    "target": 60,
+    "offset_c": -31.02
+   },
+   {
+    "start": 488672,
+    "end": 515437,
+    "target": 60,
+    "offset_c": 31.94
+   },
+   {
+    "start": 526238,
+    "end": 561922,
+    "target": 60,
+    "offset_c": -20.19
+   },
+   {
+    "start": 577984,
+    "end": 600406,
+    "target": 60,
+    "offset_c": -26.69
+   },
+   {
+    "start": 600406,
+    "end": 629402,
+    "target": 60,
+    "offset_c": 43.93
+   }
+  ]
+ },
+ {
+  "name": "baritone_5",
+  "voice": "baritone",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 48057,
+    "target": 46,
+    "offset_c": 27.18
+   },
+   {
+    "start": 64555,
+    "end": 100279,
+    "target": 45,
+    "offset_c": -32.42
+   },
+   {
+    "start": 106329,
+    "end": 134931,
+    "target": 45,
+    "offset_c": 32.4
+   },
+   {
+    "start": 148415,
+    "end": 187177,
+    "target": 47,
+    "offset_c": -39.76
+   },
+   {
+    "start": 187177,
+    "end": 205438,
+    "target": 48,
+    "offset_c": -39.81
+   },
+   {
+    "start": 217099,
+    "end": 239509,
+    "target": 50,
+    "offset_c": -42.48
+   },
+   {
+    "start": 250696,
+    "end": 288193,
+    "target": 57,
+    "offset_c": 32.97
+   },
+   {
+    "start": 288193,
+    "end": 326721,
+    "target": 55,
+    "offset_c": -38.35
+   },
+   {
+    "start": 326721,
+    "end": 365573,
+    "target": 51,
+    "offset_c": -28.01
+   },
+   {
+    "start": 365573,
+    "end": 387543,
+    "target": 49,
+    "offset_c": -25.14
+   },
+   {
+    "start": 392950,
+    "end": 410767,
+    "target": 52,
+    "offset_c": 21.84
+   },
+   {
+    "start": 420194,
+    "end": 461977,
+    "target": 57,
+    "offset_c": 25.11
+   },
+   {
+    "start": 469414,
+    "end": 500184,
+    "target": 60,
+    "offset_c": 34.51
+   },
+   {
+    "start": 511917,
+    "end": 540207,
+    "target": 55,
+    "offset_c": -33.97
+   },
+   {
+    "start": 546627,
+    "end": 563668,
+    "target": 57,
+    "offset_c": -35.57
+   },
+   {
+    "start": 563668,
+    "end": 601992,
+    "target": 60,
+    "offset_c": -42.73
+   }
+  ]
+ },
+ {
+  "name": "tenor_0",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 44573,
+    "target": 57,
+    "offset_c": -20.68
+   },
+   {
+    "start": 51899,
+    "end": 82829,
+    "target": 58,
+    "offset_c": 30.25
+   },
+   {
+    "start": 82829,
+    "end": 119226,
+    "target": 53,
+    "offset_c": -26.09
+   },
+   {
+    "start": 119226,
+    "end": 137707,
+    "target": 58,
+    "offset_c": -29.17
+   },
+   {
+    "start": 147932,
+    "end": 183089,
+    "target": 54,
+    "offset_c": 41.7
+   },
+   {
+    "start": 192835,
+    "end": 213626,
+    "target": 53,
+    "offset_c": -32.33
+   },
+   {
+    "start": 221766,
+    "end": 255975,
+    "target": 55,
+    "offset_c": -26.29
+   },
+   {
+    "start": 255975,
+    "end": 293394,
+    "target": 57,
+    "offset_c": -22.16
+   },
+   {
+    "start": 309209,
+    "end": 339816,
+    "target": 62,
+    "offset_c": 30.88
+   },
+   {
+    "start": 353473,
+    "end": 393891,
+    "target": 58,
+    "offset_c": 20.92
+   },
+   {
+    "start": 403113,
+    "end": 429127,
+    "target": 57,
+    "offset_c": 37.6
+   },
+   {
+    "start": 443578,
+    "end": 463022,
+    "target": 61,
+    "offset_c": 25.39
+   },
+   {
+    "start": 463022,
+    "end": 488586,
+    "target": 63,
+    "offset_c": -35.66
+   },
+   {
+    "start": 488586,
+    "end": 514751,
+    "target": 61,
+    "offset_c": 22.93
+   },
+   {
+    "start": 514751,
+    "end": 551859,
+    "target": 64,
+    "offset_c": -42.7
+   },
+   {
+    "start": 556154,
+    "end": 591771,
+    "target": 67,
+    "offset_c": 37.98
+   }
+  ]
+ },
+ {
+  "name": "tenor_1",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 56600,
+    "target": 52,
+    "offset_c": -31.88
+   },
+   {
+    "start": 64812,
+    "end": 87422,
+    "target": 55,
+    "offset_c": 39.57
+   },
+   {
+    "start": 97113,
+    "end": 118209,
+    "target": 57,
+    "offset_c": 32.86
+   },
+   {
+    "start": 118209,
+    "end": 157239,
+    "target": 55,
+    "offset_c": -38.31
+   },
+   {
+    "start": 172135,
+    "end": 204472,
+    "target": 57,
+    "offset_c": -26.36
+   },
+   {
+    "start": 209068,
+    "end": 244669,
+    "target": 56,
+    "offset_c": -23.89
+   },
+   {
+    "start": 244669,
+    "end": 264443,
+    "target": 53,
+    "offset_c": 21.35
+   },
+   {
+    "start": 279002,
+    "end": 308444,
+    "target": 52,
+    "offset_c": 39.42
+   },
+   {
+    "start": 320376,
+    "end": 345599,
+    "target": 53,
+    "offset_c": -40.03
+   },
+   {
+    "start": 360050,
+    "end": 378349,
+    "target": 60,
+    "offset_c": 35.05
+   },
+   {
+    "start": 394857,
+    "end": 424820,
+    "target": 57,
+    "offset_c": -40.23
+   },
+   {
+    "start": 437109,
+    "end": 466415,
+    "target": 64,
+    "offset_c": 26.2
+   },
+   {
+    "start": 466415,
+    "end": 506411,
+    "target": 59,
+    "offset_c": -42.52
+   },
+   {
+    "start": 506411,
+    "end": 526276,
+    "target": 56,
+    "offset_c": 27.9
+   },
+   {
+    "start": 536864,
+    "end": 568093,
+    "target": 57,
+    "offset_c": 42.64
+   },
+   {
+    "start": 577475,
+    "end": 595364,
+    "target": 52,
+    "offset_c": 22.37
+   }
+  ]
+ },
+ {
+  "name": "tenor_2",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 35193,
+    "target": 67,
+    "offset_c": -36.45
+   },
+   {
+    "start": 41004,
+    "end": 81469,
+    "target": 64,
+    "offset_c": -24.29
+   },
+   {
+    "start": 85783,
+    "end": 124465,
+    "target": 62,
+    "offset_c": 30.23
+   },
+   {
+    "start": 124465,
+    "end": 144758,
+    "target": 61,
+    "offset_c": -35.36
+   },
+   {
+    "start": 144758,
+    "end": 165159,
+    "target": 57,
+    "offset_c": 43.91
+   },
+   {
+    "start": 172206,
+    "end": 204138,
+    "target": 52,
+    "offset_c": 34.25
+   },
+   {
+    "start": 213680,
+    "end": 250844,
+    "target": 53,
+    "offset_c": 27.88
+   },
+   {
+    "start": 256729,
+    "end": 284424,
+    "target": 50,
+    "offset_c": -27.4
+   },
+   {
+    "start": 284424,
+    "end": 313331,
+    "target": 53,
+    "offset_c": 26.27
+   },
+   {
+    "start": 313331,
+    "end": 332772,
+    "target": 52,
+    "offset_c": -23.44
+   },
+   {
+    "start": 346334,
+    "end": 378089,
+    "target": 50,
+    "offset_c": -21.7
+   },
+   {
+    "start": 393305,
+    "end": 423426,
+    "target": 51,
+    "offset_c": 42.71
+   },
+   {
+    "start": 437355,
+    "end": 472062,
+    "target": 53,
+    "offset_c": -21.21
+   },
+   {
+    "start": 484542,
+    "end": 513285,
+    "target": 50,
+    "offset_c": 41.45
+   },
+   {
+    "start": 529872,
+    "end": 560905,
+    "target": 50,
+    "offset_c": 37.6
+   },
+   {
+    "start": 560905,
+    "end": 583436,
+    "target": 57,
+    "offset_c": 28.59
+   }
+  ]
+ },
+ {
+  "name": "tenor_3",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 57558,
+    "target": 59,
+    "offset_c": 36.28
+   },
+   {
+    "start": 63238,
+    "end": 87049,
+    "target": 58,
+    "offset_c": -25.96
+   },
+   {
+    "start": 87049,
+    "end": 108951,
+    "target": 61,
+    "offset_c": -28.78
+   },
+   {
+    "start": 117821,
+    "end": 142562,
+    "target": 64,
+    "offset_c": -30.51
+   },
+   {
+    "start": 156641,
+    "end": 176256,
+    "target": 67,
+    "offset_c": -41.32
+   },
+   {
+    "start": 185081,
+    "end": 210148,
+    "target": 65,
+    "offset_c": 22.04
+   },
+   {
+    "start": 210148,
+    "end": 246377,
+    "target": 60,
+    "offset_c": 42.57
+   },
+   {
+    "start": 253253,
+    "end": 271410,
+    "target": 58,
+    "offset_c": -39.35
+   },
+   {
+    "start": 271410,
+    "end": 288985,
+    "target": 59,
+    "offset_c": -32.11
+   },
+   {
+    "start": 300903,
+    "end": 327718,
+    "target": 57,
+    "offset_c": 41.56
+   },
+   {
+    "start": 338229,
+    "end": 380697,
+    "target": 58,
+    "offset_c": 44.26
+   },
+   {
+    "start": 388666,
+    "end": 413910,
+    "target": 53,
+    "offset_c": -41.28
+   },
+   {
+    "start": 429690,
+    "end": 454534,
+    "target": 56,
+    "offset_c": -32.88
+   },
+   {
+    "start": 463759,
+    "end": 486700,
+    "target": 63,
+    "offset_c": -31.51
+   },
+   {
+    "start": 486700,
+    "end": 512160,
+    "target": 67,
+    "offset_c": -35.87
+   },
+   {
+    "start": 527520,
+    "end": 569218,
+    "target": 67,
+    "offset_c": -23.32
+   }
+  ]
+ },
+ {
+  "name": "tenor_4",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 48697,
+    "target": 63,
+    "offset_c": -42.91
+   },
+   {
+    "start": 53220,
+    "end": 74923,
+    "target": 59,
+    "offset_c": 33.69
+   },
+   {
+    "start": 87897,
+    "end": 120738,
+    "target": 60,
+    "offset_c": -24.18
+   },
+   {
+    "start": 128410,
+    "end": 159241,
+    "target": 63,
+    "offset_c": 43.06
+   },
+   {
+    "start": 159241,
+    "end": 187139,
+    "target": 66,
+    "offset_c": -35.42
+   },
+   {
+    "start": 201808,
+    "end": 240231,
+    "target": 61,
+    "offset_c": -28.75
+   },
+   {
+    "start": 251526,
+    "end": 292493,
+    "target": 63,
+    "offset_c": 32.54
+   },
+   {
+    "start": 292493,
+    "end": 327631,
+    "target": 67,
+    "offset_c": -44.71
+   },
+   {
+    "start": 327631,
+    "end": 348317,
+    "target": 63,
+    "offset_c": 41.15
+   },
+   {
+    "start": 348317,
+    "end": 367742,
+    "target": 59,
+    "offset_c": -20.55
+   },
+   {
+    "start": 367742,
+    "end": 390720,
+    "target": 55,
+    "offset_c": 44.75
+   },
+   {
+    "start": 401014,
+    "end": 437779,
+    "target": 62,
+    "offset_c": 36.62
+   },
+   {
+    "start": 450590,
+    "end": 478945,
+    "target": 58,
+    "offset_c": -23.85
+   },
+   {
+    "start": 489671,
+    "end": 521141,
+    "target": 53,
+    "offset_c": -22.7
+   },
+   {
+    "start": 533903,
+    "end": 559090,
+    "target": 51,
+    "offset_c": 34.66
+   },
+   {
+    "start": 559090,
+    "end": 583627,
+    "target": 55,
+    "offset_c": 20.44
+   }
+  ]
+ },
+ {
+  "name": "tenor_5",
+  "voice": "tenor",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 54887,
+    "target": 59,
+    "offset_c": 40.13
+   },
+   {
+    "start": 54887,
+    "end": 89717,
+    "target": 54,
+    "offset_c": 32.68
+   },
+   {
+    "start": 89717,
+    "end": 122259,
+    "target": 50,
+    "offset_c": 31.65
+   },
+   {
+    "start": 137834,
+    "end": 179688,
+    "target": 50,
+    "offset_c": 24.86
+   },
+   {
+    "start": 179688,
+    "end": 205779,
+    "target": 54,
+    "offset_c": 34.16
+   },
+   {
+    "start": 218847,
+    "end": 260467,
+    "target": 56,
+    "offset_c": -39.77
+   },
+   {
+    "start": 275836,
+    "end": 295414,
+    "target": 54,
+    "offset_c": -22.76
+   },
+   {
+    "start": 311277,
+    "end": 332489,
+    "target": 51,
+    "offset_c": 26.04
+   },
+   {
+    "start": 332489,
+    "end": 357557,
+    "target": 50,
+    "offset_c": 22.56
+   },
+   {
+    "start": 367843,
+    "end": 390412,
+    "target": 50,
+    "offset_c": -40.01
+   },
+   {
+    "start": 390412,
+    "end": 424205,
+    "target": 55,
+    "offset_c": -43.87
+   },
+   {
+    "start": 435550,
+    "end": 457384,
+    "target": 50,
+    "offset_c": 36.31
+   },
+   {
+    "start": 466401,
+    "end": 489586,
+    "target": 51,
+    "offset_c": -27.88
+   },
+   {
+    "start": 499552,
+    "end": 540640,
+    "target": 52,
+    "offset_c": -23.67
+   },
+   {
+    "start": 549174,
+    "end": 586167,
+    "target": 50,
+    "offset_c": -21.77
+   },
+   {
+    "start": 597590,
+    "end": 640108,
+    "target": 50,
+    "offset_c": 35.26
+   }
+  ]
+ },
+ {
+  "name": "alto_0",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 36327,
+    "target": 63,
+    "offset_c": -30.53
+   },
+   {
+    "start": 36327,
+    "end": 76527,
+    "target": 61,
+    "offset_c": -35.37
+   },
+   {
+    "start": 84245,
+    "end": 101742,
+    "target": 65,
+    "offset_c": 21.23
+   },
+   {
+    "start": 101742,
+    "end": 138355,
+    "target": 60,
+    "offset_c": 20.79
+   },
+   {
+    "start": 148190,
+    "end": 173226,
+    "target": 67,
+    "offset_c": 22.89
+   },
+   {
+    "start": 173226,
+    "end": 193692,
+    "target": 64,
+    "offset_c": -42.09
+   },
+   {
+    "start": 193692,
+    "end": 225294,
+    "target": 67,
+    "offset_c": 21.41
+   },
+   {
+    "start": 240388,
+    "end": 267662,
+    "target": 70,
+    "offset_c": -23.88
+   },
+   {
+    "start": 274688,
+    "end": 295983,
+    "target": 70,
+    "offset_c": -41.92
+   },
+   {
+    "start": 307678,
+    "end": 324955,
+    "target": 69,
+    "offset_c": -41.41
+   },
+   {
+    "start": 324955,
+    "end": 342782,
+    "target": 65,
+    "offset_c": -34.95
+   },
+   {
+    "start": 347505,
+    "end": 378291,
+    "target": 67,
+    "offset_c": 35.24
+   },
+   {
+    "start": 378291,
+    "end": 401619,
+    "target": 70,
+    "offset_c": -27.05
+   },
+   {
+    "start": 410776,
+    "end": 432042,
+    "target": 70,
+    "offset_c": -40.08
+   },
+   {
+    "start": 432042,
+    "end": 462353,
+    "target": 70,
+    "offset_c": 27.91
+   },
+   {
+    "start": 467752,
+    "end": 508726,
+    "target": 68,
+    "offset_c": -38.09
+   }
+  ]
+ },
+ {
+  "name": "alto_1",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 50197,
+    "target": 67,
+    "offset_c": -39.85
+   },
+   {
+    "start": 50197,
+    "end": 75465,
+    "target": 69,
+    "offset_c": 31.7
+   },
+   {
+    "start": 75465,
+    "end": 117373,
+    "target": 67,
+    "offset_c": 20.17
+   },
+   {
+    "start": 130540,
+    "end": 160535,
+    "target": 66,
+    "offset_c": 44.5
+   },
+   {
+    "start": 168924,
+    "end": 199452,
+    "target": 63,
+    "offset_c": -32.04
+   },
+   {
+    "start": 199452,
+    "end": 241433,
+    "target": 58,
+    "offset_c": 24.78
+   },
+   {
+    "start": 250960,
+    "end": 273902,
+    "target": 55,
+    "offset_c": -38.26
+   },
+   {
+    "start": 273902,
+    "end": 305272,
+    "target": 58,
+    "offset_c": -43.21
+   },
+   {
+    "start": 309942,
+    "end": 347037,
+    "target": 65,
+    "offset_c": -27.51
+   },
+   {
+    "start": 363441,
+    "end": 383632,
+    "target": 63,
+    "offset_c": -22.7
+   },
+   {
+    "start": 383632,
+    "end": 409892,
+    "target": 61,
+    "offset_c": 34.89
+   },
+   {
+    "start": 409892,
+    "end": 430708,
+    "target": 64,
+    "offset_c": -28.8
+   },
+   {
+    "start": 437773,
+    "end": 465491,
+    "target": 68,
+    "offset_c": 31.91
+   },
+   {
+    "start": 481834,
+    "end": 517290,
+    "target": 70,
+    "offset_c": 38.51
+   },
+   {
+    "start": 528948,
+    "end": 561532,
+    "target": 70,
+    "offset_c": 25.9
+   },
+   {
+    "start": 574555,
+    "end": 612438,
+    "target": 70,
+    "offset_c": -44.03
+   }
+  ]
+ },
+ {
+  "name": "alto_2",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 42204,
+    "target": 58,
+    "offset_c": -35.46
+   },
+   {
+    "start": 42204,
+    "end": 78358,
+    "target": 59,
+    "offset_c": 38.0
+   },
+   {
+    "start": 86118,
+    "end": 128702,
+    "target": 58,
+    "offset_c": 27.93
+   },
+   {
+    "start": 128702,
+    "end": 163658,
+    "target": 55,
+    "offset_c": -24.32
+   },
+   {
+    "start": 174271,
+    "end": 197066,
+    "target": 55,
+    "offset_c": 22.32
+   },
+   {
+    "start": 206924,
+    "end": 236605,
+    "target": 55,
+    "offset_c": 26.12
+   },
+   {
+    "start": 236605,
+    "end": 268547,
+    "target": 60,
+    "offset_c": -26.36
+   },
+   {
+    "start": 268547,
+    "end": 288463,
+    "target": 55,
+    "offset_c": 40.21
+   },
+   {
+    "start": 293446,
+    "end": 313896,
+    "target": 55,
+    "offset_c": 40.14
+   },
+   {
+    "start": 329516,
+    "end": 353840,
+    "target": 56,
+    "offset_c": 25.84
+   },
+   {
+    "start": 353840,
+    "end": 371488,
+    "target": 59,
+    "offset_c": -21.21
+   },
+   {
+    "start": 371488,
+    "end": 389014,
+    "target": 58,
+    "offset_c": 27.26
+   },
+   {
+    "start": 403351,
+    "end": 445970,
+    "target": 62,
+    "offset_c": 32.64
+   },
+   {
+    "start": 445970,
+    "end": 463732,
+    "target": 57,
+    "offset_c": 26.39
+   },
+   {
+    "start": 463732,
+    "end": 482726,
+    "target": 55,
+    "offset_c": -34.26
+   },
+   {
+    "start": 482726,
+    "end": 508264,
+    "target": 62,
+    "offset_c": -29.42
+   }
+  ]
+ },
+ {
+  "name": "alto_3",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 49413,
+    "target": 61,
+    "offset_c": -34.38
+   },
+   {
+    "start": 49413,
+    "end": 80732,
+    "target": 63,
+    "offset_c": 34.68
+   },
+   {
+    "start": 86132,
+    "end": 122345,
+    "target": 62,
+    "offset_c": 39.85
+   },
+   {
+    "start": 122345,
+    "end": 165406,
+    "target": 67,
+    "offset_c": -25.97
+   },
+   {
+    "start": 165406,
+    "end": 188903,
+    "target": 66,
+    "offset_c": -41.11
+   },
+   {
+    "start": 196164,
+    "end": 238424,
+    "target": 69,
+    "offset_c": 37.6
+   },
+   {
+    "start": 248904,
+    "end": 268388,
+    "target": 70,
+    "offset_c": 30.73
+   },
+   {
+    "start": 268388,
+    "end": 288428,
+    "target": 70,
+    "offset_c": 36.64
+   },
+   {
+    "start": 288428,
+    "end": 316659,
+    "target": 70,
+    "offset_c": 43.49
+   },
+   {
+    "start": 330625,
+    "end": 356080,
+    "target": 70,
+    "offset_c": 35.03
+   },
+   {
+    "start": 356080,
+    "end": 381694,
+    "target": 65,
+    "offset_c": 20.56
+   },
+   {
+    "start": 397098,
+    "end": 421809,
+    "target": 70,
+    "offset_c": 29.34
+   },
+   {
+    "start": 428714,
+    "end": 452861,
+    "target": 70,
+    "offset_c": 25.3
+   },
+   {
+    "start": 461643,
+    "end": 499159,
+    "target": 70,
+    "offset_c": 21.77
+   },
+   {
+    "start": 508617,
+    "end": 534780,
+    "target": 66,
+    "offset_c": 40.05
+   },
+   {
+    "start": 549232,
+    "end": 585028,
+    "target": 70,
+    "offset_c": 24.99
+   }
+  ]
+ },
+ {
+  "name": "alto_4",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 46949,
+    "target": 65,
+    "offset_c": -31.66
+   },
+   {
+    "start": 46949,
+    "end": 68543,
+    "target": 68,
+    "offset_c": -41.91
+   },
+   {
+    "start": 83759,
+    "end": 116863,
+    "target": 65,
+    "offset_c": 30.08
+   },
+   {
+    "start": 127664,
+    "end": 149138,
+    "target": 70,
+    "offset_c": 31.94
+   },
+   {
+    "start": 156857,
+    "end": 199730,
+    "target": 68,
+    "offset_c": -32.2
+   },
+   {
+    "start": 215864,
+    "end": 256185,
+    "target": 70,
+    "offset_c": -27.84
+   },
+   {
+    "start": 256185,
+    "end": 282210,
+    "target": 70,
+    "offset_c": 41.68
+   },
+   {
+    "start": 297576,
+    "end": 324361,
+    "target": 66,
+    "offset_c": -22.95
+   },
+   {
+    "start": 324361,
+    "end": 364721,
+    "target": 68,
+    "offset_c": -35.43
+   },
+   {
+    "start": 375021,
+    "end": 404889,
+    "target": 65,
+    "offset_c": -34.76
+   },
+   {
+    "start": 404889,
+    "end": 423788,
+    "target": 70,
+    "offset_c": 25.82
+   },
+   {
+    "start": 437084,
+    "end": 468322,
+    "target": 67,
+    "offset_c": -29.72
+   },
+   {
+    "start": 480224,
+    "end": 509338,
+    "target": 70,
+    "offset_c": 44.99
+   },
+   {
+    "start": 509338,
+    "end": 543537,
+    "target": 70,
+    "offset_c": -42.68
+   },
+   {
+    "start": 549613,
+    "end": 571469,
+    "target": 70,
+    "offset_c": 24.17
+   },
+   {
+    "start": 582630,
+    "end": 604857,
+    "target": 65,
+    "offset_c": 21.88
+   }
+  ]
+ },
+ {
+  "name": "alto_5",
+  "voice": "alto",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 50074,
+    "target": 59,
+    "offset_c": 29.86
+   },
+   {
+    "start": 64757,
+    "end": 105796,
+    "target": 57,
+    "offset_c": 30.68
+   },
+   {
+    "start": 105796,
+    "end": 129234,
+    "target": 62,
+    "offset_c": 39.58
+   },
+   {
+    "start": 139484,
+    "end": 165276,
+    "target": 69,
+    "offset_c": -43.55
+   },
+   {
+    "start": 165276,
+    "end": 203777,
+    "target": 67,
+    "offset_c": 32.74
+   },
+   {
+    "start": 210224,
+    "end": 242985,
+    "target": 70,
+    "offset_c": 25.39
+   },
+   {
+    "start": 252721,
+    "end": 295829,
+    "target": 66,
+    "offset_c": -44.93
+   },
+   {
+    "start": 307624,
+    "end": 325102,
+    "target": 62,
+    "offset_c": 39.27
+   },
+   {
+    "start": 325102,
+    "end": 343385,
+    "target": 66,
+    "offset_c": 22.59
+   },
+   {
+    "start": 347957,
+    "end": 380630,
+    "target": 62,
+    "offset_c": -36.07
+   },
+   {
+    "start": 395598,
+    "end": 434560,
+    "target": 65,
+    "offset_c": 20.65
+   },
+   {
+    "start": 434560,
+    "end": 457056,
+    "target": 69,
+    "offset_c": -36.36
+   },
+   {
+    "start": 457056,
+    "end": 481483,
+    "target": 70,
+    "offset_c": -43.04
+   },
+   {
+    "start": 486961,
+    "end": 508578,
+    "target": 69,
+    "offset_c": 30.65
+   },
+   {
+    "start": 508578,
+    "end": 545184,
+    "target": 66,
+    "offset_c": -26.15
+   },
+   {
+    "start": 559286,
+    "end": 577874,
+    "target": 65,
+    "offset_c": -36.55
+   }
+  ]
+ },
+ {
+  "name": "mezzo_0",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 51079,
+    "target": 70,
+    "offset_c": 25.59
+   },
+   {
+    "start": 51079,
+    "end": 69639,
+    "target": 74,
+    "offset_c": -42.78
+   },
+   {
+    "start": 73628,
+    "end": 111617,
+    "target": 74,
+    "offset_c": -27.81
+   },
+   {
+    "start": 111617,
+    "end": 141560,
+    "target": 74,
+    "offset_c": -21.45
+   },
+   {
+    "start": 156908,
+    "end": 197789,
+    "target": 74,
+    "offset_c": -33.16
+   },
+   {
+    "start": 212565,
+    "end": 250414,
+    "target": 74,
+    "offset_c": 31.09
+   },
+   {
+    "start": 265678,
+    "end": 294134,
+    "target": 70,
+    "offset_c": -22.85
+   },
+   {
+    "start": 303589,
+    "end": 346627,
+    "target": 74,
+    "offset_c": -44.25
+   },
+   {
+    "start": 363314,
+    "end": 405585,
+    "target": 71,
+    "offset_c": -28.98
+   },
+   {
+    "start": 421560,
+    "end": 456742,
+    "target": 67,
+    "offset_c": -23.46
+   },
+   {
+    "start": 471072,
+    "end": 494337,
+    "target": 66,
+    "offset_c": 24.12
+   },
+   {
+    "start": 494337,
+    "end": 534163,
+    "target": 73,
+    "offset_c": -27.98
+   },
+   {
+    "start": 544935,
+    "end": 587879,
+    "target": 68,
+    "offset_c": 40.63
+   },
+   {
+    "start": 587879,
+    "end": 626919,
+    "target": 65,
+    "offset_c": 44.13
+   },
+   {
+    "start": 626919,
+    "end": 648626,
+    "target": 72,
+    "offset_c": -31.47
+   },
+   {
+    "start": 648626,
+    "end": 670852,
+    "target": 67,
+    "offset_c": -35.91
+   }
+  ]
+ },
+ {
+  "name": "mezzo_1",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 32677,
+    "target": 65,
+    "offset_c": 28.13
+   },
+   {
+    "start": 32677,
+    "end": 52106,
+    "target": 72,
+    "offset_c": 23.73
+   },
+   {
+    "start": 68224,
+    "end": 88455,
+    "target": 74,
+    "offset_c": 35.32
+   },
+   {
+    "start": 101656,
+    "end": 136822,
+    "target": 74,
+    "offset_c": -21.7
+   },
+   {
+    "start": 146237,
+    "end": 171868,
+    "target": 74,
+    "offset_c": -41.75
+   },
+   {
+    "start": 187211,
+    "end": 220508,
+    "target": 74,
+    "offset_c": -30.48
+   },
+   {
+    "start": 226184,
+    "end": 251409,
+    "target": 70,
+    "offset_c": -40.74
+   },
+   {
+    "start": 264482,
+    "end": 291128,
+    "target": 69,
+    "offset_c": -29.74
+   },
+   {
+    "start": 298110,
+    "end": 335491,
+    "target": 72,
+    "offset_c": 31.53
+   },
+   {
+    "start": 351006,
+    "end": 392396,
+    "target": 74,
+    "offset_c": -24.37
+   },
+   {
+    "start": 400013,
+    "end": 437231,
+    "target": 74,
+    "offset_c": -28.02
+   },
+   {
+    "start": 437231,
+    "end": 461189,
+    "target": 74,
+    "offset_c": 30.08
+   },
+   {
+    "start": 466802,
+    "end": 500611,
+    "target": 73,
+    "offset_c": -28.13
+   },
+   {
+    "start": 507695,
+    "end": 537580,
+    "target": 72,
+    "offset_c": -22.01
+   },
+   {
+    "start": 544596,
+    "end": 580666,
+    "target": 69,
+    "offset_c": 20.84
+   },
+   {
+    "start": 580666,
+    "end": 612857,
+    "target": 73,
+    "offset_c": 42.23
+   }
+  ]
+ },
+ {
+  "name": "mezzo_2",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 37717,
+    "target": 64,
+    "offset_c": 22.7
+   },
+   {
+    "start": 37717,
+    "end": 74083,
+    "target": 67,
+    "offset_c": -40.18
+   },
+   {
+    "start": 84848,
+    "end": 106984,
+    "target": 69,
+    "offset_c": -40.62
+   },
+   {
+    "start": 106984,
+    "end": 133679,
+    "target": 73,
+    "offset_c": 34.1
+   },
+   {
+    "start": 133679,
+    "end": 160899,
+    "target": 68,
+    "offset_c": -20.33
+   },
+   {
+    "start": 170222,
+    "end": 203558,
+    "target": 70,
+    "offset_c": 25.41
+   },
+   {
+    "start": 214451,
+    "end": 238085,
+    "target": 74,
+    "offset_c": -30.47
+   },
+   {
+    "start": 249521,
+    "end": 280661,
+    "target": 74,
+    "offset_c": 42.55
+   },
+   {
+    "start": 280661,
+    "end": 318980,
+    "target": 72,
+    "offset_c": 42.36
+   },
+   {
+    "start": 318980,
+    "end": 344916,
+    "target": 71,
+    "offset_c": 41.71
+   },
+   {
+    "start": 344916,
+    "end": 363232,
+    "target": 74,
+    "offset_c": -40.78
+   },
+   {
+    "start": 375357,
+    "end": 392456,
+    "target": 73,
+    "offset_c": -36.59
+   },
+   {
+    "start": 398911,
+    "end": 433779,
+    "target": 74,
+    "offset_c": -20.06
+   },
+   {
+    "start": 446760,
+    "end": 480348,
+    "target": 71,
+    "offset_c": 30.23
+   },
+   {
+    "start": 485556,
+    "end": 528059,
+    "target": 74,
+    "offset_c": -28.53
+   },
+   {
+    "start": 533015,
+    "end": 561345,
+    "target": 73,
+    "offset_c": 41.59
+   }
+  ]
+ },
+ {
+  "name": "mezzo_3",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 45236,
+    "target": 58,
+    "offset_c": 23.57
+   },
+   {
+    "start": 55279,
+    "end": 95927,
+    "target": 58,
+    "offset_c": 31.47
+   },
+   {
+    "start": 106812,
+    "end": 147862,
+    "target": 58,
+    "offset_c": 21.27
+   },
+   {
+    "start": 147862,
+    "end": 186292,
+    "target": 58,
+    "offset_c": -25.19
+   },
+   {
+    "start": 190349,
+    "end": 213385,
+    "target": 58,
+    "offset_c": 39.08
+   },
+   {
+    "start": 213385,
+    "end": 251634,
+    "target": 58,
+    "offset_c": -39.24
+   },
+   {
+    "start": 251634,
+    "end": 279319,
+    "target": 65,
+    "offset_c": -32.72
+   },
+   {
+    "start": 279319,
+    "end": 299527,
+    "target": 68,
+    "offset_c": -24.63
+   },
+   {
+    "start": 314930,
+    "end": 342492,
+    "target": 74,
+    "offset_c": -26.77
+   },
+   {
+    "start": 356972,
+    "end": 383418,
+    "target": 70,
+    "offset_c": -20.09
+   },
+   {
+    "start": 383418,
+    "end": 400963,
+    "target": 74,
+    "offset_c": -43.32
+   },
+   {
+    "start": 400963,
+    "end": 443534,
+    "target": 71,
+    "offset_c": 44.02
+   },
+   {
+    "start": 443534,
+    "end": 463425,
+    "target": 66,
+    "offset_c": -21.13
+   },
+   {
+    "start": 470354,
+    "end": 497475,
+    "target": 70,
+    "offset_c": -23.53
+   },
+   {
+    "start": 497475,
+    "end": 535836,
+    "target": 72,
+    "offset_c": 20.67
+   },
+   {
+    "start": 549758,
+    "end": 578088,
+    "target": 74,
+    "offset_c": -20.86
+   }
+  ]
+ },
+ {
+  "name": "mezzo_4",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 35380,
+    "target": 72,
+    "offset_c": -36.13
+   },
+   {
+    "start": 35380,
+    "end": 76452,
+    "target": 74,
+    "offset_c": -43.74
+   },
+   {
+    "start": 85185,
+    "end": 119119,
+    "target": 74,
+    "offset_c": 39.79
+   },
+   {
+    "start": 119119,
+    "end": 157794,
+    "target": 74,
+    "offset_c": -32.48
+   },
+   {
+    "start": 157794,
+    "end": 195839,
+    "target": 74,
+    "offset_c": -22.93
+   },
+   {
+    "start": 210960,
+    "end": 251882,
+    "target": 70,
+    "offset_c": -32.67
+   },
+   {
+    "start": 267747,
+    "end": 287737,
+    "target": 65,
+    "offset_c": -21.02
+   },
+   {
+    "start": 287737,
+    "end": 327265,
+    "target": 64,
+    "offset_c": 28.63
+   },
+   {
+    "start": 327265,
+    "end": 361538,
+    "target": 62,
+    "offset_c": -32.12
+   },
+   {
+    "start": 375602,
+    "end": 403707,
+    "target": 65,
+    "offset_c": 29.94
+   },
+   {
+    "start": 411163,
+    "end": 445989,
+    "target": 68,
+    "offset_c": 24.59
+   },
+   {
+    "start": 459356,
+    "end": 501662,
+    "target": 64,
+    "offset_c": -44.6
+   },
+   {
+    "start": 501662,
+    "end": 532337,
+    "target": 65,
+    "offset_c": 28.4
+   },
+   {
+    "start": 545281,
+    "end": 587829,
+    "target": 72,
+    "offset_c": 38.5
+   },
+   {
+    "start": 587829,
+    "end": 606987,
+    "target": 74,
+    "offset_c": -29.36
+   },
+   {
+    "start": 606987,
+    "end": 631849,
+    "target": 74,
+    "offset_c": 21.61
+   }
+  ]
+ },
+ {
+  "name": "mezzo_5",
+  "voice": "mezzo",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 50700,
+    "target": 74,
+    "offset_c": -35.99
+   },
+   {
+    "start": 58820,
+    "end": 99481,
+    "target": 74,
+    "offset_c": -40.18
+   },
+   {
+    "start": 99481,
+    "end": 123253,
+    "target": 70,
+    "offset_c": -25.53
+   },
+   {
+    "start": 139994,
+    "end": 163891,
+    "target": 73,
+    "offset_c": 27.2
+   },
+   {
+    "start": 179133,
+    "end": 220536,
+    "target": 74,
+    "offset_c": 37.72
+   },
+   {
+    "start": 225997,
+    "end": 246499,
+    "target": 74,
+    "offset_c": -20.28
+   },
+   {
+    "start": 246499,
+    "end": 264770,
+    "target": 72,
+    "offset_c": 26.0
+   },
+   {
+    "start": 264770,
+    "end": 294178,
+    "target": 74,
+    "offset_c": 37.2
+   },
+   {
+    "start": 300534,
+    "end": 324813,
+    "target": 74,
+    "offset_c": 43.76
+   },
+   {
+    "start": 337503,
+    "end": 360186,
+    "target": 74,
+    "offset_c": -30.84
+   },
+   {
+    "start": 373358,
+    "end": 414892,
+    "target": 69,
+    "offset_c": 25.85
+   },
+   {
+    "start": 414892,
+    "end": 449163,
+    "target": 65,
+    "offset_c": 34.71
+   },
+   {
+    "start": 462882,
+    "end": 496420,
+    "target": 63,
+    "offset_c": -26.72
+   },
+   {
+    "start": 503853,
+    "end": 530497,
+    "target": 68,
+    "offset_c": -37.02
+   },
+   {
+    "start": 530497,
+    "end": 554028,
+    "target": 65,
+    "offset_c": -27.58
+   },
+   {
+    "start": 554028,
+    "end": 586758,
+    "target": 60,
+    "offset_c": -21.98
+   }
+  ]
+ },
+ {
+  "name": "soprano_0",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 31733,
+    "target": 64,
+    "offset_c": -40.1
+   },
+   {
+    "start": 31733,
+    "end": 50765,
+    "target": 62,
+    "offset_c": 37.76
+   },
+   {
+    "start": 64731,
+    "end": 102729,
+    "target": 62,
+    "offset_c": -32.17
+   },
+   {
+    "start": 116544,
+    "end": 145481,
+    "target": 66,
+    "offset_c": 32.23
+   },
+   {
+    "start": 157752,
+    "end": 197672,
+    "target": 62,
+    "offset_c": -34.48
+   },
+   {
+    "start": 206272,
+    "end": 229364,
+    "target": 65,
+    "offset_c": -29.15
+   },
+   {
+    "start": 229364,
+    "end": 264067,
+    "target": 70,
+    "offset_c": -30.18
+   },
+   {
+    "start": 271077,
+    "end": 308117,
+    "target": 66,
+    "offset_c": 25.11
+   },
+   {
+    "start": 324085,
+    "end": 346876,
+    "target": 73,
+    "offset_c": -32.19
+   },
+   {
+    "start": 346876,
+    "end": 379873,
+    "target": 75,
+    "offset_c": -26.19
+   },
+   {
+    "start": 392536,
+    "end": 434367,
+    "target": 77,
+    "offset_c": -29.71
+   },
+   {
+    "start": 444220,
+    "end": 475770,
+    "target": 73,
+    "offset_c": -22.14
+   },
+   {
+    "start": 482962,
+    "end": 518806,
+    "target": 69,
+    "offset_c": -44.25
+   },
+   {
+    "start": 518806,
+    "end": 557343,
+    "target": 70,
+    "offset_c": 27.94
+   },
+   {
+    "start": 561855,
+    "end": 591885,
+    "target": 74,
+    "offset_c": -39.69
+   },
+   {
+    "start": 591885,
+    "end": 621013,
+    "target": 76,
+    "offset_c": 30.13
+   }
+  ]
+ },
+ {
+  "name": "soprano_1",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 46595,
+    "target": 63,
+    "offset_c": 21.64
+   },
+   {
+    "start": 58118,
+    "end": 78179,
+    "target": 66,
+    "offset_c": 27.58
+   },
+   {
+    "start": 87990,
+    "end": 116599,
+    "target": 71,
+    "offset_c": -42.08
+   },
+   {
+    "start": 133306,
+    "end": 174186,
+    "target": 74,
+    "offset_c": -21.76
+   },
+   {
+    "start": 174186,
+    "end": 203259,
+    "target": 73,
+    "offset_c": 23.74
+   },
+   {
+    "start": 218811,
+    "end": 253742,
+    "target": 69,
+    "offset_c": -39.49
+   },
+   {
+    "start": 266050,
+    "end": 297916,
+    "target": 70,
+    "offset_c": 43.0
+   },
+   {
+    "start": 305023,
+    "end": 346692,
+    "target": 69,
+    "offset_c": 20.48
+   },
+   {
+    "start": 354804,
+    "end": 373111,
+    "target": 70,
+    "offset_c": 41.86
+   },
+   {
+    "start": 373111,
+    "end": 396400,
+    "target": 75,
+    "offset_c": 31.42
+   },
+   {
+    "start": 402116,
+    "end": 433787,
+    "target": 79,
+    "offset_c": 23.12
+   },
+   {
+    "start": 446059,
+    "end": 466600,
+    "target": 76,
+    "offset_c": 21.9
+   },
+   {
+    "start": 478499,
+    "end": 507496,
+    "target": 75,
+    "offset_c": -21.39
+   },
+   {
+    "start": 514391,
+    "end": 547098,
+    "target": 70,
+    "offset_c": -27.55
+   },
+   {
+    "start": 553379,
+    "end": 592126,
+    "target": 67,
+    "offset_c": -33.71
+   },
+   {
+    "start": 602379,
+    "end": 639303,
+    "target": 72,
+    "offset_c": 37.29
+   }
+  ]
+ },
+ {
+  "name": "soprano_2",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 35563,
+    "target": 71,
+    "offset_c": 26.51
+   },
+   {
+    "start": 35563,
+    "end": 62117,
+    "target": 72,
+    "offset_c": -29.2
+   },
+   {
+    "start": 71912,
+    "end": 91434,
+    "target": 77,
+    "offset_c": 27.13
+   },
+   {
+    "start": 106676,
+    "end": 131652,
+    "target": 75,
+    "offset_c": -29.27
+   },
+   {
+    "start": 131652,
+    "end": 152418,
+    "target": 79,
+    "offset_c": -20.24
+   },
+   {
+    "start": 152418,
+    "end": 184116,
+    "target": 79,
+    "offset_c": 24.73
+   },
+   {
+    "start": 198168,
+    "end": 222058,
+    "target": 79,
+    "offset_c": 28.3
+   },
+   {
+    "start": 233000,
+    "end": 253800,
+    "target": 75,
+    "offset_c": -24.66
+   },
+   {
+    "start": 266982,
+    "end": 303847,
+    "target": 79,
+    "offset_c": 26.46
+   },
+   {
+    "start": 307881,
+    "end": 329625,
+    "target": 79,
+    "offset_c": 25.44
+   },
+   {
+    "start": 329625,
+    "end": 363919,
+    "target": 79,
+    "offset_c": -35.77
+   },
+   {
+    "start": 375778,
+    "end": 403799,
+    "target": 75,
+    "offset_c": -20.91
+   },
+   {
+    "start": 410076,
+    "end": 448594,
+    "target": 79,
+    "offset_c": 37.87
+   },
+   {
+    "start": 448594,
+    "end": 490307,
+    "target": 79,
+    "offset_c": -31.22
+   },
+   {
+    "start": 503598,
+    "end": 535773,
+    "target": 77,
+    "offset_c": -26.59
+   },
+   {
+    "start": 535773,
+    "end": 563994,
+    "target": 78,
+    "offset_c": 32.38
+   }
+  ]
+ },
+ {
+  "name": "soprano_3",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 38843,
+    "target": 66,
+    "offset_c": -32.6
+   },
+   {
+    "start": 50985,
+    "end": 88060,
+    "target": 65,
+    "offset_c": 36.1
+   },
+   {
+    "start": 98419,
+    "end": 131622,
+    "target": 67,
+    "offset_c": -28.89
+   },
+   {
+    "start": 131622,
+    "end": 154943,
+    "target": 71,
+    "offset_c": -23.42
+   },
+   {
+    "start": 162074,
+    "end": 192369,
+    "target": 66,
+    "offset_c": 20.34
+   },
+   {
+    "start": 192369,
+    "end": 219888,
+    "target": 71,
+    "offset_c": 38.32
+   },
+   {
+    "start": 228636,
+    "end": 252248,
+    "target": 67,
+    "offset_c": -36.63
+   },
+   {
+    "start": 261388,
+    "end": 285091,
+    "target": 66,
+    "offset_c": 29.37
+   },
+   {
+    "start": 298397,
+    "end": 334296,
+    "target": 65,
+    "offset_c": 27.17
+   },
+   {
+    "start": 334296,
+    "end": 376200,
+    "target": 66,
+    "offset_c": 35.21
+   },
+   {
+    "start": 388479,
+    "end": 411798,
+    "target": 64,
+    "offset_c": 38.1
+   },
+   {
+    "start": 425256,
+    "end": 462130,
+    "target": 67,
+    "offset_c": -36.08
+   },
+   {
+    "start": 468520,
+    "end": 510744,
+    "target": 62,
+    "offset_c": 37.52
+   },
+   {
+    "start": 515192,
+    "end": 544198,
+    "target": 64,
+    "offset_c": -40.21
+   },
+   {
+    "start": 554579,
+    "end": 572372,
+    "target": 65,
+    "offset_c": 20.92
+   },
+   {
+    "start": 579747,
+    "end": 620006,
+    "target": 68,
+    "offset_c": -26.9
+   }
+  ]
+ },
+ {
+  "name": "soprano_4",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 48026,
+    "target": 62,
+    "offset_c": 23.92
+   },
+   {
+    "start": 48026,
+    "end": 76362,
+    "target": 62,
+    "offset_c": -29.39
+   },
+   {
+    "start": 82544,
+    "end": 106190,
+    "target": 62,
+    "offset_c": 29.59
+   },
+   {
+    "start": 112176,
+    "end": 130743,
+    "target": 62,
+    "offset_c": -26.34
+   },
+   {
+    "start": 139414,
+    "end": 170677,
+    "target": 69,
+    "offset_c": -30.49
+   },
+   {
+    "start": 176932,
+    "end": 213011,
+    "target": 67,
+    "offset_c": 39.57
+   },
+   {
+    "start": 228773,
+    "end": 261818,
+    "target": 69,
+    "offset_c": -43.83
+   },
+   {
+    "start": 269702,
+    "end": 289059,
+    "target": 67,
+    "offset_c": -41.74
+   },
+   {
+    "start": 297923,
+    "end": 335602,
+    "target": 64,
+    "offset_c": 29.63
+   },
+   {
+    "start": 340492,
+    "end": 364967,
+    "target": 67,
+    "offset_c": -36.61
+   },
+   {
+    "start": 364967,
+    "end": 391338,
+    "target": 72,
+    "offset_c": -34.01
+   },
+   {
+    "start": 400383,
+    "end": 435354,
+    "target": 67,
+    "offset_c": 25.09
+   },
+   {
+    "start": 435354,
+    "end": 478300,
+    "target": 64,
+    "offset_c": -43.42
+   },
+   {
+    "start": 482343,
+    "end": 501283,
+    "target": 62,
+    "offset_c": -33.87
+   },
+   {
+    "start": 501283,
+    "end": 536932,
+    "target": 62,
+    "offset_c": 44.5
+   },
+   {
+    "start": 536932,
+    "end": 573421,
+    "target": 62,
+    "offset_c": 26.39
+   }
+  ]
+ },
+ {
+  "name": "soprano_5",
+  "voice": "soprano",
+  "notes": [
+   {
+    "start": 14400,
+    "end": 46336,
+    "target": 71,
+    "offset_c": -26.45
+   },
+   {
+    "start": 57049,
+    "end": 76984,
+    "target": 76,
+    "offset_c": 22.99
+   },
+   {
+    "start": 76984,
+    "end": 111293,
+    "target": 79,
+    "offset_c": 43.07
+   },
+   {
+    "start": 111293,
+    "end": 152895,
+    "target": 79,
+    "offset_c": 35.83
+   },
+   {
+    "start": 152895,
+    "end": 175690,
+    "target": 79,
+    "offset_c": 37.34
+   },
+   {
+    "start": 188409,
+    "end": 229230,
+    "target": 79,
+    "offset_c": 33.78
+   },
+   {
+    "start": 229230,
+    "end": 248298,
+    "target": 79,
+    "offset_c": 22.84
+   },
+   {
+    "start": 248298,
+    "end": 278207,
+    "target": 75,
+    "offset_c": 38.05
+   },
+   {
+    "start": 278207,
+    "end": 319000,
+    "target": 74,
+    "offset_c": 27.77
+   },
+   {
+    "start": 319000,
+    "end": 335967,
+    "target": 73,
+    "offset_c": 27.49
+   },
+   {
+    "start": 335967,
+    "end": 365846,
+    "target": 69,
+    "offset_c": -20.25
+   },
+   {
+    "start": 365846,
+    "end": 384994,
+    "target": 66,
+    "offset_c": 39.38
+   },
+   {
+    "start": 401023,
+    "end": 425881,
+    "target": 69,
+    "offset_c": 24.77
+   },
+   {
+    "start": 433402,
+    "end": 460291,
+    "target": 67,
+    "offset_c": 36.1
+   },
+   {
+    "start": 460291,
+    "end": 488608,
+    "target": 66,
+    "offset_c": -30.74
+   },
+   {
+    "start": 488608,
+    "end": 522991,
+    "target": 62,
+    "offset_c": -33.6
+   }
+  ]
+ }
+]

@@ -1,0 +1,18 @@
+{
+ "tag": "t_nohold",
+ "subset": "tune",
+ "notes": 192,
+ "within_10c_pct": 48.96,
+ "within_5c_pct": 23.44,
+ "median_abs_c": 10.48,
+ "p95_abs_c": 31.12,
+ "worst_c": 40.5,
+ "per_voice_within_10c": {
+  "bass": 43.8,
+  "baritone": 40.6,
+  "tenor": 46.9,
+  "alto": 53.1,
+  "mezzo": 62.5,
+  "soprano": 46.9
+ }
+}

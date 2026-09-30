@@ -152,6 +152,46 @@ sattari_enable_elastique(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_ELASTIQUE)
 sattari_enable_signalsmith(AutoPitchCoreContract SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
 sattari_configure_auto_pitch_print_engine(AutoPitchCoreContract)
 
+# Release gate "no-harm matrix": state/preset recall, AutoKey no-perturb, automation
+# stress, sample-rate x block matrix, bypass, mono/stereo and a 2 h playback soak.
+# Same engine configuration as the core contract so it measures the shipped DSP.
+add_executable(AutoPitchNoHarm
+    EXCLUDE_FROM_ALL
+        tools/auto_pitch_noharm.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp)
+
+add_dependencies(AutoPitchNoHarm SattariAutoPitch)
+
+target_include_directories(AutoPitchNoHarm
+    PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/SattariAutoPitch_artefacts/JuceLibraryCode)
+
+target_compile_definitions(AutoPitchNoHarm
+    PUBLIC
+        JucePlugin_Build_Standalone=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+
+target_link_libraries(AutoPitchNoHarm
+    PRIVATE
+        SattariAutoPitchModelData
+        SattariAudioCore
+        juce::juce_audio_utils
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+
+sattari_enable_rubberband(AutoPitchNoHarm SATTARI_AUTOPITCH_HAS_RUBBERBAND)
+sattari_enable_onnx(AutoPitchNoHarm SATTARI_HAS_ONNX)
+sattari_enable_elastique(AutoPitchNoHarm SATTARI_AUTOPITCH_HAS_ELASTIQUE)
+sattari_enable_signalsmith(AutoPitchNoHarm SATTARI_AUTOPITCH_HAS_SIGNALSMITH)
+sattari_configure_auto_pitch_print_engine(AutoPitchNoHarm)
+
 # Offline render + null-test driver (regression net on the actual sound).
 add_executable(AutoPitchRender
     EXCLUDE_FROM_ALL

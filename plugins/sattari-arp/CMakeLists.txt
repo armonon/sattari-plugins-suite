@@ -17,6 +17,10 @@ sattari_add_plugin(
     NEEDS_MIDI_INPUT
     NEEDS_MIDI_OUTPUT
     IS_MIDI_EFFECT
+    # Ableton only loads VST3s as effects (audio in) or instruments (MIDI in), so
+    # the VST3 registers as an instrument with a silent stereo output; its MIDI is
+    # routed to a synth track from there. The AU stays a MIDI FX (aumi) for Logic.
+    VST3_CATEGORIES Instrument Generator
     EDITOR_WANTS_KEYBOARD_FOCUS
     SOURCES
         src/PluginProcessor.cpp

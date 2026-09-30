@@ -1,0 +1,81 @@
+Sattari Auto Pitch no-harm matrix
+      ok   default state                        fresh: bit-identical | same-instance: bit-identical | peak 0.31
+      ok   heavy non-default (Classic 0.7 ...)  fresh: bit-identical | same-instance: bit-identical | peak 0.75
+      ok   heavy + humanize 0.4                 fresh: bit-identical | same-instance: bit-identical | peak 0.66
+      ok   heavy + Neural Pitch (offline)       fresh: bit-identical | same-instance: bit-identical | peak 0.75
+      ok   Live Mode (Extreme), Classic         fresh: bit-identical | same-instance: bit-identical | peak 0.23
+      ok   AutoKey on, manual key untouched     fresh: bit-identical | same-instance: bit-identical | peak 0.32 | AutoKey max conf 0.219, end C/0
+      ok   AutoKey on, explicit C major         fresh: bit-identical | same-instance: bit-identical | peak 0.30 | AutoKey max conf 0.219, end C/0
+      ok   save->load->save blob: 4245 -> 4245 -> 4245 bytes; <KeyMap> children 1 -> 1 -> 1, <PitchEdits> 1 -> 1 -> 1
+      ok   graph notes: captured 60, restored 60, deleted all + save + reload -> 0 (expected 0)
+PASS  [1] state round trip                   (  36.9 s)  14/14 renders bit-identical (7 configs x fresh + same-instance reload); blob stable yes; graph delete persists yes
+      host program API: getNumPrograms() = 1 (presets are editor-owned factory workflows: 17)
+      ok   Natural                reload: bit-identical | state round trip: bit-identical
+      ok   Pitch Center           reload: bit-identical | state round trip: bit-identical
+      ok   Hard Tune              reload: bit-identical | state round trip: bit-identical
+      ok   Modern Rap             reload: bit-identical | state round trip: bit-identical
+      ok   Robot                  reload: bit-identical | state round trip: bit-identical
+      ok   Fast Natural           reload: bit-identical | state round trip: bit-identical
+      ok   MIDI Directed          reload: bit-identical | state round trip: bit-identical
+      ok   Graph Editor           reload: bit-identical | state round trip: bit-identical
+      ok   Natural Vibrato        reload: bit-identical | state round trip: bit-identical
+      ok   Deeper Throat          reload: bit-identical | state round trip: bit-identical
+      ok   Bright Lift            reload: bit-identical | state round trip: bit-identical
+      ok   Live Extreme           reload: bit-identical | state round trip: bit-identical
+      ok   Live Ultra Quality     reload: bit-identical | state round trip: bit-identical
+      ok   Live Extended          reload: bit-identical | state round trip: bit-identical
+      ok   Harmony · Pop Stack   reload: bit-identical | state round trip: max |diff| 2.98e-08, 156950 samples differ, first at 0.068 s
+      ok   Harmony · Wide Choir  reload: bit-identical | state round trip: bit-identical
+      ok   Harmony · MIDI Choir  reload: bit-identical | state round trip: bit-identical
+PASS  [2] preset recall                      (  62.3 s)  17 presets: reload identical 17/17, state round trip identical 17/17 (0 failures are Humanize only); audible sticky pairs 0
+      ok   style Natural, explicit C major, AutoKey max confidence 0.097 (gate 0.10): always-on bit-identical | toggled 0.5 s (off first) bit-identical | (on first) bit-identical
+      ok   style Classic, explicit C major, AutoKey max confidence 0.097 (gate 0.10): always-on bit-identical | toggled 0.5 s (off first) bit-identical | (on first) bit-identical
+      note single-pitch-class onset (B3 +35c, +-10c vib): max confidence 0.1014 vs gate 0.10 -> CROSSES at 0.080 s as E/1 (a key from ~80 ms of one note)
+      ok   AutoKey OFF + AutoKey memory 2 s           bit-identical
+      ok   AutoKey OFF + AutoKey profile Krumhansl    bit-identical
+      ok   AutoKey OFF + AutoKey profile Bellman      bit-identical
+      ok   AutoKey OFF + autoKey on->off before play  bit-identical
+      ok   AutoKey OFF + followSongKey on->off        bit-identical
+      ok   AutoKey OFF + all of the above             bit-identical
+      ok   AutoKey OFF + followSongKey toggled 0.5 s  bit-identical
+      (untouched instance's manual key A/1)
+PASS  [3] AutoKey does not perturb           (  50.3 s)  toggle below gate identical; 6/6 AutoKey-OFF touches bit-identical
+      static renders (curvature/peak): style0 fmt-12 0.0020/0.80; style0 fmt+0 0.0055/0.32; style0 fmt+12 0.1990/1.00; style1 fmt-12 0.0022/0.84; style1 fmt+0 0.0060/0.31; style1 fmt+12 0.1894/1.00; style2 fmt-12 0.0020/0.81; style2 fmt+0 0.0057/0.33; style2 fmt+12 0.1573/1.00; style3 fmt-12 0.2953/0.67; style3 fmt+0 0.2274/0.38; style3 fmt+12 0.8505/0.72; style4 fmt-12 0.0020/0.82; style4 fmt+0 0.0055/0.32; style4 fmt+12 0.1509/1.00; correction off 0.0054/0.23; F# blues, speed 0.05 0.0055/0.32;
+      ok   ALL per block (gate)     finite yes, peak 0.995, worst curvature 0.6098 (0.72x its baseline style3 fmt+12) at 3.9685 s (+25 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   amount only              finite yes, peak 0.319, worst curvature 0.0056 (1.01x its baseline style0 fmt+0) at 53.5632 s (+282 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   speed only               finite yes, peak 0.310, worst curvature 0.0057 (1.03x its baseline style0 fmt+0) at 30.9420 s (+416 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant only             finite yes, peak 0.975, worst curvature 0.0194 (0.10x its baseline style0 fmt+12) at 17.4462 s (+298 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   style only               finite yes, peak 0.389, worst curvature 0.2221 (0.98x its baseline style3 fmt+0) at 40.2255 s (+73 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   key/scale only           finite yes, peak 0.324, worst curvature 0.0058 (1.06x its baseline style0 fmt+0) at 8.3298 s (+470 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   enableCorrection only    finite yes, peak 0.315, worst curvature 0.0054 (0.99x its baseline style0 fmt+0) at 42.2400 s (+0 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   style + correction       finite yes, peak 0.388, worst curvature 0.2239 (0.98x its baseline style3 fmt+0) at 31.3214 s (+193 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   style + key              finite yes, peak 0.365, worst curvature 0.2247 (0.99x its baseline style3 fmt+0) at 20.0167 s (+289 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   key + correction         finite yes, peak 0.312, worst curvature 0.0054 (0.97x its baseline style0 fmt+0) at 30.7817 s (+400 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   style + key + correction finite yes, peak 0.375, worst curvature 0.2244 (0.99x its baseline style3 fmt+0) at 42.6117 s (+433 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant + style          finite yes, peak 0.993, worst curvature 0.5571 (0.66x its baseline style3 fmt+12) at 37.8869 s (+457 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   all but correction       finite yes, peak 0.995, worst curvature 0.7636 (0.90x its baseline style3 fmt+12) at 19.7195 s (+361 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant @ Natural        finite yes, peak 0.975, worst curvature 0.0194 (0.10x its baseline style0 fmt+12) at 17.4462 s (+298 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant @ Classic        finite yes, peak 0.993, worst curvature 0.0264 (0.14x its baseline style1 fmt+12) at 49.1540 s (+98 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant @ Modern Rap     finite yes, peak 0.988, worst curvature 0.0210 (0.13x its baseline style2 fmt+12) at 26.5253 s (+381 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant @ Robot          finite yes, peak 0.679, worst curvature 0.6210 (0.73x its baseline style3 fmt+12) at 15.2817 s (+337 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+      ok   formant @ Big Harmony    finite yes, peak 0.994, worst curvature 0.0282 (0.19x its baseline style4 fmt+12) at 26.5302 s (+107 in block), 0 blocks > threshold, latency constant, FIFO underrun 0 fail-safe 0
+PASS  [4] automation stress (60 s)           ( 263.3 s)  every run gated: finite, peak <= 1.5, curvature <= 2x the worst static render reachable by that run, no Studio FIFO underrun
+      44100 Hz: lat 3038 | 32:0.03c 64:0.03c 128:0.03c 512:0.03c 1024:0.03c 2048:0.03c irregular:0.03c
+              vs block 32 (report only): 64:0.0095 128:0.035 512:0.14 1024:0.27 2048:0.36
+      48000 Hz: lat 3173 | 32:0.01c 64:0.01c 128:0.01c 512:0.01c 1024:0.01c 2048:0.01c irregular:0.01c
+              vs block 32 (report only): 64:0.0064 128:0.055 512:0.16 1024:0.12 2048:0.029
+      88200 Hz: lat 6299 | 32:0.01c 64:0.01c 128:0.01c 512:0.01c 1024:0.01c 2048:0.01c irregular:0.01c
+              vs block 32 (report only): 64:0.01 128:0.028 512:0.09 1024:0.16 2048:0.27
+      96000 Hz: lat 6346 | 32:0.00c 64:0.00c 128:0.00c 512:0.00c 1024:0.00c 2048:0.00c irregular:0.00c
+              vs block 32 (report only): 64:0.0055 128:0.016 512:0.084 1024:0.16 2048:0.13
+PASS  [5] sample-rate x block matrix         (  21.4 s)  28 runs finite, latency constant, B3+45c worst 0.03 c (limit 5 c)
+      ok   block 128, latency 3173: 18 re-engages; bypassed == input delayed by latency: max err 0; re-engage worst curvature 0.0040 (0.74x continuous, limit 2x); engage-bypass worst 0.0042 (0.78x, limit 2x); finite yes
+           stale-audio probe: 0 of 14 evaluable re-engages replay the pre-bypass pipeline for the first latency (best corr with pre-bypass render 0.18 vs 0.93 with the continuous render)
+      ok   block 512, latency 3173: 21 re-engages; bypassed == input delayed by latency: max err 0; re-engage worst curvature 0.0043 (0.80x continuous, limit 2x); engage-bypass worst 0.0041 (0.76x, limit 2x); finite yes
+           stale-audio probe: 0 of 15 evaluable re-engages replay the pre-bypass pipeline for the first latency (best corr with pre-bypass render 0.93 vs 0.94 with the continuous render)
+PASS  [6] host bypass toggling               (  11.8 s)  bypassed = dry delayed by latency after the 10 ms fade; no click > 2x continuous either way; no stale replay
+      ok   defaults: stereo L==R bit-identical | mono (1 ch out, latency 3173) vs stereo L: bit-identical | stereo + silent stereo sidechain: bit-identical (report only)
+      ok   Classic C chromatic: stereo L==R bit-identical | mono (1 ch out, latency 3173) vs stereo L: bit-identical | stereo + silent stereo sidechain: bit-identical (report only)
+      layouts: mono->mono yes, stereo->stereo yes, mono->stereo no (by design: main in == main out)
+PASS  [7] mono / stereo                      (   8.3 s)  both main layouts; L==R; mono == stereo L
+NO-HARM MATRIX PASS: 0 failing check(s), 454 s total
