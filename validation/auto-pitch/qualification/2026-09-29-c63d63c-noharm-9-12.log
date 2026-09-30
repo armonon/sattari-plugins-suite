@@ -1,0 +1,41 @@
+Sattari Auto Pitch no-harm matrix
+      ok   Classic  48000 Hz: widest 19.8 c (note 72 amp 0.18 block 512: -19.6/19.8 c), worst asymmetry 1.0 c, envelope min 0.24 of mean, semitone settle 15 ms (48k 15)
+      ok   Classic  32000 Hz: widest 17.7 c (note 72 amp 0.35 block 512: -17.7/16.3 c), worst asymmetry 1.4 c, envelope min 0.93 of mean, semitone settle 14 ms (48k 15)
+      ok   Classic  44100 Hz: widest 19.9 c (note 72 amp 0.18 block 512: -19.9/19.8 c), worst asymmetry 1.0 c, envelope min 0.37 of mean, semitone settle 23 ms (48k 15)
+      ok   Classic  88200 Hz: widest 32.5 c (note 72 amp 0.18 block 512: -32.5/32.2 c), worst asymmetry 0.7 c, envelope min 0.62 of mean, semitone settle 3 ms (48k 15)
+      ok   Classic  96000 Hz: widest 28.8 c (note 72 amp 0.25 block 512: -28.7/28.8 c), worst asymmetry 0.3 c, envelope min 0.46 of mean, semitone settle 3 ms (48k 15)
+      ok   Natural  48000 Hz: widest 20.3 c (note 72 amp 0.25 block 512: -20.3/20.1 c), worst asymmetry 0.6 c, envelope min 0.53 of mean, semitone settle 15 ms (48k 15)
+      ok   Natural  32000 Hz: widest 27.4 c (note 57 amp 0.35 block 512: -27.4/24.7 c), worst asymmetry 2.6 c, envelope min 0.93 of mean, semitone settle 14 ms (48k 15)
+      ok   Natural  44100 Hz: widest 20.9 c (note 72 amp 0.25 block 512: -20.9/20.4 c), worst asymmetry 0.7 c, envelope min 0.54 of mean, semitone settle 23 ms (48k 15)
+      ok   Natural  88200 Hz: widest 26.2 c (note 72 amp 0.25 block 512: -25.3/26.2 c), worst asymmetry 1.7 c, envelope min 0.94 of mean, semitone settle 3 ms (48k 15)
+      ok   Natural  96000 Hz: widest 23.6 c (note 72 amp 0.18 block 512: -22.8/23.6 c), worst asymmetry 1.1 c, envelope min 0.80 of mean, semitone settle 3 ms (48k 15)
+PASS  [9] sample-rate vibrato integrity      ( 274.0 s)  168 renders; 0 rate/style rows failing (never wider than input, symmetric, settle ~ 48k)
+      ok    32000 Hz reported 1635: actual minus reported (ms) per buffer 64:-0.78 128:-0.78 256:-0.78 512:-0.78 1024:-0.78
+      ok    32000 Hz after a mid-stream host reset, buffer 64: -0.78 ms
+      ok    32000 Hz after a mid-stream host reset, buffer 512: -0.78 ms
+      ok    44100 Hz reported 3038: actual minus reported (ms) per buffer 64:-0.77 128:-0.77 256:-0.77 512:-0.77 1024:-0.77
+      ok    44100 Hz after a mid-stream host reset, buffer 64: -0.77 ms
+      ok    44100 Hz after a mid-stream host reset, buffer 512: -0.77 ms
+      ok    48000 Hz reported 3173: actual minus reported (ms) per buffer 64:-0.77 128:-0.77 256:-0.77 512:-0.77 1024:-0.77
+      ok    48000 Hz after a mid-stream host reset, buffer 64: -0.77 ms
+      ok    48000 Hz after a mid-stream host reset, buffer 512: -0.77 ms
+      ok    88200 Hz reported 6299: actual minus reported (ms) per buffer 64:-0.77 128:-0.77 256:-0.77 512:-0.77 1024:-0.77
+      ok    88200 Hz after a mid-stream host reset, buffer 64: -0.77 ms
+      ok    88200 Hz after a mid-stream host reset, buffer 512: -0.77 ms
+      ok    96000 Hz reported 6346: actual minus reported (ms) per buffer 64:-0.77 128:-0.77 256:-0.77 512:-0.77 1024:-0.77
+      ok    96000 Hz after a mid-stream host reset, buffer 64: -0.77 ms
+      ok    96000 Hz after a mid-stream host reset, buffer 512: -0.77 ms
+PASS  [10] reported latency == actual delay   (  23.6 s)  every rate x buffer within 2 ms of reported, spread <= 0.25 ms
+      ok    44100 Hz /   64: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +26.17ms -7: u0 f0 +15.40ms +7: u0 f0 -12.11ms +12: u0 f0 -16.37ms; moving 0/-12/+12/-12: u0 f0
+      ok    44100 Hz /  256: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +26.17ms -7: u0 f0 +13.02ms +7: u0 f0 -11.88ms +12: u0 f0 -16.37ms; moving 0/-12/+12/-12: u0 f0
+      ok    44100 Hz /  512: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +26.17ms -7: u0 f0 +7.26ms +7: u0 f0 -10.57ms +12: u0 f0 -16.37ms; moving 0/-12/+12/-12: u0 f0
+      ok    48000 Hz /   64: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +19.42ms -7: u0 f0 +6.12ms +7: u0 f0 -11.10ms +12: u0 f0 -17.40ms; moving 0/-12/+12/-12: u0 f0
+      ok    48000 Hz /  256: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +19.42ms -7: u0 f0 +11.17ms +7: u0 f0 -11.56ms +12: u0 f0 -17.40ms; moving 0/-12/+12/-12: u0 f0
+      ok    48000 Hz /  512: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +19.42ms -7: u0 f0 +21.35ms +7: u0 f0 -11.85ms +12: u0 f0 -17.40ms; moving 0/-12/+12/-12: u0 f0
+      ok    96000 Hz /   64: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +15.45ms -7: u0 f0 +9.56ms +7: u0 f0 -8.26ms +12: u0 f0 -9.49ms; moving 0/-12/+12/-12: u0 f0
+      ok    96000 Hz /  256: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +15.45ms -7: u0 f0 +13.82ms +7: u0 f0 -7.21ms +12: u0 f0 -9.49ms; moving 0/-12/+12/-12: u0 f0
+      ok    96000 Hz /  512: underrun samples u, fail-safe primes f, delay vs reported (not gated): +0: u0 f0 -0.77ms -12: u0 f0 +15.45ms -7: u0 f0 +11.07ms +7: u0 f0 -6.10ms +12: u0 f0 -9.49ms; moving 0/-12/+12/-12: u0 f0
+PASS  [11] Studio FIFO headroom at transpose extremes ( 230.0 s)  Transpose -12..+12 st: no underrun, no fail-safe prime (delay reported only: open defect)
+      heap allocations in processBlock/reset after warm-up: 48000 Hz: 0 (native reference); 44100 Hz: 0; 22050 Hz: 0; 176400 Hz: 0;
+PASS  [12] no audio-thread allocation added by resampling (   4.1 s)  resampled rates allocate no more than native 48 kHz across host reset + Transpose toggles
+NO-HARM MATRIX PASS: 0 failing check(s), 532 s total

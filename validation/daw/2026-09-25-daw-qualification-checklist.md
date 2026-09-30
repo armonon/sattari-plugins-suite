@@ -1,14 +1,17 @@
 # DAW qualification: Auto Pitch + Sattari Key (Logic Pro, Ableton Live, FL Studio)
 
-Candidate: **cbd1ce4** (tag `auto-pitch-rc-baseline-20260925`). Results count only for the candidate
-binaries, so the setup below is done before any row.
+Candidate: **c63d63c** (2026-09-29 release fix on top of cbd1ce4: 44.1 kHz vibrato and latency
+reporting, see `validation/auto-pitch/2026-09-29-44k1-fix-review.md`). cbd1ce4 is superseded, so rows
+filled against it do not count. Results count only for the candidate binaries, so the setup below is
+done before any row.
 
 ## Setup (once per machine)
 
 1. Quit every DAW.
-2. Run `scripts/install_candidate.sh cbd1ce4`.
-   - It installs the packaged candidate from `dist/candidate-cbd1ce4/` (build it with
-     `scripts/package_candidate.sh cbd1ce4`): self-contained bundles, which is what a user gets.
+2. Run `scripts/install_candidate.sh c63d63c`.
+   - It installs the packaged candidate from `dist/candidate-c63d63c/` (build it with
+     `AP_BUILD=build/auto-pitch-rc2 scripts/package_candidate.sh c63d63c`): self-contained bundles,
+     which is what a user gets.
    - It verifies every installed bundle is byte-identical to the package, runs auval, and prints
      four sha256 lines. Paste them here:
 
@@ -33,7 +36,7 @@ Plugin format: Logic uses AU; Live and FL use VST3. Also run Live with AU once, 
 | 1 | Insert / load on a vocal track | appears under Sattari; UI opens; no error or crash | | | |
 | 2 | Mono track | processes, no silence, no channel duplication artefacts | | | |
 | 3 | Stereo track | L and R both processed; the image is not collapsed | | | |
-| 4 | Latency reporting | a sustained vocal printed through the plugin lines up with the dry track after bounce (within ~1 ms); host shows 2885 samples at 48 kHz. Also listen to hard consonants and plosives: the engine smears sharp attacks about 7-10 ms later than the vowel body (measured 2026-09-25). Note whether that is audible against the dry track or the beat | | | |
+| 4 | Latency reporting | a sustained vocal printed through the plugin lines up with the dry track after bounce (within ~1 ms); host shows 3173 samples at 48 kHz (3038 at 44.1 kHz). Also listen to hard consonants and plosives: the engine smears sharp attacks about 7-10 ms later than the vowel body (measured 2026-09-25). Note whether that is audible against the dry track or the beat | | | |
 | 5 | Host bypass on/off during playback, 10 times | no click, no old audio replayed, bypassed = dry in time | | | |
 | 6 | Enable Correction on/off during playback, 10 times | no click; off = dry | | | |
 | 7 | Manual key (e.g. D major, then Chromatic) | notes snap to the chosen scale; the status line shows it | | | |
@@ -46,10 +49,11 @@ Plugin format: Logic uses AU; Live and FL use VST3. Also run Live with AU once, 
 | 14 | Bounce / export offline, twice | both bounces are bit-identical (null them against each other), also with Humanize > 0 | | | |
 | 15 | Realtime bounce, if the host offers it | matches the offline bounce (within the Neural Pitch caveat, if on) | | | |
 | 16 | Multiple instances (4 vocal tracks) | independent settings; no cross-talk; CPU scales roughly linearly | | | |
-| 17 | Sample-rate change, 44.1 → 48 → 96 kHz, where the host allows | reloads correctly; latency re-reported (5770 at 96 kHz); still in tune | | | |
+| 17 | Sample-rate change, 44.1 → 48 → 96 kHz, where the host allows | reloads correctly; latency re-reported (3038 at 44.1, 3173 at 48, 6346 at 96 kHz); still in tune; at 44.1 kHz a wide vibrato is not widened | | | |
 | 18 | Buffer size change, 64 / 256 / 1024 | no dropouts at 256+; 64 may be CPU-limited, so record CPU | | | |
 | 19 | Remove plugin, re-insert, undo the removal | no crash; the undo restores the state | | | |
 | 20 | Long playback: loop the 3-minute song for 30 minutes or more | no drift, no rising CPU, no crash; note CPU at start and end | | | |
+| 22 | Transpose to Key −5 st on a drum loop, printed next to the dry loop | KNOWN OPEN DEFECT (predates the fix): the transposed audio sits off the grid by about 1.5 ms per semitone. Record how audible it is; not a pass/fail row until the owner decides the fix | | | |
 | 21 | CPU observation: host CPU meter with 1 instance and with 4; and 1 instance host-bypassed | record the numbers. Bypass keeps the engine running (full CPU while bypassed) by design | | | |
 
 ## Sattari Key
@@ -67,7 +71,7 @@ Plugin format: Logic uses AU; Live and FL use VST3. Also run Live with AU once, 
 
 - **Logic:** AU validation passes in the Plug-in Manager. Test with Low Latency Mode on and off:
   Logic may bypass plugins with high latency. Check that the track delay compensation display
-  agrees with 2885 samples.
+  agrees with 3173 samples at 48 kHz.
 - **Live:** test in both Arrangement and Session. Try the "Reduced latency when monitoring" setting.
   Freeze and flatten a track, then compare with the bounce.
 - **FL:** test with a mixer insert and with the wrapper's "use fixed size buffers" off and on.

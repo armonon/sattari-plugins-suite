@@ -1294,7 +1294,9 @@ void checkMonoStereo()
 void checkLongPlayback (double minutes)
 {
     const auto t0 = Clock::now();
-    const double sr = 48000.0;
+    //  NOHARM_SOAK_SR: soak at another host rate (the owner asked for 44.1 kHz too; that rate runs the
+    //  resampled Studio path).
+    const double sr = std::getenv ("NOHARM_SOAK_SR") ? std::atof (std::getenv ("NOHARM_SOAK_SR")) : 48000.0;
     const int blockSize = 512;
     const long total = (long) (minutes * 60.0 * sr);
     const double sectionSec = 300.0;
@@ -1373,7 +1375,10 @@ void checkLongPlayback (double minutes)
     const double ratio = firstMean > 0.0 ? lastMean / firstMean : 0.0;
     const bool haveTenMinutes = minutes >= 20.0;
     const double growth = rssEnd - rss10;
-    const bool pass = finite && latencyChanges == 0 && (! haveTenMinutes || (ratio <= 1.5 && growth < 50.0));
+    const auto fifo = p.getStudioFifoStats();
+    const bool pass = finite && latencyChanges == 0 && fifo.underrunSamples == 0 && fifo.failSafePrimes == 0
+                      && (! haveTenMinutes || (ratio <= 1.5 && growth < 50.0));
+    info ("%.0f Hz; Studio FIFO underrun samples %lld, fail-safe primes %d", sr, (long long) fifo.underrunSamples, fifo.failSafePrimes);
     info ("%.0f min audio in %.0f s (%.0fx realtime); latency %d, changes %d; finite %s; peak %.3f",
           minutes, secondsSince (t0), minutes * 60.0 / secondsSince (t0), latency, latencyChanges,
           finite ? "yes" : "NO", peak);
@@ -1384,7 +1389,8 @@ void checkLongPlayback (double minutes)
     info ("AutoKey at end of each 5-min section (expected circle of fifths from C, major):%s  [%d/%d matched, report only]",
           keyTrail.c_str(), sectionsMatched, sections);
     verdict (8, "long playback", pass, secondsSince (t0),
-             fmt ("%.0f min: finite, latency constant, block-time ratio %.2f, RSS growth %+.1f MB", minutes, ratio, growth));
+             fmt ("%.0f min at %.1f kHz: finite, latency constant, no FIFO underrun, block-time ratio %.2f, RSS growth %+.1f MB",
+                  minutes, sr / 1000.0, ratio, growth));
 }
 } // namespace
 

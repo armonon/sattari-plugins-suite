@@ -6,7 +6,10 @@
 #  qualification report. Never rebuilds (a rebuild would change the fingerprint). On finish it
 #  saves the log next to the report and appends the result to the report.
 #
-#  Usage: scripts/soak_auto_pitch.sh <candidate sha> [minutes=120] [build dir=build/auto-pitch-neural]
+#  Usage: [SOAK_SR=44100] scripts/soak_auto_pitch.sh <candidate sha> [minutes=120] [build dir=build/auto-pitch-neural]
+#  SOAK_SR (default 48000) is the host rate; 44.1 kHz exercises the resampled Studio path.
+#  The binary must match the report's "AutoPitchNoHarm" row, or its "AutoPitchNoHarm (soak tool)" row
+#  when the tool was rebuilt after a tools-only change (plugin sources identical to the candidate).
 # =============================================================================
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
@@ -18,12 +21,13 @@ REPORT="$(ls validation/auto-pitch/qualification/*-"$C".md 2>/dev/null | head -n
 changed="$(git diff --name-only "$C" HEAD -- plugins core cmake CMakeLists.txt third_party | grep -v -E '^plugins/auto-pitch/(tests|tools)/' || true)"
 [ -z "$changed" ] || { echo "ABORT: plugin sources differ from $C:"; echo "$changed"; exit 2; }
 BIN="$B/AutoPitchNoHarm"
-want="$(grep -E '^\| AutoPitchNoHarm \| `' "$REPORT" | head -n1 | sed -E 's/.*`([0-9a-f]+)`.*/\1/')"
+SR="${SOAK_SR:-48000}"
+want="$(grep -E '^\| AutoPitchNoHarm( \(soak tool\))? \| `' "$REPORT" | sed -E 's/.*`([0-9a-f]+)`.*/\1/')"
 have="$(shasum -a 256 "$BIN" 2>/dev/null | cut -c1-16)"
-[ -n "$want" ] && [ "$want" = "$have" ] || { echo "ABORT: $BIN sha256 $have != report's $want (binary is not the candidate's)"; exit 2; }
-LOG="${REPORT%.md}-noharm-soak${MIN}.log"
-echo "soak: $MIN min, candidate $C, binary $have -> $LOG"
-caffeinate -i "$BIN" --check 8 --long-minutes "$MIN" | tee "$LOG"; rc=${PIPESTATUS[0]}
-{ echo; echo "## ${MIN}-minute soak ($(date '+%Y-%m-%d %H:%M'), AutoPitchNoHarm \`$have\`)"; echo
+[ -n "$have" ] && echo "$want" | grep -qx "$have" || { echo "ABORT: $BIN sha256 $have not in report's NoHarm rows ($want)"; exit 2; }
+LOG="${REPORT%.md}-noharm-soak${MIN}-${SR}.log"
+echo "soak: $MIN min at $SR Hz, candidate $C, binary $have -> $LOG"
+NOHARM_SOAK_SR="$SR" caffeinate -i "$BIN" --check 8 --long-minutes "$MIN" | tee "$LOG"; rc=${PIPESTATUS[0]}
+{ echo; echo "## ${MIN}-minute soak at ${SR} Hz ($(date '+%Y-%m-%d %H:%M'), AutoPitchNoHarm \`$have\`)"; echo
   echo "$([ $rc -eq 0 ] && echo PASS || echo '**FAIL**'): \`$(basename "$LOG")\`"; grep -E '^PASS|^FAIL|block time|RSS' "$LOG" | sed 's/^ */- /'; } >> "$REPORT"
 echo "result appended to $REPORT (exit $rc)"; exit $rc

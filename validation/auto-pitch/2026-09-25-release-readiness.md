@@ -1,5 +1,22 @@
 # Auto Pitch + Auto Key: release readiness, 2026-09-25
 
+> **2026-09-29: the release candidate is now `c63d63c`**, a reviewed release-fix commit on top of
+> cbd1ce4. Everything below that names cbd1ce4 is history, not evidence for the new candidate.
+> - It fixes two correctness bugs found by the new host-equivalent gates: 44.1 kHz Studio mode
+>   widened vibrato, and the reported latency was 4-15 ms wrong at most rate x buffer combinations.
+> - 48 kHz latency is now 3173 samples (was 2885). The +6 ms was reported to the owner before
+>   merge.
+> - Machine gates, no-harm 1-7 and 9-12 (plus check 4 at 44.1 kHz) and the real-singer runs pass.
+>   See `qualification/2026-09-29-c63d63c.md` and the review packet
+>   `2026-09-29-44k1-fix-review.md`.
+> - Still to do on c63d63c:
+>   - install, then auval
+>   - the 120-min soak at 48 and 44.1 kHz
+>   - packaging and the clean-machine run
+>   - listening, DAW matrix, signing
+> - Open defect found on the way (predates the fix): Transpose-to-Key timing is off by about
+>   1.5 ms/semitone. Owner decision needed.
+
 **Release rule (owner, 2026-09-25):** the exact TAGGED candidate commit must be the one that passes
 listening, DAW validation, plugin validation, clean-machine install, signing/notarization and the
 final real-singer accuracy run. Evidence from other commits, even adjacent ones, does not count.
