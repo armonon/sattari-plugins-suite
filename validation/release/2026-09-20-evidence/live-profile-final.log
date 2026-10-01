@@ -1,0 +1,38 @@
+tracker 100.0 Hz -> 100.000 Hz (+0.00 ct), window=1024 hop=256
+tracker 147.0 Hz -> 147.003 Hz (+0.04 ct), window=1024 hop=256
+tracker 220.0 Hz -> 220.012 Hz (+0.09 ct), window=1024 hop=256
+tracker 440.0 Hz -> 439.992 Hz (-0.03 ct), window=1024 hop=256
+tracker 880.0 Hz -> 881.711 Hz (+3.36 ct), window=1024 hop=256
+silence: unvoiced
+rate 44.1 kHz: 220.016 Hz (+0.13 ct), window 23.22 ms
+rate 96.0 kHz: 220.012 Hz (+0.09 ct), window 21.33 ms
+noise: 0/375 voiced blocks
+noisy voice: 100% voiced, 0.51 ct error
+unity: max error=0, latency=728 samples / 15.167 ms
+shift: target=202.043 Hz, b64=202.059 (+0.14 ct), b256=202.052 (+0.08 ct), peak=0.273
+planner hard: target=69, correction=-40.00 ct, output error=+0.00 ct
+note hysteresis: +55 ct -> 69, +57 ct -> 70
+transient protection: max delayed-dry error=0
+planner leap: target=72, max correction=0.00 ct
+vibrato: input 19.88 ct, natural 17.71 ct (89%), hard 3.22 ct (16%)
+thread CPU 48k/64: mean 0.0081 ms (0.6%), p95 0.0305 ms (2.3%), p99 0.0333 ms (2.5%), max 0.037 ms; wall max 0.038 ms
+formant: source 1170 Hz, live 1198 Hz, resample 1284 Hz (live distance 24% of naive)
+Sattari Live Pitch alpha contract ok
+        2.02 real         2.02 user         0.00 sys
+             4833280  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 591  page reclaims
+                   2  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  19  involuntary context switches
+         11953904424  instructions retired
+          7708320094  cycles elapsed
+             4391248  peak memory footprint

@@ -1,0 +1,19 @@
+Sattari Mix product contract ok: modules=14 programs=8 rates=3 blocks=2
+        1.87 real         0.48 user         0.03 sys
+            18530304  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1337  page reclaims
+                  16  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+                4123  involuntary context switches
+          2330260783  instructions retired
+           948794513  cycles elapsed
+             9421304  peak memory footprint

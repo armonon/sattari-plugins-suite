@@ -1,0 +1,67 @@
+Building 85 registered test executables and Stack shared code
+[0/2] Re-checking globbed directories...
+[1/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[2/1501] Building C object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[3/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[4/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[5/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[6/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[7/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[8/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[9/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[10/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[11/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[12/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[13/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[14/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[15/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[16/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/src/PluginProcessor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.h:23:34: warning: non-static data member 'processor' of 'SattariDoubleAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   23 |     SattariDoubleAudioProcessor& processor;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.h:23:34: warning: non-static data member 'processor' of 'SattariDoubleAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   23 |     SattariDoubleAudioProcessor& processor;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[17/1501] Building CXX object plugins/tuner/CMakeFiles/SattariTuner.dir/__/__/third_party/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[18/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/src/PluginEditor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.h:23:34: warning: non-static data member 'processor' of 'SattariDoubleAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   23 |     SattariDoubleAudioProcessor& processor;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/double/src/PluginEditor.h:23:34: warning: non-static data member 'processor' of 'SattariDoubleAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   23 |     SattariDoubleAudioProcessor& processor;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[19/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[20/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[21/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[22/1501] Building C object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[23/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[24/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[25/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[26/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[27/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[28/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[29/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[30/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[31/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[32/1501] Building CXX object plugins/double/CMakeFiles/SattariDouble.dir/__/__/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+ninja: build stopped: interrupted by user.

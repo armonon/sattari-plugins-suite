@@ -1,0 +1,688 @@
+[
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari 808.component",
+    "version": "0.1.0",
+    "binary_sha256": "a942f014316303e7371f3db7010969d7cfd783a37106f3da8de6d3800264d5e2",
+    "identity": {
+      "type": "aumf",
+      "subtype": "S808",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.81,
+    "log": "auval/aumf-S808-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Align.component",
+    "version": "0.1.0",
+    "binary_sha256": "dcd0255d59a6ee1dd4e7918231fc398f542cf7df890f4df8ff2c508cf35e84d9",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Algn",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Algn-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Arp.component",
+    "version": "0.1.0",
+    "binary_sha256": "93fbc34bc76faacbb86d204199439937ff97a8970ef69db2a5deea7d86099dbc",
+    "identity": {
+      "type": "aumi",
+      "subtype": "Arp1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.38,
+    "log": "auval/aumi-Arp1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component",
+    "version": "0.5.0",
+    "binary_sha256": "9a6ce19841e3a54c30d88f2871990e0d27778bf9045c832cbd223c0c7f2fa4f6",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Ap01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.83,
+    "log": "auval/aufx-Ap01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Bus.component",
+    "version": "0.1.0",
+    "binary_sha256": "9712c48265e03debad4104daee3eb2afe5d5ed076f3d9ec3318bf9e1df6adb3d",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Bus1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.84,
+    "log": "auval/aufx-Bus1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Chop.component",
+    "version": "0.1.0",
+    "binary_sha256": "7db04a6c5b34d0d0a5f69449b2c419d177c4d3b7e44b325a90a3daa5ea702989",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Cho1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.83,
+    "log": "auval/aumu-Cho1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Clean.component",
+    "version": "0.1.0",
+    "binary_sha256": "cacba46fd0e58b0e783af7f97db8b5490122752486f44d2b16d9bd19f013a956",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Cl01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.84,
+    "log": "auval/aufx-Cl01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Comp.component",
+    "version": "0.1.0",
+    "binary_sha256": "7ebce5fc6d450699e2fc5040aa5e69e73bbd08cbb164c9fb50d4f0a6864a6d30",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Cmp1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aufx-Cmp1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Compass.component",
+    "version": "0.1.0",
+    "binary_sha256": "1cb33c19316c0da400629476d11d1b49850264fdc1225b6a65d583f3257f2bbd",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Br01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 10.25,
+    "log": "auval/aumf-Br01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Create.component",
+    "version": "0.1.0",
+    "binary_sha256": "495977a95f84de3305047110c3ed72193e101b59c30669f34cc233bcd54566f1",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Cr01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.41,
+    "log": "auval/aumf-Cr01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari De-Ess.component",
+    "version": "0.1.0",
+    "binary_sha256": "c5f82f9afc5d574e32ac15565a1d38f231c2e91b2218647627ea7ebe18a701c1",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Ds01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.79,
+    "log": "auval/aufx-Ds01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Double.component",
+    "version": "0.1.0",
+    "binary_sha256": "959308eb22cff637b5e133fe8701690bf8b42ce84709373dac880160f7811342",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Db01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Db01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari EQ.component",
+    "version": "0.1.0",
+    "binary_sha256": "1304cc0ec7afbb8200b77ab53d4dbfed8ff22ac7aa3b9b10f80b0ac044f3b9fe",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Eq01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.79,
+    "log": "auval/aufx-Eq01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Echo.component",
+    "version": "0.1.0",
+    "binary_sha256": "816bab452e0b5c53f7663c0aa010c4d3efce4127f542e30c270bbb9be5aacba1",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Ech1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.85,
+    "log": "auval/aufx-Ech1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Face.component",
+    "version": "0.1.0",
+    "binary_sha256": "2d68679dadb295fc36f71888bf3c651ba3d7b618dc915bd110aa3249a3f379d4",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Fc01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.91,
+    "log": "auval/aufx-Fc01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Gate.component",
+    "version": "0.1.0",
+    "binary_sha256": "522a06c21213e8c7f37cd32a3230f30b87b55800c2604845da244dd30878a83a",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Gt01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aufx-Gt01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Glass Choir.component",
+    "version": "0.1.0",
+    "binary_sha256": "665ec795828e03472c981831ccec33a64f8dac7c26758043daaec56cd5c19b34",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Gc01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 1.45,
+    "log": "auval/aufx-Gc01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Granulator.component",
+    "version": "0.1.0",
+    "binary_sha256": "a847bed1ad06984d3edab30533754e033ef09b127728bc3c038534ab597a23aa",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Gr01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 1.27,
+    "log": "auval/aumu-Gr01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Harmony.component",
+    "version": "0.1.0",
+    "binary_sha256": "1b396f0719350b82cc411425631a0d76b89e194c6c760c4153d555137b4da53d",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Hm01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.91,
+    "log": "auval/aumf-Hm01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Heat.component",
+    "version": "0.1.0",
+    "binary_sha256": "0b47dd1ab741fc6918c7b09d88d6dd1982c474d7cc4b42680b6f6c3459244544",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Ht01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.91,
+    "log": "auval/aufx-Ht01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Image.component",
+    "version": "0.1.0",
+    "binary_sha256": "6dfdc480acb09cc346683043868123e0b4e33e744540bc7849f3aab949566ed9",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Img1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aufx-Img1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Key.component",
+    "version": "0.3.0",
+    "binary_sha256": "26d695a3bf8165801c4bab500de8f7c29c768368caa4cf5313b9f902e0df47a8",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Sk01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.67,
+    "log": "auval/aumf-Sk01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Maqam.component",
+    "version": "0.1.0",
+    "binary_sha256": "a890da6e8b794870b11f30877e0a331e38211aaae017c6f646b9457a7e0b4a2d",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Mq01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.9,
+    "log": "auval/aumf-Mq01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Meter.component",
+    "version": "0.1.0",
+    "binary_sha256": "c1fd20e0dc886904853fdf1ace9ec01bb6617c856007c3b01d2e86029620afee",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Mt01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.81,
+    "log": "auval/aufx-Mt01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Mix.component",
+    "version": "0.2.0",
+    "binary_sha256": "35b5ebce66fe4ab7f9dfcbe5c2c8d629f28457b3809caa70bec24864b633b7dc",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Mx01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.32,
+    "log": "auval/aumf-Mx01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Morph.component",
+    "version": "0.1.0",
+    "binary_sha256": "e27b91287a6ee0abd6bc1e72516e02f3bb4189387a9827164ce8781ca9e497a9",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Mph1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.84,
+    "log": "auval/aufx-Mph1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Multiband.component",
+    "version": "0.1.0",
+    "binary_sha256": "dc3ba3a2da4232f4c9efdcff744395cca2778e37cb5a06f57e12b9f6d8970196",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Mb01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.85,
+    "log": "auval/aufx-Mb01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Peak.component",
+    "version": "0.1.0",
+    "binary_sha256": "00faba5c4156c343ac99849877b03d91157d86a9c72226808ca9b5c8d9b0c33a",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Pk01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Pk01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Pulse.component",
+    "version": "0.1.0",
+    "binary_sha256": "f6dc9f3dc0de23a3061e9fd40c61bc2d98f1b31b8801d028e38811b6eaa34dc3",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Pl01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aufx-Pl01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Rhythm Genie.component",
+    "version": "0.1.0",
+    "binary_sha256": "2946e1b99330a3aa12136026f8326df8f5b8012cee3922e19433efa33d1768f7",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Rg01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.85,
+    "log": "auval/aumu-Rg01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Riser.component",
+    "version": "0.1.0",
+    "binary_sha256": "7d81f6d17c9d91dc10769e4e472fa95d751a5c5ae86d57b63f4d4080a3f3f5f3",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Rs01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.85,
+    "log": "auval/aufx-Rs01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Royal Chain.component",
+    "version": "0.1.0",
+    "binary_sha256": "ad6d278280c006a52344e7fe413cb47e32e5cffedb7864e19caa0f58e9d9e6f3",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Rc01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.88,
+    "log": "auval/aufx-Rc01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scaler.component",
+    "version": "0.1.0",
+    "binary_sha256": "32efda5388bba0b986d2c378afb55e42becc1d25c33615740394f35a836b131a",
+    "identity": {
+      "type": "aumi",
+      "subtype": "Skl1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.78,
+    "log": "auval/aumi-Skl1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scope.component",
+    "version": "0.1.0",
+    "binary_sha256": "6ba4b08650798fc12725a88a66e49f91d9634c04fcfcf72faf0a96def065a1a5",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Scp1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 1.42,
+    "log": "auval/aufx-Scp1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Shimmer.component",
+    "version": "0.1.0",
+    "binary_sha256": "835cf4ed8b5958c8881bbb0315e109720d91616afd93b21431ae5391c0581625",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Shm1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.84,
+    "log": "auval/aufx-Shm1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Space.component",
+    "version": "0.1.0",
+    "binary_sha256": "a575367f9702b252607eccbe6fcd8dfe95f9e190eee9be6afc9eb036ba67319e",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Sp01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.94,
+    "log": "auval/aufx-Sp01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Stack.component",
+    "version": "0.1.0",
+    "binary_sha256": "7781476dc9e98b35943905e8b8891cb99cb9d983c5f399e31a1c14e13cd408ea",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Stk1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.44,
+    "log": "auval/aumu-Stk1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari StemDeck.component",
+    "version": "0.5.0",
+    "binary_sha256": "247e12c830c2d25bc8072379ba09f110bc291710b551e77e7bfbec5218e43b3a",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Sd01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 1.55,
+    "log": "auval/aumu-Sd01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Transient.component",
+    "version": "0.1.0",
+    "binary_sha256": "12d45d090a0c4008b6577e907b553d0b75a48df2ca0c78adde540a944f90573c",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Ts01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Ts01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Tuner.component",
+    "version": "0.1.0",
+    "binary_sha256": "7e3ece3a6a0e7155f67184faef829ada5bba9de10173a80c58d1728679b1be88",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Tn01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Tn01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal Master.component",
+    "version": "0.1.0",
+    "binary_sha256": "4d74eab76bfb27aabd08803dd27842c0ccdcdd5d0cd01477d88c6b3145a6ac38",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Vm01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.89,
+    "log": "auval/aumf-Vm01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal.component",
+    "version": "0.1.0",
+    "binary_sha256": "7b76769ef2898c230fd61ea45a4d3766510e7ece6c68476fa17b1e379feb80ad",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Vcl1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.53,
+    "log": "auval/aumf-Vcl1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocoder.component",
+    "version": "0.1.0",
+    "binary_sha256": "dccc48c8fa402d1de476b78f513f432efbf04db7958ad5594ba716afc9ba4840",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Voc1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aumf-Voc1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxKey.component",
+    "version": "0.1.0",
+    "binary_sha256": "f991f2f1b6f918fb37724d9c36bffe00a63b0e26eaea2a2352c099d53a28f82b",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Vk01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 1.15,
+    "log": "auval/aufx-Vk01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxSynth.component",
+    "version": "0.1.0",
+    "binary_sha256": "f066d64b66e063a80c04323ff1dd8b20e8b5253f2834afa01fb3016cc886413c",
+    "identity": {
+      "type": "aumu",
+      "subtype": "Vsy1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.84,
+    "log": "auval/aumu-Vsy1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warble.component",
+    "version": "0.1.0",
+    "binary_sha256": "3ccf7bcfa57c61be3a0c63b5663df80d53c248e2fbbcfbfa7908124d3a0ff81f",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Wrb1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.8,
+    "log": "auval/aufx-Wrb1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warp.component",
+    "version": "0.1.0",
+    "binary_sha256": "3f068a8cc4a5f0f27150c51c97c062ca4fbf0a15deb73821f3a4e09d7fa6be76",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Wp01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.82,
+    "log": "auval/aufx-Wp01-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Side Chain Master.component",
+    "version": "0.1.0",
+    "binary_sha256": "6b79e71aa7bb1003a6cee6698f15ef94f8ca5885b836f2cb151f9f349ad648cb",
+    "identity": {
+      "type": "aufx",
+      "subtype": "Scm1",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.81,
+    "log": "auval/aufx-Scm1-Satr.log"
+  },
+  {
+    "bundle": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sub Conjurer.component",
+    "version": "0.1.0",
+    "binary_sha256": "10d0e772c32cab76e888c2a2622e7c84b41756c7fdf07472b3fac3f6024e8b4b",
+    "identity": {
+      "type": "aumf",
+      "subtype": "Sc01",
+      "manufacturer": "Satr"
+    },
+    "exit": 0,
+    "pass": true,
+    "seconds": 0.39,
+    "log": "auval/aumf-Sc01-Satr.log"
+  }
+]

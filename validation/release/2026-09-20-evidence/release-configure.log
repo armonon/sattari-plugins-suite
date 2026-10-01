@@ -1,0 +1,115 @@
+-- Sattari ONNX: enabled for SattariKeyAnalyzer (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for SattariKeyEngineEval (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Configuring juceaide
+-- Building juceaide
+-- Exporting juceaide
+-- Testing juceaide
+-- Finished setting up juceaide
+-- Sattari ONNX: enabled for SattariVocalMaster (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for VocalMasterRender (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for SattariAutoPitch (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  SattariAutoPitch with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:114 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building SattariAutoPitch
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:115 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchCoreContract (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchCoreContract with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:151 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building
+  AutoPitchCoreContract with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:152 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchRender (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchRender with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:190 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building AutoPitchRender
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:191 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchBench (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchBench with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:243 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building AutoPitchBench
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:244 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchObjectiveBench (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchObjectiveBench with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:273 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building
+  AutoPitchObjectiveBench with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0
+  (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:274 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for SattariVoxKey (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Configuring done (139.0s)
+-- Generating done (4.5s)
+-- Build files have been written to: /Users/lillypad/Projects/sattari-plugins-main/build/local

@@ -1,0 +1,5 @@
+43f1764725d7c565940bbf86b8e4ca9fa953c1d2e84eaa741813f374c2a5887c  build/local/SattariRackHostContract
+24592e9291368f3bc6a26709d933226b9462153a98e019707301ee7228962018  /tmp/sattari-release-today.DAHNLJ/hub-build/release/SattariHub
+f4dfc9c833a959df41fff0403f6aebd7658b8a33024a64895900904df5c324ee  /tmp/sattari-release-today.DAHNLJ/live-pitch-contract
+a512452ac461b02b9da360bf0af2325ebeaa894e66133d37f7678c0579d81062  /tmp/sattari-release-today.DAHNLJ/extreme-pitch-contract
+e9606e71a972657a2ae1ae1b0816e9be60a5302519f514a2582537428f8d844d  /tmp/sattari-release-today.DAHNLJ/mix-release-linked-contract

@@ -1,0 +1,5 @@
+Extreme latency=96 samples best=261.50 Hz error=-0.83 ct target/source=15775.257 diffRms=0.19998 outRms=0.14142
+  blockDelta=0.000 ct energyRatio=1.0000 boundaryJump=0.00685 unityError=0.000000000
+  acquisition voiced=24.00 ms correction=25.33 ms
+  low-range E2 tracker error=0.01 ct voiced=yes
+extreme live pitch contract ok

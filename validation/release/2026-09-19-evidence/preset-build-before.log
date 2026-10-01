@@ -1,0 +1,73 @@
+[0/2] Re-checking globbed directories...
+[1/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[2/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[3/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/core/tests/rack_host_contract.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:22:
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:30:34: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   30 |         check (param->getValue() == initial, "rejected preset must not change state");
+      |                ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:67:30: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   67 |     check (param->getValue() == initial, "file round trip restores parameter");
+      |            ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:71:55: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   71 |     check (manager.recallSlotA() && param->getValue() == initial, "A/B recall preserves snapshot");
+      |                                     ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:73:55: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   73 |     check (manager.recallSlotB() && param->getValue() == initial, "A/B swap preserves snapshot");
+      |                                     ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:349:18: warning: declaration shadows a local variable [-Wshadow]
+  349 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:278:14: note: previous declaration is here
+  278 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:372:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  372 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:22: note: previous declaration is here
+  289 |     juce::MidiBuffer midi;
+      |                      ^
+6 warnings generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:22:
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:30:34: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   30 |         check (param->getValue() == initial, "rejected preset must not change state");
+      |                ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:67:30: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   67 |     check (param->getValue() == initial, "file round trip restores parameter");
+      |            ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:71:55: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   71 |     check (manager.recallSlotA() && param->getValue() == initial, "A/B recall preserves snapshot");
+      |                                     ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/preset_manager_contract.h:73:55: warning: comparing floating point with == or != is unsafe [-Wfloat-equal]
+   73 |     check (manager.recallSlotB() && param->getValue() == initial, "A/B swap preserves snapshot");
+      |                                     ~~~~~~~~~~~~~~~~~ ^  ~~~~~~~
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:349:18: warning: declaration shadows a local variable [-Wshadow]
+  349 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:278:14: note: previous declaration is here
+  278 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:372:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  372 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:22: note: previous declaration is here
+  289 |     juce::MidiBuffer midi;
+      |                      ^
+6 warnings generated.
+[4/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[5/21] Building C object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[6/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[7/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[8/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[9/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[10/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[11/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[12/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[13/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[14/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[15/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[16/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[17/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[18/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[19/21] Building CXX object CMakeFiles/SattariRackHostContract.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[20/21] Linking CXX executable SattariRackHostContract

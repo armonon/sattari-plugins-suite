@@ -1,0 +1,68 @@
+[
+  {
+    "mode": "--nulltest",
+    "exit": 0,
+    "wallSeconds": 4.657,
+    "log": "pitch-nulltest.log"
+  },
+  {
+    "mode": "--wetalign",
+    "exit": 0,
+    "wallSeconds": 2.699,
+    "log": "pitch-wetalign.log"
+  },
+  {
+    "mode": "--livetest",
+    "exit": 0,
+    "wallSeconds": 6.954,
+    "log": "pitch-livetest.log"
+  },
+  {
+    "mode": "--crepe",
+    "exit": 0,
+    "wallSeconds": 0.766,
+    "log": "pitch-crepe.log"
+  },
+  {
+    "mode": "--features",
+    "exit": 0,
+    "wallSeconds": 6.577,
+    "log": "pitch-features.log"
+  },
+  {
+    "mode": "--gainstage",
+    "exit": 0,
+    "wallSeconds": 1.489,
+    "log": "pitch-gainstage.log"
+  },
+  {
+    "mode": "--vibtest",
+    "exit": 0,
+    "wallSeconds": 4.053,
+    "log": "pitch-vibtest.log"
+  },
+  {
+    "mode": "--polytest",
+    "exit": 0,
+    "wallSeconds": 0.836,
+    "log": "pitch-polytest.log"
+  },
+  {
+    "mode": "--xposetest",
+    "exit": 0,
+    "wallSeconds": 1.563,
+    "log": "pitch-xposetest.log"
+  },
+  {
+    "mode": "--polystress",
+    "exit": 0,
+    "wallSeconds": 1.268,
+    "log": "pitch-polystress.log"
+  },
+  {
+    "mode": "--autokey",
+    "exit": 0,
+    "wallSeconds": 66.816,
+    "log": "pitch-autokey.log"
+  }
+]

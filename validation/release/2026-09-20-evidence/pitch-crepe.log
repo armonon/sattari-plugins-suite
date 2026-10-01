@@ -1,0 +1,7 @@
+crepe model: loaded=1 available=1
+  embedded CREPE-tiny
+  220 Hz -> 220.93 Hz (+7.3 cents) conf=0.81 voiced=1
+  440 Hz -> 440.39 Hz (+1.6 cents) conf=0.93 voiced=1
+  660 Hz -> 659.06 Hz (-2.5 cents) conf=0.93 voiced=1
+  inference: 2.898 ms/frame; 24.1% of one core at 83 Hz
+Auto Pitch CREPE (C++ ONNX) proof ok

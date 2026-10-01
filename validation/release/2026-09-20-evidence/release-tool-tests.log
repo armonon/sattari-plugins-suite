@@ -1,0 +1,21 @@
+test_required_dependency_notice_copy_commands (test_package_source_guard.PackageSourceGuardTests.test_required_dependency_notice_copy_commands) ... ok
+test_untracked_compiled_source_blocks_otherwise_clean_package (test_package_source_guard.PackageSourceGuardTests.test_untracked_compiled_source_blocks_otherwise_clean_package) ... ok
+test_build_failure_does_not_run_stale_tests (test_release_contract_runner.ContractRunnerTests.test_build_failure_does_not_run_stale_tests) ... FAIL: qualification build failed; refusing to test stale executables
+ok
+test_build_uses_only_test_aggregate (test_release_contract_runner.ContractRunnerTests.test_build_uses_only_test_aggregate) ... Release contracts: 1/1 passed
+ok
+test_each_test_gets_private_session_and_exact_name (test_release_contract_runner.ContractRunnerTests.test_each_test_gets_private_session_and_exact_name) ... Release contracts: 2/2 passed
+ok
+test_empty_inventory_fails (test_release_contract_runner.ContractRunnerTests.test_empty_inventory_fails) ... FAIL: CTest inventory is empty; nothing was validated
+ok
+test_failed_or_missing_test_fails_gate_and_continues (test_release_contract_runner.ContractRunnerTests.test_failed_or_missing_test_fails_gate_and_continues) ... Release contracts: 1/2 passed
+FAILED: Missing
+ok
+test_stemdeck_is_explicitly_skipped (test_release_contract_runner.ContractRunnerTests.test_stemdeck_is_explicitly_skipped) ... SKIP: StemDeckSuite (StemDeck is outside this release)
+Release contracts: 1/1 passed
+ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.198s
+
+OK

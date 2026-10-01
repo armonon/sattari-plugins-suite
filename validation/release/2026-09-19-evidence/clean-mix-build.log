@@ -1,0 +1,35 @@
+[0/2] Re-checking globbed directories...
+[1/47] Generating juce_binarydata_SattariBrandAssets/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_SattariBrandAssets/JuceLibraryCode/SattariBrandAssets.h
+[2/47] Building CXX object CMakeFiles/SattariBrandAssets.dir/juce_binarydata_SattariBrandAssets/JuceLibraryCode/BinaryData1.cpp.o
+[3/47] Building CXX object CMakeFiles/SattariBrandAssets.dir/Users/lillypad/Projects/sattari-plugins-main/core/src/SattariLogo.cpp.o
+[4/47] Linking CXX static library libSattariBrandAssets.a
+[5/47] Generating SattariMix_artefacts/JuceLibraryCode/JuceHeader.h
+[6/47] Building CXX object CMakeFiles/SattariMix.dir/src/PluginEditor.cpp.o
+[7/47] Building CXX object CMakeFiles/SattariMix.dir/src/PluginProcessor.cpp.o
+[8/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[9/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[10/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[11/47] Building C object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[12/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[13/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[14/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[15/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[16/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[17/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[18/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[19/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[20/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[21/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[22/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[23/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[24/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[25/47] Building CXX object CMakeFiles/SattariMix.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[26/47] Linking CXX static library "SattariMix_artefacts/Release/libSattari Mix_SharedCode.a"
+[27/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/tests/mix_product_contract.cpp.o
+[28/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[29/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[30/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[31/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[32/47] Building C object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[33/47] Building CXX object CMakeFiles/SattariMixProductContract.dir/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+ninja: build stopped: interrupted by user.

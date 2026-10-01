@@ -1,0 +1,78 @@
+[0/2] Re-checking globbed directories...
+[1/38] Building CXX object CMakeFiles/SattariExtremeLivePitchContract.dir/core/tests/extreme_live_pitch_contract.cpp.o
+[2/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/core/tests/dynamic_key_tracker_contract.cpp.o
+[3/38] Building CXX object CMakeFiles/SattariRackHostContract.dir/core/tests/rack_host_contract.cpp.o
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:360:18: warning: declaration shadows a local variable [-Wshadow]
+  360 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:14: note: previous declaration is here
+  289 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:383:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  383 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:300:22: note: previous declaration is here
+  300 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:360:18: warning: declaration shadows a local variable [-Wshadow]
+  360 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:14: note: previous declaration is here
+  289 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:383:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  383 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:300:22: note: previous declaration is here
+  300 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+[4/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/third_party/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[5/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[6/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[7/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[8/38] Building CXX object core/CMakeFiles/SattariAudioCoreLivePitchContract.dir/tests/live_pitch_engine_contract.cpp.o
+[9/38] Building CXX object core/CMakeFiles/SattariAudioCoreVoxContract.dir/tests/vox_analyzer_contract.cpp.o
+[10/38] Building CXX object plugins/stack/CMakeFiles/SattariStack.dir/src/PluginProcessor.cpp.o
+[11/38] Building CXX object plugins/stack/CMakeFiles/SattariStack.dir/src/PluginEditor.cpp.o
+[12/38] Building CXX object CMakeFiles/SattariDynamicKeyTrackerContract.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[13/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/tests/stack_layer_contract.cpp.o
+/Users/lillypad/Projects/sattari-plugins-main/plugins/stack/tests/stack_layer_contract.cpp:112:20: warning: 'createWriterFor' is deprecated: Use the function taking an AudioFormatWriterOptions instead. [-Wdeprecated-declarations]
+  112 |             format.createWriterFor (stream.release(), 48000, 1, 16, {}, 0));
+      |                    ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_formats/format/juce_AudioFormat.h:178:7: note: 'createWriterFor' has been explicitly marked deprecated here
+  178 |     [[deprecated ("Use the function taking an AudioFormatWriterOptions instead.")]]
+      |       ^
+1 warning generated.
+/Users/lillypad/Projects/sattari-plugins-main/plugins/stack/tests/stack_layer_contract.cpp:112:20: warning: 'createWriterFor' is deprecated: Use the function taking an AudioFormatWriterOptions instead. [-Wdeprecated-declarations]
+  112 |             format.createWriterFor (stream.release(), 48000, 1, 16, {}, 0));
+      |                    ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_formats/format/juce_AudioFormat.h:178:7: note: 'createWriterFor' has been explicitly marked deprecated here
+  178 |     [[deprecated ("Use the function taking an AudioFormatWriterOptions instead.")]]
+      |       ^
+1 warning generated.
+[14/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[15/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[16/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[17/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[18/38] Building C object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[19/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[20/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[21/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[22/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[23/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[24/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[25/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[26/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[27/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[28/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[29/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[30/38] Linking CXX executable SattariRackHostContract
+[31/38] Linking CXX executable SattariExtremeLivePitchContract
+[32/38] Linking CXX executable SattariDynamicKeyTrackerContract
+[33/38] Linking CXX executable core/SattariAudioCoreLivePitchContract
+[34/38] Linking CXX executable core/SattariAudioCoreVoxContract
+[35/38] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/__/__/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[36/38] Linking CXX static library "plugins/stack/SattariStack_artefacts/Release/libSattari Stack_SharedCode.a"
+[37/38] Linking CXX executable plugins/stack/SattariStackLayerContract

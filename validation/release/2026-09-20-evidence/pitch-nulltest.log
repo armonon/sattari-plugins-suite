@@ -1,0 +1,22 @@
+Gate 4 test A (offline): pass-through null with correction OFF
+  NOTE: since the delayed dry reference was added, correction-off and
+  Amount 0 both return a sample-exact delay line, so these rows no
+  longer say anything about the CORRECTING path. Use --wetalign for
+  that. A pass here means the bypass is clean, nothing more.
+
+  engine / signal                                 null dBFS  verdict
+  ----------------------------------------------  ---------  -------
+  correction OFF, print engine, steady                -inf     PASS   (reported 2885; best null -inf dB at +0)
+  correction OFF, print engine, vibrato               -inf     PASS   (reported 2885; best null -inf dB at +0)
+  Amount 0, print engine, steady                      -inf     PASS   (reported 2885; best null -inf dB at +0)
+  Amount 0, print engine, vibrato 50ct                -inf     PASS   (reported 2885; best null -inf dB at +0)
+  Amount 0, liveEngine=1 (LOCKED OFF)                 -inf     PASS   (reported 2885; best null -inf dB at +0)
+  correction OFF, LIVE MODE, vibrato                  -inf     PASS   (reported 96; best null -inf dB at +0)
+  Amount 0, LIVE MODE, steady                         -inf     PASS   (reported 96; best null -inf dB at +0)
+  Amount 0, LIVE MODE, vibrato 50ct                   -inf     PASS   (reported 96; best null -inf dB at +0)
+
+  A FAIL here predicts a FAIL of the same test in every host: it is a
+  plugin-side alignment result, not a host compatibility one. Read the
+  'best null at +N' column before blaming the DSP — a deep null at a
+  non-zero N means the audio is fine and the LATENCY REPORT is short
+  by N samples, which is a one-line fix and a different bug entirely.

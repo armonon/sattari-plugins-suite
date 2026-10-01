@@ -1,0 +1,4 @@
+Stack source recall ok: Chop + Granulator A/B, state reopen, missing/moved media, silence, relink, source clearing
+Chop source lifetime ok: 100 replacements, duplicate publish, held sources protected, no worker-thread deallocation
+Granulator source lifetime ok: 100 replacements, duplicate publish, no audio-callback deallocation
+Stack independent-layer contract ok

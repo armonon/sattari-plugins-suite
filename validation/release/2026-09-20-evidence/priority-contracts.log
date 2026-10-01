@@ -1,0 +1,105 @@
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 90: SattariPresetManagerContract
+1/1 Test #90: SattariPresetManagerContract .....   Passed    1.31 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   1.31 sec*proc (1 test)
+non-stemdeck    =   1.31 sec*proc (1 test)
+presets         =   1.31 sec*proc (1 test)
+
+Total Test time (real) =   1.31 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 34: SattariRackHostContract
+1/1 Test #34: SattariRackHostContract ..........   Passed    0.17 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.17 sec*proc (1 test)
+non-stemdeck    =   0.17 sec*proc (1 test)
+
+Total Test time (real) =   0.17 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 80: SattariStackLayerContract
+1/1 Test #80: SattariStackLayerContract ........   Passed    0.86 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.86 sec*proc (1 test)
+non-stemdeck    =   0.86 sec*proc (1 test)
+
+Total Test time (real) =   0.86 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 23: SattariAudioCoreVoxContract
+1/1 Test #23: SattariAudioCoreVoxContract ......   Passed    1.31 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   1.31 sec*proc (1 test)
+non-stemdeck    =   1.31 sec*proc (1 test)
+
+Total Test time (real) =   1.32 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 20: SattariAudioCoreLivePitchContract
+1/1 Test #20: SattariAudioCoreLivePitchContract ...   Passed    2.57 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   2.57 sec*proc (1 test)
+non-stemdeck    =   2.57 sec*proc (1 test)
+
+Total Test time (real) =   2.57 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 2: SattariDynamicKeyTrackerContract
+1/1 Test #2: SattariDynamicKeyTrackerContract ...   Passed    0.41 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.41 sec*proc (1 test)
+non-stemdeck    =   0.41 sec*proc (1 test)
+
+Total Test time (real) =   0.42 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 4: SattariExtremeLivePitchContract
+1/1 Test #4: SattariExtremeLivePitchContract ...   Passed    0.55 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.55 sec*proc (1 test)
+non-stemdeck    =   0.55 sec*proc (1 test)
+
+Total Test time (real) =   0.56 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 92: SattariMixEditorMinimumRender
+1/1 Test #92: SattariMixEditorMinimumRender ....   Passed    0.11 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+minimum         =   0.11 sec*proc (1 test)
+non-stemdeck    =   0.11 sec*proc (1 test)
+render          =   0.11 sec*proc (1 test)
+ui              =   0.11 sec*proc (1 test)
+
+Total Test time (real) =   0.11 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 98: SattariStackEditorMinimumRender
+1/1 Test #98: SattariStackEditorMinimumRender ...   Passed    0.13 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+minimum         =   0.13 sec*proc (1 test)
+non-stemdeck    =   0.13 sec*proc (1 test)
+render          =   0.13 sec*proc (1 test)
+ui              =   0.13 sec*proc (1 test)
+
+Total Test time (real) =   0.13 sec
+FAILED: []

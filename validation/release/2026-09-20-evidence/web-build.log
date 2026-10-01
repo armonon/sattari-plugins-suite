@@ -1,0 +1,46 @@
+
+> sattari-audio-marketing@1.0.0 build
+> npm run sync:public && WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build
+
+
+> sattari-audio-marketing@1.0.0 sync:public
+> node scripts/sync-public.mjs
+
+
+  vinext build  (Vite 8.0.16)
+
+[1/5] analyze client references...
+[2Ktransforming...✓ 131 modules transformed.
+rendering chunks...
+✓ built in 347ms
+[2/5] analyze server references...
+[2Ktransforming...✓ 47 modules transformed.
+rendering chunks...
+✓ built in 88ms
+[3/5] build rsc environment...
+[2Ktransforming...✓ 137 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 486ms
+[4/5] build client environment...
+[2Ktransforming...✓ 55 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 234ms
+[5/5] build ssr environment...
+[2Ktransforming...✓ 53 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 288ms
+[0m
+  Route (app)
+  ─ ? /
+
+  ? Unknown
+
+  ? Some routes could not be classified. vinext currently uses static analysis
+    and cannot detect dynamic API usage (headers(), cookies(), etc.) at build time.
+    Automatic classification will be improved in a future release.
+
+  Build complete. Run `vinext start` to start the production server.
+

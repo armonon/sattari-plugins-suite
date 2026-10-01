@@ -1,0 +1,5 @@
+== Transpose-to-Key (whole-mix shift accuracy) ==
+  -5 st: want 329.6 Hz  got 329.6 Hz  (0.0 cents)  [OK]
+  +3 st: want 523.3 Hz  got 523.3 Hz  (-0.0 cents)  [OK]
+  +7 st: want 659.3 Hz  got 659.3 Hz  (-0.0 cents)  [OK]
+Auto Pitch transpose-to-key proof ok

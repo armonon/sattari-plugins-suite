@@ -1,0 +1,29 @@
+[0/2] Re-checking globbed directories...
+[1/3] Building CXX object CMakeFiles/SattariRackHostContract.dir/core/tests/rack_host_contract.cpp.o
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:349:18: warning: declaration shadows a local variable [-Wshadow]
+  349 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:278:14: note: previous declaration is here
+  278 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:372:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  372 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:22: note: previous declaration is here
+  289 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:349:18: warning: declaration shadows a local variable [-Wshadow]
+  349 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:278:14: note: previous declaration is here
+  278 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:372:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  372 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:289:22: note: previous declaration is here
+  289 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+[2/3] Linking CXX executable SattariRackHostContract

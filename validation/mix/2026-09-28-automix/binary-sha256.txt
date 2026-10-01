@@ -1,0 +1,3 @@
+35b5ebce66fe4ab7f9dfcbe5c2c8d629f28457b3809caa70bec24864b633b7dc  build/mix-automix/mix/SattariMix_artefacts/Release/AU/Sattari Mix.component/Contents/MacOS/Sattari Mix
+4ad18498c4e3523d9886e4c379e8dd571c50060e5026c4b71f88025bff4be35c  build/mix-automix/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3/Contents/MacOS/Sattari Mix
+f968970e5d924c23c52064617f43532eb1325432ab77ec4c8afb9bfe6ea73e02  build/mix-automix/mix/SattariMix_artefacts/Release/Standalone/Sattari Mix.app/Contents/MacOS/Sattari Mix

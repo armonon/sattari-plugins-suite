@@ -1,0 +1,2 @@
+ 29396c22c93392d6738e021b83196283d6e4d850 third_party/JUCE (8.0.12)
+-57b93f4e9206a089a45387eaa39bdc9f310d3308 third_party/signalsmith-stretch

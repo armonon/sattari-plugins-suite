@@ -1,0 +1,20 @@
+held-note: peak=0.3347 rms=0.2239
+released tail: peak=0.000000 rms=0.000000
+snap C#->60 (want 60), C->60 (want 60)
+keysnap off domHz=550.0  on domHz=517.2  (source=523.3)
+extreme sweep (both layers): peak=0.9880 finite=1
+mono source: peak=0.3347 finite=1
+stereo source: peak=0.3347 finite=1
+morph=0, B-only loaded: peak=0.000000
+morph=0, A loaded: peak=0.3347
+morph=0 domHz=517.2 (want ~523.3), morph=1 domHz=784.4 (want ~784.0)
+capture: published=1 haveBuffer=1 len=24000 finite=1
+captured B playback: peak=0.1726 finite=1
+smoothness: classic peak=0.334588  s0 peak=0.334588  s1 peak=0.763330
+densitySync@120: peak=0.4234 rms=0.1146 finite=1
+velToCutoff: soft rms=0.038835 (finite=1)  hard rms=0.213206 (finite=1)
+pitch-bend: flat domHz=517.2 (finite=1)  +2st domHz=582.8 (finite=1)
+reverb: mix0 maxDiff=0.000e+00 peakDry=0.3347 peakWet=0.2859  tailRMS dry=0.000000 wet=0.027595
+modmatrix: off peak=0.1244 (finite=1)  on peak=0.3301 (finite=1)  maxDiff=3.2489e-01
+formant: off peak=0.3347 (finite=1)  shifted peak=0.3567 (finite=1)  maxDiff=1.0440e-01
+Sattari Granulator contract ok

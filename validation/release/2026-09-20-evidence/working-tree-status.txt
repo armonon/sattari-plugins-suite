@@ -1,0 +1,39 @@
+ M .gitignore
+ M CMakeLists.txt
+ M apps/sattari-hub/README.md
+ M apps/sattari-hub/Sources/SattariHub/main.swift
+ M apps/sattari-web/index.html
+ M apps/sattari-web/package-lock.json
+ M apps/sattari-web/package.json
+ M apps/sattari-web/worker/index.ts
+ M core/include/sattari_audio_core/SattariInstrumentRack.h
+ M core/include/sattari_audio_core/SattariPresetManager.h
+ M core/include/sattari_audio_core/SattariRackEditor.h
+ M core/include/sattari_audio_core/SattariStackEditor.h
+ M core/include/sattari_audio_core/modules/ChopModule.h
+ M core/include/sattari_audio_core/modules/GranulatorModule.h
+ M core/tests/live_pitch_engine_contract.cpp
+ M core/tests/rack_host_contract.cpp
+ M docs/key-and-instrument-workflow.md
+ M plugins/auto-pitch/CMakeLists.txt
+ M plugins/auto-pitch/src/PluginEditor.cpp
+ M plugins/auto-pitch/src/PluginProcessor.cpp
+ M plugins/auto-pitch/src/PluginProcessor.h
+ M plugins/auto-pitch/tests/auto_pitch_core_contract.cpp
+ M plugins/stack/CMakeLists.txt
+ M plugins/stack/tests/stack_layer_contract.cpp
+ M scripts/package_suite_installer.sh
+ M scripts/release_check.sh
+ M validation/corpus/auto-pitch.json
+?? apps/sattari-hub/Sources/SattariHub/InstallControl.swift
+?? apps/sattari-hub/Sources/SattariHub/ReleaseContract.swift
+?? core/tests/preset_manager_contract.h
+?? docs/polyphonic-tuner.md
+?? docs/release-qualification.md
+?? docs/stack-source-recall.md
+?? plugins/auto-pitch/src/PolyphonicNotePlan.h
+?? plugins/auto-pitch/tests/PolyphonicContract.h
+?? scripts/run_release_contracts.py
+?? scripts/tests/
+?? validation/auto-pitch/2026-09-18-polyphonic-fixes.md
+?? validation/release/

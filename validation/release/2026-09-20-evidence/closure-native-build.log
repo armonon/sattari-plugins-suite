@@ -1,0 +1,34 @@
+[0/2] Re-checking globbed directories...
+[1/8] Building CXX object plugins/stack/CMakeFiles/SattariStack.dir/src/PluginProcessor.cpp.o
+[2/8] Building CXX object CMakeFiles/SattariRackHostContract.dir/core/tests/rack_host_contract.cpp.o
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:373:18: warning: declaration shadows a local variable [-Wshadow]
+  373 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:302:14: note: previous declaration is here
+  302 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:396:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  396 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:313:22: note: previous declaration is here
+  313 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:373:18: warning: declaration shadows a local variable [-Wshadow]
+  373 |         TestRack rack;                                   // CountingModule in the roster
+      |                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:302:14: note: previous declaration is here
+  302 |     TestRack rack;
+      |              ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:396:34: warning: declaration shadows a local variable [-Wshadow-uncaptured-local]
+  396 |                 juce::MidiBuffer midi;
+      |                                  ^
+/Users/lillypad/Projects/sattari-plugins-main/core/tests/rack_host_contract.cpp:313:22: note: previous declaration is here
+  313 |     juce::MidiBuffer midi;
+      |                      ^
+2 warnings generated.
+[3/8] Building CXX object plugins/stack/CMakeFiles/SattariStack.dir/src/PluginEditor.cpp.o
+[4/8] Linking CXX executable SattariRackHostContract
+[5/8] Linking CXX static library "plugins/stack/SattariStack_artefacts/Release/libSattari Stack_SharedCode.a"
+[6/8] Building CXX object plugins/stack/CMakeFiles/SattariStackLayerContract.dir/tests/stack_layer_contract.cpp.o
+[7/8] Linking CXX executable plugins/stack/SattariStackLayerContract

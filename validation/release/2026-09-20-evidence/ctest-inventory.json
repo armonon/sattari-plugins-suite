@@ -1,0 +1,3839 @@
+{
+  "backtraceGraph" : 
+  {
+    "commands" : 
+    [
+      "add_test"
+    ],
+    "files" : 
+    [
+      "/Users/lillypad/Projects/sattari-plugins-main/CMakeLists.txt"
+    ],
+    "nodes" : 
+    [
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 0
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 2
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 4
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 6
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 8
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 10
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 12
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 14
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 16
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 18
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 20
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 22
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 24
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 26
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 28
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 30
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 32
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 34
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 36
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 38
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 40
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 42
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 44
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 46
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 48
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 50
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 52
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 54
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 56
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 58
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 60
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 62
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 64
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 66
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 68
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 70
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 72
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 74
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 76
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 78
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 80
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 82
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 84
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 86
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 88
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 90
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 92
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 94
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 96
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 98
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 100
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 102
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 104
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 106
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 108
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 110
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 112
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 114
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 116
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 118
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 120
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 122
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 124
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 126
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 128
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 130
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 132
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 134
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 136
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 138
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 140
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 142
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 144
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 146
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 148
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 150
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 152
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 154
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 156
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 265,
+        "parent" : 158
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 277,
+        "parent" : 160
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 279,
+        "parent" : 162
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 281,
+        "parent" : 164
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 285,
+        "parent" : 166
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 289,
+        "parent" : 168
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 300,
+        "parent" : 170
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 300,
+        "parent" : 172
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 300,
+        "parent" : 174
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 312,
+        "parent" : 176
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 323,
+        "parent" : 178
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 332,
+        "parent" : 180
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 341,
+        "parent" : 182
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 332,
+        "parent" : 184
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 341,
+        "parent" : 186
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 332,
+        "parent" : 188
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 341,
+        "parent" : 190
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 332,
+        "parent" : 192
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 341,
+        "parent" : 194
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 361,
+        "parent" : 196
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 366,
+        "parent" : 198
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 361,
+        "parent" : 200
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 366,
+        "parent" : 202
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 361,
+        "parent" : 204
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 366,
+        "parent" : 206
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 361,
+        "parent" : 208
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 366,
+        "parent" : 210
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 381,
+        "parent" : 212
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 382,
+        "parent" : 214
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 383,
+        "parent" : 216
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 384,
+        "parent" : 218
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 385,
+        "parent" : 220
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 386,
+        "parent" : 222
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 393,
+        "parent" : 224
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 394,
+        "parent" : 226
+      },
+      {
+        "file" : 0
+      },
+      {
+        "command" : 0,
+        "file" : 0,
+        "line" : 395,
+        "parent" : 228
+      }
+    ]
+  },
+  "kind" : "ctestInfo",
+  "tests" : 
+  [
+    {
+      "backtrace" : 1,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariChordAnalysisContract"
+      ],
+      "name" : "SattariChordAnalysisContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 3,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariDynamicKeyTrackerContract"
+      ],
+      "name" : "SattariDynamicKeyTrackerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 5,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariHarmonyVoicesContract"
+      ],
+      "name" : "SattariHarmonyVoicesContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 7,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariExtremeLivePitchContract"
+      ],
+      "name" : "SattariExtremeLivePitchContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 9,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCorePitchContract"
+      ],
+      "name" : "SattariAudioCorePitchContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 11,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreHarmonicContract"
+      ],
+      "name" : "SattariAudioCoreHarmonicContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 13,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreKeyContract"
+      ],
+      "name" : "SattariAudioCoreKeyContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 15,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreTempoContract"
+      ],
+      "name" : "SattariAudioCoreTempoContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 17,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreScaleIntervalContract"
+      ],
+      "name" : "SattariAudioCoreScaleIntervalContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 19,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreKWeightingContract"
+      ],
+      "name" : "SattariAudioCoreKWeightingContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 21,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreDrumKitContract"
+      ],
+      "name" : "SattariAudioCoreDrumKitContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 23,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreDrumPadsContract"
+      ],
+      "name" : "SattariAudioCoreDrumPadsContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 25,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreDrumLooperContract"
+      ],
+      "name" : "SattariAudioCoreDrumLooperContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 27,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreBeatGridContract"
+      ],
+      "name" : "SattariAudioCoreBeatGridContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 29,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreGrooveContract"
+      ],
+      "name" : "SattariAudioCoreGrooveContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 31,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreStepClockContract"
+      ],
+      "name" : "SattariAudioCoreStepClockContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 33,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreArrangementContract"
+      ],
+      "name" : "SattariAudioCoreArrangementContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 35,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreNoteEngineContract"
+      ],
+      "name" : "SattariAudioCoreNoteEngineContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 37,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCorePsolaContract"
+      ],
+      "name" : "SattariAudioCorePsolaContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 39,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreLivePitchContract"
+      ],
+      "name" : "SattariAudioCoreLivePitchContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "RUN_SERIAL",
+          "value" : true
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 41,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreCrepeContract"
+      ],
+      "name" : "SattariAudioCoreCrepeContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 43,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCorePitchFusionContract"
+      ],
+      "name" : "SattariAudioCorePitchFusionContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 45,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreVoxContract"
+      ],
+      "name" : "SattariAudioCoreVoxContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 47,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreVoxSynthContract"
+      ],
+      "name" : "SattariAudioCoreVoxSynthContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 49,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreFormantContract"
+      ],
+      "name" : "SattariAudioCoreFormantContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 51,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreVocoderContract"
+      ],
+      "name" : "SattariAudioCoreVocoderContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 53,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreSliceTableContract"
+      ],
+      "name" : "SattariAudioCoreSliceTableContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 55,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreOnsetCurveContract"
+      ],
+      "name" : "SattariAudioCoreOnsetCurveContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 57,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreHarmonicMaskContract"
+      ],
+      "name" : "SattariAudioCoreHarmonicMaskContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 59,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/core/SattariAudioCoreRealtimeSnapshotContract"
+      ],
+      "name" : "SattariAudioCoreRealtimeSnapshotContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 61,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariKeyAnalysisContract"
+      ],
+      "name" : "SattariKeyAnalysisContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 63,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariSongKeyEstimatorContract"
+      ],
+      "name" : "SattariSongKeyEstimatorContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 65,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariCrossPluginBusContract"
+      ],
+      "name" : "SattariCrossPluginBusContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 67,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract"
+      ],
+      "name" : "SattariRackHostContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 69,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/vocal/SattariVocalProductContract"
+      ],
+      "name" : "SattariVocalProductContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 71,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/mix/SattariMixProductContract"
+      ],
+      "name" : "SattariMixProductContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 73,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/create/SattariCreateProductContract"
+      ],
+      "name" : "SattariCreateProductContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 75,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchCoreContract"
+      ],
+      "name" : "AutoPitchCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 77,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/voxkey/VoxKeyCoreContract"
+      ],
+      "name" : "VoxKeyCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 79,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/sattari-arp/SattariArpTimingContract"
+      ],
+      "name" : "SattariArpTimingContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 81,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/bus/SattariBusCoreContract"
+      ],
+      "name" : "SattariBusCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 83,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/side-chain-master/SideChainMasterCoreContract"
+      ],
+      "name" : "SideChainMasterCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 85,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/align/SattariAlignCoreContract"
+      ],
+      "name" : "SattariAlignCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 87,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/royal-chain/RoyalChainColorAliasingContract"
+      ],
+      "name" : "RoyalChainColorAliasingContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 89,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/harmony/HarmonyCoreContract"
+      ],
+      "name" : "HarmonyCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 91,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/maqam/MaqamCoreContract"
+      ],
+      "name" : "MaqamCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 93,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/rhythm-genie/RhythmGenieCoreContract"
+      ],
+      "name" : "RhythmGenieCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 95,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/rhythm-genie/RhythmGenieTimingContract"
+      ],
+      "name" : "RhythmGenieTimingContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 97,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/vocal-master/VocalMasterCoreContract"
+      ],
+      "name" : "VocalMasterCoreContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 99,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/sub-conjurer/SubConjurerContract"
+      ],
+      "name" : "SubConjurerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 101,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/warp/WarpContract"
+      ],
+      "name" : "WarpContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 103,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/tuner/TunerContract"
+      ],
+      "name" : "TunerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 105,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/double/DoubleContract"
+      ],
+      "name" : "DoubleContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 107,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/deess/DeEssContract"
+      ],
+      "name" : "DeEssContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 109,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/face/FaceContract"
+      ],
+      "name" : "FaceContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 111,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/transient/TransientContract"
+      ],
+      "name" : "TransientContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 113,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/meter/MeterContract"
+      ],
+      "name" : "MeterContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 115,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/eq/EQContract"
+      ],
+      "name" : "EQContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 117,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/scaler/ScalerContract"
+      ],
+      "name" : "ScalerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 119,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/space/SpaceContract"
+      ],
+      "name" : "SpaceContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 121,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/clean/CleanContract"
+      ],
+      "name" : "CleanContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 123,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/comp/CompContract"
+      ],
+      "name" : "CompContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 125,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/peak/PeakContract"
+      ],
+      "name" : "PeakContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 127,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/vocoder/VocoderContract"
+      ],
+      "name" : "VocoderContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 129,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/shimmer/ShimmerContract"
+      ],
+      "name" : "ShimmerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 131,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/echo/EchoContract"
+      ],
+      "name" : "EchoContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 133,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/heat/HeatContract"
+      ],
+      "name" : "HeatContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 135,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/multiband/MultibandContract"
+      ],
+      "name" : "MultibandContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 137,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/gate/GateContract"
+      ],
+      "name" : "GateContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 139,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/riser/RiserContract"
+      ],
+      "name" : "RiserContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 141,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/pulse/PulseContract"
+      ],
+      "name" : "PulseContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 143,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/eightoheight/Sattari808Contract"
+      ],
+      "name" : "Sattari808Contract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 145,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/imager/ImagerContract"
+      ],
+      "name" : "ImagerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 147,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/warble/WarbleContract"
+      ],
+      "name" : "WarbleContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 149,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/scope/ScopeContract"
+      ],
+      "name" : "ScopeContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 151,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/granulator/GranulatorContract"
+      ],
+      "name" : "GranulatorContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 153,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/glass-choir/GlassChoirContract"
+      ],
+      "name" : "GlassChoirContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 155,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/brain/BrainContract"
+      ],
+      "name" : "BrainContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 157,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/voxsynth/VoxSynthMpeContract"
+      ],
+      "name" : "VoxSynthMpeContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 159,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/stack/SattariStackLayerContract"
+      ],
+      "name" : "SattariStackLayerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 161,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchCoreContract",
+        "--poly-contract"
+      ],
+      "name" : "AutoPitchPolyphonicContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck",
+            "polyphonic"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 180.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 163,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchCoreContract",
+        "--clip-smoke"
+      ],
+      "name" : "AutoPitchArrangementClipSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "arrangement",
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 30.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 165,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchCoreContract",
+        "--source-match-smoke"
+      ],
+      "name" : "AutoPitchSourceMatchSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck",
+            "transpose"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 90.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 167,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyARAContract"
+      ],
+      "name" : "SongKeyARAContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "ara",
+            "arrangement",
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 30.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 169,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchARAContract"
+      ],
+      "name" : "AutoPitchARAContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "ara",
+            "arrangement",
+            "contract",
+            "non-stemdeck"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 60.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 171,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/brain/BrainContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/brain.png"
+      ],
+      "name" : "BrainContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 173,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/sattari-arp/SattariArpTimingContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/sattari-arp.png"
+      ],
+      "name" : "SattariArpTimingContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 175,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/sub-conjurer/SubConjurerContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/sub-conjurer.png"
+      ],
+      "name" : "SubConjurerContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 177,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/sattari-arp/SattariArpTimingContract",
+        "--render-ui-min",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/sattari-arp-minimum.png"
+      ],
+      "name" : "SattariArpTimingContractEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 179,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--preset-contract"
+      ],
+      "name" : "SattariPresetManagerContract",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "contract",
+            "non-stemdeck",
+            "presets"
+          ]
+        },
+        {
+          "name" : "TIMEOUT",
+          "value" : 60.0
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 181,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui",
+        "mix",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/mix.png"
+      ],
+      "name" : "SattariMixEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 183,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui-min",
+        "mix",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/mix-minimum.png"
+      ],
+      "name" : "SattariMixEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 185,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui",
+        "create",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/create.png"
+      ],
+      "name" : "SattariCreateEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 187,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui-min",
+        "create",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/create-minimum.png"
+      ],
+      "name" : "SattariCreateEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 189,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui",
+        "vocal",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/vocal.png"
+      ],
+      "name" : "SattariVocalEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 191,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui-min",
+        "vocal",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/vocal-minimum.png"
+      ],
+      "name" : "SattariVocalEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 193,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui",
+        "stack",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/stack.png"
+      ],
+      "name" : "SattariStackEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 195,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/SattariRackHostContract",
+        "--render-ui-min",
+        "stack",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/stack-minimum.png"
+      ],
+      "name" : "SattariStackEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 197,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/meter/MeterContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/meter.png"
+      ],
+      "name" : "MeterContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 199,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/meter/MeterContract",
+        "--render-ui-min",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/meter-minimum.png"
+      ],
+      "name" : "MeterContractEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 201,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/scope/ScopeContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/scope.png"
+      ],
+      "name" : "ScopeContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 203,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/scope/ScopeContract",
+        "--render-ui-min",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/scope-minimum.png"
+      ],
+      "name" : "ScopeContractEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 205,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/tuner/TunerContract",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/tuner.png"
+      ],
+      "name" : "TunerContractEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 207,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/tuner/TunerContract",
+        "--render-ui-min",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/tuner-minimum.png"
+      ],
+      "name" : "TunerContractEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 209,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--render-ui",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/song-key.png"
+      ],
+      "name" : "SongKeyRenderEditorRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 211,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--render-ui-min",
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/validation/ui/song-key-minimum.png"
+      ],
+      "name" : "SongKeyRenderEditorMinimumRender",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "analysis",
+            "minimum",
+            "non-stemdeck",
+            "render",
+            "ui"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 213,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--smoke"
+      ],
+      "name" : "SongKeyRenderSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 215,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--file-smoke"
+      ],
+      "name" : "SongKeyFileAnalysisSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 217,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--clip-smoke"
+      ],
+      "name" : "SongKeyArrangementClipSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 219,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--live-tempo-smoke"
+      ],
+      "name" : "SongKeyLiveTempoSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 221,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--dynamic-follow-smoke"
+      ],
+      "name" : "SongKeyDynamicFollowSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 223,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/song-key/SongKeyRender",
+        "--context-smoke"
+      ],
+      "name" : "SongKeyLiveContextSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 225,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchRender",
+        "--smoke"
+      ],
+      "name" : "AutoPitchRenderSmoke",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 227,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchRender",
+        "--hitracktest"
+      ],
+      "name" : "AutoPitchHighTracking",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    },
+    {
+      "backtrace" : 229,
+      "command" : 
+      [
+        "/Users/lillypad/Projects/sattari-plugins-main/build/local/plugins/auto-pitch/AutoPitchRender",
+        "--keyhandoff"
+      ],
+      "name" : "AutoPitchDynamicKeyHandoff",
+      "properties" : 
+      [
+        {
+          "name" : "LABELS",
+          "value" : 
+          [
+            "non-stemdeck",
+            "render"
+          ]
+        },
+        {
+          "name" : "WORKING_DIRECTORY",
+          "value" : "/Users/lillypad/Projects/sattari-plugins-main/build/local"
+        }
+      ]
+    }
+  ],
+  "version" : 
+  {
+    "major" : 1,
+    "minor" : 0
+  }
+}

@@ -1,0 +1,3 @@
+db045368293215c9d22aa7b8c983d688b3ae9ca1da3f64ffbe01ba7df31c3355  third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.1.22.0.dylib
+db045368293215c9d22aa7b8c983d688b3ae9ca1da3f64ffbe01ba7df31c3355  third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib
+027006c98e649e4bd9c795fb84cb4df6f23d8a7a54255f38789c68e85b56bd60  plugins/auto-pitch/models/crepe.onnx

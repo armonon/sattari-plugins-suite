@@ -1,0 +1,16 @@
+Wet-path alignment: does Amount move the vocal in time?
+  Gated 220 Hz burst; arrival measured as the first crossing of 20%
+  of the burst's steady RMS. Lag is wet arrival MINUS dry arrival.
+
+  amount                               lag(smp)      lag(ms)
+  ----------------------------------   --------  -----------
+  reported latency: 2885 samples (60.10 ms)
+
+  Amount 1                                  -69       -1.44
+  Amount 25                                 -69       -1.44
+  Amount 50                                 -69       -1.44
+  Amount 100                                -69       -1.44
+
+  worst wet-vs-dry shift: 69 samples (1.44 ms)
+  This is how far the vocal jumps when Amount leaves zero. It is
+  invisible to --nulltest, which only ever sees the dry delay line.

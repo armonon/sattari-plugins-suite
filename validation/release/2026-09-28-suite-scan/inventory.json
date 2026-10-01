@@ -1,0 +1,2154 @@
+{
+  "date": "2026-09-28",
+  "scope": "Catalog/source inventory and installed AU inspection; no fresh suite build or listening approval",
+  "catalog_count": 49,
+  "lifecycle_counts": {
+    "validation": 2,
+    "experimental": 39,
+    "alpha": 7,
+    "excluded": 1
+  },
+  "cached_ctest_count": 115,
+  "products": [
+    {
+      "id": "auto-pitch",
+      "name": "Sattari Auto Pitch",
+      "lifecycle": "validation",
+      "suite": "auto-pitch",
+      "version": "0.5.0",
+      "code": "Ap01",
+      "executables": [
+        "AutoPitchCoreContract",
+        "AutoPitchRender",
+        "AutoPitchBench",
+        "AutoPitchObjectiveBench",
+        "AutoPitchMotionBench",
+        "AutoPitchARAContract"
+      ],
+      "test_sources": [
+        "plugins/auto-pitch/tests/HarmonyFileRender.h",
+        "plugins/auto-pitch/tests/HarmonyUpgradeContract.h",
+        "plugins/auto-pitch/tests/PolyphonicContract.h",
+        "plugins/auto-pitch/tests/auto_pitch_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "AutoPitchCoreContract",
+        "AutoPitchPolyphonicContract",
+        "AutoPitchArrangementClipSmoke",
+        "AutoPitchSourceMatchSmoke",
+        "AutoPitchARAContract",
+        "AutoPitchRenderSmoke",
+        "AutoPitchHighTracking",
+        "AutoPitchDynamicKeyHandoff"
+      ],
+      "registry_ci": {
+        "test": "AutoPitchCoreContract",
+        "render": "AutoPitchRender",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "song-key",
+      "name": "Sattari Key",
+      "lifecycle": "validation",
+      "suite": "compass",
+      "version": "0.3.0",
+      "code": "Sk01",
+      "executables": [
+        "SongKeyRender",
+        "SongKeyARAContract"
+      ],
+      "test_sources": [
+        "plugins/song-key/tests/arrangement_ara_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SongKeyARAContract",
+        "SongKeyRenderEditorRender",
+        "SongKeyRenderEditorMinimumRender",
+        "SongKeyRenderSmoke",
+        "SongKeyFileAnalysisSmoke",
+        "SongKeyArrangementClipSmoke",
+        "SongKeyLiveTempoSmoke",
+        "SongKeyDynamicFollowSmoke",
+        "SongKeyLiveContextSmoke"
+      ],
+      "registry_ci": {
+        "test": "SattariSongKeyEstimatorContract",
+        "render": "SongKeyRender"
+      }
+    },
+    {
+      "id": "voxkey",
+      "name": "Sattari VoxKey",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Vk01",
+      "executables": [
+        "VoxKeyCoreContract"
+      ],
+      "test_sources": [
+        "plugins/voxkey/tests/voxkey_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "VoxKeyCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "voxsynth",
+      "name": "Sattari VoxSynth",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Vsy1",
+      "executables": [
+        "VoxSynthMpeContract"
+      ],
+      "test_sources": [
+        "plugins/voxsynth/tests/voxsynth_mpe_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "VoxSynthMpeContract"
+      ],
+      "registry_ci": {
+        "test": "VoxSynthMpeContract"
+      }
+    },
+    {
+      "id": "morph",
+      "name": "Sattari Morph",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Mph1",
+      "executables": [],
+      "test_sources": [],
+      "cached_registered_cases": [],
+      "registry_ci": {}
+    },
+    {
+      "id": "mix",
+      "name": "Sattari Mix",
+      "lifecycle": "alpha",
+      "suite": "mix",
+      "version": "0.2.0",
+      "code": "Mx01",
+      "executables": [
+        "SattariMixProductContract",
+        "SattariMixAutoMixContract"
+      ],
+      "test_sources": [
+        "plugins/mix/tests/mix_automix_contract.cpp",
+        "plugins/mix/tests/mix_product_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariMixProductContract"
+      ],
+      "registry_ci": {
+        "test": "SattariMixProductContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "create",
+      "name": "Sattari Create",
+      "lifecycle": "alpha",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Cr01",
+      "executables": [
+        "SattariCreateProductContract"
+      ],
+      "test_sources": [
+        "plugins/create/tests/create_product_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariCreateProductContract"
+      ],
+      "registry_ci": {
+        "test": "SattariCreateProductContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "vocal",
+      "name": "Sattari Vocal",
+      "lifecycle": "alpha",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Vcl1",
+      "executables": [
+        "SattariVocalProductContract"
+      ],
+      "test_sources": [
+        "plugins/vocal/tests/vocal_product_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariVocalProductContract"
+      ],
+      "registry_ci": {
+        "test": "SattariVocalProductContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "stack",
+      "name": "Sattari Stack",
+      "lifecycle": "alpha",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Stk1",
+      "executables": [
+        "SattariStackLayerContract"
+      ],
+      "test_sources": [
+        "plugins/stack/tests/stack_layer_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariStackLayerContract"
+      ],
+      "registry_ci": {
+        "test": "SattariStackLayerContract"
+      }
+    },
+    {
+      "id": "stemdeck",
+      "name": "Sattari StemDeck",
+      "lifecycle": "excluded",
+      "suite": null,
+      "version": "0.5.0",
+      "code": "Sd01",
+      "executables": [
+        "StemDeckGranularRenderContract",
+        "StemDeckTimePitchBenchmark",
+        "StemDeckArchitectureContract",
+        "StemDeckBeatDetectTest",
+        "StemDeckKeyDetectTest",
+        "StemDeckAutomixTest",
+        "StemDeckResamplerTest",
+        "StemDeckNeuralSmoke"
+      ],
+      "test_sources": [
+        "plugins/stemdeck/tests/stemdeck_architecture_contract.cpp",
+        "plugins/stemdeck/tests/stemdeck_automix.cpp",
+        "plugins/stemdeck/tests/stemdeck_beat_detect.cpp",
+        "plugins/stemdeck/tests/stemdeck_granular_render_contract.cpp",
+        "plugins/stemdeck/tests/stemdeck_key_detect.cpp",
+        "plugins/stemdeck/tests/stemdeck_neural_smoke.cpp",
+        "plugins/stemdeck/tests/stemdeck_resampler.cpp",
+        "plugins/stemdeck/tests/stemdeck_timepitch_benchmark.cpp"
+      ],
+      "cached_registered_cases": [],
+      "registry_ci": {}
+    },
+    {
+      "id": "sub-conjurer",
+      "name": "Sub Conjurer",
+      "lifecycle": "alpha",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Sc01",
+      "executables": [
+        "SubConjurerContract"
+      ],
+      "test_sources": [
+        "plugins/sub-conjurer/tests/sub_conjurer_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SubConjurerContract",
+        "SubConjurerContractEditorRender"
+      ],
+      "registry_ci": {
+        "test": "SubConjurerContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "side-chain-master",
+      "name": "Side Chain Master",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Scm1",
+      "executables": [
+        "SideChainMasterCoreContract"
+      ],
+      "test_sources": [
+        "plugins/side-chain-master/tests/side_chain_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SideChainMasterCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "royal-chain",
+      "name": "Sattari Royal Chain",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Rc01",
+      "executables": [
+        "RoyalChainColorAliasingContract"
+      ],
+      "test_sources": [
+        "plugins/royal-chain/tests/color_aliasing_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "RoyalChainColorAliasingContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "harmony",
+      "name": "Sattari Harmony",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Hm01",
+      "executables": [
+        "HarmonyCoreContract",
+        "HarmonyRender"
+      ],
+      "test_sources": [
+        "plugins/harmony/tests/harmony_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "HarmonyCoreContract"
+      ],
+      "registry_ci": {
+        "test": "HarmonyCoreContract",
+        "render": "HarmonyRender"
+      }
+    },
+    {
+      "id": "maqam",
+      "name": "Sattari Maqam",
+      "lifecycle": "experimental",
+      "suite": "auto-pitch",
+      "version": "0.1.0",
+      "code": "Mq01",
+      "executables": [
+        "MaqamCoreContract",
+        "MaqamRender"
+      ],
+      "test_sources": [
+        "plugins/maqam/tests/maqam_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "MaqamCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "vocal-master",
+      "name": "Sattari Vocal Master",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Vm01",
+      "executables": [
+        "VocalMasterCoreContract",
+        "VocalMasterRender"
+      ],
+      "test_sources": [
+        "plugins/vocal-master/tests/vocal_master_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "VocalMasterCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "rhythm-genie",
+      "name": "Sattari Rhythm Genie",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Rg01",
+      "executables": [
+        "RhythmGenieCoreContract",
+        "RhythmGenieRender",
+        "RhythmGenieTimingContract"
+      ],
+      "test_sources": [
+        "plugins/rhythm-genie/tests/rhythm_genie_core_contract.cpp",
+        "plugins/rhythm-genie/tests/rhythm_genie_timing_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "RhythmGenieCoreContract",
+        "RhythmGenieTimingContract"
+      ],
+      "registry_ci": {
+        "test": "RhythmGenieTimingContract"
+      }
+    },
+    {
+      "id": "chop",
+      "name": "Sattari Chop",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Cho1",
+      "executables": [
+        "ChopOnsetProbe"
+      ],
+      "test_sources": [],
+      "cached_registered_cases": [],
+      "registry_ci": {}
+    },
+    {
+      "id": "sattari-arp",
+      "name": "Sattari Arp",
+      "lifecycle": "alpha",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Arp1",
+      "executables": [
+        "SattariArpTimingContract"
+      ],
+      "test_sources": [
+        "plugins/sattari-arp/tests/sattari_arp_timing_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariArpTimingContract",
+        "SattariArpTimingContractEditorRender",
+        "SattariArpTimingContractEditorMinimumRender"
+      ],
+      "registry_ci": {
+        "test": "SattariArpTimingContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "bus",
+      "name": "Sattari Bus",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Bus1",
+      "executables": [
+        "SattariBusCoreContract"
+      ],
+      "test_sources": [
+        "plugins/bus/tests/bus_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariBusCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "align",
+      "name": "Sattari Align",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Algn",
+      "executables": [
+        "SattariAlignCoreContract"
+      ],
+      "test_sources": [
+        "plugins/align/tests/align_core_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SattariAlignCoreContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "warp",
+      "name": "Sattari Warp",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Wp01",
+      "executables": [
+        "WarpContract"
+      ],
+      "test_sources": [
+        "plugins/warp/tests/warp_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "WarpContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "tuner",
+      "name": "Sattari Tuner",
+      "lifecycle": "experimental",
+      "suite": "compass",
+      "version": "0.1.0",
+      "code": "Tn01",
+      "executables": [
+        "TunerContract"
+      ],
+      "test_sources": [
+        "plugins/tuner/tests/tuner_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "TunerContract",
+        "TunerContractEditorRender",
+        "TunerContractEditorMinimumRender"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "double",
+      "name": "Sattari Double",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Db01",
+      "executables": [
+        "DoubleContract"
+      ],
+      "test_sources": [
+        "plugins/double/tests/double_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "DoubleContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "deess",
+      "name": "Sattari De-Ess",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Ds01",
+      "executables": [
+        "DeEssContract"
+      ],
+      "test_sources": [
+        "plugins/deess/tests/deess_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "DeEssContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "face",
+      "name": "Sattari Face",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Fc01",
+      "executables": [
+        "FaceContract"
+      ],
+      "test_sources": [
+        "plugins/face/tests/face_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "FaceContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "transient",
+      "name": "Sattari Transient",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Ts01",
+      "executables": [
+        "TransientContract"
+      ],
+      "test_sources": [
+        "plugins/transient/tests/transient_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "TransientContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "meter",
+      "name": "Sattari Meter",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Mt01",
+      "executables": [
+        "MeterContract"
+      ],
+      "test_sources": [
+        "plugins/meter/tests/meter_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "MeterContract",
+        "MeterContractEditorRender",
+        "MeterContractEditorMinimumRender"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "scaler",
+      "name": "Sattari Scaler",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Skl1",
+      "executables": [
+        "ScalerContract"
+      ],
+      "test_sources": [
+        "plugins/scaler/tests/scaler_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "ScalerContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "eq",
+      "name": "Sattari EQ",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Eq01",
+      "executables": [
+        "EQContract"
+      ],
+      "test_sources": [
+        "plugins/eq/tests/eq_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "EQContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "space",
+      "name": "Sattari Space",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Sp01",
+      "executables": [
+        "SpaceContract"
+      ],
+      "test_sources": [
+        "plugins/space/tests/space_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "SpaceContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "clean",
+      "name": "Sattari Clean",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Cl01",
+      "executables": [
+        "CleanContract"
+      ],
+      "test_sources": [
+        "plugins/clean/tests/clean_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "CleanContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "comp",
+      "name": "Sattari Comp",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Cmp1",
+      "executables": [
+        "CompContract"
+      ],
+      "test_sources": [
+        "plugins/comp/tests/comp_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "CompContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "peak",
+      "name": "Sattari Peak",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Pk01",
+      "executables": [
+        "PeakContract"
+      ],
+      "test_sources": [
+        "plugins/peak/tests/peak_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "PeakContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "vocoder",
+      "name": "Sattari Vocoder",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Voc1",
+      "executables": [
+        "VocoderContract"
+      ],
+      "test_sources": [
+        "plugins/vocoder/tests/vocoder_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "VocoderContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "shimmer",
+      "name": "Sattari Shimmer",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Shm1",
+      "executables": [
+        "ShimmerContract"
+      ],
+      "test_sources": [
+        "plugins/shimmer/tests/shimmer_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "ShimmerContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "echo",
+      "name": "Sattari Echo",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Ech1",
+      "executables": [
+        "EchoContract"
+      ],
+      "test_sources": [
+        "plugins/echo/tests/echo_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "EchoContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "heat",
+      "name": "Sattari Heat",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Ht01",
+      "executables": [
+        "HeatContract"
+      ],
+      "test_sources": [
+        "plugins/heat/tests/heat_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "HeatContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "multiband",
+      "name": "Sattari Multiband",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Mb01",
+      "executables": [
+        "MultibandContract"
+      ],
+      "test_sources": [
+        "plugins/multiband/tests/multiband_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "MultibandContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "gate",
+      "name": "Sattari Gate",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Gt01",
+      "executables": [
+        "GateContract"
+      ],
+      "test_sources": [
+        "plugins/gate/tests/gate_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "GateContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "riser",
+      "name": "Sattari Riser",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Rs01",
+      "executables": [
+        "RiserContract"
+      ],
+      "test_sources": [
+        "plugins/riser/tests/riser_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "RiserContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "pulse",
+      "name": "Sattari Pulse",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Pl01",
+      "executables": [
+        "PulseContract"
+      ],
+      "test_sources": [
+        "plugins/pulse/tests/pulse_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "PulseContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "eightoheight",
+      "name": "Sattari 808",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "S808",
+      "executables": [
+        "Sattari808Contract"
+      ],
+      "test_sources": [
+        "plugins/eightoheight/tests/eightoheight_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "Sattari808Contract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "imager",
+      "name": "Sattari Image",
+      "lifecycle": "experimental",
+      "suite": "mix",
+      "version": "0.1.0",
+      "code": "Img1",
+      "executables": [
+        "ImagerContract"
+      ],
+      "test_sources": [
+        "plugins/imager/tests/imager_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "ImagerContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "warble",
+      "name": "Sattari Warble",
+      "lifecycle": "experimental",
+      "suite": "create",
+      "version": "0.1.0",
+      "code": "Wrb1",
+      "executables": [
+        "WarbleContract"
+      ],
+      "test_sources": [
+        "plugins/warble/tests/warble_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "WarbleContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "scope",
+      "name": "Sattari Scope",
+      "lifecycle": "experimental",
+      "suite": "compass",
+      "version": "0.1.0",
+      "code": "Scp1",
+      "executables": [
+        "ScopeContract"
+      ],
+      "test_sources": [
+        "plugins/scope/tests/scope_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "ScopeContract",
+        "ScopeContractEditorRender",
+        "ScopeContractEditorMinimumRender"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "granulator",
+      "name": "Sattari Granulator",
+      "lifecycle": "experimental",
+      "suite": "instruments",
+      "version": "0.1.0",
+      "code": "Gr01",
+      "executables": [
+        "GranulatorContract"
+      ],
+      "test_sources": [
+        "plugins/granulator/tests/granulator_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "GranulatorContract"
+      ],
+      "registry_ci": {}
+    },
+    {
+      "id": "brain",
+      "name": "Sattari Compass",
+      "lifecycle": "alpha",
+      "suite": "compass",
+      "version": "0.1.0",
+      "code": "Br01",
+      "executables": [
+        "BrainContract"
+      ],
+      "test_sources": [
+        "plugins/brain/tests/brain_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "BrainContract",
+        "BrainContractEditorRender"
+      ],
+      "registry_ci": {
+        "test": "BrainContract",
+        "uiRender": true
+      }
+    },
+    {
+      "id": "glass-choir",
+      "name": "Sattari Glass Choir",
+      "lifecycle": "experimental",
+      "suite": "vocal",
+      "version": "0.1.0",
+      "code": "Gc01",
+      "executables": [
+        "GlassChoirContract"
+      ],
+      "test_sources": [
+        "plugins/glass-choir/tests/glasschoir_contract.cpp"
+      ],
+      "cached_registered_cases": [
+        "GlassChoirContract"
+      ],
+      "registry_ci": {}
+    }
+  ],
+  "installed_au": [
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari 808.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "S808",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "a942f014316303e7371f3db7010969d7cfd783a37106f3da8de6d3800264d5e2",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari 808.component/Contents/MacOS/Sattari 808\nIdentifier=com.Sattari.Sattari808\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=67055 flags=0x2(adhoc) hashes=2089+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Align.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Algn",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "dcd0255d59a6ee1dd4e7918231fc398f542cf7df890f4df8ff2c508cf35e84d9",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Align.component/Contents/MacOS/Sattari Align\nIdentifier=com.Sattari.SattariAlign\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=67153 flags=0x2(adhoc) hashes=2092+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Arp.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumi",
+          "subtype": "Arp1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "93fbc34bc76faacbb86d204199439937ff97a8970ef69db2a5deea7d86099dbc",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Arp.component/Contents/MacOS/Sattari Arp\nIdentifier=com.Sattari.SattariArp\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=8175 flags=0x2(adhoc) hashes=249+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component",
+      "version": "0.5.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Ap01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "9a6ce19841e3a54c30d88f2871990e0d27778bf9045c832cbd223c0c7f2fa4f6",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Auto Pitch.component/Contents/MacOS/Sattari Auto Pitch\nIdentifier=com.Sattari.SattariAutoPitch\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=13941 flags=0x2(adhoc) hashes=429+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Bus.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Bus1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "9712c48265e03debad4104daee3eb2afe5d5ed076f3d9ec3318bf9e1df6adb3d",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Bus.component/Contents/MacOS/Sattari Bus\nIdentifier=com.Sattari.SattariBus\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73679 flags=0x2(adhoc) hashes=2296+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Chop.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Cho1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7db04a6c5b34d0d0a5f69449b2c419d177c4d3b7e44b325a90a3daa5ea702989",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Chop.component/Contents/MacOS/Sattari Chop\nIdentifier=com.Sattari.SattariChop\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=70960 flags=0x2(adhoc) hashes=2211+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Clean.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Cl01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "cacba46fd0e58b0e783af7f97db8b5490122752486f44d2b16d9bd19f013a956",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Clean.component/Contents/MacOS/Sattari Clean\nIdentifier=com.Sattari.SattariClean\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73169 flags=0x2(adhoc) hashes=2280+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Comp.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Cmp1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7ebce5fc6d450699e2fc5040aa5e69e73bbd08cbb164c9fb50d4f0a6864a6d30",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Comp.component/Contents/MacOS/Sattari Comp\nIdentifier=com.Sattari.SattariComp\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66544 flags=0x2(adhoc) hashes=2073+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Compass.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Br01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "1cb33c19316c0da400629476d11d1b49850264fdc1225b6a65d583f3257f2bbd",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Compass.component/Contents/MacOS/Sattari Compass\nIdentifier=com.Sattari.SattariBrain\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=8081 flags=0x2(adhoc) hashes=246+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Create.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Cr01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "495977a95f84de3305047110c3ed72193e101b59c30669f34cc233bcd54566f1",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Create.component/Contents/MacOS/Sattari Create\nIdentifier=com.Sattari.SattariCreate\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=8498 flags=0x2(adhoc) hashes=259+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari De-Ess.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Ds01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "c5f82f9afc5d574e32ac15565a1d38f231c2e91b2218647627ea7ebe18a701c1",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari De-Ess.component/Contents/MacOS/Sattari De-Ess\nIdentifier=com.Sattari.SattariDeEss\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66513 flags=0x2(adhoc) hashes=2072+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Double.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Db01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "959308eb22cff637b5e133fe8701690bf8b42ce84709373dac880160f7811342",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Double.component/Contents/MacOS/Sattari Double\nIdentifier=com.Sattari.SattariDouble\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66482 flags=0x2(adhoc) hashes=2071+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari EQ.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Eq01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "1304cc0ec7afbb8200b77ab53d4dbfed8ff22ac7aa3b9b10f80b0ac044f3b9fe",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari EQ.component/Contents/MacOS/Sattari EQ\nIdentifier=com.Sattari.SattariEQ\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66510 flags=0x2(adhoc) hashes=2072+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Echo.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Ech1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "816bab452e0b5c53f7663c0aa010c4d3efce4127f542e30c270bbb9be5aacba1",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Echo.component/Contents/MacOS/Sattari Echo\nIdentifier=com.Sattari.SattariEcho\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66640 flags=0x2(adhoc) hashes=2076+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Face.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Fc01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "2d68679dadb295fc36f71888bf3c651ba3d7b618dc915bd110aa3249a3f379d4",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Face.component/Contents/MacOS/Sattari Face\nIdentifier=com.Sattari.SattariFace\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=68848 flags=0x2(adhoc) hashes=2145+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Gate.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Gt01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "522a06c21213e8c7f37cd32a3230f30b87b55800c2604845da244dd30878a83a",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Gate.component/Contents/MacOS/Sattari Gate\nIdentifier=com.Sattari.SattariGate\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66576 flags=0x2(adhoc) hashes=2074+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Glass Choir.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Gc01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "665ec795828e03472c981831ccec33a64f8dac7c26758043daaec56cd5c19b34",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Glass Choir.component/Contents/MacOS/Sattari Glass Choir\nIdentifier=com.Sattari.SattariGlassChoir\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=69398 flags=0x2(adhoc) hashes=2162+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Granulator.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Gr01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "a847bed1ad06984d3edab30533754e033ef09b127728bc3c038534ab597a23aa",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Granulator.component/Contents/MacOS/Sattari Granulator\nIdentifier=com.Sattari.SattariGranulator\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=79798 flags=0x2(adhoc) hashes=2487+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Harmony.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Hm01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "1b396f0719350b82cc411425631a0d76b89e194c6c760c4153d555137b4da53d",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Harmony.component/Contents/MacOS/Sattari Harmony\nIdentifier=com.Sattari.SattariHarmony\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=8787 flags=0x2(adhoc) hashes=268+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Heat.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Ht01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "0b47dd1ab741fc6918c7b09d88d6dd1982c474d7cc4b42680b6f6c3459244544",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Heat.component/Contents/MacOS/Sattari Heat\nIdentifier=com.Sattari.SattariHeat\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73776 flags=0x2(adhoc) hashes=2299+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Image.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Img1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "6dfdc480acb09cc346683043868123e0b4e33e744540bc7849f3aab949566ed9",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Image.component/Contents/MacOS/Sattari Image\nIdentifier=com.Sattari.SattariImage\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66545 flags=0x2(adhoc) hashes=2073+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Key.component",
+      "version": "0.3.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Sk01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "26d695a3bf8165801c4bab500de8f7c29c768368caa4cf5313b9f902e0df47a8",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Key.component/Contents/MacOS/Sattari Key\nIdentifier=com.Sattari.SattariSongKey\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=11507 flags=0x2(adhoc) hashes=353+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Maqam.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Mq01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "a890da6e8b794870b11f30877e0a331e38211aaae017c6f646b9457a7e0b4a2d",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Maqam.component/Contents/MacOS/Sattari Maqam\nIdentifier=com.Sattari.SattariMaqam\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=76273 flags=0x2(adhoc) hashes=2377+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Meter.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Mt01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "c1fd20e0dc886904853fdf1ace9ec01bb6617c856007c3b01d2e86029620afee",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Meter.component/Contents/MacOS/Sattari Meter\nIdentifier=com.Sattari.SattariMeter\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66449 flags=0x2(adhoc) hashes=2070+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Mix.component",
+      "version": "0.2.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Mx01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "35b5ebce66fe4ab7f9dfcbe5c2c8d629f28457b3809caa70bec24864b633b7dc",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Mix.component/Contents/MacOS/Sattari Mix\nIdentifier=com.Sattari.SattariMix\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=9327 flags=0x2(adhoc) hashes=285+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Morph.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Mph1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "e27b91287a6ee0abd6bc1e72516e02f3bb4189387a9827164ce8781ca9e497a9",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Morph.component/Contents/MacOS/Sattari Morph\nIdentifier=com.Sattari.SattariMorph\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66545 flags=0x2(adhoc) hashes=2073+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Multiband.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Mb01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "dc3ba3a2da4232f4c9efdcff744395cca2778e37cb5a06f57e12b9f6d8970196",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Multiband.component/Contents/MacOS/Sattari Multiband\nIdentifier=com.Sattari.SattariMultiband\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73269 flags=0x2(adhoc) hashes=2283+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Peak.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Pk01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "00faba5c4156c343ac99849877b03d91157d86a9c72226808ca9b5c8d9b0c33a",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Peak.component/Contents/MacOS/Sattari Peak\nIdentifier=com.Sattari.SattariPeak\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66480 flags=0x2(adhoc) hashes=2071+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Pulse.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Pl01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "f6dc9f3dc0de23a3061e9fd40c61bc2d98f1b31b8801d028e38811b6eaa34dc3",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Pulse.component/Contents/MacOS/Sattari Pulse\nIdentifier=com.Sattari.SattariPulse\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66609 flags=0x2(adhoc) hashes=2075+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Rhythm Genie.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Rg01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "2946e1b99330a3aa12136026f8326df8f5b8012cee3922e19433efa33d1768f7",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Rhythm Genie.component/Contents/MacOS/Sattari Rhythm Genie\nIdentifier=com.Sattari.SattariRhythmGenie\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=71959 flags=0x2(adhoc) hashes=2242+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Riser.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Rs01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7d81f6d17c9d91dc10769e4e472fa95d751a5c5ae86d57b63f4d4080a3f3f5f3",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Riser.component/Contents/MacOS/Sattari Riser\nIdentifier=com.Sattari.SattariRiser\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73393 flags=0x2(adhoc) hashes=2287+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Royal Chain.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Rc01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "ad6d278280c006a52344e7fe413cb47e32e5cffedb7864e19caa0f58e9d9e6f3",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Royal Chain.component/Contents/MacOS/Sattari Royal Chain\nIdentifier=com.Sattari.SattariRoyalChain\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=70230 flags=0x2(adhoc) hashes=2188+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scaler.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumi",
+          "subtype": "Skl1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "32efda5388bba0b986d2c378afb55e42becc1d25c33615740394f35a836b131a",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scaler.component/Contents/MacOS/Sattari Scaler\nIdentifier=com.Sattari.SattariScaler\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66450 flags=0x2(adhoc) hashes=2070+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scope.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Scp1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "6ba4b08650798fc12725a88a66e49f91d9634c04fcfcf72faf0a96def065a1a5",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Scope.component/Contents/MacOS/Sattari Scope\nIdentifier=com.Sattari.SattariScope\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73073 flags=0x2(adhoc) hashes=2277+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Shimmer.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Shm1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "835cf4ed8b5958c8881bbb0315e109720d91616afd93b21431ae5391c0581625",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Shimmer.component/Contents/MacOS/Sattari Shimmer\nIdentifier=com.Sattari.SattariShimmer\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66835 flags=0x2(adhoc) hashes=2082+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Space.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Sp01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "a575367f9702b252607eccbe6fcd8dfe95f9e190eee9be6afc9eb036ba67319e",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Space.component/Contents/MacOS/Sattari Space\nIdentifier=com.Sattari.SattariSpace\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66609 flags=0x2(adhoc) hashes=2075+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Stack.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Stk1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7781476dc9e98b35943905e8b8891cb99cb9d983c5f399e31a1c14e13cd408ea",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Stack.component/Contents/MacOS/Sattari Stack\nIdentifier=com.Sattari.SattariStack\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=11921 flags=0x2(adhoc) hashes=366+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari StemDeck.component",
+      "version": "0.5.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Sd01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "247e12c830c2d25bc8072379ba09f110bc291710b551e77e7bfbec5218e43b3a",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari StemDeck.component/Contents/MacOS/Sattari StemDeck\nIdentifier=com.Sattari.SattariStemDeck\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=29972 flags=0x2(adhoc) hashes=930+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=1\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Transient.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Ts01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "12d45d090a0c4008b6577e907b553d0b75a48df2ca0c78adde540a944f90573c",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Transient.component/Contents/MacOS/Sattari Transient\nIdentifier=com.Sattari.SattariTransient\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66421 flags=0x2(adhoc) hashes=2069+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Tuner.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Tn01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7e3ece3a6a0e7155f67184faef829ada5bba9de10173a80c58d1728679b1be88",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Tuner.component/Contents/MacOS/Sattari Tuner\nIdentifier=com.Sattari.SattariTuner\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66481 flags=0x2(adhoc) hashes=2071+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal Master.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Vm01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "4d74eab76bfb27aabd08803dd27842c0ccdcdd5d0cd01477d88c6b3145a6ac38",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal Master.component/Contents/MacOS/Sattari Vocal Master\nIdentifier=com.Sattari.SattariVocalMaster\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=73623 flags=0x2(adhoc) hashes=2294+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Vcl1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "7b76769ef2898c230fd61ea45a4d3766510e7ece6c68476fa17b1e379feb80ad",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocal.component/Contents/MacOS/Sattari Vocal\nIdentifier=com.Sattari.SattariVocal\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=9169 flags=0x2(adhoc) hashes=280+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocoder.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Voc1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "dccc48c8fa402d1de476b78f513f432efbf04db7958ad5594ba716afc9ba4840",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Vocoder.component/Contents/MacOS/Sattari Vocoder\nIdentifier=com.Sattari.SattariVocoder\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66867 flags=0x2(adhoc) hashes=2083+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxKey.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Vk01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "f991f2f1b6f918fb37724d9c36bffe00a63b0e26eaea2a2352c099d53a28f82b",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxKey.component/Contents/MacOS/Sattari VoxKey\nIdentifier=com.Sattari.SattariVoxKey\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=74514 flags=0x2(adhoc) hashes=2322+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxSynth.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumu",
+          "subtype": "Vsy1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "f066d64b66e063a80c04323ff1dd8b20e8b5253f2834afa01fb3016cc886413c",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari VoxSynth.component/Contents/MacOS/Sattari VoxSynth\nIdentifier=com.Sattari.SattariVoxSynth\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66644 flags=0x2(adhoc) hashes=2076+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warble.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Wrb1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "3ccf7bcfa57c61be3a0c63b5663df80d53c248e2fbbcfbfa7908124d3a0ff81f",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warble.component/Contents/MacOS/Sattari Warble\nIdentifier=com.Sattari.SattariWarble\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66514 flags=0x2(adhoc) hashes=2072+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warp.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Wp01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "3f068a8cc4a5f0f27150c51c97c062ca4fbf0a15deb73821f3a4e09d7fa6be76",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sattari Warp.component/Contents/MacOS/Sattari Warp\nIdentifier=com.Sattari.SattariWarp\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=66736 flags=0x2(adhoc) hashes=2079+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Side Chain Master.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aufx",
+          "subtype": "Scm1",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "6b79e71aa7bb1003a6cee6698f15ef94f8ca5885b836f2cb151f9f349ad648cb",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Side Chain Master.component/Contents/MacOS/Side Chain Master\nIdentifier=com.Sattari.SideChainMaster\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=67060 flags=0x2(adhoc) hashes=2089+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    },
+    {
+      "path": "/Users/lillypad/Library/Audio/Plug-Ins/Components/Sub Conjurer.component",
+      "version": "0.1.0",
+      "identities": [
+        {
+          "type": "aumf",
+          "subtype": "Sc01",
+          "manufacturer": "Satr"
+        }
+      ],
+      "sha256": "10d0e772c32cab76e888c2a2622e7c84b41756c7fdf07472b3fac3f6024e8b4b",
+      "architectures": {
+        "exit": 0,
+        "output": "x86_64 arm64"
+      },
+      "signature_verify": {
+        "exit": 0,
+        "output": ""
+      },
+      "signature_details": {
+        "exit": 0,
+        "output": "Executable=/Users/lillypad/Library/Audio/Plug-Ins/Components/Sub Conjurer.component/Contents/MacOS/Sub Conjurer\nIdentifier=com.Sattari.SubConjurer\nFormat=bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20400 size=8112 flags=0x2(adhoc) hashes=247+3 location=embedded\nSignature=adhoc\nInfo.plist entries=12\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=0\nInternal requirements count=0 size=12"
+      }
+    }
+  ],
+  "duplicate_au_identities": {}
+}

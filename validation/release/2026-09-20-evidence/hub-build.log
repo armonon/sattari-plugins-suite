@@ -1,0 +1,24 @@
+Building for production...
+[0/5] Write sources
+[1/5] Copying sattari-products.json
+[2/5] Write swift-version--1AB21518FC5DEDBE.txt
+[4/6] Compiling SattariHub InstallControl.swift
+/Users/lillypad/Projects/sattari-plugins-main/apps/sattari-hub/Sources/SattariHub/main.swift:1244:46: warning: capture of 'self' with non-Sendable type 'AppDelegate?' in a '@Sendable' closure [#SendableClosureCaptures]
+1216 | }
+1217 | 
+1218 | final class AppDelegate: NSObject, NSApplicationDelegate {
+     |             `- note: class 'AppDelegate' does not conform to the 'Sendable' protocol
+1219 |     private var controller: HubWindowController?
+1220 |     private var loadingWindow: NSWindow?
+     :
+1242 |         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+1243 |             let result = Result { try HubModel.loadManifest() }
+1244 |             DispatchQueue.main.async { [weak self] in
+     |                                              `- warning: capture of 'self' with non-Sendable type 'AppDelegate?' in a '@Sendable' closure [#SendableClosureCaptures]
+1245 |                 guard let self else { return }
+1246 |                 do {
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[4/6] Write Objects.LinkFileList
+[5/6] Linking SattariHub
+Build complete! (133.53s)

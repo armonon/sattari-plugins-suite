@@ -1,0 +1,2 @@
+vibtest: noopResidual=0  pitchStd off=1.9 ct vib=28.6 ct  modHz=5.51 (want ~5.5)  peak=0.500 finite=1
+Auto Pitch synthetic-vibrato proof ok

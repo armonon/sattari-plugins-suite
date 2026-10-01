@@ -1,0 +1,2 @@
+0b0e4b339a8be6bcce473a4470c841c5aa55cb7eed69c56cdb6b3e54d0b417c7  build/qualification/packages/sattari-arp-plugin-alpha-v0.1.0.tar.gz
+de9d61681e10a8dcbf19b147cb7b22bf2a0ca43c25c900cf5b16f2bdbd5ed4f9  build/qualification/packages/sub-conjurer-plugin-alpha-v0.1.0.tar.gz

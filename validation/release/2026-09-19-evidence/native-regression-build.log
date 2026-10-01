@@ -1,0 +1,106 @@
+[0/2] Re-checking globbed directories...
+[1/1595] Generating SattariSongKey_artefacts/JuceLibraryCode/JuceHeader.h
+[2/1595] Building CXX object plugins/mix/CMakeFiles/SattariMix.dir/src/PluginEditor.cpp.o
+[3/1595] Building CXX object plugins/create/CMakeFiles/SattariCreate.dir/src/PluginEditor.cpp.o
+[4/1595] Building CXX object plugins/mix/CMakeFiles/SattariMix.dir/src/PluginProcessor.cpp.o
+[5/1595] Building CXX object plugins/create/CMakeFiles/SattariCreate.dir/src/PluginProcessor.cpp.o
+[6/1595] Building CXX object plugins/vocal/CMakeFiles/SattariVocal.dir/src/PluginEditor.cpp.o
+[7/1595] Building CXX object plugins/vocal/CMakeFiles/SattariVocal.dir/src/PluginProcessor.cpp.o
+[8/1595] Building CXX object plugins/sub-conjurer/CMakeFiles/SubConjurer.dir/src/PluginProcessor.cpp.o
+[9/1595] Building CXX object plugins/sub-conjurer/CMakeFiles/SubConjurer.dir/src/PluginEditor.cpp.o
+[10/1595] Building CXX object plugins/side-chain-master/CMakeFiles/SideChainMaster.dir/src/PluginProcessor.cpp.o
+[11/1595] Building CXX object plugins/royal-chain/CMakeFiles/SattariRoyalChain.dir/src/RoyalChainProcessor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.h:25:31: warning: non-static data member 'processor' of 'RoyalChainAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   25 |     RoyalChainAudioProcessor& processor;
+      |                               ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.h:25:31: warning: non-static data member 'processor' of 'RoyalChainAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   25 |     RoyalChainAudioProcessor& processor;
+      |                               ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[12/1595] Building CXX object plugins/side-chain-master/CMakeFiles/SideChainMaster.dir/src/PluginEditor.cpp.o
+[13/1595] Building CXX object plugins/royal-chain/CMakeFiles/SattariRoyalChain.dir/src/TuneModule.cpp.o
+[14/1595] Building CXX object plugins/royal-chain/CMakeFiles/SattariRoyalChain.dir/src/RoyalChainEditor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.h:25:31: warning: non-static data member 'processor' of 'RoyalChainAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   25 |     RoyalChainAudioProcessor& processor;
+      |                               ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/royal-chain/src/RoyalChainEditor.h:25:31: warning: non-static data member 'processor' of 'RoyalChainAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   25 |     RoyalChainAudioProcessor& processor;
+      |                               ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[15/1595] Building CXX object plugins/royal-chain/CMakeFiles/SattariRoyalChain.dir/src/VocalCrownCompass.cpp.o
+[16/1595] Building CXX object plugins/rhythm-genie/CMakeFiles/SattariRhythmGenie.dir/src/RhythmGenieProcessor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.h:36:39: warning: non-static data member 'processor' of 'SattariRhythmGenieAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   36 |     SattariRhythmGenieAudioProcessor& processor;
+      |                                       ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieProcessor.cpp:2:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.h:36:39: warning: non-static data member 'processor' of 'SattariRhythmGenieAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   36 |     SattariRhythmGenieAudioProcessor& processor;
+      |                                       ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[17/1595] Building CXX object plugins/rhythm-genie/CMakeFiles/SattariRhythmGenie.dir/src/RhythmGenieEditor.cpp.o
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.h:36:39: warning: non-static data member 'processor' of 'SattariRhythmGenieAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   36 |     SattariRhythmGenieAudioProcessor& processor;
+      |                                       ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+In file included from /Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.cpp:1:
+/Users/lillypad/Projects/sattari-plugins-main/plugins/rhythm-genie/src/RhythmGenieEditor.h:36:39: warning: non-static data member 'processor' of 'SattariRhythmGenieAudioProcessorEditor' shadows member inherited from type 'AudioProcessorEditor' [-Wshadow-field]
+   36 |     SattariRhythmGenieAudioProcessor& processor;
+      |                                       ^
+/Users/lillypad/Projects/sattari-plugins-main/third_party/JUCE/modules/juce_audio_processors/processors/juce_AudioProcessorEditor.h:68:21: note: declared here
+   68 |     AudioProcessor& processor;
+      |                     ^
+1 warning generated.
+[18/1595] Building CXX object plugins/sattari-arp/CMakeFiles/SattariArp.dir/src/PluginProcessor.cpp.o
+[19/1595] Building CXX object plugins/sattari-arp/CMakeFiles/SattariArp.dir/src/PluginEditor.cpp.o
+[20/1595] Building CXX object plugins/auto-pitch/CMakeFiles/SattariAutoPitch.dir/src/AutoPitchARA.cpp.o
+[21/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/src/SongKeyProcessor.cpp.o
+[22/1595] Building CXX object plugins/auto-pitch/CMakeFiles/SattariAutoPitch.dir/src/PluginEditor.cpp.o
+[23/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/src/SongKeyEditor.cpp.o
+[24/1595] Building CXX object plugins/auto-pitch/CMakeFiles/SattariAutoPitch.dir/src/PluginProcessor.cpp.o
+[25/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/src/SongKeyARA.cpp.o
+[26/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[27/1595] Building C object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[28/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[29/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[30/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[31/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[32/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[33/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[34/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[35/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[36/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[37/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[38/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[39/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[40/1595] Building CXX object plugins/song-key/CMakeFiles/SattariSongKey.dir/__/__/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+ninja: build stopped: interrupted by user.

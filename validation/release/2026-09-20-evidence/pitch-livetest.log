@@ -1,0 +1,17 @@
+Live Mode — engine, latency, correction, and key source
+
+  1. print path (Live Mode OFF)
+       reported latency : 2885 samples
+       corrected to     : +0.0 cents from A3
+       (compare against the RC3 record; this must not have moved)
+
+  2. Live Mode latency  : 96 samples (2.00 ms)
+  3. Live Mode corrects : input +45 cents -> output +3.4 cents
+
+  4. Follow Song Key: same audio, two keys on the session bus
+       bus key C major   -> output +3.4 cents from A3 (expect ~0, snapped to A)
+       bus key Db major  -> output +103.2 cents from A3 (expect ~+100, snapped to Bb)
+       difference: 99.8 cents
+       PASS: the bus key reaches the live planner, and it
+             overrode the manual key (G) that was also set.
+

@@ -1,0 +1,8 @@
+Building for production...
+[0/4] Write sources
+[0/1] Planning build
+[1/4] Write swift-version--1AB21518FC5DEDBE.txt
+[3/5] Compiling SattariHub ReleaseContract.swift
+[3/5] Write Objects.LinkFileList
+[4/5] Linking SattariHub
+Build complete! (129.43s)

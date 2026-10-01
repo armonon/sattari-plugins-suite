@@ -1,0 +1,3 @@
+  [A] output-gain linearity rel-err = 0.00000 (want < 0.01: +6dB out == 1.995x dry)
+  [B] input-vs-output 6dB divergence = 0.30860 (want > 0.05: must NOT be identical)
+Auto Pitch gain-stage ok

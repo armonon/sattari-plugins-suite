@@ -1,0 +1,61 @@
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 90: SattariPresetManagerContract
+1/1 Test #90: SattariPresetManagerContract .....   Passed    1.28 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   1.28 sec*proc (1 test)
+non-stemdeck    =   1.28 sec*proc (1 test)
+presets         =   1.28 sec*proc (1 test)
+
+Total Test time (real) =   1.29 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 34: SattariRackHostContract
+1/1 Test #34: SattariRackHostContract ..........   Passed    0.18 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.18 sec*proc (1 test)
+non-stemdeck    =   0.18 sec*proc (1 test)
+
+Total Test time (real) =   0.18 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 80: SattariStackLayerContract
+1/1 Test #80: SattariStackLayerContract ........   Passed    0.81 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+contract        =   0.81 sec*proc (1 test)
+non-stemdeck    =   0.81 sec*proc (1 test)
+
+Total Test time (real) =   0.81 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 92: SattariMixEditorMinimumRender
+1/1 Test #92: SattariMixEditorMinimumRender ....   Passed    0.12 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+minimum         =   0.12 sec*proc (1 test)
+non-stemdeck    =   0.12 sec*proc (1 test)
+render          =   0.12 sec*proc (1 test)
+ui              =   0.12 sec*proc (1 test)
+
+Total Test time (real) =   0.12 sec
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 98: SattariStackEditorMinimumRender
+1/1 Test #98: SattariStackEditorMinimumRender ...   Passed    0.14 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+minimum         =   0.14 sec*proc (1 test)
+non-stemdeck    =   0.14 sec*proc (1 test)
+render          =   0.14 sec*proc (1 test)
+ui              =   0.14 sec*proc (1 test)
+
+Total Test time (real) =   0.14 sec
+FAILED: []

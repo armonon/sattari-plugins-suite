@@ -1,0 +1,4 @@
+== POLYPHONIC STRESS (synthetic off-scale cluster -> C major) ==
+  in-scale chroma fraction:  INPUT 14.9%  ->  POLY 73.2%   (+58.3 pts)
+  finite=yes  peak=0.605 (no clip)  max |jump|=0.044
+Auto Pitch polyphonic stress ok

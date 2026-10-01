@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "modelDirectory": "/Users/lillypad/Projects/sattari-plugins-main/plugins/auto-pitch/models",
+  "distributionMode": true,
+  "models": [
+    {
+      "filename": "crepe.onnx",
+      "role": "monophonic neural pitch",
+      "present": true,
+      "bytes": 1952093,
+      "sha256": "027006c98e649e4bd9c795fb84cb4df6f23d8a7a54255f38789c68e85b56bd60",
+      "recordedSha256": "027006c98e649e4bd9c795fb84cb4df6f23d8a7a54255f38789c68e85b56bd60",
+      "hashMatchesRecord": true,
+      "redistributionCleared": true,
+      "packagePolicy": "eligible"
+    },
+    {
+      "filename": "keynet.onnx",
+      "role": "live neural key classification",
+      "present": false,
+      "bytes": 0,
+      "sha256": null,
+      "recordedSha256": null,
+      "hashMatchesRecord": null,
+      "redistributionCleared": false,
+      "packagePolicy": "external-only"
+    },
+    {
+      "filename": "keynet_spec.onnx",
+      "role": "spectral Key Map classification",
+      "present": false,
+      "bytes": 0,
+      "sha256": null,
+      "recordedSha256": null,
+      "hashMatchesRecord": null,
+      "redistributionCleared": false,
+      "packagePolicy": "external-only"
+    }
+  ],
+  "ok": true,
+  "errors": []
+}

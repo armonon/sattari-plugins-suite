@@ -1,0 +1,40 @@
+FAIL: mono-only controls must return when poly is off
+FAIL: mono-only controls must return when poly is off
+FAIL: mono-only controls must return when poly is off
+FAIL: mono-only controls must return when poly is off
+FAIL: poly controls must be disabled outside poly mode
+poly latency 44100/64 reported=4096 measured=4096
+poly latency 44100/257 reported=4096 measured=4096
+poly latency 44100/512 reported=4096 measured=4096
+poly latency 48000/64 reported=4096 measured=4096
+poly latency 48000/257 reported=4096 measured=4096
+poly latency 48000/512 reported=4096 measured=4096
+poly latency 96000/64 reported=4096 measured=4096
+poly latency 96000/257 reported=4096 measured=4096
+poly latency 96000/512 reported=4096 measured=4096
+poly octave 44100 +/-10c -> 0/0c
+poly octave 44100 +/-20c -> 0/0c
+poly octave 44100 +/-35c -> 0/0c
+poly bass 44100 midi=28 -> 0c
+poly bass 44100 midi=33 -> 0c
+poly bass 44100 midi=40 -> 0c
+poly octave 48000 +/-10c -> 0/0c
+poly octave 48000 +/-20c -> 0/0c
+poly octave 48000 +/-35c -> 0/0c
+poly bass 48000 midi=28 -> 0c
+poly bass 48000 midi=33 -> 0c
+poly bass 48000 midi=40 -> 0c
+poly octave 96000 +/-10c -> 0/0c
+poly octave 96000 +/-20c -> 0/0c
+poly octave 96000 +/-35c -> 0/0c
+poly bass 96000 midi=28 -> 2c
+poly bass 96000 midi=33 -> 0c
+poly bass 96000 midi=40 -> 0c
+poly rich chord 2 voices worst corrected/original magnitude score=0.945
+poly rich chord 3 voices worst corrected/original magnitude score=0.949
+poly rich chord 4 voices worst corrected/original magnitude score=0.952
+poly rich chord 2 voices worst corrected/original magnitude score=0.950
+poly rich chord 2 voices worst corrected/original magnitude score=0.949
+poly percussive harmony energy protected/unprotected=0.000000
+poly stereo max error=1.564622e-08 block/recall max error=0
+Polyphonic contract: 117 checks, 52 production renders, 5 failures

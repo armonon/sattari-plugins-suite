@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "modelDirectory": "/Users/lillypad/Library/Sattari Audio/models",
+  "distributionMode": false,
+  "models": [
+    {
+      "filename": "crepe.onnx",
+      "role": "monophonic neural pitch",
+      "present": true,
+      "bytes": 1955855,
+      "sha256": "26ea91609fdc088a3900258c14e85060d757ce74fe8f9f96919e6b9b2907b881",
+      "recordedSha256": null,
+      "hashMatchesRecord": true,
+      "redistributionCleared": false,
+      "packagePolicy": "external-only"
+    },
+    {
+      "filename": "keynet.onnx",
+      "role": "live neural key classification",
+      "present": true,
+      "bytes": 237895,
+      "sha256": "9a1275e9cd63fd77d6e9a7bcb4ba75b0d22cf2efe863827ba75a9cc77edc617b",
+      "recordedSha256": null,
+      "hashMatchesRecord": true,
+      "redistributionCleared": false,
+      "packagePolicy": "external-only"
+    },
+    {
+      "filename": "keynet_spec.onnx",
+      "role": "spectral Key Map classification",
+      "present": true,
+      "bytes": 1863305,
+      "sha256": "62a03d60a1f29490c7523ec005aacb3600f5e74d0fa512740bf68b745d6dd808",
+      "recordedSha256": null,
+      "hashMatchesRecord": true,
+      "redistributionCleared": false,
+      "packagePolicy": "external-only"
+    }
+  ],
+  "ok": true,
+  "errors": []
+}

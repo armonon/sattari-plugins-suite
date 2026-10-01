@@ -1,0 +1,54 @@
+
+-- sine melodies --
+  C  maj  ->  detected C  maj  OK   margin 0.3268
+  C  min  ->  detected C  min  OK   margin 0.2580
+  C# maj  ->  detected C# maj  OK   margin 0.3267
+  C# min  ->  detected C# min  OK   margin 0.2541
+  D  maj  ->  detected D  maj  OK   margin 0.3268
+  D  min  ->  detected D  min  OK   margin 0.2580
+  D# maj  ->  detected D# maj  OK   margin 0.3270
+  D# min  ->  detected D# min  OK   margin 0.2579
+  E  maj  ->  detected E  maj  OK   margin 0.3267
+  E  min  ->  detected E  min  OK   margin 0.2579
+  F  maj  ->  detected F  maj  OK   margin 0.2691
+  F  min  ->  detected F  min  OK   margin 0.2579
+  F# maj  ->  detected F# maj  OK   margin 0.2650
+  F# min  ->  detected F# min  OK   margin 0.1975
+  G  maj  ->  detected G  maj  OK   margin 0.2650
+  G  min  ->  detected G  min  OK   margin 0.2457
+  G# maj  ->  detected G# maj  OK   margin 0.2677
+  G# min  ->  detected G# min  OK   margin 0.1892
+  A  maj  ->  detected A  maj  OK   margin 0.3227
+  A  min  ->  detected A  min  OK   margin 0.1851
+  A# maj  ->  detected A# maj  OK   margin 0.2609
+  A# min  ->  detected A# min  OK   margin 0.1828
+  B  maj  ->  detected B  maj  OK   margin 0.2596
+  B  min  ->  detected B  min  OK   margin 0.1751
+AutoKey accuracy, sine melodies: 24/24 (100%)
+
+-- harmonic melodies --
+  C  maj  ->  detected C  maj  OK   margin 0.2598
+  C  min  ->  detected C  min  OK   margin 0.1864
+  C# maj  ->  detected C# maj  OK   margin 0.3140
+  C# min  ->  detected C# min  OK   margin 0.1888
+  D  maj  ->  detected D  maj  OK   margin 0.2621
+  D  min  ->  detected D  min  OK   margin 0.1897
+  D# maj  ->  detected D# maj  OK   margin 0.2597
+  D# min  ->  detected D# min  OK   margin 0.1741
+  E  maj  ->  detected E  maj  OK   margin 0.2625
+  E  min  ->  detected E  min  OK   margin 0.1738
+  F  maj  ->  detected F  maj  OK   margin 0.2593
+  F  min  ->  detected F  min  OK   margin 0.1678
+  F# maj  ->  detected F# maj  OK   margin 0.2555
+  F# min  ->  detected F# min  OK   margin 0.1679
+  G  maj  ->  detected G  maj  OK   margin 0.2517
+  G  min  ->  detected G  min  OK   margin 0.1670
+  G# maj  ->  detected G# maj  OK   margin 0.2473
+  G# min  ->  detected G# min  OK   margin 0.1668
+  A  maj  ->  detected A  maj  OK   margin 0.2460
+  A  min  ->  detected A  min  OK   margin 0.1670
+  A# maj  ->  detected A# maj  OK   margin 0.2445
+  A# min  ->  detected A# min  OK   margin 0.1609
+  B  maj  ->  detected B  maj  OK   margin 0.3003
+  B  min  ->  detected B  min  OK   margin 0.1567
+AutoKey accuracy, harmonic melodies: 24/24 (100%)

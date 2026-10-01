@@ -1,0 +1,474 @@
+{
+  "binary_sha256": "91de565516a39a446c38f0370baea134b1ae680e3183ef47c00a1111691f43e0",
+  "passed": 24,
+  "total": 24,
+  "configuration": {
+    "block": 256,
+    "input_gain_db": -12,
+    "voice_gain_db": -9,
+    "intervals_chromatic_semitones": [
+      4,
+      -3,
+      7,
+      -7
+    ],
+    "lead_muted": true,
+    "lead_correction": false,
+    "formants": "neutral; Studio path active",
+    "normalization": false
+  },
+  "sources": [
+    {
+      "id": "slay-demons",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/slay-demons.wav",
+      "sha256": "089ba61636450f578e997b74d59bff69a0c253a6ad7431801c7b3b3aff4f5ff6",
+      "permission_status": "owned",
+      "public_release_allowed": false
+    },
+    {
+      "id": "guidos-pizza",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/guidos-pizza.wav",
+      "sha256": "c3a113daa19fc81da86bd3642198e08f6b53daaf7b5df5014b8102e5176514a3",
+      "permission_status": "owned",
+      "public_release_allowed": false
+    },
+    {
+      "id": "dickey-prairie",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/dickey-prairie.wav",
+      "sha256": "d960779141d9b10e2df89544c92bd9a9de19b3492feaddaa3186540d4ae01b90",
+      "permission_status": "owned",
+      "public_release_allowed": false
+    },
+    {
+      "id": "vs-belt-m6",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/vs-belt-m6.wav",
+      "sha256": "899f08dfdcef6c18d0f143e4d56d633cb3deede02e7269101636df15c2917e5a",
+      "permission_status": "cleared",
+      "public_release_allowed": true
+    },
+    {
+      "id": "vs-vibrato-f5",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/vs-vibrato-f5.wav",
+      "sha256": "e180daef389554fd4b8d46ab143c92a18bf45220dd2e4645f4d3efa1a4fb2736",
+      "permission_status": "cleared",
+      "public_release_allowed": true
+    },
+    {
+      "id": "vs-melisma-m3",
+      "path": "/Users/lillypad/Desktop/vocal test/wav/vs-melisma-m3.wav",
+      "sha256": "e5dc3085841f5839da70c0d685bcf3c19675514c33b188a16e75f852d2d648d5",
+      "permission_status": "cleared",
+      "public_release_allowed": true
+    }
+  ],
+  "results": [
+    {
+      "case": "slay-demons-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0847432",
+        "rms": "0.00826774",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "slay-demons-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.18304",
+        "rms": "0.0153788",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "slay-demons-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0794706",
+        "rms": "0.0061357",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "slay-demons-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.232736",
+        "rms": "0.0150648",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "guidos-pizza-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0737918",
+        "rms": "0.008096",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "guidos-pizza-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.177272",
+        "rms": "0.0155587",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "guidos-pizza-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0695278",
+        "rms": "0.00616131",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "guidos-pizza-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.177577",
+        "rms": "0.0138476",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "dickey-prairie-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00242806",
+        "rms": "0.000305566",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "dickey-prairie-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "96",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0056847",
+        "rms": "0.000604628",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "dickey-prairie-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00203923",
+        "rms": "0.000198165",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "dickey-prairie-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "48000",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00509519",
+        "rms": "0.000502474",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-belt-m6-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0149008",
+        "rms": "0.00224268",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-belt-m6-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0289705",
+        "rms": "0.00416188",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-belt-m6-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0114647",
+        "rms": "0.00141965",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-belt-m6-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0261066",
+        "rms": "0.00339878",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-vibrato-f5-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0212092",
+        "rms": "0.00211517",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-vibrato-f5-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0425914",
+        "rms": "0.00385131",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-vibrato-f5-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0149066",
+        "rms": "0.00144702",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-vibrato-f5-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.0401079",
+        "rms": "0.00333996",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-melisma-m3-live-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00422627",
+        "rms": "0.000384436",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-melisma-m3-live-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "1",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "88",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00799823",
+        "rms": "0.000709479",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-melisma-m3-studio-1v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "1",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00352891",
+        "rms": "0.000280962",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    },
+    {
+      "case": "vs-melisma-m3-studio-4v",
+      "exit_code": 0,
+      "metrics": {
+        "live": "0",
+        "voices": "4",
+        "sr": "44100",
+        "block": "256",
+        "latency": "2885",
+        "inputGainDb": "-12",
+        "voiceGainDb": "-9",
+        "peak": "0.00739464",
+        "rms": "0.000560959",
+        "nonfinite": "0",
+        "clipped": "0"
+      }
+    }
+  ]
+}

@@ -155,7 +155,7 @@
     {
       "clip_id": "vs-belt-m6",
       "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-belt-m6.wav",
-      "permission_status": "public-domain",
+      "permission_status": "cleared",
       "license": "CC BY 4.0",
       "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
       "upstream_path": "FULL/male6/scales/belt/m6_scales_belt_u.wav",
@@ -194,7 +194,7 @@
     {
       "clip_id": "vs-vibrato-f5",
       "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-vibrato-f5.wav",
-      "permission_status": "public-domain",
+      "permission_status": "cleared",
       "license": "CC BY 4.0",
       "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
       "upstream_path": "FULL/female5/excerpts/vibrato/f5_caro_vibrato.wav",
@@ -234,7 +234,7 @@
     {
       "clip_id": "vs-melisma-m3",
       "source_path": "/Users/lillypad/Desktop/vocal test/wav/vs-melisma-m3.wav",
-      "permission_status": "public-domain",
+      "permission_status": "cleared",
       "license": "CC BY 4.0",
       "attribution": "VocalSet (Wilkins, Seetharaman, Wahl, Pardo, ISMIR 2018), https://doi.org/10.5281/zenodo.1203819, Creative Commons Attribution 4.0 International. Commercial use and redistribution permitted with attribution. Extracted from VocalSet11.zip; audio kept outside git.",
       "upstream_path": "FULL/male3/arpeggios/fast_piano/arps_c_fast_piano.wav",

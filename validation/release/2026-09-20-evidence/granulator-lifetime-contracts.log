@@ -1,0 +1,13 @@
+Test project /Users/lillypad/Projects/sattari-plugins-main/build/local
+    Start 76: GranulatorContract
+1/2 Test #76: GranulatorContract ...............   Passed    3.31 sec
+    Start 80: SattariStackLayerContract
+2/2 Test #80: SattariStackLayerContract ........   Passed    0.92 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Label Time Summary:
+contract        =   4.23 sec*proc (2 tests)
+non-stemdeck    =   4.23 sec*proc (2 tests)
+
+Total Test time (real) =   4.24 sec

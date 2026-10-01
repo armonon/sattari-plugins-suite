@@ -1,0 +1,140 @@
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- Sattari ONNX: enabled for SattariKeyAnalyzer (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for SattariKeyEngineEval (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Configuring juceaide
+-- Building juceaide
+-- Exporting juceaide
+-- Testing juceaide
+-- Finished setting up juceaide
+-- Sattari ONNX: enabled for SattariVocalMaster (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for VocalMasterRender (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Sattari ONNX: enabled for SattariAutoPitch (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  SattariAutoPitch with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:114 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building SattariAutoPitch
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:115 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchCoreContract (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchCoreContract with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:152 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building
+  AutoPitchCoreContract with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:153 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchRender (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchRender with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:191 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building AutoPitchRender
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:192 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchBench (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchBench with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:244 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building AutoPitchBench
+  with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0 (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:245 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for AutoPitchObjectiveBench (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+CMake Warning at cmake/SattariElastique.cmake:35 (message):
+  zplane elastique SDK not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/elastique (place
+  the SDK there — see cmake/SattariElastique.cmake).  Building
+  AutoPitchObjectiveBench with SATTARI_AUTOPITCH_HAS_ELASTIQUE=0 (RubberBand
+  fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:274 (sattari_enable_elastique)
+
+
+CMake Warning at cmake/SattariSignalsmith.cmake:35 (message):
+  signalsmith-stretch not found at
+  /Users/lillypad/Projects/sattari-plugins-main/third_party/signalsmith-stretch
+  (run: git submodule update --init --recursive).  Building
+  AutoPitchObjectiveBench with SATTARI_AUTOPITCH_HAS_SIGNALSMITH=0
+  (RubberBand fallback).
+Call Stack (most recent call first):
+  plugins/auto-pitch/CMakeLists.txt:275 (sattari_enable_signalsmith)
+
+
+-- Sattari ONNX: enabled for SattariVoxKey (/Users/lillypad/Projects/sattari-plugins-main/third_party/onnxruntime-osx-universal2-1.22.0/lib/libonnxruntime.dylib)
+-- Configuring done (25.0s)
+-- Generating done (0.6s)
+-- Build files have been written to: /Users/lillypad/Projects/sattari-plugins-main/build/local
+[0/4] Re-checking globbed directories...
+[1/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/tests/auto_pitch_core_contract.cpp.o
+[2/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o
+[3/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/src/PluginEditor.cpp.o
+[4/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/src/PluginProcessor.cpp.o
+[5/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[6/25] Building C object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[7/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
+[8/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o
+[9/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[10/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_core/juce_core.mm.o
+[11/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_events/juce_events.mm.o
+[12/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_ara.cpp.o
+[13/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless_lv2_libs.cpp.o
+[14/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o
+[15/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o
+[16/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o
+[17/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_processors_headless/juce_audio_processors_headless.mm.o
+[18/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_dsp/juce_dsp.mm.o
+[19/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
+[20/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o
+[21/25] Building CXX object plugins/auto-pitch/CMakeFiles/AutoPitchCoreContract.dir/__/__/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o
+[22/25] Linking CXX executable plugins/auto-pitch/AutoPitchCoreContract
