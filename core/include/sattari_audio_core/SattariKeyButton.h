@@ -33,6 +33,7 @@ public:
         juce::String accentId  { "auto-pitch" };      // product id -> accent colour
         bool showAutoKey       = false;               // "Link AutoKey (detect from this track)"
         bool showFollow        = true;                // "Follow Song Key (from the master bus)"
+        bool compact = false;
         juce::String autoLabel   { "Link AutoKey  (auto-detect from this track)" };
     juce::String followLabel { "Follow session  (from Compass or Key)" };
         juce::StringArray rootNames  { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
@@ -73,6 +74,22 @@ public:
         const auto accent = juce::Colour (sattari::brand::productAccent (config.accentId.toStdString()));
         const bool linked = (mode != Mode::Manual);
         auto r = getLocalBounds().toFloat().reduced (1.5f);
+
+        if (config.compact)
+        {
+            g.setColour (juce::Colour (hover ? 0xff262a2e : 0xff1c1f22));
+            g.fillRoundedRectangle (r, 4);
+            g.setColour (hasKeyboardFocus (true) || linked ? accent : juce::Colour (0xff363c41));
+            g.drawRoundedRectangle (r, 4, 1);
+            auto inner = r.reduced (12, 8);
+            g.setFont (sattari::brand::fontOptions (10.5f));
+            g.setColour (juce::Colour (0xffa5afb5));
+            g.drawText (linked ? "Session key" : "Manual key", inner.removeFromTop (17), juce::Justification::centredLeft);
+            g.setFont (sattari::brand::fontOptions (19.0f, juce::Font::bold));
+            g.setColour (juce::Colour (0xffedf1f2));
+            g.drawText (rootLabel (rootIdx) + "  " + scaleLabel (scaleIndex), inner.toNearestInt(), juce::Justification::centredLeft);
+            return;
+        }
 
         auto body = juce::Colour (sattari::brand::kPanelRaised);
         if (pressed)     body = body.darker (0.30f);

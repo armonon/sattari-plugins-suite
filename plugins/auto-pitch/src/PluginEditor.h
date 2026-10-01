@@ -129,12 +129,13 @@ private:
 // PitchEditTimeline: captured note objects on the host timeline. Drag a block
 // vertically to retarget it; right-click toggles correction for that region.
 // -----------------------------------------------------------------------------
-class PitchEditTimeline final : public juce::Component
+class PitchEditTimeline final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     using Entry = SattariAutoPitchAudioProcessor::PitchEditEntry;
     using HarmonyOverlay = SattariAutoPitchAudioProcessor::HarmonyEditOverlay;
     std::function<void(const Entry&)> onEntryChanged;
+    std::function<void(juce::int64, int, int)> onHarmonyChanged;
     std::function<void(juce::int64)> onSelectionChanged;
     std::function<void()> onGestureBegin, onGestureEnd;
 
@@ -153,6 +154,7 @@ public:
 private:
     juce::Rectangle<float> entryRect (int index) const;
     int hitEntry (juce::Point<float>) const;
+    juce::Rectangle<float> harmonyRect (const HarmonyOverlay&) const;
     int minMidi() const;
     int maxMidi() const;
 
@@ -166,6 +168,9 @@ private:
     juce::int64 selectedEntryId = 0;
     int dragStartTarget = 60;
     float dragStartY = 0.0f;
+    int selectedHarmony = -1;
+    juce::int64 harmonySourceId = 0;
+    float dragRowHeight = 1.0f;
 };
 
 // -----------------------------------------------------------------------------
@@ -263,14 +268,14 @@ private:
     {
         juce::TextButton enable, solo;
         juce::ComboBox   role;
-        juce::Slider     degrees, octave, level, pan, delay, detune, vibrato;
+        juce::Slider     degrees, octave, level, pan, delay, detune, vibrato, formant;
         juce::Label      caption, readout, levelLabel, panLabel, delayLabel,
-                         detuneLabel, vibratoLabel;
+                         detuneLabel, vibratoLabel, formantLabel;
         std::unique_ptr<ButtonAttachment> enableAttach, soloAttach;
         std::unique_ptr<ComboAttachment>  roleAttach;
         std::unique_ptr<SliderAttachment> degreesAttach, octaveAttach,
                                           levelAttach, panAttach, delayAttach,
-                                          detuneAttach, vibratoAttach;
+                                          detuneAttach, vibratoAttach, formantAttach;
     };
     std::array<HarmonyVoiceStrip, 4> harmonyVoices;
     double songModelSeenDuration = -1.0;   // repopulate the map only on change

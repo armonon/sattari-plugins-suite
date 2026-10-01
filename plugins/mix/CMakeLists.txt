@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_MIX_PLUGIN VERSION 0.1.0)
+project(SATTARI_MIX_PLUGIN VERSION 0.2.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +25,8 @@ sattari_add_plugin(
         src/PluginProcessor.cpp
         src/PluginEditor.cpp)
 
+target_link_libraries(SattariMix PRIVATE juce::juce_cryptography)
+
 add_executable(SattariMixProductContract EXCLUDE_FROM_ALL
     tests/mix_product_contract.cpp)
 target_include_directories(SattariMixProductContract PRIVATE
@@ -32,7 +34,22 @@ target_include_directories(SattariMixProductContract PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../../core/include
     ${CMAKE_CURRENT_LIST_DIR}/../../core/tests
     ${CMAKE_CURRENT_BINARY_DIR}/SattariMix_artefacts/JuceLibraryCode)
-target_link_libraries(SattariMixProductContract PRIVATE
-    SattariMix
-    juce::juce_audio_utils
-    juce::juce_dsp)
+target_link_libraries(SattariMixProductContract PRIVATE SattariMix)
+
+add_executable(SattariMixAutoMixContract EXCLUDE_FROM_ALL tests/mix_automix_contract.cpp)
+target_include_directories(SattariMixAutoMixContract PRIVATE
+    src
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/include
+    ${CMAKE_CURRENT_LIST_DIR}/../../core/tests
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/JUCE/modules
+    ${CMAKE_CURRENT_BINARY_DIR}/SattariMix_artefacts/JuceLibraryCode)
+target_link_libraries(SattariMixAutoMixContract PRIVATE SattariMix)
+
+# Reuse the plugin's compiled JUCE modules and their exact configuration.
+foreach(contract SattariMixProductContract SattariMixAutoMixContract)
+    target_include_directories(${contract} PRIVATE $<TARGET_PROPERTY:SattariMix,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(${contract} PRIVATE $<TARGET_PROPERTY:SattariMix,COMPILE_DEFINITIONS>)
+endforeach()
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariReleaseUIContract.cmake)
+sattari_add_release_ui_contract(SattariMix SattariMixAudioProcessor mix)

@@ -4,7 +4,7 @@
 #include <sattari_audio_core/SattariABRow.h>
 #include <sattari_audio_core/SattariBranding.h>
 #include <sattari_audio_core/SattariPresetManager.h>
-#include <sattari_audio_core/SattariStudio.h>
+#include <sattari_audio_core/SattariReleaseUI.h>
 #include "PluginProcessor.h"
 
 class SubConjurerAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -35,36 +35,36 @@ private:
     const juce::Colour accent {
         sattari::brand::productAccent ("sub-conjurer")
     };
-    sattari::studio::LookAndFeel lookAndFeel {
+    sattari::releaseui::LookAndFeel lookAndFeel {
         sattari::brand::productAccent ("sub-conjurer")
     };
-    sattari::studio::Header header {
-        "Sub Conjurer", "LOW-END INSTRUMENT", accent
+    sattari::releaseui::Header header {
+        "Sub Conjurer", "Low-frequency synthesis", accent
     };
 
     sattari::presets::SattariPresetManager presetManager;
-    sattari::ui::SattariABRow abRow { presetManager };
+    sattari::ui::SattariABRow abRow { presetManager, true };
 
     juce::ComboBox preset, userPresets, mode, tuning, note;
     juce::Label modeLabel, tuningLabel, noteLabel;
-    juce::TextButton savePresetButton { "Save" };
+    sattari::releaseui::IconButton savePresetButton { sattari::releaseui::Icon::save, "Save preset" };
     juce::TextButton midiLearnButton { "MIDI learn" };
 
-    sattari::studio::MacroControl amount { "Sub amount", {}, true };
-    sattari::studio::MacroControl dry { "Dry blend" };
-    sattari::studio::MacroControl richness { "Richness" };
-    sattari::studio::MacroControl saturation { "Saturation" };
-    sattari::studio::MacroControl octave { "Octave" };
-    sattari::studio::MacroControl glide { "Glide" };
-    sattari::studio::MacroControl attack { "Attack", " s" };
-    sattari::studio::MacroControl release { "Release", " s" };
-    sattari::studio::MacroControl limiter { "Ceiling" };
+    sattari::releaseui::MacroControl amount { "Sub amount", {}, true };
+    sattari::releaseui::MacroControl dry { "Dry blend" };
+    sattari::releaseui::MacroControl richness { "Richness" };
+    sattari::releaseui::MacroControl saturation { "Saturation" };
+    sattari::releaseui::MacroControl octave { "Octave" };
+    sattari::releaseui::MacroControl glide { "Glide" };
+    sattari::releaseui::MacroControl attack { "Attack", " s" };
+    sattari::releaseui::MacroControl release { "Release", " s" };
+    sattari::releaseui::MacroControl limiter { "Ceiling" };
 
     juce::ToggleButton subOnly { "Sub only" };
-    juce::ToggleButton followKey { "Follow Brain" };
-    sattari::studio::MetricCard pitchMetric { "Generated pitch" };
-    sattari::studio::MetricCard inputMetric { "Input" };
-    sattari::studio::MetricCard outputMetric { "Output" };
+    juce::ToggleButton followKey { "Follow Compass" };
+    sattari::releaseui::Metric pitchMetric { "Generated pitch" };
+    sattari::releaseui::Metric inputMetric { "Input" };
+    sattari::releaseui::Metric outputMetric { "Output" };
 
     std::unique_ptr<ComboAttachment> modeAttach, tuningAttach, noteAttach;
     std::unique_ptr<SliderAttachment> octaveAttach, amountAttach, dryAttach,
@@ -74,6 +74,7 @@ private:
 
     SubConjurerAudioProcessor::UiState uiState;
     juce::Rectangle<int> workspaceArea, displayArea, primaryArea, detailArea;
+    juce::TooltipWindow tooltip { this, 600 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SubConjurerAudioProcessorEditor)
 };

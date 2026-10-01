@@ -1,0 +1,62 @@
+name: Modular Platforms
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch pinned JUCE
+        run: git submodule update --init --depth 1 third_party/JUCE
+      - name: Configure macOS universal
+        if: runner.os == 'macOS'
+        run: cmake -S plugins/modular -B build/modular -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=OFF
+      - name: Configure Windows x64
+        if: runner.os == 'Windows'
+        run: cmake -S plugins/modular -B build/modular -G "Visual Studio 17 2022" -A x64 -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=OFF
+      - name: Packaging regression tests
+        run: python -m unittest discover -s plugins/modular/tests -p "test_*.py" -v
+      - name: Qualify macOS universal
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          curl -fL --retry 3 https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip -o "$RUNNER_TEMP/pluginval.zip"
+          test "$(shasum -a 256 "$RUNNER_TEMP/pluginval.zip" | cut -d ' ' -f 1)" = '3c4c533bda0c5059eea3ddaea752d757ee2025041f0f47e6bcb0e87f6082b29f'
+          ditto -xk "$RUNNER_TEMP/pluginval.zip" "$RUNNER_TEMP/pluginval"
+          python3 plugins/modular/scripts/qualify.py --build-dir build/modular --output-dir build/packages --pluginval "$RUNNER_TEMP/pluginval/pluginval.app/Contents/MacOS/pluginval" --validate-au
+      - name: Qualify Windows x64
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile "$env:RUNNER_TEMP/pluginval.zip"
+          if ((Get-FileHash "$env:RUNNER_TEMP/pluginval.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c08e61ce3b96db41636f8ec7e76f4c7e2c13ebdac7fa1b5a1f52b4f32ec715ab') {
+            throw 'pluginval checksum mismatch'
+          }
+          Expand-Archive "$env:RUNNER_TEMP/pluginval.zip" "$env:RUNNER_TEMP/pluginval"
+          $validator = (Get-ChildItem "$env:RUNNER_TEMP/pluginval" -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
+          if (-not $validator) { throw 'pluginval executable missing' }
+          python plugins/modular/scripts/qualify.py --build-dir build/modular --output-dir build/packages --pluginval "$validator"
+          if ($LASTEXITCODE -ne 0) { throw 'Modular qualification failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sattari-modular-candidate-${{ matrix.os }}
+          path: |
+            build/packages/*.zip
+            build/packages/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modular-validation-${{ matrix.os }}
+          path: |
+            build/modular/modular-verification
+            build/modular/Testing/Temporary
+            build/modular/qualification

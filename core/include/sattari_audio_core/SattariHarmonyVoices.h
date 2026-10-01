@@ -41,6 +41,17 @@ enum class HarmonyMode { interval = 0, intelligent, midi };
 //  search direction; it is not an interval.
 enum class HarmonyRole { upper = 0, lower, high, low, octaveUp, octaveDown, choir };
 
+// Keep the requested pitch class when MIDI/graph targets exceed the qualified
+// octave. Numeric clipping could turn (for example) B into C.
+inline int fitHarmonyMidiToRange (int requested, int leadMidi) noexcept
+{
+    int note = std::clamp (requested, 0, 127);
+    const int lo = std::max (0, leadMidi - 12), hi = std::min (127, leadMidi + 12);
+    while (note > hi) note -= 12;
+    while (note < lo) note += 12;
+    return note;
+}
+
 inline const char* harmonyRoleName (HarmonyRole r) noexcept
 {
     switch (r)
@@ -161,8 +172,7 @@ public:
             // the renderer: the Harmony readout and Edit overlays must always
             // show the note that is actually audible. This also gives remote
             // MIDI notes a deterministic nearest-octave interpretation.
-            note = std::clamp (note, leadMidi - 12, leadMidi + 12);
-            note = std::clamp (note, 0, 127);
+            note = fitHarmonyMidiToRange (note, leadMidi);
 
             assigned[v] = note;
             previousMidi[(size_t) v] = note;

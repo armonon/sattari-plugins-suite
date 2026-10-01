@@ -49,6 +49,9 @@ instead of disabling Follow Song and enabling input AutoKey. Its tooltip makes
 the per-peak/shared-harmonics limitation explicit, and it is disabled while
 whole-mix transpose takes precedence.
 
+For Poly's supported controls, measured-delay contract, harmonic grouping and
+remaining limitations, see [Polyphonic instrumental correction](polyphonic-tuner.md).
+
 ### A complete beat, loop or chordal instrument
 
 Use **Beat / Sample Transpose**, then **Match Key** in the Advanced drawer.

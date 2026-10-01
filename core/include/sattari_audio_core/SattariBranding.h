@@ -162,7 +162,11 @@ inline juce::Colour accentFor (const std::string& id) { return juce::Colour (pro
 
 inline juce::FontOptions fontOptions (float height, int styleFlags = juce::Font::plain)
 {
+#if JUCE_WINDOWS
+    return juce::FontOptions ("Segoe UI", height, styleFlags);
+#else
     return juce::FontOptions ("Helvetica", height, styleFlags);
+#endif
 }
 
 inline juce::Font font (float height, int styleFlags = juce::Font::plain)

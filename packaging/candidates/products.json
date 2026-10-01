@@ -1,0 +1,7 @@
+[
+  {"slug":"sattari-arp","target":"SattariArp","name":"Sattari Arp","version":"0.1.1","standalone":false},
+  {"slug":"sub-conjurer","target":"SubConjurer","name":"Sub Conjurer","version":"0.1.1","standalone":true},
+  {"slug":"mix","target":"SattariMix","name":"Sattari Mix","version":"0.2.1","standalone":true},
+  {"slug":"vocal","target":"SattariVocal","name":"Sattari Vocal","version":"0.1.1","standalone":true},
+  {"slug":"create","target":"SattariCreate","name":"Sattari Create","version":"0.1.1","standalone":true}
+]

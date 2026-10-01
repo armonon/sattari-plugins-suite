@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include "preset_manager_contract.h"
 
 namespace
 {
@@ -181,6 +182,19 @@ public:
     }
 };
 
+bool inspectorFits (juce::Component& editor)
+{
+    for (auto* child : editor.getChildren())
+        if (auto* viewport = dynamic_cast<juce::Viewport*> (child))
+            if (auto* inspected = viewport->getViewedComponent())
+                if (inspected->getWidth() > viewport->getViewArea().getWidth())
+                {
+                    std::fprintf (stderr, "FAIL: inspector controls clipped horizontally\n");
+                    return false;
+                }
+    return true;
+}
+
 bool renderRackWorkspace (const char* product,
                           const juce::File& destination,
                           bool minimumSize)
@@ -193,7 +207,7 @@ bool renderRackWorkspace (const char* product,
         sattari::ui::SattariStackEditor editor (
             rack, "Sattari Stack", "INSTRUMENT LAYER WORKSPACE", "stack");
         if (minimumSize) editor.setSize (1160, 620);
-        return sattari::test::renderComponentToPng (editor, destination);
+        return inspectorFits (editor) && sattari::test::renderComponentToPng (editor, destination);
     }
 
     juce::String name;
@@ -235,13 +249,29 @@ bool renderRackWorkspace (const char* product,
     sattari::ui::SattariRackEditor editor (
         rack, name, category, product);
     if (minimumSize) editor.setSize (760, 560);
-    return sattari::test::renderComponentToPng (editor, destination);
+    juce::Component* notice = nullptr;
+    for (auto* child : editor.getChildren())
+        if (child->getTitle() == "Chain compatibility notice") notice = child;
+    for (auto* child : editor.getChildren())
+        if (child->getTitle().startsWith ("Slot "))
+            if (! editor.getLocalBounds().contains (child->getBounds())
+                || (notice != nullptr && child->getBounds().intersects (notice->getBounds())))
+            {
+                std::fprintf (stderr, "FAIL: rack slot controls clipped or overlap notice\n");
+                return false;
+            }
+    return inspectorFits (editor) && sattari::test::renderComponentToPng (editor, destination);
 }
 } // namespace
 
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    if (argc == 2 && std::strcmp (argv[1], "--preset-contract") == 0)
+    {
+        TestRack rack;
+        return runPresetManagerContract (rack.parameters());
+    }
     if (argc == 4
         && (std::strcmp (argv[1], "--render-ui") == 0
             || std::strcmp (argv[1], "--render-ui-min") == 0))

@@ -8,6 +8,7 @@ const files = [
   "index.html",
   "logos.js",
   "plugin.html",
+  "modular.html",
   "plugins-data.js",
   "product-catalog.js",
   "product-shots.js",

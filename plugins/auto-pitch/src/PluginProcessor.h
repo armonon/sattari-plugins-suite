@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "ContinuousMotionEstimator.h"
+#include "PolyphonicNotePlan.h"
 
 #ifndef SATTARI_AUTOPITCH_PRINT_SIGNALSMITH
  #define SATTARI_AUTOPITCH_PRINT_SIGNALSMITH 0
@@ -352,10 +353,13 @@ public:
         float formantSemitones = -100.0f;
         float gainDb = 0.0f;
         double timeOffsetSec = 0.0;
+        // Per-region H1-H4 pitch overrides: -1 = planner, -2 = muted.
+        std::array<int, 4> harmonyTargets { -1, -1, -1, -1 };
     };
     std::vector<PitchEditEntry> getPitchEdits() const;
     void clearPitchEdits();
     bool setPitchEditEntry (juce::int64 id, const PitchEditEntry& entry);
+    bool setHarmonyEditTarget (juce::int64 id, int voice, int midi);
     bool splitPitchEdit (juce::int64 id, double splitSec);
     bool joinPitchEdit (juce::int64 id);
     bool deletePitchEdit (juce::int64 id);
@@ -475,10 +479,8 @@ public:
     //  state) but it is the one place that knows the applied intent scale.
     mutable std::atomic<float> intentConfidenceUi { 1.0f };
 
-    //  Harmony planning. The planner is contract-tested and shared by the
-    //  renderer/readouts, so the workspace reports the notes it really sings.
-    //  Planned on the message thread from the UI snapshot, so no audio-thread
-    //  cost at all.
+    // One packed, audio-owned snapshot: the UI shows the renderer's actual
+    // targets (including note overrides), not an independently advancing plan.
     struct HarmonyReadout
     {
         bool valid = false;
@@ -490,17 +492,18 @@ public:
         int    heldNotes = 0;      // MIDI mode: how many notes were actually held
     };
     HarmonyReadout planHarmonyNow() const;
+    bool harmonyFormantsAvailable() const noexcept;
     struct HarmonyEditOverlay
     {
         juce::int64 sourceId = 0;
         int voice = 0;
         double startSec = 0.0, endSec = 0.0;
         int midi = -1;
+        bool overridden = false, muted = false;
     };
-    // Read-only generated harmony objects for the Edit timeline. They follow the
-    // same planner/settings as the audible renderer but never mutate source notes.
+    // Generated harmony targets, including per-region overrides. Their timing
+    // follows the source note; changing H1-H4 never retargets the lead.
     std::vector<HarmonyEditOverlay> getHarmonyEditOverlays() const;
-    mutable sattari::dsp::HarmonyVoicePlanner harmonyPlanner;
 
     //  The shared song model (Phase 1): everything the drop analysis learned,
     //  time-aware. Written by the file worker under the mutex, copied out by the
@@ -587,6 +590,7 @@ private:
         float objectFormantSemitones = -100.0f, objectGainDb = 0.0f;
         bool objectActive = false;
         bool objectEnabled = true;
+        std::array<int, 4> harmonyTargets { -1, -1, -1, -1 };
         bool voiced = false;
     };
 
@@ -704,6 +708,11 @@ private:
     std::array<std::atomic<int>, 4> harmonyHeldMidi { -1, -1, -1, -1 };
     bool harmonyWasActive = false;
     int harmonyRendererBank = -1; // 0=Extreme, 1=Ultra, 2=Range/Studio
+    bool harmonyFormantsWereEnabled = false;
+    // Packed, lock-free audio-owned snapshot: the editor shows rendered targets,
+    // not a second planner with different history or a different lead note.
+    std::atomic<std::uint64_t> audibleHarmonyReadout { 0 };
+    void publishHarmonyReadout (const HarmonyReadout&) noexcept;
     double smoothedPitchScale = 1.0;
     double lastFedPitchScale  = 1.0; // pitch ratio actually sent to the shifter last block
     double smoothedXposeScale = 1.0; // Transpose-to-Key: smoothed whole-mix shift ratio (glide on change)
@@ -840,13 +849,13 @@ private:
     // source separation (overlapping partials of different notes are not split).
     // All buffers are preallocated in prepareToPlay -> preparePolyVocoder(), so
     // the audio-thread frame processing never allocates or locks (RT-safe). The
-    // STFT introduces (pvFrameSize - pvHop) samples of latency, reported to the
-    // host when poly is on (see activeEngineLatencySamples()).
+    // The complete streaming STFT adds pvFrameSize samples of latency: the
+    // input FIFO offset plus one published output hop. Report both to the host.
     // 4096-point frame: 11.7 Hz/bin @ 48k resolves close partials (e.g. an octave's
     // C5 fundamental vs C4 2nd harmonic, ~22 Hz apart) that a 2048 frame merged into
     // one bin — required for the harmonic-comb grouping to separate colliding notes.
-    // Costs latency (pvFrameSize - pvHop = 3072 smp ≈ 64 ms) but only in poly mode,
-    // which targets sustained chords/pads where that is inaudible.
+    // Costs 4096 samples (~85.3 ms at 48 kHz). Intended for production, not
+    // low-latency monitoring; perceptual quality still requires listening tests.
     static constexpr int pvFftOrder  = 12;                    // 4096-point frame
     static constexpr int pvFrameSize = 1 << pvFftOrder;       // 4096
     static constexpr int pvOverlap   = 4;                     // 4x overlap
@@ -871,6 +880,7 @@ private:
     std::vector<int>   pvBinPeak;                             // size half+1: owning-peak index, -1 = identity
     std::vector<float> pvPeakRatio;                           // per-peak retune ratio
     std::vector<int>   pvPeakFund;                            // per-peak: index of its harmonic-comb fundamental peak
+    std::vector<sattari::poly::PeakTracker> pvPeakTrackers;   // per-channel temporal harmonic evidence
     // Poly Harmony (opt-in): a dedicated per-channel phase accumulator + per-peak harmony
     // ratio, so the harmony voice is phase-coherent and fully isolated from the corrected voice.
     std::vector<std::vector<float>> pvSumPhaseHarm;           // [ch][half+1]
@@ -1008,7 +1018,7 @@ private:
     bool pendingLowLat = false;                             // low-latency target the pendingPsola set was built for
     void processWithPsola (juce::AudioBuffer<float>& buffer, double pitchScale, float linearGain);
     void processWithLiveEngine (juce::AudioBuffer<float>& buffer, float linearGain,
-                                double pitchOffsetCents);
+                                double pitchOffsetCents, bool bypassCorrection = false);
 
     // --- Optional CREPE-class neural pitch (ONNX, model-optional) ------------
     // When "Neural Pitch" is on, CREPE is conservatively fused with YIN: agreeing

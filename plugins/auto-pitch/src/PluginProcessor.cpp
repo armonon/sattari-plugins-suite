@@ -60,6 +60,7 @@ constexpr std::array<const char*, 4> harmonyPanIds { "h1Pan", "h2Pan", "h3Pan", 
 constexpr std::array<const char*, 4> harmonyDelayIds { "h1Delay", "h2Delay", "h3Delay", "h4Delay" };
 constexpr std::array<const char*, 4> harmonyDetuneIds { "h1Detune", "h2Detune", "h3Detune", "h4Detune" };
 constexpr std::array<const char*, 4> harmonyVibratoIds { "h1Vibrato", "h2Vibrato", "h3Vibrato", "h4Vibrato" };
+constexpr std::array<const char*, 4> harmonyFormantIds { "h1Formant", "h2Formant", "h3Formant", "h4Formant" };
 
 constexpr std::array<unsigned short, 13> scaleMasks {
     // Major, natural minor, chromatic, church modes, harmonic/melodic minor,
@@ -676,6 +677,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout SattariAutoPitchAudioProcess
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("traceConfidence", "Trace Confidence",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
 
+    // Append new IDs: preserve every existing host parameter index.
+    for (int v = 1; v <= 4; ++v)
+        params.push_back (std::make_unique<juce::AudioParameterFloat> (
+            "h" + juce::String (v) + "Formant", "Harmony " + juce::String (v) + " Formant (Studio)",
+            juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f));
+
     return { params.begin(), params.end() };
 }
 
@@ -776,6 +783,8 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
     harmonyRenderPlanner.reset();
     harmonyWasActive = false;
     harmonyRendererBank = -1;
+    harmonyFormantsWereEnabled = false;
+    publishHarmonyReadout ({});
     lastLiveModeActive = liveModeActive();
     lastLiveProfile = extremeLiveProfileActive() ? 0 : ultraLiveProfileActive() ? 1 : 2;
 
@@ -1041,9 +1050,9 @@ void SattariAutoPitchAudioProcessor::prepareToPlay (double sampleRate, int sampl
         juce::jmax (liveEngines.empty() ? 0 : liveEngines.front().getLatencySamples(),
                     liveExtendedEngines.empty() ? 0
                                                 : liveExtendedEngines.front().getLatencySamples()));
-    dryDelayRingSize = juce::jmax (juce::jmax (juce::jmax (monoEngineLatencySamples(),
+    dryDelayRingSize = juce::jmax (juce::jmax (pvFrameSize, juce::jmax (juce::jmax (monoEngineLatencySamples(),
                                                            printEngineLatencySamples()),
-                                               maximumLiveLatency)
+                                               maximumLiveLatency))
                                        + preparedBlockSize + 1,
                                    preparedBlockSize * 2 + 1);
     dryDelayRing.setSize (juce::jmax (1, getTotalNumOutputChannels()), dryDelayRingSize,
@@ -1139,7 +1148,7 @@ int SattariAutoPitchAudioProcessor::activeEngineLatencySamples() const
     //   then Polyphonic (phase vocoder); otherwise the print engine above.
     int engineLatency = printLat;
     if (xposeOn)                 engineLatency = rbLat;
-    else if (polyOn && corrOn)   engineLatency = pvInFifoLatency;
+    else if (polyOn && corrOn)   engineLatency = pvFrameSize;
     else if (liveModeActive())   engineLatency = liveEngineLatencySamples();
     const bool timeOn = apvts.getRawParameterValue ("graphTimeCorrection") != nullptr
                      && apvts.getRawParameterValue ("graphTimeCorrection")->load() > 0.5f;
@@ -1460,6 +1469,8 @@ void SattariAutoPitchAudioProcessor::resetPitchState (int)
     harmonyRenderPlanner.reset();
     harmonyWasActive = false;
     harmonyRendererBank = -1;
+    harmonyFormantsWereEnabled = false;
+    publishHarmonyReadout ({});
 #if SATTARI_AUTOPITCH_HAS_RUBBERBAND
     resetRbFifo();
 #endif
@@ -2418,6 +2429,8 @@ void SattariAutoPitchAudioProcessor::preparePolyVocoder (int numChannels)
     // them here too so a frame with many peaks never reallocates on the audio thread.
     pvPeakFund.clear();     pvPeakFund.reserve     ((size_t) (half + 1));
     pvPeakHarmRatio.clear(); pvPeakHarmRatio.reserve ((size_t) (half + 1));
+    pvPeakTrackers.resize ((size_t) nc);
+    for (auto& tracker : pvPeakTrackers) tracker.prepare (half + 1);
 
     // Tonal Focus: one causal HPSS mask per channel (own history), shared per-frame scratch.
     // Freq radius ~ a few semitones' worth of bins at this resolution isolates a partial from
@@ -2438,6 +2451,7 @@ void SattariAutoPitchAudioProcessor::resetPolyVocoder()
     for (auto& v : pvSumPhase)  std::fill (v.begin(), v.end(), 0.0f);
     for (auto& v : pvSumPhaseHarm) std::fill (v.begin(), v.end(), 0.0f);
     for (auto& m : pvHarmMask) m.reset();
+    for (auto& tracker : pvPeakTrackers) tracker.reset();
     pvRover = pvInFifoLatency;
 }
 
@@ -2494,7 +2508,10 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
         pvHarmMask[(size_t) channel].process (pvMag.data(), pvTonal.data());
 
     // --- Peak picking in the correctable band ------------------------------
-    const int firstBin = juce::jmax (2, (int) std::ceil (60.0   / freqPerBin));
+    // Include sub-bass fundamentals (E1/A1), not just their upper partials.
+    // Keep two neighbour bins for the local-maximum test; resolution at very
+    // high sample rates still limits how low we can resolve independent notes.
+    const int firstBin = juce::jmax (2, (int) std::floor (30.0 / freqPerBin));
     // High Tracking extends the peak-follow ceiling so a corrected note's HIGH harmonics
     // move with their fundamental instead of staying frozen (out of tune relative to the
     // now-corrected root). 0 = 2.5 kHz (legacy); 1 = 7 kHz. Tonal Focus keeps the added
@@ -2520,36 +2537,32 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     }
 
     // --- Per-peak retune ratio (snap the peak's freq to nearest scale tone) -
-    const int  rootIndex   = currentCorrectionRootIndex();
-    const int  scaleIndex  = effectiveScaleIndex();
+    const auto origin = currentKeyOrigin(); // one coherent root/scale snapshot
+    const int  rootIndex   = origin.root;
+    const int  scaleIndex  = origin.scale;
     const auto scaleName   = scaleChoices[juce::jlimit (0, scaleChoices.size() - 1, scaleIndex)];
     const int  enabledMask = juce::jlimit (0, 4095, (int) apvts.getRawParameterValue ("enabledNotes")->load());
     const double amount    = (double) apvts.getRawParameterValue ("amount")->load();
     const float  polyHarmonyAmt = apvts.getRawParameterValue ("polyHarmony")->load();
     const double tonalFocus = (double) apvts.getRawParameterValue ("tonalFocus")->load();
-    auto pcEnabled = [enabledMask] (int midi)
-        { return enabledMask == 0 ? 1 : ((enabledMask >> (((midi % 12) + 12) % 12)) & 1); };
+    int allowedMask = 0;
+    bool harmonyScaleMask[12] = {};
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        const bool inScale = scaleName == "chromatic"
+            || scaleAllowsDegree (((pc - rootIndex) % 12 + 12) % 12, scaleName) != 0;
+        const bool enabled = enabledMask == 0 || ((enabledMask >> pc) & 1) != 0;
+        harmonyScaleMask[pc] = inScale && enabled;
+        if (harmonyScaleMask[pc]) allowedMask |= 1 << pc;
+    }
 
-    // Harmonic-comb grouping: assign each peak to a NOTE (its fundamental peak). A peak
-    // is a harmonic of an earlier note-root if its true freq is a near-integer multiple
-    // of that root's freq. Grouping lets a note's upper partials inherit the FUNDAMENTAL's
-    // retune ratio, so the note transposes rigidly instead of each harmonic snapping to a
-    // scale tone on its own (which mis-tuned buried harmonics — the octave-collision case).
+    // Group only persistent, corroborated harmonics. Two independent octave
+    // notes alone are not evidence of one source, even if close to a 2:1 ratio.
+    auto& tracker = pvPeakTrackers[(size_t) channel];
+    tracker.update (pvPeakBins, pvFreq);
     pvPeakFund.clear();
     for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
-    {
-        const double f = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) pi]]);
-        int fund = pi;
-        for (int pj = pi - 1; pj >= 0; --pj)
-        {
-            if (pvPeakFund[(size_t) pj] != pj) continue;   // combs grow from note roots only
-            const double fj = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) pj]]);
-            const double r = f / fj;
-            const int h = (int) std::lround (r);
-            if (h >= 2 && h <= 12 && std::abs (r - (double) h) < 0.03 * (double) h) { fund = pj; break; }
-        }
-        pvPeakFund.push_back (fund);
-    }
+        pvPeakFund.push_back (tracker.owner (pi, pvPeakFund));
 
     // Per-note retune ratio: snap the NOTE's FUNDAMENTAL freq to the nearest scale tone;
     // every partial of the note uses that same ratio (h*fund * ratio = h*correctedFund).
@@ -2563,23 +2576,14 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
     //  mono engine and the readout worked off the requested reference - toggling
     //  Polyphonic shifted the absolute tuning of the track mid-session.
     const double polyRefHz = currentReferenceHz();
-    // Pitch-class mask for the harmony walk — same for every peak, so build it once.
-    bool harmonyScaleMask[12] = {};
-    if (polyHarmonyAmt > 0.0f)
-        for (int pc = 0; pc < 12; ++pc)
-            harmonyScaleMask[pc] = scaleAllowsDegree ((((pc - rootIndex) % 12) + 12) % 12, scaleName) != 0;
     for (int pi = 0; pi < (int) pvPeakBins.size(); ++pi)
     {
         const int fund = pvPeakFund[(size_t) pi];
         const double f = juce::jmax (1.0, (double) pvFreq[(size_t) pvPeakBins[(size_t) fund]]);
         const double srcMidi = 69.0 + 12.0 * std::log2 (f / polyRefHz);
-        int target = nearestScaleMidi (srcMidi, rootIndex, scaleName);   // honours chromatic
-        if (! pcEnabled (target))
-            for (int r = 1; r <= 12; ++r)
-            {
-                if (pcEnabled (target - r)) { target = target - r; break; }
-                if (pcEnabled (target + r)) { target = target + r; break; }
-            }
+        int target = 0;
+        if (! sattari::poly::nearestAllowedMidi (srcMidi, allowedMask, target))
+            continue; // Empty intersection: unity, and no forbidden harmony.
         const double targetFreq = polyRefHz * std::pow (2.0, ((double) target - 69.0) / 12.0);
         // Amount scales the correction in the log domain (1 = full snap, 0 = none).
         // Poly HF Focus: an "orphan" root (fund == pi — a peak that wasn't grouped as the
@@ -2605,6 +2609,8 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
             // Two scale steps up, via the shared in-key walk (contract-tested); a chromatic
             // key falls back to a fixed major third.
             const int hm = sattari::dsp::scaleStepsAbove (target, harmonyScaleMask, 2, 4);
+            if ((allowedMask & (1 << (((hm % 12) + 12) % 12))) == 0)
+                continue; // A degenerate harmony walk must not resurrect excluded notes.
             const double hFreq = polyRefHz * std::pow (2.0, ((double) hm - 69.0) / 12.0);
             pvPeakHarmRatio[(size_t) pi] = (float) juce::jlimit (0.5, 4.0, hFreq / f);
         }
@@ -2724,6 +2730,9 @@ void SattariAutoPitchAudioProcessor::polyVocoderFrame (int channel)
             hi = juce::jlimit (0, half, hi);
             for (int k = lo; k <= hi; ++k)
             {
+                // Exactly the same protection as the corrected voice. A bin
+                // routed to identity must not reappear as a shifted drum/hat.
+                if (pvBinPeak[(size_t) k] != pi) continue;
                 const int nb = juce::jlimit (0, half, (int) std::lround ((double) k * hratio));
                 const double locked = peakSyn + ((double) pvPhase[(size_t) k] - phPeak);
                 sumPhH[(size_t) nb] = (float) locked;
@@ -3591,9 +3600,22 @@ bool SattariAutoPitchAudioProcessor::setPitchEditEntry (juce::int64 id, const Pi
         ? -100.0f : juce::jlimit (-12.0f, 12.0f, changed.formantSemitones);
     changed.gainDb = juce::jlimit (-24.0f, 12.0f, changed.gainDb);
     changed.timeOffsetSec = juce::jlimit (-0.5, 0.5, changed.timeOffsetSec);
+    for (auto& target : changed.harmonyTargets) target = juce::jlimit (-2, 127, target);
     *it = changed;
     markPitchEditChangedLocked();
     return true;
+}
+
+bool SattariAutoPitchAudioProcessor::setHarmonyEditTarget (juce::int64 id, int voice, int midi)
+{
+    if (voice < 0 || voice >= 4 || midi < -2 || midi > 127) return false;
+    const juce::ScopedLock l (pitchEditLock);
+    const auto it = std::find_if (pitchEdits.begin(), pitchEdits.end(),
+                                  [id] (const auto& e) { return e.id == id; });
+    if (it == pitchEdits.end()) return false;
+    auto changed = *it;
+    changed.harmonyTargets[(size_t) voice] = midi;
+    return setPitchEditEntry (id, changed);
 }
 
 bool SattariAutoPitchAudioProcessor::splitPitchEdit (juce::int64 id, double splitSec)
@@ -3736,6 +3758,10 @@ void SattariAutoPitchAudioProcessor::capturePitchEditAtSeconds (
 
 void SattariAutoPitchAudioProcessor::applyPitchEditAtSeconds (double seconds, PitchFrame& frame) const
 {
+    // Detector hops can reuse a frame. Never carry an old region's overrides
+    // past its end or a transport relocate when no new pitch frame arrives.
+    frame.objectActive = false;
+    frame.harmonyTargets.fill (-1);
     if (! frame.voiced || seconds < 0.0) return;
 
     auto applyEntry = [&frame] (const PitchEditEntry& e)
@@ -3759,6 +3785,7 @@ void SattariAutoPitchAudioProcessor::applyPitchEditAtSeconds (double seconds, Pi
         frame.objectGainDb = e.gainDb;
         frame.objectActive = true;
         frame.objectEnabled = e.enabled;
+        frame.harmonyTargets = e.harmonyTargets;
     };
 
     const juce::ScopedTryLock l (pitchEditLock);
@@ -3904,80 +3931,36 @@ void SattariAutoPitchAudioProcessor::updateHarmonyChordAtSeconds (double seconds
     harmonyChordCount.store (count, std::memory_order_release);
 }
 
+void SattariAutoPitchAudioProcessor::publishHarmonyReadout (const HarmonyReadout& out) noexcept
+{
+    static_assert (std::atomic<std::uint64_t>::is_always_lock_free);
+    std::uint64_t bits = (std::uint64_t) (out.leadMidi & 255) << 32;
+    for (int v = 0; v < 4; ++v)
+        bits |= (std::uint64_t) (out.active[(size_t) v] ? out.midi[(size_t) v] & 255 : 255) << (8 * v);
+    bits |= (std::uint64_t) out.valid << 40;
+    bits |= (std::uint64_t) out.fromChord << 41;
+    bits |= (std::uint64_t) juce::jlimit (0, 4, out.heldNotes) << 42;
+    bits |= (std::uint64_t) juce::jlimit (0, 255, juce::roundToInt (out.confidence * 255.0f)) << 45;
+    audibleHarmonyReadout.store (bits, std::memory_order_release);
+}
+
 SattariAutoPitchAudioProcessor::HarmonyReadout
 SattariAutoPitchAudioProcessor::planHarmonyNow() const
 {
+    const auto bits = audibleHarmonyReadout.load (std::memory_order_acquire);
     HarmonyReadout out;
-    const auto snap = getLiveSnapshot();
-    if (! snap.voiced || snap.detectedMidi < 0) return out;
-    out.leadMidi = snap.detectedMidi;
-
-    sattari::dsp::HarmonyVoiceSettings settings[4];
+    out.valid = ((bits >> 40) & 1) != 0;
+    if (! out.valid) return out;
+    out.leadMidi = (int) ((bits >> 32) & 255);
+    out.fromChord = ((bits >> 41) & 1) != 0;
+    out.heldNotes = (int) ((bits >> 42) & 7);
+    out.confidence = (float) ((bits >> 45) & 255) / 255.0f;
     for (int v = 0; v < 4; ++v)
     {
-        const auto id = juce::String ("h") + juce::String (v + 1);
-        settings[v].enabled = apvts.getRawParameterValue (id + "Enable")->load() > 0.5f;
-        settings[v].role = (sattari::dsp::HarmonyRole)
-            juce::jlimit (0, 6, (int) std::lround (apvts.getRawParameterValue (id + "Role")->load()));
-        settings[v].intervalDegrees =
-            juce::jlimit (-7, 7, (int) std::lround (apvts.getRawParameterValue (id + "Degrees")->load()));
-        settings[v].octaveOffset =
-            juce::jlimit (-1, 1, (int) std::lround (apvts.getRawParameterValue (id + "Octave")->load()));
+        const int note = (int) ((bits >> (8 * v)) & 255);
+        out.active[(size_t) v] = note < 128;
+        out.midi[(size_t) v] = note < 128 ? note : -1;
     }
-
-    const auto origin = currentKeyOrigin();
-    //  scaleIdFromCHOICE, not FromBus: origin.scale is an index into Auto Pitch's
-    //  13-entry scaleChoices, while scaleIdFromBus understands only the 3-value
-    //  bus code — every mode beyond major/minor/chromatic silently became Major.
-    const auto scaleId = sattari::harmony::scaleIdFromChoice (origin.scale);
-    const auto mode = (sattari::dsp::HarmonyMode)
-        juce::jlimit (0, 2, (int) std::lround (apvts.getRawParameterValue ("harmonyMode")->load()));
-    //  UI order is Intelligent/Interval/MIDI; the enum is interval/intelligent/midi.
-    const auto realMode = mode == (sattari::dsp::HarmonyMode) 0 ? sattari::dsp::HarmonyMode::intelligent
-                        : mode == (sattari::dsp::HarmonyMode) 1 ? sattari::dsp::HarmonyMode::interval
-                                                                : sattari::dsp::HarmonyMode::midi;
-
-    //  The current chord, from the analysed song model at the playhead. Absent a
-    //  chord the planner falls back to the scale and says so via confidence.
-    int pcs[4]; int numPcs = 0; double chordConf = 0.0;
-    {
-        const auto model = songAnalysisCopy();
-        const double at = getSongPlayheadSeconds();
-        for (const auto& cr : model.chordRegions)
-        {
-            if (at < cr.startSec || at >= cr.endSec) continue;
-            for (int i = 0; i < 4; ++i)
-                if (cr.chord.notes[(size_t) i] >= 0) pcs[numPcs++] = cr.chord.notes[(size_t) i];
-            chordConf = cr.chord.confidence;
-            break;
-        }
-    }
-
-    //  MIDI mode needs the notes actually held. Without this it planned nothing
-    //  while the UI still reported a plan — a mode that silently cannot work.
-    int held[4]; int numHeld = 0;
-    if (realMode == sattari::dsp::HarmonyMode::midi)
-    {
-        for (const auto& note : harmonyHeldMidi)
-        {
-            const int value = note.load (std::memory_order_relaxed);
-            if (value >= 0) held[numHeld++] = value;
-        }
-    }
-
-    const auto plan = harmonyPlanner.plan (out.leadMidi, realMode, settings, 4,
-                                           origin.root, scaleId,
-                                           numPcs > 0 ? pcs : nullptr, numPcs, chordConf,
-                                           numHeld > 0 ? held : nullptr, numHeld);
-    out.heldNotes = numHeld;
-    for (int v = 0; v < 4; ++v)
-    {
-        out.active[(size_t) v] = plan.voices[(size_t) v].active;
-        out.midi[(size_t) v]   = plan.voices[(size_t) v].midi;
-        out.confidence = juce::jmax (out.confidence, plan.voices[(size_t) v].confidence);
-    }
-    out.fromChord = numPcs > 0;
-    out.valid = true;
     return out;
 }
 
@@ -4053,10 +4036,16 @@ SattariAutoPitchAudioProcessor::getHarmonyEditOverlays() const
             numPcs > 0 ? pcs : nullptr, numPcs, chordConfidence,
             numHeld > 0 ? held : nullptr, numHeld);
         for (int v = 0; v < 4; ++v)
-            if (plan.voices[(size_t) v].active)
+        {
+            const auto index = (size_t) v;
+            const int overrideMidi = edit.harmonyTargets[index];
+            if (settings[v].enabled && (plan.voices[index].active || overrideMidi >= 0))
                 overlays.push_back ({ edit.id, v, edit.startSec + edit.timeOffsetSec,
-                                      edit.endSec + edit.timeOffsetSec,
-                                      plan.voices[(size_t) v].midi });
+                    edit.endSec + edit.timeOffsetSec,
+                    sattari::dsp::fitHarmonyMidiToRange (
+                        overrideMidi >= 0 ? overrideMidi : plan.voices[index].midi, edit.sourceMidi),
+                    overrideMidi != -1, overrideMidi == -2 });
+        }
     }
     return overlays;
 }
@@ -4767,6 +4756,11 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         capturePitchEditAtSeconds (hostTimeSeconds, blockDuration, lastPitchFrame);
     if (apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f)
         applyPitchEditAtSeconds (hostTimeSeconds, lastPitchFrame);
+    else
+    {
+        lastPitchFrame.objectActive = false;
+        lastPitchFrame.harmonyTargets.fill (-1);
+    }
 
     // Polyphonic mode retunes per-peak in the spectral vocoder below, so the mono
     // single-ratio smoother is held at unity and left unused in that mode.
@@ -5152,14 +5146,12 @@ void SattariAutoPitchAudioProcessor::processBlock (juce::AudioBuffer<float>& buf
         // output is intentionally discarded in favour of the delayed dry reference.
         if (liveNow)
         {
-            //  Keep the live engine warm at unity for the same reason: re-enabling
-            //  correction must not re-prime from silence mid-phrase.
-            auto& engines = activeLiveEngines();
-            for (int ch = 0; ch < juce::jmin (mainBuffer.getNumChannels(),
-                                              (int) engines.size()); ++ch)
-                engines[(size_t) ch].process (mainBuffer.getReadPointer (ch),
-                                              mainBuffer.getWritePointer (ch),
-                                              mainBuffer.getNumSamples(), 1.0);
+            // Use the selected bank (including Extreme), and keep publishing its
+            // causal tracker. The old warm-only path neither selected Extreme
+            // nor refreshed lastPitchFrame, so correction-off/Amount-zero made
+            // Live harmony silent and left its key histogram/readout frozen.
+            // Audio is still replaced by the exact delayed reference below.
+            processWithLiveEngine (mainBuffer, 1.0f, 0.0, true);
         }
         else
         {
@@ -5357,7 +5349,8 @@ void SattariAutoPitchAudioProcessor::processWithPsola (juce::AudioBuffer<float>&
 //  intersected on top, exactly as buildCorrectionFrame() does it.
 void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<float>& buffer,
                                                             float linearGain,
-                                                            double pitchOffsetCents)
+                                                            double pitchOffsetCents,
+                                                            bool bypassCorrection)
 {
     const bool extreme = extremeLiveProfileActive();
     const int available = extreme ? (int) extremeLiveEngines.size()
@@ -5426,6 +5419,12 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
     settings.preserveVibrato = classic ? 0.0
         : juce::jlimit (0.0, 1.0, (double) vibratoParam);
     settings.pitchOffsetCents = pitchOffsetCents;
+    if (bypassCorrection)
+    {
+        settings.amount = 0.0;
+        settings.forcedTargetMidi = -1;
+        settings.pitchOffsetCents = 0.0;
+    }
 
     // Neural Pitch used to keep the expensive Studio analysis alive in Live Mode
     // but the causal planner then ignored the fused frame and planned from its own
@@ -5476,8 +5475,8 @@ void SattariAutoPitchAudioProcessor::processWithLiveEngine (juce::AudioBuffer<fl
     liveFrame.confidence = tracked.confidence;
     liveFrame.rms = tracked.rms;
     liveFrame.voiced = tracked.voiced;
-    liveFrame.targetMidi = targetMidi >= 0 ? (double) targetMidi : liveFrame.midi;
-    liveFrame.correctionCents = tracked.voiced
+    liveFrame.targetMidi = ! bypassCorrection && targetMidi >= 0 ? (double) targetMidi : liveFrame.midi;
+    liveFrame.correctionCents = tracked.voiced && ! bypassCorrection
         ? correctionCents : 0.0;
     lastPitchFrame = liveFrame;
     lastFedPitchScale = std::pow (2.0, liveFrame.correctionCents / 1200.0);
@@ -5784,6 +5783,15 @@ void SattariAutoPitchAudioProcessor::applyModeCharacter (juce::AudioBuffer<float
     // DAW callback boundaries without restarting phase.
 }
 
+bool SattariAutoPitchAudioProcessor::harmonyFormantsAvailable() const noexcept
+{
+    return ! liveModeActive()
+        && apvts.getRawParameterValue ("xposeMode")->load() < 0.5f
+        && ! (apvts.getRawParameterValue ("polyphonic")->load() > 0.5f
+              && apvts.getRawParameterValue ("enableCorrection")->load() > 0.5f)
+        && printEngineLatencySamples() >= harmonyRangeRenderer.getLatencySamples (true);
+}
+
 void SattariAutoPitchAudioProcessor::renderHarmonyInto (
     juce::AudioBuffer<float>& lead, const juce::AudioBuffer<float>& untouchedInput,
     double)
@@ -5808,6 +5816,7 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
     }
     if (! anyEnabled || incompatible)
     {
+        publishHarmonyReadout ({});
         if (harmonyWasActive)
         {
             harmonyExtremeRenderer.reset();
@@ -5870,18 +5879,49 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
         auto& voice = voices[(size_t) v];
         voice.active = plan.voices[(size_t) v].active;
         voice.targetMidi = plan.voices[(size_t) v].midi;
+        if (lastPitchFrame.objectActive && apvts.getRawParameterValue ("usePitchEdits")->load() > 0.5f)
+        {
+            const int target = lastPitchFrame.harmonyTargets[(size_t) v];
+            if (target == -2) voice.active = false;
+            else if (target >= 0 && planSettings[v].enabled && lastPitchFrame.voiced)
+            {
+                voice.active = true;
+                voice.targetMidi = sattari::dsp::fitHarmonyMidiToRange (target, leadMidi);
+            }
+        }
+        // Voices shift untouched input, not the already-corrected lead. A large
+        // graph/MIDI lead edit can otherwise put a legal lead-relative target
+        // outside the shifter's octave and silently clamp it to another note.
+        if (voice.active && lastPitchFrame.voiced)
+            voice.targetMidi = sattari::dsp::fitHarmonyMidiToRange (voice.targetMidi,
+                juce::jlimit (0, 127, (int) std::llround (lastPitchFrame.midi)));
         voice.level = juce::Decibels::decibelsToGain (
             apvts.getRawParameterValue (harmonyLevelIds[(size_t) v])->load(), -60.0f);
         voice.pan = apvts.getRawParameterValue (harmonyPanIds[(size_t) v])->load();
         voice.delayMs = apvts.getRawParameterValue (harmonyDelayIds[(size_t) v])->load();
         voice.detuneCents = apvts.getRawParameterValue (harmonyDetuneIds[(size_t) v])->load();
         voice.vibratoCents = apvts.getRawParameterValue (harmonyVibratoIds[(size_t) v])->load();
+        voice.formantSemitones = apvts.getRawParameterValue (harmonyFormantIds[(size_t) v])->load();
     }
+
+    HarmonyReadout readout;
+    readout.valid = lastPitchFrame.voiced;
+    readout.leadMidi = leadMidi;
+    readout.fromChord = mode == sattari::dsp::HarmonyMode::intelligent && numPcs > 0;
+    readout.heldNotes = numHeld;
+    for (int v = 0; v < 4; ++v)
+    {
+        readout.active[(size_t) v] = voices[(size_t) v].active;
+        readout.midi[(size_t) v] = voices[(size_t) v].targetMidi;
+        readout.confidence = juce::jmax (readout.confidence, plan.voices[(size_t) v].confidence);
+    }
+    publishHarmonyReadout (readout);
 
     const int requestedBank = liveModeActive()
         ? (extremeLiveProfileActive() ? 0 : ultraLiveProfileActive() ? 1 : 2)
         : 2;
-    if (requestedBank != harmonyRendererBank)
+    const bool formantsEnabled = harmonyFormantsAvailable();
+    if (requestedBank != harmonyRendererBank || formantsEnabled != harmonyFormantsWereEnabled)
     {
         // A dormant bank contains delayed audio from the previous mode. Never
         // resume it into a new transport moment: clear both rings and let the
@@ -5890,6 +5930,7 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
         harmonyUltraRenderer.reset();
         harmonyRangeRenderer.reset();
         harmonyRendererBank = requestedBank;
+        harmonyFormantsWereEnabled = formantsEnabled;
     }
     auto& renderer = requestedBank == 0 ? harmonyExtremeRenderer
                    : requestedBank == 1 ? harmonyUltraRenderer
@@ -5907,7 +5948,8 @@ void SattariAutoPitchAudioProcessor::renderHarmonyInto (
     renderSettings.ensembleSpread = apvts.getRawParameterValue ("harmonyEnsembleSpread")->load();
     renderSettings.lowCutHz = apvts.getRawParameterValue ("harmonyLowCut")->load();
     renderSettings.highCutHz = apvts.getRawParameterValue ("harmonyHighCut")->load();
-    renderSettings.alignmentDelaySamples = juce::jmax (0, leadLatency - renderer.getLatencySamples());
+    renderSettings.formantsEnabled = formantsEnabled;
+    renderSettings.alignmentDelaySamples = juce::jmax (0, leadLatency - renderer.getLatencySamples (formantsEnabled));
 
     const int inputChannels = juce::jmin (2, untouchedInput.getNumChannels());
     const float* inputs[2] { untouchedInput.getReadPointer (0),
@@ -6169,6 +6211,13 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
 {
     auto state = apvts.copyState();
     state.setProperty ("lastTraceSummary", lastTraceSummary, nullptr);
+    // Restored APVTS state still contains its old extension trees. Replace
+    // those snapshots instead of appending duplicates: readers select the
+    // first child and would otherwise resurrect stale notes/key maps forever.
+    for (const auto* name : { "KeyMap", "PitchEdits" })
+        for (auto previous = state.getChildWithName (name); previous.isValid();
+             previous = state.getChildWithName (name))
+            state.removeChild (previous, nullptr);
 
     // Persist the Track Key Map so reloading a project restores the timeline.
     juce::ValueTree km ("KeyMap");
@@ -6220,6 +6269,8 @@ void SattariAutoPitchAudioProcessor::getStateInformation (juce::MemoryBlock& des
             note.setProperty ("formant", e.formantSemitones, nullptr);
             note.setProperty ("gain", e.gainDb, nullptr);
             note.setProperty ("timeOffset", e.timeOffsetSec, nullptr);
+            for (int v = 0; v < 4; ++v)
+                note.setProperty ("harmony" + juce::String (v + 1), e.harmonyTargets[(size_t) v], nullptr);
             edits.appendChild (note, nullptr);
         }
     }
@@ -6256,6 +6307,17 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto restored = juce::ValueTree::fromXml (*xml);
+        // APVTS retains the current value for absent parameter nodes. An old
+        // project loaded into a reused instance must not inherit new formant
+        // settings from the project/preset that happened to be open before it.
+        for (const auto* id : harmonyFormantIds)
+            if (! restored.getChildWithProperty ("id", id).isValid())
+            {
+                juce::ValueTree neutral ("PARAM");
+                neutral.setProperty ("id", id, nullptr);
+                neutral.setProperty ("value", 0.0f, nullptr);
+                restored.appendChild (neutral, nullptr);
+            }
         bool hasExtendedScale = false;
         std::function<void (const juce::ValueTree&)> findExtendedScale = [&] (const juce::ValueTree& tree)
         {
@@ -6338,6 +6400,9 @@ void SattariAutoPitchAudioProcessor::setStateInformation (const void* data, int 
                     e.formantSemitones = juce::jlimit (-100.0f, 12.0f, (float) (double) note.getProperty ("formant", -100.0));
                     e.gainDb = juce::jlimit (-24.0f, 12.0f, (float) (double) note.getProperty ("gain", 0.0));
                     e.timeOffsetSec = juce::jlimit (-0.5, 0.5, (double) note.getProperty ("timeOffset", 0.0));
+                    for (int v = 0; v < 4; ++v)
+                        e.harmonyTargets[(size_t) v] = juce::jlimit (-2, 127,
+                            (int) note.getProperty ("harmony" + juce::String (v + 1), -1));
                     rebuilt.push_back (e);
                 }
             }

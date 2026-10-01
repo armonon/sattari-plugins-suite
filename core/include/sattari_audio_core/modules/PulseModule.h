@@ -4,6 +4,7 @@
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 
 #include <atomic>
+#include <array>
 #include <cmath>
 
 // =============================================================================
@@ -29,8 +30,8 @@ class PulseModule final : public SattariModule
 public:
     ~PulseModule() override { tempoReader.stop(); }
 
-    static juce::StringArray rateChoices()  { return { "1/1", "1/2", "1/4", "1/4 dot", "1/8", "1/8 trip", "1/16" }; }
-    static juce::StringArray shapeChoices() { return { "Sine", "Saw Down", "Saw Up", "Square", "Spike" }; }
+    static juce::StringArray rateChoices()  { return { rateLabels.data(), (int) rateLabels.size() }; }
+    static juce::StringArray shapeChoices() { return { shapeLabels.data(), (int) shapeLabels.size() }; }
 
     const char* moduleId()    const noexcept override { return "pulse"; }
     const char* displayName() const noexcept override { return "Pulse"; }
@@ -84,8 +85,8 @@ public:
         const double bpm = resolveBpm();
         lastBpm.store (bpm, std::memory_order_relaxed);
 
-        const int   shape  = juce::jlimit (0, shapeChoices().size() - 1, (int) std::round (p ("shape")));
-        const int   rate   = juce::jlimit (0, rateChoices().size() - 1, (int) std::round (p ("rate")));
+        const int   shape  = juce::jlimit (0, (int) shapeLabels.size() - 1, (int) std::round (p ("shape")));
+        const int   rate   = juce::jlimit (0, (int) rateLabels.size() - 1, (int) std::round (p ("rate")));
         const float depth  = juce::jlimit (0.0f, 1.0f, p ("depth"));
         const float smooth = juce::jlimit (0.0f, 1.0f, p ("smooth"));
         const float filter = juce::jlimit (0.0f, 1.0f, p ("filter"));
@@ -168,6 +169,8 @@ public:
     float  currentGain() const noexcept { return lastGain.load (std::memory_order_relaxed); }
 
 private:
+    static constexpr std::array<const char*, 7> rateLabels { "1/1", "1/2", "1/4", "1/4 dot", "1/8", "1/8 trip", "1/16" };
+    static constexpr std::array<const char*, 5> shapeLabels { "Sine", "Saw Down", "Saw Up", "Square", "Spike" };
     // Ducking curve: phase 0 = the beat (deepest duck), returning toward unity.
     static float curveGain (int shape, float phase) noexcept
     {

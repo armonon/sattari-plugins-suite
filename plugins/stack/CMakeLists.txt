@@ -30,6 +30,7 @@ add_executable(SattariStackLayerContract
 
 target_compile_definitions(SattariStackLayerContract
     PUBLIC
+        JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0)
 

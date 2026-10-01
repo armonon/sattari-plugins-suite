@@ -55,15 +55,18 @@ public:
     static juce::String modParamPrefix (int slot) { return "mod" + juce::String (slot + 1) + "."; }
 
     using ModuleFactory = std::function<std::vector<std::unique_ptr<dsp::SattariModule>>()>;
+    using ExtraParameters = std::function<void (dsp::SattariModule::ParamList&)>;
 
     SattariRackProcessor (juce::String displayName,
                           juce::String stateTreeId,
                           const BusesProperties& buses,
                           ModuleFactory factory,
-                          juce::String presetProductId = {})
+                          juce::String presetProductId = {},
+                          ExtraParameters extraParameters = {})
         : juce::AudioProcessor (buses),
           name_ (std::move (displayName)),
           factory_ (std::move (factory)),
+          extraParameters_ (std::move (extraParameters)),
           apvts (*this, nullptr, juce::Identifier (stateTreeId), createLayout()),
           presetBank (apvts, presetProductId.isNotEmpty() ? presetProductId : stateTreeId.toLowerCase())
     {
@@ -379,6 +382,7 @@ private:
                 juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.0f));
         }
 
+        if (extraParameters_) extraParameters_ (p);
         return { p.begin(), p.end() };
     }
 
@@ -472,6 +476,7 @@ private:
 
     juce::String name_;
     ModuleFactory factory_;
+    ExtraParameters extraParameters_;
 
     // DECLARED BEFORE apvts on purpose: createLayout() populates this roster, and it
     // is called while apvts is being constructed — so the vector must already exist.

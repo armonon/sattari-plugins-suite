@@ -16,6 +16,8 @@
 // =============================================================================
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -27,10 +29,12 @@ class SattariPresetManager
 public:
     SattariPresetManager (juce::AudioProcessorValueTreeState& stateToManage,
                           juce::String productId,
-                          juce::String suiteFolderName = "Sattari Audio")
+                          juce::String suiteFolderName = "Sattari Audio",
+                          juce::File presetRoot = {})
         : apvts (stateToManage),
           product (std::move (productId)),
-          suiteFolder (std::move (suiteFolderName))
+          suiteFolder (std::move (suiteFolderName)),
+          directoryOverride (std::move (presetRoot))
     {
     }
 
@@ -38,7 +42,8 @@ public:
 
     juce::File presetDirectory() const
     {
-        auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        auto dir = directoryOverride != juce::File() ? directoryOverride
+                   : juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                        .getChildFile (suiteFolder)
                        .getChildFile ("Presets")
                        .getChildFile (product);
@@ -66,12 +71,35 @@ public:
         return juce::var (object);
     }
 
-    void applyState (const juce::var& state)
+    bool applyState (const juce::var& state)
     {
+        const auto schema = state.getProperty ("schemaVersion", juce::var());
+        if (! state.isObject() || ! schema.isInt() || (int) schema != 1
+            || state.getProperty ("product", juce::var()) != juce::var (product))
+            return false;
         const auto params = state.getProperty ("parameters", juce::var());
         auto* values = params.getDynamicObject();
-        if (values == nullptr)
-            return;
+        if (values == nullptr || values->getProperties().size() == 0)
+            return false;
+
+        // Validate the whole file before notifying the host about ANY change.
+        // JUCE var casts otherwise silently coerce strings/null to zero and may
+        // propagate infinity through a parameter's normalisation function.
+        for (const auto& entry : values->getProperties())
+        {
+            const auto& value = entry.value;
+            if (! (value.isInt() || value.isInt64() || value.isDouble()))
+                return false;
+            const double real = (double) value;
+            if (! std::isfinite (real) || std::abs (real) > std::numeric_limits<float>::max())
+                return false;
+        }
+
+        bool recognised = false;
+        for (auto* p : apvts.processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+                recognised = recognised || values->hasProperty (ranged->paramID);
+        if (! recognised) return false;
 
         for (auto* p : apvts.processor.getParameters())
         {
@@ -84,9 +112,11 @@ public:
 
             const float real = (float) (double) values->getProperty (withId->paramID);
             ranged->beginChangeGesture();
-            ranged->setValueNotifyingHost (ranged->convertTo0to1 (real));
+            const auto& range = ranged->getNormalisableRange();
+            ranged->setValueNotifyingHost (ranged->convertTo0to1 (juce::jlimit (range.start, range.end, real)));
             ranged->endChangeGesture();
         }
+        return true;
     }
 
     // --- Factory presets ------------------------------------------------------
@@ -148,8 +178,8 @@ public:
     //  reloads (that is what factory + user presets are for).
     void captureSlotA() { slotAState = captureState(); slotAHasValue = true; }
     void captureSlotB() { slotBState = captureState(); slotBHasValue = true; }
-    bool recallSlotA()  { if (! slotAHasValue) return false; applyState (slotAState); return true; }
-    bool recallSlotB()  { if (! slotBHasValue) return false; applyState (slotBState); return true; }
+    bool recallSlotA()  { return slotAHasValue && applyState (slotAState); }
+    bool recallSlotB()  { return slotBHasValue && applyState (slotBState); }
     void swapSlots()
     {
         std::swap (slotAState, slotBState);
@@ -159,6 +189,14 @@ public:
     bool hasSlotB() const noexcept { return slotBHasValue; }
 
     // --- User preset files ----------------------------------------------------
+    juce::String newUserPresetName() const
+    {
+        // Rapid saves must not silently overwrite a preset made in this second.
+        return presetDirectory().getNonexistentChildFile (
+            "User " + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S"),
+            fileExtension, false).getFileNameWithoutExtension();
+    }
+
     bool saveUserPreset (const juce::String& name)
     {
         const auto file = fileForName (name);
@@ -172,13 +210,45 @@ public:
 
     bool loadFile (const juce::File& file)
     {
-        if (! file.existsAsFile())
+        constexpr int maxPresetBytes = 1024 * 1024;
+        if (! file.existsAsFile() || file.getSize() > maxPresetBytes)
             return false;
-        const auto parsed = juce::JSON::parse (file.loadFileAsString());
-        if (! parsed.isObject())
+        juce::FileInputStream input (file);
+        if (! input.openedOk()) return false;
+        juce::MemoryBlock bytes;
+        input.readIntoMemoryBlock (bytes, maxPresetBytes + 1);
+        if (input.getStatus().failed() || bytes.getSize() > (size_t) maxPresetBytes)
             return false;
-        applyState (parsed);
-        return true;
+        // JUCE's JSON parser is recursive. Presets have only two object levels;
+        // bound nesting before parsing and reject trailing/truncated documents.
+        int depth = 0;
+        bool quoted = false, escaped = false, started = false;
+        for (size_t i = 0; i < bytes.getSize(); ++i)
+        {
+            const char c = static_cast<const char*> (bytes.getData())[i];
+            if (c == 0) return false;
+            if (quoted)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+                continue;
+            }
+            if (depth == 0)
+            {
+                if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
+                if (started || c != '{') return false;
+                started = true;
+            }
+            if (c == '"') quoted = true;
+            else if (c == '{' || c == '[') { if (++depth > 16) return false; }
+            else if (c == '}' || c == ']') { if (--depth < 0) return false; }
+        }
+        if (! started || quoted || depth != 0
+            || ! juce::CharPointer_UTF8::isValidString (
+                static_cast<const char*> (bytes.getData()), (int) bytes.getSize())) return false;
+        return applyState (juce::JSON::parse (juce::String::fromUTF8 (
+            static_cast<const char*> (bytes.getData()), (int) bytes.getSize())));
     }
 
     bool deleteUserPreset (const juce::String& name)
@@ -207,6 +277,7 @@ private:
     juce::AudioProcessorValueTreeState& apvts;
     juce::String product;
     juce::String suiteFolder;
+    juce::File directoryOverride;
     std::vector<FactoryPreset> factoryPresets;
 
     // A/B slots (in-memory).

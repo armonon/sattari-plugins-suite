@@ -22,7 +22,8 @@ namespace sattari::ui
 //  focuses the selected instrument type while source actions remain attached to
 //  the selected layer.
 // =============================================================================
-class SattariStackEditor : public juce::AudioProcessorEditor
+class SattariStackEditor : public juce::AudioProcessorEditor,
+                           private juce::ChangeListener
 {
 public:
     SattariStackEditor (rack::SattariInstrumentRack& p,
@@ -147,9 +148,14 @@ public:
             }
         selectLayer (firstSelected);
         updateHeaderStatus();
+        audioProcessor.addChangeListener (this);
     }
 
-    ~SattariStackEditor() override { setLookAndFeel (nullptr); }
+    ~SattariStackEditor() override
+    {
+        audioProcessor.removeChangeListener (this);
+        setLookAndFeel (nullptr);
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -203,7 +209,7 @@ public:
         command.removeFromLeft (8);
         savePresetButton.setBounds (command.removeFromLeft (70));
         command.removeFromLeft (8);
-        abRow.setBounds (command.removeFromLeft (94));
+        abRow.setBounds (command.removeFromLeft (124));
 
         area.removeFromTop ((int) studio::metric::gap);
         layerArea = area.removeFromLeft (
@@ -229,10 +235,10 @@ public:
             row.number.setBounds (controls.removeFromLeft (32));
             controls.removeFromLeft (4);
             row.chooser.setBounds (
-                controls.removeFromLeft (150).withSizeKeepingCentre (150, 32));
+                controls.removeFromLeft (132).withSizeKeepingCentre (132, 32));
             controls.removeFromLeft (6);
             row.mute.setBounds (
-                controls.removeFromLeft (72).withSizeKeepingCentre (72, 28));
+                controls.removeFromLeft (90).withSizeKeepingCentre (90, 28));
             controls.removeFromLeft (6);
 
             auto place = [&controls, rowHeight] (
@@ -262,7 +268,7 @@ public:
         focused.removeFromTop (28);
         inspectorViewport.setBounds (focused);
         inspector.setSize (
-            juce::jmax (320, inspectorViewport.getWidth() - 10),
+            juce::jmax (1, inspectorViewport.getWidth() - 10),
             inspector.getHeight());
         repaint();
     }
@@ -299,33 +305,43 @@ private:
         };
         addAndMakeVisible (factoryPreset);
 
-        userPresets.setTitle ("User presets");
-        userPresets.setDescription ("Recall a saved instrument stack");
-        userPresets.setTextWhenNothingSelected ("User presets");
+        userPresets.setTitle ("User settings presets");
+        userPresets.setDescription ("Recall layer types and controls. Imported audio files are not included; save your DAW project to retain source-file references.");
+        userPresets.setTooltip (userPresets.getDescription());
+        userPresets.setTextWhenNothingSelected ("Settings presets");
         userPresets.onChange = [this]
         {
             const auto name = userPresets.getText();
             if (name.isNotEmpty())
             {
-                presetManager.loadUserPreset (name);
+                if (! presetManager.loadUserPreset (name))
+                {
+                    userPresets.setSelectedId (0, juce::dontSendNotification);
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                        "Could not load settings preset", "The preset is missing, unreadable, invalid, or belongs to another product. Your current settings have not changed.");
+                    return;
+                }
                 selectLayer (selectedLayer);
                 updateHeaderStatus();
             }
         };
         addAndMakeVisible (userPresets);
 
-        savePresetButton.setTitle ("Save stack preset");
+        savePresetButton.setTitle ("Save stack settings preset");
         savePresetButton.setDescription (
-            "Save layer instruments, placement and controls");
+            "Save layer types, placement and controls only. Imported audio is not included. Save your DAW project to retain source-file references, and keep those files available.");
+        savePresetButton.setTooltip (savePresetButton.getDescription());
         savePresetButton.onClick = [this]
         {
-            const auto name = "User "
-                + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+            const auto name = presetManager.newUserPresetName();
             if (presetManager.saveUserPreset (name))
             {
                 refreshUserPresets();
                 userPresets.setText (name, juce::dontSendNotification);
             }
+            else
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                    "Could not save settings preset", "Check that your preset folder is writable and that the disk has free space. Your current settings remain active.");
         };
         addAndMakeVisible (savePresetButton);
         addAndMakeVisible (abRow);
@@ -407,11 +423,18 @@ private:
         const auto sourceNameB =
             audioProcessor.sourceNameForLayer (selectedLayer, 1);
         juce::String status = "A / "
+            + juce::String (audioProcessor.sourceUnavailableForLayer (selectedLayer, 0) ? "Missing or unreadable: " : "")
             + (sourceNameA.isNotEmpty() ? sourceNameA : "not loaded");
         if (count >= 2)
             status += "     B / "
+                + juce::String (audioProcessor.sourceUnavailableForLayer (selectedLayer, 1) ? "Missing or unreadable: " : "")
                 + (sourceNameB.isNotEmpty() ? sourceNameB : "not loaded");
         sourceStatus.setText (status, juce::dontSendNotification);
+    }
+
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        updateSourceActions();
     }
 
     void chooseSource (int sourceSlot)

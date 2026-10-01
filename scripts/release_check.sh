@@ -9,7 +9,7 @@
 #                    are the things in the working tree (skip with --no-build).
 #    0b. FRESHNESS — hard-fails if an installed .component does not match what
 #                    this tree built, or if two bundles claim one plug-in ID.
-#    1. CONTRACTS  — every built *Contract executable in build/<tree>.
+#    1. CONTRACTS  — the full registered CTest inventory, including smoke modes.
 #    2. auval      — every installed .component except products marked "excluded"
 #                    in config/products.json, which are SKIPPED OUT LOUD and
 #                    counted separately. The AU TYPE IS READ FROM THE
@@ -44,7 +44,10 @@ for arg in "$@"; do
         *)          TREE="$arg" ;;
     esac
 done
-BUILD="$ROOT/$TREE"
+case "$TREE" in
+    /*) BUILD="$TREE" ;;
+    *) BUILD="$ROOT/$TREE" ;;
+esac
 COMPONENTS="$HOME/Library/Audio/Plug-Ins/Components"
 
 fails=0
@@ -78,7 +81,7 @@ build_phase() {
     # silently drift as products are added.
     local targets
     targets="$(ninja -C "$BUILD" -t targets all 2>/dev/null \
-        | grep -E '^[A-Za-z0-9_]+(_AU|Contract): ' | cut -d: -f1 | sort -u)"
+        | grep -E '^([A-Za-z0-9_]+(_AU|Contract)|AutoPitchRender|SongKeyRender): ' | cut -d: -f1 | sort -u)"
     if [ -z "$targets" ]; then
         echo "  FAIL  could not enumerate _AU/Contract targets from $TREE"
         fails=$((fails+1)); return
@@ -110,7 +113,7 @@ build_phase() {
 #  Detail lives in scripts/check_component_freshness.py.
 staleness_phase() {
     hr; echo "FRESHNESS (does the installed binary match this working tree?)"; hr
-    if out="$(python3 "$ROOT/scripts/check_component_freshness.py" 2>&1)"; then
+    if out="$(python3 "$ROOT/scripts/check_component_freshness.py" "$BUILD" 2>&1)"; then
         printf '  ok    %s\n' "$(printf '%s' "$out" | tail -1)"; pass=$((pass+1))
     else
         printf '  FAIL  component freshness\n'; fails=$((fails+1))
@@ -118,66 +121,21 @@ staleness_phase() {
     fi
 }
 
-# --- 0. Make the contracts hermetic -----------------------------------------
-#  The contracts are NOT self-contained: any plugin that follows the cross-plugin
-#  TEMPO bus (Echo, Space, Pulse, Riser, Warp, Granulator, Side Chain Master...)
-#  falls back to it when the host reports no tempo — and a contract harness has no
-#  playhead, so the bus ALWAYS wins there.
-#
-#  That makes the suite order-dependent in a way that looks like a DSP bug: auval
-#  instantiating Rhythm Genie publishes a live BPM to the bus, and a contract run
-#  afterwards then measures a 1/8 note at THAT tempo instead of the 120 it assumes.
-#  Observed: Echo failed 4 checks inside the gate while passing standalone.
-#
-#  JUCE resolves the bus path through getpwuid, NOT $HOME, so redirecting HOME does
-#  not isolate it. The directory has to be moved aside for real, and restored no
-#  matter how we exit.
-#
-#  Stashing ONCE is not enough: 19 of the contracts touch the bus themselves and
-#  several PUBLISH to it (SattariCrossPluginBus, Brain, AutoPitch, Comp...), so a
-#  contract that runs later reads what an earlier one wrote. The bus is therefore
-#  cleared before EVERY contract, which is the only way to make each one measure
-#  its own DSP rather than its predecessor's side effects.
-BUS_DIR="$HOME/Library/Sattari Audio/cross-plugin"
-BUS_STASH="$(mktemp -d)/cross-plugin"
-restore_bus() {
-    if [ -d "$BUS_STASH" ]; then
-        rm -rf "$BUS_DIR"                       # drop anything the run created
-        mkdir -p "$(dirname "$BUS_DIR")"
-        mv "$BUS_STASH" "$BUS_DIR"
-    fi
-}
-trap restore_bus EXIT
-trap 'restore_bus; exit 130' INT TERM
-if [ -d "$BUS_DIR" ]; then
-    mv "$BUS_DIR" "$BUS_STASH"
-    echo "cross-plugin bus stashed for the contract run (restored on exit)"
-fi
+# Every validation process uses a private session ID. Never move, replace, or
+# clear the live session bus: an open DAW may be using it during validation.
 
 [ $BUILD_FIRST -eq 1 ] && build_phase
 staleness_phase
 
 # --- 1. Contracts ------------------------------------------------------------
 hr; echo "CONTRACTS"; hr
-while IFS= read -r exe; do
-    name="$(basename "$exe")"
-    rm -rf "$BUS_DIR"          # see above: per-contract, not once per run
-    out="$("$exe" 2>&1)"
-    rc=$?
-    last="$(printf '%s' "$out" | tail -1)"
-    if [ $rc -eq 0 ]; then
-        printf '  ok    %-42s %s\n' "$name" "$last"; pass=$((pass+1))
-    else
-        printf '  FAIL  %-42s %s\n' "$name" "$last"; fails=$((fails+1))
-        printf '%s\n' "$out" | sed 's/^/          /' | tail -12
-    fi
-done < <(find "$BUILD" -type f -perm -111 -name '*Contract' \
-    ! -path '*/plugins/stemdeck/*' 2>/dev/null | sort)
+if python3 "$ROOT/scripts/run_release_contracts.py" "$BUILD"; then
+    pass=$((pass+1))
+else
+    fails=$((fails+1))
+fi
 
 # --- 2. auval ----------------------------------------------------------------
-#  Restore the bus BEFORE auval: auval exercises the real plugins, and a plugin
-#  that publishes to the bus should be publishing to the real one.
-restore_bus
 hr; echo "auval (type read from each Info.plist)"; hr
 #  Products marked lifecycle "excluded" in config/products.json are not part of
 #  this release program and are not auval'd. They are announced, NOT dropped
@@ -204,7 +162,7 @@ for comp in "$COMPONENTS"/*.component; do
         printf '  skip  %-28s %s %s   (lifecycle: excluded)\n' "$nm" "$type" "$sub"
         skipped=$((skipped+1)); continue
     fi
-    if auval -v "$type" "$sub" "$manu" 2>&1 | grep -q "VALIDATION SUCCEEDED"; then
+    if SATTARI_SESSION_ID="auval-$(uuidgen)" auval -v "$type" "$sub" "$manu" 2>&1 | grep -q "VALIDATION SUCCEEDED"; then
         printf '  ok    %-28s %s %s\n' "$nm" "$type" "$sub"; pass=$((pass+1))
     else
         printf '  FAIL  %-28s %s %s\n' "$nm" "$type" "$sub"; fails=$((fails+1))

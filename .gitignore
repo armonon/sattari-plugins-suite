@@ -57,6 +57,7 @@ __pycache__/
 
 # Hosted download artifacts (deployed, not committed)
 apps/sattari-web/downloads/
+apps/sattari-web/*.tsbuildinfo
 validation/giantsteps/
 # Key-detection training corpora (fetched via scripts/, multi-GB, not committed)
 validation/gtzan/

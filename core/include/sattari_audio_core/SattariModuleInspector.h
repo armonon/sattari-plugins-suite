@@ -20,8 +20,8 @@ namespace sattari::ui
 class SattariModuleInspector final : public juce::Component
 {
 public:
-    explicit SattariModuleInspector (juce::AudioProcessorValueTreeState& state)
-        : apvts (state)
+    explicit SattariModuleInspector (juce::AudioProcessorValueTreeState& state, bool useGrid = false)
+        : apvts (state), gridLayout (useGrid)
     {
         heading.setText ("Select a module", juce::dontSendNotification);
         heading.setFont (juce::Font (sattari::brand::fontOptions (16.0f, juce::Font::bold)));
@@ -39,14 +39,14 @@ public:
 
         if (moduleId == nullptr || displayName == nullptr)
         {
-            heading.setText ("Select a module", juce::dontSendNotification);
+            heading.setText (gridLayout ? "Empty slot" : "Select a module", juce::dontSendNotification);
             setSize (juce::jmax (getWidth(), 320), 80);
             resized();
             return;
         }
 
         heading.setText (juce::String (displayName)
-                         + (controlsAreShared ? " · shared controls" : " · controls"),
+                         + (controlsAreShared ? " · shared controls" : gridLayout ? "" : " · controls"),
                          juce::dontSendNotification);
 
         const juce::String prefix = juce::String (moduleId) + ".";
@@ -63,6 +63,7 @@ public:
             row->label->setText (parameter->getName (64), juce::dontSendNotification);
             row->label->setJustificationType (juce::Justification::centredLeft);
             row->label->setTitle (parameter->getName (64));
+            if (gridLayout) row->label->setFont (sattari::brand::fontOptions (12.0f));
             addAndMakeVisible (*row->label);
 
             if (dynamic_cast<juce::AudioParameterBool*> (parameter) != nullptr)
@@ -87,9 +88,10 @@ public:
             else
             {
                 row->slider = std::make_unique<juce::Slider>();
-                row->slider->setSliderStyle (juce::Slider::LinearHorizontal);
-                row->slider->setTextBoxStyle (juce::Slider::TextBoxRight,
-                                              false, 72, 20);
+                row->slider->setSliderStyle (gridLayout ? juce::Slider::RotaryHorizontalVerticalDrag : juce::Slider::LinearHorizontal);
+                row->slider->setTextBoxStyle (gridLayout ? juce::Slider::TextBoxBelow : juce::Slider::TextBoxRight,
+                                              false, gridLayout ? 94 : 72, gridLayout ? 24 : 20);
+                row->slider->setScrollWheelEnabled (! gridLayout);
                 const auto range = ranged->getNormalisableRange();
                 row->slider->setRange (range.start, range.end, range.interval);
                 if (range.skew != 1.0f)
@@ -118,6 +120,29 @@ public:
 
     void resized() override
     {
+        if (gridLayout)
+        {
+            const int columns = juce::jlimit (2, 4, (getWidth() - 24) / 160);
+            const int height = 56 + ((int) rows.size() + columns - 1) / columns * 140;
+            if (getHeight() != juce::jmax (100, height)) { setSize (getWidth(), juce::jmax (100, height)); return; }
+            auto area = getLocalBounds().reduced (12, 8);
+            heading.setBounds (area.removeFromTop (34));
+            heading.setFont (sattari::brand::fontOptions (23.0f, juce::Font::bold));
+            area.removeFromTop (12);
+            const int width = area.getWidth() / columns;
+            for (size_t i = 0; i < rows.size(); ++i)
+            {
+                auto cell = juce::Rectangle<int> (area.getX() + (int) i % columns * width,
+                    area.getY() + (int) i / columns * 140, width - 12, 130);
+                auto& row = rows[i];
+                row->label->setBounds (cell.removeFromTop (22));
+                row->label->setJustificationType (juce::Justification::centred);
+                if (row->slider) row->slider->setBounds (cell);
+                if (row->combo) row->combo->setBounds (cell.withHeight (34).translated (0, 24));
+                if (row->button) row->button->setBounds (cell.withHeight (32).translated (8, 24));
+            }
+            return;
+        }
         auto bounds = getLocalBounds().reduced (8);
         heading.setBounds (bounds.removeFromTop (26));
         bounds.removeFromTop (6);
@@ -155,6 +180,7 @@ private:
     };
 
     juce::AudioProcessorValueTreeState& apvts;
+    bool gridLayout = false;
     juce::Label heading;
     std::vector<std::unique_ptr<Row>> rows;
 

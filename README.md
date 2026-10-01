@@ -19,6 +19,7 @@ Vocal & tuning
 - `plugins/voxkey` — voice-to-MIDI.
 
 Rhythm, low-end & mix
+- `plugins/mix` — linked-track studio automixing with editable balance/EQ/dynamics proposals, group audition/undo, and the existing fourteen-module rack. See [`plugins/mix/README.md`](plugins/mix/README.md) for workflow and current limits.
 - `plugins/rhythm-genie` — host-synced MIDI drum-pattern generator.
 - `plugins/sattari-arp` — MIDI arpeggiator.
 - `plugins/sub-conjurer` — low-end / sub generator.

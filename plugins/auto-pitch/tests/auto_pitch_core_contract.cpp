@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PolyphonicContract.h"
 #include "../../../core/tests/ArrangementClipFixture.h"
 #include <sattari_audio_core/SattariEditorRender.h>
 #include <sattari_audio_core/SattariRenderHarness.h>
@@ -140,6 +141,9 @@ bool headerHasVisibleContent (juce::Component& editor)
 }
 }
 
+#include "HarmonyUpgradeContract.h"
+#include "HarmonyFileRender.h"
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -152,6 +156,15 @@ int main (int argc, char** argv)
    #else
     setenv ("SATTARI_SESSION_ID", contractSession.toRawUTF8(), 1);
    #endif
+
+    if (argc > 1 && std::strcmp (argv[1], "--harmony-file") == 0)
+    {
+        if (argc != 6 || (std::strcmp (argv[4], "live") != 0 && std::strcmp (argv[4], "studio") != 0))
+        { std::cerr << "usage: --harmony-file input.wav NEW-output.wav live|studio voices(1-4)\n"; return 2; }
+        return renderHarmonyFile (argv[2], argv[3], std::strcmp (argv[4], "live") == 0, std::atoi (argv[5]));
+    }
+    if (argc == 2 && std::strcmp (argv[1], "--poly-contract") == 0)
+        return polytest::run();
 
     if (argc == 2 && std::strcmp (argv[1], "--source-match-smoke") == 0)
     {
@@ -371,16 +384,19 @@ int main (int argc, char** argv)
             || std::strcmp (argv[1], "--render-ui-pro") == 0
             || std::strcmp (argv[1], "--render-ui-key") == 0
             || std::strcmp (argv[1], "--render-ui-harmony") == 0
+            || std::strcmp (argv[1], "--render-ui-harmony-min") == 0
             || std::strcmp (argv[1], "--render-ui-edit") == 0))
     {
         SattariAutoPitchAudioProcessor processor;
-        const bool minimumSize = std::strcmp (argv[1], "--render-ui-min") == 0;
+        const bool minimumSize = std::strcmp (argv[1], "--render-ui-min") == 0
+                              || std::strcmp (argv[1], "--render-ui-harmony-min") == 0;
         //  The tab strip is gone — one page now. "--render-ui-pro" renders with the
         //  ADVANCED drawer open (the old PRO content), and "--render-ui-edit" is the
         //  same page as the default since the graph is always visible.
         const bool proTab = std::strcmp (argv[1], "--render-ui-pro") == 0;
         const bool keyWs  = std::strcmp (argv[1], "--render-ui-key") == 0;
-        const bool harmWs = std::strcmp (argv[1], "--render-ui-harmony") == 0;
+        const bool harmWs = std::strcmp (argv[1], "--render-ui-harmony") == 0
+                         || std::strcmp (argv[1], "--render-ui-harmony-min") == 0;
         const bool editWs = std::strcmp (argv[1], "--render-ui-edit") == 0;
         const juce::File destination (argv[2]);
         std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
@@ -411,6 +427,8 @@ int main (int argc, char** argv)
                      destination.getFullPathName().toRawUTF8());
         return ok ? 0 : 1;
     }
+
+    if (harmony_upgrade_test::run() != 0) return 1;
 
     SattariAutoPitchAudioProcessor processor;
     // Hosts are allowed to renegotiate format repeatedly. This also exercises

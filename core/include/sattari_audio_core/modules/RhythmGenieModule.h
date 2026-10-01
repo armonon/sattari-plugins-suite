@@ -129,6 +129,8 @@ public:
         kit.reset();
         kitScratch.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
         kitHitCount = 0;
+        generatedMidi.ensureSize (131072);
+        generatedMidi.clear();
         looper.reset();
         loopClockBeats = 0.0;
         wasLoopOn = false;
@@ -258,7 +260,9 @@ public:
 
         drainLiveHits (loopOn, loopFrom);   // editor pad clicks / computer-key hits (fire at block start)
 
-        juce::MidiBuffer generated;
+        // Keep storage across callbacks, including the buffer swapped back by the host.
+        generatedMidi.clear();
+        auto& generated = generatedMidi;
 
         if (! generate)
         {
@@ -651,6 +655,7 @@ private:
     int pendingOffCount = 0;
     int pendingOffScratchCount = 0;
     juce::Random rng;
+    juce::MidiBuffer generatedMidi;
     std::atomic<int> playStep { -1 };  // current 16th-step for the editor grid
 
     // Tempo-bus publishing (audio thread writes atomics; editor timer publishes).

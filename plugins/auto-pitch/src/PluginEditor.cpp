@@ -399,6 +399,18 @@ juce::Rectangle<float> PitchEditTimeline::entryRect (int index) const
     return { x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (5.0f, row - 1.0f) };
 }
 
+juce::Rectangle<float> PitchEditTimeline::harmonyRect (const HarmonyOverlay& voice) const
+{
+    const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
+    const float x0 = juce::jmap ((float) voice.startSec, (float) viewStartSec,
+        (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
+    const float x1 = juce::jmap ((float) voice.endSec, (float) viewStartSec,
+        (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
+    const float row = plot.getHeight() / (float) juce::jmax (1, maxMidi() - minMidi() + 1);
+    const float y = plot.getBottom() - ((float) (voice.midi - minMidi()) + 1.0f) * row;
+    return { x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (4.0f, row - 2.0f) };
+}
+
 int PitchEditTimeline::hitEntry (juce::Point<float> point) const
 {
     for (int i = (int) entries.size() - 1; i >= 0; --i)
@@ -434,30 +446,23 @@ void PitchEditTimeline::paint (juce::Graphics& g)
     }
 
     static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-    // Generated voices are read-only objects behind the lead notes. Their stable
-    // colour/lane labels make the audible arrangement inspectable without
-    // pretending they are independent source recordings.
+    // H1-H4 targets are editable; their timing still belongs to the source note.
     const std::array<juce::Colour, 4> voiceColours {
         juce::Colour (0xff60a5fa), juce::Colour (0xffc084fc),
         juce::Colour (0xff34d399), juce::Colour (0xfff59e0b)
     };
     for (const auto& voice : harmonyOverlays)
     {
-        const float x0 = juce::jmap ((float) voice.startSec, (float) viewStartSec,
-            (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
-        const float x1 = juce::jmap ((float) voice.endSec, (float) viewStartSec,
-            (float) (viewStartSec + viewDurationSec), plot.getX(), plot.getRight());
-        const float y = plot.getBottom() - ((float) (voice.midi - lo) + 1.0f) * row;
-        juce::Rectangle<float> r (x0, y, juce::jmax (5.0f, x1 - x0), juce::jmax (4.0f, row - 2.0f));
+        const auto r = harmonyRect (voice);
         const auto colour = voiceColours[(size_t) juce::jlimit (0, 3, voice.voice)];
-        g.setColour (colour.withAlpha (0.24f));
+        g.setColour (colour.withAlpha (voice.muted ? 0.06f : voice.overridden ? 0.45f : 0.24f));
         g.fillRoundedRectangle (r, 3.0f);
         g.setColour (colour.withAlpha (0.78f));
         g.drawRoundedRectangle (r, 3.0f, 1.0f);
         if (r.getWidth() > 44.0f)
         {
             g.setFont (sattari::brand::fontOptions (8.0f, juce::Font::bold));
-            g.drawText ("H" + juce::String (voice.voice + 1), r.toNearestInt().reduced (3, 0),
+            g.drawText ("H" + juce::String (voice.voice + 1) + (voice.muted ? " M" : voice.overridden ? " *" : ""), r.toNearestInt().reduced (3, 0),
                         juce::Justification::centredLeft, false);
         }
     }
@@ -498,6 +503,31 @@ void PitchEditTimeline::paint (juce::Graphics& g)
 
 void PitchEditTimeline::mouseDown (const juce::MouseEvent& e)
 {
+    selectedHarmony = -1;
+    harmonySourceId = 0;
+    dragRowHeight = getLocalBounds().toFloat().reduced (44.0f, 20.0f).getHeight()
+                 / (float) juce::jmax (1, maxMidi() - minMidi() + 1);
+    // Alt selects a harmony even where its rectangle overlaps the lead.
+    if (hitEntry (e.position) < 0 || e.mods.isAltDown())
+        for (auto it = harmonyOverlays.rbegin(); it != harmonyOverlays.rend(); ++it)
+            if (harmonyRect (*it).contains (e.position))
+            {
+                selected = -1;
+                selectedEntryId = 0;
+                selectedHarmony = it->voice;
+                harmonySourceId = it->sourceId;
+                dragStartTarget = it->midi;
+                dragStartY = e.position.y;
+                if (onSelectionChanged) onSelectionChanged (0);
+                if (e.mods.isPopupMenu() || e.mods.isShiftDown())
+                {
+                    if (onHarmonyChanged) onHarmonyChanged (harmonySourceId, selectedHarmony,
+                        e.mods.isPopupMenu() || it->muted ? -1 : -2);
+                }
+                else if (onGestureBegin) onGestureBegin();
+                repaint();
+                return;
+            }
     selected = hitEntry (e.position);
     selectedEntryId = selected >= 0 ? entries[(size_t) selected].id : 0;
     if (onSelectionChanged) onSelectionChanged (selectedEntryId);
@@ -516,6 +546,14 @@ void PitchEditTimeline::mouseDown (const juce::MouseEvent& e)
 
 void PitchEditTimeline::mouseDrag (const juce::MouseEvent& e)
 {
+    if (selectedHarmony >= 0)
+    {
+        if (e.mods.isPopupMenu() || e.mods.isShiftDown()) return;
+        const int delta = juce::roundToInt ((dragStartY - e.position.y) / juce::jmax (1.0f, dragRowHeight));
+        if (onHarmonyChanged) onHarmonyChanged (harmonySourceId, selectedHarmony,
+            juce::jlimit (0, 127, dragStartTarget + delta));
+        return;
+    }
     if (selected < 0 || selected >= (int) entries.size()) return;
     const auto plot = getLocalBounds().toFloat().reduced (44.0f, 20.0f);
     const float row = plot.getHeight() / (float) juce::jmax (1, maxMidi() - minMidi() + 1);
@@ -531,7 +569,7 @@ void PitchEditTimeline::mouseDrag (const juce::MouseEvent& e)
 
 void PitchEditTimeline::mouseUp (const juce::MouseEvent& e)
 {
-    if (! e.mods.isPopupMenu() && selected >= 0 && onGestureEnd) onGestureEnd();
+    if (! e.mods.isPopupMenu() && (selected >= 0 || selectedHarmony >= 0) && onGestureEnd) onGestureEnd();
 }
 
 void PitchEditTimeline::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -607,7 +645,12 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     userPresets.setTextWhenNothingSelected ("User presets...");
     userPresets.onChange = [this] {
         const auto n = userPresets.getText();
-        if (n.isNotEmpty()) presetManager.loadUserPreset (n);
+        if (n.isNotEmpty() && ! presetManager.loadUserPreset (n))
+        {
+            userPresets.setSelectedId (0, juce::dontSendNotification);
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                "Could not load preset", "The preset is missing, unreadable, invalid, or belongs to another product. Your current settings have not changed.");
+        }
     };
     addAndMakeVisible (savePresetButton);
     addAndMakeVisible (abRow);
@@ -883,19 +926,19 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         strip.readout.setText ("-", juce::dontSendNotification);
         harmonyPanel.addAndMakeVisible (strip.readout);
 
-        const std::array<juce::Slider*, 5> voiceSliders {
-            &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato
+        const std::array<juce::Slider*, 6> voiceSliders {
+            &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato, &strip.formant
         };
-        const std::array<juce::Label*, 5> voiceLabels {
+        const std::array<juce::Label*, 6> voiceLabels {
             &strip.levelLabel, &strip.panLabel, &strip.delayLabel,
-            &strip.detuneLabel, &strip.vibratoLabel
+            &strip.detuneLabel, &strip.vibratoLabel, &strip.formantLabel
         };
-        const std::array<const char*, 5> suffixes { " dB", "", " ms", " ct", " ct" };
-        const std::array<const char*, 5> names { "LEVEL", "PAN", "DELAY", "DETUNE", "VIBRATO" };
-        const std::array<juce::String, 5> ids {
-            id + "Level", id + "Pan", id + "Delay", id + "Detune", id + "Vibrato"
+        const std::array<const char*, 6> suffixes { " dB", "", " ms", " ct", " ct", " st" };
+        const std::array<const char*, 6> names { "LEVEL", "PAN", "DELAY", "DETUNE", "VIBRATO", "FORMANT (STUDIO)" };
+        const std::array<juce::String, 6> ids {
+            id + "Level", id + "Pan", id + "Delay", id + "Detune", id + "Vibrato", id + "Formant"
         };
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < 6; ++i)
         {
             auto& slider = *voiceSliders[(size_t) i];
             slider.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -913,6 +956,9 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
         strip.delayAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[2], strip.delay);
         strip.detuneAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[3], strip.detune);
         strip.vibratoAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[4], strip.vibrato);
+        strip.formantAttach = std::make_unique<SliderAttachment> (audioProcessor.parameters(), ids[5], strip.formant);
+        strip.formant.setComponentID (ids[5]);
+        strip.formant.setTooltip ("Independent vocal-envelope shift in Studio mode. Disabled in Live to preserve its latency. Saved values are retained.");
     }
     wsHarmonyButton.setEnabled (true);
     wsHarmonyButton.onClick = [this] { setWorkspace (Workspace::harmony); };
@@ -1023,6 +1069,15 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     styleKnob (retuneSpeed, true);
     styleKnob (flexTune);
     styleKnob (humanize);
+    retuneSpeed.setComponentID ("speed");
+    flexTune.setComponentID ("amount");
+    humanize.setComponentID ("humanize");
+    doNoHarm.setComponentID ("doNoHarm");
+    flexAmt.setComponentID ("flexTune");
+    polyHarmonyKnob.setComponentID ("polyHarmony");
+    highTrackKnob.setComponentID ("hiTrack");
+    tonalFocusKnob.setComponentID ("tonalFocus");
+    latencyReadout.setComponentID ("engineLatency");
     humanize.textFromValueFunction = [] (double v) {
         return juce::String ((int) std::round (v * 100.0));
     };
@@ -1261,6 +1316,12 @@ SattariAutoPitchAudioProcessorEditor::SattariAutoPitchAudioProcessorEditor (Satt
     zoomOutPitchEdit.onClick = [this] { pitchEditTimeline.zoomOut(); };
     fitPitchEdit.onClick = [this] { pitchEditTimeline.fitAll(); };
     pitchEditTimeline.onEntryChanged = [this] (const auto& entry) { audioProcessor.setPitchEditEntry (entry.id, entry); };
+    pitchEditTimeline.onHarmonyChanged = [this] (juce::int64 id, int voice, int midi)
+    {
+        if (audioProcessor.setHarmonyEditTarget (id, voice, midi))
+            setKeyParam ("usePitchEdits", 1.0f);
+    };
+    pitchEditTimeline.setTooltip ("Drag lead or H1-H4 notes to change pitch. Alt selects overlapping harmony. Shift-click mutes a harmony region; right-click restores its automatic target. Harmony timing follows the source note.");
     pitchEditTimeline.onSelectionChanged = [this] (juce::int64 id) { selectPitchEdit (id); };
     pitchEditTimeline.onGestureBegin = [this] { audioProcessor.beginPitchEditGesture(); };
     pitchEditTimeline.onGestureEnd = [this] { audioProcessor.endPitchEditGesture(); };
@@ -1432,7 +1493,8 @@ void SattariAutoPitchAudioProcessorEditor::registerFactoryPresets()
         {"harmonyEnsembleSpread",0.75f},{"harmonyLowCut",90.0f},
         {"harmonyHighCut",16000.0f},
         {"h1Enable",0},{"h2Enable",0},{"h3Enable",0},{"h4Enable",0},
-        {"h1Solo",0},{"h2Solo",0},{"h3Solo",0},{"h4Solo",0}
+        {"h1Solo",0},{"h2Solo",0},{"h3Solo",0},{"h4Solo",0},
+        {"h1Formant",0},{"h2Formant",0},{"h3Formant",0},{"h4Formant",0}
     };
     auto addWorkflow = [this, &neutral] (const juce::String& name, PV values)
     {
@@ -1538,12 +1600,15 @@ void SattariAutoPitchAudioProcessorEditor::refreshUserPresets()
 
 void SattariAutoPitchAudioProcessorEditor::saveCurrentAsUserPreset()
 {
-    const auto name = "User " + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    const auto name = presetManager.newUserPresetName();
     if (presetManager.saveUserPreset (name))
     {
         refreshUserPresets();
         userPresets.setText (name, juce::dontSendNotification);
     }
+    else
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+            "Could not save preset", "Check that your preset folder is writable and that the disk has free space. Your current settings remain active.");
 }
 
 void SattariAutoPitchAudioProcessorEditor::loadTraceFromClipboard()
@@ -1801,8 +1866,13 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     {
         const int lat = audioProcessor.getLatencySamples();
         const double srNow = audioProcessor.getSampleRate() > 0.0 ? audioProcessor.getSampleRate() : 48000.0;
-        const bool live = liveModeButton.getToggleState();
-        const auto mode = live ? (liveProfile.getSelectedItemIndex() == 1 ? "RANGE"
+        const auto& params = audioProcessor.parameters();
+        const bool transpose = params.getRawParameterValue ("xposeMode")->load() > 0.5f;
+        const bool poly = params.getRawParameterValue ("polyphonic")->load() > 0.5f
+                       && params.getRawParameterValue ("enableCorrection")->load() > 0.5f;
+        const bool live = liveModeButton.getToggleState() && ! transpose && ! poly;
+        const auto mode = transpose ? "TRANSPOSE" : poly ? "POLY"
+                         : live ? (liveProfile.getSelectedItemIndex() == 1 ? "RANGE"
                                 : extremeLiveButton.getToggleState() ? "EXTREME" : "ULTRA")
                                : "STUDIO";
         latencyReadout.setText (juce::String (lat > 0 ? 1000.0 * lat / srNow : 0.0, 1)
@@ -1810,6 +1880,8 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                                 juce::dontSendNotification);
         setControlActive (extremeLiveButton,
                           live && liveProfile.getSelectedItemIndex() == 0);
+        setControlActive (liveModeButton, ! transpose && ! poly);
+        setControlActive (liveProfile, ! transpose && ! poly);
     }
 
     //  Song drop analysis: progress while running, the verdict once done, and the
@@ -1854,12 +1926,15 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
                                   + juce::String (midi / 12 - 1);
         };
         const bool midiMode = harmonyModeBox.getSelectedId() == 3;
+        const bool intervalMode = harmonyModeBox.getSelectedId() == 2;
         juce::String status;
         if (! h.valid)
             status = "Play a vocal to see the planned harmony";
-        else if (midiMode && h.heldNotes == 0)
+        else if (midiMode)
             status = "Lead " + noteName (h.leadMidi)
-                   + "   -   MIDI mode: no notes held, so no harmony is planned";
+                   + "   -   MIDI targets / Edit overrides; held notes: " + juce::String (h.heldNotes);
+        else if (intervalMode)
+            status = "Lead " + noteName (h.leadMidi) + "   -   diatonic intervals / Edit overrides";
         else
             status = "Lead " + noteName (h.leadMidi)
                    + (h.fromChord ? "   -   planning from the detected chord"
@@ -1868,13 +1943,16 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
         for (bool active : h.active) if (active) ++activeVoices;
         harmonyStatusLabel.setText (
             status + "   -   " + juce::String (activeVoices) + " voices rendering"
-                   + "   -   generated notes are visible in Edit",
+                   + "   -   drag H1-H4 in Edit to override pitches",
             juce::dontSendNotification);
         for (int v = 0; v < 4; ++v)
+        {
+            setControlActive (harmonyVoices[(size_t) v].formant, audioProcessor.harmonyFormantsAvailable());
             harmonyVoices[(size_t) v].readout.setText (
                 h.valid && h.active[(size_t) v]
                     ? noteName (h.midi[(size_t) v]) : juce::String ("-"),
                 juce::dontSendNotification);
+        }
     }
 
     // Show only the live engine status; the JSON-trace summary is dev-only.
@@ -1951,6 +2029,7 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     const bool corrOn  = ap.getRawParameterValue ("enableCorrection")->load() > 0.5f;
     const bool xposeOn = ap.getRawParameterValue ("xposeMode")->load() > 0.5f;
     const bool correctionActive = corrOn && ! xposeOn;
+    const bool polyActive = correctionActive && ap.getRawParameterValue ("polyphonic")->load() > 0.5f;
     juce::Component* correctionControls[] = {
         &retuneSpeed, &flexTune, &humanize, &styleSelect, &styleCaptionLabel,
         &retuneSpeedCaption, &flexTuneCaption, &humanizeCaption, &pillRow, &editNotesLabel,
@@ -1962,6 +2041,29 @@ void SattariAutoPitchAudioProcessorEditor::timerCallback()
     };
     for (auto* c : correctionControls)
         setControlActive (*c, correctionActive);
+
+    // The mono correction law and formant/MIDI shaping do not run in Poly.
+    // Leave AMOUNT (historically named flexTune in this editor) and the note
+    // mask active; disable only unsupported controls, without changing presets
+    // or automation values. They become active again when returning to mono.
+    juce::Component* monoOnly[] = {
+        &retuneSpeed, &retuneSpeedCaption, &humanize, &humanizeCaption,
+        &flexAmt, &flexAmtCaption, &transition, &transitionCaption,
+        &throat, &throatCaption, &vibratoKnob, &vibratoCaption,
+        &classicMode, &doNoHarm, &formantPreserve, &formantShift, &formantCaption,
+        &addVibrato, &addVibratoCaption, &vibratoRate, &vibratoRateCaption,
+        &vibratoOnset, &vibratoOnsetCaption, &midiTarget
+    };
+    for (auto* c : monoOnly) setControlActive (*c, correctionActive && ! polyActive);
+    const auto monoHint = polyActive
+        ? "Not used by Poly. Use Amount, Edit Notes, High Tracking and Tonal Focus."
+        : "";
+    for (auto* slider : { &retuneSpeed, &humanize, &flexAmt }) slider->setTooltip (monoHint);
+    doNoHarm.setTooltip (polyActive ? monoHint : "Conservative monophonic correction.");
+    for (auto* c : { (juce::Component*) &polyHarmonyKnob, (juce::Component*) &polyHarmonyCaption,
+                     (juce::Component*) &highTrackKnob, (juce::Component*) &highTrackCaption,
+                     (juce::Component*) &tonalFocusKnob, (juce::Component*) &tonalFocusCaption })
+        setControlActive (*c, polyActive);
 
     // The transpose amount + Match Key are inert until Transpose to Key is engaged.
     setControlActive (transposeSemis, xposeOn);
@@ -1978,6 +2080,8 @@ void SattariAutoPitchAudioProcessorEditor::setControlActive (juce::Component& c,
 void SattariAutoPitchAudioProcessorEditor::setWorkspace (Workspace w)
 {
     workspace = w;
+    for (auto& voice : harmonyVoices)
+        setControlActive (voice.formant, audioProcessor.harmonyFormantsAvailable());
     resized();
 }
 
@@ -2180,15 +2284,15 @@ void SattariAutoPitchAudioProcessorEditor::resized()
             row.removeFromLeft (10);
             strip.readout.setBounds (row);
 
-            const std::array<juce::Slider*, 5> sliders {
-                &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato
+            const std::array<juce::Slider*, 6> sliders {
+                &strip.level, &strip.pan, &strip.delay, &strip.detune, &strip.vibrato, &strip.formant
             };
-            const std::array<juce::Label*, 5> labels {
+            const std::array<juce::Label*, 6> labels {
                 &strip.levelLabel, &strip.panLabel, &strip.delayLabel,
-                &strip.detuneLabel, &strip.vibratoLabel
+                &strip.detuneLabel, &strip.vibratoLabel, &strip.formantLabel
             };
-            const int cellWidth = voiceArea.getWidth() / 5;
-            for (int i = 0; i < 5; ++i)
+            const int cellWidth = voiceArea.getWidth() / 6;
+            for (int i = 0; i < 6; ++i)
             {
                 auto cell = voiceArea.removeFromLeft (cellWidth).reduced (4, 0);
                 labels[(size_t) i]->setBounds (cell.removeFromTop (13));

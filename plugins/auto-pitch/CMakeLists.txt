@@ -131,6 +131,7 @@ target_include_directories(AutoPitchCoreContract
 target_compile_definitions(AutoPitchCoreContract
     PUBLIC
         JucePlugin_Build_Standalone=1
+        JUCE_MODAL_LOOPS_PERMITTED=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0)

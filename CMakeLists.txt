@@ -8,6 +8,7 @@ add_subdirectory(plugins/mix)
 add_subdirectory(plugins/create)
 add_subdirectory(plugins/vocal)
 add_subdirectory(plugins/stack)
+add_subdirectory(plugins/modular)
 add_subdirectory(plugins/sub-conjurer)
 option(SATTARI_INCLUDE_STEMDECK "Configure the separately-gated StemDeck product" OFF)
 if(SATTARI_INCLUDE_STEMDECK)
@@ -215,6 +216,12 @@ if(BUILD_TESTING)
         SattariRackHostContract
         SattariVocalProductContract
         SattariMixProductContract
+        SattariMixAutoMixContract
+        SattariMixUIContract
+        SattariArpUIContract
+        SubConjurerUIContract
+        SattariVocalUIContract
+        SattariCreateUIContract
         SattariCreateProductContract
         AutoPitchCoreContract
         VoxKeyCoreContract
@@ -274,6 +281,8 @@ if(BUILD_TESTING)
     endforeach()
 
     if(TARGET AutoPitchCoreContract)
+        add_test(NAME AutoPitchPolyphonicContract COMMAND $<TARGET_FILE:AutoPitchCoreContract> --poly-contract)
+        set_tests_properties(AutoPitchPolyphonicContract PROPERTIES LABELS "contract;polyphonic;non-stemdeck" TIMEOUT 180)
         add_test(NAME AutoPitchArrangementClipSmoke COMMAND $<TARGET_FILE:AutoPitchCoreContract> --clip-smoke)
         set_tests_properties(AutoPitchArrangementClipSmoke PROPERTIES LABELS "contract;arrangement;non-stemdeck" TIMEOUT 30)
         add_test(NAME AutoPitchSourceMatchSmoke COMMAND $<TARGET_FILE:AutoPitchCoreContract> --source-match-smoke)
@@ -318,6 +327,8 @@ if(BUILD_TESTING)
     endif()
 
     if(TARGET SattariRackHostContract)
+        add_test(NAME SattariPresetManagerContract COMMAND $<TARGET_FILE:SattariRackHostContract> --preset-contract)
+        set_tests_properties(SattariPresetManagerContract PROPERTIES LABELS "contract;presets;non-stemdeck" TIMEOUT 60)
         foreach(rack_ui_product IN ITEMS
                 "SattariMix;mix"
                 "SattariCreate;create"
@@ -393,4 +404,15 @@ if(BUILD_TESTING)
             AutoPitchRenderSmoke AutoPitchHighTracking AutoPitchDynamicKeyHandoff
             PROPERTIES LABELS "render;non-stemdeck")
     endif()
+
+    # Explicit qualification target: every registered test executable, without
+    # AU/VST3/Standalone post-build installation or signing side effects.
+    set(SATTARI_RELEASE_TEST_DEPENDENCIES)
+    foreach(release_target IN ITEMS ${SATTARI_CONTRACT_TARGETS}
+            SongKeyARAContract AutoPitchARAContract SongKeyRender AutoPitchRender SattariStack)
+        if(TARGET ${release_target})
+            list(APPEND SATTARI_RELEASE_TEST_DEPENDENCIES ${release_target})
+        endif()
+    endforeach()
+    add_custom_target(SattariReleaseContracts DEPENDS ${SATTARI_RELEASE_TEST_DEPENDENCIES})
 endif()

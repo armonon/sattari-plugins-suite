@@ -27,6 +27,15 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# A clean tracked diff does not imply a reproducible binary: CMake globs and
+# SwiftPM also compile untracked sources. Check before any build/staging work,
+# including internal packages whose patch cannot contain untracked files.
+untracked_build_sources="$(git -C "$repo_root" ls-files --others --exclude-standard -- CMakeLists.txt cmake core plugins apps/sattari-hub assets config)"
+if [[ -n "$untracked_build_sources" ]]; then
+    echo "untracked binary-bearing source prevents a traceable installer:" >&2
+    echo "$untracked_build_sources" >&2
+    exit 2
+fi
 source_state="clean"
 if ! git -C "$repo_root" diff --quiet --ignore-submodules=all \
    || ! git -C "$repo_root" diff --cached --quiet --ignore-submodules=all; then
@@ -143,6 +152,10 @@ mkdir -p "$legal"
 cp "$repo_root/LICENSE" "$legal/GPL-3.0.txt"
 cp "$repo_root/LICENSING.md" "$legal/LICENSING.md"
 cp "$repo_root/third_party/JUCE/LICENSE.md" "$legal/JUCE-LICENSE.md"
+cp "$repo_root/third_party/rubberband/COPYING" "$legal/RUBBERBAND-COPYING.txt"
+# This is the same pinned SDK used by bundle_auto_pitch_runtime_deps.sh.
+cp "$repo_root/third_party/onnxruntime-osx-universal2-1.22.0/LICENSE" "$legal/ONNXRUNTIME-LICENSE.txt"
+cp "$repo_root/third_party/onnxruntime-osx-universal2-1.22.0/ThirdPartyNotices.txt" "$legal/ONNXRUNTIME-THIRD-PARTY-NOTICES.txt"
 cp "$repo_root/plugins/auto-pitch/models/CREPE-LICENSE.txt" "$legal/CREPE-MIT-LICENSE.txt"
 cp "$repo_root/plugins/auto-pitch/models/model-release.json" "$legal/CREPE-MODEL-PROVENANCE.json"
 source_commit="$(git -C "$repo_root" rev-parse HEAD)"
@@ -159,12 +172,6 @@ source. For an internal-uncommitted package, apply WORKTREE.patch to the base
 commit and use the package-time helpers in Source-Tools/.
 EOF
 if [[ "$source_state" == "internal-uncommitted" ]]; then
-    untracked_build_sources="$(git -C "$repo_root" ls-files --others --exclude-standard -- CMakeLists.txt cmake core plugins)"
-    if [[ -n "$untracked_build_sources" ]]; then
-        echo "untracked binary-bearing source prevents a traceable internal installer:" >&2
-        echo "$untracked_build_sources" >&2
-        exit 2
-    fi
     git -C "$repo_root" diff --binary HEAD > "$legal/WORKTREE.patch"
     git -C "$repo_root" status --short > "$legal/WORKTREE-STATUS.txt"
     mkdir -p "$legal/Source-Tools"

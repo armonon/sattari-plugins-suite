@@ -23,7 +23,9 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
     userPresets.onChange = [this]
     {
         const auto name = userPresets.getText();
-        if (name.isNotEmpty()) presetManager.loadUserPreset (name);
+        if (name.isNotEmpty() && ! presetManager.loadUserPreset (name))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                "Could not load preset", "The preset could not be read. Your settings are unchanged.");
     };
     savePresetButton.onClick = [this] { saveCurrentAsUserPreset(); };
     addAndMakeVisible (savePresetButton);
@@ -63,6 +65,7 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
     keyConfig.accentId = "sattari-arp";
     keyConfig.showFollow = true;
     keyConfig.showAutoKey = false;
+    keyConfig.compact = true;
     keyConfig.rootNames = {
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
     };
@@ -138,6 +141,13 @@ SattariArpAudioProcessorEditor::SattariArpAudioProcessorEditor (
     followEnergyAttach = std::make_unique<ButtonAttachment> (
         params, "followEnergy", followEnergy);
 
+    for (auto* slider : { &gate.slider(), &swing.slider() })
+    {
+        slider->textFromValueFunction = [] (double value) { return juce::String (juce::roundToInt (value * 100)) + "%"; };
+        slider->valueFromTextFunction = [] (const juce::String& value) { return value.getDoubleValue() / 100; };
+        slider->updateText();
+    }
+
     startTimerHz (24);
     timerCallback();
 }
@@ -159,7 +169,7 @@ void SattariArpAudioProcessorEditor::setupCombo (
 void SattariArpAudioProcessorEditor::setupFieldLabel (
     juce::Label& label, const juce::String& text)
 {
-    sattari::studio::styleFieldLabel (label, text);
+    sattari::releaseui::caption (label, text);
     addAndMakeVisible (label);
 }
 
@@ -181,10 +191,10 @@ void SattariArpAudioProcessorEditor::timerCallback()
             : uiState.running ? "GENERATING" : "READY",
         uiState.running || (followsCompass && uiState.compassLive));
     tempoMetric.setValue (
-        juce::String (uiState.bpm, 1), hostSync.getToggleState() ? "BPM · host" : "BPM · free");
+        juce::String (uiState.bpm, 1), hostSync.getToggleState() ? "BPM / host" : "BPM / free");
     heldMetric.setValue (
         juce::String (uiState.heldNotes),
-        uiState.running ? "pattern active" : "play a chord");
+        uiState.running ? "active" : "idle");
     compassMetric.setValue (
         uiState.compassLive
             ? sattari::compass::sectionName (uiState.sectionId).toUpperCase()
@@ -209,13 +219,14 @@ void SattariArpAudioProcessorEditor::refreshUserPresets()
 
 void SattariArpAudioProcessorEditor::saveCurrentAsUserPreset()
 {
-    const auto name = "User "
-        + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    const auto name = presetManager.newUserPresetName();
     if (presetManager.saveUserPreset (name))
     {
         refreshUserPresets();
         userPresets.setText (name, juce::dontSendNotification);
     }
+    else juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+        "Could not save preset", "The preset folder could not be written. Your settings remain active.");
 }
 
 void SattariArpAudioProcessorEditor::setParameterValue (
@@ -267,47 +278,42 @@ void SattariArpAudioProcessorEditor::applyPreset (int presetIndex)
 
 void SattariArpAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    sattari::studio::paintCanvas (g, getLocalBounds(), accent);
-    sattari::studio::paintSurface (g, workspaceArea.toFloat(), true);
-    sattari::studio::paintSurface (g, controlsArea.toFloat());
+    using namespace sattari::releaseui;
+    g.fillAll (canvas);
+    g.setColour (surface); g.fillRect (controlsArea);
+    g.setColour (line);
+    g.drawHorizontalLine (124, 0, (float) getWidth());
+    g.drawHorizontalLine (controlsArea.getY(), 0, (float) getWidth());
+    g.drawVerticalLine (keyArea.getX() - 17, (float) workspaceArea.getY(), (float) workspaceArea.getBottom());
     paintPatternWorkspace (g);
-    sattari::studio::paintSectionTitle (
-        g, controlsArea.reduced (16).removeFromTop (18),
-        "Performance shaping", "automation-ready macros");
+    section (g, controlsArea.reduced (22, 8).removeFromTop (22), "Performance");
 }
 
 void SattariArpAudioProcessorEditor::paintPatternWorkspace (juce::Graphics& g)
 {
     auto titledSequence = sequenceArea;
-    sattari::studio::paintSectionTitle (
+    sattari::releaseui::section (
         g, titledSequence.removeFromTop (22),
-        "Generated pattern", uiState.running ? "live sequence" : "preview");
+        "Pattern contour", "16 steps");
 
     auto grid = sequenceArea.withTrimmedTop (28).toFloat();
     const int patternIndex = (int) audioProcessor.parameters()
                                  .getRawParameterValue ("pattern")->load();
     const float gateValue = audioProcessor.parameters()
                                 .getRawParameterValue ("gate")->load();
-    const int velocity = uiState.running
-        ? uiState.velocity
-        : (int) audioProcessor.parameters()
-              .getRawParameterValue ("fixedVelocity")->load();
-
     constexpr int steps = 16;
-    const float gap = 5.0f;
-    const float width = (grid.getWidth() - gap * (steps - 1)) / (float) steps;
+    const float width = grid.getWidth() / (float) steps;
+    const auto wholeGrid = grid;
+    g.setColour (sattari::releaseui::line.withAlpha (0.55f));
+    for (int row = 0; row < 5; ++row)
+        g.drawHorizontalLine ((int) (grid.getY() + 20 + (grid.getHeight() - 30) * row / 4), grid.getX(), grid.getRight());
     for (int step = 0; step < steps; ++step)
     {
         auto cell = grid.removeFromLeft (width);
-        if (step + 1 < steps) grid.removeFromLeft (gap);
-
         const bool active = uiState.running && step == uiState.step;
-        g.setColour (active ? accent.withAlpha (0.24f)
-                            : sattari::studio::colour::surfaceHigh);
-        g.fillRoundedRectangle (cell, 7.0f);
-        g.setColour (active ? accent
-                            : sattari::studio::colour::separator);
-        g.drawRoundedRectangle (cell.reduced (0.5f), 7.0f, active ? 1.5f : 1.0f);
+        if (active) { g.setColour (accent.withAlpha (0.09f)); g.fillRect (cell); }
+        g.setColour (sattari::releaseui::line.withAlpha (step % 4 == 0 ? 0.9f : 0.35f));
+        g.drawVerticalLine ((int) cell.getX(), cell.getY() + 20, cell.getBottom());
 
         float phase = (float) (step % 8) / 7.0f;
         if (patternIndex == 1) phase = 1.0f - phase;
@@ -322,95 +328,67 @@ void SattariArpAudioProcessorEditor::paintPatternWorkspace (juce::Graphics& g)
         else if (patternIndex == 6)
             phase = 0.55f;
 
-        auto inner = cell.reduced (5.0f);
-        const float noteHeight = 5.0f + phase * (inner.getHeight() * 0.56f);
+        auto inner = cell.reduced (3.0f).withTrimmedTop (28);
         auto note = juce::Rectangle<float> (
-            inner.getX(), inner.getBottom() - noteHeight,
-            inner.getWidth(), juce::jmax (4.0f, noteHeight * gateValue));
+            inner.getX(), inner.getBottom() - 12 - phase * (inner.getHeight() - 20),
+            juce::jmax (3.0f, inner.getWidth() * gateValue), 7.0f);
         g.setColour (active ? accent
-                            : accent.withAlpha (0.42f + phase * 0.24f));
-        g.fillRoundedRectangle (note, 3.0f);
-
-        const float velocityHeight = juce::jlimit (
-            2.0f, 10.0f, (float) velocity / 127.0f * 10.0f);
-        g.setColour (sattari::studio::colour::text.withAlpha (active ? 0.9f : 0.28f));
-        g.fillRoundedRectangle (
-            inner.getX(), inner.getBottom() - velocityHeight,
-            inner.getWidth(), velocityHeight, 2.0f);
-
-        g.setColour (active ? accent : sattari::studio::colour::tertiary);
-        g.setFont (sattari::brand::fontOptions (8.5f, active ? juce::Font::bold : juce::Font::plain));
+                            : accent.withAlpha (0.5f));
+        g.fillRoundedRectangle (note, 2.0f);
+        g.setColour (active ? accent : sattari::releaseui::muted);
+        g.setFont (sattari::brand::fontOptions (10.0f));
         g.drawText (juce::String (step + 1),
                     cell.withTrimmedBottom (cell.getHeight() - 16.0f).toNearestInt(),
                     juce::Justification::centred, false);
     }
+    g.setColour (sattari::releaseui::line);
+    g.drawHorizontalLine ((int) wholeGrid.getBottom(), wholeGrid.getX(), wholeGrid.getRight());
 }
 
 void SattariArpAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced ((int) sattari::studio::metric::outerMargin);
-    header.setBounds (area.removeFromTop (sattari::studio::metric::headerHeight));
-
-    auto command = area.removeFromTop (54);
-    // Every other control in this row is vertically centred at 34 px. The factory
-    // combo used to carry a "Factory" caption above it, which pushed it 16 px low
-    // and left it visibly out of line with its four neighbours — and it was the
-    // only labelled one, while its own placeholder already reads "Factory presets".
-    preset.setBounds (command.removeFromLeft (190).withSizeKeepingCentre (190, 34));
+    auto area = getLocalBounds();
+    header.setBounds (area.removeFromTop (72));
+    auto command = area.removeFromTop (52).reduced (22, 9);
+    preset.setBounds (command.removeFromLeft (190));
     command.removeFromLeft (8);
-    userPresets.setBounds (command.removeFromLeft (170).withSizeKeepingCentre (170, 34));
+    userPresets.setBounds (command.removeFromLeft (170));
     command.removeFromLeft (8);
-    savePresetButton.setBounds (command.removeFromLeft (70).withSizeKeepingCentre (70, 34));
+    savePresetButton.setBounds (command.removeFromLeft (34));
     command.removeFromLeft (8);
-    abRow.setBounds (command.removeFromLeft (94).withSizeKeepingCentre (94, 34));
-    midiLearnButton.setBounds (command.removeFromRight (104).withSizeKeepingCentre (104, 34));
-
-    area.removeFromTop ((int) sattari::studio::metric::gap);
-    workspaceArea = area.removeFromTop (juce::jmax (230, (int) (area.getHeight() * 0.48f)));
-    area.removeFromTop ((int) sattari::studio::metric::gap);
-    controlsArea = area;
-
-    auto workspace = workspaceArea.reduced (16);
-    auto right = workspace.removeFromRight (300);
-    workspace.removeFromRight (14);
-    sequenceArea = workspace;
-    keyArea = right.removeFromTop (90);
+    abRow.setBounds (command.removeFromLeft (108));
+    midiLearnButton.setBounds (command.removeFromRight (100));
+    auto toggles = area.removeFromBottom (48).reduced (22, 8);
+    latch.setBounds (toggles.removeFromLeft (100));
+    inputThru.setBounds (toggles.removeFromLeft (110));
+    hostSync.setBounds (toggles.removeFromLeft (110));
+    followSwing.setBounds (toggles.removeFromLeft (145));
+    followEnergy.setBounds (toggles.removeFromLeft (145));
+    controlsArea = area.removeFromBottom (186);
+    workspaceArea = area.reduced (22, 18);
+    auto workspace = workspaceArea;
+    auto right = workspace.removeFromRight (222);
+    workspace.removeFromRight (32);
+    keyArea = right.removeFromTop (72);
     keyButton.setBounds (keyArea);
-    right.removeFromTop (6);
-    auto modeRow = right.removeFromTop (46);
-    const int fieldGap = 8;
-    auto rateCell = modeRow.removeFromLeft ((modeRow.getWidth() - fieldGap * 2) / 3);
-    modeRow.removeFromLeft (fieldGap);
-    auto patternCell = modeRow.removeFromLeft ((modeRow.getWidth() - fieldGap) / 2);
-    modeRow.removeFromLeft (fieldGap);
+    right.removeFromTop (10);
+    auto metrics = right.removeFromTop (66);
+    tempoMetric.setBounds (metrics.removeFromLeft (116)); heldMetric.setBounds (metrics);
+    right.removeFromTop (6); compassMetric.setBounds (right.removeFromTop (66));
+    auto modeRow = workspace.removeFromTop (52);
+    auto rateCell = modeRow.removeFromLeft (92); modeRow.removeFromLeft (10);
+    auto patternCell = modeRow.removeFromLeft (juce::jmax (145, modeRow.getWidth() * 3 / 5)); modeRow.removeFromLeft (10);
     auto velocityCell = modeRow;
-    rateLabel.setBounds (rateCell.removeFromTop (16));
+    rateLabel.setBounds (rateCell.removeFromTop (18));
     rate.setBounds (rateCell);
-    patternLabel.setBounds (patternCell.removeFromTop (16));
+    patternLabel.setBounds (patternCell.removeFromTop (18));
     pattern.setBounds (patternCell);
-    velocityLabel.setBounds (velocityCell.removeFromTop (16));
+    velocityLabel.setBounds (velocityCell.removeFromTop (18));
     velocityMode.setBounds (velocityCell);
 
-    right.removeFromTop (6);
-    auto metrics = right.removeFromTop (50);
-    const int metricGap = 6;
-    const int metricWidth = (metrics.getWidth() - metricGap * 2) / 3;
-    tempoMetric.setBounds (metrics.removeFromLeft (metricWidth));
-    metrics.removeFromLeft (metricGap);
-    heldMetric.setBounds (metrics.removeFromLeft (metricWidth));
-    metrics.removeFromLeft (metricGap);
-    compassMetric.setBounds (metrics);
-
-    auto controls = controlsArea.reduced (16);
+    workspace.removeFromTop (14); sequenceArea = workspace;
+    auto controls = controlsArea.reduced (22, 10);
     controls.removeFromTop (28);
-    auto toggles = controls.removeFromBottom (30);
-    latch.setBounds (toggles.removeFromLeft (110));
-    inputThru.setBounds (toggles.removeFromLeft (130));
-    hostSync.setBounds (toggles.removeFromLeft (120));
-    followSwing.setBounds (toggles.removeFromLeft (142));
-    followEnergy.setBounds (toggles.removeFromLeft (142));
-    controls.removeFromBottom (8);
-
     const int macroGap = 6;
     const int macroWidth = (controls.getWidth() - macroGap * 6) / 7;
     for (auto* macro : {

@@ -25,13 +25,14 @@
 # =============================================================================
 
 include_guard(GLOBAL)
+option(SATTARI_COPY_PLUGINS_AFTER_BUILD "Install plugin bundles after building" ON)
 
 # Repo root resolved from this file's location (<root>/cmake/SattariPlugin.cmake).
 get_filename_component(SATTARI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 function(sattari_add_plugin)
     set(options       IS_SYNTH NEEDS_MIDI_INPUT NEEDS_MIDI_OUTPUT IS_MIDI_EFFECT EDITOR_WANTS_KEYBOARD_FOCUS IS_ARA_EFFECT)
-    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ARA_SDK_PATH AAX_SDK_PATH)
+    set(oneValueArgs  TARGET SLUG PRODUCT_NAME PLUGIN_CODE MANUFACTURER_CODE COMPANY_NAME VERSION ARA_SDK_PATH AAX_SDK_PATH MICROPHONE_PERMISSION_TEXT)
     set(multiValueArgs FORMATS SOURCES)
     cmake_parse_arguments(SAP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -54,6 +55,9 @@ function(sattari_add_plugin)
     endif()
     if(NOT SAP_FORMATS)
         set(SAP_FORMATS AU VST3 Standalone)
+    endif()
+    if(NOT APPLE)
+        list(REMOVE_ITEM SAP_FORMATS AU AUv3)
     endif()
     if(NOT SAP_PRODUCT_NAME)
         set(SAP_PRODUCT_NAME "${SAP_TARGET}")
@@ -123,6 +127,12 @@ function(sattari_add_plugin)
         endif()
     endforeach()
 
+    set(permission_args)
+    if(SAP_MICROPHONE_PERMISSION_TEXT)
+        list(APPEND permission_args MICROPHONE_PERMISSION_ENABLED TRUE
+            MICROPHONE_PERMISSION_TEXT "${SAP_MICROPHONE_PERMISSION_TEXT}")
+    endif()
+
     juce_add_plugin(${SAP_TARGET}
         COMPANY_NAME                "${SAP_COMPANY_NAME}"
         IS_SYNTH                    ${IS_SYNTH_VAL}
@@ -131,12 +141,13 @@ function(sattari_add_plugin)
         IS_MIDI_EFFECT              ${IS_MIDI_EFFECT_VAL}
         EDITOR_WANTS_KEYBOARD_FOCUS ${EDITOR_WANTS_KEYBOARD_FOCUS_VAL}
         IS_ARA_EFFECT               ${IS_ARA_EFFECT_VAL}
-        COPY_PLUGIN_AFTER_BUILD     TRUE
+        COPY_PLUGIN_AFTER_BUILD     ${SATTARI_COPY_PLUGINS_AFTER_BUILD}
         PLUGIN_MANUFACTURER_CODE    ${SAP_MANUFACTURER_CODE}
         PLUGIN_CODE                 ${SAP_PLUGIN_CODE}
         FORMATS                     ${SAP_FORMATS}
         VERSION                     ${SAP_VERSION}
-        PRODUCT_NAME                "${SAP_PRODUCT_NAME}")
+        PRODUCT_NAME                "${SAP_PRODUCT_NAME}"
+        ${permission_args})
 
     juce_generate_juce_header(${SAP_TARGET})
 

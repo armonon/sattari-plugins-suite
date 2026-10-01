@@ -53,6 +53,14 @@ a:hover{text-decoration:underline}
 img{display:block;max-width:100%}
 .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
 .narrow{max-width:720px;margin:0 auto}
+.modular-feature{padding:56px 0;background:#171a19;color:#f7f8f7;letter-spacing:0}
+.modular-feature .wrap{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+.modular-feature .eyebrow{color:#9ad9b3;letter-spacing:0;font-size:14px}
+.modular-feature h2{font-size:36px;line-height:1.15;letter-spacing:0;margin-bottom:16px}
+.modular-feature p{color:#bdc6c1;font-size:17px;margin-bottom:22px;max-width:440px}
+.modular-feature a{color:#b8e5c9;font-size:17px;text-underline-offset:5px}
+.modular-feature img{width:100%;height:auto}
+@media(max-width:760px){.modular-feature .wrap{grid-template-columns:1fr;gap:30px}.modular-feature h2{font-size:30px}}
 
 .nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.72);
   backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
@@ -370,6 +378,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     </a>
     <div class="nav-links">
       <a href="#suite">Products</a>
+      <a href="modular.html">Modular</a>
       <a href="#status">Testing</a>
       <a href="#racks">System</a>
       <a href="#studio">Product UI</a>
@@ -393,9 +402,9 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <a class="btn" href="#suite">Explore the six products</a>
       <a class="btn-ghost" href="#status">See testing status&nbsp;›</a>
     </div>
-    <p class="hero-note">v0.2.0-alpha · 94/94 checks green · 23 verified release bundles</p>
+    <p class="hero-note">v0.2.0-alpha · Release validation in progress · Public downloads closed</p>
     <div class="hero-stage" aria-label="Current Sattari Compass, Auto Pitch and Stack product interfaces">
-      <div class="hero-stage-label">Real interfaces · current validated v0.2 build</div>
+      <div class="hero-stage-label">Real interfaces · internal development renders</div>
       <figure class="hero-primary"><img src="assets/products/brain.png" alt="Sattari Compass session conductor interface" fetchpriority="high" /></figure>
       <figure class="hero-float hero-key"><img src="assets/products/auto-pitch.png" alt="Sattari Auto Pitch realtime vocal correction interface" /></figure>
       <figure class="hero-float hero-scope"><img src="assets/products/stack.png" alt="Sattari Stack parallel instrument rack interface" /></figure>
@@ -407,8 +416,8 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   <div class="wrap stats-grid">
     <div class="stat"><b>6</b><span>connected products</span></div>
     <div class="stat"><b>3</b><span>Universal Mac formats</span></div>
-    <div class="stat"><b>94/94</b><span>automated checks green</span></div>
-    <div class="stat"><b>23</b><span>verified tester bundles</span></div>
+    <div class="stat"><b>Alpha</b><span>current release stage</span></div>
+    <div class="stat"><b>Closed</b><span>public downloads</span></div>
   </div>
 </section>
 
@@ -425,29 +434,41 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
   </div>
 </section>
 
+<section class="modular-feature" aria-labelledby="modular-heading">
+  <div class="wrap">
+    <div>
+      <div class="eyebrow">Introducing Modular / Release candidate</div>
+      <h2 id="modular-heading">Sattari Modular</h2>
+      <p>Nine effects, two instrument layers and eight macros. Build your own Sattari chain in one analog-inspired studio rack.</p>
+      <a href="modular.html">Explore Sattari Modular</a>
+    </div>
+    <a href="modular.html" aria-label="Explore the Sattari Modular rack"><img src="assets/modular/modular-fx.png" width="1440" height="1000" alt="Sattari Modular FX with a six-slot effects chain, parallel return and analog VU meters" loading="lazy" /></a>
+  </div>
+</section>
+
 <section class="sec grey" id="status">
   <div class="wrap">
     <div class="sec-head">
       <div class="eyebrow">Current build · v0.2.0 alpha</div>
-      <h2>The machines are green. Now the music decides.</h2>
-      <p>All six products have fresh Universal builds, product contracts and host validation.
-        Real-vocal listening, full DAW sessions and Apple distribution credentials remain release gates.</p>
+      <h2>Built for music. Still earning release approval.</h2>
+      <p>The current source is undergoing regression and release validation. Earlier test counts
+        do not certify a newer build. Packaged installation, full DAW sessions and musical listening remain release gates.</p>
     </div>
     <div class="release-panel">
       <article class="release-item">
-        <div class="signal">Green</div>
-        <h3>94/94 checks passed</h3>
-        <p>Seventy-one contracts, 23 audio renders and 20 UI checks cover DSP, rack state, automation, bounds and safety.</p>
+        <div class="signal">Automated coverage</div>
+        <h3>Tests, not a release guarantee</h3>
+        <p>Contracts and render checks exercise DSP, rack state, presets, automation, bounds and safety. Results must match the exact build being distributed.</p>
       </article>
       <article class="release-item">
-        <div class="signal">Green</div>
-        <h3>Auto Pitch measured, not guessed</h3>
-        <p>Embedded CREPE, 0.01-cent mean settled error, honest latency and 3.7× neural realtime headroom in the objective lane.</p>
+        <div class="signal">Musical validation open</div>
+        <h3>Auto Pitch: evidence before claims</h3>
+        <p>Latency, correction and audio-safety tests are part of development. Synthetic accuracy is not a guarantee of natural sound on every voice or instrument.</p>
       </article>
       <article class="release-item">
-        <div class="signal">Green</div>
+        <div class="signal">Target formats</div>
         <h3>Six products. Three formats.</h3>
-        <p>AU, VST3 and standalone bundles pass signature checks; every product passes Apple auval and pluginval strictness 5.</p>
+        <p>AU, VST3 and standalone builds target Apple silicon and Intel Macs. The exact release package must pass native validation and supported-host testing before public availability.</p>
       </article>
       <article class="release-item pending">
         <div class="signal">Human gates open</div>
@@ -811,8 +832,8 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     </details>
     <details>
       <summary>What formats and machines?</summary>
-      <p>All six products now build as Universal macOS Audio Unit, VST3 and Standalone bundles for
-        Apple silicon and Intel, and pass their machine host gates. Public downloads remain closed
+      <p>The suite targets Universal macOS Audio Unit, VST3 and Standalone bundles for
+        Apple silicon and Intel. The neural Auto Pitch package requires macOS 13.3 or later. Public downloads remain closed
         until listening, supported-DAW, Developer ID and notarization evidence is complete.</p>
     </details>
   </div>
@@ -824,11 +845,11 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
     <h2 style="font-size:clamp(30px,4.4vw,46px);font-weight:600;letter-spacing:-.025em;margin-bottom:16px">
       Six-product internal alpha</h2>
     <p style="font-size:19px;color:var(--ink-2);margin-bottom:32px;line-height:1.5">
-      The private Hub package contains Compass, Auto Pitch, Vocal, Mix, Create and Stack in AU,
-      VST3 and standalone formats, plus qualified Arp and Sub Conjurer components. Public downloads
+      The internal alpha package targets Compass, Auto Pitch, Vocal, Mix, Create and Stack in AU,
+      VST3 and standalone formats, plus Arp and Sub Conjurer components. Public downloads
       remain closed until musical, DAW and Apple distribution gates pass.</p>
     <span class="btn" aria-disabled="true">Public download not open</span>
-    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">v0.2.0-alpha · 23 verified bundles · listening, DAW and Apple distribution gates open</p>
+    <p style="margin-top:20px;font-size:13px;color:var(--ink-3)">v0.2.0-alpha · Package, listening, DAW and Apple distribution gates remain open</p>
   </div>
 </section>
 
@@ -838,7 +859,7 @@ footer{border-top:1px solid var(--line-2);padding:44px 0;background:var(--bg-2)}
       <img src="assets/sattari-logo-white.png" alt="Sattari Musical Instruments USA" />
       <span>© <span id="yr"></span></span>
     </div>
-    <div><a href="#suite">Products</a> · <a href="#status">Testing</a> · <a href="#plugins">Plugins</a></div>
+    <div><a href="#suite">Products</a> · <a href="modular.html">Modular</a> · <a href="#status">Testing</a> · <a href="#plugins">Plugins</a></div>
   </div>
 </footer>
 

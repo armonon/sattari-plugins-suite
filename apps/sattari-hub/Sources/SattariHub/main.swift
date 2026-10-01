@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import Foundation
 
-struct HubManifest: Codable {
+struct HubManifest: Codable, Sendable {
     let schemaVersion: Int
     let suiteName: String
     let suiteVersion: String
@@ -14,7 +14,7 @@ struct HubManifest: Codable {
     let products: [HubProduct]
 }
 
-struct HubSuite: Codable {
+struct HubSuite: Codable, Sendable {
     let id: String
     let name: String
     let verb: String
@@ -24,7 +24,7 @@ struct HubSuite: Codable {
     let primary: String
 }
 
-struct HubProduct: Codable {
+struct HubProduct: Codable, Sendable {
     let id: String
     let name: String
     let category: String
@@ -43,10 +43,30 @@ struct HubProduct: Codable {
     let suiteRole: String?
 }
 
-struct InstallBundle: Codable {
+struct InstallBundle: Codable, Sendable {
     let kind: String
     let relativeSourcePath: String
     let installSubpath: String
+
+    var hasSafePaths: Bool {
+        func relative(_ path: String) -> Bool {
+            !path.isEmpty && !path.hasPrefix("/") && !path.contains("\\")
+                && !path.contains("\0") && path.split(separator: "/", omittingEmptySubsequences: false)
+                    .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+        }
+        let directory: String
+        let suffix: String
+        switch kind {
+        case "AU": directory = "Library/Audio/Plug-Ins/Components/"; suffix = ".component"
+        case "VST3": directory = "Library/Audio/Plug-Ins/VST3/"; suffix = ".vst3"
+        case "Standalone": directory = "Applications/"; suffix = ".app"
+        default: return false
+        }
+        guard relative(relativeSourcePath), relative(installSubpath),
+              relativeSourcePath.hasSuffix(suffix), installSubpath.hasPrefix(directory) else { return false }
+        let filename = String(installSubpath.dropFirst(directory.count))
+        return !filename.contains("/") && filename.count > suffix.count && filename.hasSuffix(suffix)
+    }
 }
 
 struct InstallReceipt: Codable {
@@ -61,7 +81,8 @@ enum SessionIdentity {
     static let defaultsKey = "SattariSessionIdentity"
 
     static func sanitise(_ value: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        // Keep this byte-for-byte compatible with the C++ session bus.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         let filtered = String(value.unicodeScalars.filter { allowed.contains($0) })
         return String(filtered.prefix(48))
     }
@@ -109,18 +130,36 @@ enum SessionIdentity {
     }
 }
 
+struct HubInstallConfiguration: Sendable {
+    let manifest: HubManifest
+    let storageRoot: URL
+    let installationRoot: URL
+    let sourceRoot: URL?
+}
+
 final class HubModel {
     let manifest: HubManifest
     let repoRoot: URL?
     private let fileManager = FileManager.default
     private let appSupport: URL
     private let receiptsURL: URL
+    private let installationRoot: URL
     private(set) var receipts: [String: InstallReceipt]
 
-    init() throws {
-        manifest = try Self.loadManifest()
-        repoRoot = Self.resolveRepoRoot()
-        appSupport = fileManager.homeDirectoryForCurrentUser
+    var installConfiguration: HubInstallConfiguration {
+        HubInstallConfiguration(manifest: manifest, storageRoot: appSupport,
+                                installationRoot: installationRoot, sourceRoot: repoRoot)
+    }
+
+    func reloadReceipts() { receipts = Self.loadReceipts(from: receiptsURL) }
+
+    init(manifest suppliedManifest: HubManifest? = nil, storageRoot: URL? = nil,
+         installationRoot suppliedInstallationRoot: URL? = nil, sourceRoot: URL? = nil) throws {
+        manifest = try suppliedManifest ?? Self.loadManifest()
+        try Self.validateManifest(manifest)
+        repoRoot = sourceRoot ?? Self.resolveRepoRoot()
+        installationRoot = suppliedInstallationRoot ?? fileManager.homeDirectoryForCurrentUser
+        appSupport = storageRoot ?? fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Sattari Hub", isDirectory: true)
         receiptsURL = appSupport.appendingPathComponent("receipts.json")
         try fileManager.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -131,6 +170,11 @@ final class HubModel {
         let decoder = JSONDecoder()
         let candidates: [URL?] = [
             Bundle.main.resourceURL?.appendingPathComponent("sattari-products.json"),
+            // SwiftPM places resources in a sibling bundle, while the packaged
+            // .app uses Contents/Resources directly. Do not eagerly evaluate
+            // Bundle.module: it traps if the optional SwiftPM bundle is absent.
+            Bundle(url: Bundle.main.bundleURL.appendingPathComponent("SattariHub_SattariHub.bundle"))?
+                .resourceURL?.appendingPathComponent("sattari-products.json"),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appendingPathComponent("Sources/SattariHub/Resources/sattari-products.json"),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -147,6 +191,7 @@ final class HubModel {
         guard let bundledManifest else {
             throw NSError(domain: "SattariHub", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing sattari-products.json"])
         }
+        try validateManifest(bundledManifest)
 
         if ProcessInfo.processInfo.environment["SATTARI_HUB_OFFLINE"] == "1" {
             return bundledManifest
@@ -161,11 +206,26 @@ final class HubModel {
            Self.sha256(data) == expectedHash.lowercased(),
            let remoteManifest = try? decoder.decode(HubManifest.self, from: data),
            remoteManifest.schemaVersion == bundledManifest.schemaVersion,
-           remoteManifest.products.count >= bundledManifest.products.count {
+           remoteManifest.products.count >= bundledManifest.products.count,
+           (try? validateManifest(remoteManifest)) != nil {
             return remoteManifest
         }
 
         return bundledManifest
+    }
+
+    static func validateManifest(_ manifest: HubManifest) throws {
+        var ids = Set<String>(), destinations = Set<String>()
+        guard manifest.schemaVersion == 1 else {
+            throw NSError(domain: "SattariHub", code: 17, userInfo: [NSLocalizedDescriptionKey: "Unsupported package manifest version."])
+        }
+        for product in manifest.products {
+            guard !product.id.isEmpty, SessionIdentity.sanitise(product.id) == product.id,
+                  ids.insert(product.id).inserted,
+                  product.bundles.allSatisfy({ $0.hasSafePaths && destinations.insert($0.installSubpath.lowercased()).inserted }) else {
+                throw NSError(domain: "SattariHub", code: 18, userInfo: [NSLocalizedDescriptionKey: "Unsafe or duplicate package paths in the manifest. Nothing was installed."])
+            }
+        }
     }
 
     static func sha256(_ data: Data) -> String {
@@ -207,6 +267,7 @@ final class HubModel {
     }
 
     func sourceURL(for bundle: InstallBundle) -> URL? {
+        guard bundle.hasSafePaths else { return nil }
         var repositoryCandidates: [URL?] = []
         let autoPitchPrefix = "build/all/plugins/auto-pitch/"
         if bundle.relativeSourcePath.hasPrefix(autoPitchPrefix) {
@@ -271,7 +332,7 @@ final class HubModel {
     }
 
     func destinationURL(for bundle: InstallBundle) -> URL {
-        fileManager.homeDirectoryForCurrentUser.appendingPathComponent(bundle.installSubpath)
+        installationRoot.appendingPathComponent(bundle.installSubpath)
     }
 
     func productIsAvailable(_ product: HubProduct) -> Bool {
@@ -308,9 +369,15 @@ final class HubModel {
         let backup: URL?
     }
 
-    func install(product: HubProduct) throws -> String {
+    func install(product: HubProduct, control: InstallControl = InstallControl()) throws -> String {
+        try control.checkpoint("Checking \(product.name)…")
+        guard manifest.products.contains(where: { $0.id == product.id }),
+              product.bundles.allSatisfy(\.hasSafePaths),
+              SessionIdentity.sanitise(product.id) == product.id else {
+            throw NSError(domain: "SattariHub", code: 18, userInfo: [NSLocalizedDescriptionKey: "Invalid package paths. Nothing was installed."])
+        }
         if !productIsAvailable(product) {
-            try prepareRemotePayloadIfAvailable(for: product)
+            try prepareRemotePayloadIfAvailable(for: product, control: control)
         }
 
         let sources = product.bundles.map { sourceURL(for: $0) }
@@ -333,6 +400,7 @@ final class HubModel {
 
         var prepared: [PreparedBundle] = []
         for (index, bundle) in product.bundles.enumerated() {
+            try control.checkpoint("Staging \(product.name) — \(bundle.kind) (\(index + 1)/\(product.bundles.count))…")
             let source = sources[index]!
             let staged = stagingRoot.appendingPathComponent(
                 "\(index)-\(source.lastPathComponent)", isDirectory: true)
@@ -353,11 +421,13 @@ final class HubModel {
             "Backups/\(product.id)", isDirectory: true)
         try fileManager.createDirectory(at: backupRoot, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: ":", with: "-") + "-" + UUID().uuidString
         var committed: [CommittedBundle] = []
+        let previousReceipts = receipts
 
         do {
             for (index, item) in prepared.enumerated() {
+                try control.checkpoint("Installing \(product.name) — \(item.bundle.kind) (\(index + 1)/\(prepared.count))…")
                 try fileManager.createDirectory(
                     at: item.destination.deletingLastPathComponent(),
                     withIntermediateDirectories: true)
@@ -366,49 +436,54 @@ final class HubModel {
                 if fileManager.fileExists(atPath: item.destination.path) {
                     let candidate = backupRoot.appendingPathComponent(
                         "\(stamp)-\(index)-\(item.destination.lastPathComponent)")
-                    try? fileManager.removeItem(at: candidate)
                     try fileManager.moveItem(at: item.destination, to: candidate)
                     backup = candidate
                 }
 
-                do {
-                    try fileManager.moveItem(at: item.staged, to: item.destination)
-                    ensureInstalledPermissions(at: item.destination)
-                    guard bundleIsUsable(at: item.destination, bundle: item.bundle) else {
-                        throw NSError(domain: "SattariHub", code: 4, userInfo: [
-                            NSLocalizedDescriptionKey:
-                                "Installed \(item.bundle.kind) bundle failed post-copy validation."
-                        ])
-                    }
-                    committed.append(CommittedBundle(
-                        destination: item.destination, backup: backup))
-                } catch {
-                    try? fileManager.removeItem(at: item.destination)
-                    if let backup { try? fileManager.moveItem(at: backup, to: item.destination) }
-                    throw error
+                // Record the in-flight item too, so one rollback path owns all
+                // restoration and can report a secondary filesystem failure.
+                committed.append(CommittedBundle(destination: item.destination, backup: backup))
+                try fileManager.moveItem(at: item.staged, to: item.destination)
+                ensureInstalledPermissions(at: item.destination)
+                guard bundleIsUsable(at: item.destination, bundle: item.bundle) else {
+                    throw NSError(domain: "SattariHub", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Installed \(item.bundle.kind) bundle failed post-copy validation."
+                    ])
                 }
             }
+            // A successful receipt is part of the install transaction, not an
+            // afterthought. A full/read-only disk must roll bundles back too.
+            try control.checkpoint("Saving installation receipt for \(product.name)…")
+            receipts[product.id] = InstallReceipt(
+                productId: product.id, version: product.version,
+                installedAt: ISO8601DateFormatter().string(from: Date()),
+                bundleCount: prepared.count, updateChannel: manifest.defaultUpdateChannel)
+            try saveReceipts()
         } catch {
+            receipts = previousReceipts
+            var recoveryFailures: [String] = []
             for item in committed.reversed() {
-                try? fileManager.removeItem(at: item.destination)
-                if let backup = item.backup {
-                    try? fileManager.moveItem(at: backup, to: item.destination)
-                }
+                do {
+                    if fileManager.fileExists(atPath: item.destination.path) {
+                        try fileManager.removeItem(at: item.destination)
+                    }
+                    if let backup = item.backup {
+                        try fileManager.moveItem(at: backup, to: item.destination)
+                    }
+                } catch { recoveryFailures.append("\(item.destination.lastPathComponent): \(error.localizedDescription)") }
+            }
+            if !recoveryFailures.isEmpty {
+                throw NSError(domain: "SattariHub", code: 21, userInfo: [
+                    NSUnderlyingErrorKey: error,
+                    NSLocalizedDescriptionKey: "Installation did not complete. Recovery needs attention: \(recoveryFailures.joined(separator: "; ")). Recovery backups: \(backupRoot.path)"
+                ])
             }
             throw error
         }
 
         let superseded = retireSupersededBundles(
             installed: committed.map(\.destination), backupRoot: backupRoot, stamp: stamp)
-
-        receipts[product.id] = InstallReceipt(
-            productId: product.id,
-            version: product.version,
-            installedAt: ISO8601DateFormatter().string(from: Date()),
-            bundleCount: prepared.count,
-            updateChannel: manifest.defaultUpdateChannel
-        )
-        try saveReceipts()
 
         var message = "Installed and verified \(prepared.count) bundle(s) for \(product.name)."
         if superseded > 0 {
@@ -522,7 +597,7 @@ final class HubModel {
                 String(data: data, encoding: .utf8) ?? "")
     }
 
-    func prepareRemotePayloadIfAvailable(for product: HubProduct) throws {
+    func prepareRemotePayloadIfAvailable(for product: HubProduct, control: InstallControl = InstallControl()) throws {
         guard let archiveURLString = product.updateArchiveURL,
               let archiveURL = URL(string: archiveURLString),
               let expectedHash = product.updateArchiveSHA256,
@@ -540,28 +615,40 @@ final class HubModel {
         try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: payloadsDir, withIntermediateDirectories: true)
 
-        let archivePath = downloadsDir.appendingPathComponent(archiveURL.lastPathComponent)
+        let archivePath = downloadsDir.appendingPathComponent(UUID().uuidString + ".tar.gz")
+        defer { try? fileManager.removeItem(at: archivePath) }
         let payloadRoot = payloadsDir.appendingPathComponent(
             "\(archiveCacheName(for: archiveURL))-\(expectedHash.prefix(12))",
             isDirectory: true)
 
         if !fileManager.fileExists(atPath: payloadRoot.path) {
-            let data = try Data(contentsOf: archiveURL)
-            guard data.count == expectedBytes else {
+            try control.checkpoint("Downloading \(product.name)…")
+            try downloadArchive(from: archiveURL, to: archivePath, control: control)
+            let size = try archivePath.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            guard size.map(Int64.init) == expectedBytes else {
                 throw NSError(domain: "SattariHub", code: 6, userInfo: [
                     NSLocalizedDescriptionKey:
                         "Downloaded archive size mismatch for \(product.name)."
                 ])
             }
-            guard Self.sha256(data) == expectedHash.lowercased() else {
+            try control.checkpoint("Verifying \(product.name)…")
+            let stream = try FileHandle(forReadingFrom: archivePath)
+            defer { try? stream.close() }
+            var digest = SHA256()
+            while let chunk = try stream.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+                try control.checkCancellation()
+                digest.update(data: chunk)
+            }
+            guard digest.finalize().map({ String(format: "%02x", $0) }).joined() == expectedHash.lowercased() else {
                 throw NSError(domain: "SattariHub", code: 7, userInfo: [
                     NSLocalizedDescriptionKey:
                         "Downloaded archive checksum mismatch for \(product.name)."
                 ])
             }
-            try data.write(to: archivePath, options: [.atomic])
             try? fileManager.removeItem(at: payloadRoot)
             try fileManager.createDirectory(at: payloadRoot, withIntermediateDirectories: true)
+            var extracted = false
+            defer { if !extracted { try? fileManager.removeItem(at: payloadRoot) } }
 
             let (listStatus, listOutput) = try runToolCapturingOutput(
                 "/usr/bin/tar", ["-tzf", archivePath.path])
@@ -594,6 +681,7 @@ final class HubModel {
                 ])
             }
 
+            try control.checkpoint("Extracting \(product.name)…")
             let (extractStatus, _) = try runToolCapturingOutput(
                 "/usr/bin/tar", ["-xzf", archivePath.path, "-C", payloadRoot.path])
             if extractStatus != 0 {
@@ -603,6 +691,8 @@ final class HubModel {
                         "Could not extract update archive for \(product.name)."
                 ])
             }
+            try control.checkCancellation()
+            extracted = true
         }
 
         guard productIsAvailable(product) else {
@@ -622,7 +712,7 @@ final class HubModel {
     }
 }
 
-final class HubWindowController: NSWindowController {
+final class HubWindowController: NSWindowController, NSWindowDelegate {
     private let model: HubModel
     private let stack = NSStackView()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -630,6 +720,13 @@ final class HubWindowController: NSWindowController {
     private let dawMenu = NSPopUpButton()
     private var dawURLs: [URL] = []
     private var expandedSuites: Set<String> = []
+    private let installQueue = DispatchQueue(label: "com.sattari.hub.install", qos: .userInitiated)
+    private var activeInstall: InstallControl?
+    private let installProgress = NSProgressIndicator()
+    private let cancelInstallButton = NSButton(title: "Cancel", target: nil, action: nil)
+    private var disabledControls: [(NSControl, Bool)] = []
+
+    var isInstalling: Bool { activeInstall != nil }
 
     init(model: HubModel) {
         self.model = model
@@ -642,6 +739,7 @@ final class HubWindowController: NSWindowController {
         window.title = "Sattari Hub"
         window.center()
         super.init(window: window)
+        window.delegate = self
         buildUI()
     }
 
@@ -670,7 +768,9 @@ final class HubWindowController: NSWindowController {
         title.textColor = .white
         root.addArrangedSubview(title)
 
-        let subtitle = NSTextField(labelWithString: "Installer + updater hub • \(model.manifest.suiteVersion) • \(model.manifest.defaultUpdateChannel)")
+        let onlineUpdates = model.manifest.products.contains { model.productCanDownloadUpdate($0) }
+        let mode = onlineUpdates ? "Installer + updater hub" : "Offline installer + local updates"
+        let subtitle = NSTextField(labelWithString: "\(mode) • \(model.manifest.suiteVersion) • \(model.manifest.defaultUpdateChannel)")
         subtitle.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         subtitle.textColor = NSColor(calibratedWhite: 0.75, alpha: 1)
         root.addArrangedSubview(subtitle)
@@ -690,6 +790,8 @@ final class HubWindowController: NSWindowController {
 
         statusLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         statusLabel.textColor = NSColor(calibratedWhite: 0.85, alpha: 1)
+        statusLabel.maximumNumberOfLines = 4
+        statusLabel.lineBreakMode = .byWordWrapping
         let bundledCount = model.manifest.products.filter { model.productIsAvailable($0) }.count
         statusLabel.stringValue = model.repoRoot == nil
             ? "Bundled package mode: \(bundledCount) product(s) available inside this Hub."
@@ -749,6 +851,16 @@ final class HubWindowController: NSWindowController {
         updateAll.bezelStyle = .rounded
         actionRow.addArrangedSubview(installAll)
         actionRow.addArrangedSubview(updateAll)
+        installProgress.style = .spinning
+        installProgress.controlSize = .small
+        installProgress.isHidden = true
+        cancelInstallButton.target = self
+        cancelInstallButton.action = #selector(cancelInstallClicked(_:))
+        cancelInstallButton.bezelStyle = .rounded
+        cancelInstallButton.isHidden = true
+        cancelInstallButton.toolTip = "Cancel downloads immediately; finish the current file operation and restore any in-progress installation. Completed products remain installed."
+        actionRow.addArrangedSubview(installProgress)
+        actionRow.addArrangedSubview(cancelInstallButton)
         root.addArrangedSubview(actionRow)
 
         let scrollView = NSScrollView()
@@ -883,7 +995,7 @@ final class HubWindowController: NSWindowController {
         }
         install.toolTip = shipping.isEmpty
             ? "This suite is a preview and has no public install profile."
-            : "Installs only the evidence-backed alpha products in this suite."
+            : "Installs the configured alpha products in this suite. Alpha availability is not public-release approval."
         header.addArrangedSubview(install)
 
         let state = NSTextField(labelWithString: primary.map { model.statusText(for: $0) }
@@ -948,13 +1060,7 @@ final class HubWindowController: NSWindowController {
     @objc private func installClicked(_ sender: NSButton) {
         guard let productId = sender.identifier?.rawValue,
               let product = model.manifest.products.first(where: { $0.id == productId }) else { return }
-        do {
-            statusLabel.stringValue = try model.install(product: product)
-            reloadProductCards()
-        } catch {
-            statusLabel.stringValue = "Install failed: \(error.localizedDescription)"
-            NSSound.beep()
-        }
+        installMany(products: [product], label: product.name)
     }
 
     @objc private func toggleSuiteClicked(_ sender: NSButton) {
@@ -1024,38 +1130,132 @@ final class HubWindowController: NSWindowController {
     }
 
     private func installMany(products: [HubProduct], label: String) {
-        var installed = 0
-        var failed: [String] = []
-        for product in products {
-            do {
-                _ = try model.install(product: product)
-                installed += 1
-            } catch {
-                failed.append("\(product.name) (\(error.localizedDescription))")
+        guard !isInstalling else { return }
+        let configuration = model.installConfiguration
+        let control = InstallControl { [weak self] message in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.activeInstall?.isCancelled == false else { return }
+                self.statusLabel.stringValue = message
             }
         }
-        if failed.isEmpty {
-            statusLabel.stringValue = "\(label): installed \(installed) of \(products.count) product(s). Restart or rescan your DAW."
-        } else {
-            statusLabel.stringValue = "\(label): \(installed)/\(products.count) installed. Failed: \(failed.joined(separator: "; "))"
-            NSSound.beep()
+        activeInstall = control
+        setInstallBusy(true)
+        statusLabel.stringValue = "\(label): preparing \(products.count) product(s)…"
+        // This model belongs exclusively to the serial worker. AppKit keeps its
+        // own model and reloads receipts only after the worker has finished.
+        installQueue.async { [weak self] in
+            var installed = 0
+            var failed: [String] = []
+            do {
+                let worker = try HubModel(manifest: configuration.manifest,
+                    storageRoot: configuration.storageRoot, installationRoot: configuration.installationRoot,
+                    sourceRoot: configuration.sourceRoot)
+                for product in products {
+                    if control.isCancelled { break }
+                    do {
+                        _ = try worker.install(product: product, control: control)
+                        installed += 1
+                    } catch {
+                        // Do not hide a failed rollback behind a cancellation.
+                        if !control.isCancelled || (error as NSError).code != NSUserCancelledError {
+                            failed.append("\(product.name) (\(error.localizedDescription))")
+                        }
+                        if control.isCancelled || ((error as NSError).domain == "SattariHub" && (error as NSError).code == 21) { break }
+                    }
+                }
+            } catch { failed.append(error.localizedDescription) }
+            let message = "\(label): \(installed)/\(products.count) installed. "
+                + (control.isCancelled ? "Cancelled; completed products remain installed. "
+                    : (failed.isEmpty ? "Restart or rescan your DAW. " : "Review the recovery details before opening your DAW. "))
+                + (failed.isEmpty ? "" : "Needs attention: \(failed.joined(separator: "; "))")
+            let hasFailures = !failed.isEmpty
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.activeInstall = nil
+                self.model.reloadReceipts()
+                self.setInstallBusy(false)
+                self.statusLabel.stringValue = message
+                self.statusLabel.toolTip = message
+                self.reloadProductCards()
+                if hasFailures { NSSound.beep() }
+            }
         }
-        reloadProductCards()
+    }
+
+    private func setInstallBusy(_ busy: Bool) {
+        installProgress.isHidden = !busy
+        cancelInstallButton.isHidden = !busy
+        cancelInstallButton.isEnabled = busy
+        if busy {
+            installProgress.startAnimation(nil)
+            func disable(_ view: NSView) {
+                if let control = view as? NSControl, control !== cancelInstallButton,
+                   control is NSButton || control === sessionField || control === dawMenu {
+                    disabledControls.append((control, control.isEnabled))
+                    control.isEnabled = false
+                }
+                view.subviews.forEach(disable)
+            }
+            if let view = window?.contentView { disable(view) }
+        } else {
+            installProgress.stopAnimation(nil)
+            disabledControls.forEach { $0.0.isEnabled = $0.1 }
+            disabledControls.removeAll()
+        }
+    }
+
+    @objc private func cancelInstallClicked(_ sender: NSButton) { requestSafeCancellation() }
+
+    func requestSafeCancellation() {
+        activeInstall?.cancel()
+        cancelInstallButton.isEnabled = false
+        statusLabel.stringValue = "Cancelling safely after the current file operation. Please keep Hub open while recovery finishes…"
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isInstalling { requestSafeCancellation(); return false }
+        return true
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: HubWindowController?
+    private var loadingWindow: NSWindow?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if controller?.isInstalling == true {
+            controller?.requestSafeCancellation()
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        do {
-            controller = HubWindowController(model: try HubModel())
-            controller?.showWindow(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
-            NSApp.terminate(nil)
+        let loading = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 120),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        loading.title = "Sattari Hub"
+        let label = NSTextField(labelWithString: "Loading product catalog…")
+        label.frame = NSRect(x: 24, y: 45, width: 410, height: 24)
+        loading.contentView?.addSubview(label)
+        loading.center()
+        loading.makeKeyAndOrderFront(nil)
+        loadingWindow = loading
+        NSApp.activate(ignoringOtherApps: true)
+        // Remote catalog lookup must never stall AppKit's launch event loop.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try HubModel.loadManifest() }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                do {
+                    self.controller = HubWindowController(model: try HubModel(manifest: result.get()))
+                    self.controller?.showWindow(nil)
+                    self.loadingWindow?.orderOut(nil)
+                    self.loadingWindow = nil
+                } catch {
+                    NSAlert(error: error).runModal()
+                    NSApp.terminate(nil)
+                }
+            }
         }
     }
 
@@ -1067,10 +1267,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 if CommandLine.arguments.contains("--contract-check") {
     do {
         guard SessionIdentity.sanitise(" Album A! / 2026 ") == "AlbumA2026",
+              SessionIdentity.sanitise("Música-東京_１２3") == "Msica-_3",
               SessionIdentity.sanitise(String(repeating: "a", count: 80)).count == 48 else {
             throw NSError(domain: "SattariHub", code: 9, userInfo: [NSLocalizedDescriptionKey: "Session identity contract failed"])
         }
         let model = try HubModel()
+        try runReleaseSafetyContract()
         let productCount = model.manifest.products.count
         let bundleCount = model.manifest.products.reduce(0) { $0 + $1.bundles.count }
         guard model.manifest.suite.count == 6 else { throw NSError(domain: "SattariHub", code: 10, userInfo: [NSLocalizedDescriptionKey: "Expected exactly 6 suite products, got \(model.manifest.suite.count)"]) }

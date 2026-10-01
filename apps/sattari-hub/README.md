@@ -15,18 +15,37 @@ Sattari Hub is the Mac-first downloadable application layer for the Sattari Audi
   present, executable, staged, copied, and post-copy validated.
 - Rolls an interrupted/failed multi-bundle install back instead of writing a
   partial receipt.
+- Performs install/update work on a serial background worker, with progress,
+  cancellation, and close/quit protection while recovery is in progress. A copy
+  already underway finishes before cancellation rolls back the current product;
+  products completed earlier in a batch remain installed.
+- Reports secondary recovery failures with the backup location instead of
+  concealing them behind a generic cancellation message.
 - Accepts remote archives only when the manifest pins both SHA-256 and byte size;
   archive paths and links are checked before extraction.
 - Writes install receipts to `~/Library/Application Support/Sattari Hub/receipts.json`.
-- Treats version mismatch as an update, but installation is limited to the four
-  qualified internal-alpha plugins: Compass, Auto Pitch, Arp, and Sub Conjurer.
+- Treats version mismatch as an update. Installation eligibility comes from the
+  generated catalog's shipping profile and complete local payload availability;
+  an `alpha` profile is not evidence that this particular build passed release
+  qualification.
 - Disables installation for preview and experimental components instead of
   presenting unqualified products as available downloads.
 - Backs up replaced bundles under `~/Library/Application Support/Sattari Hub/Backups/` before copying a new build.
 
 ## Build
 
-From `repos/sattari-plugins`:
+From the repository root, the test-only Release path is:
+
+```bash
+swift build --package-path apps/sattari-hub --scratch-path build/hub-release-readiness -c release
+SATTARI_HUB_OFFLINE=1 build/hub-release-readiness/release/SattariHub --contract-check
+```
+
+The contract exercises isolated fixture bundles and AppKit cancellation controls;
+it does not install into the user's plug-in folders or qualify a real DAW bundle.
+
+The broader validation/package commands below can install or sign bundles. Do
+not run them while those operations are excluded from the current release scope:
 
 ```bash
 ./scripts/validate_sattari_hub.sh
@@ -62,6 +81,6 @@ SATTARI_REPO_ROOT=/path/to/repos/sattari-plugins swift run SattariHub --contract
 - No notarized DMG/PKG yet.
 - No license/login/download entitlement layer yet.
 - Product quality remains gated by each plugin's own DAW/listening validation.
-- Instruments, Vocal, Mix, and Create are customer-facing product directions,
-  but their primary rack plugins remain preview builds; their component lists
-  communicate scope, not release readiness.
+- Catalog lifecycle/profile labels and the six product groupings communicate
+  intended availability, not release approval. The exact artifacts still need
+  the [release qualification gates](../../docs/release-qualification.md).

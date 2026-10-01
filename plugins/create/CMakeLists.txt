@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariDeploymentTarget.cmake)
-project(SATTARI_CREATE_PLUGIN VERSION 0.1.0)
+project(SATTARI_CREATE_PLUGIN VERSION 0.1.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,3 +35,6 @@ target_link_libraries(SattariCreateProductContract PRIVATE
     SattariCreate
     juce::juce_audio_utils
     juce::juce_dsp)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SattariReleaseUIContract.cmake)
+sattari_add_release_ui_contract(SattariCreate SattariCreateAudioProcessor create)
