@@ -1,0 +1,541 @@
+[
+  {
+    "name": "sattari-arp-ui",
+    "exit_code": 0,
+    "seconds": 0.84,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArpUIContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "sattari-arp-ui-intel",
+    "exit_code": 0,
+    "seconds": 1.11,
+    "command": [
+      "arch",
+      "-x86_64",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArpUIContract"
+    ]
+  },
+  {
+    "name": "sub-conjurer-ui",
+    "exit_code": 0,
+    "seconds": 0.6,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurerUIContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "sub-conjurer-ui-intel",
+    "exit_code": 0,
+    "seconds": 0.6,
+    "command": [
+      "arch",
+      "-x86_64",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurerUIContract"
+    ]
+  },
+  {
+    "name": "mix-ui",
+    "exit_code": 0,
+    "seconds": 0.67,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMixUIContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "mix-ui-intel",
+    "exit_code": 0,
+    "seconds": 0.77,
+    "command": [
+      "arch",
+      "-x86_64",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMixUIContract"
+    ]
+  },
+  {
+    "name": "vocal-ui",
+    "exit_code": 0,
+    "seconds": 0.26,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocalUIContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "vocal-ui-intel",
+    "exit_code": 0,
+    "seconds": 0.94,
+    "command": [
+      "arch",
+      "-x86_64",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocalUIContract"
+    ]
+  },
+  {
+    "name": "create-ui",
+    "exit_code": 0,
+    "seconds": 0.25,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreateUIContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "create-ui-intel",
+    "exit_code": 0,
+    "seconds": 0.72,
+    "command": [
+      "arch",
+      "-x86_64",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreateUIContract"
+    ]
+  },
+  {
+    "name": "SattariArpTimingContract",
+    "exit_code": 0,
+    "seconds": 0.55,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArpTimingContract"
+    ]
+  },
+  {
+    "name": "SubConjurerContract",
+    "exit_code": 0,
+    "seconds": 1.86,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurerContract"
+    ]
+  },
+  {
+    "name": "SattariMixProductContract",
+    "exit_code": 0,
+    "seconds": 0.6,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMixProductContract"
+    ]
+  },
+  {
+    "name": "SattariMixAutoMixContract",
+    "exit_code": 0,
+    "seconds": 0.65,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMixAutoMixContract",
+      "/Users/lillypad/Projects/sattari-plugins-main/validation/release/2026-09-28-ui-overhaul/screenshots"
+    ]
+  },
+  {
+    "name": "SattariMixRackRegression",
+    "exit_code": 0,
+    "seconds": 0.65,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/SattariMixRackRegression"
+    ]
+  },
+  {
+    "name": "SattariVocalProductContract",
+    "exit_code": 0,
+    "seconds": 19.2,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocalProductContract"
+    ]
+  },
+  {
+    "name": "SattariCreateProductContract",
+    "exit_code": 0,
+    "seconds": 4.28,
+    "command": [
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreateProductContract"
+    ]
+  },
+  {
+    "name": "sattari-arp-AU-universal",
+    "exit_code": 0,
+    "seconds": 0.02,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArp_artefacts/Release/AU/Sattari Arp.component/Contents/MacOS/Sattari Arp",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "sattari-arp-AU-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArp_artefacts/Release/AU/Sattari Arp.component/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "sattari-arp-VST3-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArp_artefacts/Release/VST3/Sattari Arp.vst3/Contents/MacOS/Sattari Arp",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "sattari-arp-VST3-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArp_artefacts/Release/VST3/Sattari Arp.vst3/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "sattari-arp-machine",
+    "exit_code": 0,
+    "seconds": 5.5,
+    "command": [
+      "bash",
+      "/Users/lillypad/Projects/sattari-plugins-main/scripts/validate_plugin.sh",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sattari-arp/SattariArp_artefacts/Release",
+      "aumi",
+      "Arp1",
+      "Satr"
+    ]
+  },
+  {
+    "name": "sub-conjurer-AU-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/AU/Sub Conjurer.component/Contents/MacOS/Sub Conjurer",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "sub-conjurer-AU-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/AU/Sub Conjurer.component/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "sub-conjurer-VST3-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/VST3/Sub Conjurer.vst3/Contents/MacOS/Sub Conjurer",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "sub-conjurer-VST3-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/VST3/Sub Conjurer.vst3/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "sub-conjurer-Standalone-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/Standalone/Sub Conjurer.app/Contents/MacOS/Sub Conjurer",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "sub-conjurer-Standalone-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release/Standalone/Sub Conjurer.app/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "sub-conjurer-machine",
+    "exit_code": 0,
+    "seconds": 6.05,
+    "command": [
+      "bash",
+      "/Users/lillypad/Projects/sattari-plugins-main/scripts/validate_plugin.sh",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/sub-conjurer/SubConjurer_artefacts/Release",
+      "aumf",
+      "Sc01",
+      "Satr"
+    ]
+  },
+  {
+    "name": "mix-AU-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/AU/Sattari Mix.component/Contents/MacOS/Sattari Mix",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "mix-AU-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/AU/Sattari Mix.component/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "mix-VST3-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3/Contents/MacOS/Sattari Mix",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "mix-VST3-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "mix-Standalone-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/Standalone/Sattari Mix.app/Contents/MacOS/Sattari Mix",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "mix-Standalone-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release/Standalone/Sattari Mix.app/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "mix-machine",
+    "exit_code": 0,
+    "seconds": 4.06,
+    "command": [
+      "bash",
+      "/Users/lillypad/Projects/sattari-plugins-main/scripts/validate_plugin.sh",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/mix/SattariMix_artefacts/Release",
+      "aumf",
+      "Mx01",
+      "Satr"
+    ]
+  },
+  {
+    "name": "vocal-AU-universal",
+    "exit_code": 0,
+    "seconds": 0.02,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/AU/Sattari Vocal.component/Contents/MacOS/Sattari Vocal",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "vocal-AU-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/AU/Sattari Vocal.component/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "vocal-VST3-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/VST3/Sattari Vocal.vst3/Contents/MacOS/Sattari Vocal",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "vocal-VST3-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/VST3/Sattari Vocal.vst3/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "vocal-Standalone-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/Standalone/Sattari Vocal.app/Contents/MacOS/Sattari Vocal",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "vocal-Standalone-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release/Standalone/Sattari Vocal.app/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "vocal-machine",
+    "exit_code": 0,
+    "seconds": 4.9,
+    "command": [
+      "bash",
+      "/Users/lillypad/Projects/sattari-plugins-main/scripts/validate_plugin.sh",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/vocal/SattariVocal_artefacts/Release",
+      "aumf",
+      "Vcl1",
+      "Satr"
+    ]
+  },
+  {
+    "name": "create-AU-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/AU/Sattari Create.component/Contents/MacOS/Sattari Create",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "create-AU-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/AU/Sattari Create.component/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "create-VST3-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/VST3/Sattari Create.vst3/Contents/MacOS/Sattari Create",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "create-VST3-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/VST3/Sattari Create.vst3/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "create-Standalone-universal",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "lipo",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/Standalone/Sattari Create.app/Contents/MacOS/Sattari Create",
+      "-verify_arch",
+      "arm64",
+      "x86_64"
+    ]
+  },
+  {
+    "name": "create-Standalone-version",
+    "exit_code": 0,
+    "seconds": 0.01,
+    "command": [
+      "/usr/libexec/PlistBuddy",
+      "-c",
+      "Print :CFBundleShortVersionString",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release/Standalone/Sattari Create.app/Contents/Info.plist"
+    ]
+  },
+  {
+    "name": "create-machine",
+    "exit_code": 0,
+    "seconds": 4.44,
+    "command": [
+      "bash",
+      "/Users/lillypad/Projects/sattari-plugins-main/scripts/validate_plugin.sh",
+      "/Users/lillypad/Projects/sattari-plugins-main/build/mix-automix/create/SattariCreate_artefacts/Release",
+      "aumf",
+      "Cr01",
+      "Satr"
+    ]
+  }
+]
