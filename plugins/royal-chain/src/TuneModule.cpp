@@ -16,11 +16,20 @@ void TuneModule::prepare (double sampleRate, int maxBlockSize)
     sr = sampleRate > 0.0 ? sampleRate : 44100.0;
     const int block = juce::jmax (1, maxBlockSize);
     for (auto& e : engines)
+    {
         e.prepare (sr, block, kMinHz, kMaxHz);   // all allocation happens here
+        e.setFormantPreservation (formantPreservation);
+    }
     latencySamples = engines[0].getLatencySamples();
-    controlQuantum = juce::jmax (16, (int) std::lround (sr / 750.0));   // ~1.33 ms
     preparedChannels = kMaxChannels;
     reset();
+}
+
+void TuneModule::setFormantPreservation (bool shouldPreserve) noexcept
+{
+    formantPreservation = shouldPreserve;
+    for (auto& e : engines)
+        e.setFormantPreservation (shouldPreserve);
 }
 
 void TuneModule::reset()
@@ -103,21 +112,21 @@ void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
 
     const auto settings = settingsFor (tuneAmount, keyRoot, scale, vocalStyle);
 
-    // Drive the engine on a fixed ~1.33 ms control grid (64 samples at 48 kHz)
-    // whatever the host buffer is. The planner's poles are time-normalised, but the
-    // Extreme shifter adapts its cycle period once per process() call; fed a whole
-    // 512-sample host block it re-locks to a new note's period ~8x slower, and the
-    // output audibly glides into every note (measured: 48k/512 onsets took ~100 ms
-    // to settle vs ~30 ms at 48k/64). A fixed grid makes Tune block-size invariant.
-    // Sub-buffers alias the host buffer, so this stays allocation-free.
+    // The engine is block-size invariant on its own (it latches tracking,
+    // planning and the shifter's period/ratio on an internal ~0.67 ms sample
+    // clock). The loop below exists only for stereo linkage: channel 0 plans and
+    // the other channel follows its exact ratio (Auto Pitch's
+    // processWithLiveEngine contract), so a stereo vocal never splits in pitch.
+    // Cutting the host block on the lead's own control grid hands the follower
+    // the lead's ratio for that exact grid period, which keeps the follower
+    // block-size invariant too. Sub-buffers alias the host buffer, so this stays
+    // allocation-free; mono runs one call per block.
     auto& lead = engines[0];
     double cents = lead.getCorrectionCents();
-    for (int start = 0; start < numSamples; start += controlQuantum)
+    for (int start = 0; start < numSamples;)
     {
-        const int n = juce::jmin (controlQuantum, numSamples - start);
-
-        // Channel 0 plans; the other channel follows its exact ratio (Auto Pitch's
-        // processWithLiveEngine contract), so a stereo vocal never splits in pitch.
+        const int n = numChannels > 1 ? juce::jmin (lead.getSamplesUntilControlUpdate(), numSamples - start)
+                                      : numSamples - start;
         lead.processCorrected (buffer.getReadPointer (0, start), buffer.getWritePointer (0, start), n, settings);
         cents = lead.getCorrectionCents();
         if (numChannels > 1)
@@ -127,6 +136,7 @@ void TuneModule::process (juce::AudioBuffer<float>& buffer, float tuneAmount,
                 engines[(size_t) ch].process (buffer.getReadPointer (ch, start),
                                               buffer.getWritePointer (ch, start), n, ratio);
         }
+        start += n;
     }
 
     const auto pitch = lead.getPitchResult();

@@ -350,8 +350,24 @@ void tuneModuleUnitChecks (Report& rep)
                        "max |out - in[t-" + juce::String (lat) + "]| = " + juce::String (worst, 9));
         }
 
-        // (b) Block-size invariance: the ~1.33 ms control grid makes a 512-sample
-        //     host block render exactly like 64-sample blocks at 48 kHz.
+        // (a2) Formant preservation is on by default and costs no latency.
+        {
+            Tune tm;
+            tm.prepare (sr, 128);
+            const int withFormant = tm.getLatencySamples();
+            const bool defaultOn = tm.getFormantPreservation();
+            tm.setFormantPreservation (false);
+            tm.prepare (sr, 128);
+            const int withoutFormant = tm.getLatencySamples();
+            rep.check ("unit: formant default on, 2 ms", defaultOn && withFormant == withoutFormant
+                                                          && withFormant == (int) std::lround (0.002 * sr),
+                       juce::String ("default ") + (defaultOn ? "on" : "off") + ", latency "
+                       + juce::String (withFormant) + " (formant off " + juce::String (withoutFormant) + ")");
+        }
+
+        // (b) Block-size invariance: the engine's internal control grid (and the
+        //     lead-grid stereo linkage) make any host block render exactly like
+        //     64-sample blocks at 48 kHz, on both channels.
         {
             const int total = phrase.audio.getNumSamples();
             auto renderAt = [&] (int block)
@@ -367,12 +383,16 @@ void tuneModuleUnitChecks (Report& rep)
                 }
                 return buf;
             };
-            const auto a = renderAt (512), b = renderAt (64);
+            const auto b = renderAt (64);
             double worst = 0.0;
-            for (int c = 0; c < 2; ++c)
-                for (int i = 0; i < total; ++i)
-                    worst = std::max (worst, (double) std::abs (a.getSample (c, i) - b.getSample (c, i)));
-            rep.check ("unit: block 512 == block 64", worst < 1.0e-6, "max diff " + juce::String (worst, 9));
+            for (int block : { 7, 512, 2048 })
+            {
+                const auto a = renderAt (block);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < total; ++i)
+                        worst = std::max (worst, (double) std::abs (a.getSample (c, i) - b.getSample (c, i)));
+            }
+            rep.check ("unit: block 7/512/2048 == 64", worst < 1.0e-6, "max diff " + juce::String (worst, 9));
         }
 
         // (c) Compass feed: getLastHz tracks the sung (input) pitch, confidence rises.

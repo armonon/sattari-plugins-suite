@@ -103,7 +103,10 @@ public:
             if (--samplesToAnalysis <= 0)
             {
                 samplesToAnalysis = hopDecimated;
-                if (filled == length)
+                // reset() zero-fills the ring, so with onset acceleration a
+                // partly filled ring is simply a frame with leading silence
+                // (e.g. transport started mid-note).
+                if (filled == length || onsetAcceleration)
                     analyseFrame();
             }
         }
@@ -111,6 +114,10 @@ public:
     }
 
     Result getResult() const noexcept { return latest; }
+    // Opt-in faster acquisition after silence (see analyseFrame). Off by
+    // default, so LivePitchEngine and existing callers are unchanged.
+    void setOnsetAcceleration (bool shouldAccelerate) noexcept { onsetAcceleration = shouldAccelerate; }
+    double getMinimumHz() const noexcept { return minHz; }
     int analysisWindowSamples() const noexcept { return length * decimation; }
     int analysisHopSamples() const noexcept { return hopDecimated * decimation; }
 
@@ -130,46 +137,42 @@ private:
             return;
         }
 
-        // Fixed comparison length gives every lag the same statistical weight.
-        const int compare = length - maxLag - 1;
-        yin[0] = 1.0f;
-        double running = 0.0;
-        const float* const frame = linear.data();
-        for (int tau = 1; tau <= maxLag; ++tau)
-        {
-            // A 512-sample frame at vocal level has ample float headroom. Keeping
-            // this inner accumulation in float lets Clang vectorise the hot YIN
-            // loop; double arithmetic here pushed the analysis callback just over
-            // a 48 kHz / 64-sample deadline without improving the selected lag.
-            float difference = 0.0f;
-            const float* const delayed = frame + tau;
-            for (int i = 0; i < compare; ++i)
-            {
-                const float d = frame[i] - delayed[i];
-                difference += d * d;
-            }
-            running += (double) difference;
-            yin[(size_t) tau] = (float) (running > 1.0e-18
-                ? (double) difference * (double) tau / running : 1.0);
-        }
-
-        constexpr float threshold = 0.16f;
+        // Onset acceleration (opt-in): a frame whose oldest part is still the
+        // silence before a note is first analysed from the note's first sample.
+        // Leading zeros contribute nothing periodic, but a full-length frame
+        // only becomes confident once the window has mostly filled with the
+        // note (21 ms for a 100 Hz floor). The trimmed pass only searches lags
+        // the trimmed frame can verify (>= 2.5 candidate periods), has no
+        // global-minimum fallback and rejects a dip on the range edge. When it
+        // finds nothing confident the legacy full-frame pass runs, so the
+        // legacy acquisition time is the worst case. It also runs once voiced,
+        // until the frame has filled, so the voiced state cannot chatter on
+        // mixed silence/note frames.
+        const float required = latest.voiced ? 0.42f : 0.60f;
         int best = -1;
-        for (int tau = minLag; tau < maxLag; ++tau)
+        int lagLimit = maxLag;
+        if (onsetAcceleration)
         {
-            if (yin[(size_t) tau] < threshold)
+            float peak = 0.0f;
+            for (float x : linear) peak = std::max (peak, std::abs (x));
+            const float gate = 0.08f * peak;
+            int start = 0;
+            while (start < length && std::abs (linear[(size_t) start]) < gate) ++start;
+            start = std::max (0, start - 2);
+            const int trimmedLength = length - start;
+            const int trimmedLimit = std::min (maxLag, (int) ((double) trimmedLength / 2.5));
+            if (start > length / 8 && trimmedLimit >= minLag + 3)
             {
-                while (tau + 1 <= maxLag && yin[(size_t) (tau + 1)] < yin[(size_t) tau])
-                    ++tau;
-                best = tau;
-                break;
+                best = yinSearch (linear.data() + start, trimmedLength, trimmedLimit, false);
+                lagLimit = trimmedLimit;
+                if (best >= minLag && 1.0f - yin[(size_t) best] < required)
+                    best = -1;
             }
         }
-        if (best < 0)
+        if (best < minLag)
         {
-            float score = std::numeric_limits<float>::max();
-            for (int tau = minLag; tau <= maxLag; ++tau)
-                if (yin[(size_t) tau] < score) { score = yin[(size_t) tau]; best = tau; }
+            best = yinSearch (linear.data(), length, maxLag, true);
+            lagLimit = maxLag;
         }
 
         const float confidence = best >= minLag
@@ -178,7 +181,6 @@ private:
         // switch. The values are deliberately below clean-sine confidence: real
         // close-mic vocals with saturation or room energy commonly sit around
         // 0.45-0.70 even when their fundamental is musically unambiguous.
-        const float required = latest.voiced ? 0.42f : 0.60f;
         if (best < minLag || confidence < required)
         {
             latest.confidence = confidence;
@@ -187,7 +189,7 @@ private:
         }
 
         double lag = (double) best;
-        if (best > minLag && best < maxLag)
+        if (best > minLag && best < lagLimit)
         {
             const double a = yin[(size_t) (best - 1)];
             const double b = yin[(size_t) best];
@@ -220,6 +222,56 @@ private:
         latest.voiced = latest.voiced || candidateCount >= 2;
     }
 
+    // Cumulative-mean-normalised difference over lags 1..lagLimit with a fixed
+    // comparison length (every lag gets the same statistical weight). Returns
+    // the first dip under the threshold, else (when allowed) the global
+    // minimum, else -1. A dip on the edge of a restricted range is rejected.
+    int yinSearch (const float* frame, int frameLength, int lagLimit, bool allowFallback) noexcept
+    {
+        const int compare = frameLength - lagLimit - 1;
+        yin[0] = 1.0f;
+        double running = 0.0;
+        for (int tau = 1; tau <= lagLimit; ++tau)
+        {
+            // A 512-sample frame at vocal level has ample float headroom. Keeping
+            // this inner accumulation in float lets Clang vectorise the hot YIN
+            // loop; double arithmetic here pushed the analysis callback just over
+            // a 48 kHz / 64-sample deadline without improving the selected lag.
+            float difference = 0.0f;
+            const float* const delayed = frame + tau;
+            for (int i = 0; i < compare; ++i)
+            {
+                const float d = frame[i] - delayed[i];
+                difference += d * d;
+            }
+            running += (double) difference;
+            yin[(size_t) tau] = (float) (running > 1.0e-18
+                ? (double) difference * (double) tau / running : 1.0);
+        }
+
+        constexpr float threshold = 0.16f;
+        int best = -1;
+        for (int tau = minLag; tau < lagLimit; ++tau)
+        {
+            if (yin[(size_t) tau] < threshold)
+            {
+                while (tau + 1 <= lagLimit && yin[(size_t) (tau + 1)] < yin[(size_t) tau])
+                    ++tau;
+                best = tau;
+                break;
+            }
+        }
+        if (! allowFallback)
+            return best >= lagLimit - 1 ? -1 : best;
+        if (best < 0)
+        {
+            float score = std::numeric_limits<float>::max();
+            for (int tau = minLag; tau <= lagLimit; ++tau)
+                if (yin[(size_t) tau] < score) { score = yin[(size_t) tau]; best = tau; }
+        }
+        return best;
+    }
+
     void acceptUnvoiced() noexcept
     {
         candidateCount = 0;
@@ -245,6 +297,7 @@ private:
     int medianCount = 0, medianWrite = 0;
     std::vector<float> ring, linear, yin;
     Result latest;
+    bool onsetAcceleration = false;
 };
 
 class LiveEpochShifter
@@ -689,6 +742,30 @@ public:
         dryRing.assign ((size_t) size, 0.0f);
         wetCoefficient = 1.0 - std::exp (-1.0 / (0.0015 * sr));
         ratioCoefficient = 1.0 - std::exp (-1.0 / (0.0010 * sr));
+
+        // Formant preservation state is prepared unconditionally so that the
+        // option can be switched without allocating on the audio thread.
+        // Order ~ sr/1500 (32 at 48 kHz): enough poles to whiten the full band
+        // including F3/F4, measured against sr/2000 and sr/1000.
+        lpcOrder = std::clamp ((int) std::lround (sr / 1500.0), 12, kMaxLpcOrder);
+        lpcWindowLength = std::min (size, std::max (64, (int) std::lround (0.020 * sr)));
+        lpcHop = std::max (16, (int) std::lround (0.0025 * sr));
+        guardAttack = 1.0 - std::exp (-1.0 / (0.0005 * sr));    // 0.5 ms envelope attack
+        guardRelease = 1.0 - std::exp (-1.0 / (0.0300 * sr));   // 30 ms envelope release
+        guardOnsetSamples = std::max (1, (int) std::lround (0.040 * sr));
+        lpcWindow.assign ((size_t) lpcWindowLength, 0.0f);
+        lpcFrame.assign ((size_t) lpcWindowLength, 0.0f);
+        constexpr double pi = 3.1415926535897932384626433832795;
+        for (int i = 0; i < lpcWindowLength; ++i)
+            lpcWindow[(size_t) i] = (float) (0.5 - 0.5 * std::cos (
+                2.0 * pi * ((double) i + 0.5) / (double) lpcWindowLength));
+        // Gaussian lag window (50 Hz) widens the all-pole peaks so the envelope
+        // follows formants rather than individual harmonics of high voices.
+        for (int k = 0; k <= kMaxLpcOrder; ++k)
+        {
+            const double w = 2.0 * pi * 50.0 * (double) k / sr;
+            lagWindow[(size_t) k] = std::exp (-0.5 * w * w);
+        }
         reset();
     }
 
@@ -704,33 +781,88 @@ public:
         currentCycleStart = previousCycleStart = 0;
         hasCycle = false;
         antiAlias1 = antiAlias2 = 0.0;
+        wantedRatio = 1.0;
+        targetWet = 0.0;
+        validPeriod = false;
+        resetFormantState();
     }
 
     int getLatencySamples() const noexcept { return latency; }
 
+    // Formant preservation (off by default). The shifter resamples whole pitch
+    // cycles, which scales the spectral envelope by the pitch ratio. With this
+    // option the input is whitened by a causal all-pole (LPC) model of the
+    // singer's vocal tract before it enters the cycle buffer, the cycles are
+    // shifted in that excitation domain, and the shifted excitation is
+    // re-coloured by the same model - the classic causal LPC formant
+    // correction. Analysis uses only past samples (20 ms window, 2.5 ms hop),
+    // so it adds no latency. Unvoiced/unity output stays the exact delayed dry
+    // input. Switch it while stopped or before processing: the cycle buffer
+    // holds a different signal domain in each mode.
+    void setFormantPreservation (bool shouldPreserve) noexcept
+    {
+        if (shouldPreserve == formantPreservation) return;
+        formantPreservation = shouldPreserve;
+        resetFormantState();
+    }
+    bool getFormantPreservation() const noexcept { return formantPreservation; }
+
+    // Legacy one-call form: one control update per call, then render. Callers
+    // that feed whole host blocks therefore adapt the cycle period once per
+    // block; ExtremeLivePitchEngine instead drives setControl()/render() on a
+    // fixed sample-clock grid so its output does not depend on the host block.
     void process (const float* input, float* output, int numSamples,
                   double pitchScale, bool voiced,
                   double sourcePeriodSamples = 0.0) noexcept
     {
         if (input == nullptr || output == nullptr || numSamples <= 0 || mask <= 0)
             return;
+        setControl (pitchScale, voiced, sourcePeriodSamples);
+        render (input, output, numSamples);
+    }
 
-        constexpr double twoPi = 6.283185307179586476925286766559;
-        const double wantedRatio = std::clamp (pitchScale, 0.5, 2.0);
+    // Control update. periodSmoothing is the per-update exponent applied to
+    // the period ratio (0.45 = the legacy per-call behaviour). snapOnAcquire
+    // starts a newly voiced segment at the detected period instead of gliding
+    // from the previous note's period (which the output pitch would follow:
+    // output f0 = ratio * sr / smoothedPeriod).
+    void setControl (double pitchScale, bool voiced, double sourcePeriodSamples,
+                     double periodSmoothing = 0.45, bool snapOnAcquire = false) noexcept
+    {
+        wantedRatio = std::clamp (pitchScale, 0.5, 2.0);
         const double correctionCents = 1200.0 * std::log2 (
             std::max (wantedRatio, 1.0e-12));
-        const double targetWet = voiced && std::abs (correctionCents) > 0.10 ? 1.0 : 0.0;
-        const bool validPeriod = voiced && sourcePeriodSamples >= 24.0
-                              && sourcePeriodSamples <= 0.025 * sr;
+        targetWet = voiced && std::abs (correctionCents) > 0.10 ? 1.0 : 0.0;
+        const bool wasValid = validPeriod;
+        validPeriod = voiced && sourcePeriodSamples >= 24.0
+                   && sourcePeriodSamples <= 0.025 * sr;
         if (validPeriod)
         {
-            const double periodRatio = std::clamp (
-                sourcePeriodSamples / smoothedPeriod, 0.8, 1.25);
-            smoothedPeriod *= std::pow (periodRatio, 0.45);
+            if (snapOnAcquire && ! wasValid)
+                smoothedPeriod = sourcePeriodSamples;
+            else
+            {
+                const double periodRatio = std::clamp (
+                    sourcePeriodSamples / smoothedPeriod, 0.8, 1.25);
+                smoothedPeriod *= std::pow (periodRatio, periodSmoothing);
+            }
         }
         else
             hasCycle = false;
+    }
 
+    // Period-scaled cycle alignment (see findCycleStart). Off by default so the
+    // legacy process() callers (e.g. HarmonyRenderer) render bit-identically;
+    // ExtremeLivePitchEngine enables it.
+    void setWideCycleAlignment (bool shouldUse) noexcept { wideAlignment = shouldUse; }
+
+    // Renders with the most recent control state. Safe when input == output.
+    void render (const float* input, float* output, int numSamples) noexcept
+    {
+        if (input == nullptr || output == nullptr || numSamples <= 0 || mask <= 0)
+            return;
+
+        constexpr double twoPi = 6.283185307179586476925286766559;
         for (int i = 0; i < numSamples; ++i)
         {
             smoothedRatio += ratioCoefficient * (wantedRatio - smoothedRatio);
@@ -741,7 +873,19 @@ public:
             // than folding upper vocal harmonics into the audible band.
             const double cutoff = std::min (0.45 * sr, 0.45 * sr / std::max (1.0, smoothedRatio));
             const double lp = 1.0 - std::exp (-twoPi * cutoff / sr);
-            antiAlias1 += lp * ((double) input[i] - antiAlias1);
+            double analysisInput = (double) input[i];
+            if (formantPreservation)
+            {
+                if (--lpcCountdown <= 0)
+                {
+                    lpcCountdown = lpcHop;
+                    updateLpc();
+                }
+                for (int k = 0; k < lpcOrder; ++k)
+                    reflection[(size_t) k] += reflectionStep[(size_t) k];
+                analysisInput = whiten (analysisInput);
+            }
+            antiAlias1 += lp * (analysisInput - antiAlias1);
             antiAlias2 += lp * (antiAlias1 - antiAlias2);
             ring[(size_t) (writePosition & mask)] = (float) antiAlias2;
             dryRing[(size_t) (writePosition & mask)] = input[i];
@@ -777,6 +921,32 @@ public:
                 shifted = oldCycle + blend * (newCycle - oldCycle);
                 phase += smoothedRatio / smoothedPeriod;
             }
+            if (formantPreservation)
+            {
+                // Re-colour the shifted excitation. While unvoiced the filter
+                // is kept warm on the delayed excitation and its output is
+                // discarded (the dry path is exact).
+                const double excitation = validPeriod
+                    ? shifted : (double) sampleAt (writePosition - (std::int64_t) latency);
+                double coloured = recolour (excitation);
+                // Onset guard: whitening and re-colouring run ~2 ms apart, so while
+                // the LPC model adapts to a note that starts after a pause the pair
+                // can briefly boost a resonance (measured up to +20 dB). For the
+                // first ~40 ms of an onset the output may not exceed 1.5x the dry
+                // peak envelope. Steady singing is left untouched: a continuous
+                // gain guard or ceiling there modulates/clips within the period and
+                // measurably shifts F1 (5.8 % -> 7.6 %).
+                const double ad = std::abs ((double) dry);
+                guardDry += (ad > guardDry ? guardAttack : guardRelease) * (ad - guardDry);
+                guardSinceOnset = guardDry < 1.0e-4 ? 0 : guardSinceOnset + 1;
+                if (guardSinceOnset < guardOnsetSamples)
+                {
+                    const double ceiling = 1.5 * std::max (guardDry, ad) + 1.0e-6;
+                    coloured = std::clamp (coloured, -ceiling, ceiling);
+                }
+                if (validPeriod)
+                    shifted = coloured;
+            }
 
             wetMix += wetCoefficient * (targetWet - wetMix);
             output[i] = (float) ((double) dry + wetMix * (shifted - (double) dry));
@@ -785,6 +955,133 @@ public:
     }
 
 private:
+    static constexpr int kMaxLpcOrder = 64;
+    // Pre-emphasis narrows the vocal spectrum's dynamic range so the all-pole
+    // model also whitens F3/F4; without it a shifted copy of the upper
+    // formants survives in the excitation.
+    static constexpr double kPreEmphasis = 0.9;
+
+    void resetFormantState() noexcept
+    {
+        reflection.fill (0.0);
+        reflectionStep.fill (0.0);
+        analysisState.fill (0.0);
+        synthesisState.fill (0.0);
+        preEmphasisState = deEmphasisState = 0.0;
+        guardDry = 0.0;
+        guardSinceOnset = 0;
+        lpcCountdown = 0;
+        // The cycle buffer must not mix signal domains across a mode switch.
+        std::fill (ring.begin(), ring.end(), 0.0f);
+        antiAlias1 = antiAlias2 = 0.0;
+        hasCycle = false;
+    }
+
+    // Autocorrelation LPC (Levinson-Durbin) of the newest raw input, in
+    // reflection-coefficient form. The lattice filters stay stable for any
+    // |k| < 1, including while the coefficients glide to the new frame.
+    void updateLpc() noexcept
+    {
+        const int n = lpcWindowLength;
+        double energy = 0.0;
+        float previousSample = sampleAtFrom (dryRing, writePosition - (std::int64_t) n - 1);
+        for (int j = 0; j < n; ++j)
+        {
+            const float raw = sampleAtFrom (dryRing, writePosition - (std::int64_t) n + j);
+            const float x = (raw - (float) kPreEmphasis * previousSample) * lpcWindow[(size_t) j];
+            previousSample = raw;
+            lpcFrame[(size_t) j] = x;
+            energy += (double) x * (double) x;
+        }
+        std::array<double, kMaxLpcOrder + 1> r {};
+        std::array<double, kMaxLpcOrder> target {};
+        // Below ~-100 dBFS keep gliding towards the previous model.
+        if (energy > 1.0e-10 * (double) n)
+        {
+            const float* const frame = lpcFrame.data();
+            for (int lag = 0; lag <= lpcOrder; ++lag)
+            {
+                float acc = 0.0f;
+                for (int j = 0; j + lag < n; ++j)
+                    acc += frame[j] * frame[j + lag];
+                r[(size_t) lag] = (double) acc * lagWindow[(size_t) lag];
+            }
+            r[0] *= 1.0 + 1.0e-5;   // -50 dB white-noise floor bounds the whitening gain
+            std::array<double, kMaxLpcOrder + 1> a {}, previous {};
+            a[0] = 1.0;
+            double error = r[0];
+            for (int i = 1; i <= lpcOrder && error > 1.0e-18; ++i)
+            {
+                double acc = r[(size_t) i];
+                for (int j = 1; j < i; ++j)
+                    acc += a[(size_t) j] * r[(size_t) (i - j)];
+                const double k = std::clamp (-acc / error, -0.995, 0.995);
+                target[(size_t) (i - 1)] = k;
+                previous = a;
+                for (int j = 1; j < i; ++j)
+                    a[(size_t) j] = previous[(size_t) j] + k * previous[(size_t) (i - j)];
+                a[(size_t) i] = k;
+                error *= 1.0 - k * k;
+            }
+        }
+        else
+        {
+            // Silence: relax the model toward flat (identity whitening). Never
+            // re-apply the previous glide step: it extrapolated every hop, and over
+            // a pause the coefficients ramped past |k| = 1 so the lattices blew up
+            // to Inf/NaN on the next note. Holding the old note's model instead
+            // mismatched the next note's onset (up to +20 dB transients).
+            for (int k = 0; k < lpcOrder; ++k)
+                target[(size_t) k] = 0.5 * reflection[(size_t) k];
+        }
+        for (int k = 0; k < lpcOrder; ++k)
+        {
+            // Lattice stability needs |k| < 1 at every sample of the glide.
+            target[(size_t) k] = std::clamp (target[(size_t) k], -0.995, 0.995);
+            reflectionStep[(size_t) k] = (target[(size_t) k] - reflection[(size_t) k]) / (double) lpcHop;
+        }
+
+        // Underflow guard for the recursive synthesis lattice during silence.
+        double state = 0.0;
+        for (int k = 0; k < lpcOrder; ++k) state += std::abs (synthesisState[(size_t) k]);
+        if (state < 1.0e-20) synthesisState.fill (0.0);
+    }
+
+    // Pre-emphasis then FIR lattice A(z): x -> prediction residual.
+    double whiten (double input) noexcept
+    {
+        const double x = input - kPreEmphasis * preEmphasisState;
+        preEmphasisState = input;
+        double f = x, b = x;
+        for (int i = 0; i < lpcOrder; ++i)
+        {
+            const double k = reflection[(size_t) i];
+            const double previous = analysisState[(size_t) i];
+            const double nextF = f + k * previous;
+            const double nextB = previous + k * f;
+            analysisState[(size_t) i] = b;
+            f = nextF;
+            b = nextB;
+        }
+        return f;
+    }
+
+    // IIR lattice 1/A(z): exact inverse of whiten() for equal coefficients.
+    double recolour (double e) noexcept
+    {
+        double f = e;
+        for (int i = lpcOrder - 1; i >= 0; --i)
+        {
+            const double k = reflection[(size_t) i];
+            f -= k * synthesisState[(size_t) i];
+            if (i + 1 < lpcOrder)
+                synthesisState[(size_t) (i + 1)] = synthesisState[(size_t) i] + k * f;
+        }
+        synthesisState[0] = f;
+        deEmphasisState = f + kPreEmphasis * deEmphasisState;
+        return deEmphasisState;
+    }
+
     float sampleAt (std::int64_t p) const noexcept
     {
         return sampleAtFrom (ring, p);
@@ -816,6 +1113,16 @@ private:
         return (float) (((a * t + b) * t + c) * t + y1);
     }
 
+    // Cycle boundaries are found on the clean signal. In formant mode the cycle
+    // ring holds the LPC-whitened excitation, whose flattened spectrum lifts
+    // breath noise against the harmonics; correlating on it made the cycle chain
+    // jitter (~+8 c median pitch error on a breathy phrase). The dry ring holds
+    // the raw input at the same positions.
+    float alignSample (std::int64_t p) const noexcept
+    {
+        return formantPreservation ? sampleAtFrom (dryRing, p) : sampleAt (p);
+    }
+
     std::int64_t findCycleStart (double period) const noexcept
     {
         // The newest complete cycle ends at least minimumDelay behind the write
@@ -840,13 +1147,34 @@ private:
         for (std::int64_t p = lo; p <= hi; ++p)
         {
             double score = 0.0;
-            if (hasCycle)
+            if (hasCycle && wideAlignment)
+            {
+                // Mean-removed correlation over up to a full period (+-P/2,
+                // capped at +-128 samples). A fixed +-12-sample window sees an
+                // almost straight segment of a smooth low note (P = 436 at
+                // 110 Hz), so every lag scores ~1 and the cycle chain can
+                // random-walk by up to 0.14 P, audible as ~15 ct pitch wobble.
+                const int half = std::clamp ((int) std::lround (0.5 * period), 12, 128);
+                double so = 0.0, sn = 0.0, soo = 0.0, snn = 0.0, son = 0.0;
+                for (int k = -half; k <= half; ++k)
+                {
+                    const double o = alignSample (currentCycleStart + k);
+                    const double n = alignSample (p + k);
+                    so += o; sn += n; soo += o * o; snn += n * n; son += o * n;
+                }
+                const double count = (double) (2 * half + 1);
+                const double cov = son - so * sn / count;
+                const double vo = std::max (1.0e-12, soo - so * so / count);
+                const double vn = std::max (1.0e-12, snn - sn * sn / count);
+                score = cov / std::sqrt (vo * vn);
+            }
+            else if (hasCycle)
             {
                 double cross = 0.0, oldPower = 1.0e-12, newPower = 1.0e-12;
                 for (int k = -12; k <= 12; ++k)
                 {
-                    const double oldSample = sampleAt (currentCycleStart + k);
-                    const double newSample = sampleAt (p + k);
+                    const double oldSample = alignSample (currentCycleStart + k);
+                    const double newSample = alignSample (p + k);
                     cross += oldSample * newSample;
                     oldPower += oldSample * oldSample;
                     newPower += newSample * newSample;
@@ -855,10 +1183,10 @@ private:
             }
             else
             {
-                const double x = sampleAt (p);
-                const double derivative = x - 0.97 * (double) sampleAt (p - 1);
-                const double curvature = x - 0.5 * ((double) sampleAt (p - 1)
-                                                    + (double) sampleAt (p + 1));
+                const double x = alignSample (p);
+                const double derivative = x - 0.97 * (double) alignSample (p - 1);
+                const double curvature = x - 0.5 * ((double) alignSample (p - 1)
+                                                    + (double) alignSample (p + 1));
                 score = std::abs (derivative) + 0.35 * std::abs (curvature);
             }
             if (score > bestScore) { bestScore = score; best = p; }
@@ -872,11 +1200,24 @@ private:
     std::int64_t writePosition = 0;
     double phase = 0.25, wetMix = 0.0, smoothedRatio = 1.0;
     double smoothedPeriod = 266.7;
+    double wantedRatio = 1.0, targetWet = 0.0;
+    bool validPeriod = false;
+    bool wideAlignment = false;
     std::int64_t currentCycleStart = 0, previousCycleStart = 0;
     bool hasCycle = false;
     double wetCoefficient = 0.01, ratioCoefficient = 0.02;
     double antiAlias1 = 0.0, antiAlias2 = 0.0;
     std::vector<float> ring, dryRing;
+
+    bool formantPreservation = false;
+    int lpcOrder = 24, lpcWindowLength = 960, lpcHop = 120, lpcCountdown = 0;
+    std::vector<float> lpcWindow, lpcFrame;
+    std::array<double, kMaxLpcOrder + 1> lagWindow {};
+    std::array<double, kMaxLpcOrder> reflection {}, reflectionStep {};
+    std::array<double, kMaxLpcOrder> analysisState {}, synthesisState {};
+    double preEmphasisState = 0.0, deEmphasisState = 0.0;
+    double guardDry = 0.0, guardAttack = 0.5, guardRelease = 0.001;
+    int guardSinceOnset = 0, guardOnsetSamples = 720;
 };
 
 class ExtremeLivePitchEngine
@@ -889,11 +1230,25 @@ public:
         tracker.prepare (sr, minimumHz, maximumHz, 256);
         // The full-range detector needs a 42.7 ms frame at 48 kHz to observe
         // two periods at 70 Hz. A second 100 Hz floor halves that acquisition
-        // window for ordinary vocal notes; the full tracker takes authority as
-        // soon as it is voiced, preserving the advertised bass range.
+        // window for ordinary vocal notes and, with onset acceleration, locks
+        // a note after silence from its first periods. The full tracker keeps
+        // authority in the bass register (see trackedResult()), preserving
+        // the advertised range.
         fastTracker.prepare (sr, std::max (100.0, minimumHz), maximumHz, 128);
+        fastTracker.setOnsetAcceleration (true);
         shifter.prepare (sr, maximumBlockSize);
+        shifter.setWideCycleAlignment (true);
         planner.prepare (sr);
+
+        // Fixed sample-clock control grid (~0.67 ms: 32 samples at 48 kHz).
+        // Tracker results, the planner and the shifter's period/ratio are
+        // latched only on this grid, carried across callbacks, so the output is
+        // identical for every host block size (1 .. any). The period smoother
+        // is time-normalised to the legacy 64-sample/48 kHz callback rate
+        // (exponent 0.45 per 1.333 ms) that the engine was tuned at.
+        controlInterval = std::max (8, (int) std::lround (sr / 1500.0));
+        periodSmoothing = 1.0 - std::pow (0.55, (double) controlInterval / (sr / 750.0));
+        samplesUntilControl = 0;
     }
 
     void reset() noexcept
@@ -904,47 +1259,110 @@ public:
         planner.reset();
         fallbackPeriod = sr / 180.0;
         correctionResult = {};
+        samplesUntilControl = 0;
     }
 
+    // Follower form: pitchScale is latched on the control grid.
     void process (const float* input, float* output, int numSamples,
                   double pitchScale) noexcept
     {
-        const auto fullResult = tracker.process (input, numSamples);
-        const auto fastResult = fastTracker.process (input, numSamples);
-        const auto result = fullResult.voiced ? fullResult : fastResult;
-        correctionResult = result;
-        if (result.voiced && result.periodSamples > 0.0)
-            fallbackPeriod = result.periodSamples;
-        shifter.process (input, output, numSamples, pitchScale, result.voiced,
-                         fallbackPeriod);
+        if (input == nullptr || output == nullptr || numSamples <= 0)
+            return;
+        for (int done = 0; done < numSamples;)
+        {
+            if (samplesUntilControl <= 0)
+            {
+                const auto result = trackedResult();
+                correctionResult = result;
+                if (result.voiced && result.periodSamples > 0.0)
+                    fallbackPeriod = result.periodSamples;
+                shifter.setControl (pitchScale, result.voiced, fallbackPeriod,
+                                    periodSmoothing, true);
+                samplesUntilControl = controlInterval;
+            }
+            done += advance (input + done, output + done, numSamples - done);
+        }
     }
 
     void processCorrected (const float* input, float* output, int numSamples,
                            const LiveCorrectionPlanner::Settings& settings,
                            const LivePitchTracker::Result* pitchGuide = nullptr) noexcept
     {
-        const auto fullResult = tracker.process (input, numSamples);
-        const auto fastResult = fastTracker.process (input, numSamples);
-        const auto tracked = fullResult.voiced ? fullResult : fastResult;
+        if (input == nullptr || output == nullptr || numSamples <= 0)
+            return;
         const bool guideValid = pitchGuide != nullptr && pitchGuide->voiced
                              && pitchGuide->frequencyHz > 0.0;
-        correctionResult = guideValid ? *pitchGuide : tracked;
-        if (tracked.voiced && tracked.periodSamples > 0.0)
-            fallbackPeriod = tracked.periodSamples;
-        else if (guideValid)
-            fallbackPeriod = pitchGuide->periodSamples > 0.0
-                ? pitchGuide->periodSamples : sr / pitchGuide->frequencyHz;
-        const double scale = planner.update (correctionResult, numSamples, settings);
-        shifter.process (input, output, numSamples, scale, tracked.voiced || guideValid,
-                         fallbackPeriod);
+        for (int done = 0; done < numSamples;)
+        {
+            if (samplesUntilControl <= 0)
+            {
+                // Causal: uses only audio before this grid point.
+                const auto tracked = trackedResult();
+                correctionResult = guideValid ? *pitchGuide : tracked;
+                if (tracked.voiced && tracked.periodSamples > 0.0)
+                    fallbackPeriod = tracked.periodSamples;
+                else if (guideValid)
+                    fallbackPeriod = pitchGuide->periodSamples > 0.0
+                        ? pitchGuide->periodSamples : sr / pitchGuide->frequencyHz;
+                const double scale = planner.update (correctionResult, controlInterval, settings);
+                shifter.setControl (scale, tracked.voiced || guideValid, fallbackPeriod,
+                                    periodSmoothing, true);
+                samplesUntilControl = controlInterval;
+            }
+            done += advance (input + done, output + done, numSamples - done);
+        }
     }
 
+    // Latency is the same fixed 2 ms in both formant modes: the LPC formant
+    // correction is causal and adds no delay.
     int getLatencySamples() const noexcept { return shifter.getLatencySamples(); }
     LivePitchTracker::Result getPitchResult() const noexcept { return correctionResult; }
     int getTargetMidi() const noexcept { return planner.getTargetMidi(); }
     double getCorrectionCents() const noexcept { return planner.getCorrectionCents(); }
 
+    // Optional formant preservation (see ExtremePitchShifter). Off by default,
+    // which renders exactly as without the option. Allocation-free; call it
+    // from prepare/reset context, not mid-phrase (it clears the cycle buffer).
+    void setFormantPreservation (bool shouldPreserve) noexcept { shifter.setFormantPreservation (shouldPreserve); }
+    bool getFormantPreservation() const noexcept { return shifter.getFormantPreservation(); }
+
+    // Control-grid introspection for callers that link several channels: a
+    // follower fed the lead's ratio in chunks of this length (after the lead
+    // processed the same chunk) reproduces the lead's per-grid ratio exactly,
+    // independent of the host block size.
+    int getControlIntervalSamples() const noexcept { return controlInterval; }
+    int getSamplesUntilControlUpdate() const noexcept
+    {
+        return samplesUntilControl > 0 ? samplesUntilControl : controlInterval;
+    }
+
 private:
+    LivePitchTracker::Result trackedResult() const noexcept
+    {
+        // The short-window tracker is authoritative wherever it can see the
+        // note (>= 1.15x its 100 Hz floor): it acquires onsets and legato
+        // changes in about half the time of the 42.7 ms full-range frame, and
+        // never hands over to a second, differently biased first estimate a
+        // few ms into a note. The full-range tracker owns the bass register,
+        // where only its long frame contains two periods.
+        const auto full = tracker.getResult();
+        const auto fast = fastTracker.getResult();
+        if (full.voiced && full.frequencyHz < 1.15 * fastTracker.getMinimumHz())
+            return full;
+        return fast.voiced ? fast : full;
+    }
+
+    int advance (const float* input, float* output, int available) noexcept
+    {
+        const int count = std::min (samplesUntilControl, available);
+        // Trackers read the input before the shifter may overwrite it in place.
+        tracker.process (input, count);
+        fastTracker.process (input, count);
+        shifter.render (input, output, count);
+        samplesUntilControl -= count;
+        return count;
+    }
+
     LivePitchTracker tracker;
     LivePitchTracker fastTracker;
     ExtremePitchShifter shifter;
@@ -952,6 +1370,8 @@ private:
     double sr = 48000.0;
     double fallbackPeriod = 266.7;
     LivePitchTracker::Result correctionResult;
+    int controlInterval = 32, samplesUntilControl = 0;
+    double periodSmoothing = 0.2584;
 };
 
 class LivePitchEngine

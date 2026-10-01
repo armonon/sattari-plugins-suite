@@ -15,8 +15,14 @@
 // the correction; further channels follow its exact ratio, as in Auto Pitch.
 //
 // Latency is a constant engine property (2 ms, e.g. 96 samples at 48 kHz),
-// independent of the Tune amount, so the host's delay compensation never moves
-// while the macro is automated. Tune 0 returns the exact delayed input.
+// independent of the Tune amount and of formant preservation, so the host's
+// delay compensation never moves while the macro is automated. Tune 0 returns
+// the exact delayed input.
+//
+// Formant preservation is ON by default here: the engine's causal LPC
+// correction keeps the singer's vowel/formant envelope while the pitch moves
+// (the bare Extreme shifter resamples it with the pitch, e.g. +6 % per
+// semitone). It adds no latency. Auto Pitch keeps the engine default (off).
 class TuneModule
 {
 public:
@@ -34,6 +40,12 @@ public:
 
     // Constant for a prepared sample rate; safe to call from prepareToPlay.
     int getLatencySamples() const noexcept { return latencySamples; }
+
+    // Default true. Applied at prepare(); changing it while running takes
+    // effect immediately but restarts the engines' cycle buffers (call it from
+    // a non-realtime context or between phrases).
+    void setFormantPreservation (bool shouldPreserve) noexcept;
+    bool getFormantPreservation() const noexcept { return formantPreservation; }
 
     float getConfidence() const noexcept { return confidence; }
     // Last detected (sung, pre-correction) fundamental in Hz when the engine's
@@ -64,7 +76,7 @@ private:
     double sr = 44100.0;
     int latencySamples = 0;
     int preparedChannels = 0;
-    int controlQuantum = 64;   // engine control grid, ~1.33 ms (see process())
+    bool formantPreservation = true;
     float confidence = 0.0f;
     float lastHz = 0.0f;
     bool lastVoiced = false;

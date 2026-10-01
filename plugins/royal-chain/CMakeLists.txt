@@ -84,6 +84,17 @@ target_compile_definitions(RoyalChainUIRender PUBLIC JucePlugin_Build_Standalone
 target_link_libraries(RoyalChainUIRender PRIVATE SattariAudioCore juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
+# Real-vocal render + measurement tool (local evidence, not a CI gate): streams a
+# vocal recording through the real processor with the editor open; reports pitch
+# correction on actual singing, latency, speed, allocations and Compass dish state.
+add_executable(RoyalChainVocalRender EXCLUDE_FROM_ALL tests/vocal_render.cpp ${RC_UI_SOURCES})
+add_dependencies(RoyalChainVocalRender SattariRoyalChain)
+target_include_directories(RoyalChainVocalRender PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/SattariRoyalChain_artefacts/JuceLibraryCode)
+target_compile_definitions(RoyalChainVocalRender PUBLIC JucePlugin_Build_Standalone=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0 "JucePlugin_Name=\"Sattari Royal Chain\"" SATTARI_ROYALCHAIN_HAS_RUBBERBAND=0)
+target_link_libraries(RoyalChainVocalRender PRIVATE SattariAudioCore juce::juce_audio_utils juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 # Tune stage offline render contract: detuned vocal-like phrases through the REAL
 # processor (key C major, Tune = 1). Gates pitch pull-in (shared PitchDetector),
 # reported-vs-measured latency, finite/non-silent output, zero allocations in

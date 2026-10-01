@@ -25,9 +25,14 @@ auval -v aufx Rc01 Satr
 - The Tune module runs Auto Pitch's Live Mode engine with its default Extreme
   Live (2 ms) profile (`sattari::dsp::ExtremeLivePitchEngine`), key/scale aware,
   with the Vocal Style choosing retune speed, vibrato retention and note
-  transitions. It adds a constant 2 ms latency, reported to the host. It is alpha:
-  no formant correction (Auto Pitch's Live path has none either), no neural pitch
-  guide, and not yet listened against real vocals. Offline gate:
-  `RoyalChainTuneRenderContract`.
-- Needs real-vocal DAW/manual listening validation, preset tuning, CPU checks, and product UX polish.
+  transitions. It adds a constant 2 ms latency, reported to the host. Formant
+  preservation (causal LPC, no extra latency) is on by default in Royal Chain
+  (Auto Pitch keeps it off). The engine output is host-block-size invariant and
+  locks onto notes after silence in ~14-25 ms. Still alpha: no neural pitch
+  guide, and not yet LISTENED against real vocals (measured only). Offline gates:
+  `RoyalChainTuneRenderContract`, `SattariExtremeLivePitchContract`.
+- Real-vocal measurement tool (local evidence, audio never in git):
+  `RoyalChainVocalRender --in <wav> --out <dir>` reports pitch correction on
+  actual singing, latency, speed, allocations and Compass dish state.
+- Needs DAW/manual listening validation, preset tuning, and product UX polish.
 - Not sale-ready.

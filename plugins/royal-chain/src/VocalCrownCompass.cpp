@@ -1,5 +1,6 @@
 #include "VocalCrownCompass.h"
 #include "RoyalChainProcessor.h"
+#include <sattari_audio_core/SattariPitchDetector.h>
 
 #include <algorithm>
 #include <cmath>
@@ -276,7 +277,18 @@ void VocalCrownCompass::advanceFrame (float dt, bool render)
         fr.outSide = tapOutSide.data();
         fr.inMid = tapInMid.data();
         fr.sampleRate = outTap.sampleRate();
-        fr.targetHz = (st.voiced && st.note >= 0) ? 440.0f * std::exp2 ((float) (st.note - 69) / 12.0f) : 0.0f;
+        // Target = the note Tune is steering this pitch toward RIGHT NOW: the tracked
+        // (sung) pitch snapped to the key/scale (nearest semitone when Tune is off),
+        // without the display hysteresis, which lags fast real phrases.
+        fr.targetHz = 0.0f;
+        if (lastFeed.pitchHz > 60.0f && lastFeed.pitchHz < 1500.0f)
+        {
+            int m = (int) std::lround (sattari::dsp::hzToMidi (lastFeed.pitchHz));
+            if (lastFeed.tune >= 0.05f)
+                m = sattari::dsp::snapMidiToScale (m, ((lastFeed.key % 12) + 12) % 12,
+                                                   (sattari::dsp::ScaleId) juce::jlimit (0, 7, lastFeed.scale));
+            fr.targetHz = 440.0f * std::exp2 ((float) (m - 69) / 12.0f);
+        }
         fr.trackedHz = lastFeed.pitchHz;
         fr.limiter = lastFeed.lim;
         fr.dt = dt;

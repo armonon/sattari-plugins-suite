@@ -419,16 +419,32 @@ void WaterDish::update (const Frame& fr) noexcept
     burst = std::max (burst * std::exp (-dt / 0.14f), clampf ((env - envSlow) * 3.0f, 0.0f, 1.0f));
     lim += (clampf (fr.limiter, 0.0f, 1.0f) - lim) * kOf (dt, fr.limiter > lim ? 0.03f : 0.3f);
 
-    // --- pitch on the same spectrum that drives the modes; tracked pitch resolves octaves ---
-    pitch = audioPresent ? detectPitch (magsOut.data(), binHz) : 0.0f;
-    if (pitch > 0.0f && fr.trackedHz > 40.0f)
+    // --- pitch: anchored on Royal Chain's own vocal tracker (robust to harmonics and
+    //     octave slips on real voices), refined on the SAME spectrum that drives the
+    //     modes so the lock is exact for the high-Q water resonances. Peak-picking
+    //     alone locks onto harmonics on real singing (3rd harmonic = +1900 c). ---
+    pitch = 0.0f;
+    if (audioPresent && fr.trackedHz > 60.0f && fr.trackedHz < 1500.0f)
     {
-        const float oct = std::log2 (pitch / fr.trackedHz);
-        if (std::abs (oct - std::round (oct)) < 0.08f && std::abs (std::round (oct)) >= 1.0f)
-            pitch /= std::exp2 (std::round (oct));
+        // The output may sit up to ~a semitone from the tracked (input) pitch after
+        // correction: search +-1 semitone around it for the spectral peak.
+        const int lo = std::max (2, (int) std::floor (fr.trackedHz * 0.94f / binHz));
+        const int hi = std::min (kFFT / 2 - 2, (int) std::ceil (fr.trackedHz * 1.06f / binHz));
+        int pk = lo; float pv = 0.0f;
+        for (int i = lo; i <= hi; ++i)
+            if (magsOut[(size_t) i] > pv) { pv = magsOut[(size_t) i]; pk = i; }
+        if (pv > 1.0e-5f && pk > lo && pk < hi)
+        {
+            const float a = magsOut[(size_t) pk - 1], b = magsOut[(size_t) pk], c = magsOut[(size_t) pk + 1];
+            const float den = a - 2.0f * b + c;
+            const float delta = den != 0.0f ? 0.5f * (a - c) / den : 0.0f;
+            pitch = (pk + clampf (delta, -1.0f, 1.0f)) * binHz;
+        }
+        else
+            pitch = fr.trackedHz;
     }
-    else if (pitch <= 0.0f && audioPresent && fr.trackedHz > 40.0f)
-        pitch = fr.trackedHz;
+    else if (audioPresent)
+        pitch = detectPitch (magsOut.data(), binHz);   // no vocal tracking: instruments / chords
 
     // --- tune the dish to the TARGET note (Tune's destination), measure how close the
     //     output actually is: in tune rings crisp, off pitch smears. ---
