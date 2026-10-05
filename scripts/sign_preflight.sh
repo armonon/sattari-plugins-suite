@@ -56,6 +56,8 @@ fi
 
 echo "5) Entitlements + build artefacts"
 [ -f packaging/sattari-plugin.entitlements ] && ok "entitlements present" || bad "packaging/sattari-plugin.entitlements missing"
+[ -f packaging/sattari-standalone.entitlements ] && ok "standalone audio-input entitlements present" || bad "packaging/sattari-standalone.entitlements missing"
+[ -f packaging/sattari-modular-standalone.entitlements ] && ok "Modular hosting entitlements present" || bad "packaging/sattari-modular-standalone.entitlements missing"
 ARTROOT="${SATTARI_ARTEFACT_ROOT:-}"
 if [ -z "$ARTROOT" ]; then
   for cand in build/local/plugins build/all/plugins; do

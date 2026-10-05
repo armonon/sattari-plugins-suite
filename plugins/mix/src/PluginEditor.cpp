@@ -8,7 +8,8 @@ AutoMixPanel::AutoMixPanel (SattariMixAudioProcessor& p) : processor (p), contro
     for (juce::Component* c : std::initializer_list<juce::Component*> {
         &header, &group, &name, &newGroup, &join, &leave, &analyze, &propose, &stop,
         &original, &proposed, &keep, &undo, &match, &protect, &enabled, &duration,
-        &role, &gain, &low, &presence, &compression, &amount, &localGain, &status, &reason, &table })
+        &role, &gain, &low, &presence, &compression, &amount, &localGain, &status, &reason, &table,
+        &busInsert, &showHistory, &routingWarning })
         addAndMakeVisible (c);
     const char* texts[] = { "Mix group", "This track", "Capture", "No track selected", "Role",
         "Gain / dB", "Low EQ / dB", "Presence EQ / dB", "Dynamics / %", "Local amount", "Local gain / dB" };
@@ -25,6 +26,13 @@ AutoMixPanel::AutoMixPanel (SattariMixAudioProcessor& p) : processor (p), contro
     status.setColour (juce::Label::textColourId, sattari::releaseui::muted);
     reason.setColour (juce::Label::textColourId, sattari::releaseui::muted);
     reason.setJustificationType (juce::Justification::topLeft);
+    addChildComponent (historyView); historyView.setMultiLine (true); historyView.setReadOnly (true);
+    historyView.setScrollbarsShown (true); historyView.setTitle ("Decision history");
+    showHistory.setTitle ("Decision history");
+    showHistory.onClick = [this] { historyView.setVisible (showHistory.getToggleState()); table.setVisible (! showHistory.getToggleState()); };
+    routingWarning.setFont (sattari::brand::fontOptions (11)); routingWarning.setColour (juce::Label::textColourId, juce::Colour (0xffba763a));
+    busInsert.setTitle ("Summing bus insert"); busInsert.setTooltip ("Declare this insert receives a summed signal. This does not detect or change DAW routing.");
+    busAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.parameters(), "auto.isBus", busInsert);
     sattari::releaseui::primary (analyze); sattari::releaseui::primary (keep);
     sattari::releaseui::icon (undo, sattari::releaseui::Icon::undo, "Undo mix");
     group.setText (p.groupName()); name.setText (p.trackName());
@@ -168,6 +176,7 @@ void AutoMixPanel::refreshSelection()
         if (! e.first->isMouseButtonDown()) e.first->setValue (e.second, juce::dontSendNotification);
     reason.setText (t != nullptr ? (s != nullptr ? s->reason + " / " : juce::String())
         + juce::String (t->measured.activeSeconds, 1) + " s active" : juce::String(), juce::dontSendNotification);
+    reason.setTooltip (reason.getText());
     const bool editing = s != nullptr && controller.plan.valid() && ! s->source.locked && controller.mode == MixController::Mode::draft && ! controller.busy();
     gain.setEnabled (editing); low.setEnabled (editing); presence.setEnabled (editing); compression.setEnabled (editing);
     role.setEnabled (t != nullptr && ! controller.busy() && ! controller.auditioning()); protect.setEnabled (role.isEnabled());
@@ -198,6 +207,15 @@ void AutoMixPanel::timerCallback()
     const bool ready = controller.plan.valid() && ! busy && ! analyzing;
     original.setEnabled (ready); proposed.setEnabled (ready); keep.setEnabled (ready); undo.setEnabled (ready); match.setEnabled (ready);
     amount.setEnabled (! busy && ! audition); localGain.setEnabled (amount.isEnabled()); enabled.setEnabled (amount.isEnabled());
+    busInsert.setEnabled (! busy && ! audition && ! analyzing);
+    const auto history = processor.decisionHistory();
+    const auto historyText = history.isEmpty() ? juce::String ("No recorded decisions") : history;
+    if (historyView.getText() != historyText) historyView.setText (historyText, false);
+    juce::String warning = controller.plan.warning;
+    if (warning.isEmpty())
+        for (const auto& track : controller.tracks) if (track.isBus && controller.tracks.size() > 1)
+        { warning = "Summing bus linked: verify one contribution per signal. DAW routing is not visible."; break; }
+    routingWarning.setText (warning, juce::dontSendNotification); routingWarning.setTooltip (warning);
     original.setToggleState (controller.mode == MixController::Mode::original, juce::dontSendNotification);
     proposed.setToggleState (controller.mode == MixController::Mode::proposed, juce::dontSendNotification);
     auto text = controller.status;
@@ -222,7 +240,7 @@ void AutoMixPanel::paint (juce::Graphics& g)
 }
 void AutoMixPanel::paintOverChildren (juce::Graphics& g)
 {
-    if (controller.tracks.empty())
+    if (controller.tracks.empty() && ! showHistory.getToggleState())
     {
         g.setColour (sattari::releaseui::muted); g.setFont (sattari::brand::fontOptions (16.0f));
         g.drawText ("No linked tracks", table.getBounds().withTrimmedTop (40), juce::Justification::centred);
@@ -242,6 +260,8 @@ void AutoMixPanel::resized()
     labels[2].setBounds (commands.removeFromLeft (60)); duration.setBounds (commands.removeFromLeft (116)); commands.removeFromLeft (12);
     analyze.setBounds (commands.removeFromLeft (128)); commands.removeFromLeft (6);
     stop.setBounds (commands.removeFromLeft (58)); commands.removeFromLeft (6); propose.setBounds (commands.removeFromLeft (130));
+    commands.removeFromLeft (12); showHistory.setBounds (commands.removeFromLeft (100));
+    routingWarning.setBounds (a.removeFromTop (24).reduced (22, 0));
     footerArea = a.removeFromBottom (116);
     auto footer = footerArea.reduced (22, 8); auto audition = footer.removeFromTop (32);
     original.setBounds (audition.removeFromLeft (94)); audition.removeFromLeft (4);
@@ -253,6 +273,7 @@ void AutoMixPanel::resized()
     enabled.setBounds (local.removeFromLeft (120).withTrimmedTop (12));
     auto r = local.removeFromLeft (260); labels[9].setBounds (r.removeFromTop (17)); amount.setBounds (r);
     local.removeFromLeft (24); r = local.removeFromLeft (270); labels[10].setBounds (r.removeFromTop (17)); localGain.setBounds (r);
+    local.removeFromLeft (12); busInsert.setBounds (local.withTrimmedTop (12));
 
     detailArea = a.removeFromRight (juce::jlimit (260, 320, getWidth() / 4));
     auto detail = detailArea.reduced (18, 12);
@@ -263,6 +284,7 @@ void AutoMixPanel::resized()
     for (int i = 0; i < 4; ++i)
     { r = detail.removeFromTop (54); labels[(size_t) i + 5].setBounds (r.removeFromTop (18)); sliders[i]->setBounds (r.removeFromTop (30)); }
     table.setBounds (a.reduced (22, 8));
+    historyView.setBounds (table.getBounds());
     const int trackWidth = juce::jlimit (130, 280, table.getWidth() / 4);
     table.getHeader().setColumnWidth (1, trackWidth); table.getHeader().setColumnWidth (2, 102);
     for (int id : { 4, 5, 6 }) table.getHeader().setColumnWidth (id, 64);

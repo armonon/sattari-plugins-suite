@@ -343,7 +343,7 @@ private:
         {
             p.push_back (std::make_unique<juce::AudioParameterChoice> (
                 juce::ParameterID { slotParamId (s), 1 }, "Slot " + juce::String (s + 1), menu, 0));
-            p.push_back (std::make_unique<juce::AudioParameterBool> (
+            p.push_back (std::make_unique<sattari::parameters::Bool> (
                 juce::ParameterID { slotBypassParamId (s), 1 }, "Slot " + juce::String (s + 1) + " Bypass", false));
         }
 

@@ -75,6 +75,7 @@ private:
     sattari::dsp::VocoderBank    vocoder_;   // talkbox mode: voice shapes the synth
     std::vector<sattari::dsp::VoxAnalyzer::Frame> frames_;
     std::vector<float> mono_;
+    juce::AudioBuffer<float> synthScratch_;
 
     // MPE / MIDI output state (voice is monophonic -> one active note).
     //

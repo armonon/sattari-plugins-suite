@@ -71,7 +71,7 @@ public:
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "mix", 1),      "Mix",            R (0.0f, 1.0f, 0.01f), 0.35f));
 
         // Key Snap: quantize the shimmer interval to in-key scale tones from the bus.
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "keysnap", 1), "Key Snap", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "keysnap", 1), "Key Snap", false));
         out.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID (prefix + "root", 1),  "Key Root",  rootChoices(), 0));
         out.push_back (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID (prefix + "scale", 1), "Key Scale", scaleChoices(), 0));
     }

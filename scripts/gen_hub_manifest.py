@@ -36,8 +36,14 @@ ACCENTS = {
 }
 
 
+def write_if_changed(path: Path, contents: str) -> None:
+    if not path.exists() or path.read_text() != contents:
+        path.write_text(contents)
+
+
 def deployment(product: dict) -> tuple[str, str, list[dict]]:
-    cml = ROOT / "plugins" / product["id"] / "CMakeLists.txt"
+    directory = product.get("sourceDirectory", product["id"])
+    cml = ROOT / "plugins" / directory / "CMakeLists.txt"
     if not cml.exists():
         raise ValueError(f"{product['id']}: missing {cml.relative_to(ROOT)}")
     text = cml.read_text()
@@ -46,12 +52,20 @@ def deployment(product: dict) -> tuple[str, str, list[dict]]:
     if not target_match or not product_match:
         raise ValueError(f"{product['id']}: missing TARGET or PRODUCT_NAME")
     target, deployed_name = target_match.group(1), product_match.group(1)
+    if directory == "modular":
+        target = product.get("buildTarget", "")
+        if target not in ("SattariModularFX", "SattariModularInstrument") or "foreach(kind IN ITEMS FX Instrument)" not in text:
+            raise ValueError(f"{product['id']}: unrecognised Modular variant")
+        deployed_name = deployed_name.replace("${kind}", target.removeprefix("SattariModular"))
+        versions = set(re.findall(r"\bVERSION\s+(\d+\.\d+\.\d+)", text))
+        if versions != {product.get("binaryVersion")}:
+            raise ValueError(f"{product['id']}: expected binary version differs from CMake")
     if deployed_name != product["name"]:
         raise ValueError(
             f"{product['id']}: catalog name {product['name']!r} "
             f"!= CMake PRODUCT_NAME {deployed_name!r}"
         )
-    base = f"build/all/plugins/{product['id']}/{target}_artefacts/Release"
+    base = f"build/all/plugins/{directory}/{target}_artefacts/Release"
     format_match = FORMATS.search(text)
     formats = format_match.group(1).split() if format_match else ["AU", "VST3", "Standalone"]
     unknown_formats = set(formats) - {"AU", "VST3", "Standalone"}
@@ -75,19 +89,26 @@ def deployment(product: dict) -> tuple[str, str, list[dict]]:
         },
     }
     bundles = [bundle_by_format[plugin_format] for plugin_format in formats]
+    if product.get("binaryVersion"):
+        for bundle in bundles:
+            bundle["expectedVersion"] = product["binaryVersion"]
     return target, deployed_name, bundles
 
 
 def validate(catalog: dict) -> list[dict]:
-    if catalog.get("schemaVersion") != 1:
-        raise ValueError("catalog schemaVersion must be 1")
+    if catalog.get("schemaVersion") != 2:
+        raise ValueError("catalog schemaVersion must be 2")
     products = catalog.get("products", [])
     ids = [p.get("id") for p in products]
-    if len(products) != 49 or len(set(ids)) != len(ids):
-        raise ValueError("catalog must contain 49 unique product ids")
+    if not products or len(set(ids)) != len(ids):
+        raise ValueError("catalog must contain unique product ids")
+    directories = {p.get("sourceDirectory", p["id"]) for p in products}
+    discovered = {p.parent.name for p in (ROOT / "plugins").glob("*/CMakeLists.txt")}
+    if directories != discovered:
+        raise ValueError(f"catalog source coverage differs: missing={sorted(discovered - directories)} unknown={sorted(directories - discovered)}")
     required = {
         "id", "name", "category", "accent", "lifecycle", "role",
-        "shippingProfile", "webVisible", "suite", "suiteRole",
+        "shippingProfile", "webVisible", "suite", "suiteRole", "portfolioStatus", "collections",
     }
     for product in products:
         missing = required - product.keys()
@@ -96,25 +117,25 @@ def validate(catalog: dict) -> list[dict]:
         if product["accent"] not in ACCENTS:
             raise ValueError(f"{product['id']}: unknown accent {product['accent']}")
         deployment(product)
+    modular = [p for p in products if p.get("sourceDirectory", p["id"]) == "modular"]
+    if {(p["id"], p.get("buildTarget")) for p in modular} != {
+        ("modular", "SattariModularFX"), ("modular-instrument", "SattariModularInstrument")
+    }:
+        raise ValueError("catalog must include both distinct Modular deployment variants")
     alpha = {p["id"] for p in products if p["shippingProfile"] == "alpha"}
     if alpha != {
         "auto-pitch", "brain", "vocal", "mix", "create", "stack",
-        "sattari-arp", "sub-conjurer",
+        "sattari-arp", "sub-conjurer", "modular", "modular-instrument",
     }:
         raise ValueError(f"alpha profile drifted: {sorted(alpha)}")
     stem = next(p for p in products if p["id"] == "stemdeck")
     if stem["lifecycle"] != "excluded" or stem["webVisible"]:
         raise ValueError("stemdeck must remain excluded from this non-StemDeck program")
 
-    # --- the six-product grouping -------------------------------------------
-    #  49 plugins are the IMPLEMENTATION; the six suite products are what anyone
-    #  buys, installs or reasons about. Every plugin must belong to exactly one,
-    #  or be explicitly excluded — an unassigned plugin is a product with no
-    #  shelf to sit on, which is how a catalog drifts back to "49 things".
     suite = catalog.get("suite", [])
     suite_ids = [s["id"] for s in suite]
-    if len(suite) != 6 or len(set(suite_ids)) != 6:
-        raise ValueError("suite must define 6 unique products")
+    if set(suite_ids) != {"modular", "royal-chain", "auto-pitch", "mix", "tools", "compass"} or len(set(suite_ids)) != len(suite_ids):
+        raise ValueError("suite must define the four flagships, Tools and Compass")
     for entry in suite:
         missing = {"id", "name", "verb", "accent", "tier", "tagline", "primary"} - entry.keys()
         if missing:
@@ -133,8 +154,12 @@ def validate(catalog: dict) -> list[dict]:
             continue
         if group not in by_suite:
             raise ValueError(f"{product['id']}: unknown suite {group!r}")
-        if product["suiteRole"] not in ("primary", "component"):
-            raise ValueError(f"{product['id']}: suiteRole must be primary or component")
+        if product["suiteRole"] not in ("primary", "variant", "component", "legacy"):
+            raise ValueError(f"{product['id']}: invalid suiteRole")
+        if product.get("portfolioStatus") not in ("active", "module", "legacy", "held", "specialist", "migration-pending"):
+            raise ValueError(f"{product['id']}: invalid portfolioStatus")
+        if product["webVisible"] != (product["portfolioStatus"] in ("active", "specialist")):
+            raise ValueError(f"{product['id']}: storefront visibility differs from portfolio decision")
         by_suite[group].append(product)
 
     # Exactly one primary per suite product, and it must be the one the suite
@@ -147,6 +172,22 @@ def validate(catalog: dict) -> list[dict]:
         if primaries != [entry["primary"]]:
             raise ValueError(
                 f"suite {entry['id']}: primary must be exactly [{entry['primary']}], got {primaries}")
+    collections = catalog.get("collections", [])
+    collection_ids = [c["id"] for c in collections]
+    if set(collection_ids) != {"vocal", "create", "instruments", "mix"} or len(collection_ids) != 4:
+        raise ValueError("catalog must contain the four distinct Modular collections")
+    for collection in collections:
+        if collection["destination"] != "modular" or not collection["members"]:
+            raise ValueError("invalid collection destination or empty members")
+        if len(set(collection["members"])) != len(collection["members"]):
+            raise ValueError(f"{collection['id']}: duplicate collection member")
+        for pid in collection["members"]:
+            if pid not in ids or collection["id"] not in next(p for p in products if p["id"] == pid)["collections"]:
+                raise ValueError(f"{collection['id']}: collection membership drift for {pid}")
+    for product in products:
+        expected = [c["id"] for c in collections if product["id"] in c["members"]]
+        if product["collections"] != expected:
+            raise ValueError(f"{product['id']}: reverse collection membership drift")
     return products
 
 
@@ -182,6 +223,8 @@ def generate() -> None:
             "version": catalog["suiteVersion"],
             "suite": product["suite"],
             "suiteRole": product["suiteRole"],
+            "portfolioStatus": product["portfolioStatus"],
+            "collections": product["collections"],
             "bundles": bundles,
         }
         for key in ("updateArchiveURL", "updateArchiveSHA256", "updateArchiveBytes"):
@@ -201,9 +244,10 @@ def generate() -> None:
         ),
         "updateFeedSHA256": old_manifest.get("updateFeedSHA256"),
         "suite": catalog["suite"],
+        "collections": catalog["collections"],
         "products": manifest_products,
     }
-    MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
+    write_if_changed(MANIFEST, json.dumps(manifest, indent=2) + "\n")
 
     brand_lines = [
         "// Generated by scripts/gen_hub_manifest.py from config/products.json.",
@@ -214,32 +258,40 @@ def generate() -> None:
             f'{{ "{product["id"]}", "{product["name"]}", '
             f'"{product["category"]}", {ACCENTS[product["accent"]]} }},'
         )
-    BRAND_INC.write_text("\n".join(brand_lines) + "\n")
+    write_if_changed(BRAND_INC, "\n".join(brand_lines) + "\n")
 
     web = [
         {
             "id": p["id"],
+            "name": p["name"],
+            "category": p["category"],
+            "page": ("modular.html#instrument" if p["id"] == "modular-instrument" else "modular.html") if p.get("sourceDirectory") == "modular" else "plugin.html?id=" + p["id"],
             "lifecycle": p["lifecycle"],
             "role": p["role"],
             "shippingProfile": p["shippingProfile"],
             "webVisible": p["webVisible"],
             "suite": p["suite"],
             "suiteRole": p["suiteRole"],
+            "portfolioStatus": p["portfolioStatus"],
+            "collections": p["collections"],
         }
         for p in products
     ]
     suite_web = [
         dict(s, count=sum(1 for p in products
-                          if p["suite"] == s["id"] and p["webVisible"]))
+                          if p["suite"] == s["id"] and p["portfolioStatus"] not in ("held", "legacy", "migration-pending")))
         for s in catalog["suite"]
     ]
-    WEB_CATALOG.write_text(
+    write_if_changed(WEB_CATALOG,
         "// Generated by scripts/gen_hub_manifest.py. Do not edit.\n"
         "window.SATTARI_PRODUCT_CATALOG = "
         + json.dumps(web, separators=(",", ":"))
         + ";\n"
         "window.SATTARI_SUITE = "
         + json.dumps(suite_web, separators=(",", ":"))
+        + ";\n"
+        "window.SATTARI_COLLECTIONS = "
+        + json.dumps(catalog["collections"], separators=(",", ":"))
         + ";\n"
     )
 
@@ -250,7 +302,7 @@ def generate() -> None:
         entry = {"plugin": product["id"]}
         entry.update(product["ci"])
         ci.append(entry)
-    CI_MATRIX.write_text(json.dumps({"include": ci}, indent=2) + "\n")
+    write_if_changed(CI_MATRIX, json.dumps({"include": ci}, indent=2) + "\n")
 
     grouped = ", ".join(
         f"{s['id']}:{sum(1 for p in products if p['suite'] == s['id'])}"

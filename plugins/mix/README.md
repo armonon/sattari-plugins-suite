@@ -11,6 +11,8 @@ claim.
    a source and its receiving bus; the planner assumes one direct contribution
    per participating instance. DAW faders, sends and downstream effects are not
    visible to the plugin. Keep those stable while comparing.
+   Mark **Summing bus** on a bus insert. Mixed bus/source groups show a warning;
+   this is an explicit declaration, not automatic DAW-routing detection.
 2. In Session balance, use **New group** on one instance. Its unique code is copied to
    the clipboard. Paste that code on other instances and click **Join**. Use a
    distinct code for each project, including simultaneously open project copies.
@@ -20,6 +22,8 @@ claim.
 4. Play a representative passage and click **Analyze group**. Choose 8, 16 or
    30 seconds. Progress counts processed audio, so the DAW must deliver audio.
    A proposal appears when all participating tracks finish the same pass.
+   A stalled pass reports that it is waiting for audio. If a member leaves,
+   analysis is cancelled on the remaining reachable tracks.
 5. Select a row to edit its proposed gain, low EQ, presence EQ and dynamics.
    **Proposal** and **Original** audition the group. **Level match** uses an
    active-level estimate and attenuation only. **Keep mix** retains the proposal
@@ -71,22 +75,31 @@ protocol is asynchronous; it is not sample-synchronous automation.
 Kept parameters, role, lock, group and track name are recalled by DAW state.
 Instance IDs regenerate on construction so duplicated tracks do not overwrite
 each other. Original host parameter indices and module selections are preserved;
-the nine new parameters are appended. Old sessions default to assistant off.
+the original nine assistant parameters are unchanged, and the summing-bus flag
+appends after them. Old sessions default to assistant off and bus declaration off.
 Analysis and the proposal/undo snapshot are session-runtime data, retained across
 editor close/open but not serialized. Temporary level-match attenuation is not
 saved, and is cleared when its coordinator disappears from the group. Use
 **Keep mix** or **Undo mix** before saving an audition as a final result.
 
+The last 16 decision records now survive DAW state recall and appear in History.
+These are informational text, not executable proposals: reopening a session does
+not replay commands or restore stale track IDs. Explanations include measured
+active level, role target, triggered spectral/dynamics rules and headroom trim.
+An un-applied draft is invalidated when its membership, capture, role, lock, bus
+declaration or settings change. Actual DAW faders/routing remain outside this check.
+
 ## Build And Verify
 
 ```sh
-cmake -S plugins/mix -B build/mix -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64'
-cmake --build build/mix --target SattariMix_AU SattariMix_VST3 SattariMix_Standalone SattariMixProductContract SattariMixAutoMixContract -j 4
-build/mix/SattariMixProductContract
-build/mix/SattariMixAutoMixContract "$PWD/build/mix/screenshots"
-auval -v aumf Mx01 Satr
-/Applications/pluginval.app/Contents/MacOS/pluginval --validate-in-process --strictness-level 5 "$HOME/Library/Audio/Plug-Ins/VST3/Sattari Mix.vst3"
+cmake -S plugins/mix -B build/mix -G Ninja -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF
+cmake --build build/mix --target SattariMix_All SattariMixProductContract SattariMixAutoMixContract SattariMixUIContract -j 4
+ctest --test-dir build/mix -C Release --output-on-failure
+/Applications/pluginval.app/Contents/MacOS/pluginval --validate-in-process --strictness-level 10 "$PWD/build/mix/SattariMix_artefacts/Release/VST3/Sattari Mix.vst3"
 ```
+
+Run `auval -v aumf Mx01 Satr` only after intentionally installing that matching
+AU. The build above does not replace existing installed plugins.
 
 The machine contract covers analysis, DSP gain, silence, stereo cancellation,
 roles, locks, peak budgeting, cross-process control, state compatibility,
@@ -95,3 +108,7 @@ rendered at minimum, default and large sizes.
 
 Human DAW listening, cleared multitrack evaluation, and blind competitive tests
 remain required. **LISTENING STATUS: NOT VERIFIED.**
+
+The manual Product Upgrade Builds workflow produces macOS universal and Windows
+x64 development artifacts and runs the product, assistant and UI contracts. It
+does not publish releases or establish platform validation until a run succeeds.

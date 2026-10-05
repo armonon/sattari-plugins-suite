@@ -67,6 +67,11 @@ static void plannerContract()
     check (p.estimatedPeakDb <= -5.99f, "conservative coincident sample peak bound");
     check (p.tracks[1].proposed.presence < 0 && p.tracks[1].proposed.low < 0, "support creates vocal and bass space");
     check (p.tracks[0].proposed.gain <= 6, "boost is bounded");
+    check (p.tracks[1].reason.contains ("role target") && p.tracks[1].reason.contains ("low-band energy"), "Proposals explain measured evidence and target");
+    tracks[1].isBus = true;
+    auto busPlan = makePlan (tracks, "pass");
+    check (busPlan.valid() && busPlan.warning.contains ("counted twice"), "Explicit bus/source groups warn without claiming routing detection");
+    tracks[1].isBus = false;
     tracks[1].locked = true; tracks[1].measured.peakDb = -30;
     p = makePlan (tracks, "pass");
     check (p.valid() && equivalent (p.tracks[1].proposed, tracks[1].settings), "locked settings are preserved");
@@ -125,6 +130,10 @@ static void workflowContract (const juce::File& screenshots)
     SattariMixAudioProcessor restored; restored.setStateInformation (state.getData(), (int) state.getSize());
     check (equivalent (restored.assistSettings(), b.assistSettings()), "saved assistant sound recalls without editor");
     check (restored.groupName() == group && restored.instanceId() != b.instanceId(), "recall preserves group but clone identity is unique");
+    check (restored.decisionHistory().isNotEmpty() && restored.decisionHistory() == b.decisionHistory(), "Decision history recalls without replaying commands");
+    check (! restored.mixController().plan.valid(), "Recall does not resurrect stale executable proposals");
+    for (int i = 0; i < 30; ++i) restored.recordDecision ("Bounded history " + juce::String (i));
+    check (restored.decisionHistory().contains ("history 29") && ! restored.decisionHistory().contains ("history 10"), "Decision history retention is bounded");
 
     if (screenshots != juce::File())
     {
@@ -142,6 +151,15 @@ static void workflowContract (const juce::File& screenshots)
 
     controller.undo(); pump (a, b);
     check (equivalent (a.assistSettings(), beforeA) && equivalent (b.assistSettings(), beforeB), "undo restores entire group");
+    controller.buildProposal(); setRealParameter (b.parameters(), "auto.isBus", 1); pump (a, b);
+    controller.startViewing(); controller.poll(); controller.stopViewing();
+    check (! controller.plan.valid() && controller.status.contains ("stale"), "Bus declaration changes invalidate an un-applied draft");
+    bool busVisible = false;
+    for (const auto& track : a.linkedTracks()) if (track.id == b.instanceId()) busVisible = track.isBus;
+    check (busVisible, "Bus declaration crosses the linked-session protocol");
+    b.getStateInformation (state); restored.setStateInformation (state.getData(), (int) state.getSize());
+    check (restored.trackSnapshot().isBus, "Bus declaration survives host recall");
+    setRealParameter (b.parameters(), "auto.isBus", 0); pump (a, b);
     controller.buildProposal();
     auto changed = b.assistSettings(); changed.gain = 3; b.setAssistSettings (changed); pump (a, b);
     controller.audition (true);

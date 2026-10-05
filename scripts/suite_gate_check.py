@@ -40,19 +40,32 @@ def main() -> int:
     codes: dict[str, list[str]] = {}
     missing_code: list[str] = []
     invalid_code: dict[str, str] = {}
-    code_pattern = re.compile(r"^\s*PLUGIN_CODE\s+(\S+)", re.MULTILINE)
+    code_pattern = re.compile(r"\bPLUGIN_CODE\s+(\S+)")
+    set_pattern = re.compile(r"\bset\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z0-9]{4})\s*\)")
     for plugin in plugin_dirs:
         cmake_file = plugin / "CMakeLists.txt"
         if not cmake_file.is_file():
             continue
-        match = code_pattern.search(cmake_file.read_text())
-        if match is None:
+        cmake_text = cmake_file.read_text()
+        variables: dict[str, list[str]] = {}
+        for var, value in set_pattern.findall(cmake_text):
+            variables.setdefault(var, []).append(value)
+
+        plugin_codes: list[str] = []
+        for token in code_pattern.findall(cmake_text):
+            var_match = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", token)
+            if var_match is not None:
+                plugin_codes.extend(variables.get(var_match.group(1), []))
+            else:
+                plugin_codes.append(token)
+
+        if not plugin_codes:
             missing_code.append(plugin.name)
             continue
-        code = match.group(1)
-        if re.fullmatch(r"[A-Za-z0-9]{4}", code) is None:
-            invalid_code[plugin.name] = code
-        codes.setdefault(code, []).append(plugin.name)
+        for code in plugin_codes:
+            if re.fullmatch(r"[A-Za-z0-9]{4}", code) is None:
+                invalid_code[plugin.name] = code
+            codes.setdefault(code, []).append(plugin.name)
 
     duplicate_codes = {
         code: slugs for code, slugs in sorted(codes.items()) if len(slugs) > 1

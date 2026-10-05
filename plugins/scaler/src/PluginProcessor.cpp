@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <sattari_audio_core/SattariParameters.h>
 #include "PluginEditor.h"
 
 using sattari::dsp::ScaleId;
@@ -42,7 +43,7 @@ SattariScalerAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
     p.push_back (std::make_unique<juce::AudioParameterChoice> ("chord", "Chord", chordChoices(), 1));
-    p.push_back (std::make_unique<juce::AudioParameterBool>   ("followKey", "Follow Song Key", false));
+    p.push_back (std::make_unique<sattari::parameters::Bool>   ("followKey", "Follow Song Key", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> ("root", "Root", rootChoices(), 0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> ("scale", "Scale", scaleChoices(), 1));
     p.push_back (std::make_unique<juce::AudioParameterInt>    ("octave", "Octave", -2, 2, 0));

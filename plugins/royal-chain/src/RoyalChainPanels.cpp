@@ -108,6 +108,19 @@ ModuleDeck::ModuleDeck (RoyalChainAudioProcessor& p)
     setDescription ("Every stage of the Royal Chain in signal-flow order with its macro knob.");
 
     auto& apvts = processor.parameters();
+    for (int i = 0; i < RoyalChainAudioProcessor::stageCount; ++i)
+    {
+        auto& button = bypassButtons[(size_t) i];
+        button = std::make_unique<sattari::releaseui::IconButton> (sattari::releaseui::Icon::power,
+            juce::String (RoyalChainAudioProcessor::stageName (i)) + " power");
+        button->setLookAndFeel (&bypassLook);
+        button->onClick = [this, i]
+        {
+            auto* parameter = processor.parameters().getParameter (RoyalChainAudioProcessor::stageBypassId (i));
+            parameter->beginChangeGesture(); parameter->setValueNotifyingHost (parameter->getValue() < .5f ? 1.0f : 0.0f); parameter->endChangeGesture();
+        };
+        addAndMakeVisible (*button);
+    }
     for (int m = 0; m < kUnits; ++m)
     {
         const auto& spec = th::kMacros[m];
@@ -127,6 +140,7 @@ ModuleDeck::ModuleDeck (RoyalChainAudioProcessor& p)
 
 ModuleDeck::~ModuleDeck()
 {
+    for (auto& button : bypassButtons) button->setLookAndFeel (nullptr);
     for (auto& s : knobs)
         s.removeMouseListener (this);
 }
@@ -160,23 +174,13 @@ float ModuleDeck::chipActivity (int chip) const noexcept
 
 bool ModuleDeck::chipDimmed (int chip) const noexcept
 {
-    auto& apvts = processor.parameters();
-    switch (chip)
-    {
-        case 1: return rawValue (apvts, "clean") < 0.02f;
-        case 2: return rawValue (apvts, "tune") < 0.02f;
-        case 3: return rawValue (apvts, "control") < 0.02f;
-        case 4: return std::max (rawValue (apvts, "tone"), rawValue (apvts, "air")) < 0.02f;
-        case 5: return rawValue (apvts, "smooth") < 0.02f;
-        case 6: return rawValue (apvts, "glow") < 0.02f;
-        case 7: return rawValue (apvts, "width") < 0.02f;
-        case 8: return rawValue (apvts, "space") < 0.02f;
-        default: return false;
-    }
+    return chip > 0 && processor.parameters().getRawParameterValue (RoyalChainAudioProcessor::stageBypassId (chip - 1))->load() >= .5f;
 }
 
 void ModuleDeck::refresh()
 {
+    for (int i = 0; i < RoyalChainAudioProcessor::stageCount; ++i)
+        bypassButtons[(size_t) i]->setToggleState (processor.parameters().getRawParameterValue (RoyalChainAudioProcessor::stageBypassId (i))->load() < .5f, juce::dontSendNotification);
     const float k = 1.0f - std::exp (-(1.0f / 30.0f) / 0.120f);
     for (int c = 0; c < 10; ++c)
     {
@@ -226,6 +230,8 @@ void ModuleDeck::mouseExit (const juce::MouseEvent& e)
 
 void ModuleDeck::resized()
 {
+    for (int i = 0; i < RoyalChainAudioProcessor::stageCount; ++i)
+        bypassButtons[(size_t) i]->setBounds (chipRect (i + 1).removeFromRight (22).reduced (1));
     for (int u = 0; u < kUnits; ++u)
     {
         const int cx = (unitX (u) + unitX (u + 1)) / 2;
@@ -254,7 +260,7 @@ void ModuleDeck::paint (juce::Graphics& g)
         g.setColour (th::col (spec.colour).withAlpha (0.25f + 0.75f * ledShown[(size_t) c]));
         g.fillEllipse (r.getX() + 9.0f - 2.5f, cy - 2.5f, 5.0f, 5.0f);
 
-        drawString (g, spec.name, { r.getX() + 18.0f, r.getY(), r.getWidth() - 22.0f, r.getHeight() },
+        drawString (g, spec.name, { r.getX() + 18.0f, r.getY(), r.getWidth() - (c > 0 ? 42.0f : 22.0f), r.getHeight() },
                     th::caps (9.0f), th::col (dimShown[(size_t) c] ? th::textFaint : th::text),
                     juce::Justification::centredLeft);
 

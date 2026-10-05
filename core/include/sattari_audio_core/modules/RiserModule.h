@@ -59,8 +59,8 @@ public:
             juce::ParameterID (prefix + "length", 1), "Length", lengthChoices(), 1));
         // Arm is the manual trigger; a rising edge starts a build. hostTrigger arms
         // automatically on the host transport's play-start instead.
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "arm", 1), "Arm", false));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (juce::ParameterID (prefix + "hostTrigger", 1), "Host Trigger", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "arm", 1), "Arm", false));
+        out.push_back (std::make_unique<sattari::parameters::Bool> (juce::ParameterID (prefix + "hostTrigger", 1), "Host Trigger", false));
 
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "noiseTone", 1), "Noise / Tone", R (0.0f, 1.0f, 0.01f), 0.7f));
         out.push_back (std::make_unique<FP> (juce::ParameterID (prefix + "sweepLo", 1), "Sweep Low",  R (40.0f, 2000.0f, 1.0f, 0.35f), 180.0f));

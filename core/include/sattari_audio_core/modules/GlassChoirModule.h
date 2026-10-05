@@ -97,7 +97,7 @@ public:
     {
         using FP = juce::AudioParameterFloat;
         using CP = juce::AudioParameterChoice;
-        using BP = juce::AudioParameterBool;
+        using BP = sattari::parameters::Bool;
         using R  = juce::NormalisableRange<float>;
 
         // --- Global --------------------------------------------------------------

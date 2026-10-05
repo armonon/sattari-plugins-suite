@@ -2289,17 +2289,18 @@ int main (int argc, char** argv)
         for (auto timbre : { Timbre { "sine", 1 }, Timbre { "harmonic", 12 } })
         {
         std::printf ("\n-- %s melodies --\n", timbre.name);
+        std::fflush (stdout);
         int correct = 0, total = 0;
         for (int root = 0; root < 12; ++root)
             for (bool minor : { false, true })
             {
-                auto mel = makeMelody (sr, 6.0, root, minor, timbre.harmonics);
+                auto mel = makeMelody (sr, 4.0, root, minor, timbre.harmonics);
                 SattariAutoPitchAudioProcessor p;
                 auto& a = p.parameters();
                 setParam (a, "scale", minor ? 1.0f : 0.0f);   // AutoKey finds the root FOR this mode
                 setParam (a, "autoKey", 1.0f);
                 setParam (a, "followSongKey", 0.0f);
-                setParam (a, "enableCorrection", 1.0f);
+                setParam (a, "enableCorrection", 0.0f);        // key-only probe; avoid pitch-engine render cost
                 setParam (a, "vibrato", 0.0f);
                 (void) sattari::harness::renderThrough (p, mel, sr, block);
                 // currentKeyOrigin() reports the effective AutoKey key: root AND
@@ -2312,10 +2313,12 @@ int main (int argc, char** argv)
                              noteName12 (root), minor ? "min" : "maj",
                              noteName12 (detRoot), detScale == 1 ? "min" : detScale == 0 ? "maj" : "chr",
                              ok ? "OK" : "MISS", ko.confidence);
+                std::fflush (stdout);
                 ++total; if (ok) ++correct;
             }
         std::printf ("AutoKey accuracy, %s melodies: %d/%d (%.0f%%)\n",
                      timbre.name, correct, total, 100.0 * correct / total);
+        std::fflush (stdout);
         }
         return 0;
     }

@@ -2,6 +2,7 @@
 #include "RoyalChainEditor.h"
 #include <sattari_audio_core/SattariCrossPluginBus.h>
 #include <sattari_audio_core/SattariPitchDetector.h>
+#include <sattari_audio_core/SattariParameters.h>
 
 RoyalChainAudioProcessor::RoyalChainAudioProcessor()
     : AudioProcessor (BusesProperties()
@@ -10,10 +11,21 @@ RoyalChainAudioProcessor::RoyalChainAudioProcessor()
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
     registerFactoryPresets();
+    for (int i = 0; i < stageCount; ++i) stageBypass[(size_t) i] = apvts.getRawParameterValue (stageBypassId (i));
+    auditionOriginal = apvts.getRawParameterValue ("auditionOriginal");
+    levelMatch = apvts.getRawParameterValue ("levelMatch");
 }
 
+const char* RoyalChainAudioProcessor::stageName (int i)
+{
+    static constexpr const char* names[] { "Clean", "Tune", "Control", "Tone", "De-Ess", "Color", "Width", "Space", "Finish" };
+    return juce::isPositiveAndBelow (i, stageCount) ? names[i] : "";
+}
+
+juce::String RoyalChainAudioProcessor::stageBypassId (int i) { return "stageBypass" + juce::String (i + 1); }
+
 // Factory presets: real parameter values. Only listed params are set; anything
-// omitted keeps its default. Each preset picks a vocal Style and dials the macro
+// omitted keeps its current value. Each preset picks a vocal Style and dials the macro
 // chain; Tune Key / Sync-from-Auto-Pitch are left untouched so the key is the
 // user's (Tune stays subtle so no key bias is imposed).
 void RoyalChainAudioProcessor::registerFactoryPresets()
@@ -46,6 +58,25 @@ void RoyalChainAudioProcessor::registerFactoryPresets()
     presetBank.addFactoryPreset ("Demo Rescue",
         PV{ {"style", 8}, {"clean", 0.7f}, {"tune", 0.0f}, {"control", 0.7f}, {"tone", 0.6f},
             {"air", 0.5f}, {"smooth", 0.6f}, {"glow", 0.35f}, {"width", 0.3f}, {"space", 0.3f}, {"royal", 0.6f} });
+
+    // Append the editor-only presets; the original eight host program indices stay fixed.
+    struct Preset { const char* name; int style; float input, output, clean, tune, control, tone, air, smooth, glow, width, space, royal; };
+    static constexpr Preset additions[] {
+        { "Industry Lead", 0, 0, -0.5f, .58f, 0, .64f, .52f, .55f, .44f, .38f, .28f, .22f, .60f },
+        { "Hard Tune Hook", 7, 0, -1, .45f, .35f, .70f, .45f, .60f, .38f, .44f, .34f, .20f, .72f },
+        { "Silk Lead", 1, 0, -.5f, .62f, 0, .52f, .58f, .48f, .52f, .30f, .20f, .28f, .52f },
+        { "Radio Lead", 2, 0, -.8f, .58f, 0, .66f, .50f, .70f, .48f, .36f, .24f, .22f, .64f },
+        { "Persian Pop Lead", 3, 0, -.7f, .55f, 0, .58f, .54f, .56f, .50f, .34f, .20f, .30f, .56f },
+        { "Demo Vocal Fix", 8, 1.5f, -1, .78f, 0, .60f, .38f, .48f, .56f, .22f, .12f, .10f, .46f },
+        { "Noisy Room Rescue", 8, 2, -1.5f, .90f, 0, .50f, .40f, .36f, .62f, .12f, .06f, .04f, .36f },
+        { "Thin Vocal Repair", 8, 1, -.8f, .52f, 0, .48f, .72f, .62f, .38f, .28f, .16f, .12f, .42f },
+        { "Harsh Mic Smooth", 8, 0, -1.2f, .64f, 0, .52f, .36f, .28f, .82f, .08f, .08f, .08f, .34f },
+        { "Phone Recording Polish", 8, 2.5f, -1.8f, .76f, 0, .55f, .42f, .40f, .70f, .18f, .10f, .05f, .40f }
+    };
+    for (const auto& p : additions)
+        presetBank.addFactoryPreset (p.name, PV { {"style", (float) p.style}, {"input", p.input}, {"output", p.output},
+            {"clean", p.clean}, {"tune", p.tune}, {"control", p.control}, {"tone", p.tone}, {"air", p.air},
+            {"smooth", p.smooth}, {"glow", p.glow}, {"width", p.width}, {"space", p.space}, {"royal", p.royal} });
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::createParameterLayout()
@@ -62,7 +93,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("tune", "Tune", macroRange, 0.00f));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneKey", "Tune Key",
         juce::StringArray { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" }, 0));
-    params.push_back (std::make_unique<juce::AudioParameterBool> ("syncFromAutoPitch", "Sync Key from Auto Pitch", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("syncFromAutoPitch", "Sync Key from Auto Pitch", false));
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("tuneScale", "Tune Scale",
         juce::StringArray { "Chromatic", "Major", "Minor", "Penta Maj", "Penta Min", "Dorian", "Mixolydian", "Harm Minor" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("control", "Control", macroRange, 0.58f));
@@ -73,6 +104,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout RoyalChainAudioProcessor::cr
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("width", "Width", macroRange, 0.25f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("space", "Space", macroRange, 0.22f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("royal", "Royal", macroRange, 0.50f));
+
+    // Append only: existing DAW parameter indices and default sound are unchanged.
+    for (int i = 0; i < stageCount; ++i)
+        params.push_back (std::make_unique<sattari::parameters::Bool> (stageBypassId (i), juce::String (stageName (i)) + " Bypass", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("auditionOriginal", "Audition Original", false));
+    params.push_back (std::make_unique<sattari::parameters::Bool> ("levelMatch", "Level Match", false));
 
     return { params.begin(), params.end() };
 }
@@ -95,6 +132,18 @@ void RoyalChainAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     widthModule.prepare (sampleRate, samplesPerBlock);
     spaceModule.prepare (sampleRate, samplesPerBlock);
     finishModule.prepare (sampleRate);
+    blockCapacity = juce::jmax (1, samplesPerBlock);
+    const int channels = getTotalNumOutputChannels(), delay = getLatencySamples();
+    for (auto* b : { &stageDry, &originalDry, &tuneDry }) b->setSize (channels, blockCapacity);
+    for (auto* b : { &originalDelay, &tuneDelay }) { b->setSize (channels, delay + 1); b->clear(); }
+    originalPosition = tunePosition = 0; dryPower = wetPower = 0;
+    for (int i = 0; i < stageCount; ++i)
+    {
+        stageMix[(size_t) i].reset (sampleRate, .01);
+        stageMix[(size_t) i].setCurrentAndTargetValue (stageBypass[(size_t) i]->load() >= .5f ? 0.0f : 1.0f);
+    }
+    comparisonMix.reset (sampleRate, .01); comparisonMix.setCurrentAndTargetValue (auditionOriginal->load() >= .5f ? 0.0f : 1.0f);
+    matchGain.reset (sampleRate, .05); matchGain.setCurrentAndTargetValue (1);
     sessionReader.start();   // poll the cross-plugin session bus off the audio thread
 }
 
@@ -128,6 +177,33 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 {
     juce::ScopedNoDenormals noDenormals;
     midiLearn.processMidi (midi);
+    for (int start = 0; start < buffer.getNumSamples(); start += blockCapacity)
+    {
+        juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start,
+                                        juce::jmin (blockCapacity, buffer.getNumSamples() - start));
+        processChunk (chunk);
+    }
+}
+
+void RoyalChainAudioProcessor::captureDry (juce::AudioBuffer<float>& buffer, juce::AudioBuffer<float>& dry,
+                                           juce::AudioBuffer<float>& ring, int& position)
+{
+    const int size = ring.getNumSamples(), delay = getLatencySamples();
+    for (int s = 0; s < buffer.getNumSamples(); ++s)
+    {
+        const int read = (position + size - delay) % size;
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            ring.setSample (ch, position, buffer.getSample (ch, s));
+            dry.setSample (ch, s, ring.getSample (ch, read));
+        }
+        position = (position + 1) % size;
+    }
+}
+
+void RoyalChainAudioProcessor::processChunk (juce::AudioBuffer<float>& buffer)
+{
+    captureDry (buffer, originalDry, originalDelay, originalPosition);
 
     const int totalInputs = getTotalNumInputChannels();
     const int totalOutputs = getTotalNumOutputChannels();
@@ -142,7 +218,7 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     const float inputDb = apvts.getRawParameterValue ("input")->load();
     const float outputDb = apvts.getRawParameterValue ("output")->load();
 
-    cleanModule.process (buffer, inputDb, macros.clean, macros.royal);
+    stage (0, buffer, [&] { cleanModule.process (buffer, inputDb, macros.clean, macros.royal); });
     int tuneKey = (int) apvts.getRawParameterValue ("tuneKey")->load();
     int tuneScaleIdx = (int) apvts.getRawParameterValue ("tuneScale")->load();
 
@@ -168,17 +244,42 @@ void RoyalChainAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     }
 
     const int vocalStyle = (int) apvts.getRawParameterValue ("style")->load();
+    captureDry (buffer, tuneDry, tuneDelay, tunePosition);
     tuneModule.process (buffer, macros.tune, tuneKey, (sattari::dsp::ScaleId) tuneScaleIdx, vocalStyle);
+    stageMix[1].setTargetValue (stageBypass[1]->load() >= .5f ? 0.0f : 1.0f);
+    for (int s = 0; s < buffer.getNumSamples(); ++s)
+    {
+        const float wet = stageMix[1].getNextValue();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.setSample (ch, s, tuneDry.getSample (ch, s) * (1 - wet) + buffer.getSample (ch, s) * wet);
+    }
     pitchHz.store (tuneModule.getLastHz(), std::memory_order_relaxed);
     effectiveTuneKey.store (tuneKey, std::memory_order_relaxed);         // after the Auto Pitch sync override
     effectiveTuneScale.store (tuneScaleIdx, std::memory_order_relaxed);
-    controlModule.process (buffer, macros.control, macros.royal);
-    toneModule.process (buffer, macros.tone, macros.air, macros.royal);
-    deEsserModule.process (buffer, macros.smooth, macros.royal);
-    colorModule.process (buffer, macros.glow, macros.royal);
-    widthModule.process (buffer, macros.width, macros.royal);
-    spaceModule.process (buffer, macros.space, macros.royal);
-    finishModule.process (buffer, outputDb, macros.royal);
+    stage (2, buffer, [&] { controlModule.process (buffer, macros.control, macros.royal); });
+    stage (3, buffer, [&] { toneModule.process (buffer, macros.tone, macros.air, macros.royal); });
+    stage (4, buffer, [&] { deEsserModule.process (buffer, macros.smooth, macros.royal); });
+    stage (5, buffer, [&] { colorModule.process (buffer, macros.glow, macros.royal); });
+    stage (6, buffer, [&] { widthModule.process (buffer, macros.width, macros.royal); });
+    stage (7, buffer, [&] { spaceModule.process (buffer, macros.space, macros.royal); });
+    stage (8, buffer, [&] { finishModule.process (buffer, outputDb, macros.royal); });
+
+    double drySum = 0, wetSum = 0;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int s = 0; s < buffer.getNumSamples(); ++s)
+        { drySum += juce::square ((double) originalDry.getSample (ch, s)); wetSum += juce::square ((double) buffer.getSample (ch, s)); }
+    const double samples = (double) juce::jmax (1, buffer.getNumSamples() * buffer.getNumChannels());
+    const double alpha = 1.0 - std::exp (-buffer.getNumSamples() / (currentSampleRate * .4));
+    dryPower += alpha * (drySum / samples - dryPower); wetPower += alpha * (wetSum / samples - wetPower);
+    const float target = levelMatch->load() >= .5f && dryPower > 1.e-10 && wetPower > 1.e-10
+        ? (float) juce::jlimit (.0630957, 1.0, std::sqrt (dryPower / wetPower)) : 1.0f;
+    matchGain.setTargetValue (target); comparisonMix.setTargetValue (auditionOriginal->load() >= .5f ? 0.0f : 1.0f);
+    for (int s = 0; s < buffer.getNumSamples(); ++s)
+    {
+        const float wet = comparisonMix.getNextValue(), trim = matchGain.getNextValue();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.setSample (ch, s, buffer.getSample (ch, s) * trim * wet + originalDry.getSample (ch, s) * (1 - wet));
+    }
 
     updateMeter (outputMeter, measurePeak (buffer));
     // Compass water dish: publish the processed output (lock-free, no allocation).
@@ -209,6 +310,13 @@ void RoyalChainAudioProcessor::setStateInformation (const void* data, int sizeIn
     if (xml && xml->hasTagName (apvts.state.getType()))
     {
         auto state = juce::ValueTree::fromXml (*xml);
+        for (int i = 0; i < stageCount + 2; ++i)
+        {
+            const auto id = i < stageCount ? stageBypassId (i) : juce::String (i == stageCount ? "auditionOriginal" : "levelMatch");
+            bool found = false;
+            for (auto child : state) if (child["id"].toString() == id) found = true;
+            if (! found) { juce::ValueTree child ("PARAM"); child.setProperty ("id", id, nullptr); child.setProperty ("value", 0.0f, nullptr); state.addChild (child, -1, nullptr); }
+        }
         midiLearn.loadFrom (state);
         apvts.replaceState (state);
     }

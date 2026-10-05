@@ -47,7 +47,7 @@ public:
         };
         auto b = [&out, &prefix] (const char* id, const char* name, bool def)
         {
-            out.push_back (std::make_unique<juce::AudioParameterBool> (
+            out.push_back (std::make_unique<sattari::parameters::Bool> (
                 juce::ParameterID (prefix + id, 1), name, def));
         };
 

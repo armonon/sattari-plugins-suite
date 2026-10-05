@@ -1,63 +1,48 @@
-# Sattari Audio — Licensing
+# Sattari Audio Licensing
 
-**The entire Sattari Audio suite is distributed under the GNU General Public
-License v3 (GPLv3).** See [`LICENSE`](LICENSE) for the full text.
+## Distribution Is Pending Review
 
-## Why GPLv3 (and why the whole suite)
+The repository's `LICENSE` currently contains GPLv3. It has not been changed.
+The earlier statement that GPLv3 alone covers the pinned JUCE version was
+incorrect: `third_party/JUCE/LICENSE.md` describes JUCE 8 modules as dual-licensed
+under **AGPLv3 or the commercial JUCE license**. See the upstream
+[JUCE license](https://github.com/juce-framework/JUCE/blob/8.0.12/LICENSE.md) and
+[JUCE 8 agreement](https://juce.com/legal/juce-8-licence/).
 
-Two dependencies drive this, and GPLv3 is the common denominator that satisfies both:
+Do not treat this file, a successful build, or an included source archive as
+approval to distribute. The owner must confirm the actual license arrangement
+and have the combined distribution terms reviewed before external beta or sale.
+This includes any necessary permission to change the project's license; no
+relicensing has been performed here.
 
-| Dependency | Its terms | Used by |
+## Dependency Inventory
+
+| Dependency | Upstream terms / notice | Distribution action |
 |---|---|---|
-| **JUCE** | Paid license **or** GPLv3 | the full plugin suite |
-| **Rubber Band** | Commercial license **or** GPLv2-or-later | time/pitch products that link it, including Auto Pitch |
+| JUCE 8 | `third_party/JUCE/LICENSE.md`: AGPLv3 or commercial | Confirm chosen license and corresponding obligations |
+| JUCE bundled SDKs, codecs and fonts | VST3, AudioUnitSDK, FLAC, Ogg/Vorbis, JPEG, PNG, zlib, HarfBuzz, SheenBidi | Preserve their separate notices; the top-level JUCE license is not a substitute |
+| Rubber Band | `third_party/rubberband/COPYING`: GPLv2-or-later or commercial | Confirm terms for products linking it, including Auto Pitch |
+| ONNX Runtime | Pinned SDK `LICENSE` and `ThirdPartyNotices.txt` | Include both notices when shipping its runtime |
+| CREPE-tiny model | `plugins/auto-pitch/models/CREPE-LICENSE.txt` and `model-release.json` | Include provenance and license; verify embedded model hashes |
+| Lucide assets | `assets/icons/LICENSE.lucide` | Preserve the notice |
+| JUCE-bundled dependencies | Listed in `third_party/JUCE/LICENSE.md` | Preserve applicable upstream notices |
+| ARA SDK, when enabled | Notices in `third_party/ARA_SDK` | Include applicable terms for the exact enabled SDK |
 
-We are not holding a commercial JUCE or Rubber Band license, so:
+Commercial JUCE licensing does not by itself settle Rubber Band, model, SDK,
+or other third-party obligations. Consult the exact upstream texts and obtain
+qualified advice on the chosen distribution model.
 
-- JUCE under its open-source terms requires **GPLv3** for every distributed plugin → the whole suite is GPLv3.
-- Rubber Band is "GPLv2 **or later**," which **includes GPLv3**, so products that link it are covered by the same GPLv3.
+## Release Requirements
 
-There is therefore **one license for everything** and no per-product carve-outs.
+- Record the approved licensing decision for the exact candidate and dependencies.
+- Preserve upstream notices and include all notices for linked or embedded assets.
+- When applicable, provide complete corresponding source for the exact binaries,
+  including local modifications, build scripts, and dependency versions.
+- Do not add a restrictive EULA that conflicts with applicable open-source terms.
+- Review JUCE compile-time branding/splash settings under the chosen license.
 
-## What GPLv3 means in practice
+Developer ID signing and notarization establish platform trust, not license
+compliance. Until this review is recorded, packages are internal candidates and
+public distribution remains blocked.
 
-GPLv3 does **not** stop you from selling the plugins. It changes *how*:
-
-- **You may sell binaries.** Charge for prebuilt, signed, notarized installers; for
-  presets, support, updates, bundles — anything.
-- **You must offer the complete corresponding source** (under GPLv3) to anyone you
-  give a binary to.
-- **Recipients may redistribute** the binary and source freely, including for free.
-
-So the durable business model is **convenience and trust, not exclusivity**: people
-pay you for the packaged, supported, easy-to-install product even though the source
-is open. (Ardour, Surge XT, Vital's engine, and many others ship this way.)
-
-## What you must do when you distribute
-
-1. Include `LICENSE` (GPLv3) with every distribution.
-2. Make the **exact source** that produced the binary available to recipients
-   (a public git tag/release is the easy way).
-3. Keep the upstream license notices intact:
-   - Rubber Band: `third_party/rubberband/COPYING`
-   - JUCE: `third_party/JUCE/LICENSE.md`
-   - CREPE model: `plugins/auto-pitch/models/CREPE-LICENSE.txt`
-4. Don't add further restrictions on top of GPLv3 (no "you may not redistribute" EULA).
-
-## Splash screen
-
-Under GPLv3 you are **not** bound by JUCE's free-tier splash-screen requirement, so
-the build sets `JUCE_DISPLAY_SPLASH_SCREEN=0` (in `cmake/SattariPlugin.cmake`). This
-is legitimate *only because* the suite is GPLv3 — do not disable it under a JUCE
-"Personal" (non-GPL) license.
-
-## If you ever want closed-source / paid-exclusive
-
-You would need to **buy** the relevant commercial licenses instead:
-- A commercial **JUCE** license (covers the suite), and
-- A commercial **Rubber Band** license for every product that links it —
-  or replace Rubber Band with a permissive engine such as Signalsmith Stretch (MIT).
-
-Until then, GPLv3 is the license and closed-source distribution is not permitted.
-
-*This is a plain-language summary, not legal advice; `LICENSE` is the binding text.*
+This is an engineering release checklist, not legal advice.

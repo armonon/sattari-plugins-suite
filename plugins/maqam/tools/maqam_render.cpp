@@ -1,9 +1,9 @@
-// Sattari Maqam — offline render + microtonal-correction proof.
+// Sattari Maqam - offline render + microtonal-correction proof.
 //
 // Synthesises a steady tone 40 cents sharp of Rast's neutral 3rd on C (a
 // quarter-tone target at MIDI 63.5), renders it through the real audio path,
 // then MEASURES the output pitch and asserts it snapped onto the half-flat
-// degree — i.e. the quarter-tone correction actually works on audio, not just
+// degree - i.e. the quarter-tone correction actually works on audio, not just
 // in the unit-tested math. A 12-TET tuner would land on 63 or 64; only a real
 // maqam tuner lands near 63.5.
 //
@@ -32,6 +32,8 @@ double hzToMidi (double h) { return 69.0 + 12.0 * std::log2 (h / 440.0); }
 
 int main (int argc, char** argv)
 {
+    juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
     const bool smoke = (argc > 1 && std::strcmp (argv[1], "--smoke") == 0);
 
     const double sr = 48000.0;
@@ -66,6 +68,7 @@ int main (int argc, char** argv)
     setParam (apvts, "lowLatency", 0.0f);
 
     const auto out = sattari::harness::renderThrough (proc, input, sr, block);
+    proc.releaseResources();
 
     // Finite + non-silent.
     bool finite = true; float peak = 0.0f;
@@ -112,7 +115,7 @@ int main (int argc, char** argv)
     }
     if (distToSemi < 30.0)
     {
-        std::fprintf (stderr, "FAIL: landed near a 12-TET semitone (%.0f cents) — quarter-tone snap not proven\n", distToSemi);
+        std::fprintf (stderr, "FAIL: landed near a 12-TET semitone (%.0f cents) - quarter-tone snap not proven\n", distToSemi);
         return 1;
     }
 

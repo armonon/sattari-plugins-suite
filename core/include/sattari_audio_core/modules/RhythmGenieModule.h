@@ -69,7 +69,7 @@ public:
     {
         using FloatP  = juce::AudioParameterFloat;
         using ChoiceP = juce::AudioParameterChoice;
-        using BoolP   = juce::AudioParameterBool;
+        using BoolP   = sattari::parameters::Bool;
             auto unit = [] { return juce::NormalisableRange<float> (0.0f, 1.0f, 0.001f); };
 
         out.push_back (std::make_unique<ChoiceP> (juce::ParameterID { prefix + "style", 1 }, "Style", styleChoices(), 0));

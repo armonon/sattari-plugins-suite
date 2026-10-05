@@ -1,0 +1,88 @@
+name: Consolidated Suite Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/release-readiness-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launch-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned SDK sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 third_party/JUCE
+          bash scripts/fetch_ara_sdk.sh
+          test "$(git -C third_party/ARA_SDK rev-parse HEAD)" = e723ce48a917b1ce2d7851c78e468f36b51ea151
+          test "$(git -C third_party/ARA_SDK/ARA_API rev-parse HEAD)" = d8a3d608e5243255aea40b1d40654d3b2c66af71
+          test "$(git -C third_party/ARA_SDK/ARA_Library rev-parse HEAD)" = ac1beaa7a3b58c8b970628c40c8fe823f8bec573
+      - name: Configure macOS universal
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ort="$(bash scripts/fetch_onnxruntime_macos.sh)"
+          cmake -S . -B build/launch -DCMAKE_BUILD_TYPE=Release '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DSATTARI_UNIVERSAL=ON -DSATTARI_INCLUDE_STEMDECK=OFF -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=ON -DSATTARI_REQUIRE_ONNX=ON -DONNXRUNTIME_ROOT="$ort" -DSATTARI_USE_RUBBERBAND=ON -DSATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND -DSATTARI_USE_ELASTIQUE=OFF -DSATTARI_USE_SIGNALSMITH=OFF -DSATTARI_AUTOPITCH_ENABLE_ARA=ON -DSATTARI_SONGKEY_ENABLE_ARA=ON -DBUILD_TESTING=ON
+      - name: Configure Windows x64
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ort = & ./scripts/fetch_onnxruntime_windows.ps1
+          "$ort/lib" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          cmake -S . -B build/launch -G "Visual Studio 17 2022" -A x64 -DSATTARI_INCLUDE_STEMDECK=OFF -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=ON -DSATTARI_REQUIRE_ONNX=ON "-DONNXRUNTIME_ROOT=$ort" -DSATTARI_USE_RUBBERBAND=ON -DSATTARI_AUTOPITCH_PRINT_ENGINE=RUBBERBAND -DSATTARI_USE_ELASTIQUE=OFF -DSATTARI_USE_SIGNALSMITH=OFF -DSATTARI_AUTOPITCH_ENABLE_ARA=ON -DSATTARI_SONGKEY_ENABLE_ARA=ON -DBUILD_TESTING=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Windows configure failed' }
+      - name: Qualify macOS candidates
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip -o "$RUNNER_TEMP/pluginval.zip"
+          test "$(shasum -a 256 "$RUNNER_TEMP/pluginval.zip" | cut -d ' ' -f 1)" = 3c4c533bda0c5059eea3ddaea752d757ee2025041f0f47e6bcb0e87f6082b29f
+          ditto -xk "$RUNNER_TEMP/pluginval.zip" "$RUNNER_TEMP/pluginval"
+          python scripts/qualify_suite.py --build-dir build/launch --output-dir build/packages --pluginval "$RUNNER_TEMP/pluginval/pluginval.app/Contents/MacOS/pluginval" --candidate "run-$GITHUB_RUN_ID" --validate-au --jobs 3
+      - name: Qualify Windows candidates
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile "$env:RUNNER_TEMP/pluginval.zip"
+          if ((Get-FileHash "$env:RUNNER_TEMP/pluginval.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c08e61ce3b96db41636f8ec7e76f4c7e2c13ebdac7fa1b5a1f52b4f32ec715ab') { throw 'pluginval checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/pluginval.zip" "$env:RUNNER_TEMP/pluginval"
+          $validator = (Get-ChildItem "$env:RUNNER_TEMP/pluginval" -Recurse -Filter pluginval.exe | Select-Object -First 1).FullName
+          if (-not $validator) { throw 'pluginval executable missing' }
+          python scripts/qualify_suite.py --build-dir build/launch --output-dir build/packages --pluginval $validator --candidate "run-$env:GITHUB_RUN_ID" --jobs 3
+          if ($LASTEXITCODE -ne 0) { throw 'Windows qualification failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suite-internal-candidate-${{ matrix.os }}
+          path: |
+            build/packages/*.zip
+            build/packages/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: suite-validation-${{ matrix.os }}
+          path: |
+            build/launch/launch-qualification-*
+            build/launch/Testing/Temporary
+            build/launch/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 30

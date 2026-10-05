@@ -65,23 +65,25 @@ while IFS= read -r relative_path; do
   [[ -n "$relative_path" ]] || continue
   source_path="$(resolve_source "$relative_path")"
   validate_bundle "$source_path"
+  python3 "$repo_root/scripts/check_hub_bundle_version.py" "$hub_root/Sources/SattariHub/Resources/sattari-products.json" "$relative_path" "$source_path"
   if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
     "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$source_path"
   fi
   mkdir -p "$payload_dir/$(dirname "$relative_path")"
   ditto "$source_path" "$payload_dir/$relative_path"
   validate_bundle "$payload_dir/$relative_path"
+  python3 "$repo_root/scripts/check_hub_bundle_version.py" "$hub_root/Sources/SattariHub/Resources/sattari-products.json" "$relative_path" "$payload_dir/$relative_path"
   if [[ "$relative_path" == build/all/plugins/auto-pitch/* ]]; then
     "$repo_root/scripts/verify_auto_pitch_bundle.sh" "$payload_dir/$relative_path"
   fi
   copied=$((copied + 1))
 done < <(python3 - <<'PY' "$hub_root/Sources/SattariHub/Resources/sattari-products.json"
-import json, sys
+import json, sys, os
 from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 seen = set()
 for product in manifest['products']:
-    if product.get('shippingProfile') != 'alpha':
+    if product.get('shippingProfile') != 'alpha' or (product.get('portfolioStatus', 'active') not in ('active', 'specialist') and os.environ.get('SATTARI_INCLUDE_LEGACY') != '1'):
         continue
     for bundle in product['bundles']:
         rel = bundle['relativeSourcePath']
@@ -91,12 +93,12 @@ for product in manifest['products']:
 PY
 )
 expected="$(python3 - <<'PY' "$hub_root/Sources/SattariHub/Resources/sattari-products.json"
-import json, sys
+import json, sys, os
 from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 print(len({bundle['relativeSourcePath']
            for product in manifest['products']
-           if product.get('shippingProfile') == 'alpha'
+           if product.get('shippingProfile') == 'alpha' and (product.get('portfolioStatus', 'active') in ('active', 'specialist') or os.environ.get('SATTARI_INCLUDE_LEGACY') == '1')
            for bundle in product['bundles']}))
 PY
 )"
@@ -117,9 +119,11 @@ $source_commit
 Source repository:
 $source_remote
 
-The repository at that commit, including its pinned submodules and build scripts,
-is the complete corresponding source under GPLv3. A source copy is available at
-no charge. See GPL-3.0.txt and LICENSING.md in this directory.
+The repository at that commit includes the project's source, pinned submodules
+and build scripts. The repository LICENSE contains GPLv3; the pinned JUCE 8
+dependency uses AGPLv3 or commercial terms. Distribution is pending the owner's
+license review, not authorized by this source notice. See LICENSING.md and the
+dependency notices in this directory for the unresolved distribution requirements.
 EOF
 
 cat > "$package_dir/README.md" <<EOF

@@ -27,7 +27,7 @@ struct Track
 {
     juce::String id, name, capture, ack, error;
     Role role = Role::instrument;
-    bool locked = false;
+    bool locked = false, isBus = false;
     Measurement measured;
     Settings settings;
 };
@@ -42,7 +42,7 @@ struct Suggestion
 struct Plan
 {
     std::vector<Suggestion> tracks;
-    juce::String error;
+    juce::String error, warning;
     float estimatedPeakDb = -100;
     bool valid() const { return error.isEmpty() && ! tracks.empty(); }
 };
@@ -56,6 +56,9 @@ inline Plan makePlan (const std::vector<Track>& tracks, const juce::String& capt
     Plan plan;
     if (tracks.size() < 2) { plan.error = "At least two linked tracks are required."; return plan; }
     if (tracks.size() > 64) { plan.error = "A mix group supports up to 64 tracks."; return plan; }
+    const auto buses = std::count_if (tracks.begin(), tracks.end(), [] (const Track& t) { return t.isBus; });
+    if (buses > 0 && buses < (int) tracks.size())
+        plan.warning = "Source and summing-bus inserts are linked. Verify no signal is counted twice; DAW routing is not visible.";
     int audible = 0, leads = 0;
     for (const auto& t : tracks)
     {
@@ -104,10 +107,11 @@ inline Plan makePlan (const std::vector<Track>& tracks, const juce::String& capt
                 s.proposed.compression = juce::jlimit (0.0f, 1.0f, (t.measured.crest - 12.0f) / 12.0f);
                 s.proposed.threshold = juce::jlimit (-48.0f, -6.0f, t.measured.peakDb - 8.0f);
             }
-            s.reason = roleNames()[(int) t.role] + " balance";
-            if (s.proposed.low < 0) s.reason += "; low-end space";
-            if (s.proposed.presence < 0) s.reason += "; vocal space";
-            if (s.proposed.compression > 0) s.reason += "; gentle dynamics";
+            s.reason = roleNames()[(int) t.role] + ": " + juce::String (t.measured.loudness, 1)
+                + " active dB; role target " + juce::String (target[role], 0) + " dB";
+            if (s.proposed.low < 0) s.reason += "; low-band energy " + juce::String (t.measured.low * 100, 0) + "%: low cut";
+            if (s.proposed.presence < 0) s.reason += "; presence cut for the selected lead";
+            if (s.proposed.compression > 0) s.reason += "; crest " + juce::String (t.measured.crest, 1) + " dB: dynamics";
         }
         plan.tracks.push_back (s);
     }
@@ -131,6 +135,7 @@ inline Plan makePlan (const std::vector<Track>& tracks, const juce::String& capt
             if (! s.source.locked && s.source.measured.activeSeconds >= 1)
             {
                 s.proposed.gain += reduction;
+                s.reason += "; group headroom trim " + juce::String (reduction, 1) + " dB";
                 if (s.proposed.gain < -36)
                 { plan.error = "Required attenuation exceeds 36 dB. Lower source levels and analyze again."; return plan; }
             }

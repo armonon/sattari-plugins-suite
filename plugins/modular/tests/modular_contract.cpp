@@ -15,7 +15,7 @@ struct StoppedTransport final : juce::AudioPlayHead
 };
 template <typename T> T* findControl (juce::Component& parent, const juce::String& name)
 {
-    if (auto* control = dynamic_cast<T*> (&parent)) if (control->getTitle() == name) return control;
+    if (auto* control = dynamic_cast<T*> (&parent)) if (control->isVisible() && control->getTitle() == name) return control;
     for (auto* child : parent.getChildren()) if (auto* result = findControl<T> (*child, name)) return result;
     return nullptr;
 }
@@ -60,6 +60,8 @@ void writeWav (const juce::File& file, const juce::AudioBuffer<float>& audio)
 }
 
 #include "ReleaseChecks.h"
+#include "UpgradeChecks.h"
+#include "MergeChecks.h"
 
 int main (int argc, char** argv)
 {
@@ -69,7 +71,7 @@ int main (int argc, char** argv)
         const auto output = argc > 1 ? juce::File (argv[1]) : juce::File::getCurrentWorkingDirectory().getChildFile ("modular-verification");
         output.createDirectory();
         P p;
-        for (int type = 1; type < P::typeCount; ++type) check (p.info (type, 0).valid, ("Metadata " + P::typeName (type)).toRawUTF8());
+        for (int type = 1; type < P::typeCount; ++type) if (! P::isHosted (type)) check (p.info (type, 0).valid, ("Metadata " + P::typeName (type)).toRawUTF8());
         check (p.info (P::comp, 6).text (1) == "100.0%", "Compressor mix displays the correct percentage");
         check (p.info (P::heat, 2).text (1) == "100.0%", "Normalized mix displays the correct percentage");
         p.clearRack(); p.set ("workspace", 0); p.prepareToPlay (48000, 256);
@@ -213,6 +215,8 @@ int main (int argc, char** argv)
         }
         check (render.getRMSLevel (0, 0, render.getNumSamples()) > 0.001f && render.getMagnitude (0, render.getNumSamples()) < 1.0f, "Audio demo has real unclipped output");
         writeWav (output.getChildFile ("Sattari-Modular-native-demo.wav"), render);
+        upgradeChecks (p, output);
+        mergeChecks (p, output);
         std::cout << "All Modular " << (SATTARI_MODULAR_SYNTH ? "Instrument" : "FX") << " contracts passed." << std::endl;
         return 0;
     }

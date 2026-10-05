@@ -2,12 +2,16 @@
 type: product-strategy
 category: sattari
 area: audio-suite
-status: active
+status: superseded
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-10-02
 ---
 
 # Sattari Audio — six-product suite
+
+> Historical strategy, superseded by the four flagships plus Tools/Compass
+> consolidation on 2026-10-02. See `docs/suite-consolidation-2026-10-02.md`
+> and the authoritative `config/products.json` for the current portfolio.
 
 Truth label: **product architecture and qualification plan**. Product scope is
 real in source; only Compass, Auto Pitch, Arp, and Sub Conjurer are installable

@@ -106,3 +106,19 @@ target_compile_definitions(RoyalChainTuneRenderContract PUBLIC JucePlugin_Build_
     JUCE_VST3_CAN_REPLACE_VST2=0 "JucePlugin_Name=\"Sattari Royal Chain\"")
 target_link_libraries(RoyalChainTuneRenderContract PRIVATE SattariAudioCore juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
+add_executable(RoyalChainProductContract EXCLUDE_FROM_ALL tests/product_contract.cpp)
+target_include_directories(RoyalChainProductContract PRIVATE src ../../core/include
+    ${CMAKE_CURRENT_BINARY_DIR}/SattariRoyalChain_artefacts/JuceLibraryCode
+    $<TARGET_PROPERTY:SattariRoyalChain,INCLUDE_DIRECTORIES>)
+target_compile_definitions(RoyalChainProductContract PRIVATE $<TARGET_PROPERTY:SattariRoyalChain,COMPILE_DEFINITIONS>)
+target_link_libraries(RoyalChainProductContract PRIVATE SattariRoyalChain)
+include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME RoyalChainProduct COMMAND RoyalChainProductContract ${CMAKE_CURRENT_BINARY_DIR}/product-verification)
+    set_tests_properties(RoyalChainProduct PROPERTIES TIMEOUT 300 LABELS "product;royal-chain;non-stemdeck")
+    if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        add_test(NAME RoyalChainTuneRendering COMMAND RoyalChainTuneRenderContract)
+        set_tests_properties(RoyalChainTuneRendering PROPERTIES TIMEOUT 900 LABELS "product;royal-chain;non-stemdeck")
+    endif()
+endif()

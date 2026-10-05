@@ -26,6 +26,9 @@ public:
     void releaseResources() override { sessionReader.stop(); }
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    static constexpr int stageCount = 9;
+    static const char* stageName (int);
+    static juce::String stageBypassId (int);
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -42,7 +45,8 @@ public:
     {
         if (i >= 0 && i < presetBank.numFactoryPresets()) { currentProgram = i; presetBank.loadFactoryPreset (i); }
     }
-    const juce::String getProgramName (int i) override { return presetBank.factoryPresetNames()[i]; }
+    const juce::String getProgramName (int i) override
+    { return juce::isPositiveAndBelow (i, presetBank.numFactoryPresets()) ? presetBank.factoryPresetNames()[i] : juce::String(); }
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -70,6 +74,23 @@ private:
     void registerFactoryPresets();
     void updateMeter (std::atomic<float>& meter, float target);
     float measurePeak (const juce::AudioBuffer<float>& buffer) const;
+    void processChunk (juce::AudioBuffer<float>&);
+    void captureDry (juce::AudioBuffer<float>&, juce::AudioBuffer<float>&, juce::AudioBuffer<float>&, int&);
+    template <typename Process> void stage (int index, juce::AudioBuffer<float>& buffer, Process&& process)
+    {
+        const int count = buffer.getNumSamples();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            stageDry.copyFrom (ch, 0, buffer, ch, 0, count);
+        process();
+        auto& mix = stageMix[(size_t) index];
+        mix.setTargetValue (stageBypass[(size_t) index]->load() >= 0.5f ? 0.0f : 1.0f);
+        for (int s = 0; s < count; ++s)
+        {
+            const float wet = mix.getNextValue();
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.setSample (ch, s, stageDry.getSample (ch, s) * (1.0f - wet) + buffer.getSample (ch, s) * wet);
+        }
+    }
 
     juce::AudioProcessorValueTreeState apvts;
     sattari::presets::SattariPresetManager presetBank { apvts, "royal-chain" };   // after apvts
@@ -89,6 +110,14 @@ private:
     FinishModule finishModule;
 
     double currentSampleRate = 44100.0;
+    int blockCapacity = 1, originalPosition = 0, tunePosition = 0;
+    juce::AudioBuffer<float> stageDry, originalDry, originalDelay, tuneDry, tuneDelay;
+    std::array<std::atomic<float>*, stageCount> stageBypass {};
+    std::array<juce::SmoothedValue<float>, stageCount> stageMix;
+    juce::SmoothedValue<float> comparisonMix, matchGain;
+    std::atomic<float>* auditionOriginal = nullptr;
+    std::atomic<float>* levelMatch = nullptr;
+    double dryPower = 0.0, wetPower = 0.0;
 
     // Cross-plugin "Sync Key from Auto Pitch": realtime-safe reader (background
     // poll thread + lock-free snapshot; no file I/O on the audio thread).

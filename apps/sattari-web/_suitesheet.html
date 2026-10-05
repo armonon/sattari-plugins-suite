@@ -49,13 +49,13 @@ a{text-decoration:none}
 
   host.innerHTML = suite.map(function (s) {
     var n = s.count || 0;
-    return '<a class="suite-card" href="#plugins" style="--sc:' + (HUE[s.accent] || HUE.mint) + '">' +
+    return '<a class="suite-card" href="' + (s.page || 'index.html#plugins') + '" style="--sc:' + (HUE[s.accent] || HUE.mint) + '">' +
       '<div class="sc-verb">' + s.verb + '</div>' +
       '<h3>' + s.name.replace('Sattari ', '') + '</h3>' +
       '<p>' + s.tagline + '</p>' +
       '<div class="sc-foot">' +
         '<span class="sc-tier' + (s.tier === 'free' ? ' free' : '') + '">' + s.tier + '</span>' +
-        '<span>' + n + ' plugin' + (n === 1 ? '' : 's') + '</span>' +
+        '<span>' + n + ' component' + (n === 1 ? '' : 's') + '</span>' +
       '</div></a>';
   }).join('');
 })();</script></body></html>

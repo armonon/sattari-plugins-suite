@@ -39,7 +39,7 @@ public:
             juce::ParameterID (prefix + "range", 1), "Range", R (0.0f, 24.0f, 0.1f), 8.0f));   // max reduction dB
         out.push_back (std::make_unique<juce::AudioParameterChoice> (
             juce::ParameterID (prefix + "mode", 1), "Mode", juce::StringArray { "Split", "Wideband" }, 0));
-        out.push_back (std::make_unique<juce::AudioParameterBool> (
+        out.push_back (std::make_unique<sattari::parameters::Bool> (
             juce::ParameterID (prefix + "listen", 1), "Listen", false));
         out.push_back (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID (prefix + "output", 1), "Output", R (-12.0f, 12.0f, 0.1f), 0.0f));

@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <cstring>
+#include "HostedPlugins.h"
 
 namespace sattari::modular
 {
@@ -11,7 +12,7 @@ class StateReader
 public:
     static juce::ValueTree read (const void* data, size_t size)
     {
-        if (data == nullptr || size == 0 || size > 32 * 1024 * 1024) return {};
+        if (data == nullptr || size == 0 || size > HostedPlugins::maximumStateBytes) return {};
         StateReader reader (data, size);
         if (! reader.tree (0) || reader.position != size) return {};
         return juce::ValueTree::readFromData (data, size);
@@ -50,18 +51,18 @@ private:
             || (marker == 5 && length >= 2 && length <= 4098 && bytes[position + length - 1] == 0
                 && std::memchr (bytes + position + 1, 0, length - 2) == nullptr
                 && juce::CharPointer_UTF8::isValidString (reinterpret_cast<const char*> (bytes + position + 1), (int) length - 2))
-            || (marker == 8 && length <= 1440000 * 2 * sizeof (float) + 1);
+            || (marker == 8 && length <= HostedPlugins::maximumPluginBytes + 1);
         if (! valid) return false;
         position += length;
         return true;
     }
     bool tree (unsigned depth)
     {
-        if (depth > 6 || ++nodes > 2048 || ! string (64)) return false;
+        if (depth > 6 || ++nodes > 8192 || ! string (64)) return false;
         unsigned properties = 0, children = 0;
         if (! integer (properties) || properties > 16) return false;
         for (unsigned i = 0; i < properties; ++i) if (! string (64) || ! property()) return false;
-        if (! integer (children) || children > 2048 - nodes) return false;
+        if (! integer (children) || children > 8192 - nodes) return false;
         for (unsigned i = 0; i < children; ++i) if (! tree (depth + 1)) return false;
         return true;
     }
