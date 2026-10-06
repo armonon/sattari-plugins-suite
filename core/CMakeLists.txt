@@ -11,6 +11,10 @@ target_include_directories(SattariAudioCore
 
 target_compile_features(SattariAudioCore INTERFACE cxx_std_17)
 
+if(MSVC)
+    target_compile_definitions(SattariAudioCore INTERFACE _USE_MATH_DEFINES)
+endif()
+
 add_executable(SattariAudioCoreHarmonicContract
     tests/harmonic_core_contract.cpp)
 

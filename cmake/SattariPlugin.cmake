@@ -179,6 +179,10 @@ function(sattari_add_plugin)
             JUCE_USE_CURL=0
             JUCE_VST3_CAN_REPLACE_VST2=0)
 
+    if(MSVC)
+        target_compile_definitions(${SAP_TARGET} PUBLIC _USE_MATH_DEFINES)
+    endif()
+
     target_link_libraries(${SAP_TARGET}
         PRIVATE
             SattariAudioCore
