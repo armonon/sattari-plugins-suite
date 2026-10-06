@@ -32,12 +32,12 @@
         },
         {
           "name": "Build real standalone app and native contracts",
-          "run": "cmake --build build/stemdeck --config Release --target SattariStemDeck_Standalone StemDeckMidiCapture StemDeckPdc --parallel 2"
+          "run": "cmake --build build/stemdeck --config Release --target SattariStemDeck_Standalone StemDeckArchitectureContract StemDeckResamplerTest --parallel 2"
         },
         {
-          "name": "Run native MIDI and delay-compensation contracts",
+          "name": "Run native architecture and resampler contracts",
           "shell": "pwsh",
-          "run": "& ./build/stemdeck/Release/StemDeckMidiCapture.exe\nif ($LASTEXITCODE -ne 0) { throw 'MIDI capture contract failed' }\n& ./build/stemdeck/Release/StemDeckPdc.exe\nif ($LASTEXITCODE -ne 0) { throw 'Delay compensation contract failed' }"
+          "run": "& ./build/stemdeck/Release/StemDeckArchitectureContract.exe\nif ($LASTEXITCODE -ne 0) { throw 'Architecture contract failed' }\n& ./build/stemdeck/Release/StemDeckResamplerTest.exe\nif ($LASTEXITCODE -ne 0) { throw 'Resampler contract failed' }"
         },
         {
           "name": "Package portable Windows candidate with runtime and notices",
