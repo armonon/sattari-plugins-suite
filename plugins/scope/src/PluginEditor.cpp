@@ -95,10 +95,10 @@ void SattariScopeAudioProcessorEditor::drawSpectrum (
     }
 
     constexpr int count = SattariScopeAudioProcessor::kNumBands;
-    const auto xFor = [&inner] (int band)
+    const auto xFor = [&inner, bandCount = count] (int band)
     {
         return (float) inner.getX()
-            + (float) inner.getWidth() * (float) band / (float) (count - 1);
+            + (float) inner.getWidth() * (float) band / (float) (bandCount - 1);
     };
 
     juce::Path fill;
