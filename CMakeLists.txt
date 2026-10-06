@@ -201,6 +201,7 @@ if(BUILD_TESTING)
         SattariAudioCorePsolaContract
         SattariAudioCoreLivePitchContract
         SattariAudioCoreCrepeContract
+        SattariAudioCoreOnnxPathContract
         SattariAudioCorePitchFusionContract
         SattariAudioCoreVoxContract
         SattariAudioCoreVoxSynthContract

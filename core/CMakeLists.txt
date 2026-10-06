@@ -246,6 +246,13 @@ target_link_libraries(SattariAudioCoreCrepeContract
     PRIVATE
         SattariAudioCore)
 
+add_executable(SattariAudioCoreOnnxPathContract
+    tests/onnx_path_contract.cpp)
+
+target_link_libraries(SattariAudioCoreOnnxPathContract
+    PRIVATE
+        SattariAudioCore)
+
 # Conservative YIN + CREPE fusion contract. Locks agreement blending, neural
 # octave rejection, conflict fallback, and high-confidence neural rescue.
 add_executable(SattariAudioCorePitchFusionContract
