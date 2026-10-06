@@ -17,7 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022]
+        # Windows-only qualification branches must not start macOS runners.
+        os: ${{ fromJSON(startsWith(github.ref_name, 'codex/release-readiness-windows-') && '["windows-2022"]' || '["macos-14","windows-2022"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     steps:
