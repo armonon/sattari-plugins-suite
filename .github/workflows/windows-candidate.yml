@@ -1,0 +1,64 @@
+{
+  "name": "StemDeck Windows Candidate",
+  "on": {
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "windows-candidate-${{ github.ref }}",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "windows": {
+      "runs-on": "windows-2022",
+      "timeout-minutes": 90,
+      "env": {
+        "CSC_IDENTITY_AUTO_DISCOVERY": "false"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@v5"
+        },
+        {
+          "name": "Fetch pinned native SDK submodules",
+          "run": "git submodule update --init --depth 1 third_party/JUCE third_party/tracktion_engine"
+        },
+        {
+          "name": "Configure native Windows x64",
+          "shell": "pwsh",
+          "run": "$ort = & ./scripts/fetch_onnxruntime_windows.ps1\n\"$ort/lib\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append\ncmake -S plugins/stemdeck -B build/stemdeck -G \"Visual Studio 17 2022\" -A x64 -DSATTARI_COPY_PLUGINS_AFTER_BUILD=OFF -DSATTARI_USE_ONNX=ON -DSATTARI_REQUIRE_ONNX=ON \"-DONNXRUNTIME_ROOT=$ort\"\nif ($LASTEXITCODE -ne 0) { throw 'StemDeck configure failed' }\n\"STEMDECK_ORT=$ort\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append"
+        },
+        {
+          "name": "Build real standalone app and native contracts",
+          "run": "cmake --build build/stemdeck --config Release --target SattariStemDeck_Standalone StemDeckMidiCapture StemDeckPdc --parallel 2"
+        },
+        {
+          "name": "Run native MIDI and delay-compensation contracts",
+          "shell": "pwsh",
+          "run": "& ./build/stemdeck/Release/StemDeckMidiCapture.exe\nif ($LASTEXITCODE -ne 0) { throw 'MIDI capture contract failed' }\n& ./build/stemdeck/Release/StemDeckPdc.exe\nif ($LASTEXITCODE -ne 0) { throw 'Delay compensation contract failed' }"
+        },
+        {
+          "name": "Package portable Windows candidate with runtime and notices",
+          "shell": "pwsh",
+          "run": "$directory = 'build/stemdeck/SattariStemDeck_artefacts/Release/Standalone'\nif (-not (Test-Path \"$directory/Sattari StemDeck.exe\")) { throw 'Standalone executable missing' }\nCopy-Item \"$env:STEMDECK_ORT/lib/*.dll\" $directory\nCopy-Item \"$env:STEMDECK_ORT/LICENSE\" \"$directory/ONNX-RUNTIME-LICENSE.txt\"\nCopy-Item third_party/JUCE/LICENSE.md \"$directory/JUCE-LICENSE.md\"\nCopy-Item third_party/rubberband/COPYING \"$directory/RUBBERBAND-LICENSE.txt\"\nNew-Item -ItemType Directory -Force windows-packages | Out-Null\nCompress-Archive \"$directory/*\" windows-packages/StemDeck-windows-x64-candidate.zip"
+        },
+        {
+          "name": "Record checksums, source and signing status",
+          "shell": "pwsh",
+          "run": "$ErrorActionPreference = 'Stop'\n$files = @(Get-ChildItem 'windows-packages/*.zip' -File)\nif ($files.Count -eq 0) { throw 'No Windows installer produced' }\nNew-Item -ItemType Directory -Force windows-evidence | Out-Null\n$records = foreach ($file in $files) {\n  $signature = Get-AuthenticodeSignature $file.FullName\n  [ordered]@{ name=$file.Name; bytes=$file.Length; sha256=(Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); authenticode=$signature.Status.ToString() }\n}\n[ordered]@{ product='StemDeck'; commit=$env:GITHUB_SHA; runner=$env:RUNNER_OS; architecture='x64'; candidate=$true; publicReleaseReady=$false; cleanInstallQualified=$false; saveExportQualified=$false; installers=@($records) } | ConvertTo-Json -Depth 8 | Set-Content windows-evidence/build-receipt.json\n$records | ForEach-Object { \"$($_.sha256)  $($_.name)\" } | Set-Content windows-evidence/SHA256SUMS.txt"
+        },
+        {
+          "uses": "actions/upload-artifact@v4",
+          "with": {
+            "name": "stemdeck-windows-x64-candidate",
+            "path": "windows-packages/*.zip\nwindows-evidence/",
+            "if-no-files-found": "error",
+            "retention-days": 14
+          }
+        }
+      ]
+    }
+  }
+}
